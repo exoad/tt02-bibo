@@ -1,0 +1,44 @@
+# Vendored third-party source. Cloned, not tracked - see README for the pin.
+vendor/
+
+# Telemetry pulled off the SD card.
+data/*.csv
+
+# Build trees (firmware, host, viewer, bridge).
+build/
+**/build/
+
+# Firmware artifacts
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+
+# MSVC / Windows build artifacts
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.lib
+*.exe
+*.dll
+*.iobj
+*.ipdb
+*.tlog
+.vs/
+
+# Dear ImGui writes window layout here at runtime.
+imgui.ini
+
+# Go
+/host/bin/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Vendored Dear ImGui clone - pinned tag recorded in lidar/README.md.
+lidar/viewer/third_party/
