@@ -64,11 +64,18 @@ macOS: `ls /dev/tty.* | grep -Ei 'usbserial|SLAB'`
 
 ### First time on a fresh machine
 
-`vendor/` is gitignored, so fetch the SDK first — from the **repo root**:
+Both upstream dependencies are gitignored and must be fetched. From the **repo
+root**:
 
 ```bash
 git clone https://github.com/Slamtec/rplidar_sdk.git vendor/rplidar_sdk
+git clone --depth 1 --branch v1.92.9 https://github.com/ocornut/imgui.git \
+    lidar/viewer/third_party/imgui
 ```
+
+**Pin ImGui to `v1.92.9`.** Master is a moving target and 1.92 reworked the font
+system — `PushFont` is now two-argument, and a base size is a *pre-scale* value
+that ImGui multiplies by the global DPI factors. Code here depends on that.
 
 ### Windows
 
