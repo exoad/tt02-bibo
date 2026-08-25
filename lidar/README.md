@@ -97,6 +97,29 @@ works.
 | `--connect [port] [baud]` | Pin a specific port/baud |
 | `--no-connect` | Start disconnected |
 | `--range <metres>` | Pin the view instead of auto-fitting |
+| `--tab <live\|signal\|scan\|device>` | Open straight to a rail tab |
+
+### What the rail shows
+
+Split across tabs rather than made scrollable — there is more telemetry than
+fits at once, and nothing in this app scrolls.
+
+- **Live** — rotation rate, points/revolution, in-spec %, nearest/mean/max range,
+  a rotation-rate sparkline, and a 12-sector clearance chart.
+- **Signal** — the revolution broken into *in spec / no return / < 50 mm /
+  beyond 12 m*, which is what makes the in-spec percentage interpretable rather
+  than merely low. Plus the per-measurement signal quality the device reports.
+- **Scan** — the scan mode the SDK negotiated, its sample period and implied
+  sample rate, the mode's own range ceiling, measured angular resolution,
+  angular coverage, and a range histogram.
+- **Device** — identity, health, and session counters (uptime, revolutions,
+  measurements, dropped revolutions, average rate), plus a pre-heat indicator
+  that goes green at 2 minutes.
+
+**Observed: the C1 reports a constant quality of 47** for every in-spec return —
+mean 47.0, range 47–47. The quality histogram is therefore a single bar. That
+appears to be the device's behaviour rather than a bug in the reader; it is worth
+knowing before relying on quality to detect weak returns.
 
 ### Requirements
 

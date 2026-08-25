@@ -109,8 +109,18 @@ struct LidarSource::Impl
     mutable std::mutex  mtx;
     std::string         error_msg;
     LidarDeviceInfo     dev_info;
+    LidarScanInfo       scan_info;
     LidarFrame          frame;
     uint64_t            frame_seq = 0;   // bumped on every published frame
+
+    // Session counters. Written only by the worker, read by the UI thread, so
+    // atomics keep them off the publish mutex - the UI reads them every frame
+    // while the worker only touches them once per revolution.
+    std::atomic<unsigned long long> stat_frames{0};
+    std::atomic<unsigned long long> stat_points{0};
+    std::atomic<unsigned int>       stat_timeouts{0};
+    std::chrono::steady_clock::time_point scan_start{};
+    std::atomic<bool>               scan_started{false};
 
     // Touched only by poll(), i.e. only by the UI thread.
     uint64_t last_seen_seq = 0;
@@ -224,6 +234,29 @@ void LidarSource::Impl::run(std::string port, int baud)
         }
         scanning = true;
 
+        // Record what the SDK actually negotiated. The C1 chooses the mode, and
+        // without this the sample period and the mode's own range ceiling are
+        // invisible to the operator.
+        {
+            LidarScanInfo si;
+            si.mode_id        = (int)mode.id;
+            si.us_per_sample  = mode.us_per_sample;
+            si.max_distance_m = mode.max_distance;
+
+            // scan_mode is a fixed 64-byte field, zero-padded but not
+            // guaranteed terminated.
+            char name[sizeof(mode.scan_mode) + 1];
+            std::memcpy(name, mode.scan_mode, sizeof(mode.scan_mode));
+            name[sizeof(mode.scan_mode)] = '\0';
+            si.mode = name;
+
+            std::lock_guard<std::mutex> lock(mtx);
+            scan_info = si;
+        }
+
+        scan_start = std::chrono::steady_clock::now();
+        scan_started.store(true, std::memory_order_release);
+
         state.store(LidarState::Scanning, std::memory_order_release);
 
         std::vector<sl_lidar_response_measurement_node_hq_t> nodes(kMaxNodes);
@@ -243,6 +276,8 @@ void LidarSource::Impl::run(std::string port, int baud)
                 // misses its window. A long unbroken run of them is not: the
                 // cable came out, or the device stopped talking. Surface that
                 // instead of sitting in Scanning forever with a frozen view.
+                stat_timeouts.fetch_add(1, std::memory_order_relaxed);
+
                 if (++consecutive_timeouts >= kMaxConsecutiveTimeouts) {
                     set_error("device stopped responding on " + port +
                               " (cable unplugged?)");
@@ -285,6 +320,9 @@ void LidarSource::Impl::run(std::string port, int baud)
                 std::swap(frame, staging);
                 ++frame_seq;
             }
+
+            stat_frames.fetch_add(1, std::memory_order_relaxed);
+            stat_points.fetch_add(count, std::memory_order_relaxed);
         }
     } while (false);
 
@@ -327,10 +365,17 @@ void LidarSource::start(const std::string& port, int baud)
         std::lock_guard<std::mutex> lock(impl_->mtx);
         impl_->error_msg = std::string();
         impl_->dev_info  = LidarDeviceInfo();
+        impl_->scan_info = LidarScanInfo();
         impl_->frame     = LidarFrame();
         impl_->frame_seq = 0;
     }
     impl_->last_seen_seq = 0;
+
+    // Counters describe one session, so they restart with it.
+    impl_->stat_frames.store(0, std::memory_order_relaxed);
+    impl_->stat_points.store(0, std::memory_order_relaxed);
+    impl_->stat_timeouts.store(0, std::memory_order_relaxed);
+    impl_->scan_started.store(false, std::memory_order_release);
 
     impl_->quit.store(false, std::memory_order_release);
     impl_->state.store(LidarState::Connecting, std::memory_order_release);
@@ -373,6 +418,27 @@ LidarDeviceInfo LidarSource::info() const
 {
     std::lock_guard<std::mutex> lock(impl_->mtx);
     return impl_->dev_info;
+}
+
+LidarScanInfo LidarSource::scan_info() const
+{
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    return impl_->scan_info;
+}
+
+LidarStats LidarSource::stats() const
+{
+    LidarStats s;
+    s.frames   = impl_->stat_frames.load(std::memory_order_relaxed);
+    s.points   = impl_->stat_points.load(std::memory_order_relaxed);
+    s.timeouts = impl_->stat_timeouts.load(std::memory_order_relaxed);
+
+    if (impl_->scan_started.load(std::memory_order_acquire))
+    {
+        const auto now = std::chrono::steady_clock::now();
+        s.uptime_s = std::chrono::duration<double>(now - impl_->scan_start).count();
+    }
+    return s;
 }
 
 bool LidarSource::poll(LidarFrame& out)
