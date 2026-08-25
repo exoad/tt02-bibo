@@ -20,8 +20,18 @@ installed, motor mounted and meshed, shell trimmed and painted.
 
 The RPLIDAR C1 is **working** — see `lidar/README.md`.
 
-**No Pico work has been done. The servo has never moved under code.** That is
-phase 2 below, and it is the gate for everything else.
+The **Pico 2 W toolchain is working on this machine**: build, flash, and read
+back the board's flash, all from `firmware/`. `pico_debug` is flashed and
+answering over USB CDC, and the LED blinks under command (`cyw43=up`). The GUI
+in `lidar/viewer/` is the command hub for all of it.
+
+**The servo has still never moved under code — phase 2 is still the gate.**
+But one thing in the original record was wrong and is worth stating plainly:
+the board arrived carrying firmware called **`tt02_control`** which emits
+1500 µs neutral on two channels and answers a `?` status command. Control
+firmware exists and runs; what has never been demonstrated is a servo actually
+moving. Its source is on the MacBook, not in this repo — only a read-back
+binary at `vendor/tt02_control-backup.uf2` (gitignored). See `docs/log.md`.
 
 ---
 
