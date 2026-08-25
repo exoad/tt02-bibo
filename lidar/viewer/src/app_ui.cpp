@@ -1,11 +1,17 @@
 // Application layout: interactive map, a control bar beneath it, and a rail of
 // readouts. Plain Dear ImGui widgets throughout.
 //
+// The rail is a two-level tab bar: Lidar | Pico | Debug at the top, with the
+// four lidar readouts nested under Lidar. It is the command hub for the whole
+// car, not just the scanner, so the top level names subsystems.
+//
 // Deliberately fits one viewport with no scrolling anywhere. The rail carries a
-// lot of telemetry, so it is split across tabs rather than made scrollable.
+// lot of telemetry, so it is split across tabs rather than made scrollable. The
+// one exception is the Debug console, which is a log and scrolls by nature.
 #include "app_ui.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +22,7 @@
 
 #include "imgui.h"
 #include "lidar_source.h"
+#include "pico_link.h"
 #include "radar.h"
 #include "theme.h"
 
@@ -23,6 +30,7 @@ namespace {
 
 LidarSource g_lidar;
 RadarView   g_radar;
+PicoLink    g_pico;
 
 std::vector<std::string> g_ports;
 std::vector<const char*> g_port_items;
@@ -77,9 +85,39 @@ constexpr int kSectors = 12;
 float g_sector_m[kSectors] = {};
 constexpr float kClearanceCapM = 2.5f;   // beyond this a direction is just "clear"
 
+// ------------------------------------------------------------- pico link ---
+// The debug/bring-up channel to the Pico 2 W over USB CDC. Ports, the drained
+// line log, and the console's own view state.
+//
+// If a connected board ever appears to swallow writes: TinyUSB CDC refuses OUT
+// data until the host asserts DTR, and a write without it blocks until the
+// driver gives up with "the semaphore timeout period has expired". That reads
+// exactly like dead hardware and is not. pico_link.cpp asserts DTR; do not
+// remove it.
+
+std::vector<std::string> g_pico_ports;
+std::vector<const char*> g_pico_items;
+int  g_pico_index = -1;
+
+// The console is a debug aid, not a record: this app runs for hours, so the log
+// is bounded and the oldest lines fall off the front.
+constexpr size_t kLogMax = 4000;
+std::vector<PicoLine> g_log;
+std::vector<int>      g_log_shown;    // indices passing the filter, rebuilt per frame
+
+char g_cmd_buf[192]   = {};
+char g_filter_buf[64] = {};
+bool g_log_autoscroll = true;
+
+// Result of the last BOOTSEL touch, so a failure is not silent.
+bool g_bootsel_done = false;
+bool g_bootsel_ok   = false;
+
 // --tab <name> preselects a rail tab at startup, for screenshots and for
-// launching straight into the readout you care about.
-int g_force_tab        = -1;
+// launching straight into the readout you care about. Two levels now: a top
+// tab, and optionally one of the lidar sub-tabs.
+int g_force_top        = -1;
+int g_force_sub        = -1;
 int g_force_tab_frames = 0;
 
 // Rolling rotation-rate history for the sparkline.
@@ -140,6 +178,88 @@ bool Busy()
 {
     const LidarState s = g_lidar.state();
     return s == LidarState::Scanning || s == LidarState::Connecting;
+}
+
+// ---------------------------------------------------------------- pico ----
+
+void RefreshPicoPorts()
+{
+    g_pico_ports = PicoLink::list_pico_ports();
+
+    g_pico_items.clear();
+    for (const auto& s : g_pico_ports) g_pico_items.push_back(s.c_str());
+
+    if (g_pico_ports.empty()) { g_pico_index = -1; return; }
+    if (g_pico_index < 0 || g_pico_index >= (int)g_pico_ports.size()) g_pico_index = 0;
+}
+
+void ConnectPico()
+{
+    if (g_pico_index < 0 || g_pico_index >= (int)g_pico_ports.size()) return;
+    g_pico.connect(g_pico_ports[g_pico_index]);
+}
+
+void SendPico(const char* line)
+{
+    if (!line || !line[0]) return;
+    g_pico.send(line);            // the link logs it; drain() gives it back to us
+}
+
+// Drains once per frame, which is what PicoLink asks for, and keeps the log
+// bounded.
+void PumpPico()
+{
+    g_pico.drain(g_log);
+    if (g_log.size() > kLogMax)
+        g_log.erase(g_log.begin(), g_log.begin() + (g_log.size() - kLogMax));
+}
+
+const char* PicoStateText(PicoState s)
+{
+    switch (s)
+    {
+    case PicoState::Connecting: return "Connecting";
+    case PicoState::Connected:  return "Connected";
+    case PicoState::Error:      return "Error";
+    default:                    return "Not connected";
+    }
+}
+
+ImU32 PicoStateColor(PicoState s)
+{
+    switch (s)
+    {
+    case PicoState::Connecting: return ui::plot::warn;
+    case PicoState::Connected:  return ui::plot::ok;
+    case PicoState::Error:      return ui::plot::bad;
+    default:                    return ui::plot::idle;
+    }
+}
+
+// A silent board is the expected state right now - no firmware speaks yet - so
+// this says so in words rather than showing an empty readout.
+void PicoAgeText(char* buf, size_t n, double age_s)
+{
+    if (age_s < 0.0)        std::snprintf(buf, n, "nothing received yet");
+    else if (age_s < 2.0)   std::snprintf(buf, n, "%.1f s ago", age_s);
+    else if (age_s < 600.0) std::snprintf(buf, n, "silent for %.1f s", age_s);
+    else                    std::snprintf(buf, n, "silent for %.0f min", age_s / 60.0);
+}
+
+bool LogMatches(const PicoLine& ln)
+{
+    if (g_filter_buf[0] == '\0') return true;
+
+    const char* hay = ln.text.c_str();
+    for (; *hay; ++hay)
+    {
+        const char* h = hay;
+        const char* n = g_filter_buf;
+        while (*n && *h &&
+               std::tolower((unsigned char)*h) == std::tolower((unsigned char)*n)) { ++h; ++n; }
+        if (*n == '\0') return true;
+    }
+    return false;
 }
 
 void RecomputeDerived()
@@ -234,6 +354,7 @@ void PumpData()
         g_have_frame = true;
         RecomputeDerived();
     }
+    PumpPico();
 }
 
 void ApplyRange()
@@ -582,6 +703,323 @@ void TabDevice()
     }
 }
 
+// ------------------------------------------------------------------- pico
+
+void TabPico()
+{
+    const ImGuiStyle& sty  = ImGui::GetStyle();
+    const PicoState   st   = g_pico.state();
+    const bool        live = (st == PicoState::Connected);
+    const bool        busy = live || st == PicoState::Connecting;
+    const float       bh   = ImGui::GetFrameHeight() * 1.2f;
+
+    ImGui::SeparatorText("Link");
+
+    // ---- port + refresh --------------------------------------------------
+    const float refresh_w = ImGui::CalcTextSize("Refresh").x + sty.FramePadding.x * 2.0f;
+
+    ImGui::BeginDisabled(busy);
+    if (g_pico_items.empty())
+    {
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::warn);
+        ImGui::TextUnformatted("No Pico found");
+        ImGui::PopStyleColor();
+    }
+    else
+    {
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - refresh_w - sty.ItemSpacing.x);
+        ImGui::Combo("##picoport", &g_pico_index, g_pico_items.data(), (int)g_pico_items.size());
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh")) RefreshPicoPorts();
+
+    if (g_pico_ports.empty())
+    {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Nothing with USB VID 2E8A is enumerated. The board only "
+                            "appears as a serial port once its firmware presents USB "
+                            "CDC; a board sitting in BOOTSEL mounts as the RPI-RP2 "
+                            "drive instead.");
+        ImGui::PopTextWrapPos();
+    }
+
+    // ---- connect ---------------------------------------------------------
+    if (busy)
+    {
+        if (ImGui::Button("Disconnect", ImVec2(-FLT_MIN, bh))) g_pico.disconnect();
+    }
+    else
+    {
+        ImGui::BeginDisabled(g_pico_index < 0);
+        if (ImGui::Button("Connect", ImVec2(-FLT_MIN, bh))) ConnectPico();
+        ImGui::EndDisabled();
+    }
+
+    const std::string err = g_pico.error();
+    if (!err.empty() && st == PicoState::Error)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::bad);
+        ImGui::TextWrapped("%s", err.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    // ---- status ----------------------------------------------------------
+    if (ImGui::BeginTable("picostat", 2, ImGuiTableFlags_SizingStretchProp))
+    {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::TextDisabled("State");
+        ImGui::TableNextColumn();
+        ImGui::PushStyleColor(ImGuiCol_Text, PicoStateColor(st));
+        ImGui::TextUnformatted(PicoStateText(st));
+        ImGui::PopStyleColor();
+
+        const std::string p = g_pico.port();
+        KeyValue("Port",    "%s",   p.empty() ? "--" : p.c_str());
+        KeyValue("Sent",    "%llu", g_pico.tx_lines());
+        KeyValue("Received","%llu", g_pico.rx_lines());
+        KeyValue("Dropped", "%llu", g_pico.dropped());
+        ImGui::EndTable();
+    }
+
+    // The whole point of this readout: a board that never answers must look
+    // deliberately silent, not broken or unpopulated.
+    const double age = g_pico.last_rx_age_s();
+    char age_s[64];
+    PicoAgeText(age_s, sizeof(age_s), age);
+
+    const ImU32 age_col = (age >= 0.0 && age < 2.0) ? ui::plot::ok
+                        : (live ? ui::plot::warn : ui::plot::idle);
+    ImGui::PushStyleColor(ImGuiCol_Text, age_col);
+    ImGui::Text("Last line: %s", age_s);
+    ImGui::PopStyleColor();
+
+    // ---- commands --------------------------------------------------------
+    ImGui::Spacing();
+    ImGui::SeparatorText("Commands");
+
+    ImGui::BeginDisabled(!live);
+    if (ImGui::BeginTable("picocmd", 3, ImGuiTableFlags_SizingStretchSame))
+    {
+        auto cmd = [](const char* label, const char* line)
+        {
+            ImGui::TableNextColumn();
+            if (ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f))) SendPico(line);
+        };
+
+        // "?" first because it is the only command the board currently on the
+        // bench understands - it answers "S <uptime_ms> ... 1500 1500 ..." then
+        // "OK". The rest are the vocabulary of firmware/ and go live once that
+        // is flashed; until then they come back "ERR bad command", which is the
+        // board being correct rather than anything here being broken.
+        ImGui::TableNextRow();
+        cmd("?  status", "?");
+        cmd("PING",      "PING");
+        cmd("ID",        "ID");
+
+        ImGui::TableNextRow();
+        cmd("HELP",    "HELP");
+        cmd("LED ON",  "LED ON");
+        cmd("LED OFF", "LED OFF");
+
+        ImGui::TableNextRow();
+        cmd("Blink 2",   "LED BLINK 2");
+        cmd("Blink off", "LED BLINK 0");
+        ImGui::EndTable();
+    }
+
+    {
+        ScopedFont sf(ui::fonts.small);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("The board on the bench answers only ?. Everything else "
+                            "returns ERR bad command until firmware/ is flashed.");
+        ImGui::PopTextWrapPos();
+    }
+
+    // Free-text line. Enter sends and keeps the cursor here, which is what you
+    // want when you are poking at a fresh command vocabulary.
+    const float send_w = ImGui::CalcTextSize("Send").x + sty.FramePadding.x * 2.0f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - send_w - sty.ItemSpacing.x);
+
+    bool fire = ImGui::InputTextWithHint("##picocmdline", "type a command",
+                                         g_cmd_buf, sizeof(g_cmd_buf),
+                                         ImGuiInputTextFlags_EnterReturnsTrue);
+    if (fire) ImGui::SetKeyboardFocusHere(-1);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Send")) fire = true;
+
+    if (fire)
+    {
+        SendPico(g_cmd_buf);
+        g_cmd_buf[0] = '\0';
+    }
+    ImGui::EndDisabled();
+
+    // ---- flashing --------------------------------------------------------
+    ImGui::Spacing();
+    ImGui::SeparatorText("Flashing");
+
+    const std::string bport = live ? g_pico.port()
+                            : (g_pico_index >= 0 && g_pico_index < (int)g_pico_ports.size()
+                               ? g_pico_ports[g_pico_index] : std::string());
+
+    ImGui::BeginDisabled(bport.empty());
+    if (ImGui::Button("Reboot to BOOTSEL...", ImVec2(-FLT_MIN, bh)))
+        ImGui::OpenPopup("Reboot to BOOTSEL?");
+    ImGui::EndDisabled();
+
+    {
+        ScopedFont sf(ui::fonts.small);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Stops the board and remounts it as the RPI-RP2 drive so a "
+                            ".uf2 can be copied over. Confirmation required.");
+        ImGui::PopTextWrapPos();
+    }
+
+    if (g_bootsel_done)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, g_bootsel_ok ? ui::plot::ok : ui::plot::bad);
+        ImGui::TextWrapped("%s", g_bootsel_ok
+            ? "BOOTSEL touch sent. The port is gone until a .uf2 is copied or the board is power-cycled."
+            : "BOOTSEL touch failed - the port could not be opened.");
+        ImGui::PopStyleColor();
+    }
+
+    // Kept last so nothing above it moves when the link state changes - the
+    // command buttons stay where your hand expects them.
+    ImGui::Spacing();
+    {
+        ScopedFont sf(ui::fonts.small);
+        ImGui::PushTextWrapPos(0.0f);
+        if (live && age < 0.0)
+            ImGui::TextDisabled("Port open, board silent. It only speaks when spoken to - "
+                                "send ? and it should answer.");
+        else if (live)
+            ImGui::TextDisabled("Silence between commands is normal: this board answers "
+                                "only when asked.");
+        ImGui::PopTextWrapPos();
+    }
+
+    const ImVec2 centre = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(centre, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Reboot to BOOTSEL?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::PushTextWrapPos(420.0f * g_dpi);
+        ImGui::TextWrapped("This reboots %s into the RP2350 USB bootloader.",
+                           bport.empty() ? "the board" : bport.c_str());
+        ImGui::Spacing();
+        ImGui::BulletText("Whatever the board is running stops immediately.");
+        ImGui::BulletText("The serial link drops and the port disappears.");
+        ImGui::BulletText("It remounts as the RPI-RP2 mass-storage drive.");
+        ImGui::BulletText("It does not come back until a .uf2 is copied onto it,\n"
+                          "or the board is power-cycled.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Only do this when you are about to flash.");
+        ImGui::PopTextWrapPos();
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Cancel", ImVec2(150.0f * g_dpi, bh)))
+            ImGui::CloseCurrentPopup();
+
+        ImGui::SameLine();
+        if (ImGui::Button("Reboot to BOOTSEL", ImVec2(260.0f * g_dpi, bh)))
+        {
+            g_pico.disconnect();
+            g_bootsel_ok   = PicoLink::bootsel_touch(bport);
+            g_bootsel_done = true;
+            RefreshPicoPorts();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// ------------------------------------------------------------------ debug
+// The one scrolling pane in the app. It is a log; a log that cannot scroll is
+// not a log.
+
+void TabDebug()
+{
+    if (ImGui::Button("Clear")) g_log.clear();
+    ImGui::SameLine();
+    ImGui::Checkbox("Auto-scroll", &g_log_autoscroll);
+
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##logfilter", "filter lines", g_filter_buf, sizeof(g_filter_buf));
+
+    g_log_shown.clear();
+    for (int i = 0; i < (int)g_log.size(); ++i)
+        if (LogMatches(g_log[i])) g_log_shown.push_back(i);
+
+    {
+        ScopedFont sf(ui::fonts.small);
+        if (g_filter_buf[0])
+            ImGui::TextDisabled("%d of %d lines   -   %llu sent / %llu received",
+                                (int)g_log_shown.size(), (int)g_log.size(),
+                                g_pico.tx_lines(), g_pico.rx_lines());
+        else
+            ImGui::TextDisabled("%d lines   -   %llu sent / %llu received",
+                                (int)g_log.size(), g_pico.tx_lines(), g_pico.rx_lines());
+    }
+
+    {
+        ScopedFont sf(ui::fonts.small);
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::ramp_near);
+        ImGui::TextUnformatted(">  host to Pico");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::ramp_far);
+        ImGui::TextUnformatted("<  Pico to host");
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::BeginChild("##console", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+
+    if (g_log_shown.empty())
+    {
+        ImGui::PushTextWrapPos(0.0f);
+        if (g_log.empty())
+            ImGui::TextDisabled("No traffic. Connect on the Pico tab, then send PING - "
+                                "host lines appear here even if the board never answers.");
+        else
+            ImGui::TextDisabled("No lines match \"%s\".", g_filter_buf);
+        ImGui::PopTextWrapPos();
+    }
+    else
+    {
+        ImGuiListClipper clipper;
+        clipper.Begin((int)g_log_shown.size());
+        while (clipper.Step())
+        {
+            for (int r = clipper.DisplayStart; r < clipper.DisplayEnd; ++r)
+            {
+                const PicoLine& ln = g_log[g_log_shown[r]];
+
+                char buf[512];
+                std::snprintf(buf, sizeof(buf), "%8.2f  %c  %s",
+                              ln.t_s, ln.outgoing ? '>' : '<', ln.text.c_str());
+
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ln.outgoing ? ui::plot::ramp_near : ui::plot::ramp_far);
+                ImGui::TextUnformatted(buf);
+                ImGui::PopStyleColor();
+            }
+        }
+    }
+
+    // Sticks to the bottom only while the view already is at the bottom, so
+    // scrolling up to read something does not yank you back.
+    if (g_log_autoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+        ImGui::SetScrollHereY(1.0f);
+
+    ImGui::EndChild();
+}
+
 // --------------------------------------------------------- control bar
 
 void DrawControlBar()
@@ -629,6 +1067,7 @@ void app::Init(float dpi_scale)
     for (int i = 0; i < kRangeCount; ++i) kRangeItems[i] = kRanges[i].label;
 
     RefreshPorts();
+    RefreshPicoPorts();
     ApplyRange();
 
     // --connect [port] [baud] pins a specific port; --no-connect suppresses the
@@ -644,13 +1083,21 @@ void app::Init(float dpi_scale)
             continue;
         }
 
+        // --tab names both levels: a top tab, or one of the lidar sub-tabs by
+        // its own name (which also selects Lidar above it).
         if (std::strcmp(__argv[i], "--tab") == 0 && i + 1 < __argc)
         {
-            const char* names[4] = { "live", "signal", "scan", "device" };
-            for (int k = 0; k < 4; ++k)
-                if (_stricmp(__argv[i + 1], names[k]) == 0)
+            struct TabName { const char* name; int top; int sub; };
+            static const TabName kTabNames[] = {
+                { "lidar",  0, -1 }, { "live",   0,  0 }, { "signal", 0, 1 },
+                { "scan",   0,  2 }, { "device", 0,  3 },
+                { "pico",   1, -1 }, { "debug",  2, -1 },
+            };
+            for (const TabName& t : kTabNames)
+                if (_stricmp(__argv[i + 1], t.name) == 0)
                 {
-                    g_force_tab = k;
+                    g_force_top        = t.top;
+                    g_force_sub        = t.sub;
                     g_force_tab_frames = 4;
                 }
             continue;
@@ -732,26 +1179,45 @@ void app::Frame()
     ImGui::BeginChild("##rail", ImVec2(rail_w, avail.y), ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
-        DrawConnection();
-
-        // Tabs rather than a scrollbar: there is more telemetry here than fits
-        // at once, and the no-scroll rule is deliberate.
-        if (ImGui::BeginTabBar("##tabs"))
+        // Two levels: subsystems on top, readouts underneath. Tabs rather than
+        // a scrollbar - there is more here than fits at once, and the no-scroll
+        // rule is deliberate.
+        if (ImGui::BeginTabBar("##toptabs"))
         {
-            // --tab selects one at startup. The flag has to persist for a few
+            // --tab selects at startup. The flag has to persist for a few
             // frames: the tab bar only honours SetSelected once it has laid the
             // items out, which is not on frame one.
-            auto sel = [](int which)
+            auto top = [](int which)
             {
-                return (g_force_tab == which && g_force_tab_frames > 0)
+                return (g_force_top == which && g_force_tab_frames > 0)
+                     ? ImGuiTabItemFlags_SetSelected : 0;
+            };
+            auto sub = [](int which)
+            {
+                return (g_force_sub == which && g_force_tab_frames > 0)
                      ? ImGuiTabItemFlags_SetSelected : 0;
             };
             if (g_force_tab_frames > 0) --g_force_tab_frames;
 
-            if (ImGui::BeginTabItem("Live",   nullptr, sel(0))) { TabLive();   ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Signal", nullptr, sel(1))) { TabSignal(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Scan",   nullptr, sel(2))) { TabScan();   ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Device", nullptr, sel(3))) { TabDevice(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Lidar", nullptr, top(0)))
+            {
+                // Lidar-specific, so it lives inside the lidar tab rather than
+                // above the whole rail.
+                DrawConnection();
+
+                if (ImGui::BeginTabBar("##lidartabs"))
+                {
+                    if (ImGui::BeginTabItem("Live",   nullptr, sub(0))) { TabLive();   ImGui::EndTabItem(); }
+                    if (ImGui::BeginTabItem("Signal", nullptr, sub(1))) { TabSignal(); ImGui::EndTabItem(); }
+                    if (ImGui::BeginTabItem("Scan",   nullptr, sub(2))) { TabScan();   ImGui::EndTabItem(); }
+                    if (ImGui::BeginTabItem("Device", nullptr, sub(3))) { TabDevice(); ImGui::EndTabItem(); }
+                    ImGui::EndTabBar();
+                }
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Pico",  nullptr, top(1))) { TabPico();  ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Debug", nullptr, top(2))) { TabDebug(); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
     }
@@ -763,4 +1229,5 @@ void app::Frame()
 void app::Shutdown()
 {
     g_lidar.stop();
+    g_pico.disconnect();
 }
