@@ -12,16 +12,27 @@ Full project context, hardware inventory and architecture: **[AGENTS.md](AGENTS.
 |---|---|
 | Chassis | Assembled, drives under radio control |
 | RPLIDAR C1 | Working — live scans, see [lidar/README.md](lidar/README.md) |
-| **Pico** | **Nothing yet. The servo has never moved under code.** |
+| Pico 2 W | Toolchain, build, flash and flash-backup all working from this machine |
+| Pico firmware | `pico_debug` flashed and answering; LED blinks under command |
+| **Servo / ESC** | **Never moved under code. This is still the gate.** |
 
 **Current gate: phase 2** — Pico replaces the receiver, USB serial commands drive
-servo + ESC, watchdog added. Everything else waits on it. The lidar being done
-early is fine, but it is not the critical path.
+servo + ESC, watchdog added. Everything else waits on it.
+
+One correction to the original project record: the board arrived carrying
+firmware called `tt02_control` that emits 1500 µs neutral on two channels and
+answers a `?` status command, so control firmware *does* exist and run. What has
+never been demonstrated is a servo actually moving. Its source is on the MacBook,
+not in this repo — only a read-back binary in `vendor/`. See
+[docs/log.md](docs/log.md).
 
 ## Layout
 
 ```
 firmware/   Pico SDK C - runs on the car
+  src/main.c    pico_debug: LED + serial command console
+  catalog.txt   images the viewer's Firmware tab can flash
+  build.bat / flash.bat / backup.bat
 host/       Go - laptop-side command + telemetry
 sim/        bicycle model, controller experiments, no hardware
 data/       telemetry CSVs pulled off SD (gitignored)
@@ -32,8 +43,11 @@ docs/
   wiring.md       Pico pin map and wiring invariants
   calibration.md  lidar calibration procedures + measured values
   log.md          build log, failures first
-vendor/     upstream clones (gitignored)
-  rplidar_sdk/  Slamtec SDK
+vendor/     upstream clones and binaries (gitignored)
+  rplidar_sdk/      Slamtec SDK
+  pico-sdk/         Raspberry Pi Pico SDK 2.3.0
+  picotool-2.3.0/   official prebuilt; the SDK-built one crashes here
+  tt02_control-backup.uf2   read back off the board; ONLY copy on this machine
 ```
 
 ## Getting set up on a fresh machine
@@ -44,8 +58,28 @@ vendor/     upstream clones (gitignored)
 git clone https://github.com/Slamtec/rplidar_sdk.git vendor/rplidar_sdk
 ```
 
+You will also want the Pico SDK and picotool to build firmware — see
+[firmware/README.md](firmware/README.md), which lists the one-time toolchain
+install and the exact clone commands.
+
 Then build and run the viewer — see [lidar/README.md](lidar/README.md) for the
 exact commands, the COM port, and the baud rate that matters.
+
+## The command hub
+
+`lidar/viewer/` started as a point-cloud viewer and is now the **front end for
+the whole project**. From one window:
+
+- **Lidar** — live map with pan/zoom/measure, plus scan telemetry
+- **Vehicle** — the Pico link and its command set
+- **Firmware** — build, flash and back up the board on demand, from a catalog
+  (`firmware/catalog.txt`). It shells out to the same scripts that work from a
+  terminal, so there is one flashing mechanism rather than two that can drift
+- **Console** — everything the board and the build scripts say
+
+Flashing needs no picotool for the happy path, and **backing up the board's
+flash first is one click** — worth doing before loading anything you cannot
+rebuild from source.
 
 ## Safety
 

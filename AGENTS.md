@@ -174,6 +174,34 @@ translucent. **Lidar hole not yet cut.**
 
 ---
 
+## The command hub — `lidar/viewer/`
+
+Started as a point-cloud viewer; it is now the front end for the whole project.
+One window: the fused sensor view, the Pico link and its command set, an
+on-demand firmware build/flash/backup suite, and a console.
+
+Two design rules that matter more than they look:
+
+**The map is a fused sensor view, not a lidar view.** The RPLIDAR C1 is the only
+thing feeding it today, but the four VL53L1X ToF sensors are static,
+single-point, fixed-bearing devices that describe the same world. The UI lists
+them as unwired layers rather than pretending the scanner is the world model, so
+adding one is filling in a row rather than redesigning a screen.
+
+**The lidar-to-vehicle transform is NOT established.** The map is sensor-centred
+because that is the only frame currently justified. `docs/calibration.md` §2 is
+an empty table, and the convention that 0° is the moulded arrow on the housing is
+recorded as *assumed, not confirmed*. Inventing a plausible mounting offset would
+silently rotate every fused reading from every sensor added afterwards, in a way
+that looks like a sensor fault rather than a bad constant. Measure it first.
+
+**Flashing goes through the scripts in `firmware/`, never around them.** The GUI
+shells out to `build.bat` / `flash.bat` / `backup.bat` so there is exactly one
+flashing mechanism. A second implementation inside the GUI would drift from the
+terminal path and the two would disagree at the worst possible moment.
+
+---
+
 ## Build order — each phase must work before the next
 
 1. Kit assembled, driving under radio control — **done**
