@@ -530,15 +530,6 @@ void StatCell(const char* value, const char* caption)
     ImGui::TextDisabled("%s", caption);
 }
 
-// ImGui::Button plus the Aero gloss pass. The widget is a real ImGui::Button -
-// same sizing, hover, activation and keyboard nav - with a lit top half drawn
-// over it afterwards.
-bool AeroButton(const char* label, const ImVec2& size = ImVec2(0, 0))
-{
-    const bool clicked = ImGui::Button(label, size);
-    ui::GlossLastItem();
-    return clicked;
-}
 
 void KeyValue(const char* k, const char* fmt, ...)
 {
@@ -571,12 +562,12 @@ void DrawConnection()
     const float bh = ImGui::GetFrameHeight() * 1.2f;
     if (busy)
     {
-        if (AeroButton("Disconnect", ImVec2(-FLT_MIN, bh))) g_lidar.stop();
+        if (ImGui::Button("Disconnect", ImVec2(-FLT_MIN, bh))) g_lidar.stop();
     }
     else
     {
         ImGui::BeginDisabled(g_ports.empty());
-        if (AeroButton("Connect", ImVec2(-FLT_MIN, bh))) Connect();
+        if (ImGui::Button("Connect", ImVec2(-FLT_MIN, bh))) Connect();
         ImGui::EndDisabled();
     }
 
@@ -813,7 +804,7 @@ void TabPico()
     ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (AeroButton("Refresh")) RefreshPicoPorts();
+    if (ImGui::Button("Refresh")) RefreshPicoPorts();
 
     if (g_pico_ports.empty())
     {
@@ -828,12 +819,12 @@ void TabPico()
     // ---- connect ---------------------------------------------------------
     if (busy)
     {
-        if (AeroButton("Disconnect", ImVec2(-FLT_MIN, bh))) g_pico.disconnect();
+        if (ImGui::Button("Disconnect", ImVec2(-FLT_MIN, bh))) g_pico.disconnect();
     }
     else
     {
         ImGui::BeginDisabled(g_pico_index < 0);
-        if (AeroButton("Connect", ImVec2(-FLT_MIN, bh))) ConnectPico();
+        if (ImGui::Button("Connect", ImVec2(-FLT_MIN, bh))) ConnectPico();
         ImGui::EndDisabled();
     }
 
@@ -885,7 +876,7 @@ void TabPico()
         auto cmd = [](const char* label, const char* line)
         {
             ImGui::TableNextColumn();
-            if (AeroButton(label, ImVec2(-FLT_MIN, 0.0f))) SendPico(line);
+            if (ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f))) SendPico(line);
         };
 
         // "?" first because it is the only command the board currently on the
@@ -928,7 +919,7 @@ void TabPico()
     if (fire) ImGui::SetKeyboardFocusHere(-1);
 
     ImGui::SameLine();
-    if (AeroButton("Send")) fire = true;
+    if (ImGui::Button("Send")) fire = true;
 
     if (fire)
     {
@@ -946,7 +937,7 @@ void TabPico()
                                ? g_pico_ports[g_pico_index] : std::string());
 
     ImGui::BeginDisabled(bport.empty());
-    if (AeroButton("Reboot to BOOTSEL...", ImVec2(-FLT_MIN, bh)))
+    if (ImGui::Button("Reboot to BOOTSEL...", ImVec2(-FLT_MIN, bh)))
         ImGui::OpenPopup("Reboot to BOOTSEL?");
     ImGui::EndDisabled();
 
@@ -1001,11 +992,11 @@ void TabPico()
 
         ImGui::Separator();
 
-        if (AeroButton("Cancel", ImVec2(150.0f * g_dpi, bh)))
+        if (ImGui::Button("Cancel", ImVec2(150.0f * g_dpi, bh)))
             ImGui::CloseCurrentPopup();
 
         ImGui::SameLine();
-        if (AeroButton("Reboot to BOOTSEL", ImVec2(260.0f * g_dpi, bh)))
+        if (ImGui::Button("Reboot to BOOTSEL", ImVec2(260.0f * g_dpi, bh)))
         {
             g_pico.disconnect();
             g_bootsel_ok   = PicoLink::bootsel_touch(bport);
@@ -1097,7 +1088,7 @@ void TabFlash()
     }
 
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - refresh_w);
-    if (AeroButton("Refresh"))
+    if (ImGui::Button("Refresh"))
     {
         g_flash.refresh_board();
         g_flash.refresh_catalog();
@@ -1189,7 +1180,7 @@ void TabFlash()
         const float half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
 
         ImGui::BeginDisabled(busy || !e.buildable);
-        if (AeroButton("Build", ImVec2(half, bh))) g_flash.build(e.id);
+        if (ImGui::Button("Build", ImVec2(half, bh))) g_flash.build(e.id);
         ImGui::EndDisabled();
         if (!e.buildable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("No source for this in the repo - the .uf2 is all there is.");
@@ -1197,7 +1188,7 @@ void TabFlash()
         ImGui::SameLine();
 
         ImGui::BeginDisabled(busy || !e.present);
-        if (AeroButton("Flash...", ImVec2(half, bh)))
+        if (ImGui::Button("Flash...", ImVec2(half, bh)))
         {
             g_confirm_id   = e.id;
             g_confirm_name = e.name;
@@ -1229,7 +1220,7 @@ void TabFlash()
                              g_backup_buf, sizeof(g_backup_buf));
 
     ImGui::BeginDisabled(busy || g_backup_buf[0] == '\0');
-    if (AeroButton("Back up board flash", ImVec2(-FLT_MIN, bh)))
+    if (ImGui::Button("Back up board flash", ImVec2(-FLT_MIN, bh)))
     {
         // The board is about to be rebooted into BOOTSEL by backup.ps1, which
         // takes its COM port away; an open link would just fault.
@@ -1245,20 +1236,20 @@ void TabFlash()
     const float half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
 
     ImGui::BeginDisabled(busy);
-    if (AeroButton("To BOOTSEL", ImVec2(half, bh)))
+    if (ImGui::Button("To BOOTSEL", ImVec2(half, bh)))
     {
         g_pico.disconnect();
         g_flash.reboot_bootsel();
     }
     ImGui::SameLine();
-    if (AeroButton("Normally", ImVec2(half, bh))) g_flash.reboot_normal();
+    if (ImGui::Button("Normally", ImVec2(half, bh))) g_flash.reboot_normal();
     ImGui::EndDisabled();
 
     // ---- output -----------------------------------------------------------
     ImGui::Spacing();
     ImGui::SeparatorText("Output");
 
-    if (AeroButton("Clear")) g_flash_log.clear();
+    if (ImGui::Button("Clear")) g_flash_log.clear();
     ImGui::SameLine();
     ImGui::Checkbox("Auto-scroll", &g_flash_autoscroll);
     ImGui::SameLine();
@@ -1349,11 +1340,11 @@ void TabFlash()
 
         ImGui::Separator();
 
-        if (AeroButton("Cancel", ImVec2(150.0f * g_dpi, bh)))
+        if (ImGui::Button("Cancel", ImVec2(150.0f * g_dpi, bh)))
             ImGui::CloseCurrentPopup();
 
         ImGui::SameLine();
-        if (AeroButton("Flash it", ImVec2(260.0f * g_dpi, bh)))
+        if (ImGui::Button("Flash it", ImVec2(260.0f * g_dpi, bh)))
         {
             // flash.ps1 does the 1200-baud touch itself, and it cannot open the
             // port while this app has it.
@@ -1371,7 +1362,7 @@ void TabFlash()
 
 void TabDebug()
 {
-    if (AeroButton("Clear")) g_log.clear();
+    if (ImGui::Button("Clear")) g_log.clear();
     ImGui::SameLine();
     ImGui::Checkbox("Auto-scroll", &g_log_autoscroll);
 
@@ -1472,7 +1463,7 @@ void DrawControlBar()
     ImGui::TextUnformatted("|");
     ImGui::SameLine();
 
-    if (AeroButton("Reset view"))
+    if (ImGui::Button("Reset view"))
     {
         g_range_index = 0;
         g_radar.fit();
@@ -1584,17 +1575,6 @@ void app::Frame()
                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-    // Sky gradient behind everything. Drawn first, so every panel and widget
-    // submitted below sits on top of it; the rail's child background is
-    // translucent so the gradient reads through it as glass rather than paint.
-    // The map draws its own opaque dark ground and is unaffected - deliberately,
-    // since a gradient under a live point cloud costs contrast where it matters.
-    {
-        const ImVec2 wp = ImGui::GetWindowPos();
-        const ImVec2 ws = ImGui::GetWindowSize();
-        ui::SkyBackdrop(wp, ImVec2(wp.x + ws.x, wp.y + ws.y));
-    }
-
     const ImVec2 avail  = ImGui::GetContentRegionAvail();
     const float  rail_w = std::min(380.0f * g_dpi, avail.x * 0.36f);
     const float  gap    = ImGui::GetStyle().ItemSpacing.x;
@@ -1606,12 +1586,11 @@ void app::Frame()
     {
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
-        // The map gets an OPAQUE ground, unlike every other panel. The rail is
-        // deliberately translucent so the sky gradient reads through it as
-        // glass, but the same gradient across a live point cloud put a visible
-        // horizontal band through the data. Chrome can be glassy; the
-        // instrument cannot.
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x07, 0x0C, 0x14, 0xFF));
+        // Explicitly black, matching every other surface. Kept as an explicit
+        // push rather than inherited, because the map is the one panel whose
+        // background must never pick up a tint or an alpha - it is the surface
+        // the point cloud is read against.
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 255));
         ImGui::BeginChild("##map", ImVec2(map_w, map_h), ImGuiChildFlags_Borders,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         g_radar.draw(ImGui::GetContentRegionAvail());

@@ -91,29 +91,4 @@ void ApplyStyle(float dpi_scale);
 void  SetDpiScale(float scale);
 float DpiScale();
 
-// ---------------------------------------------------------------------------
-// Aero gloss
-//
-// The signature mid-2000s look is a lit top half and a specular line near the
-// top edge. Rather than reimplement widgets, these draw OVER a stock widget
-// that has already been submitted, so `ImGui::Button` stays `ImGui::Button` and
-// keeps all its normal behaviour, sizing and keyboard nav.
-//
-// Usage:
-//     if (ImGui::Button("Connect")) { ... }
-//     ui::GlossLastItem();
-// ---------------------------------------------------------------------------
-
-// Glosses the item just submitted. Skips itself when the item is clipped or
-// degenerate. `strength` scales the effect; 0 disables it.
-void GlossLastItem(float strength = 1.0f);
-
-// Glosses an arbitrary rect - for panels and custom-drawn surfaces.
-void GlossRect(const ImVec2& p_min, const ImVec2& p_max, float rounding,
-               float strength = 1.0f);
-
-// A vertical sky gradient for a window or panel background. Aero's other half:
-// surfaces are lit from above rather than being one flat colour.
-void SkyBackdrop(const ImVec2& p_min, const ImVec2& p_max, float rounding = 0.0f);
-
 } // namespace ui
