@@ -33,6 +33,25 @@ struct LidarDeviceInfo
     int         health   = -1;   // 0=good 1=warning 2=error, -1=unknown
 };
 
+// What the SDK negotiated at start-scan. The C1 picks a mode; these fields say
+// which, and what timing it implies, which is otherwise invisible.
+struct LidarScanInfo
+{
+    std::string mode;                 // mode name reported by the SDK
+    int         mode_id        = -1;
+    float       us_per_sample  = 0.0f; // sample period -> theoretical sample rate
+    float       max_distance_m = 0.0f; // mode's own range ceiling
+};
+
+// Session counters, since start().
+struct LidarStats
+{
+    unsigned long long frames   = 0;   // revolutions delivered to the UI
+    unsigned long long points   = 0;   // measurements across all revolutions
+    unsigned int       timeouts = 0;   // grab timeouts (a dropped revolution)
+    double             uptime_s = 0.0; // since start() succeeded
+};
+
 enum class LidarState
 {
     Idle,
@@ -60,6 +79,8 @@ public:
     LidarState      state() const;
     std::string     error() const;        // last error message, empty if none
     LidarDeviceInfo info() const;
+    LidarScanInfo   scan_info() const;    // valid once scanning starts
+    LidarStats      stats() const;        // session counters, always readable
 
     // Copies the newest frame into `out`. Returns false when nothing new has
     // arrived since the previous call, in which case `out` is untouched.

@@ -935,13 +935,29 @@ void RadarView::push(const LidarFrame& frame)
     const float fit_mm = FitDistanceMm(frame);
     if (fit_mm > 0.0f)
     {
-        // Ease toward a range that comfortably contains the frame, so the view
-        // does not jump every time someone walks past the sensor. Rising is
-        // deliberately much faster than falling: a return beyond the current
-        // range has to become visible immediately, whereas an over-large range
-        // can relax back without anything appearing to pop.
-        const float target = std::min(std::max(fit_mm * 1.20f, 750.0f), 16000.0f);
-        const float k      = (target > auto_range_mm_) ? kFitRise : kFitFall;
+        // Keep a short history and fit to the LARGEST recent revolution, not the
+        // newest one. The 95th percentile moves by metres between consecutive
+        // revolutions - returns flicker in and out at the edges of the room - and
+        // chasing it directly made the view visibly bounce. Taking the window
+        // maximum means a single sparse revolution cannot pull the view in, so
+        // it only shrinks once the scene has actually stayed small.
+        fit_hist_[fit_n_ % kFitHistory] = fit_mm;
+        ++fit_n_;
+
+        const int n = std::min(fit_n_, kFitHistory);
+        float windowed = 0.0f;
+        for (int i = 0; i < n; ++i) windowed = std::max(windowed, fit_hist_[i]);
+
+        float target = std::min(std::max(windowed * 1.15f, 750.0f), 16000.0f);
+
+        // Deadband. Without it the range creeps every revolution by a percent or
+        // two, which reads as jitter even though each step is tiny. Inside the
+        // band the view is held perfectly still.
+        constexpr float kHold = 0.08f;
+        if (std::fabs(target - auto_range_mm_) <= kHold * auto_range_mm_)
+            target = auto_range_mm_;
+
+        const float k = (target > auto_range_mm_) ? kFitRise : kFitFall;
         auto_range_mm_ += (target - auto_range_mm_) * k;
     }
 }
@@ -955,6 +971,10 @@ void RadarView::clear()
     nearest_bearing_deg_ = 0.0f;
     measure_active_     = false;
     measure_mm_         = 0.0f;
+
+    // Otherwise a reconnect fits to the previous room for the next 2.4 s.
+    fit_n_ = 0;
+    for (int i = 0; i < kFitHistory; ++i) fit_hist_[i] = 0.0f;
 }
 
 // ------------------------------------------------------------- view model ---

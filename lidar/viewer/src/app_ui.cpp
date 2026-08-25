@@ -1,13 +1,15 @@
 // Application layout: interactive map, a control bar beneath it, and a rail of
 // readouts. Plain Dear ImGui widgets throughout.
 //
-// Deliberately fits one viewport with no scrolling anywhere.
+// Deliberately fits one viewport with no scrolling anywhere. The rail carries a
+// lot of telemetry, so it is split across tabs rather than made scrollable.
 #include "app_ui.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdarg>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -32,26 +34,53 @@ float g_dpi         = 1.0f;
 LidarFrame g_frame;
 bool       g_have_frame = false;
 
-// Derived per-frame statistics the device does not report directly.
+// The C1 is specified over 0.05 - 12 m. Returns outside that window are the
+// housing (below) or unreliable long-range noise (above). The same window
+// governs what the map draws, so nothing is ever shown that is not also
+// counted.
+constexpr float kMinValidMm = 50.0f;
+constexpr float kMaxValidMm = 12000.0f;
+
+// ---------------------------------------------------------------- derived ---
+// Recomputed once per revolution, not per UI frame. LidarFrame's own
+// valid_count / max_dist_mm are deliberately raw (every return the device
+// sent), so everything spec-bounded is derived here.
+
 float g_mean_mm   = 0.0f;
+float g_max_mm    = 0.0f;
 float g_points_ps = 0.0f;
+
+// Return classification. These four sum to the revolution's sample count.
+int g_n_inspec   = 0;
+int g_n_noreturn = 0;   // dist == 0, the device saw nothing that way
+int g_n_toonear  = 0;   // 0 < dist < 50 mm, housing reflection
+int g_n_toofar   = 0;   // dist > 12 m, beyond the rated range
+
+// Signal quality, over in-spec returns only.
+float g_q_mean = 0.0f;
+int   g_q_min  = 0;
+int   g_q_max  = 0;
+
+constexpr int kQualityBuckets = 16;         // 0..63 folded into 16 bins
+float g_q_hist[kQualityBuckets] = {};
+float g_q_hist_max = 1.0f;
+
+constexpr int kDistBuckets = 24;            // 0..12 m in 0.5 m bins
+float g_dist_hist[kDistBuckets] = {};
+float g_dist_hist_max = 1.0f;
+
+// Angular coverage: fraction of 1-degree bins with at least one in-spec return.
+float g_coverage = 0.0f;
 
 // Clearance: distance to the nearest return in each 30 degree sector, in metres.
 constexpr int kSectors = 12;
 float g_sector_m[kSectors] = {};
 constexpr float kClearanceCapM = 2.5f;   // beyond this a direction is just "clear"
 
-// The C1 is specified over 0.05 - 12 m. Returns outside that window are the
-// housing (below) or unreliable long-range noise (above), and they otherwise
-// dominate the nearest and max readouts respectively. The same window governs
-// what the map draws, so nothing is ever shown that is not also counted.
-constexpr float kMinValidMm = 50.0f;
-constexpr float kMaxValidMm = 12000.0f;
-
-// Frame statistics recomputed over that window, because LidarFrame's own
-// valid_count / max_dist_mm are deliberately raw (every return the device sent).
-int   g_valid_n = 0;
-float g_max_mm  = 0.0f;
+// --tab <name> preselects a rail tab at startup, for screenshots and for
+// launching straight into the readout you care about.
+int g_force_tab        = -1;
+int g_force_tab_frames = 0;
 
 // Rolling rotation-rate history for the sparkline.
 constexpr int kHistory = 240;
@@ -118,36 +147,71 @@ void RecomputeDerived()
     g_points_ps = g_frame.hz * (float)g_frame.points.size();
 
     float sector_mm[kSectors] = {};
+    for (int i = 0; i < kQualityBuckets; ++i) g_q_hist[i] = 0.0f;
+    for (int i = 0; i < kDistBuckets; ++i)    g_dist_hist[i] = 0.0f;
 
-    double sum = 0.0;
-    int    n   = 0;
+    static bool bin_seen[360];
+    std::memset(bin_seen, 0, sizeof(bin_seen));
 
-    float max_mm = 0.0f;
+    double sum   = 0.0;
+    double q_sum = 0.0;
+    int    n     = 0;
+    float  max_mm = 0.0f;
+    int    q_lo = 255, q_hi = 0;
+
+    g_n_noreturn = g_n_toonear = g_n_toofar = 0;
 
     for (const LidarPoint& p : g_frame.points)
     {
-        if (p.dist_mm < kMinValidMm || p.dist_mm > kMaxValidMm) continue;
+        if (p.dist_mm <= 0.0f)          { ++g_n_noreturn; continue; }
+        if (p.dist_mm < kMinValidMm)    { ++g_n_toonear;  continue; }
+        if (p.dist_mm > kMaxValidMm)    { ++g_n_toofar;   continue; }
 
         sum += p.dist_mm;
         ++n;
         if (p.dist_mm > max_mm) max_mm = p.dist_mm;
 
+        q_sum += p.quality;
+        if (p.quality < q_lo) q_lo = p.quality;
+        if (p.quality > q_hi) q_hi = p.quality;
+
+        int qb = (int)p.quality * kQualityBuckets / 64;
+        qb = std::min(std::max(qb, 0), kQualityBuckets - 1);
+        g_q_hist[qb] += 1.0f;
+
+        int db = (int)(p.dist_mm / (kMaxValidMm / kDistBuckets));
+        db = std::min(std::max(db, 0), kDistBuckets - 1);
+        g_dist_hist[db] += 1.0f;
+
+        int ab = (int)p.angle_deg;
+        if (ab >= 0 && ab < 360) bin_seen[ab] = true;
+
         int s = (int)(p.angle_deg / (360.0f / kSectors));
-        if (s < 0) s = 0;
-        if (s >= kSectors) s = kSectors - 1;
+        s = std::min(std::max(s, 0), kSectors - 1);
 
         // Nearest return wins the sector - that is the obstacle that matters.
         if (sector_mm[s] == 0.0f || p.dist_mm < sector_mm[s])
             sector_mm[s] = p.dist_mm;
     }
 
-    g_mean_mm = n ? (float)(sum / n) : 0.0f;
-    g_valid_n = n;
-    g_max_mm  = max_mm;
+    g_n_inspec = n;
+    g_mean_mm  = n ? (float)(sum / n) : 0.0f;
+    g_max_mm   = max_mm;
+    g_q_mean   = n ? (float)(q_sum / n) : 0.0f;
+    g_q_min    = n ? q_lo : 0;
+    g_q_max    = n ? q_hi : 0;
+
+    int covered = 0;
+    for (int i = 0; i < 360; ++i) if (bin_seen[i]) ++covered;
+    g_coverage = covered / 360.0f;
+
+    g_q_hist_max = 1.0f;
+    for (int i = 0; i < kQualityBuckets; ++i) g_q_hist_max = std::max(g_q_hist_max, g_q_hist[i]);
+    g_dist_hist_max = 1.0f;
+    for (int i = 0; i < kDistBuckets; ++i) g_dist_hist_max = std::max(g_dist_hist_max, g_dist_hist[i]);
 
     // Capped, not scaled to the maximum: one open doorway at 8 m would
-    // otherwise crush every near-field bar to invisibility. Past the cap a
-    // direction is simply "clear", which is all the chart needs to say.
+    // otherwise crush every near-field bar to invisibility.
     for (int i = 0; i < kSectors; ++i)
         g_sector_m[i] = std::min(sector_mm[i] / 1000.0f, kClearanceCapM);
 
@@ -276,30 +340,35 @@ void StatCell(const char* value, const char* caption, ImU32 color)
     ImGui::TextDisabled("%s", caption);
 }
 
+void KeyValue(const char* k, const char* fmt, ...)
+{
+    char buf[128];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn(); ImGui::TextDisabled("%s", k);
+    ImGui::TableNextColumn(); ImGui::TextUnformatted(buf);
+}
+
 void DrawConnection()
 {
-    ImGui::SeparatorText("Connection");
-
     const bool busy = Busy();
 
     ImGui::BeginDisabled(busy);
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (g_port_items.empty())
-    {
         ImGui::TextDisabled("No serial ports found");
-    }
     else
-    {
         ImGui::Combo("##port", &g_port_index, g_port_items.data(), (int)g_port_items.size());
-    }
 
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::Combo("##baud", &g_baud_index, kBaudItems, 3);
     ImGui::EndDisabled();
 
-    ImGui::Spacing();
-
-    const float bh = ImGui::GetFrameHeight() * 1.25f;
+    const float bh = ImGui::GetFrameHeight() * 1.2f;
     if (busy)
     {
         if (ImGui::Button("Disconnect", ImVec2(-FLT_MIN, bh))) g_lidar.stop();
@@ -314,17 +383,14 @@ void DrawConnection()
     const std::string err = g_lidar.error();
     if (!err.empty() && g_lidar.state() == LidarState::Error)
     {
-        ImGui::Spacing();
         ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::bad);
         ImGui::TextWrapped("%s", err.c_str());
         ImGui::PopStyleColor();
     }
 }
 
-void DrawLive()
+void TabLive()
 {
-    ImGui::SeparatorText("Live");
-
     char hz[24] = "--", pts[24] = "--", valid[24] = "--";
     char near_s[24] = "--", mean_s[24] = "--", max_s[24] = "--";
 
@@ -333,10 +399,8 @@ void DrawLive()
         std::snprintf(hz,  sizeof(hz),  "%.1f", g_frame.hz);
         std::snprintf(pts, sizeof(pts), "%d",   (int)g_frame.points.size());
 
-        // Fraction of the revolution that produced a usable in-spec return.
         const double frac = g_frame.points.empty()
-                          ? 0.0
-                          : (double)g_valid_n / (double)g_frame.points.size();
+                          ? 0.0 : (double)g_n_inspec / (double)g_frame.points.size();
         std::snprintf(valid, sizeof(valid), "%d%%", (int)(frac * 100.0 + 0.5));
 
         if (g_radar.has_nearest())
@@ -350,7 +414,7 @@ void DrawLive()
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); StatCell(hz,     "Hz",       ui::plot::ok);
         ImGui::TableNextColumn(); StatCell(pts,    "pts/rev",  ui::plot::ramp_far);
-        ImGui::TableNextColumn(); StatCell(valid,  "valid",    ui::plot::ramp_mid);
+        ImGui::TableNextColumn(); StatCell(valid,  "in-spec",  ui::plot::ramp_mid);
 
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); StatCell(near_s, "near (m)", ui::plot::nearest);
@@ -359,27 +423,14 @@ void DrawLive()
         ImGui::EndTable();
     }
 
-    ImGui::Spacing();
-
     char overlay[48];
     std::snprintf(overlay, sizeof(overlay), "rotation  %.1f Hz", g_have_frame ? g_frame.hz : 0.0f);
     ImGui::PlotLines("##hz", g_hz_hist, g_hz_count, 0, overlay,
-                     0.0f, 15.0f, ImVec2(-FLT_MIN, 52.0f * g_dpi));
+                     0.0f, 15.0f, ImVec2(-FLT_MIN, 46.0f * g_dpi));
 
-    // The map marks the blind disc, but the numbers above are filtered by the
-    // same floor, so it belongs next to them too.
-    ScopedFont sf(ui::fonts.small);
-    ImGui::TextDisabled("in-spec range %.2f - %.0f m", kMinValidMm / 1000.0f,
-                        kMaxValidMm / 1000.0f);
-}
-
-void DrawClearance()
-{
-    ImGui::SeparatorText("Clearance by sector (m, capped 2.5 m)");
-
-    // Plotted as absolute distance, so a tall bar means a clear direction.
+    ImGui::TextDisabled("Clearance by sector (m, capped %.1f)", kClearanceCapM);
     ImGui::PlotHistogram("##sectors", g_sector_m, kSectors, 0, nullptr,
-                         0.0f, kClearanceCapM, ImVec2(-FLT_MIN, 70.0f * g_dpi));
+                         0.0f, kClearanceCapM, ImVec2(-FLT_MIN, 58.0f * g_dpi));
 
     ScopedFont sf(ui::fonts.small);
     ImGui::TextDisabled("0 deg");
@@ -389,34 +440,104 @@ void DrawClearance()
     ImGui::TextDisabled("360");
 }
 
-void DrawDevice()
+void TabSignal()
 {
-    ImGui::SeparatorText("Device");
+    // Return classification. These four sum to the revolution's sample count,
+    // which is what makes the in-spec percentage interpretable rather than
+    // just low.
+    const int total = g_have_frame ? (int)g_frame.points.size() : 0;
 
+    ImGui::TextDisabled("Returns this revolution (%d samples)", total);
+
+    if (ImGui::BeginTable("returns", 3, ImGuiTableFlags_SizingStretchSame |
+                                        ImGuiTableFlags_RowBg))
+    {
+        auto cell = [&](const char* label, int n, ImU32 col)
+        {
+            ImGui::TableNextColumn();
+            ImGui::PushStyleColor(ImGuiCol_Text, col);
+            ImGui::Text("%d", n);
+            ImGui::PopStyleColor();
+            ScopedFont sf(ui::fonts.small);
+            ImGui::TextDisabled("%s", label);
+            if (total > 0) ImGui::TextDisabled("%.0f%%", 100.0 * n / total);
+        };
+
+        ImGui::TableNextRow();
+        cell("in spec",  g_n_inspec,   ui::plot::ok);
+        cell("no return", g_n_noreturn, ui::plot::idle);
+        cell("< 50 mm",  g_n_toonear,  ui::plot::warn);
+
+        ImGui::EndTable();
+    }
+
+    if (g_n_toofar > 0)
+        ImGui::TextDisabled("beyond 12 m: %d", g_n_toofar);
+    else
+        ImGui::TextDisabled("beyond 12 m: none");
+
+    ImGui::Spacing();
+
+    // Signal quality is reported per measurement by the device and is otherwise
+    // completely invisible - it is the main clue when returns start dropping.
+    ImGui::TextDisabled("Signal quality  (mean %.1f, range %d-%d of 63)",
+                        g_q_mean, g_q_min, g_q_max);
+    ImGui::PlotHistogram("##qhist", g_q_hist, kQualityBuckets, 0, nullptr,
+                         0.0f, g_q_hist_max, ImVec2(-FLT_MIN, 62.0f * g_dpi));
+
+    ScopedFont sf(ui::fonts.small);
+    ImGui::TextDisabled("weak");
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.82f);
+    ImGui::TextDisabled("strong");
+}
+
+void TabScan()
+{
+    const LidarScanInfo si = g_lidar.scan_info();
+
+    const float ang_res = (g_have_frame && !g_frame.points.empty())
+                        ? 360.0f / (float)g_frame.points.size() : 0.0f;
+
+    if (ImGui::BeginTable("scan", 2, ImGuiTableFlags_SizingStretchProp))
+    {
+        KeyValue("Mode", "%s", si.mode.empty() ? "--" : si.mode.c_str());
+        KeyValue("Mode id", "%d", si.mode_id);
+        KeyValue("Sample period", si.us_per_sample > 0 ? "%.2f us" : "--",
+                 si.us_per_sample);
+        KeyValue("Sample rate", si.us_per_sample > 0 ? "%.2f kHz" : "--",
+                 si.us_per_sample > 0 ? 1000.0f / si.us_per_sample : 0.0f);
+        KeyValue("Mode max range", si.max_distance_m > 0 ? "%.1f m" : "--",
+                 si.max_distance_m);
+        KeyValue("Angular res", ang_res > 0 ? "%.2f deg" : "--", ang_res);
+        KeyValue("Coverage", "%.0f%% of 360 deg", g_coverage * 100.0f);
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Range distribution (0 - 12 m, 0.5 m bins)");
+    ImGui::PlotHistogram("##dhist", g_dist_hist, kDistBuckets, 0, nullptr,
+                         0.0f, g_dist_hist_max, ImVec2(-FLT_MIN, 70.0f * g_dpi));
+
+    ScopedFont sf(ui::fonts.small);
+    ImGui::TextDisabled("0");
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.45f);
+    ImGui::TextDisabled("6 m");
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.88f);
+    ImGui::TextDisabled("12 m");
+}
+
+void TabDevice()
+{
     const LidarDeviceInfo info = g_lidar.info();
+    const LidarStats      st   = g_lidar.stats();
     const bool known = !info.serial.empty();
 
     if (ImGui::BeginTable("dev", 2, ImGuiTableFlags_SizingStretchProp))
     {
-        auto row = [](const char* k, const char* v)
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::TextDisabled("%s", k);
-            ImGui::TableNextColumn(); ImGui::TextUnformatted(v);
-        };
-
-        char model[32] = "--", fw[32] = "--", hw[32] = "--";
-        if (known)
-        {
-            std::snprintf(model, sizeof(model), "0x%02X", info.model);
-            std::snprintf(fw,    sizeof(fw),    "%d.%02d", info.fw_major, info.fw_minor);
-            std::snprintf(hw,    sizeof(hw),    "rev %d", info.hw_rev);
-        }
-
-        row("Model", model);
-        row("Firmware", fw);
-        row("Hardware", hw);
-        row("Health", known ? (info.health == 0 ? "OK" : "check") : "--");
+        KeyValue("Model",    known ? "0x%02X" : "--", info.model);
+        KeyValue("Firmware", known ? "%d.%02d" : "--", info.fw_major, info.fw_minor);
+        KeyValue("Hardware", known ? "rev %d" : "--", info.hw_rev);
+        KeyValue("Health",   "%s", known ? (info.health == 0 ? "OK" : "check") : "--");
         ImGui::EndTable();
     }
 
@@ -424,6 +545,40 @@ void DrawDevice()
     {
         ScopedFont sf(ui::fonts.small);
         ImGui::TextDisabled("%s", info.serial.c_str());
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Session");
+
+    if (ImGui::BeginTable("sess", 2, ImGuiTableFlags_SizingStretchProp))
+    {
+        const int mins = (int)(st.uptime_s / 60.0);
+        const int secs = (int)st.uptime_s % 60;
+
+        KeyValue("Uptime", "%dm %02ds", mins, secs);
+        KeyValue("Revolutions", "%llu", st.frames);
+        KeyValue("Measurements", "%llu", st.points);
+        KeyValue("Dropped revs", "%u", st.timeouts);
+        KeyValue("Avg rate", st.uptime_s > 1.0 ? "%.2f Hz" : "--",
+                 st.uptime_s > 1.0 ? (double)st.frames / st.uptime_s : 0.0);
+        ImGui::EndTable();
+    }
+
+    // Pre-heat matters: the dToF core drifts with die temperature and cold
+    // readings sit outside the calibrated point. See docs/calibration.md.
+    ScopedFont sf(ui::fonts.small);
+    if (st.uptime_s > 0.0 && st.uptime_s < 120.0)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::warn);
+        ImGui::TextWrapped("Warming up - %.0fs of 120s. Ranges drift until the "
+                           "scan core reaches temperature.", st.uptime_s);
+        ImGui::PopStyleColor();
+    }
+    else if (st.uptime_s >= 120.0)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::plot::ok);
+        ImGui::TextUnformatted("Warmed up - measurements are trustworthy.");
+        ImGui::PopStyleColor();
     }
 }
 
@@ -478,7 +633,7 @@ void app::Init(float dpi_scale)
 
     // --connect [port] [baud] pins a specific port; --no-connect suppresses the
     // automatic attempt. With neither, we just connect: this is a single-purpose
-    // tool and the overwhelmingly common case is "plug it in and look at it".
+    // tool and the common case is "plug it in and look at it".
     bool suppress = false;
 
     for (int i = 1; i < __argc; ++i)
@@ -488,6 +643,19 @@ void app::Init(float dpi_scale)
             suppress = true;
             continue;
         }
+
+        if (std::strcmp(__argv[i], "--tab") == 0 && i + 1 < __argc)
+        {
+            const char* names[4] = { "live", "signal", "scan", "device" };
+            for (int k = 0; k < 4; ++k)
+                if (_stricmp(__argv[i + 1], names[k]) == 0)
+                {
+                    g_force_tab = k;
+                    g_force_tab_frames = 4;
+                }
+            continue;
+        }
+
         // --range <metres> pins the view instead of auto-fitting.
         if (std::strcmp(__argv[i], "--range") == 0 && i + 1 < __argc)
         {
@@ -501,7 +669,6 @@ void app::Init(float dpi_scale)
 
         if (std::strcmp(__argv[i], "--connect") != 0) continue;
 
-        // A bare "--connect" is still valid; the arguments are optional.
         if (i + 1 < __argc && __argv[i + 1][0] != '-')
         {
             for (int p = 0; p < (int)g_ports.size(); ++p)
@@ -538,7 +705,7 @@ void app::Frame()
                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     const ImVec2 avail  = ImGui::GetContentRegionAvail();
-    const float  rail_w = std::min(360.0f * g_dpi, avail.x * 0.34f);
+    const float  rail_w = std::min(380.0f * g_dpi, avail.x * 0.36f);
     const float  gap    = ImGui::GetStyle().ItemSpacing.x;
     const float  ctrl_h = ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2.0f;
     const float  map_w  = avail.x - rail_w - gap;
@@ -566,9 +733,27 @@ void app::Frame()
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
         DrawConnection();
-        DrawLive();
-        DrawClearance();
-        DrawDevice();
+
+        // Tabs rather than a scrollbar: there is more telemetry here than fits
+        // at once, and the no-scroll rule is deliberate.
+        if (ImGui::BeginTabBar("##tabs"))
+        {
+            // --tab selects one at startup. The flag has to persist for a few
+            // frames: the tab bar only honours SetSelected once it has laid the
+            // items out, which is not on frame one.
+            auto sel = [](int which)
+            {
+                return (g_force_tab == which && g_force_tab_frames > 0)
+                     ? ImGuiTabItemFlags_SetSelected : 0;
+            };
+            if (g_force_tab_frames > 0) --g_force_tab_frames;
+
+            if (ImGui::BeginTabItem("Live",   nullptr, sel(0))) { TabLive();   ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Signal", nullptr, sel(1))) { TabSignal(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Scan",   nullptr, sel(2))) { TabScan();   ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Device", nullptr, sel(3))) { TabDevice(); ImGui::EndTabItem(); }
+            ImGui::EndTabBar();
+        }
     }
     ImGui::EndChild();
 

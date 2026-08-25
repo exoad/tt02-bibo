@@ -73,6 +73,14 @@ private:
     bool   auto_fit_       = true;
     float  auto_range_mm_  = 4000.0f; // eased target radius while auto-fitting
 
+    // Recent per-revolution fit distances. The auto-fit target is the largest
+    // of these rather than the newest, so the view only shrinks once the scene
+    // has genuinely stayed small - a single sparse revolution cannot pull it in
+    // and then let it spring back.
+    static constexpr int kFitHistory = 24;   // ~2.4 s at 10 Hz
+    float fit_hist_[kFitHistory] = {};
+    int   fit_n_ = 0;
+
     // Cached widget geometry from the last draw().
     ImVec2 center_px_ = ImVec2(0.0f, 0.0f);
     float  radius_px_ = 0.0f;
