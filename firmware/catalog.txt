@@ -1,0 +1,14 @@
+# Firmware catalog for the GUI's Flash tab.
+#
+# Format, pipe separated:
+#   id | name | uf2 path | buildable | description
+#
+# The uf2 path is relative to the REPO ROOT. `buildable` is yes/no - yes means
+# firmware\build.bat produces it, so the GUI offers a Build button.
+#
+# Lines starting with # and blank lines are ignored. Add your own entries here;
+# anything with a .uf2 on disk can be flashed, whether this repo built it or not.
+
+pico_debug   | Debug / Blink        | firmware/build/pico_debug.uf2        | yes | LED blink plus a serial command console (PING, ID, STATUS, LED, BOOTSEL). The bring-up image - flash this when you want to prove the board and the link.
+
+tt02_control | tt02_control (backup)| vendor/tt02_control-backup.uf2       | no  | Read back off the board on 2026-08-24 before it was first reflashed here. Servo/ESC controller with a watchdog; answers `?` with a status line and holds 1500us neutral on both channels. Source lives on the MacBook, NOT in this repo - this .uf2 is the only copy on this machine.
