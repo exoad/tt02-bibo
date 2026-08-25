@@ -13,10 +13,10 @@ namespace ui {
 // PushFont base size is always the font's own LegacySize - never re-multiplied.
 namespace size {
 inline constexpr float small = 15.0f;   // captions, axis labels, HUD
-inline constexpr float body  = 18.0f;   // default UI text
-inline constexpr float title = 22.0f;   // section headings
-inline constexpr float stat  = 30.0f;   // metric values
-inline constexpr float big   = 40.0f;   // hero numerals
+inline constexpr float body  = 17.0f;   // default UI text
+inline constexpr float title = 20.0f;   // section headings
+inline constexpr float stat  = 24.0f;   // metric values
+inline constexpr float big   = 30.0f;   // hero numerals
 }
 
 struct Fonts
@@ -56,6 +56,28 @@ inline constexpr ImU32 idle    = IM_COL32(0x88, 0x88, 0x92, 0xFF);
 
 } // namespace plot
 
+// ---------------------------------------------------------------------------
+// Semantic colours for UI TEXT. This is the whole palette; there is no other.
+//
+// The rule: colour means something or it is not used. A readout is drawn in the
+// default text colour unless its VALUE carries a state — connected, degraded,
+// failed. Numbers are not tinted to tell them apart; their labels do that.
+//
+// Everything else (buttons, frames, headers, tabs, scrollbars) keeps stock
+// ImGui dark. Do not tint a widget to make it stand out; place it better.
+//
+// `plot::` above is a different thing: those are DATA colours for the map, where
+// hue encodes a measured quantity rather than a UI state.
+// ---------------------------------------------------------------------------
+namespace sem {
+
+inline constexpr ImU32 good  = plot::ok;     // healthy, connected, in spec
+inline constexpr ImU32 warn  = plot::warn;   // degraded, waiting, out of spec
+inline constexpr ImU32 bad   = plot::bad;    // failed, disconnected, error
+inline constexpr ImU32 muted = plot::idle;   // absent, idle, not applicable
+
+} // namespace sem
+
 // Loads Segoe UI at the sizes above, falling back to ImGui's built-in font if
 // it is unavailable. Never leaves a null ImFont*. Call once after
 // ImGui::CreateContext() and before the first frame.
@@ -68,5 +90,30 @@ void ApplyStyle(float dpi_scale);
 // base size - LoadFonts has already baked DPI into each font's LegacySize.
 void  SetDpiScale(float scale);
 float DpiScale();
+
+// ---------------------------------------------------------------------------
+// Aero gloss
+//
+// The signature mid-2000s look is a lit top half and a specular line near the
+// top edge. Rather than reimplement widgets, these draw OVER a stock widget
+// that has already been submitted, so `ImGui::Button` stays `ImGui::Button` and
+// keeps all its normal behaviour, sizing and keyboard nav.
+//
+// Usage:
+//     if (ImGui::Button("Connect")) { ... }
+//     ui::GlossLastItem();
+// ---------------------------------------------------------------------------
+
+// Glosses the item just submitted. Skips itself when the item is clipped or
+// degenerate. `strength` scales the effect; 0 disables it.
+void GlossLastItem(float strength = 1.0f);
+
+// Glosses an arbitrary rect - for panels and custom-drawn surfaces.
+void GlossRect(const ImVec2& p_min, const ImVec2& p_max, float rounding,
+               float strength = 1.0f);
+
+// A vertical sky gradient for a window or panel background. Aero's other half:
+// surfaces are lit from above rather than being one flat colour.
+void SkyBackdrop(const ImVec2& p_min, const ImVec2& p_max, float rounding = 0.0f);
 
 } // namespace ui
