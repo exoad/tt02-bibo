@@ -120,9 +120,16 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 {
     ImGuiIO& io = ImGui::GetIO();
 
-    ImFont* const font   = (fonts.mono != nullptr) ? fonts.mono : fonts.body;
-    const Float32 fontSz = (font != nullptr && font->LegacySize > 0.0f)
-                         ? font->LegacySize : ImGui::GetFontSize();
+    ImFont* const font = (fonts.mono != nullptr) ? fonts.mono : fonts.body;
+
+    // Multiplied by fontScale() so the editor takes part in the floating
+    // workspace's optical zoom. Without it the panel grows and the text does
+    // not, which reads as the editor reflowing rather than zooming - more
+    // columns at the same size, when what was wanted was the same columns
+    // bigger.
+    const Float32 fontSz = ((font != nullptr && font->LegacySize > 0.0f)
+                            ? font->LegacySize : ImGui::GetFontSize())
+                         * fontScale();
 
     ImGui::PushFont(font, fontSz);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, syn::gruv::BG0_H);

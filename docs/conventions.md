@@ -275,10 +275,19 @@ cursor, dragging empty space (or middle-dragging anywhere) pans.
 Both render the **same** view bodies via `drawViewBody()`. A tab and a panel
 showing "2D" are one picture, not two implementations of it.
 
-Zoom scales panel **positions and sizes**, not rasterised pixels: text stays
-legible at every zoom and content re-lays-out into the space it is given. At low
-zoom you fit more panels on screen with less in each, rather than seeing the same
-content smaller. That is a board, not a photograph of a board.
+Zoom is **optical**: the same content, bigger or smaller, never reflowed. A
+zoomed panel raises `ui::dpiScale()` by the same factor for the duration of its
+draw, so padding, radii, line thicknesses and the editor's character cell all
+grow together, and `ui::fontScale()` carries the text along. The layout then
+occupies the same *proportion* of a panel that is itself larger.
+
+Doing nothing would have given reflow instead - a bigger panel is more pixels,
+so the editor would show more columns at the same size and the map would fit a
+wider range. That is showing more, not zooming.
+
+The scale is saved and restored **around each panel**, never set globally: the
+sidebar and the status bar live outside the canvas and must not move when the
+board zooms.
 
 Layout, canvas and every panel rect persist in `%LOCALAPPDATA%/tt02-auto/panels.txt`.
 `--layout floating` / `--layout tabbed` picks one at startup.

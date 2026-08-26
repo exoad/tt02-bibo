@@ -256,6 +256,17 @@ Void applyStyle(Float32 dpiScale);
 Void  setDpiScale(Float32 scale);
 Float32 dpiScale();
 
+// How far the CURRENT geometry scale has been pushed past the one the fonts were
+// baked at. 1.0 normally.
+//
+// It exists for the floating workspace's optical zoom. A zoomed panel raises the
+// geometry scale so its padding, radii and gaps grow - but a font's size is
+// already baked into its LegacySize and does not follow. Anything that pushes an
+// explicit font size (the code editor does, because it needs the mono face)
+// multiplies by this, and then the text grows WITH the panel instead of staying
+// put while everything around it moves.
+[[nodiscard]] Float32 fontScale();
+
 // ---------------------------------------------------------------------------
 // The USER's zoom, on top of whatever the monitor's DPI already is.
 //
