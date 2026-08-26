@@ -12,8 +12,6 @@
 #include "shared.hpp"
 
 #include <cstddef>
-#include <string>
-#include <vector>
 
 enum class PicoState
 {
@@ -55,7 +53,7 @@ public:
 
     // Moves newly logged lines into `out` (appending). Returns how many were
     // appended. Call once per UI frame.
-    Size drain(std::vector<PicoLine>& out);
+    Size drain(Vec<PicoLine>& out);
 
     UInt64 txLines() const;
     UInt64 rxLines() const;
@@ -66,7 +64,7 @@ public:
     Float64 lastRxAgeS() const;
 
     // Serial ports whose USB VID is 2E8A (Raspberry Pi). Never throws.
-    static std::vector<Str> listPicoPorts();
+    static Vec<Str> listPicoPorts();
 
     // Opens `port` at 1200 baud and closes it, which the Pico SDK's USB reset
     // interface interprets as "reboot into BOOTSEL". That is what makes flashing

@@ -65,7 +65,10 @@ Void Editor::setText(const Str& t)
         const Char c = t[i];
         if(c == '\r')
             continue;                    // CRLF in, LF held internally
-        if(c == '\n') { lines.push_back(acc); acc.clear(); continue; }
+        if(c == '\n')
+        {
+            lines.push_back(acc); acc.clear(); continue;;
+        }
         acc.push_back(c);
     }
     lines.push_back(acc);
@@ -718,11 +721,15 @@ Void Editor::put(Bool beforeCursor)
     if(yankLinewise)
     {
         // Split the register on newlines and splice whole lines in.
-        std::vector<Str> add;
+        Vec<Str> add;
         Str acc;
         for(Size i = 0; i < yankBuf.size(); ++i)
         {
-            if(yankBuf[i] == '\n') { add.push_back(acc); acc.clear(); continue; }
+            if(yankBuf[i] == '\n')
+            {
+                add.push_back(acc);
+                acc.clear(); continue;
+            }
             acc.push_back(yankBuf[i]);
         }
         if(!acc.empty())
@@ -784,8 +791,18 @@ Void Editor::applyInsertKey(const Key& k)
         setMode(Mode::MODE_NORMAL);
         return;
     }
-    if(k.sp == Special::SPECIAL_ENTER)  { pushUndo(); newlineWithIndent(); return; }
-    if(k.sp == Special::SPECIAL_BACKSPACE) { pushUndo(); backspace();      return; }
+    if(k.sp == Special::SPECIAL_ENTER)
+    {
+        pushUndo();
+        newlineWithIndent();
+        return;
+    }
+    if(k.sp == Special::SPECIAL_BACKSPACE)
+    {
+        pushUndo();
+        backspace();
+        return;
+    }
     if(k.sp == Special::SPECIAL_TAB)
     {
         pushUndo();
@@ -805,11 +822,31 @@ Void Editor::applyInsertKey(const Key& k)
         }
         return;
     }
-    if(k.sp == Special::SPECIAL_LEFT)  { --cur.col; return; }
-    if(k.sp == Special::SPECIAL_RIGHT) { ++cur.col; return; }
-    if(k.sp == Special::SPECIAL_UP)    { --cur.line; return; }
-    if(k.sp == Special::SPECIAL_DOWN)  { ++cur.line; return; }
-    if(k.sp == Special::SPECIAL_HOME)  { cur.col = 0; return; }
+    if(k.sp == Special::SPECIAL_LEFT)
+    {
+        --cur.col;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_RIGHT)
+    {
+        ++cur.col;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_UP)
+    {
+        --cur.line;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_DOWN)
+    {
+        ++cur.line;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_HOME)
+    {
+        cur.col = 0;
+        return;
+    }
     if(k.sp == Special::SPECIAL_END)
     {
         cur.col = static_cast<Int32>(line(cur.line).size());
@@ -835,11 +872,31 @@ Void Editor::applyNormalKey(const Key& k)
     // Arrows work in every mode. Modal editing is a preference, not a hostage
     // situation, and somebody reaching for an arrow key should get a cursor
     // move rather than nothing.
-    if(k.sp == Special::SPECIAL_LEFT)  { --cur.col;  return; }
-    if(k.sp == Special::SPECIAL_RIGHT) { ++cur.col;  return; }
-    if(k.sp == Special::SPECIAL_UP)    { --cur.line; return; }
-    if(k.sp == Special::SPECIAL_DOWN)  { ++cur.line; return; }
-    if(k.sp == Special::SPECIAL_HOME)  { cur.col = 0; return; }
+    if(k.sp == Special::SPECIAL_LEFT)
+    {
+        --cur.col;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_RIGHT)
+    {
+        ++cur.col;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_UP)
+    {
+        --cur.line;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_DOWN)
+    {
+        ++cur.line;
+        return;
+    }
+    if(k.sp == Special::SPECIAL_HOME)
+    {
+        cur.col = 0;
+        return;
+    }
     if(k.sp == Special::SPECIAL_END)
     {
         cur.col = std::max(0, static_cast<Int32>(line(cur.line).size()) - 1);
@@ -850,7 +907,11 @@ Void Editor::applyNormalKey(const Key& k)
     if(c == 0)
         return;
 
-    if(k.ctrl && (c == 'r' || c == 'R')) { redo(); return; }
+    if(k.ctrl && (c == 'r' || c == 'R'))
+    {
+        redo();
+        return;
+    }
 
     // ---- pending r<char>: replace the character under the caret ------------
     if(pendOp == 'r')
@@ -917,8 +978,14 @@ Void Editor::applyNormalKey(const Key& k)
             Cursor      a    = Cursor{ cur.line, 0 };
             Cursor      b    = Cursor{ std::min(lineCount() - 1, cur.line + n - 1), 0 };
 
-            if(op == 'y')      { yankRange(a, b, true); }
-            else if(op == 'd') { deleteRange(a, b, true, true); }
+            if(op == 'y')
+            {
+                yankRange(a, b, true);;
+            }
+            else if(op == 'd')
+            {
+                deleteRange(a, b, true, true);;
+            }
             else               // cc: clear the lines but keep one, and insert
             {
                 yankRange(a, b, true);
@@ -1129,7 +1196,11 @@ Void Editor::applyVisualKey(const Key& k)
         return;
     }
 
-    if(c >= '1' && c <= '9') { pendCount = pendCount * 10 + (c - '0'); return; }
+    if(c >= '1' && c <= '9')
+    {
+        pendCount = pendCount * 10 + (c - '0');
+        return;
+    }
 
     {
         Cursor to;
@@ -1149,7 +1220,11 @@ Void Editor::applyVisualKey(const Key& k)
     {
     case 'd':
     case 'x':
-        if(selection(a, b)) { setMode(Mode::MODE_NORMAL); deleteRange(a, b, lineMode, true); }
+        if(selection(a, b))
+        {
+            setMode(Mode::MODE_NORMAL);
+            deleteRange(a, b, lineMode, true);
+        }
         break;
 
     case 'y':

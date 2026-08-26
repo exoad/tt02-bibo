@@ -14,19 +14,19 @@ namespace {
 
 // Scratch reused across lines and frames. The tokenizer clears it, so this only
 // exists to stop a per-line vector allocation sixty times a second.
-std::vector<syn::Span> spans;
+Vec<syn::Span> spans;
 
 // Whether a /* was open at the START of each line. Rebuilt whenever the buffer
 // changes, because a block comment opened at line 3 changes the colour of line
 // 400 and the renderer only ever sees the forty lines that are on screen.
-std::vector<Bool> blockAt;
+Vec<Bool> blockAt;
 
 Void rebuildBlockFlags(const ed::Editor& e)
 {
     blockAt.assign(static_cast<Size>(e.lineCount()) + 1, false);
 
     Bool                   open = false;
-    std::vector<syn::Span> tmp;
+    Vec<syn::Span> tmp;
     for(Int32 i = 0; i < e.lineCount(); ++i)
     {
         blockAt[static_cast<Size>(i)] = open;
@@ -198,7 +198,7 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
         if(v.popupOpen)
         {
-            std::vector<const cmpl::Item*> hits;
+            Vec<const cmpl::Item*> hits;
             cmpl::suggest(v.popupPrefix, hits, MAX_ENTRIES);
 
             if(!hits.empty())
@@ -303,7 +303,7 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
         if(word.size() >= MIN_PREFIX && !v.dismissed)
         {
-            std::vector<const cmpl::Item*> hits;
+            Vec<const cmpl::Item*> hits;
             v.popupOpen = (cmpl::suggest(word, hits, MAX_ENTRIES) > 0);
         }
         else
@@ -447,7 +447,7 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
     // child, which is what lets it hang below the last visible line.
     if(v.popupOpen)
     {
-        std::vector<const cmpl::Item*> hits;
+        Vec<const cmpl::Item*> hits;
         cmpl::suggest(v.popupPrefix, hits, MAX_ENTRIES);
 
         if(hits.empty())

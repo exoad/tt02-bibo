@@ -15,7 +15,6 @@
 #include "shared.hpp"
 
 #include <cmath>
-#include <vector>
 
 namespace mapgeo {
 
@@ -84,7 +83,7 @@ inline constexpr Float32 CORNER_MIN_DEG = 35.0f;
 inline constexpr Float32 CORNER_NEAR_MM = 220.0f;
 inline constexpr Size    CORNER_MAX     = 32u;
 
-Void findCorners(const std::vector<WallSeg>& w, std::vector<Corner>& out,
+Void findCorners(const Vec<WallSeg>& w, Vec<Corner>& out,
                  Float32 minRangeMm, Float32 maxRangeMm);
 
 // ---------------------------------------------------------------------------

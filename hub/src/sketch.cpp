@@ -25,9 +25,9 @@ Str dir()
     return d;
 }
 
-std::vector<Str> list()
+Vec<Str> list()
 {
-    std::vector<Str> out;
+    Vec<Str> out;
 
     const Str d = dir();
     if(d.empty())
@@ -78,9 +78,9 @@ Str firmwareDir()
     return root + "\\firmware\\src";
 }
 
-std::vector<Str> listFirmware()
+Vec<Str> listFirmware()
 {
-    std::vector<Str> out;
+    Vec<Str> out;
 
     const Str d = firmwareDir();
     if(d.empty())
@@ -235,7 +235,7 @@ Str starter()
 
 Str makeName()
 {
-    const std::vector<Str> have = list();
+    const Vec<Str> have = list();
 
     auto taken = [&have](const Str& n)
     {

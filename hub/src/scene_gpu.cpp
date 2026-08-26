@@ -87,15 +87,19 @@ struct Tri
     ImTextureID tex = 0;
 };
 
-std::vector<Tri> opaqueTris;
-std::vector<Tri> blendedTris;
+Vec<Tri> opaqueTris;
+Vec<Tri> blendedTris;
 
 Bool started = false;
 
 template <typename T>
 Void release(T*& p)
 {
-    if(p != nullptr) { p->Release(); p = nullptr; }
+    if(p != nullptr)
+    {
+        p->Release();
+        p = nullptr;
+    }
 }
 
 Void releaseTargets()
@@ -125,15 +129,35 @@ Bool ensureTargets(Int32 w, Int32 h)
     td.Usage            = D3D11_USAGE_DEFAULT;
     td.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
-    if(FAILED(dev->CreateTexture2D(&td, nullptr, &colorTex))) { releaseTargets(); return false; }
-    if(FAILED(dev->CreateRenderTargetView(colorTex, nullptr, &colorRtv))) { releaseTargets(); return false; }
-    if(FAILED(dev->CreateShaderResourceView(colorTex, nullptr, &colorSrv))) { releaseTargets(); return false; }
+    if(FAILED(dev->CreateTexture2D(&td, nullptr, &colorTex)))
+    {
+        releaseTargets();
+        return false;
+    }
+    if(FAILED(dev->CreateRenderTargetView(colorTex, nullptr, &colorRtv)))
+    {
+        releaseTargets();
+        return false;
+    }
+    if(FAILED(dev->CreateShaderResourceView(colorTex, nullptr, &colorSrv)))
+    {
+        releaseTargets();
+        return false;
+    }
 
     D3D11_TEXTURE2D_DESC dd = td;
     dd.Format    = DXGI_FORMAT_D32_FLOAT;
     dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-    if(FAILED(dev->CreateTexture2D(&dd, nullptr, &depthTex))) { releaseTargets(); return false; }
-    if(FAILED(dev->CreateDepthStencilView(depthTex, nullptr, &depthDsv))) { releaseTargets(); return false; }
+    if(FAILED(dev->CreateTexture2D(&dd, nullptr, &depthTex)))
+    {
+        releaseTargets();
+        return false;
+    }
+    if(FAILED(dev->CreateDepthStencilView(depthTex, nullptr, &depthDsv)))
+    {
+        releaseTargets();
+        return false;
+    }
 
     rtW = w;
     rtH = h;
@@ -228,7 +252,11 @@ Void init(ID3D11Device* device, ID3D11DeviceContext* context)
     cb.Usage          = D3D11_USAGE_DYNAMIC;
     cb.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if(FAILED(dev->CreateBuffer(&cb, nullptr, &cbuf))) { shutdown(); return; }
+    if(FAILED(dev->CreateBuffer(&cb, nullptr, &cbuf)))
+    {
+        shutdown();
+        return;
+    }
 
     // Cull NOTHING. The depth buffer decides visibility now, and letting it do
     // so means a mesh with inconsistent winding - which any downloaded model may
@@ -237,18 +265,30 @@ Void init(ID3D11Device* device, ID3D11DeviceContext* context)
     rd.FillMode        = D3D11_FILL_SOLID;
     rd.CullMode        = D3D11_CULL_NONE;
     rd.DepthClipEnable = TRUE;
-    if(FAILED(dev->CreateRasterizerState(&rd, &rasterizer))) { shutdown(); return; }
+    if(FAILED(dev->CreateRasterizerState(&rd, &rasterizer)))
+    {
+        shutdown();
+        return;
+    }
 
     D3D11_DEPTH_STENCIL_DESC ds = {};
     ds.DepthEnable    = TRUE;
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
     ds.DepthFunc      = D3D11_COMPARISON_LESS;
-    if(FAILED(dev->CreateDepthStencilState(&ds, &dsOpaque))) { shutdown(); return; }
+    if(FAILED(dev->CreateDepthStencilState(&ds, &dsOpaque)))
+    {
+        shutdown();
+        return;
+    }
 
     // Translucent geometry tests depth but does not write it, so two see-through
     // surfaces do not hide each other.
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-    if(FAILED(dev->CreateDepthStencilState(&ds, &dsBlended))) { shutdown(); return; }
+    if(FAILED(dev->CreateDepthStencilState(&ds, &dsBlended)))
+    {
+        shutdown();
+        return;
+    }
 
     D3D11_BLEND_DESC bd = {};
     bd.RenderTarget[0].BlendEnable           = TRUE;
@@ -259,14 +299,22 @@ Void init(ID3D11Device* device, ID3D11DeviceContext* context)
     bd.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_INV_SRC_ALPHA;
     bd.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-    if(FAILED(dev->CreateBlendState(&bd, &blendOn))) { shutdown(); return; }
+    if(FAILED(dev->CreateBlendState(&bd, &blendOn)))
+    {
+        shutdown();
+        return;
+    }
 
     D3D11_SAMPLER_DESC sd = {};
     sd.Filter   = D3D11_FILTER_MIN_MAG_MIP_POINT;   // a palette atlas; do not blur it
     sd.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    if(FAILED(dev->CreateSamplerState(&sd, &sampler))) { shutdown(); return; }
+    if(FAILED(dev->CreateSamplerState(&sd, &sampler)))
+    {
+        shutdown();
+        return;
+    }
 
     const UInt32 WHITE = 0xFFFFFFFFu;
     D3D11_TEXTURE2D_DESC wd = {};
@@ -430,7 +478,7 @@ ImTextureID end(const Float32* mvp)
     ctx->OMSetBlendState(blendOn, BLEND_FACTOR, 0xFFFFFFFFu);
 
     // Runs of one texture, drawn in one call each.
-    const auto drawRuns = [&](const std::vector<Tri>& tris, Int32 base) {
+    const auto drawRuns = [&](const Vec<Tri>& tris, Int32 base) {
         Size i = 0;
         while(i < tris.size())
         {

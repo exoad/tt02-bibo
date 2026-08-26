@@ -26,6 +26,7 @@ if not exist "%HERE%build" mkdir "%HERE%build"
 REM /MT matches the MultiThreaded static CRT the prebuilt driver lib was
 REM compiled with; anything else fails at link time with CRT conflicts.
 cl /nologo /EHsc /O2 /MT /W3 /std:c++20 ^
+  /I"%HERE%..\..\shared" ^
   /I "%ROOT%\vendor\rplidar_sdk\sdk\include" ^
   /I "%ROOT%\vendor\rplidar_sdk\sdk\src" ^
   "%HERE%test_lidar_source.cpp" ^

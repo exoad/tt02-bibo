@@ -72,7 +72,7 @@ Bool inList(const Char* const* list, Size n, const Char* s, Int32 len)
     return false;
 }
 
-Void push(std::vector<Span>& out, Int32 b, Int32 e, Role r)
+Void push(Vec<Span>& out, Int32 b, Int32 e, Role r)
 {
     if(e <= b)
         return;
@@ -94,7 +94,7 @@ Void push(std::vector<Span>& out, Int32 b, Int32 e, Role r)
 
 } // namespace
 
-Void tokenize(const Str& line, Bool& inBlock, std::vector<Span>& out)
+Void tokenize(const Str& line, Bool& inBlock, Vec<Span>& out)
 {
     out.clear();
 
@@ -190,8 +190,18 @@ Void tokenize(const Str& line, Bool& inBlock, std::vector<Span>& out)
             Int32 j = i + 1;
             while(j < n)
             {
-                if(p[j] == '\\') { j += 2; continue; }   // \" and \\ do not close
-                if(p[j] == c)    { ++j; break; }
+                // An escape consumes the next character, so \" and \\ do not
+                // close the literal.
+                if(p[j] == '\\')
+                {
+                    j += 2;
+                    continue;
+                }
+                if(p[j] == c)
+                {
+                    ++j;
+                    break;
+                }
                 ++j;
             }
             push(out, i, std::min(j, n), Role::ROLE_STRING);

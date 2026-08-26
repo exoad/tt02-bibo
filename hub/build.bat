@@ -54,7 +54,7 @@ if not exist "%OBJ%"   mkdir "%OBJ%"
 
 rem --- flags ------------------------------------------------------------------
 set "CFLAGS=/nologo /c /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS"
-set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%SDK%\sdk\include" /I"%SDK%\sdk\src""
+set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%SDK%\sdk\include" /I"%SDK%\sdk\src""
 
 rem --- Dear ImGui core + backends (compiled once, reused afterwards) ----------
 rem  imgui_demo.cpp is deliberately NOT built.

@@ -18,8 +18,6 @@
 
 #include "shared.hpp"
 
-#include <vector>
-
 namespace syn {
 
 // What a run of characters is, as far as colour is concerned.
@@ -54,7 +52,7 @@ struct Span
 //
 // `out` is cleared first. Spans are emitted in order and cover the line with no
 // gaps, so a renderer can walk them and never has to ask what lies between two.
-Void tokenize(const Str& line, Bool& inBlock, std::vector<Span>& out);
+Void tokenize(const Str& line, Bool& inBlock, Vec<Span>& out);
 
 // ---------------------------------------------------------------------------
 // Gruvbox dark (Pavel Pertsev's original "morhetz" palette), packed ABGR for

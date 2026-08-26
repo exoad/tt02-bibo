@@ -24,6 +24,7 @@ if errorlevel 1 (
 if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 ^
+  /I"%HERE%..\..\shared" ^
   /I "%SRC%" ^
   "%HERE%test_pico_link.cpp" ^
   "%SRC%\pico_link.cpp" ^

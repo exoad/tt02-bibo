@@ -354,9 +354,9 @@ Str dir()
     return d;
 }
 
-std::vector<Str> list()
+Vec<Str> list()
 {
-    std::vector<Str> out;
+    Vec<Str> out;
 
     const Str d = dir();
     if(d.empty())

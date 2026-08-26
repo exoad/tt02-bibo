@@ -104,6 +104,7 @@ add_executable(tt02 WIN32
 
 target_include_directories(tt02 PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
     "${RPLIDAR_SDK}/sdk/include"
     "${RPLIDAR_SDK}/sdk/src"
 )
@@ -147,7 +148,9 @@ enable_testing()
 function(add_hub_test name)
     add_executable(${name} ${ARGN})
     target_include_directories(${name} PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src" "${IMGUI}")
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
+        "${IMGUI}")
     target_compile_definitions(${name} PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_options(${name} PRIVATE /W4)
     set_target_properties(${name} PROPERTIES EXCLUDE_FROM_ALL TRUE)

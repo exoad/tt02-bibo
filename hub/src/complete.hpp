@@ -18,8 +18,6 @@
 
 #include "shared.hpp"
 
-#include <vector>
-
 namespace cmpl {
 
 enum class Kind
@@ -39,7 +37,7 @@ struct Item
 };
 
 // Everything the table holds, for tests and for a "show all" listing.
-[[nodiscard]] const std::vector<Item>& all();
+[[nodiscard]] const Vec<Item>& all();
 
 // Appends up to `max` matches for `prefix` to `out`, best first.
 //
@@ -55,7 +53,7 @@ struct Item
 //
 // Returns the number appended. `out` is NOT cleared, so a caller can gather
 // from several prefixes.
-Size suggest(const Str& prefix, std::vector<const Item*>& out, Size max);
+Size suggest(const Str& prefix, Vec<const Item*>& out, Size max);
 
 // The identifier ending at the end of `line` - what the user is part-way
 // through typing. Empty when the line ends in anything else, which is the

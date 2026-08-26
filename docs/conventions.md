@@ -253,8 +253,12 @@ surrounding history.
 | `constexpr` constants, macros, non-type template params | `SCREAMING_SNAKE_CASE` — no `k` prefix |
 | Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS` |
 | Namespaces | lowercase — `ui`, `board`, `app` |
-| Headers | `.hpp`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` only |
-| Braces | Allman, everywhere |
+| Headers | `.hpp`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.h` |
+| Vocabulary | one place: `shared/shared.hpp` for C++, `shared/shared.h` for C. Both are on the include path of every target |
+| Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short |
+| Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
+| Standard library | use the `shared/shared.hpp` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
+| Aggregate init | designated initializers where the type has named members — `Vec3{ .x = 1.0f, .y = 0.0f }` |
 | Control keywords | `if(cond)`, not `if (cond)` |
 | Casts | named casts only. **No C-style casts** |
 

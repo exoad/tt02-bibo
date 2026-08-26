@@ -32,8 +32,6 @@
 #include <cstdarg>
 #include <cstring>
 #include <ctime>
-#include <string>
-#include <vector>
 
 #include "imgui.h"
 #include "lidar_source.hpp"
@@ -57,8 +55,8 @@ RadarView   radarView;
 PicoLink    picoLink;
 PicoFlash   picoFlash;
 
-std::vector<Str> lidarPorts;
-std::vector<const Char*> portItems;
+Vec<Str> lidarPorts;
+Vec<const Char*> portItems;
 Int32   portIndex  = -1;
 Int32   baudIndex  = 2;     // 460800
 Int32   rangeIndex = 0;     // Fit
@@ -120,15 +118,15 @@ constexpr Float32 CLEARANCE_CAP_M = 2.5f;   // beyond this a direction is just "
 // exactly like dead hardware and is not. pico_link.cpp asserts DTR; do not
 // remove it.
 
-std::vector<Str> picoPorts;
-std::vector<const Char*> picoItems;
+Vec<Str> picoPorts;
+Vec<const Char*> picoItems;
 Int32  picoIndex = -1;
 
 // The console is a debug aid, not a record: this app runs for hours, so the log
 // is bounded and the oldest lines fall off the front.
 constexpr Size LOG_MAX = 4000;
-std::vector<PicoLine> picoLog;
-std::vector<Int32>      logShown;    // indices passing the filter, rebuilt per frame
+Vec<PicoLine> picoLog;
+Vec<Int32>      logShown;    // indices passing the filter, rebuilt per frame
 
 Char cmdBuf[192]   = {};
 Char filterBuf[64] = {};
@@ -209,7 +207,7 @@ Void resetBoardStatus()
 // irreversible overwrite.
 
 constexpr Size FLASH_LOG_MAX = 3000;
-std::vector<Str> flashLog;
+Vec<Str> flashLog;
 
 Char backupBuf[320] = {};
 Bool flashAutoscroll = true;
@@ -221,7 +219,6 @@ Str confirmName;
 Str confirmPath;
 
 FlashState flashPrev = FlashState::FLASH_STATE_IDLE;
-
 
 // --------------------------------------------------------------- sidebar ---
 // The right column's sections. Order is the order they are drawn in; System and
@@ -322,7 +319,11 @@ Void loadPanelLayout()
         Bool ok = true;
         for(Int32 k = 0; k < SEC_Count; ++k)
         {
-            if(used[order[k]]) { ok = false; break; }
+            if(used[order[k]])
+            {
+                ok = false;
+                break;
+            }
             used[order[k]] = true;
         }
         if(ok)
@@ -405,7 +406,7 @@ Bool    recPendingSeek = false;
 // Files on disk, refreshed on demand rather than every frame - a directory
 // listing per frame is a syscall per frame for a list that changes when the
 // user asks it to.
-std::vector<Str> recFiles;
+Vec<Str> recFiles;
 Int32            recFileIndex = 0;
 
 Void refreshRecordings()
@@ -460,8 +461,14 @@ const Char* RANGE_ITEMS[RANGE_COUNT] = {};
 // baked in by LoadFonts, so it is never multiplied by uiDpiScale again.
 struct ScopedFont
 {
-    explicit ScopedFont(ImFont* f) { ImGui::PushFont(f, f ? f->LegacySize : 0.0f); }
-    ~ScopedFont() { ImGui::PopFont(); }
+    explicit ScopedFont(ImFont* f)
+    {
+        ImGui::PushFont(f, f ? f->LegacySize : 0.0f);
+    }
+    ~ScopedFont()
+    {
+        ImGui::PopFont();
+    }
 };
 
 Void refreshPorts()
@@ -471,7 +478,11 @@ Void refreshPorts()
     portItems.clear();
     for(const auto& s : lidarPorts) portItems.push_back(s.c_str());
 
-    if(lidarPorts.empty()) { portIndex = -1; return; }
+    if(lidarPorts.empty())
+    {
+        portIndex = -1;
+        return;
+    }
 
     // Identify the CP210x bridge outright where we can - the remaining ports on
     // a typical machine are Bluetooth links, and connecting to one of those just
@@ -509,7 +520,11 @@ Void refreshPicoPorts()
     picoItems.clear();
     for(const auto& s : picoPorts) picoItems.push_back(s.c_str());
 
-    if(picoPorts.empty()) { picoIndex = -1; return; }
+    if(picoPorts.empty())
+    {
+        picoIndex = -1;
+        return;
+    }
     if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size())) picoIndex = 0;
 }
 
@@ -798,7 +813,11 @@ Bool logMatches(const PicoLine& ln)
         const Char* h = hay;
         const Char* n = filterBuf;
         while(*n && *h &&
-               std::tolower(static_cast<UInt8>(*h)) == std::tolower(static_cast<UInt8>(*n))) { ++h; ++n; }
+               std::tolower(static_cast<UInt8>(*h)) == std::tolower(static_cast<UInt8>(*n)))
+               {
+                   ++h;
+                   ++n;
+               }
         if(*n == '\0') return true;
     }
     return false;
@@ -825,9 +844,21 @@ Void recomputeDerived()
 
     for(const LidarPoint& p : latestFrame.points)
     {
-        if(p.distMm <= 0.0f)          { ++nNoreturn; continue; }
-        if(p.distMm < MIN_VALID_MM)    { ++nToonear;  continue; }
-        if(p.distMm > MAX_VALID_MM)    { ++nToofar;   continue; }
+        if(p.distMm <= 0.0f)
+        {
+            ++nNoreturn;
+            continue;
+        }
+        if(p.distMm < MIN_VALID_MM)
+        {
+            ++nToonear;
+            continue;
+        }
+        if(p.distMm > MAX_VALID_MM)
+        {
+            ++nToofar;
+            continue;
+        }
 
         sum += p.distMm;
         ++n;
@@ -1224,7 +1255,6 @@ Void tabIcon(ui::Icon ic)
                ImVec2(a.x + ImGui::GetStyle().FramePadding.x,
                       a.y + ((b.y - a.y) - sz) * 0.5f));
 }
-
 
 // A- / A+ and the current percentage. Text rather than icons: the Fugue subset
 // vendored in assets/icons does not carry a magnifier, and two letters read as
@@ -1936,28 +1966,44 @@ Void sectionSensors()
             const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Live"),
                                                nullptr, sub(0));
             tabIcon(ui::Icon::ICON_LIVE);
-            if(t) { tabLive();   ImGui::EndTabItem(); }
+            if(t)
+            {
+                tabLive();
+                ImGui::EndTabItem();
+            }
         }
         {
             Char lb[40];
             const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Signal"),
                                                nullptr, sub(1));
             tabIcon(ui::Icon::ICON_SIGNAL);
-            if(t) { tabSignal(); ImGui::EndTabItem(); }
+            if(t)
+            {
+                tabSignal();
+                ImGui::EndTabItem();
+            }
         }
         {
             Char lb[40];
             const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Scan"),
                                                nullptr, sub(2));
             tabIcon(ui::Icon::ICON_SCAN);
-            if(t) { tabScan();   ImGui::EndTabItem(); }
+            if(t)
+            {
+                tabScan();
+                ImGui::EndTabItem();
+            }
         }
         {
             Char lb[40];
             const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Device"),
                                                nullptr, sub(3));
             tabIcon(ui::Icon::ICON_DEVICE);
-            if(t) { tabDevice(); ImGui::EndTabItem(); }
+            if(t)
+            {
+                tabDevice();
+                ImGui::EndTabItem();
+            }
         }
         ImGui::EndTabBar();
     }
@@ -1978,7 +2024,6 @@ Int32 modeToggleRows();
 // layout and the strip itself both ask, so they cannot disagree about whether a
 // scrollbar is going to appear and how tall the bar therefore is.
 Bool  modeToggleScrolls(Float32 contentW);
-
 
 // Rows of controls the given view puts under itself. Zero is a legitimate
 // answer and means the view gets no bottom bar at all - not an empty one.
@@ -2348,7 +2393,7 @@ Void drawRecorderControls()
     }
     else
     {
-        static std::vector<const Char*> items;
+        static Vec<const Char*> items;
         items.clear();
         for(const Str& f : recFiles)
             items.push_back(f.c_str());
@@ -2559,8 +2604,8 @@ Void drawCodeTree(Float32 w, Float32 h)
     // Re-scanned on a timer, not every frame: it is two directory enumerations,
     // and a file can appear behind our back - a sketch saved by the editor, or
     // one dropped into the folder from Explorer.
-    static std::vector<Str> libFiles;
-    static std::vector<Str> fwFiles;
+    static Vec<Str> libFiles;
+    static Vec<Str> fwFiles;
     static Int32            rescanIn = 0;
     if(rescanIn <= 0)
     {
@@ -2864,7 +2909,7 @@ Void drawMapRegion(Float32 mapW, Float32 mapH, Float32 ctrlH)
             if(!codeLoaded)
             {
                 codeLoaded = true;
-                const std::vector<Str> have = sketch::list();
+                const Vec<Str> have = sketch::list();
                 if(!have.empty())
                 {
                     codeName = have.front();
@@ -3423,7 +3468,7 @@ Void drawFlashControls()
     ImGui::Spacing();
     ImGui::SeparatorText("Firmware");
 
-    const std::vector<FirmwareEntry>& cat = picoFlash.catalog();
+    const Vec<FirmwareEntry>& cat = picoFlash.catalog();
 
     // OpenPopup is deferred out of the row's PushID scope: a popup's identity
     // comes from the ID stack, so opening it inside the row and beginning it
@@ -4141,7 +4186,11 @@ Void app::init(Float32 dpiScale)
                 { forceView = 3; forceViewFrames = 4; }
             else if(_stricmp(v, "pico") == 0 ||
                      _stricmp(v, "pico2w") == 0 ||
-                     _stricmp(v, "board") == 0) { forceView = 4; forceViewFrames = 4; }
+                     _stricmp(v, "board") == 0)
+                     {
+                         forceView = 4;
+                         forceViewFrames = 4;;
+                     }
 
             // Seed the live selection too, so the first frame reserves the
             // right bottom-bar height instead of the map's.
@@ -4215,7 +4264,6 @@ Void app::setDpiScale(Float32 dpiScale)
 {
     uiDpiScale = dpiScale > 0.0f ? dpiScale : 1.0f;
 }
-
 
 Void app::frame()
 {

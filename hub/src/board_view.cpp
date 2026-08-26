@@ -21,9 +21,18 @@ namespace {
 
 // imgui.h does not export ImMin/ImMax/ImClamp - they live in imgui_internal.h,
 // which nothing else here includes.
-inline Float32 minf(Float32 a, Float32 b) { return a < b ? a : b; }
-inline Float32 maxf(Float32 a, Float32 b) { return a > b ? a : b; }
-inline Float32 clampf(Float32 v, Float32 lo, Float32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
+inline Float32 minf(Float32 a, Float32 b)
+{
+    return a < b ? a : b;
+}
+inline Float32 maxf(Float32 a, Float32 b)
+{
+    return a > b ? a : b;
+}
+inline Float32 clampf(Float32 v, Float32 lo, Float32 hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
 
 // =========================================================== the pin table ==
 
@@ -128,7 +137,10 @@ constexpr Float32 LABEL_W = 17.5f;   // name + number column, each side
 constexpr Float32 TOP_PAD = 2.6f;    // the USB shell overhangs the top edge
 constexpr Float32 BOT_PAD = 1.4f;
 
-inline Bool  onLeft(Int32 phys)  { return phys <= 20; }
+inline Bool  onLeft(Int32 phys)
+{
+    return phys <= 20;
+}
 inline Float32 pinY(Int32 phys)
 {
     const Int32 idx = onLeft(phys) ? (phys - 1) : (40 - phys);
@@ -207,8 +219,14 @@ struct Paint
     ImVec2      org{};      // screen position of model (0,0)
     Float32       s = 1.0f;   // pixels per millimetre
 
-    ImVec2 toScreen(Float32 x, Float32 y) const { return ImVec2(org.x + x * s, org.y + y * s); }
-    Float32  toPx(Float32 mm)         const { return mm * s; }
+    ImVec2 toScreen(Float32 x, Float32 y) const
+    {
+        return ImVec2(org.x + x * s, org.y + y * s);
+    }
+    Float32  toPx(Float32 mm)         const
+    {
+        return mm * s;
+    }
 
     Void rect(Float32 x0, Float32 y0, Float32 x1, Float32 y1, ImU32 fill, ImU32 edge,
               Float32 roundMm = 0.0f) const

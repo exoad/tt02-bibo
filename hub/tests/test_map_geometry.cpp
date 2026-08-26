@@ -84,11 +84,11 @@ Void testCornerFound()
 
     // Two walls meeting at the origin-adjacent point (1000, -1000): one running
     // right along the top, one running down the right-hand side.
-    std::vector<mapgeo::WallSeg> w;
+    Vec<mapgeo::WallSeg> w;
     w.push_back(wall(-500.0f, -1000.0f, 1000.0f, -1000.0f));
     w.push_back(wall(1000.0f, -1000.0f, 1000.0f,   500.0f));
 
-    std::vector<mapgeo::Corner> out;
+    Vec<mapgeo::Corner> out;
     mapgeo::findCorners(w, out, 50.0f, 12000.0f);
 
     check(out.size() == 1u, "one corner");
@@ -112,11 +112,11 @@ Void testCornerRejects()
 {
     std::printf("findCorners: what it must REJECT\n");
 
-    std::vector<mapgeo::Corner> out;
+    Vec<mapgeo::Corner> out;
 
     // 1. Parallel walls. No intersection at all.
     {
-        std::vector<mapgeo::WallSeg> w;
+        Vec<mapgeo::WallSeg> w;
         w.push_back(wall(-1000.0f, -1000.0f, 1000.0f, -1000.0f));
         w.push_back(wall(-1000.0f,  1000.0f, 1000.0f,  1000.0f));
         mapgeo::findCorners(w, out, 50.0f, 12000.0f);
@@ -125,7 +125,7 @@ Void testCornerRejects()
 
     // 2. A shallow join: one surface the fitter split in two. 10 deg apart.
     {
-        std::vector<mapgeo::WallSeg> w;
+        Vec<mapgeo::WallSeg> w;
         w.push_back(wall(-1000.0f, -1000.0f, 0.0f, -1000.0f));
         w.push_back(wall(0.0f, -1000.0f, 1000.0f, -1176.0f));   // ~10 deg
         mapgeo::findCorners(w, out, 50.0f, 12000.0f);
@@ -135,7 +135,7 @@ Void testCornerRejects()
     // 3. THE IMPORTANT ONE: two walls at 90 deg whose infinite lines cross a
     //    long way from either of them. Opposite sides of a room.
     {
-        std::vector<mapgeo::WallSeg> w;
+        Vec<mapgeo::WallSeg> w;
         w.push_back(wall(-3000.0f, -3000.0f, -1000.0f, -3000.0f));  // horizontal, far left
         w.push_back(wall( 3000.0f,  1000.0f,  3000.0f,  3000.0f));  // vertical,  far right
         mapgeo::findCorners(w, out, 50.0f, 12000.0f);
@@ -146,7 +146,7 @@ Void testCornerRejects()
     //    a corner - which proves test 3 failed for the endpoint rule and not
     //    because the intersection maths never fires.
     {
-        std::vector<mapgeo::WallSeg> w;
+        Vec<mapgeo::WallSeg> w;
         w.push_back(wall(-3000.0f, -3000.0f, -1000.0f, -3000.0f));
         w.push_back(wall(-1000.0f, -3000.0f, -1000.0f, -1000.0f));
         mapgeo::findCorners(w, out, 50.0f, 12000.0f);
@@ -155,7 +155,7 @@ Void testCornerRejects()
 
     // 5. Out of the sensor's range window.
     {
-        std::vector<mapgeo::WallSeg> w;
+        Vec<mapgeo::WallSeg> w;
         w.push_back(wall(13000.0f, -14000.0f, 14000.0f, -14000.0f));
         w.push_back(wall(14000.0f, -14000.0f, 14000.0f, -13000.0f));
         mapgeo::findCorners(w, out, 50.0f, 12000.0f);
@@ -175,7 +175,11 @@ Void testReach()
     Float32 out[BINS];
 
     // An empty circular room, 3 m radius.
-    for(Int32 i = 0; i < BINS; ++i) { clr[i] = 3000.0f; seen[i] = true; }
+    for(Int32 i = 0; i < BINS; ++i)
+    {
+        clr[i] = 3000.0f;
+        seen[i] = true;
+    }
 
     // A car 190 mm wide -> 95 mm half-width.
     mapgeo::computeReach(clr, seen, BINS, STEP, 95.0f, out);
@@ -187,7 +191,11 @@ Void testReach()
 
     // Now a slot: two obstacles 150 mm apart across bearing 0. A 190 mm car
     // cannot pass, so the reach on that bearing must collapse to the slot.
-    for(Int32 i = 0; i < BINS; ++i) { clr[i] = 3000.0f; seen[i] = true; }
+    for(Int32 i = 0; i < BINS; ++i)
+    {
+        clr[i] = 3000.0f;
+        seen[i] = true;
+    }
     {
         // Two returns at 1000 mm, +/-75 mm either side of the bearing-0 axis.
         // 75 mm off-axis at 1000 mm range is atan(75/1000) = 4.29 deg, which at
@@ -287,7 +295,11 @@ Void testHeading()
     std::printf("        score %.3f\n", static_cast<Float64>(sc));
 
     // No overlap at all is a failure, not a lucky zero.
-    for(Int32 i = 0; i < BINS; ++i) { refSeen[i] = true; curSeen[i] = false; }
+    for(Int32 i = 0; i < BINS; ++i)
+    {
+        refSeen[i] = true;
+        curSeen[i] = false;
+    }
     Float32 dn = 0.0f, sn = 0.0f;
     check(!mapgeo::estimateHeading(ref, refSeen, cur, curSeen, BINS, STEP, dn, sn),
           "no overlapping evidence returns false");

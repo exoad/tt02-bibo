@@ -64,7 +64,10 @@ constexpr Float32 WALL_H_MM   = 260.0f;
 Vec3 sub(const Vec3& a, const Vec3& b) { return Vec3{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z }; }
 Vec3 add(const Vec3& a, const Vec3& b) { return Vec3{ a.x + b.x, a.y + b.y, a.z + b.z }; }
 Vec3 mul(const Vec3& a, Float32 k)     { return Vec3{ a.x * k, a.y * k, a.z * k }; }
-Float32 dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Float32 dot(const Vec3& a, const Vec3& b)
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
 
 Vec3 cross(const Vec3& a, const Vec3& b)
 {
@@ -622,7 +625,7 @@ struct CarTri
 
 struct CarModel
 {
-    std::vector<CarTri> tris;
+    Vec<CarTri> tris;
     ImTextureID         tex = 0;
     Bool loaded = false;
 };
@@ -659,14 +662,14 @@ Bool loadCarObj(CarModel& m)
     if(f == nullptr)
         return false;
 
-    std::vector<Vec3> raw;
+    Vec<Vec3> raw;
     raw.reserve(1400);
 
-    std::vector<ImVec2> uvs;
+    Vec<ImVec2> uvs;
     uvs.reserve(1400);
 
     struct Face { Int32 i0, i1, i2; Int32 t0, t1, t2; Int32 part; };
-    std::vector<Face> faces;
+    Vec<Face> faces;
     faces.reserve(2200);
 
     Int32 part = CAR_PART_BODY;

@@ -20,6 +20,7 @@ if errorlevel 1 (
 if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
+  /I"%HERE%..\..\shared" ^
   "%HERE%test_map_geometry.cpp" ^
   "%HERE%..\src\map_geometry.cpp" ^
   /Fo"%HERE%build\\" ^
