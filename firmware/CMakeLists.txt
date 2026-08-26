@@ -28,6 +28,7 @@ target_link_libraries(pico_debug
     pico_unique_id
     hardware_pwm
     hardware_adc
+    hardware_watchdog
 )
 
 # Debug console is USB CDC. UART stdio is off so GP0/GP1 stay free - they are
@@ -59,13 +60,25 @@ add_executable(sketch
     src/sketch.c
 )
 
-# hardware_pwm and hardware_adc are NOT in pico_stdlib, and pico2w.h wraps both.
-# Linking them here rather than making the sketch ask keeps the promise that
-# header makes: include it and everything in it works.
+# pico_stdlib does not carry PWM, ADC or the watchdog, and the Pico 2 W's own
+# LED hangs off the CYW43439 rather than a GPIO - so the wireless arch has to be
+# linked just to blink it. Linking all of them here rather than making each
+# sketch ask keeps the promise pico2w.h makes: include it and everything in it
+# works.
+#
+# COST, stated honestly: cyw43_arch roughly doubles a CLEAN build of this target
+# (86 -> ~190 translation units). Incremental builds are unaffected - editing
+# sketch.c still recompiles one file - and a first-hour program that cannot
+# blink the LED everybody can see is the worse trade.
+#
+# _none is the no-networking variant: the chip is brought up so its GPIO works,
+# and no lwIP is linked. AP mode arrives in phase 3.
 target_link_libraries(sketch
     pico_stdlib
+    pico_cyw43_arch_none
     hardware_pwm
     hardware_adc
+    hardware_watchdog
 )
 
 pico_enable_stdio_usb(sketch 1)
