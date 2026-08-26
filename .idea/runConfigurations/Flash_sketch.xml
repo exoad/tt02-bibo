@@ -1,0 +1,29 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    Flashes firmware/build/sketch.uf2 onto the board.
+
+    Shells out to firmware\flash.bat rather than driving picotool directly, for
+    the same reason the hub does: there is ONE flashing mechanism in this project
+    and everything else is a front-end to it. That script also touches the port
+    at 1200 baud to reboot a running board into BOOTSEL, so the board does not
+    have to be unplugged and re-plugged with the button held down.
+
+    Build the .uf2 first (build preset "sketch"), or this flashes whatever was
+    there before and you debug the wrong program.
+  -->
+  <configuration default="false" name="Flash sketch" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/firmware/flash.bat" />
+    <option name="SCRIPT_OPTIONS" value="$PROJECT_DIR$/firmware/build/sketch.uf2" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/firmware" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="cmd.exe" />
+    <option name="INTERPRETER_OPTIONS" value="/c" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

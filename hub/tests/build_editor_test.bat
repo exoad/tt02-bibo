@@ -1,0 +1,43 @@
+@echo off
+REM Builds and (with "run") executes the editor + syntax tests.
+REM
+REM   tests\build_editor_test.bat        - compile only
+REM   tests\build_editor_test.bat run    - compile then run
+REM
+REM editor.cpp is ImGui-free by design, so the vim bindings, the auto-closing
+REM braces and the auto-indent are all checkable without a window. syntax.cpp
+REM includes imgui.h only for IM_COL32, hence the include path below.
+
+setlocal
+set HERE=%~dp0
+set VS=C:\Program Files\Microsoft Visual Studio\2022\Community
+
+call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
+if errorlevel 1 (
+  echo [test] vcvarsall failed
+  exit /b 1
+)
+
+if not exist "%HERE%build" mkdir "%HERE%build"
+
+cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
+  /I"%HERE%..\third_party\imgui" ^
+  "%HERE%test_editor.cpp" ^
+  "%HERE%..\src\editor.cpp" ^
+  "%HERE%..\src\syntax.cpp" ^
+  "%HERE%..\src\complete.cpp" ^
+  /Fo"%HERE%build\\" ^
+  /Fe"%HERE%build\test_editor.exe" ^
+  /link /SUBSYSTEM:CONSOLE
+if errorlevel 1 (
+  echo [test] compile failed
+  exit /b 1
+)
+
+echo [ok] %HERE%build\test_editor.exe
+
+if /I "%~1"=="run" (
+  "%HERE%build\test_editor.exe"
+  exit /b %errorlevel%
+)
+exit /b 0

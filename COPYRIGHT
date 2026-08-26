@@ -1,0 +1,32 @@
+Copyright (c) 2026 Jiaming Meng <jackm@exoad.net>
+All rights reserved.
+
+tt02-auto — autonomous 1/10 scale RC car (Tamiya TT-02, RPLIDAR C1, RP2350).
+
+
+THIS PROJECT IS NOT OPEN SOURCE.
+
+No licence is granted. The source in this repository is published for reference
+only. You may read it. You may not copy, modify, redistribute, or use it — in
+whole or in part, for any purpose, commercial or otherwise — without the prior
+written permission of the copyright holder.
+
+No warranty of any kind is offered. The code drives a physical vehicle with a
+brushed motor and a lithium-capable ESC, and it is under active development by
+someone learning the domain. Treat every part of it as unproven.
+
+This notice covers ONLY the original work in this repository. It does not
+apply to the third-party components the project depends on or vendors, each of
+which carries its own licence and its own terms — several of which impose
+conditions that survive this notice. See THIRD_PARTY.md for the full inventory.
+
+In particular, and non-exhaustively:
+
+  * The application's icons are Fugue Icons, CC BY 3.0. Attribution is a
+    CONDITION of that licence, not a courtesy, and it must remain visible to
+    anyone who receives a build of the application.
+
+  * firmware/src/shared.h is BSD-3-Clause and carries its own copyright notice,
+    which must be retained in source and binary redistributions.
+
+Permission requests and anything else: jackm@exoad.net

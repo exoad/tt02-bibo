@@ -1,7 +1,7 @@
 /*
  * pico_debug - bring-up and debug firmware for the car's Pico 2 W.
  *
- * Phase 2 of the build order (see AGENTS.md) is "Pico replaces receiver, USB
+ * Phase 2 of the build order (see docs/conventions.md) is "Pico replaces receiver, USB
  * serial commands drive servo + ESC, watchdog". This is the step before that:
  * prove the toolchain, the USB link and the board itself, with the smallest
  * thing that can be wrong.
