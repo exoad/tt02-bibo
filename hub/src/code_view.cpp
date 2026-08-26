@@ -138,7 +138,17 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
     ImDrawList*   dl       = ImGui::GetWindowDrawList();
 
     const Float32 lineH    = ImGui::GetTextLineHeight();
-    const Float32 charW    = ImGui::CalcTextSize("0").x;
+    // The character cell, rounded to a WHOLE pixel.
+    //
+    // Everything on screen is placed at `column * charW`, so this one number has
+    // to be exact or nothing lines up. Left fractional it accumulates: at 12.43
+    // px per cell, column 60 is three quarters of a character away from where
+    // the grid says it is, and the caret ends up sitting between two glyphs.
+    // Rounded to the nearest whole pixel the grid is closed, and a monospace
+    // face at a whole-pixel advance is what a terminal has always done.
+    Float32 charW = ImGui::CalcTextSize("0").x;
+    charW = (charW > 1.0f) ? static_cast<Float32>(static_cast<Int32>(charW + 0.5f))
+                           : 1.0f;
     const Float32 statusH  = lineH + 6.0f * dpiScale();
 
     // Gutter wide enough for the largest line number this buffer will ever show,
@@ -400,12 +410,36 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
                                                             : false;
         syn::tokenize(src, open, spans);
 
+        // ONE CELL AT A TIME, and this is the whole reason the caret used to
+        // drift.
+        //
+        // Drawing a span with a single AddText lets ImGui advance by the FONT's
+        // own glyph advance between characters, while the caret advances by
+        // `charW`. The two differ by a fraction of a pixel, which is invisible
+        // for three characters and half a cell by column forty - so the caret
+        // slowly slid off the text and ended up between two glyphs. A long
+        // comment is one span, which is exactly where it showed worst.
+        //
+        // Per-cell placement makes the grid the single source of truth: the
+        // glyph and the caret are computed by the same expression, so they
+        // cannot disagree. Whitespace is skipped, which in indented code is a
+        // large fraction of the cells.
         for(const syn::Span& s : spans)
         {
-            const Char* b = src.c_str() + s.begin;
-            const Char* t = src.c_str() + s.end;
-            dl->AddText(ImVec2(textX + static_cast<Float32>(s.begin) * charW, y),
-                        syn::colorFor(s.role), b, t);
+            const ImU32 col = syn::colorFor(s.role);
+
+            for(Int32 k = s.begin; k < s.end && k < len; ++k)
+            {
+                const Char ch = src[static_cast<Size>(k)];
+                if(ch == ' ' || ch == '\t')
+                {
+                    continue;
+                }
+
+                const Char one[2] = { ch, '\0' };
+                dl->AddText(ImVec2(textX + static_cast<Float32>(k) * charW, y),
+                            col, one, one + 1);
+            }
         }
     }
 

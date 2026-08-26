@@ -14,8 +14,8 @@
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
-#include "board_view.h"
-#include "theme.h"
+#include "board_view.hpp"
+#include "theme.hpp"
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -161,9 +161,9 @@ int main(int argc, char** argv)
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
 
-    ui::LoadFonts(dpi);
-    ui::ApplyStyle(dpi);
-    ui::SetDpiScale(dpi);
+    ui::loadFonts(dpi);
+    ui::applyStyle(dpi);
+    ui::setDpiScale(dpi);
 
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_device, g_context);
@@ -202,7 +202,13 @@ int main(int argc, char** argv)
                      ImGuiWindowFlags_NoBringToFrontOnFocus |
                      ImGuiWindowFlags_NoSavedSettings);
 
-        board::Draw(board::Which::Pico2W, ImGui::GetContentRegionAvail());
+        // A default-constructed Live is the "nothing is connected" state, which
+        // is the right thing for a preview: it renders the board and the pin
+        // map without inventing any telemetry.
+        const board::Live live;
+        board::draw(board::Which::WHICH_PICO2_W,
+                    ImGui::GetContentRegionAvail(),
+                    live);
 
         ImGui::End();
         ImGui::PopStyleVar();

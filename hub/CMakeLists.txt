@@ -165,3 +165,48 @@ add_hub_test(test_map_geometry
 
 add_hub_test(test_lights
     tests/test_lights.cpp src/lights.cpp)
+
+# ---------------------------------------------------------------------------
+# The two HARDWARE tests. They need a device plugged in, so they are not part of
+# `ctest` - but they still have to be in a target.
+#
+# A source that belongs to NO target gets no include paths and no defines, and
+# the IDE renders every symbol in it unresolved. That is not a smaller problem
+# than a failing build; it is the same problem, discovered later.
+# ---------------------------------------------------------------------------
+add_hub_test(test_pico_link
+    tests/test_pico_link.cpp src/pico_link.cpp)
+
+add_hub_test(test_lidar_source
+    tests/test_lidar_source.cpp src/lidar_source.cpp)
+
+target_include_directories(test_lidar_source PRIVATE
+    "${RPLIDAR_SDK}/sdk/include"
+    "${RPLIDAR_SDK}/sdk/src"
+)
+target_link_libraries(test_lidar_source PRIVATE "${RPLIDAR_LIB}")
+target_link_options(test_lidar_source PRIVATE /LTCG)
+
+# Hardware tests are not registered with CTest: a green run means "a device
+# answered", and an unplugged machine would report a failure that is about the
+# bench rather than about the code.
+set_tests_properties(test_pico_link    PROPERTIES DISABLED TRUE)
+set_tests_properties(test_lidar_source PROPERTIES DISABLED TRUE)
+
+# ---------------------------------------------------------------------------
+# board_preview: a standalone harness that renders the Pico board view to a PNG
+# without the rest of the app. Same reason as above - it is a real source and
+# it needs a target.
+# ---------------------------------------------------------------------------
+add_executable(board_preview
+    tests/board_preview/main.cpp
+    src/board_view.cpp
+    src/theme.cpp
+)
+set_target_properties(board_preview PROPERTIES EXCLUDE_FROM_ALL TRUE)
+target_include_directories(board_preview PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
+)
+target_compile_definitions(board_preview PRIVATE _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(board_preview PRIVATE imgui d3d11 dxgi d3dcompiler)

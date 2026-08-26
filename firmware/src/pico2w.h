@@ -34,6 +34,9 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
+#include "hardware/watchdog.h"
+#include "pico/bootrom.h"
+#include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 
 /* ---- types --------------------------------------------------------------- */
@@ -156,6 +159,36 @@ static inline Void serialPrintLine(CharSeq text)
 /* Variadic, so a macro rather than a function. */
 #define serialPrintf(...) printf(__VA_ARGS__)
 
+/*
+ * Blocks until the host opens the USB serial port, or until `timeoutMs`.
+ *
+ * This is the fix for the complaint in serialOpen() above. USB enumeration
+ * takes a moment, and anything printed before the host is listening goes
+ * nowhere - so the first few lines of a program appear to vanish and the
+ * program looks broken when it is merely early.
+ *
+ * Pass 0 to wait forever, which is right on the bench and WRONG on the car:
+ * a board waiting for a terminal that will never arrive is a board that never
+ * starts driving.
+ *
+ * Returns true if the host connected.
+ */
+static inline Bool serialWaitForHost(UInt32 timeoutMs)
+{
+    const UInt32 start = to_ms_since_boot(get_absolute_time());
+
+    while(!stdio_usb_connected())
+    {
+        if(timeoutMs != 0
+           && (to_ms_since_boot(get_absolute_time()) - start) > timeoutMs)
+        {
+            return false;
+        }
+        sleep_ms(10);
+    }
+    return true;
+}
+
 /* ---- PWM ----------------------------------------------------------------- */
 
 /*
@@ -237,6 +270,40 @@ static inline Void servoCenter(Pin pin)
     servoWriteUs(pin, SERVO_MID_US);
 }
 
+/* ---- the onboard LED ------------------------------------------------------
+ *
+ * NOT a GPIO. On the Pico 2 W the user LED is wired to the CYW43439 wireless
+ * chip, so it cannot be reached with gpioWrite() at any pin number - the chip
+ * has to be brought up first and then driven through its own GPIO space. This
+ * catches everybody once: the classic `gpio_put(25, 1)` from a Pico 1 example
+ * compiles, runs, and does nothing at all here.
+ *
+ * ledOpen() must be called before any other led* function, and it can FAIL -
+ * the chip is a real peripheral on a real bus. Check the return: if you ignore
+ * it, every later call silently does nothing and you will spend the evening
+ * looking at your wiring instead.
+ */
+
+static inline Bool ledOpen(Void)
+{
+    return cyw43_arch_init() == 0;
+}
+
+static inline Void ledWrite(Bool on)
+{
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
+}
+
+static inline Bool ledRead(Void)
+{
+    return cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
+}
+
+static inline Void ledToggle(Void)
+{
+    ledWrite(!ledRead());
+}
+
 /* ---- ADC ----------------------------------------------------------------- */
 
 /*
@@ -259,6 +326,65 @@ static inline UInt16 adcRead(Pin pin)
 static inline Float32 adcReadVolts(Pin pin)
 {
     return (Float32) adcRead(pin) * (3.3f / 4095.0f);
+}
+
+/*
+ * The die temperature sensor, on ADC channel 4 rather than any pin. Accurate to
+ * a couple of degrees at best and it reads the CHIP, not the room - it sits a
+ * few degrees above ambient as soon as the core is busy. Useful for "is this
+ * thing cooking", not for weather.
+ *
+ * The conversion is the one from the RP2350 datasheet.
+ */
+static inline Float32 tempC(Void)
+{
+    adc_init();
+    adc_set_temp_sensor_enabled(true);
+    adc_select_input(4);
+
+    const Float32 volts = (Float32) adc_read() * (3.3f / 4095.0f);
+    return 27.0f - (volts - 0.706f) / 0.001721f;
+}
+
+/* ---- watchdog -------------------------------------------------------------
+ *
+ * The board resets if watchdogFeed() is not called within `ms`. On a vehicle
+ * this is the difference between "the code hung" and "the code hung and the car
+ * kept going at the last commanded throttle", so it is here from the start
+ * rather than added after the first runaway.
+ *
+ * A sketch that enables it and then blocks in a long sleepMs() WILL reset. That
+ * is the watchdog working.
+ */
+static inline Void watchdogStart(UInt32 ms)
+{
+    watchdog_enable(ms, true);
+}
+
+static inline Void watchdogFeed(Void)
+{
+    watchdog_update();
+}
+
+/* True when THIS boot was caused by the watchdog firing rather than by power or
+ * the reset pin. Worth printing at startup: a board that is quietly resetting in
+ * a loop looks exactly like a board that is slow to start. */
+static inline Bool watchdogCausedReboot(Void)
+{
+    return watchdog_caused_reboot();
+}
+
+/* ---- reboot --------------------------------------------------------------- */
+
+/*
+ * Drops the board into the UF2 bootloader, so it reappears as a drive and can be
+ * flashed without touching the BOOTSEL button. The hub's flash path does this
+ * over USB instead (1200 baud touch), but a sketch that has painted itself into
+ * a corner can offer its own way out.
+ */
+static inline Void rebootToBootsel(Void)
+{
+    reset_usb_boot(0, 0);
 }
 
 #endif

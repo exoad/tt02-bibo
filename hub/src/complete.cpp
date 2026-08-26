@@ -67,6 +67,20 @@ const Item TABLE[] = {
       "Write text followed by a newline.", Kind::KIND_FUNCTION },
     { "serialPrintf",   "serialPrintf(fmt, ...)",
       "printf to the USB console.", Kind::KIND_MACRO },
+    { "serialWaitForHost", "Bool serialWaitForHost(UInt32 timeoutMs)",
+      "Wait for the host to open the port. 0 waits forever.", Kind::KIND_FUNCTION },
+
+    // ---- pico2w.h: the onboard LED ----
+    { "ledOpen",        "Bool ledOpen(Void)",
+      "Bring up the CYW43439. Required before any led* call; can fail.",
+      Kind::KIND_FUNCTION },
+    { "ledWrite",       "Void ledWrite(Bool on)",
+      "The onboard LED. Not a GPIO - it is on the wireless chip.",
+      Kind::KIND_FUNCTION },
+    { "ledRead",        "Bool ledRead(Void)",
+      "Current state of the onboard LED.", Kind::KIND_FUNCTION },
+    { "ledToggle",      "Void ledToggle(Void)",
+      "Flip the onboard LED.", Kind::KIND_FUNCTION },
 
     // ---- pico2w.h: PWM, servo, ESC ----
     { "pwmOpen",        "Void pwmOpen(Pin pin, UInt32 freqHz)",
@@ -87,6 +101,21 @@ const Item TABLE[] = {
       "Raw 12-bit reading, 0-4095.", Kind::KIND_FUNCTION },
     { "adcReadVolts",   "Float32 adcReadVolts(Pin pin)",
       "Reading scaled to volts against the 3.3 V reference.", Kind::KIND_FUNCTION },
+    { "tempC",          "Float32 tempC(Void)",
+      "Die temperature. Reads the chip, not the room.", Kind::KIND_FUNCTION },
+
+    // ---- pico2w.h: watchdog and reboot ----
+    { "watchdogStart",  "Void watchdogStart(UInt32 ms)",
+      "Reset the board if watchdogFeed() is not called within ms.",
+      Kind::KIND_FUNCTION },
+    { "watchdogFeed",   "Void watchdogFeed(Void)",
+      "Tell the watchdog the program is still alive.", Kind::KIND_FUNCTION },
+    { "watchdogCausedReboot", "Bool watchdogCausedReboot(Void)",
+      "True if THIS boot was a watchdog reset. Print it at startup.",
+      Kind::KIND_FUNCTION },
+    { "rebootToBootsel","Void rebootToBootsel(Void)",
+      "Drop into the UF2 bootloader without the BOOTSEL button.",
+      Kind::KIND_FUNCTION },
 
     // ---- pico2w.h: types ----
     { "Pin",            "typedef Int32 Pin",

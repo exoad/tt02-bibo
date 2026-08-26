@@ -1197,31 +1197,73 @@ Void colored(ImU32 col, const Char* fmt, ...)
 //
 // The icon replaces it and carries something the colour does not: WHICH
 // subsystem this is. Identity from the icon, state from the colour, one each.
-Void stripField(ui::Icon ic, const Char* label, ImU32 col, const Char* value,
-                const Char* extra)
+// ---------------------------------------------------------------------------
+// The status bar's fields.
+//
+// DRAWN, not flowed. The old strip put each piece in with ImGui::Image and
+// TextUnformatted on a SameLine, which aligns items by their TOP edge - so a
+// 16 px icon sat high against 20 px text and every field was a pixel or two off
+// from its neighbour. There is no way to fix that by nudging padding, because
+// the icon size and the type size move independently with DPI and with the zoom
+// control sitting in the same bar.
+//
+// So the bar owns a centreline and every element is centred on it. `x` is
+// advanced by each field explicitly. This is more code than a row of SameLine
+// calls and it is the only version that is actually aligned.
+// ---------------------------------------------------------------------------
+
+// Vertical centre of the bar, and the pen position along it.
+struct BarPen
 {
-    ui::iconLabel(ic);
+    ImDrawList* dl = nullptr;
+    Float32     x  = 0.0f;   // advances left to right
+    Float32     cy = 0.0f;   // the centreline, in screen space
+};
 
-    ImGui::TextDisabled("%s", label);
-    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+Void barText(BarPen& p, const Char* text, ImU32 col)
+{
+    if(text == nullptr || text[0] == 0)
+        return;
 
-    ImGui::PushStyleColor(ImGuiCol_Text, col);
-    ImGui::TextUnformatted(value);
-    ImGui::PopStyleColor();
+    const ImVec2 sz = ImGui::CalcTextSize(text);
+    p.dl->AddText(ImVec2(p.x, p.cy - sz.y * 0.5f), col, text);
+    p.x += sz.x;
+}
+
+Void barGap(BarPen& p, Float32 w)
+{
+    p.x += w;
+}
+
+Void stripField(BarPen& p, ui::Icon ic, const Char* label, ImU32 col,
+                const Char* value, const Char* extra)
+{
+    const Float32 inner = ImGui::GetStyle().ItemInnerSpacing.x;
+
+    if(ui::iconsReady())
+    {
+        const Float32 isz = ui::iconSize();
+        ui::iconAt(p.dl, ic, ImVec2(p.x, p.cy - isz * 0.5f));
+        p.x += isz + inner;
+    }
+
+    barText(p, label, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+    barGap(p, inner);
+    barText(p, value, col);
 
     if(extra != nullptr && extra[0] != 0)
     {
-        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        ImGui::TextDisabled("%s", extra);
+        barGap(p, inner);
+        barText(p, extra, ImGui::GetColorU32(ImGuiCol_TextDisabled));
     }
 }
 
-Void stripSep()
+Void stripSep(BarPen& p)
 {
     const Float32 g = ImGui::GetFontSize() * 0.75f;
-    ImGui::SameLine(0.0f, g);
-    ImGui::TextDisabled("|");
-    ImGui::SameLine(0.0f, g);
+    barGap(p, g);
+    barText(p, "|", ImGui::GetColorU32(ImGuiCol_TextDisabled));
+    barGap(p, g);
 }
 
 // Builds a label with enough leading spaces to clear an icon drawn in the frame
@@ -1259,7 +1301,14 @@ Void tabIcon(ui::Icon ic)
 // A- / A+ and the current percentage. Text rather than icons: the Fugue subset
 // vendored in assets/icons does not carry a magnifier, and two letters read as
 // "text size" more directly than a magnifying glass does anyway.
-Void drawZoomControl()
+// The UI zoom, right-aligned in the bar and centred on its line.
+//
+// Visible rather than shortcut-only. "The UI is too small" is a complaint about
+// the app, and an app whose answer is a key combination nobody is told about has
+// not answered it. The keys work too - Ctrl +/-/0.
+//
+// Returns the x it started at, so the caller knows where the fields must stop.
+Float32 drawZoomControl(Float32 cy, Float32 rightEdge)
 {
     const ImGuiStyle& sty = ImGui::GetStyle();
 
@@ -1272,16 +1321,15 @@ Void drawZoomControl()
     const Float32 gap  = sty.ItemInnerSpacing.x;
     const Float32 need = btnW * 2.0f + pctW + gap * 2.0f;
 
-    // Right-aligned, and silently dropped if the strip is too narrow to hold it
-    // without colliding with the status fields.
-    const Float32 x = ImGui::GetWindowContentRegionMax().x - need;
-    if(x <= ImGui::GetCursorPosX() + gap)
-        return;
-
-    ImGui::SameLine(x, 0.0f);
+    const Float32 x0 = rightEdge - need;
+    const Float32 bh = ImGui::GetFrameHeight();
 
     const Bool atMin = ui::userScale() <= ui::USER_SCALE_MIN + 0.001f;
     const Bool atMax = ui::userScale() >= ui::USER_SCALE_MAX - 0.001f;
+
+    // SmallButton is a real widget, so it is POSITIONED on the centreline
+    // rather than drawn on it: place the cursor at (centre - height/2).
+    ImGui::SetCursorScreenPos(ImVec2(x0, cy - bh * 0.5f));
 
     ImGui::BeginDisabled(atMin);
     if(ImGui::SmallButton("A-"))
@@ -1290,24 +1338,51 @@ Void drawZoomControl()
     if(ImGui::IsItemHovered())
         ImGui::SetTooltip("Smaller  (Ctrl -)");
 
-    ImGui::SameLine(0.0f, gap);
-    ImGui::TextDisabled("%s", pct);
+    // The percentage is text, so it centres on the line directly.
+    const ImVec2 psz = ImGui::CalcTextSize(pct);
+    const Float32 px = x0 + btnW + gap;
+    ImGui::GetWindowDrawList()->AddText(ImVec2(px, cy - psz.y * 0.5f),
+                                        ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                                        pct);
+
+    // An invisible hit box over it, so the click-to-reset and the tooltip still
+    // work now that the text is drawn rather than submitted.
+    ImGui::SetCursorScreenPos(ImVec2(px, cy - psz.y * 0.5f));
+    ImGui::InvisibleButton("##zoompct", ImVec2(std::max(pctW, psz.x), psz.y));
     if(ImGui::IsItemHovered())
         ImGui::SetTooltip("UI scale. Ctrl 0 resets it to 100%%.");
     if(ImGui::IsItemClicked())
         ui::setUserScale(1.0f);
 
-    ImGui::SameLine(0.0f, gap);
+    ImGui::SetCursorScreenPos(ImVec2(x0 + btnW + pctW + gap * 2.0f, cy - bh * 0.5f));
     ImGui::BeginDisabled(atMax);
     if(ImGui::SmallButton("A+"))
         ui::setUserScale(ui::userScale() + ui::USER_SCALE_STEP);
     ImGui::EndDisabled();
     if(ImGui::IsItemHovered())
         ImGui::SetTooltip("Bigger  (Ctrl +)");
+
+    return x0;
 }
 
-Void drawStatusStrip()
+// The bottom status bar: what every subsystem is doing, in one line.
+//
+// At the BOTTOM because that is where a status bar belongs - it is ambient
+// information you glance at, not a header you read first. Along the top it
+// competed with the tab bar for the eye and pushed the actual work down.
+Void drawStatusBar()
 {
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 av = ImGui::GetContentRegionAvail();
+
+    BarPen pen;
+    pen.dl = ImGui::GetWindowDrawList();
+    pen.x  = p0.x;
+    pen.cy = p0.y + av.y * 0.5f;   // the one centreline everything shares
+
+    // The zoom control first, so the fields know where they have to stop.
+    const Float32 stopAt = drawZoomControl(pen.cy, p0.x + av.x);
+
     // ---- lidar ----------------------------------------------------------
     Char lidarExtra[64] = {};
     if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
@@ -1318,52 +1393,51 @@ Void drawStatusStrip()
     else if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
         std::snprintf(lidarExtra, sizeof(lidarExtra), "%s", lidarPorts[portIndex].c_str());
 
-    stripField(ui::Icon::ICON_RADAR, "LIDAR", lidarStateColor(), lidarStateText(),
-               lidarExtra);
+    stripField(pen, ui::Icon::ICON_RADAR, "LIDAR", lidarStateColor(),
+               lidarStateText(), lidarExtra);
 
     // ---- pico link -------------------------------------------------------
-    stripSep();
+    stripSep(pen);
     const PicoState ps = picoLink.state();
     const Str pport = picoLink.port().empty()
         ? (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size())
                ? picoPorts[picoIndex] : Str())
         : picoLink.port();
-    stripField(ui::Icon::ICON_PROCESSOR, "PICO", picoStateColor(ps), picoStateText(ps),
-               pport.c_str());
+    stripField(pen, ui::Icon::ICON_PROCESSOR, "PICO", picoStateColor(ps),
+               picoStateText(ps), pport.c_str());
 
     // ---- board -----------------------------------------------------------
-    stripSep();
+    stripSep(pen);
     const BoardStatus brd = picoFlash.board();
     if(brd.bootsel)
-        stripField(ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::WARN, "BOOTSEL",
+        stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::WARN, "BOOTSEL",
                    brd.drive.c_str());
     else if(brd.present)
-        stripField(ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::GOOD, "Running",
+        stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::GOOD, "Running",
                    brd.program.c_str());
     else
-        stripField(ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::MUTED, "absent", "");
+        stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::MUTED, "absent", "");
 
     // ---- long-running operation ------------------------------------------
-    stripSep();
+    // Dropped rather than overlapped when the window is too narrow to hold it
+    // clear of the zoom control. A status bar that runs into its own controls
+    // is worse than one that shows three fields instead of four.
     const FlashState fs = picoFlash.state();
-    if(fs == FlashState::FLASH_STATE_WORKING)
-        stripField(ui::Icon::ICON_BUILD, "OP", ui::sem::WARN, "running",
-                   picoFlash.currentOp().c_str());
-    else if(fs == FlashState::FLASH_STATE_SUCCESS)
-        stripField(ui::Icon::ICON_BUILD, "OP", ui::sem::GOOD, "done",
-                   picoFlash.currentOp().c_str());
-    else if(fs == FlashState::FLASH_STATE_FAILED)
-        stripField(ui::Icon::ICON_BUILD, "OP", ui::sem::BAD, "FAILED",
-                   picoFlash.currentOp().c_str());
-    else
-        stripField(ui::Icon::ICON_BUILD, "OP", ui::sem::MUTED, "idle", "");
-
-    // ---- UI zoom, right-aligned ------------------------------------------
-    //
-    // Visible rather than shortcut-only. "The UI is too small" is a complaint
-    // about the app, and an app whose answer to it is a key combination nobody
-    // is told about has not answered it. The keys work too - Ctrl +/-/0.
-    drawZoomControl();
+    if(pen.x + ImGui::GetFontSize() * 8.0f < stopAt)
+    {
+        stripSep(pen);
+        if(fs == FlashState::FLASH_STATE_WORKING)
+            stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::WARN, "running",
+                       picoFlash.currentOp().c_str());
+        else if(fs == FlashState::FLASH_STATE_SUCCESS)
+            stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::GOOD, "done",
+                       picoFlash.currentOp().c_str());
+        else if(fs == FlashState::FLASH_STATE_FAILED)
+            stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::BAD, "FAILED",
+                       picoFlash.currentOp().c_str());
+        else
+            stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::MUTED, "idle", "");
+    }
 }
 
 // =================================================================== overview
@@ -4280,26 +4354,23 @@ Void app::frame()
 
     const ImGuiStyle& sty = ImGui::GetStyle();
 
-    // ---- status strip, always -------------------------------------------
-    // Sized to the text it holds, not to a frame. It was
-    // GetFrameHeight() + WindowPadding*2, which reserves room for a widget's
-    // padding plus the window's own - about 55px of bar around 22px of text,
-    // with AlignTextToFramePadding pushing that text off centre inside it.
-    // Sized to whichever is taller, the type or the icons. Sizing to the text
-    // alone is what cropped the old lamps.
+    // ---- the status bar's height, reserved now and DRAWN LAST ------------
+    //
+    // Sized to whichever is taller, the type or the icons, plus its padding.
+    // Sizing to the text alone is what cropped the old lamps.
+    //
+    // It lives at the BOTTOM. Along the top it competed with the tab bar for
+    // the eye and pushed the actual work down; a status bar is ambient
+    // information you glance at, not a header you read first.
     const Float32 stripPad = 6.0f * uiDpiScale;
     const Float32 stripH   = std::max(ImGui::GetTextLineHeight(), ui::iconSize())
                            + stripPad * 2.0f;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * uiDpiScale, stripPad));
-    ImGui::BeginChild("##strip", ImVec2(0.0f, stripH), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    drawStatusStrip();
-    ImGui::EndChild();
-    ImGui::PopStyleVar();   // WindowPadding pushed for the strip
-
     // ---- map + sidebar ---------------------------------------------------
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    // Everything above the bar lays out against the height that is left once
+    // the bar has taken its own.
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    avail.y -= stripH + sty.ItemSpacing.y;
 
     // The column's width is the user's now - see sidebarSplitter(). It is still
     // a LOGICAL width, so the sidebar's contents lay out against a number that
@@ -4324,6 +4395,37 @@ Void app::frame()
     }
 
     drawSidebar(sideW, avail.y);
+
+    // ---- the status bar, last --------------------------------------------
+    //
+    // Pinned to the window's bottom edge rather than flowed after the sidebar,
+    // because the two columns above it do not necessarily end at the same y and
+    // a bar that followed whichever was taller would move as panels opened.
+    {
+        const ImVec2 wp = ImGui::GetWindowPos();
+        const ImVec2 ws = ImGui::GetWindowSize();
+
+        ImGui::SetCursorScreenPos(ImVec2(wp.x + sty.WindowPadding.x,
+                                         wp.y + ws.y - sty.WindowPadding.y - stripH));
+
+        // A hairline above it, so the bar reads as chrome rather than as more
+        // content that happens to be at the bottom.
+        ImGui::GetWindowDrawList()->AddLine(
+            ImVec2(wp.x, wp.y + ws.y - sty.WindowPadding.y - stripH - 1.0f),
+            ImVec2(wp.x + ws.x, wp.y + ws.y - sty.WindowPadding.y - stripH - 1.0f),
+            ImGui::GetColorU32(ImGuiCol_Separator));
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                            ImVec2(12.0f * uiDpiScale, stripPad));
+        ImGui::BeginChild("##statusbar",
+                          ImVec2(ws.x - sty.WindowPadding.x * 2.0f, stripH),
+                          ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar
+                          | ImGuiWindowFlags_NoScrollWithMouse);
+        drawStatusBar();
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    }
 
     // ---- the recorder's frame source -------------------------------------
     //

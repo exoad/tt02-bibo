@@ -152,6 +152,27 @@ Int32 main(Void)
 }
 ```
 
+### The onboard LED
+
+`ledOpen()` / `ledWrite()` / `ledToggle()` / `ledRead()`.
+
+**It is not a GPIO.** On the Pico 2 W the user LED is wired to the CYW43439
+wireless chip, so `gpio_put(25, 1)` — the line every Pico 1 example uses —
+compiles, runs, and does nothing at all. `ledOpen()` brings the chip up and
+**can fail**; check the return, or every later call silently does nothing and
+you spend the evening looking at your wiring.
+
+That is why the `sketch` target links `pico_cyw43_arch_none`. It roughly doubles
+a *clean* build (86 → ~190 translation units) and leaves incremental builds
+untouched. A first-hour program that cannot blink the LED everybody can see is
+the worse trade.
+
+Also there: `tempC()` (die temperature, ADC channel 4), `watchdogStart()` /
+`watchdogFeed()` / `watchdogCausedReboot()`, `rebootToBootsel()`, and
+`serialWaitForHost()` — which fixes the "my first few printfs vanished" problem
+by waiting for USB enumeration. Pass 0 to wait forever, which is right on the
+bench and wrong on the car.
+
 Not wrapped: I2C, SPI and UART. They are stateful and have real configuration,
 and a wrapper that hid that would teach the wrong thing. They get their own
 headers when the ToF sensors and the SD card go on.
