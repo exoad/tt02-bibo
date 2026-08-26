@@ -29,7 +29,8 @@ if errorlevel 1 (
 if not exist "%HERE%build" mkdir "%HERE%build"
 
 REM 2. Compile the bridge. /MT to match the driver's MultiThreaded runtime.
-cl /nologo /EHsc /O2 /MT /W3 ^
+cl /nologo /EHsc /O2 /MT /W4 /std:c++20 ^
+  /I "%HERE%..\..\shared" ^
   /I "%ROOT%\rplidar_sdk\sdk\include" ^
   /I "%ROOT%\rplidar_sdk\sdk\src" ^
   "%HERE%lidar_bridge.cpp" ^

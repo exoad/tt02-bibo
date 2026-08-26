@@ -5,15 +5,13 @@
 // Exits 0 on PASS, 1 on FAIL. Reads no stdin, so it is safe to run from a
 // shell that hands it an already-closed stdin.
 
-#include "../src/shared.hpp"
+#include "shared.hpp"
 #include "../src/lidar_source.hpp"
 
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <string>
 #include <thread>
-#include <vector>
 
 namespace {
 
@@ -75,7 +73,7 @@ int main(int argc, char** argv)
 
     // ---- listPorts -------------------------------------------------------
     std::printf("-- listPorts --\n");
-    std::vector<Str> ports = LidarSource::listPorts();
+    Vec<Str> ports = LidarSource::listPorts();
     if(ports.empty()) {
         std::printf("  (none found)\n");
     } else {

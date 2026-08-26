@@ -24,8 +24,6 @@
 
 #include "shared.hpp"
 
-#include <vector>
-
 namespace sketch {
 
 // %LOCALAPPDATA%\tt02-auto\sketches, created on demand. Empty if there is no
@@ -33,7 +31,7 @@ namespace sketch {
 [[nodiscard]] Str dir();
 
 // Saved sketches, newest first, bare filenames including the .c.
-[[nodiscard]] std::vector<Str> list();
+[[nodiscard]] Vec<Str> list();
 
 // Absolute path of a library sketch by bare filename.
 [[nodiscard]] Str pathOf(const Str& name);
@@ -48,7 +46,7 @@ namespace sketch {
 // The .c and .h files in firmware/src, bare filenames, alphabetical. These are
 // editable from the Code view too: it is the same toolchain and the same style
 // guide, and having to leave the app to fix a typo in main.c would be silly.
-[[nodiscard]] std::vector<Str> listFirmware();
+[[nodiscard]] Vec<Str> listFirmware();
 
 // Which catalog target owns `path`, so Build & Flash writes the image that
 // actually contains the file on screen. "sketch" for the scratch slot and for

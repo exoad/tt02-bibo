@@ -7,8 +7,6 @@
 #include "shared.hpp"
 
 #include <cstdint>
-#include <string>
-#include <vector>
 
 struct LidarPoint
 {
@@ -19,7 +17,7 @@ struct LidarPoint
 
 struct LidarFrame
 {
-    std::vector<LidarPoint> points;
+    Vec<LidarPoint> points;
     Float32 hz           = 0.0f;   // rotation rate reported by the SDK
     Int32   validCount  = 0;      // points with distMm > 0
     Float32 maxDistMm  = 0.0f;
@@ -105,7 +103,7 @@ public:
     Bool poll(LidarFrame& out);
 
     // Serial ports present on the system, e.g. {"COM3","COM7"}. Never throws.
-    static std::vector<Str> listPorts();
+    static Vec<Str> listPorts();
 
     // Best guess at which port the lidar is on: the Silicon Labs CP210x USB
     // bridge, which is what every RPLIDAR USB adapter presents as. Returns an

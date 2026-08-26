@@ -21,6 +21,7 @@ if errorlevel 1 (
 if not exist "%OUT%" mkdir "%OUT%"
 
 cl /nologo /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS ^
+  /I"%HERE%..\..\..\shared" ^
   /I "%IMGUI%" /I "%IMGUI%\backends" /I "%HUB%\src" ^
   "%HERE%main.cpp" ^
   "%HUB%\src\board_view.cpp" ^

@@ -12,14 +12,12 @@
 //
 // It deliberately NEVER calls bootsel_touch(): that would reboot the board into
 // BOOTSEL and yank the port out from under whoever else is working on it.
-#include "../src/shared.hpp"
+#include "shared.hpp"
 #include "../src/pico_link.hpp"
 
 #include <chrono>
 #include <cstdio>
-#include <string>
 #include <thread>
-#include <vector>
 
 static const Char* PORT = "COM10";
 
@@ -41,7 +39,7 @@ static Void sleep_ms(Int32 ms)
 }
 
 // Mimics the UI thread: drain every ~16 ms for `ms` milliseconds.
-static Size pump(PicoLink& link, std::vector<PicoLine>& sink, Int32 ms, const Char* what)
+static Size pump(PicoLink& link, Vec<PicoLine>& sink, Int32 ms, const Char* what)
 {
     const Size before = sink.size();
     for(Int32 t = 0; t < ms; t += 16)
@@ -59,7 +57,7 @@ int main()
     Int32 failures = 0;
 
     printf("=== 1. listPicoPorts() ===\n");
-    std::vector<Str> ports = PicoLink::listPicoPorts();
+    Vec<Str> ports = PicoLink::listPicoPorts();
     printf("  %zu Raspberry Pi (VID_2E8A) serial port(s):\n", ports.size());
     for(const auto& p : ports)
         printf("    %s\n", p.c_str());
@@ -96,7 +94,7 @@ int main()
         return 1;
     }
 
-    std::vector<PicoLine> lines;
+    Vec<PicoLine> lines;
 
     printf("\n=== 3. listen 3 s on a silent board ===\n");
     pump(link, lines, 3000, "quiet");

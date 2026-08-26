@@ -100,18 +100,18 @@ Str probePort(const Str& devPath, const Str& friendly)
 
 struct LidarSource::Impl
 {
-    std::thread       worker;
-    std::atomic<Bool> quit{false};
+    Thread       worker;
+    Atomic<Bool> quit{false};
 
     // Owned by the UI thread, read by the worker. Starts true so a connect
     // spins up as it always has.
-    std::atomic<Bool> motorOn{ true };
-    std::atomic<Bool> running{false};   // worker exists and has not been joined
+    Atomic<Bool> motorOn{ true };
+    Atomic<Bool> running{false};   // worker exists and has not been joined
 
-    std::atomic<LidarState> state{LidarState::LIDAR_STATE_IDLE};
+    Atomic<LidarState> state{LidarState::LIDAR_STATE_IDLE};
 
     // Guards everything the worker publishes to the UI thread.
-    mutable std::mutex  mtx;
+    mutable Mutex  mtx;
     Str         errorMsg;
     LidarDeviceInfo     devInfo;
     LidarScanInfo       scanInfo;
@@ -121,11 +121,11 @@ struct LidarSource::Impl
     // Session counters. Written only by the worker, read by the UI thread, so
     // atomics keep them off the publish mutex - the UI reads them every frame
     // while the worker only touches them once per revolution.
-    std::atomic<UInt64> statFrames{0};
-    std::atomic<UInt64> statPoints{0};
-    std::atomic<UInt32>       statTimeouts{0};
+    Atomic<UInt64> statFrames{0};
+    Atomic<UInt64> statPoints{0};
+    Atomic<UInt32>       statTimeouts{0};
     std::chrono::steady_clock::time_point scanStart{};
-    std::atomic<Bool>               scanStarted{false};
+    Atomic<Bool>               scanStarted{false};
 
     // Touched only by poll(), i.e. only by the UI thread.
     UInt64 lastSeenSeq = 0;
@@ -133,7 +133,7 @@ struct LidarSource::Impl
     Void setError(const Str& msg)
     {
         {
-            std::lock_guard<std::mutex> lock(mtx);
+            LockGuard<Mutex> lock(mtx);
             errorMsg = msg;
         }
         state.store(LidarState::LIDAR_STATE_ERROR, std::memory_order_release);
@@ -218,7 +218,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             di.health = static_cast<Int32>(health.status);
 
         {
-            std::lock_guard<std::mutex> lock(mtx);
+            LockGuard<Mutex> lock(mtx);
             devInfo = di;
         }
 
@@ -265,7 +265,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             name[sizeof(mode.scan_mode)] = '\0';
             si.mode = name;
 
-            std::lock_guard<std::mutex> lock(mtx);
+            LockGuard<Mutex> lock(mtx);
             scanInfo = si;
         }
 
@@ -274,7 +274,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 
         state.store(LidarState::LIDAR_STATE_SCANNING, std::memory_order_release);
 
-        std::vector<sl_lidar_response_measurement_node_hq_t> nodes(MAX_NODES);
+        Vec<sl_lidar_response_measurement_node_hq_t> nodes(MAX_NODES);
 
         // Reused across iterations so the steady state does no allocation once
         // the vector has grown to a revolution's worth of points.
@@ -365,7 +365,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             // Publish. The lock is held only for the swap and counter bump, so
             // a UI thread polling at 60Hz never waits on the scan conversion.
             {
-                std::lock_guard<std::mutex> lock(mtx);
+                LockGuard<Mutex> lock(mtx);
                 std::swap(frame, staging);
                 ++frameSeq;
             }
@@ -420,7 +420,7 @@ Void LidarSource::start(const Str& port, Int32 baud)
     stop();
 
     {
-        std::lock_guard<std::mutex> lock(pimpl->mtx);
+        LockGuard<Mutex> lock(pimpl->mtx);
         pimpl->errorMsg = Str();
         pimpl->devInfo  = LidarDeviceInfo();
         pimpl->scanInfo = LidarScanInfo();
@@ -440,7 +440,7 @@ Void LidarSource::start(const Str& port, Int32 baud)
     pimpl->running.store(true, std::memory_order_release);
 
     Impl* impl = pimpl;
-    pimpl->worker = std::thread([impl, port, baud] { impl->run(port, baud); });
+    pimpl->worker = Thread([impl, port, baud] { impl->run(port, baud); });
 }
 
 Bool LidarSource::connected() const noexcept
@@ -483,19 +483,19 @@ LidarState LidarSource::state() const
 
 Str LidarSource::error() const
 {
-    std::lock_guard<std::mutex> lock(pimpl->mtx);
+    LockGuard<Mutex> lock(pimpl->mtx);
     return pimpl->errorMsg;
 }
 
 LidarDeviceInfo LidarSource::info() const
 {
-    std::lock_guard<std::mutex> lock(pimpl->mtx);
+    LockGuard<Mutex> lock(pimpl->mtx);
     return pimpl->devInfo;
 }
 
 LidarScanInfo LidarSource::scanInfo() const
 {
-    std::lock_guard<std::mutex> lock(pimpl->mtx);
+    LockGuard<Mutex> lock(pimpl->mtx);
     return pimpl->scanInfo;
 }
 
@@ -516,7 +516,7 @@ LidarStats LidarSource::stats() const
 
 Bool LidarSource::poll(LidarFrame& out)
 {
-    std::lock_guard<std::mutex> lock(pimpl->mtx);
+    LockGuard<Mutex> lock(pimpl->mtx);
 
     // Frames land at ~10Hz while this is called at ~60Hz, so the overwhelmingly
     // common path is this comparison and an immediate return.
@@ -575,16 +575,16 @@ Str LidarSource::preferredPort()
     return found;
 }
 
-std::vector<Str> LidarSource::listPorts()
+Vec<Str> LidarSource::listPorts()
 {
-    std::vector<Str> ports;
+    Vec<Str> ports;
 
     // QueryDosDeviceA with a NULL device name returns every DOS device as a
     // packed run of NUL-terminated strings. It needs no extra import library
     // beyond kernel32, which is why it is preferred over SetupAPI here.
     try {
         DWORD cap = 8192;
-        std::vector<Char> buf;
+        Vec<Char> buf;
 
         for(Int32 attempt = 0; attempt < 6; ++attempt) {
             buf.assign(cap, '\0');
@@ -604,7 +604,11 @@ std::vector<Str> LidarSource::listPorts()
                         (p[2] == 'M' || p[2] == 'm')) {
                         Bool allDigits = true;
                         for(Size i = 3; i < len; ++i) {
-                            if(p[i] < '0' || p[i] > '9') { allDigits = false; break; }
+                            if(p[i] < '0' || p[i] > '9')
+                            {
+                                allDigits = false;
+                                break;
+                            }
                         }
                         if(allDigits)
                             ports.push_back(Str(p, len));

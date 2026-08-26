@@ -10,8 +10,6 @@
 #include "shared.hpp"
 
 #include <cstddef>
-#include <string>
-#include <vector>
 
 // One flashable image, read from firmware/catalog.txt plus what is on disk.
 struct FirmwareEntry
@@ -60,7 +58,7 @@ public:
     // Re-reads firmware/catalog.txt and stats each .uf2. Cheap; safe to call
     // when the user asks, not every frame.
     Void refreshCatalog();
-    const std::vector<FirmwareEntry>& catalog() const;
+    const Vec<FirmwareEntry>& catalog() const;
 
     // ---- operations -----------------------------------------------------
     // All non-blocking: they start a worker and return immediately. Only one
@@ -78,7 +76,7 @@ public:
 
     // Moves newly produced output lines into `out` (appending). Call once per
     // UI frame. These are the raw lines from the underlying script.
-    Size drainLog(std::vector<Str>& out);
+    Size drainLog(Vec<Str>& out);
 
     // ---- board ----------------------------------------------------------
     // Cached; refreshBoard() re-queries. Querying spawns picotool, so it is

@@ -37,8 +37,6 @@
 
 #include "shared.hpp"
 
-#include <vector>
-
 namespace ed {
 
 enum class Mode
@@ -106,12 +104,21 @@ public:
     [[nodiscard]] Int32      lineCount() const;
     [[nodiscard]] const Str& line(Int32 i) const;
 
-    [[nodiscard]] Cursor cursor() const { return cur; }
+    [[nodiscard]] Cursor cursor() const
+    {
+        return cur;
+    }
     Void                 setCursor(Int32 line, Int32 col);
 
     // True when the buffer has changed since the last setText() or clearDirty().
-    [[nodiscard]] Bool dirty() const { return dirtyFlag; }
-    Void               clearDirty() { dirtyFlag = false; }
+    [[nodiscard]] Bool dirty() const
+    {
+        return dirtyFlag;
+    }
+    Void               clearDirty()
+    {
+        dirtyFlag = false;
+    }
 
     // ---- editing ---------------------------------------------------------
     // One key press. Returns true if anything about the buffer or the cursor
@@ -137,11 +144,17 @@ public:
     Void replaceWordBeforeCursor(const Str& s);
 
     // ---- mode ------------------------------------------------------------
-    [[nodiscard]] Mode mode() const { return md; }
+    [[nodiscard]] Mode mode() const
+    {
+        return md;
+    }
     Void               setMode(Mode m);
 
     // The `:` line being typed, without the colon. Empty outside command mode.
-    [[nodiscard]] const Str& commandLine() const { return cmdLine; }
+    [[nodiscard]] const Str& commandLine() const
+    {
+        return cmdLine;
+    }
 
     // A command mode line that has been submitted with Enter, consumed by the
     // caller. Empty when there is nothing pending. This is how :w reaches the
@@ -168,7 +181,7 @@ private:
     // the thing to replace, and the tests above it will not change.
     struct Snapshot
     {
-        std::vector<Str> lines;
+        Vec<Str> lines;
         Cursor           cur;
     };
 
@@ -193,7 +206,7 @@ private:
     Void clampCursor();
     [[nodiscard]] Int32 indentOf(Int32 lineIdx) const;
 
-    std::vector<Str>      lines;
+    Vec<Str>      lines;
     Cursor                cur;
     Mode                  md = Mode::MODE_NORMAL;
 
@@ -213,8 +226,8 @@ private:
     Str  yankBuf;
     Bool yankLinewise = false;
 
-    std::vector<Snapshot> undoStack;
-    std::vector<Snapshot> redoStack;
+    Vec<Snapshot> undoStack;
+    Vec<Snapshot> redoStack;
     Bool                  dirtyFlag = false;
 };
 

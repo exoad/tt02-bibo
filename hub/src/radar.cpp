@@ -56,7 +56,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <utility>
-#include <vector>
 
 #include "theme.hpp"
 
@@ -391,17 +390,17 @@ struct Dot { Float32 x, y; };
 // Reused between revolutions and frames so the per-frame cost is a memcpy-free
 // refill rather than an allocation. ImGui is single-threaded, so a file-local
 // buffer is safe here.
-std::vector<Dot>& scratch()
+Vec<Dot>& scratch()
 {
-    static std::vector<Dot> s;
+    static Vec<Dot> s;
     return s;
 }
 
 // Separate buffer for the nearest-object highlight: it is emitted while the
 // main scratch still holds the current revolution's dots.
-std::vector<Dot>& nearestScratch()
+Vec<Dot>& nearestScratch()
 {
-    static std::vector<Dot> s;
+    static Vec<Dot> s;
     return s;
 }
 
@@ -410,9 +409,9 @@ std::vector<Dot>& nearestScratch()
 // A screen-space axis-aligned cell, for Density and Occupancy.
 struct Cell { Float32 x0, y0, x1, y1; ImU32 c; };
 
-std::vector<Cell>& cellScratch()
+Vec<Cell>& cellScratch()
 {
-    static std::vector<Cell> s;
+    static Vec<Cell> s;
     return s;
 }
 
@@ -470,7 +469,6 @@ constexpr Float32 EGO_SENSOR_AHEAD_MM = vehicle::C1_MOUNT_AHEAD_MM;
 // position that is currently TRUE: the C1 is not mounted yet. When it is, this
 // becomes a measured offset and the footprint shifts around the origin - the
 // drawing already works in terms of it rather than assuming the centre.
-
 
 // --- Clearance -------------------------------------------------------------
 //
@@ -564,19 +562,19 @@ struct MapState
     // Density: a count per cell, plus a ring of the cell indices each revolution
     // contributed so the oldest revolution can be decremented back out again.
     // Exact, and bounded: the ring holds at most DENS_WINDOW revolutions.
-    std::vector<UInt16> dens;
-    std::vector<Int32>  ring[DENS_WINDOW];
+    Vec<UInt16> dens;
+    Vec<Int32>  ring[DENS_WINDOW];
     Int32                   ringHead = 0;
 
     // Occupancy: an intensity per cell, plus the list of cells that are above
     // the floor. Decaying only the active list keeps the per-frame cost
     // proportional to what has actually been seen, not to the whole grid.
-    std::vector<Float32>   occ;
-    std::vector<Int32> occActive;
+    Vec<Float32>   occ;
+    Vec<Int32> occActive;
 
     // Motion: same shape as occupancy, and read against it.
-    std::vector<Float32>   mot;
-    std::vector<Int32> motActive;
+    Vec<Float32>   mot;
+    Vec<Int32> motActive;
 
     // Clearance: the smoothed nearest range per bearing bin, in mm. 0 means the
     // bin has never had a return; MAX_VALID_MM means "clear as far as the sensor
@@ -643,7 +641,7 @@ struct MapState
 // switching tabs threw away the density and occupancy history each time, which
 // is precisely the history those modes exist to accumulate.
 //
-// A fixed slot table rather than a std::map: the number of views is a property
+// A fixed slot table rather than a Map: the number of views is a property
 // of the UI and is small, so the bound belongs in the code where it can be seen.
 MapState& mapStateFor(const RadarView* owner)
 {
@@ -721,7 +719,7 @@ Bool neighbourhoodCold(const MapState& st, Int32 ci, Int32 rad)
     return true;
 }
 
-Void accumulateRevolution(MapState& st, const std::vector<LidarPoint>& pts)
+Void accumulateRevolution(MapState& st, const Vec<LidarPoint>& pts)
 {
     st.ensure();
 
@@ -729,7 +727,7 @@ Void accumulateRevolution(MapState& st, const std::vector<LidarPoint>& pts)
         ++st.revs;
 
     // Retire the revolution that has just rolled out of the window.
-    std::vector<Int32>& slot = st.ring[st.ringHead];
+    Vec<Int32>& slot = st.ring[st.ringHead];
     for(Int32 ci : slot)
         if(st.dens[static_cast<Size>(ci)] > 0)
             --st.dens[static_cast<Size>(ci)];
@@ -830,7 +828,7 @@ Void accumulateRevolution(MapState& st, const std::vector<LidarPoint>& pts)
 // same intensity after the same number of SECONDS, or the map means something
 // different on a slower machine. dt is clamped so a stall (a resize, a debugger
 // break) cannot wipe the map in one step.
-Void decayField(std::vector<Float32>& v, std::vector<Int32>& active,
+Void decayField(Vec<Float32>& v, Vec<Int32>& active,
                 Float32 tau, Float32 floorV, Float32 dt)
 {
     if(active.empty() || !(dt > 0.0f))
@@ -880,8 +878,8 @@ Void decayOccupancy(MapState& st, Float32 dt)
 // angular gap between them is small (no missed returns in between) and the
 // radial step is small (not a jump to something behind it). The run is capped
 // so a smooth wall cannot drag the highlight around the entire room.
-Void gatherNearestCluster(const std::vector<LidarPoint>& pts, Int32 bestI,
-                          const ImVec2& s0, Float32 ppm, std::vector<Dot>& out)
+Void gatherNearestCluster(const Vec<LidarPoint>& pts, Int32 bestI,
+                          const ImVec2& s0, Float32 ppm, Vec<Dot>& out)
 {
     out.clear();
 
@@ -1398,10 +1396,26 @@ Void drawGridLines(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const Im
         ImU32 col; Float32 th;
         if(!g.centred)       { col = ((i % 5) == 0) ? RING_MAJOR : RING_COL;
                                      th  = ((i % 5) == 0) ? 1.3f : 1.0f; }
-        else if(i == g.compassI) { col = RING_MAJOR; th = 1.7f; }
-        else if(i >  g.compassI) { col = RING_FAINT; th = 1.0f; }
-        else if((i % 5) == 0)     { col = RING_MAJOR; th = 1.3f; }
-        else                       { col = RING_COL;   th = 1.0f; }
+        else if(i == g.compassI)
+        {
+            col = RING_MAJOR;
+            th = 1.7f;
+        }
+        else if(i >  g.compassI)
+        {
+            col = RING_FAINT;
+            th = 1.0f;
+        }
+        else if((i % 5) == 0)
+        {
+            col = RING_MAJOR;
+            th = 1.3f;
+        }
+        else
+        {
+            col = RING_COL;
+            th = 1.0f;
+        }
 
         strokeRing(dl, s0, static_cast<Float32>(i) * g.stepPx, p0, p1, col, th * dpi);
     }
@@ -1641,8 +1655,8 @@ Void drawScaleBar(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, Float32 pp
 // Projects one revolution into screen space, dropping "no return" samples and
 // anything outside the widget. At high zoom this is what keeps the submitted
 // geometry proportional to what is actually visible.
-Void collectDots(const std::vector<LidarPoint>& pts, const ImVec2& s0, Float32 ppm,
-                 const ImVec2& lo, const ImVec2& hi, std::vector<Dot>& out)
+Void collectDots(const Vec<LidarPoint>& pts, const ImVec2& s0, Float32 ppm,
+                 const ImVec2& lo, const ImVec2& hi, Vec<Dot>& out)
 {
     out.clear();
     if(pts.empty())
@@ -1710,11 +1724,11 @@ Void say(const MarkCtx& c, const Char* fmt, Args... args)
 // MapMode::MAP_MODE_POINTS. Unchanged from the flat-dot renderer this file has always
 // had, and deliberately so: it is the verified default, and the other modes are
 // alternatives to it rather than revisions of it.
-Void drawMarksPoints(const MarkCtx& c, const std::deque<std::vector<LidarPoint>>& trail,
+Void drawMarksPoints(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail,
                      Bool showTrail)
 {
     const Int32 last = static_cast<Int32>(trail.size()) - 1;
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
 
     // Older revolutions fade out behind the current one. Same flat colour,
     // lower alpha and a slightly smaller dot: the trail is context, the
@@ -1782,7 +1796,7 @@ Void drawMarksDensity(const MarkCtx& c, const MapState& st)
 
     const Ramp& ramp = heatRamp();
 
-    std::vector<Cell>& out = cellScratch();
+    Vec<Cell>& out = cellScratch();
     out.clear();
 
     for(Int32 iy = iy0; iy <= iy1; ++iy)
@@ -1819,9 +1833,9 @@ Void drawMarksDensity(const MarkCtx& c, const MapState& st)
 // GROWS WITH RANGE. It has to: at 0.72 deg the arc between neighbouring samples
 // is ~13 mm at 1 m and ~150 mm at 12 m, so a fixed threshold either shatters
 // every distant surface or bridges across doorways up close.
-Void drawMarksContour(const MarkCtx& c, const std::deque<std::vector<LidarPoint>>& trail)
+Void drawMarksContour(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
 {
-    const std::vector<LidarPoint>& pts = trail.back();
+    const Vec<LidarPoint>& pts = trail.back();
     const Int32 n = static_cast<Int32>(pts.size());
     if(n < 2)
         return;
@@ -1830,7 +1844,7 @@ Void drawMarksContour(const MarkCtx& c, const std::deque<std::vector<LidarPoint>
     // so noise along a flat surface does not read as a break in it.
     const Float32 ARC = 2.2f * (0.72f * PI / 180.0f);
 
-    std::vector<ImVec2> run;
+    Vec<ImVec2> run;
     run.reserve(64);
 
     const ImU32 col = POINT_RGB | (static_cast<ImU32>(220u) << IM_COL32_A_SHIFT);
@@ -1892,7 +1906,7 @@ Void drawMarksContour(const MarkCtx& c, const std::deque<std::vector<LidarPoint>
 // The boundary is ramped by range and the fill is not, so near danger reads off
 // the outline while the drivable area stays a single flat shape.
 Void drawMarksClearance(const MarkCtx& c, const MapState& st,
-                        const std::deque<std::vector<LidarPoint>>& trail)
+                        const Deque<Vec<LidarPoint>>& trail)
 {
     if(!st.ready)
         return;
@@ -1925,7 +1939,7 @@ Void drawMarksClearance(const MarkCtx& c, const MapState& st,
 
     // The live revolution over the top, dim: the polygon is a derived, smoothed
     // thing and should never be the only evidence on screen.
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
               POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
@@ -1938,11 +1952,11 @@ Void drawMarksClearance(const MarkCtx& c, const MapState& st,
 // This is the complement of Density: that one shows what has stayed put, this
 // one shows what has not.
 Void drawMarksMotion(const MarkCtx& c, const MapState& st,
-                     const std::deque<std::vector<LidarPoint>>& trail)
+                     const Deque<Vec<LidarPoint>>& trail)
 {
     // Context first, and dim - an empty motion map is the correct reading for a
     // still room, but on its own it is indistinguishable from a broken one.
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
               POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT), c.uv);
@@ -1954,7 +1968,7 @@ Void drawMarksMotion(const MarkCtx& c, const MapState& st,
     const Float32 pad     = std::max(0.0f, (1.0f - cellPx) * 0.5f);
     const Float32 ext     = cellPx + pad * 2.0f;
 
-    std::vector<Cell>& out = cellScratch();
+    Vec<Cell>& out = cellScratch();
     out.clear();
     out.reserve(st.motActive.size());
 
@@ -1989,11 +2003,11 @@ Void drawMarksMotion(const MarkCtx& c, const MapState& st,
 // run taken at the run's NEAREST edge, because that is the width that would
 // actually have to fit - measuring at the far edge would flatter every doorway.
 Void drawMarksGaps(const MarkCtx& c, const MapState& st,
-                   const std::deque<std::vector<LidarPoint>>& trail)
+                   const Deque<Vec<LidarPoint>>& trail)
 {
     // The live revolution underneath, dim: the gaps are derived, and a derived
     // thing should never be the only evidence on screen.
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
               POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
@@ -2016,7 +2030,11 @@ Void drawMarksGaps(const MarkCtx& c, const MapState& st,
     Int32 b = 0;
     while(b < CLR_BINS)
     {
-        if(!st.clrSeen[b] || st.clr[b] < GAP_OPEN_MM) { ++b; continue; }
+        if(!st.clrSeen[b] || st.clr[b] < GAP_OPEN_MM)
+        {
+            ++b;
+            continue;
+        }
 
         const Int32 start = b;
         Float32 nearestMm = st.clr[b];
@@ -2036,7 +2054,11 @@ Void drawMarksGaps(const MarkCtx& c, const MapState& st,
         ++count;
 
         const Float32 midDeg = (static_cast<Float32>(start) + span * 0.5f) * CLR_BIN_DEG;
-        if(width > bestWidth) { bestWidth = width; bestDeg = midDeg; }
+        if(width > bestWidth)
+        {
+            bestWidth = width;
+            bestDeg = midDeg;
+        }
 
         // The wedge of the opening, and the chord that has to fit.
         const Float32 a0 = (static_cast<Float32>(start) * CLR_BIN_DEG - 90.0f) * (PI / 180.0f);
@@ -2117,12 +2139,14 @@ using mapgeo::perpDist;
 // to. One declaration is the smaller cost.
 struct MarkCtx;
 Void drawEgo(const MarkCtx& c);
-inline scene3d::EgoView egoView(const MarkCtx& c) { return c.ego; }
-
+inline scene3d::EgoView egoView(const MarkCtx& c)
+{
+    return c.ego;
+}
 
 constexpr Int32 WALL_MAX = 64;
 
-Void fitWalls(const std::vector<LidarPoint>& pts, std::vector<WallSeg>& out)
+Void fitWalls(const Vec<LidarPoint>& pts, Vec<WallSeg>& out)
 {
     out.clear();
 
@@ -2134,13 +2158,13 @@ Void fitWalls(const std::vector<LidarPoint>& pts, std::vector<WallSeg>& out)
     // because the arc between adjacent samples does.
     const Float32 arc = 2.2f * (0.72f * PI / 180.0f);
 
-    static std::vector<WorldPt> run;
+    static Vec<WorldPt> run;
     run.clear();
     run.reserve(64);
 
     // Explicit stack rather than recursion: a pathological run should cost
     // memory that is visible here, not stack that is not.
-    static std::vector<std::pair<Int32, Int32>> todo;
+    static Vec<Pair<Int32, Int32>> todo;
 
     const auto flushRun = [&]() {
         const Int32 m = static_cast<Int32>(run.size());
@@ -2151,7 +2175,7 @@ Void fitWalls(const std::vector<LidarPoint>& pts, std::vector<WallSeg>& out)
 
             while(!todo.empty())
             {
-                const std::pair<Int32, Int32> seg = todo.back();
+                const Pair<Int32, Int32> seg = todo.back();
                 todo.pop_back();
 
                 const Int32 b = seg.first;
@@ -2166,7 +2190,11 @@ Void fitWalls(const std::vector<LidarPoint>& pts, std::vector<WallSeg>& out)
                     const Float32 d = perpDist(run[static_cast<Size>(i)],
                                                run[static_cast<Size>(b)],
                                                run[static_cast<Size>(e)]);
-                    if(d > worstD) { worstD = d; worst = i; }
+                    if(d > worstD)
+                    {
+                        worstD = d;
+                        worst = i;
+                    }
                 }
 
                 if(worst > 0 && worstD > WALL_TOL_MM)
@@ -2246,25 +2274,29 @@ Void fitWalls(const std::vector<LidarPoint>& pts, std::vector<WallSeg>& out)
 // The tolerance is set from the SENSOR, not from taste: the C1 is specified to
 // +/-30 mm, so anything inside ~45 mm of a straight line is a straight line as
 // far as this device can tell, and splitting there would be fitting noise.
-Void drawMarksWalls(const MarkCtx& c, const std::deque<std::vector<LidarPoint>>& trail)
+Void drawMarksWalls(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
 {
-    const std::vector<LidarPoint>& pts = trail.back();
+    const Vec<LidarPoint>& pts = trail.back();
 
     // The returns underneath, dim: a fitted wall is inferred, and the evidence
     // it was inferred from has to stay visible beside it.
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
               POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT), c.uv);
 
-    static std::vector<WallSeg> walls;
+    static Vec<WallSeg> walls;
     fitWalls(pts, walls);
 
     Float32 longestMm = 0.0f, longestDeg = 0.0f;
 
     for(const WallSeg& w : walls)
     {
-        if(w.lenMm > longestMm) { longestMm = w.lenMm; longestDeg = w.deg; }
+        if(w.lenMm > longestMm)
+        {
+            longestMm = w.lenMm;
+            longestDeg = w.deg;
+        }
 
         const ImVec2 sa(c.s0.x + w.a.x * c.ppm, c.s0.y + w.a.y * c.ppm);
         const ImVec2 sb(c.s0.x + w.b.x * c.ppm, c.s0.y + w.b.y * c.ppm);
@@ -2336,17 +2368,16 @@ Void drawMarksWalls(const MarkCtx& c, const std::deque<std::vector<LidarPoint>>&
 // somewhere off in space where two extended lines happen to meet.
 // ---------------------------------------------------------------------------
 
-
-Void drawMarksCorners(const MarkCtx& c, const std::deque<std::vector<LidarPoint>>& trail)
+Void drawMarksCorners(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
 {
-    const std::vector<LidarPoint>& pts = trail.back();
+    const Vec<LidarPoint>& pts = trail.back();
 
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
               POINT_RGB | (static_cast<ImU32>(50u) << IM_COL32_A_SHIFT), c.uv);
 
-    static std::vector<WallSeg> walls;
+    static Vec<WallSeg> walls;
     fitWalls(pts, walls);
 
     // The walls stay on screen, dim. A corner without the two surfaces that
@@ -2357,7 +2388,7 @@ Void drawMarksCorners(const MarkCtx& c, const std::deque<std::vector<LidarPoint>
                       WALL_RGB | (static_cast<ImU32>(0x60u) << IM_COL32_A_SHIFT),
                       1.4f * c.dpi);
 
-    static std::vector<Corner> corners;
+    static Vec<Corner> corners;
     mapgeo::findCorners(walls, corners, MIN_VALID_MM, MAX_VALID_MM);
 
     const ImU32 col = ui::ansi::BRMAGENTA;
@@ -2439,7 +2470,7 @@ constexpr Int32 FIT_WINDOW_BINS = 24;    // +/-72 deg; see the note above
 constexpr Float32 FIT_MARGIN_MM = 30.0f;
 
 Void drawMarksFit(const MarkCtx& c, const MapState& st,
-                  const std::deque<std::vector<LidarPoint>>& trail)
+                  const Deque<Vec<LidarPoint>>& trail)
 {
     if(!st.ready)
     {
@@ -2490,8 +2521,8 @@ Void drawMarksFit(const MarkCtx& c, const MapState& st,
                       1.8f * c.dpi);
 
     // The returns, so the surfaces doing the blocking are visible.
-    const std::vector<LidarPoint>& pts = trail.back();
-    std::vector<Dot>& dots = scratch();
+    const Vec<LidarPoint>& pts = trail.back();
+    Vec<Dot>& dots = scratch();
     collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
               POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
@@ -2597,7 +2628,11 @@ Bool fitObstacle(const WorldPt* p, Int32 m, Obstacle& out)
 
     const Float32 fm = static_cast<Float32>(m);
     Float32 mx = 0.0f, my = 0.0f;
-    for(Int32 i = 0; i < m; ++i) { mx += p[i].x; my += p[i].y; }
+    for(Int32 i = 0; i < m; ++i)
+    {
+        mx += p[i].x;
+        my += p[i].y;
+    }
     mx /= fm; my /= fm;
 
     Float32 sxx = 0.0f, sxy = 0.0f, syy = 0.0f;
@@ -2649,11 +2684,11 @@ Bool fitObstacle(const WorldPt* p, Int32 m, Obstacle& out)
     return true;
 }
 
-Void findObstacles(const std::vector<LidarPoint>& pts, std::vector<Obstacle>& out)
+Void findObstacles(const Vec<LidarPoint>& pts, Vec<Obstacle>& out)
 {
     out.clear();
 
-    static std::vector<WorldPt> w;
+    static Vec<WorldPt> w;
     w.clear();
     w.reserve(pts.size());
 
@@ -2684,10 +2719,14 @@ Void findObstacles(const std::vector<LidarPoint>& pts, std::vector<Obstacle>& ou
     for(Int32 i = 0; i < n; ++i)
     {
         const Float32 g = gapAt(i, (i + 1) % n);
-        if(g > widest) { widest = g; startAt = (i + 1) % n; }
+        if(g > widest)
+        {
+            widest = g;
+            startAt = (i + 1) % n;
+        }
     }
 
-    static std::vector<WorldPt> run;
+    static Vec<WorldPt> run;
     run.clear();
 
     const auto flush = [&]() {
@@ -2720,7 +2759,7 @@ Void findObstacles(const std::vector<LidarPoint>& pts, std::vector<Obstacle>& ou
 // How far the car could go straight ahead before something enters the width it
 // sweeps. Forward is -y; the width is the chassis plus a small margin, because
 // clearing an obstacle by 5 mm is not clearing it.
-Float32 corridorFree(const std::vector<LidarPoint>& pts, Float32 halfWidthMm)
+Float32 corridorFree(const Vec<LidarPoint>& pts, Float32 halfWidthMm)
 {
     Float32 best = CORRIDOR_MAX_MM;
     const Float32 deg2rad = PI / 180.0f;
@@ -2882,7 +2921,7 @@ Void drawEgo(const MarkCtx& c)
 // down is dropped; the box is still drawn, still counted.
 struct LabelRect { Float32 x0, y0, x1, y1; };
 
-Bool claimLabel(std::vector<LabelRect>& taken, const ImVec2& mid, const ImVec2& ts,
+Bool claimLabel(Vec<LabelRect>& taken, const ImVec2& mid, const ImVec2& ts,
                 Float32 dpi)
 {
     const Float32 pad = 4.0f * dpi;
@@ -2903,7 +2942,7 @@ Bool claimLabel(std::vector<LabelRect>& taken, const ImVec2& mid, const ImVec2& 
 // the object", which is a stronger claim than the data supports - the lidar sees
 // one face and the box is a bound, not a shape. Open corners say bound.
 Void drawObstacle(const MarkCtx& c, const Obstacle& o, Bool label,
-                  std::vector<LabelRect>& taken)
+                  Vec<LabelRect>& taken)
 {
     const Float32 px = -o.uy, py = o.ux;
 
@@ -2990,7 +3029,7 @@ Void drawObstacle(const MarkCtx& c, const Obstacle& o, Bool label,
 // The corridor the car would drive into. A ribbon of the chassis' own width,
 // coloured by how much of it is free.
 Void drawCorridor(const MarkCtx& c, Float32 halfWidthMm, Float32 freeMm,
-                  std::vector<LabelRect>& taken)
+                  Vec<LabelRect>& taken)
 {
     const Float32 hw = halfWidthMm * c.ppm;
     if(hw < 1.5f)
@@ -3035,9 +3074,9 @@ Void drawCorridor(const MarkCtx& c, Float32 halfWidthMm, Float32 freeMm,
 
 // there may not be a sidebar in view.
 Void drawMarksFull(const MarkCtx& c, const MapState& st,
-                   const std::deque<std::vector<LidarPoint>>& trail, Float32 hz)
+                   const Deque<Vec<LidarPoint>>& trail, Float32 hz)
 {
-    const std::vector<LidarPoint>& pts = trail.back();
+    const Vec<LidarPoint>& pts = trail.back();
 
     // ---- what this mode adds, worked out first so the panel can report it --
     //
@@ -3046,7 +3085,7 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
     const Float32 halfWidth = EGO_WID_MM * 0.5f + 30.0f;
     const Float32 freeAhead = corridorFree(pts, halfWidth);
 
-    static std::vector<Obstacle> obstacles;
+    static Vec<Obstacle> obstacles;
     findObstacles(pts, obstacles);
 
     Int32 inPathCount = 0;
@@ -3091,7 +3130,7 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
     //
     // The label bookkeeping starts here rather than with the objects, because
     // the corridor's own label is the highest-priority one on the map.
-    static std::vector<LabelRect> taken;
+    static Vec<LabelRect> taken;
     taken.clear();
 
     // The sensor's own readouts are already on the map and are not negotiable,
@@ -3102,7 +3141,7 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
     drawCorridor(c, halfWidth, freeAhead, taken);
 
     // ---- the returns themselves, brightest -------------------------------
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR,
               POINT_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), c.uv);
@@ -3113,7 +3152,7 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
     // first come first served and the order therefore decides which object gets
     // to keep its number when two would collide. In-path and near is exactly the
     // order a driver would want them in.
-    static std::vector<Int32> order;
+    static Vec<Int32> order;
     order.clear();
     for(Int32 i = 0; i < static_cast<Int32>(obstacles.size()); ++i)
         order.push_back(i);
@@ -3141,7 +3180,11 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
         Int32 b = 0;
         while(b < CLR_BINS)
         {
-            if(!st.clrSeen[b] || st.clr[b] < 1200.0f) { ++b; continue; }
+            if(!st.clrSeen[b] || st.clr[b] < 1200.0f)
+            {
+                ++b;
+                continue;
+            }
             const Int32 start = b;
             Float32 nearestMm = st.clr[b];
             while(b < CLR_BINS && st.clrSeen[b] && st.clr[b] >= 1200.0f)
@@ -3189,8 +3232,16 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
 
     for(const LidarPoint& p : pts)
     {
-        if(p.distMm <= 0.0f)                { ++noReturn;   continue; }
-        if(!inWindow(p.distMm))             { ++outOfRange; continue; }
+        if(p.distMm <= 0.0f)
+        {
+            ++noReturn;
+            continue;
+        }
+        if(!inWindow(p.distMm))
+        {
+            ++outOfRange;
+            continue;
+        }
         ++inSpec;
         sumMm += static_cast<Float64>(p.distMm);
         if(p.distMm < nearMm) nearMm = p.distMm;
@@ -3295,7 +3346,7 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st,
 // be legible from two metres away by somebody who has never seen a lidar.
 // ---------------------------------------------------------------------------
 Void drawMarksMinimal(const MarkCtx& c, const MapState& st,
-                      const std::deque<std::vector<LidarPoint>>& trail)
+                      const Deque<Vec<LidarPoint>>& trail)
 {
     // The room. One filled shape, no outline heavier than it needs - the free
     // space is the subject here, not the boundary.
@@ -3327,7 +3378,7 @@ Void drawMarksMinimal(const MarkCtx& c, const MapState& st,
     // The returns, as light rather than as data. Bigger and softer than the
     // debug modes' 2 px dots, because at a glance a scatter of small dots reads
     // as noise and a scatter of larger ones reads as an edge.
-    std::vector<Dot>& dots = scratch();
+    Vec<Dot>& dots = scratch();
     collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
     emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR * 1.5f,
               IM_COL32(0xFF, 0xFF, 0xFF, 0xE0), c.uv);
@@ -3379,7 +3430,7 @@ namespace {
 // Returns below the C1's 0.05 m spec floor are housing reflections, not data.
 Float32 fitDistanceMm(const LidarFrame& frame)
 {
-    static std::vector<Float32> d;
+    static Vec<Float32> d;
     d.clear();
     d.reserve(frame.points.size());
 
@@ -3740,7 +3791,7 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl,
     const Float32 worldYaw = rv.cam.lockToCar ? 0.0f : mst.headingDeg;
 
     // ---- what this mode needs ---------------------------------------------
-    static std::vector<WallSeg> walls;
+    static Vec<WallSeg> walls;
     static Float32 reach[CLR_BINS];
     static Float32 freeR[CLR_BINS];
     static Bool    seenR[CLR_BINS];
@@ -3786,17 +3837,17 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl,
     // Detections and the corridor for the ride view, from the SAME fitter the
     // flat map's Full uses. Recomputing them here with a second set of
     // thresholds would let the two dimensions disagree about what is out there.
-    static std::vector<scene3d::Detection> dets;
+    static Vec<scene3d::Detection> dets;
     dets.clear();
     Float32 corridorAhead = 0.0f;
     const Float32 corridorHalfW = EGO_WID_MM * 0.5f + 30.0f;
 
     if(haveData && rv.scene == scene3d::SceneMode::SCENE_MODE_FULL)
     {
-        const std::vector<LidarPoint>& pts = rv.lastRevolution();
+        const Vec<LidarPoint>& pts = rv.lastRevolution();
         corridorAhead = corridorFree(pts, corridorHalfW);
 
-        static std::vector<Obstacle> obs;
+        static Vec<Obstacle> obs;
         findObstacles(pts, obs);
         for(Obstacle& o2 : obs)
         {
@@ -3898,7 +3949,7 @@ Void RadarView::draw(const ImVec2& size)
         hasNearest = false;
         if(!trail.empty())
         {
-            const std::vector<LidarPoint>& cur = trail.back();
+            const Vec<LidarPoint>& cur = trail.back();
             const LidarPoint* best = nullptr;
             for(const LidarPoint& p : cur)
             {
@@ -4124,7 +4175,7 @@ Void RadarView::draw(const ImVec2& size)
         }
 
         // ---- nearest return -----------------------------------------------
-        const std::vector<LidarPoint>& cur = trail[static_cast<Size>(last)];
+        const Vec<LidarPoint>& cur = trail[static_cast<Size>(last)];
 
         const Int32 nCur = static_cast<Int32>(cur.size());
 
@@ -4167,7 +4218,7 @@ Void RadarView::draw(const ImVec2& size)
                 // contiguous run of samples around `best` that stays at a
                 // similar range - a wall or a hand spans many samples, and
                 // ringing one of them says nothing about its extent.
-                std::vector<Dot>& hot = nearestScratch();
+                Vec<Dot>& hot = nearestScratch();
                 gatherNearestCluster(cur, bestI, s0, pxPerMm, hot);
                 emitDiscs(dl, hot.data(), static_cast<Int32>(hot.size()),
                           dotR * 1.35f, NEAREST_COL, uv);

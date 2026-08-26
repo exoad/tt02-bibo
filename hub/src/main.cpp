@@ -334,7 +334,11 @@ static Void createRenderTarget()
 
 static Void cleanupRenderTarget()
 {
-    if(rtv) { rtv->Release(); rtv = nullptr; }
+    if(rtv)
+    {
+        rtv->Release();
+        rtv = nullptr;
+    }
 }
 
 static Bool createDeviceD3D(HWND hwnd)
@@ -382,9 +386,21 @@ static Bool createDeviceD3D(HWND hwnd)
 static Void cleanupDeviceD3D()
 {
     cleanupRenderTarget();
-    if(swapchain) { swapchain->Release(); swapchain = nullptr; }
-    if(d3dContext)   { d3dContext->Release();   d3dContext   = nullptr; }
-    if(d3dDevice)    { d3dDevice->Release();    d3dDevice    = nullptr; }
+    if(swapchain)
+    {
+        swapchain->Release();
+        swapchain = nullptr;
+    }
+    if(d3dContext)
+    {
+        d3dContext->Release();
+        d3dContext   = nullptr;
+    }
+    if(d3dDevice)
+    {
+        d3dDevice->Release();
+        d3dDevice    = nullptr;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +423,13 @@ static Void shutdownAppOnce()
 }
 
 // Runs app::shutdown() even if we leave WinMain through an early error return.
-struct AppLifetimeGuard { ~AppLifetimeGuard() { shutdownAppOnce(); } };
+struct AppLifetimeGuard
+{
+    ~AppLifetimeGuard()
+    {
+        shutdownAppOnce();
+    }
+};
 
 // ---------------------------------------------------------------------------
 // Re-derive everything that depends on the DPI scale. Called between frames,

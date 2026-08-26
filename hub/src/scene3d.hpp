@@ -28,9 +28,6 @@
 
 #include "imgui.h"
 
-#include <deque>
-#include <vector>
-
 namespace scene3d {
 
 struct Vec3 { Float32 x = 0.0f, y = 0.0f, z = 0.0f; };
@@ -138,8 +135,8 @@ struct DrawArgs
     Float32     dpi  = 1.0f;
     SceneMode   mode = SceneMode::SCENE_MODE_CLOUD;
 
-    const std::vector<LidarPoint>* points = nullptr;   // current revolution
-    const std::vector<mapgeo::WallSeg>* walls = nullptr;
+    const Vec<LidarPoint>* points = nullptr;   // current revolution
+    const Vec<mapgeo::WallSeg>* walls = nullptr;
 
     // Reachable radius per bearing bin, for SCENE_MODE_FIT. Null when unknown.
     const Float32* reach   = nullptr;

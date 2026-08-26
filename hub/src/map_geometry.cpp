@@ -10,7 +10,7 @@ namespace {
 constexpr Float32 PI_F = 3.14159265358979323846f;
 }
 
-Void findCorners(const std::vector<WallSeg>& w, std::vector<Corner>& out,
+Void findCorners(const Vec<WallSeg>& w, Vec<Corner>& out,
                  Float32 minRangeMm, Float32 maxRangeMm)
 {
     out.clear();
@@ -131,7 +131,7 @@ Bool estimateHeading(const Float32* ref, const Bool* refSeen,
     // profiles actually have evidence for. Bins either side has never seen
     // contribute nothing rather than contributing a zero, which would reward
     // alignments that happen to line up two blind spots.
-    std::vector<Float32> cost(static_cast<Size>(bins), 0.0f);
+    Vec<Float32> cost(static_cast<Size>(bins), 0.0f);
 
     for(Int32 k = 0; k < bins; ++k)
     {
@@ -173,7 +173,7 @@ Bool estimateHeading(const Float32* ref, const Bool* refSeen,
     // worst shift is an outlier and flatters every match; the median is what a
     // typical wrong answer costs, and being much better than typical is what
     // "this profile identifies a direction" actually means.
-    std::vector<Float32> sorted;
+    Vec<Float32> sorted;
     sorted.reserve(static_cast<Size>(bins));
     for(Int32 k = 0; k < bins; ++k)
         if(cost[static_cast<Size>(k)] != FLT_MAX)

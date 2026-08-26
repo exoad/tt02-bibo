@@ -11,9 +11,6 @@
 //   right drag ........... measure; reports distance between the two points
 #pragma once
 
-#include <deque>
-#include <vector>
-
 #include "imgui.h"
 
 #include "lidar_source.hpp"
@@ -43,7 +40,6 @@ enum class MapMode
     MAP_MODE_MINIMAL,      // for showing people. The room, the car, nothing else
     MAP_MODE_COUNT
 };
-
 
 // ---------------------------------------------------------------------------
 // What kind of grid a mode is read against.
@@ -169,14 +165,20 @@ public:
     // The newest revolution, and whether there is one. The 3D renderer needs
     // the points without needing the whole trail, and it has no business
     // reaching into the deque.
-    [[nodiscard]] Bool trailEmpty() const { return trail.empty(); }
+    [[nodiscard]] Bool trailEmpty() const
+    {
+        return trail.empty();
+    }
 
     // The last revolution rate the source reported. The 3D Full panel shows it,
     // and it has no business reading a private field to do so.
-    [[nodiscard]] Float32 hz() const { return lastHz; }
-    [[nodiscard]] const std::vector<LidarPoint>& lastRevolution() const
+    [[nodiscard]] Float32 hz() const
     {
-        static const std::vector<LidarPoint> none;
+        return lastHz;
+    }
+    [[nodiscard]] const Vec<LidarPoint>& lastRevolution() const
+    {
+        static const Vec<LidarPoint> none;
         return trail.empty() ? none : trail.back();
     }
 
@@ -184,7 +186,10 @@ public:
     // Auto-fit keeps the sensor centred and eases the scale to contain the data.
     // Any pan or zoom drops out of it; fit() returns to it.
     Void fit();
-    [[nodiscard]] Bool isAutoFit() const noexcept { return autoFit; }
+    [[nodiscard]] Bool isAutoFit() const noexcept
+    {
+        return autoFit;
+    }
 
     // Pins the view to a fixed radius in mm (drops auto-fit, recentres).
     Void setRangeMm(Float32 mm);
@@ -197,7 +202,7 @@ public:
     [[nodiscard]] ImVec2 toWorld(const ImVec2& screenPx) const noexcept;
 
 private:
-    std::deque<std::vector<LidarPoint>> trail;
+    Deque<Vec<LidarPoint>> trail;
     Bool hasData = false;
 
     // View: world point shown at the widget centre, and the zoom.

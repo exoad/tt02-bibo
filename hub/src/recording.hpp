@@ -58,15 +58,13 @@
 #include "shared.hpp"
 #include "lidar_source.hpp"
 
-#include <vector>
-
 namespace rec {
 
 struct Rev
 {
     Float64                 tS = 0.0;     // seconds from the start
     Float32                 hz = 0.0f;
-    std::vector<LidarPoint> points;
+    Vec<LidarPoint> points;
 };
 
 class Recording
@@ -77,8 +75,14 @@ public:
     // Appends a revolution at `tS` seconds from the start.
     Void append(const LidarFrame& f, Float64 tS);
 
-    [[nodiscard]] Size       count() const { return revs.size(); }
-    [[nodiscard]] Bool       empty() const { return revs.empty(); }
+    [[nodiscard]] Size       count() const
+    {
+        return revs.size();
+    }
+    [[nodiscard]] Bool       empty() const
+    {
+        return revs.empty();
+    }
     [[nodiscard]] const Rev& at(Size i) const;
 
     // Wall-clock span from the first revolution to the last. Zero for fewer
@@ -107,7 +111,7 @@ private:
     Bool loadBinaryV1(const Str& path, Str& err);
     Bool loadTextV2(const Str& path, Str& err);
 
-    std::vector<Rev> revs;
+    Vec<Rev> revs;
 };
 
 // %LOCALAPPDATA%\tt02-auto\recordings, created on demand. Empty if there is no
@@ -115,7 +119,7 @@ private:
 [[nodiscard]] Str dir();
 
 // Existing recordings, newest first, bare filenames.
-[[nodiscard]] std::vector<Str> list();
+[[nodiscard]] Vec<Str> list();
 
 // A timestamped name: scan-YYYYMMDD-HHMMSS.tt02rec
 [[nodiscard]] Str makeName();

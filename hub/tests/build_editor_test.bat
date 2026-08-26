@@ -21,6 +21,7 @@ if errorlevel 1 (
 if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
+  /I"%HERE%..\..\shared" ^
   /I"%HERE%..\third_party\imgui" ^
   "%HERE%test_editor.cpp" ^
   "%HERE%..\src\editor.cpp" ^

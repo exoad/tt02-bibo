@@ -122,8 +122,8 @@ ID3D11Texture2D*          atlasTex = nullptr;
 // caller never owns one and cannot outlive the device.
 ID3D11Device* d3dDevice = nullptr;
 
-std::vector<ID3D11Texture2D*>          extraTex;
-std::vector<ID3D11ShaderResourceView*> extraSrv;
+Vec<ID3D11Texture2D*>          extraTex;
+Vec<ID3D11ShaderResourceView*> extraSrv;
 Int32                     atlasW   = 0;
 Int32                     atlasH   = 0;
 
@@ -137,7 +137,7 @@ Bool assetDir(Char* out, Size cap)
 // Decodes one PNG to 32-bit BGRA. Returns false without complaint on any
 // failure: a missing icon must degrade to no icon, never to a crash or a
 // dialog, because the app's job is talking to a lidar.
-Bool decodePng(IWICImagingFactory* wic, const Char* path, std::vector<UInt8>& out,
+Bool decodePng(IWICImagingFactory* wic, const Char* path, Vec<UInt8>& out,
                UInt32& w, UInt32& h)
 {
     WCHAR wide[MAX_PATH];
@@ -241,7 +241,7 @@ Void loadIcons(ID3D11Device* device)
     atlasW = COLS * SRC;
     atlasH = rows * SRC;
 
-    std::vector<UInt8> atlas(static_cast<Size>(atlasW) * atlasH * 4, 0);
+    Vec<UInt8> atlas(static_cast<Size>(atlasW) * atlasH * 4, 0);
 
     IWICImagingFactory* wic = nullptr;
     // The app never calls CoInitialize, so ask for the factory with the
@@ -254,7 +254,7 @@ Void loadIcons(ID3D11Device* device)
                                  IID_PPV_ARGS(&wic))))
         return;
 
-    std::vector<UInt8> px;
+    Vec<UInt8> px;
     Int32 loaded = 0;
     for(Int32 i = 0; i < COUNT; ++i)
     {
@@ -328,7 +328,7 @@ ImTextureID loadTexture(ID3D11Device* device, const Char* path)
                                  IID_PPV_ARGS(&wic))) || wic == nullptr)
         return 0;
 
-    std::vector<UInt8> px;
+    Vec<UInt8> px;
     UInt32 w = 0, h = 0;
     const Bool ok = decodePng(wic, path, px, w, h);
     wic->Release();
@@ -374,8 +374,16 @@ Void releaseIcons()
     extraTex.clear();
 
 
-    if(atlasSrv != nullptr) { atlasSrv->Release(); atlasSrv = nullptr; }
-    if(atlasTex != nullptr) { atlasTex->Release(); atlasTex = nullptr; }
+    if(atlasSrv != nullptr)
+    {
+        atlasSrv->Release();
+        atlasSrv = nullptr;
+    }
+    if(atlasTex != nullptr)
+    {
+        atlasTex->Release();
+        atlasTex = nullptr;
+    }
     atlasW = atlasH = 0;
 }
 

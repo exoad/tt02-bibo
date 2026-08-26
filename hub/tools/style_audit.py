@@ -67,6 +67,32 @@ RULES = [
     ('m_ member',           r'\bm_[A-Za-z0-9_]+',      'camelCase, no m_'),
     ('g_ global',           r'\bg_[A-Za-z0-9_]+',      'camelCase, no g_'),
     ('trailing underscore', r'\b[a-z][A-Za-z0-9]*_\b(?!\s*\()', 'camelCase, no trailing _'),
+
+    # The standard library is aliased in shared/shared.hpp for the same reason
+    # the builtins are: a file that says `Int32 count` on one line and
+    # `std::vector<std::string>` on the next has two naming schemes in it.
+    #
+    # std::move, std::min, std::sort and the rest of the FUNCTIONS keep their
+    # spelling - only the TYPES are aliased, so this names them explicitly
+    # rather than banning the namespace.
+    ('unaliased std type',
+     r'\bstd::(?:vector|deque|array|map|set|unordered_map|unordered_set|pair|'
+     r'tuple|string|string_view|optional|variant|function|unique_ptr|'
+     r'shared_ptr|weak_ptr|mutex|recursive_mutex|lock_guard|unique_lock|'
+     r'thread|atomic)\b',
+     'use the shared.hpp alias (Vec, Str, Map, Mutex, ...)'),
+
+    # Allman, everywhere. A body on the same line as its head is the one brace
+    # style question this project has already answered, and it is the one that
+    # creeps back in every time somebody writes a two-line guard clause.
+    #
+    # Aggregate rows in a table are NOT this - `{ Icon::ICON_RADAR, "radar" },`
+    # is data, and expanding it would quadruple every table in the tree for no
+    # gain. The pattern below requires a `)` or a control keyword before the
+    # brace, which is what separates a body from a row.
+    ('one-lined body',
+     r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{[^{}]*[^{}\s][^{}]*\}',
+     'expand the braces onto their own lines'),
 ]
 
 # Lines that are legitimately exempt, with the reason.
@@ -86,6 +112,11 @@ EXEMPT = [
     # shared.hpp is where the aliases are DEFINED. `using Float32 = float;` has
     # to name the builtin; that is the entire point of the file.
     (r'\busing\s+\w+\s*=\s*(float|double|bool|char|int|unsigned|std::)', 'the alias definition itself'),
+
+    # A lambda body genuinely reads better on one line when it is a single
+    # expression - `[](const Str& a) { return a > b; }` as a sort predicate. The
+    # rule targets function and control-flow bodies, not these.
+    (r'\[[^\]]*\]\s*\([^)]*\)\s*(?:->\s*[A-Za-z_:<>]+\s*)?\{', 'a lambda, not a function body'),
 ]
 
 def exempt(line):

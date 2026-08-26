@@ -35,6 +35,12 @@ target_link_libraries(pico_debug
 pico_enable_stdio_usb(pico_debug 1)
 pico_enable_stdio_uart(pico_debug 0)
 
+# shared/ holds the project's C vocabulary (shared.h). One copy, used by the
+# firmware and mirrored by shared/shared.hpp for the hub.
+target_include_directories(pico_debug PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
+)
+
 pico_add_extra_outputs(pico_debug)
 
 # ---------------------------------------------------------------------------
@@ -64,5 +70,9 @@ target_link_libraries(sketch
 
 pico_enable_stdio_usb(sketch 1)
 pico_enable_stdio_uart(sketch 0)
+
+target_include_directories(sketch PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
+)
 
 pico_add_extra_outputs(sketch)

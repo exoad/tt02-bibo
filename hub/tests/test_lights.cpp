@@ -14,7 +14,7 @@
 //
 // No hardware and no ImGui. Exits 0 on PASS, 1 on FAIL.
 
-#include "../src/shared.hpp"
+#include "shared.hpp"
 #include "../src/lights.hpp"
 
 #include <cmath>
@@ -28,8 +28,15 @@ Int32 checks   = 0;
 Void check(Bool ok, const Char* what)
 {
     ++checks;
-    if(!ok) { ++failures; std::printf("  FAIL  %s\n", what); }
-    else    { std::printf("  ok    %s\n", what); }
+    if(!ok)
+    {
+        ++failures;
+        std::printf("  FAIL  %s\n", what);;
+    }
+    else
+    {
+        std::printf("  ok    %s\n", what);;
+    }
 }
 
 Void checkNear(Float32 got, Float32 want, const Char* what)

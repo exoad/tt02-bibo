@@ -18,7 +18,7 @@
 //
 // No hardware, no window. Exits 0 on PASS, 1 on FAIL.
 
-#include "../src/shared.hpp"
+#include "shared.hpp"
 #include "../src/complete.hpp"
 #include "../src/editor.hpp"
 #include "../src/syntax.hpp"
@@ -34,8 +34,15 @@ Int32 checks   = 0;
 Void check(Bool ok, const Char* what)
 {
     ++checks;
-    if(!ok) { ++failures; std::printf("  FAIL  %s\n", what); }
-    else    { std::printf("  ok    %s\n", what); }
+    if(!ok)
+    {
+        ++failures;
+        std::printf("  FAIL  %s\n", what);;
+    }
+    else
+    {
+        std::printf("  ok    %s\n", what);;
+    }
 }
 
 Void checkStr(const Str& got, const Str& want, const Char* what)
@@ -344,7 +351,7 @@ Void testSyntax()
 {
     std::printf("\n-- highlighter --\n");
 
-    std::vector<syn::Span> spans;
+    Vec<syn::Span> spans;
     Bool inBlock = false;
 
     // A role lookup helper: what colour does byte `at` get?
@@ -403,7 +410,11 @@ Void testSyntax()
     Int32 expect = 0;
     for(const syn::Span& s : spans)
     {
-        if(s.begin != expect) { contiguous = false; break; }
+        if(s.begin != expect)
+        {
+            contiguous = false;
+            break;
+        }
         expect = s.end;
     }
     check(contiguous && expect == 25, "spans tile the whole line with no gaps");
@@ -447,7 +458,7 @@ Void testCompletion()
     checkStr(e.text(), "x = ", "replacing with no partial word is a no-op");
 
     // ---- the table and the ranking ----------------------------------------
-    std::vector<const cmpl::Item*> hits;
+    Vec<const cmpl::Item*> hits;
 
     hits.clear();
     cmpl::suggest("gpio", hits, 8);
@@ -495,18 +506,34 @@ Void testCompletion()
     Bool wellFormed = true;
     for(const cmpl::Item& it : cmpl::all())
     {
-        if(it.name == nullptr || it.name[0] == 0)  { wellFormed = false; break; }
-        if(it.detail == nullptr)                   { wellFormed = false; break; }
-        if(it.doc == nullptr)                      { wellFormed = false; break; }
+        if(it.name == nullptr || it.name[0] == 0)
+        {
+            wellFormed = false;
+            break;
+        }
+        if(it.detail == nullptr)
+        {
+            wellFormed = false;
+            break;
+        }
+        if(it.doc == nullptr)
+        {
+            wellFormed = false;
+            break;
+        }
     }
     check(wellFormed, "every table entry has a name, a detail and a doc");
 
     // No duplicate names: two entries with one name means one is unreachable.
     Bool unique = true;
-    const std::vector<cmpl::Item>& items = cmpl::all();
+    const Vec<cmpl::Item>& items = cmpl::all();
     for(Size i = 0; i < items.size() && unique; ++i)
         for(Size j = i + 1; j < items.size(); ++j)
-            if(std::strcmp(items[i].name, items[j].name) == 0) { unique = false; break; }
+            if(std::strcmp(items[i].name, items[j].name) == 0)
+            {
+                unique = false;
+                break;
+            }
     check(unique, "no duplicate entries in the table");
 
     // wordAtEnd agrees with the editor's own idea of a partial word.

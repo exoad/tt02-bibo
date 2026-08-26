@@ -153,16 +153,16 @@ const Item TABLE[] = {
     { "while",    "", "", Kind::KIND_KEYWORD },
 };
 
-std::vector<Item> buildAll()
+Vec<Item> buildAll()
 {
-    return std::vector<Item>(TABLE, TABLE + sizeof(TABLE) / sizeof(TABLE[0]));
+    return Vec<Item>(TABLE, TABLE + sizeof(TABLE) / sizeof(TABLE[0]));
 }
 
 } // namespace
 
-const std::vector<Item>& all()
+const Vec<Item>& all()
 {
-    static const std::vector<Item> v = buildAll();
+    static const Vec<Item> v = buildAll();
     return v;
 }
 
@@ -181,14 +181,14 @@ Str wordAtEnd(const Str& line)
     return line.substr(i, end - i);
 }
 
-Size suggest(const Str& prefix, std::vector<const Item*>& out, Size max)
+Size suggest(const Str& prefix, Vec<const Item*>& out, Size max)
 {
     if(prefix.empty() || max == 0)
         return 0;
 
-    const std::vector<Item>& items = all();
+    const Vec<Item>& items = all();
 
-    std::vector<const Item*> hits;
+    Vec<const Item*> hits;
     for(const Item& it : items)
         if(startsWith(it.name, prefix, false))
             hits.push_back(&it);

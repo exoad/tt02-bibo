@@ -24,14 +24,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
-#include <deque>
-#include <memory>
 #include <mutex>
-#include <string>
 #include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "setupapi.lib")
@@ -93,24 +87,24 @@ Str winErrText(const Str& what, DWORD code)
 struct LinkImplBody
 {
     // Lifecycle (connect/disconnect/join). Never held while `mu` is held.
-    std::mutex              lifeMu;
-    std::thread             worker;
-    std::atomic<Bool>       stop{false};
-    std::atomic<Bool>       finished{false};
+    Mutex              lifeMu;
+    Thread             worker;
+    Atomic<Bool>       stop{false};
+    Atomic<Bool>       finished{false};
 
     // Data shared with the UI thread.
-    mutable std::mutex      mu;
-    std::deque<PicoLine>    log;
-    std::deque<Str> txq;
+    mutable Mutex      mu;
+    Deque<PicoLine>    log;
+    Deque<Str> txq;
     Str             err;
     Str             portname;
 
-    std::atomic<PicoState>          state{PicoState::PICO_STATE_DISCONNECTED};
-    std::atomic<UInt64> tx{0};
-    std::atomic<UInt64> rx{0};
-    std::atomic<UInt64> drops{0};
-    std::atomic<Int64>          t0Ns{0};
-    std::atomic<Float64>             lastRxS{-1.0};   // <0 == nothing ever received
+    Atomic<PicoState>          state{PicoState::PICO_STATE_DISCONNECTED};
+    Atomic<UInt64> tx{0};
+    Atomic<UInt64> rx{0};
+    Atomic<UInt64> drops{0};
+    Atomic<Int64>          t0Ns{0};
+    Atomic<Float64>             lastRxS{-1.0};   // <0 == nothing ever received
 
     Float64 elapsedS() const
     {
@@ -119,7 +113,7 @@ struct LinkImplBody
 
     Void setError(Str e)
     {
-        std::lock_guard<std::mutex> lk(mu);
+        LockGuard<Mutex> lk(mu);
         err = std::move(e);
     }
 
@@ -130,7 +124,7 @@ struct LinkImplBody
         ln.outgoing = outgoing;
         ln.text     = std::move(text);
 
-        std::lock_guard<std::mutex> lk(mu);
+        LockGuard<Mutex> lk(mu);
         log.push_back(std::move(ln));
         while(log.size() > MAX_LOG_LINES)
             log.pop_front();   // a chatty board loses history, never memory
@@ -206,9 +200,9 @@ Int32 comNumber(const Str& s)
 
 // Every COM name Windows currently has mapped. Used to filter out stale
 // registry entries for Picos that are no longer plugged in.
-std::unordered_set<Str> serialcommPorts()
+HashSet<Str> serialcommPorts()
 {
-    std::unordered_set<Str> out;
+    HashSet<Str> out;
 
     HKEY key = nullptr;
     if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0,
@@ -265,7 +259,7 @@ Bool readPortName(HKEY parent, const Char* subkey, Str* out)
 // Preferred route: walk HKLM\SYSTEM\CurrentControlSet\Enum\USB looking for
 // VID_2E8A*, then read each instance's Device Parameters\PortName. No extra
 // libraries, and it copes with composite devices (VID_2E8A&PID_0009&MI_00).
-Void enumViaRegistry(std::vector<Str>& out)
+Void enumViaRegistry(Vec<Str>& out)
 {
     HKEY usb = nullptr;
     if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Enum\\USB", 0,
@@ -321,7 +315,7 @@ Bool containsCi(const Char* hay, const Char* needle)
 // Fallback if the Enum\USB hive is unreadable: class-enumerate present COM
 // ports and match VID_2E8A in the hardware ID. GUID_DEVCLASS_PORTS is spelled
 // out here so we need not link uuid.lib.
-Void enumViaSetupapi(std::vector<Str>& out)
+Void enumViaSetupapi(Vec<Str>& out)
 {
     static const GUID PORTS_CLASS = {
         0x4D36E978, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
@@ -401,7 +395,10 @@ Void LinkImplBody::run(Str port, Int32 baud)
     struct DoneFlag
     {
         LinkImplBody* p;
-        ~DoneFlag() { p->finished.store(true, std::memory_order_release); }
+        ~DoneFlag()
+        {
+            p->finished.store(true, std::memory_order_release);
+        }
     } doneFlag{this};
 
     const Str path = devicePath(port);
@@ -451,7 +448,7 @@ Void LinkImplBody::run(Str port, Int32 baud)
     EscapeCommFunction(h, SETRTS);
 
     {
-        std::lock_guard<std::mutex> lk(mu);
+        LockGuard<Mutex> lk(mu);
         portname = port;
         err.clear();
     }
@@ -460,7 +457,7 @@ Void LinkImplBody::run(Str port, Int32 baud)
     Str accum;          // partial line carried across reads
     Bool        pendingCr = false;
     Bool        overlong   = false;
-    std::vector<Char> buf(READ_CHUNK);
+    Vec<Char> buf(READ_CHUNK);
 
     auto emit = [&](Str text)
     {
@@ -474,9 +471,9 @@ Void LinkImplBody::run(Str port, Int32 baud)
     while(!stop.load(std::memory_order_acquire))
     {
         // ---- transmit anything the UI queued -------------------------------
-        std::deque<Str> outbound;
+        Deque<Str> outbound;
         {
-            std::lock_guard<std::mutex> lk(mu);
+            LockGuard<Mutex> lk(mu);
             outbound.swap(txq);
         }
         Bool writeFailed = false;
@@ -534,7 +531,12 @@ Void LinkImplBody::run(Str port, Int32 baud)
                     pendingCr = false;
                     continue;
                 }
-                if(overlong) { overlong = false; accum.clear(); continue; }
+                if(overlong)
+                {
+                    overlong = false;
+                    accum.clear();
+                    continue;
+                }
                 emit(std::move(accum));
                 accum.clear();
                 continue;
@@ -542,7 +544,12 @@ Void LinkImplBody::run(Str port, Int32 baud)
             if(c == '\r')
             {
                 pendingCr = true;
-                if(overlong) { overlong = false; accum.clear(); continue; }
+                if(overlong)
+                {
+                    overlong = false;
+                    accum.clear();
+                    continue;
+                }
                 emit(std::move(accum));
                 accum.clear();
                 continue;
@@ -590,7 +597,6 @@ Void LinkImplBody::run(Str port, Int32 baud)
 // pointer dereference rather than a map lookup.
 struct PicoLink::Impl : LinkImplBody {};
 
-
 PicoLink::PicoLink()
     : pimpl(new Impl())
 {
@@ -609,7 +615,7 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     if(!pimpl || port.empty())
         return;
 
-    std::lock_guard<std::mutex> life(pimpl->lifeMu);
+    LockGuard<Mutex> life(pimpl->lifeMu);
 
     if(pimpl->worker.joinable())
     {
@@ -630,7 +636,7 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     pimpl->rx.store(0, std::memory_order_relaxed);
     pimpl->drops.store(0, std::memory_order_relaxed);
     {
-        std::lock_guard<std::mutex> lk(pimpl->mu);
+        LockGuard<Mutex> lk(pimpl->mu);
         pimpl->err.clear();
         pimpl->portname = port;
         pimpl->txq.clear();
@@ -640,7 +646,7 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     LinkImplBody* raw = pimpl;   // Impl derives from LinkImplBody
     try
     {
-        pimpl->worker = std::thread(LinkImpl_run_trampoline, raw, port, useBaud);
+        pimpl->worker = Thread(LinkImpl_run_trampoline, raw, port, useBaud);
     }
     catch(...)
     {
@@ -655,7 +661,7 @@ Void PicoLink::disconnect()
     if(!pimpl)
         return;
 
-    std::lock_guard<std::mutex> life(pimpl->lifeMu);
+    LockGuard<Mutex> life(pimpl->lifeMu);
 
     pimpl->stop.store(true, std::memory_order_release);
     if(pimpl->worker.joinable())
@@ -665,7 +671,7 @@ Void PicoLink::disconnect()
     pimpl->finished.store(false, std::memory_order_release);
     pimpl->state.store(PicoState::PICO_STATE_DISCONNECTED, std::memory_order_release);
 
-    std::lock_guard<std::mutex> lk(pimpl->mu);
+    LockGuard<Mutex> lk(pimpl->mu);
     pimpl->portname.clear();
     pimpl->txq.clear();
 }
@@ -679,7 +685,7 @@ Str PicoLink::error() const
 {
     if(!pimpl)
         return Str();
-    std::lock_guard<std::mutex> lk(pimpl->mu);
+    LockGuard<Mutex> lk(pimpl->mu);
     return pimpl->err;
 }
 
@@ -687,7 +693,7 @@ Str PicoLink::port() const
 {
     if(!pimpl)
         return Str();
-    std::lock_guard<std::mutex> lk(pimpl->mu);
+    LockGuard<Mutex> lk(pimpl->mu);
     return pimpl->portname;
 }
 
@@ -708,7 +714,7 @@ Void PicoLink::send(const Str& line)
         payload.pop_back();
     payload.push_back('\n');
 
-    std::lock_guard<std::mutex> lk(pimpl->mu);
+    LockGuard<Mutex> lk(pimpl->mu);
     if(pimpl->txq.size() >= MAX_TX_QUEUE)
     {
         // Backed-up writer; counted here too so the drop is at least visible.
@@ -718,14 +724,14 @@ Void PicoLink::send(const Str& line)
     pimpl->txq.push_back(std::move(payload));
 }
 
-Size PicoLink::drain(std::vector<PicoLine>& out)
+Size PicoLink::drain(Vec<PicoLine>& out)
 {
     if(!pimpl)
         return 0;
 
-    std::deque<PicoLine> taken;
+    Deque<PicoLine> taken;
     {
-        std::lock_guard<std::mutex> lk(pimpl->mu);   // held only for the swap
+        LockGuard<Mutex> lk(pimpl->mu);   // held only for the swap
         if(pimpl->log.empty())
             return 0;
         taken.swap(pimpl->log);
@@ -764,17 +770,17 @@ Float64 PicoLink::lastRxAgeS() const
     return age < 0.0 ? 0.0 : age;
 }
 
-std::vector<Str> PicoLink::listPicoPorts()
+Vec<Str> PicoLink::listPicoPorts()
 {
-    std::vector<Str> found;
+    Vec<Str> found;
     try
     {
         enumViaRegistry(found);
         if(found.empty())
             enumViaSetupapi(found);
 
-        const std::unordered_set<Str> live = serialcommPorts();
-        std::vector<Str> out;
+        const HashSet<Str> live = serialcommPorts();
+        Vec<Str> out;
         for(const auto& p : found)
         {
             // Drop entries for Picos that are no longer plugged in. If
@@ -793,7 +799,7 @@ std::vector<Str> PicoLink::listPicoPorts()
     }
     catch(...)
     {
-        return std::vector<Str>();   // documented never to throw
+        return Vec<Str>();   // documented never to throw
     }
 }
 

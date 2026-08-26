@@ -29,9 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * From manbox (github.com/exoad/manbox), C_STYLE_GUIDE.md. This is the C
- * counterpart of hub/src/shared.hpp - the same vocabulary, spelled the way C
+ * counterpart of shared/shared.hpp - the same vocabulary, spelled the way C
  * spells it, so a value that is an Int32 in the viewer is an Int32 in the
  * firmware too.
+ *
+ * The two headers sit side by side and are kept in step by hand. They are not
+ * one file because C has no templates and no namespaces, and a header trying to
+ * serve both languages would be mostly #ifdef.
  *
  * The Utf16/Utf32 typedefs at the bottom are a LOCAL ADDITION: the upstream
  * header uses those names in the CharSeq16/CharSeq32 macros without defining

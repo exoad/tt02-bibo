@@ -24,13 +24,9 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <fstream>
-#include <functional>
 #include <mutex>
-#include <string>
 #include <thread>
-#include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -125,7 +121,7 @@ Bool findBootselDrive(Str& outDrive)
 
 // ------------------------------------------------------------- processes ---
 
-using LineSink = std::function<Void(const Str&)>;
+using LineSink = Fn<Void(const Str&)>;
 
 // Runs `cmdline` and streams its combined stdout/stderr to `sink` a line at a
 // time. Returns the process exit code, or -1 if it could not be started.
@@ -166,7 +162,7 @@ Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
 
     // CreateProcessA writes to its command line argument, so it cannot be a
     // string literal or a c_str().
-    std::vector<Char> mutableCmd(cmdline.begin(), cmdline.end());
+    Vec<Char> mutableCmd(cmdline.begin(), cmdline.end());
     mutableCmd.push_back('\0');
 
     const BOOL ok = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
@@ -229,23 +225,23 @@ Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
 
 struct Impl
 {
-    mutable std::mutex mu;              // guards catalog, op, brd
+    mutable Mutex mu;              // guards catalog, op, brd
 
-    std::vector<FirmwareEntry> catalog;
+    Vec<FirmwareEntry> catalog;
     Str                op;
     BoardStatus                brd;
 
-    std::mutex              logMu;
-    std::deque<Str> pending;
+    Mutex              logMu;
+    Deque<Str> pending;
 
-    std::atomic<FlashState> state{FlashState::FLASH_STATE_IDLE};
-    std::atomic<Bool>       boardQuerying{false};
+    Atomic<FlashState> state{FlashState::FLASH_STATE_IDLE};
+    Atomic<Bool>       boardQuerying{false};
 
-    std::thread worker;
+    Thread worker;
 
     Void log(const Str& line)
     {
-        std::lock_guard<std::mutex> lk(logMu);
+        LockGuard<Mutex> lk(logMu);
         pending.push_back(line);
         while(pending.size() > PENDING_MAX) pending.pop_front();
     }
@@ -263,11 +259,11 @@ struct Impl
     // Starts `body` on the worker. Rejects (and says so) while one is running,
     // which is the documented behaviour and also the only safe one: two things
     // touching the board's USB at once is how you end up with a brick.
-    Void start(const Str& desc, std::function<Int32()> body)
+    Void start(const Str& desc, Fn<Int32()> body)
     {
         if(state.load() == FlashState::FLASH_STATE_WORKING)
         {
-            std::lock_guard<std::mutex> lk(mu);
+            LockGuard<Mutex> lk(mu);
             logf("[busy ] %s is still running - %s was not started", op.c_str(), desc.c_str());
             return;
         }
@@ -275,16 +271,23 @@ struct Impl
         if(worker.joinable()) worker.join();   // finished, just not reaped yet
 
         {
-            std::lock_guard<std::mutex> lk(mu);
+            LockGuard<Mutex> lk(mu);
             op = desc;
         }
         state.store(FlashState::FLASH_STATE_WORKING);
         logf("[start] %s", desc.c_str());
 
-        worker = std::thread([this, body, desc]()
+        worker = Thread([this, body, desc]()
         {
             Int32 code = -1;
-            try { code = body(); } catch(...) { code = -1; }
+            try
+            {
+                code = body();
+            }
+            catch(...)
+            {
+                code = -1;
+            }
 
             if(code == 0)
             {
@@ -306,7 +309,7 @@ Impl& pimpl()
     return s;
 }
 
-const FirmwareEntry* findEntry(const std::vector<FirmwareEntry>& v, const Str& id)
+const FirmwareEntry* findEntry(const Vec<FirmwareEntry>& v, const Str& id)
 {
     for(const FirmwareEntry& e : v)
         if(e.id == id) return &e;
@@ -369,13 +372,13 @@ Str PicoFlash::repoRoot()
 Void PicoFlash::refreshCatalog()
 {
     const Str root = repoRoot();
-    std::vector<FirmwareEntry> out;
+    Vec<FirmwareEntry> out;
 
     if(root.empty())
     {
         pimpl().log("[error] repo root not found above the executable - "
                    "expected a directory containing both firmware\\ and lidar\\");
-        std::lock_guard<std::mutex> lk(pimpl().mu);
+        LockGuard<Mutex> lk(pimpl().mu);
         pimpl().catalog.swap(out);
         return;
     }
@@ -385,7 +388,7 @@ Void PicoFlash::refreshCatalog()
     if(!in)
     {
         pimpl().logf("[error] cannot read %s", path.c_str());
-        std::lock_guard<std::mutex> lk(pimpl().mu);
+        LockGuard<Mutex> lk(pimpl().mu);
         pimpl().catalog.swap(out);
         return;
     }
@@ -406,7 +409,11 @@ Void PicoFlash::refreshCatalog()
             {
                 // The description is last and may itself contain a pipe, so the
                 // final field takes the whole remainder.
-                if(n == 4) { field[n++] = trim(s.substr(start)); break; }
+                if(n == 4)
+                {
+                    field[n++] = trim(s.substr(start));
+                    break;
+                }
                 field[n++] = trim(s.substr(start, i - start));
                 start = i + 1;
             }
@@ -433,30 +440,36 @@ Void PicoFlash::refreshCatalog()
         out.push_back(std::move(e));
     }
 
-    std::lock_guard<std::mutex> lk(pimpl().mu);
+    LockGuard<Mutex> lk(pimpl().mu);
     pimpl().catalog.swap(out);
 }
 
-const std::vector<FirmwareEntry>& PicoFlash::catalog() const
+const Vec<FirmwareEntry>& PicoFlash::catalog() const
 {
     // Only refreshCatalog() writes this, and only from the UI thread, so
     // handing back a reference is safe. The lock is for the swap.
-    std::lock_guard<std::mutex> lk(pimpl().mu);
+    LockGuard<Mutex> lk(pimpl().mu);
     return pimpl().catalog;
 }
 
-FlashState PicoFlash::state() const { return pimpl().state.load(); }
-Bool       PicoFlash::busy()  const { return pimpl().state.load() == FlashState::FLASH_STATE_WORKING; }
+FlashState PicoFlash::state() const
+{
+    return pimpl().state.load();
+}
+Bool       PicoFlash::busy()  const
+{
+    return pimpl().state.load() == FlashState::FLASH_STATE_WORKING;
+}
 
 Str PicoFlash::currentOp() const
 {
-    std::lock_guard<std::mutex> lk(pimpl().mu);
+    LockGuard<Mutex> lk(pimpl().mu);
     return pimpl().op;
 }
 
-Size PicoFlash::drainLog(std::vector<Str>& out)
+Size PicoFlash::drainLog(Vec<Str>& out)
 {
-    std::lock_guard<std::mutex> lk(pimpl().logMu);
+    LockGuard<Mutex> lk(pimpl().logMu);
     const Size n = pimpl().pending.size();
     for(const Str& s : pimpl().pending) out.push_back(s);
     pimpl().pending.clear();
@@ -465,7 +478,7 @@ Size PicoFlash::drainLog(std::vector<Str>& out)
 
 BoardStatus PicoFlash::board() const
 {
-    std::lock_guard<std::mutex> lk(pimpl().mu);
+    LockGuard<Mutex> lk(pimpl().mu);
     return pimpl().brd;
 }
 
@@ -478,7 +491,7 @@ Void PicoFlash::refreshBoard()
     // spawns picotool, so it must not run on the UI thread either.
     if(pimpl().boardQuerying.exchange(true)) return;
 
-    std::thread([]()
+    Thread([]()
     {
         BoardStatus b;
 
@@ -486,7 +499,7 @@ Void PicoFlash::refreshBoard()
 
         if(!b.bootsel)
         {
-            const std::vector<Str> ports = PicoLink::listPicoPorts();
+            const Vec<Str> ports = PicoLink::listPicoPorts();
             if(!ports.empty()) b.port = ports.front();
         }
 
@@ -502,7 +515,7 @@ Void PicoFlash::refreshBoard()
 
             if(fileExists(picotool))
             {
-                std::vector<Str> lines;
+                Vec<Str> lines;
                 runCapture(quote(picotool) + " info", root,
                             [&lines](const Str& l) { lines.push_back(l); });
 
@@ -532,7 +545,7 @@ Void PicoFlash::refreshBoard()
         b.present = b.bootsel || !b.port.empty() || !b.chip.empty();
 
         {
-            std::lock_guard<std::mutex> lk(pimpl().mu);
+            LockGuard<Mutex> lk(pimpl().mu);
             pimpl().brd = b;
         }
 
@@ -556,12 +569,15 @@ Void PicoFlash::refreshBoard()
 Void PicoFlash::build(const Str& id)
 {
     const Str root = repoRoot();
-    if(root.empty()) { pimpl().log("[error] repo root not found"); return; }
+    if(root.empty())
+    {
+        pimpl().log("[error] repo root not found"); return;;
+    }
 
     Str name = id;
     Bool        can  = false;
     {
-        std::lock_guard<std::mutex> lk(pimpl().mu);
+        LockGuard<Mutex> lk(pimpl().mu);
         if(const FirmwareEntry* e = findEntry(pimpl().catalog, id))
         {
             name = e->name;
@@ -576,7 +592,10 @@ Void PicoFlash::build(const Str& id)
     }
 
     const Str bat = root + "\\firmware\\build.bat";
-    if(!fileExists(bat)) { pimpl().logf("[error] missing %s", bat.c_str()); return; }
+    if(!fileExists(bat))
+    {
+        pimpl().logf("[error] missing %s", bat.c_str()); return;;
+    }
 
     const Str desc = "building " + name;
     pimpl().start(desc, [root, bat]()
@@ -591,12 +610,15 @@ Void PicoFlash::build(const Str& id)
 Void PicoFlash::flash(const Str& id)
 {
     const Str root = repoRoot();
-    if(root.empty()) { pimpl().log("[error] repo root not found"); return; }
+    if(root.empty())
+    {
+        pimpl().log("[error] repo root not found"); return;;
+    }
 
     Str uf2, name = id;
     Bool        present = false;
     {
-        std::lock_guard<std::mutex> lk(pimpl().mu);
+        LockGuard<Mutex> lk(pimpl().mu);
         if(const FirmwareEntry* e = findEntry(pimpl().catalog, id))
         {
             uf2     = e->uf2Path;
@@ -604,7 +626,10 @@ Void PicoFlash::flash(const Str& id)
             present = e->present;
         }
     }
-    if(uf2.empty()) { pimpl().logf("[error] no catalog entry \"%s\"", id.c_str()); return; }
+    if(uf2.empty())
+    {
+        pimpl().logf("[error] no catalog entry \"%s\"", id.c_str()); return;;
+    }
 
     // Re-stat rather than trusting the cached flag: the catalog may have been
     // scanned minutes ago and this is the destructive one.
@@ -615,7 +640,10 @@ Void PicoFlash::flash(const Str& id)
     }
 
     const Str bat = root + "\\firmware\\flash.bat";
-    if(!fileExists(bat)) { pimpl().logf("[error] missing %s", bat.c_str()); return; }
+    if(!fileExists(bat))
+    {
+        pimpl().logf("[error] missing %s", bat.c_str()); return;;
+    }
 
     const Str desc = "flashing " + name;
     pimpl().start(desc, [root, bat, uf2]()
@@ -628,8 +656,14 @@ Void PicoFlash::flash(const Str& id)
 Void PicoFlash::backup(const Str& outPath)
 {
     const Str root = repoRoot();
-    if(root.empty()) { pimpl().log("[error] repo root not found"); return; }
-    if(outPath.empty()) { pimpl().log("[error] no backup filename given"); return; }
+    if(root.empty())
+    {
+        pimpl().log("[error] repo root not found"); return;;
+    }
+    if(outPath.empty())
+    {
+        pimpl().log("[error] no backup filename given"); return;;
+    }
 
     const Str out = toBackslashes(outPath);
 
@@ -645,7 +679,10 @@ Void PicoFlash::backup(const Str& outPath)
     }
 
     const Str bat = root + "\\firmware\\backup.bat";
-    if(!fileExists(bat)) { pimpl().logf("[error] missing %s", bat.c_str()); return; }
+    if(!fileExists(bat))
+    {
+        pimpl().logf("[error] missing %s", bat.c_str()); return;;
+    }
 
     const Str desc = "backing up flash to " + out;
     pimpl().start(desc, [root, bat, out]()
@@ -663,10 +700,16 @@ Void PicoFlash::backup(const Str& outPath)
 Void PicoFlash::rebootBootsel()
 {
     const Str root = repoRoot();
-    if(root.empty()) { pimpl().log("[error] repo root not found"); return; }
+    if(root.empty())
+    {
+        pimpl().log("[error] repo root not found"); return;;
+    }
 
     const Str picotool = root + "\\vendor\\picotool-2.3.0\\picotool\\picotool.exe";
-    if(!fileExists(picotool)) { pimpl().logf("[error] missing %s", picotool.c_str()); return; }
+    if(!fileExists(picotool))
+    {
+        pimpl().logf("[error] missing %s", picotool.c_str()); return;;
+    }
 
     pimpl().start("rebooting into BOOTSEL", [root, picotool]()
     {
@@ -703,10 +746,16 @@ Void PicoFlash::rebootBootsel()
 Void PicoFlash::rebootNormal()
 {
     const Str root = repoRoot();
-    if(root.empty()) { pimpl().log("[error] repo root not found"); return; }
+    if(root.empty())
+    {
+        pimpl().log("[error] repo root not found"); return;;
+    }
 
     const Str picotool = root + "\\vendor\\picotool-2.3.0\\picotool\\picotool.exe";
-    if(!fileExists(picotool)) { pimpl().logf("[error] missing %s", picotool.c_str()); return; }
+    if(!fileExists(picotool))
+    {
+        pimpl().logf("[error] missing %s", picotool.c_str()); return;;
+    }
 
     pimpl().start("rebooting into the application", [root, picotool]()
     {

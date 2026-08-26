@@ -195,7 +195,11 @@ Void loadFonts(Float32 dpiScale)
     {
         ImFont* const candidates[] = { fonts.small, fonts.title, fonts.stat, fonts.big, fonts.mono };
         for(ImFont* c : candidates)
-            if(c != nullptr) { any = c; break; }
+            if(c != nullptr)
+            {
+                any = c;
+                break;
+            }
     }
     if(any == nullptr)
         any = addBuiltinAt(atlas, szBody);
