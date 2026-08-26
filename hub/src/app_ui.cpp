@@ -279,7 +279,9 @@ Int32 wsFocused = 0;
 
 // Live drag state. -1 when nothing is being dragged.
 Int32   wsDragPanel = -1;
-Bool    wsDragResize = false;
+
+// 0 = move. Otherwise a bitmask: 1 = width, 2 = height, 3 = both.
+Int32   wsDragEdge = 0;
 ImVec2  wsDragOrigin(0.0f, 0.0f);
 ws::Rect wsDragRect0;
 Bool    wsPanning = false;
@@ -3383,7 +3385,7 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
         {
             raise        = i;
             wsDragPanel  = i;
-            wsDragResize = false;
+            wsDragEdge   = 0;
             wsDragOrigin = io.MousePos;
             wsDragRect0  = p.rect;
         }
@@ -3445,10 +3447,103 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
         // ---- body ----------------------------------------------------------
         if(!p.collapsed && bodyH > 8.0f && sr.w > 8.0f)
         {
-            ImGui::SetCursorScreenPos(ImVec2(sr.x + 1.0f, sr.y + titleH));
+            // ---- resize handles, in the panel's BORDER RING -----------------
+            //
+            // OUTSIDE the body child, and that is the whole point. A child
+            // window is a separate ImGui window drawn on top, so anything
+            // submitted underneath it is not hoverable - which is exactly why
+            // the old bottom-right grip, drawn over the child, never once
+            // fired. The ring belongs to the canvas window and is always
+            // reachable.
+            //
+            // The ring is a fixed number of SCREEN pixels and is NOT scaled by
+            // zoom: a grab target that shrinks with the board becomes unusable
+            // at precisely the zoom where you most want to resize something.
+            const Float32 edge = 6.0f * uiDpiScale;
+            const Float32 innerW = std::max(1.0f, sr.w - edge * 2.0f);
+            const Float32 innerH = std::max(1.0f, bodyH - edge);
+
+            struct Handle
+            {
+                const Char*       id;
+                ImVec2            pos;
+                ImVec2            size;
+                Int32             mask;
+                ImGuiMouseCursor  cursor;
+            };
+            const Handle handles[3] = {
+                { "##edgeR", ImVec2(sr.x + sr.w - edge, sr.y + titleH),
+                  ImVec2(edge, std::max(1.0f, bodyH - edge)), 1,
+                  ImGuiMouseCursor_ResizeEW },
+                { "##edgeB", ImVec2(sr.x, sr.y + fullH - edge),
+                  ImVec2(std::max(1.0f, sr.w - edge), edge), 2,
+                  ImGuiMouseCursor_ResizeNS },
+                { "##corner", ImVec2(sr.x + sr.w - edge, sr.y + fullH - edge),
+                  ImVec2(edge, edge), 3, ImGuiMouseCursor_ResizeNWSE },
+            };
+
+            for(const Handle& hd : handles)
+            {
+                ImGui::SetCursorScreenPos(hd.pos);
+                ImGui::InvisibleButton(hd.id, hd.size);
+                if(ImGui::IsItemHovered()
+                   || (wsDragPanel == i && wsDragEdge == hd.mask))
+                {
+                    ImGui::SetMouseCursor(hd.cursor);
+                }
+                if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
+                {
+                    raise        = i;
+                    wsDragPanel  = i;
+                    wsDragEdge   = hd.mask;
+                    wsDragOrigin = io.MousePos;
+                    wsDragRect0  = p.rect;
+                }
+            }
+
+            // The corner's three diagonal ticks, so the handle is visible.
+            for(Int32 k = 1; k <= 3; ++k)
+            {
+                const Float32 o = static_cast<Float32>(k) * 3.0f * uiDpiScale;
+                dl->AddLine(ImVec2(sr.x + sr.w - o, sr.y + fullH - 1.0f),
+                            ImVec2(sr.x + sr.w - 1.0f, sr.y + fullH - o),
+                            IM_COL32(0x70, 0x78, 0x80, 0xFF), 1.0f);
+            }
+
+            // ---- the content, OPTICALLY zoomed -----------------------------
+            //
+            // The panel is already zoom * canvas pixels wide. Drawing the
+            // content into it unchanged gives it MORE PIXELS, so it re-lays-out
+            // - more columns in the editor, a wider fit on the map. That is
+            // reflow, not zoom, and it was wrong: zooming in should make the
+            // same thing bigger, not show more of it at the same size.
+            //
+            // So the geometry scale is raised by the same factor for the
+            // duration. Everything that derives from dpiScale() - padding,
+            // radii, line thicknesses, the editor's cell - grows with it, and
+            // fontScale() carries the text along. The layout then occupies the
+            // same PROPORTION of a panel that is itself bigger, which is what
+            // an optical zoom looks like.
+            //
+            // Saved and restored around the call rather than set globally,
+            // because the sidebar and the status bar are outside the canvas and
+            // must not move when the board zooms.
+            const Float32   dpiWas   = uiDpiScale;
+            const ImGuiStyle styleWas = ImGui::GetStyle();
+
+            uiDpiScale = dpiWas * wsCanvas.zoom;
+            ui::setDpiScale(uiDpiScale);
+            ImGui::GetStyle().ScaleAllSizes(wsCanvas.zoom);
+
+            // Un-pushed text scales too. PushFont with a null face keeps the
+            // current one and changes only its size, which is what the dynamic
+            // atlas in 1.92 is for.
+            ImGui::PushFont(nullptr, ImGui::GetFontSize() * wsCanvas.zoom);
+
+            ImGui::SetCursorScreenPos(ImVec2(sr.x + edge, sr.y + titleH));
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-            ImGui::BeginChild("##body", ImVec2(sr.w - 2.0f, bodyH),
+            ImGui::BeginChild("##body", ImVec2(innerW, innerH),
                               ImGuiChildFlags_None,
                               ImGuiWindowFlags_NoScrollbar
                               | ImGuiWindowFlags_NoScrollWithMouse);
@@ -3461,35 +3556,15 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
                 raise = i;
             }
 
-            drawViewBody(i, sr.w - 2.0f, bodyH);
+            drawViewBody(i, innerW, innerH);
 
             ImGui::EndChild();
             ImGui::PopStyleVar();
 
-            // ---- resize grip, bottom right ---------------------------------
-            const Float32 grip = 14.0f * uiDpiScale;
-            ImGui::SetCursorScreenPos(ImVec2(sr.x + sr.w - grip,
-                                             sr.y + fullH - grip));
-            ImGui::InvisibleButton("##grip", ImVec2(grip, grip));
-            if(ImGui::IsItemHovered() || (wsDragPanel == i && wsDragResize))
-            {
-                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);
-            }
-            if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
-            {
-                raise        = i;
-                wsDragPanel  = i;
-                wsDragResize = true;
-                wsDragOrigin = io.MousePos;
-                wsDragRect0  = p.rect;
-            }
-            for(Int32 k = 1; k <= 3; ++k)
-            {
-                const Float32 o = static_cast<Float32>(k) * 4.0f * uiDpiScale;
-                dl->AddLine(ImVec2(sr.x + sr.w - o, sr.y + fullH - 2.0f),
-                            ImVec2(sr.x + sr.w - 2.0f, sr.y + fullH - o),
-                            IM_COL32(0x70, 0x78, 0x80, 0xFF), 1.0f);
-            }
+            ImGui::PopFont();
+            ImGui::GetStyle() = styleWas;
+            uiDpiScale        = dpiWas;
+            ui::setDpiScale(dpiWas);
         }
 
         ImGui::PopID();
@@ -3511,10 +3586,16 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
             const Float32 dx = (io.MousePos.x - wsDragOrigin.x) / z;
             const Float32 dy = (io.MousePos.y - wsDragOrigin.y) / z;
 
-            if(wsDragResize)
+            if(wsDragEdge != 0)
             {
-                p.rect.w = std::max(ws::PANEL_MIN_W, wsDragRect0.w + dx);
-                p.rect.h = std::max(ws::PANEL_MIN_H, wsDragRect0.h + dy);
+                if((wsDragEdge & 1) != 0)
+                {
+                    p.rect.w = std::max(ws::PANEL_MIN_W, wsDragRect0.w + dx);
+                }
+                if((wsDragEdge & 2) != 0)
+                {
+                    p.rect.h = std::max(ws::PANEL_MIN_H, wsDragRect0.h + dy);
+                }
             }
             else
             {

@@ -854,6 +854,15 @@ Float32 dpiScale()
     return geometryDpiScale;
 }
 
+Float32 fontScale()
+{
+    if(fontBaseDpi <= 0.0f)
+    {
+        return 1.0f;
+    }
+    return geometryDpiScale / fontBaseDpi;
+}
+
 // ---------------------------------------------------------------------------
 // The user's zoom. See theme.hpp for why it is not folded into dpiScale().
 // ---------------------------------------------------------------------------
