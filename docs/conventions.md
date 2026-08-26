@@ -262,6 +262,33 @@ surrounding history.
 | Control keywords | `if(cond)`, not `if (cond)` |
 | Casts | named casts only. **No C-style casts** |
 
+## The central region has two layouts
+
+**Tabbed** — one view at a time, full width. The default, and what to use when
+you are looking at one thing.
+
+**Floating** — every view is a panel on a pannable, zoomable board. Drag a title
+bar to move, the bottom-right grip to resize, double-click or the `-` to
+collapse, `x` to remove; the header chips put one back. Wheel zooms about the
+cursor, dragging empty space (or middle-dragging anywhere) pans.
+
+Both render the **same** view bodies via `drawViewBody()`. A tab and a panel
+showing "2D" are one picture, not two implementations of it.
+
+Zoom scales panel **positions and sizes**, not rasterised pixels: text stays
+legible at every zoom and content re-lays-out into the space it is given. At low
+zoom you fit more panels on screen with less in each, rather than seeing the same
+content smaller. That is a board, not a photograph of a board.
+
+Layout, canvas and every panel rect persist in `%LOCALAPPDATA%/tt02-auto/panels.txt`.
+`--layout floating` / `--layout tabbed` picks one at startup.
+
+**Two widgets cannot share a rectangle.** An ImGui item that owns `ActiveId`
+makes every later overlapping item non-hoverable, which is silent - the later
+widget simply never fires. It cost two bugs here: a full-canvas background button
+disabled panel dragging, and a full-width title bar disabled its own fold and
+close buttons. Overlap deliberately, or not at all.
+
 **Types come from `hub/src/shared.hpp`** — `Int32`, `Float32`, `Bool`, `Void`,
 `Size`, `Str`, `UniqPtr<T>`, `Opt<T>`. They are `using` aliases, so they are the
 same types third-party signatures use; the boundary needs no conversion. Bare

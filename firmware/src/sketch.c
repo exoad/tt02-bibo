@@ -49,7 +49,6 @@ Int32 main(Void)
      * the breadboard LED still blinks - losing one LED should not cost the
      * other. */
     const Bool haveOnboard = ledOpen();
-
     while(true)
     {
         gpioWrite(LED_PIN, true);
@@ -58,7 +57,6 @@ Int32 main(Void)
             ledWrite(false);   /* opposite phase, so both are visible at once */
         }
         sleepMs(DELAY_MS);
-
         gpioWrite(LED_PIN, false);
         if(haveOnboard)
         {
@@ -66,6 +64,5 @@ Int32 main(Void)
         }
         sleepMs(DELAY_MS);
     }
-
     return 0;
 }
