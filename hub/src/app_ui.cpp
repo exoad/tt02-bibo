@@ -45,6 +45,7 @@
 #include "editor.hpp"
 #include "recording.hpp"
 #include "sketch.hpp"
+#include "workspace.hpp"
 #include "settings.hpp"
 #include "theme.hpp"
 
@@ -262,6 +263,27 @@ constexpr Float32 CODE_TREE_DEF_W = 240.0f;
 
 Float32 codeTreeLogicalW  = CODE_TREE_DEF_W;
 Bool    codeTreeCollapsed = false;
+
+// ---- the central region's layout ------------------------------------------
+// 0 = tabbed (one view, full width), 1 = floating (a board of panels you
+// arrange). Both render the SAME view bodies - see drawViewBody() - so a panel
+// and a tab are never two implementations of one picture.
+Int32       layoutFloating = 0;
+ws::Panel   wsPanels[ws::PANEL_COUNT];
+ws::Canvas  wsCanvas;
+Bool        wsInit = false;
+
+// Which panel the bottom control bar belongs to: the last one clicked. In the
+// tabbed layout that is just the open tab, and centralView carries it.
+Int32 wsFocused = 0;
+
+// Live drag state. -1 when nothing is being dragged.
+Int32   wsDragPanel = -1;
+Bool    wsDragResize = false;
+ImVec2  wsDragOrigin(0.0f, 0.0f);
+ws::Rect wsDragRect0;
+Bool    wsPanning = false;
+
 Bool  panelLayoutDirty = false;             // written out at the end of a frame
 
 Void loadPanelLayout()
@@ -288,6 +310,41 @@ Void loadPanelLayout()
             if(v >= SIDEBAR_MIN_W && v <= 1600.0)
                 sidebarLogicalW = static_cast<Float32>(v);
         }
+        else if(line.size() > 2 && line[0] == 'L')
+        {
+            layoutFloating = (std::atoi(line.c_str() + 1) != 0) ? 1 : 0;
+        }
+        else if(line.size() > 2 && line[0] == 'C')
+        {
+            Float64 z = 1.0;
+            Float64 px = 0.0;
+            Float64 py = 0.0;
+            if(std::sscanf(line.c_str() + 1, "%lf %lf %lf", &z, &px, &py) == 3)
+            {
+                wsCanvas.zoom = ws::clampZoom(static_cast<Float32>(z));
+                wsCanvas.panX = static_cast<Float32>(px);
+                wsCanvas.panY = static_cast<Float32>(py);
+            }
+        }
+        else if(line.size() > 2 && line[0] == 'P')
+        {
+            Int32   idx = -1;
+            Float64 x = 0.0, y = 0.0, w = 0.0, h = 0.0;
+            Int32   op = 1, cl = 0, zz = 0;
+            if(std::sscanf(line.c_str() + 1, "%d %lf %lf %lf %lf %d %d %d",
+                           &idx, &x, &y, &w, &h, &op, &cl, &zz) == 8
+               && idx >= 0 && idx < ws::PANEL_COUNT)
+            {
+                ws::Panel& p = wsPanels[idx];
+                p.rect.x    = static_cast<Float32>(x);
+                p.rect.y    = static_cast<Float32>(y);
+                p.rect.w    = std::max(ws::PANEL_MIN_W, static_cast<Float32>(w));
+                p.rect.h    = std::max(ws::PANEL_MIN_H, static_cast<Float32>(h));
+                p.open      = (op != 0);
+                p.collapsed = (cl != 0);
+                p.z         = zz;
+            }
+        }
         else if(line.size() > 2 && line[0] == 't')
         {
             Float64 v = 0.0;
@@ -308,6 +365,23 @@ Void loadPanelLayout()
                 order[seen++] = id;
                 sectionFloating[id] = (fl != 0);
             }
+        }
+    }
+
+    // The panel z order has to be a dense permutation - hitTest resolves
+    // overlap with it. A hand-edited or truncated file could give duplicates, so
+    // it is normalised here rather than trusted.
+    {
+        Int32 idx[ws::PANEL_COUNT];
+        for(Int32 k = 0; k < ws::PANEL_COUNT; ++k)
+        {
+            idx[k] = k;
+        }
+        std::sort(idx, idx + ws::PANEL_COUNT,
+                  [](Int32 a, Int32 b) { return wsPanels[a].z < wsPanels[b].z; });
+        for(Int32 k = 0; k < ws::PANEL_COUNT; ++k)
+        {
+            wsPanels[idx[k]].z = k;
         }
     }
 
@@ -334,7 +408,8 @@ Void loadPanelLayout()
 
 Void savePanelLayout()
 {
-    Char buf[64];
+    // Wide enough for the longest line here, which is a panel record.
+    Char buf[160];
     Str out;
     std::snprintf(buf, sizeof(buf), "w %.0f\n", static_cast<Float64>(sidebarLogicalW));
     out += buf;
@@ -342,6 +417,26 @@ Void savePanelLayout()
                   static_cast<Float64>(codeTreeLogicalW),
                   codeTreeCollapsed ? 1 : 0);
     out += buf;
+
+    std::snprintf(buf, sizeof(buf), "L %d\n", layoutFloating);
+    out += buf;
+    std::snprintf(buf, sizeof(buf), "C %.4f %.1f %.1f\n",
+                  static_cast<Float64>(wsCanvas.zoom),
+                  static_cast<Float64>(wsCanvas.panX),
+                  static_cast<Float64>(wsCanvas.panY));
+    out += buf;
+    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
+    {
+        const ws::Panel& p = wsPanels[i];
+        std::snprintf(buf, sizeof(buf), "P %d %.1f %.1f %.1f %.1f %d %d %d\n",
+                      i,
+                      static_cast<Float64>(p.rect.x),
+                      static_cast<Float64>(p.rect.y),
+                      static_cast<Float64>(p.rect.w),
+                      static_cast<Float64>(p.rect.h),
+                      p.open ? 1 : 0, p.collapsed ? 1 : 0, p.z);
+        out += buf;
+    }
     for(Int32 k = 0; k < SEC_Count; ++k)
     {
         std::snprintf(buf, sizeof(buf), "s %d %d\n",
@@ -388,6 +483,7 @@ Bool         codeLoaded = false;
 // Set while a Build & Flash is mid-flight so the second half (the flash) fires
 // when the build finishes rather than racing it.
 Bool codeFlashPending = false;
+
 Str  codeFlashTarget  = "sketch";
 
 Bool    recArmed   = false;   // capturing
@@ -2884,192 +2980,657 @@ Void drawCentralControls(Int32 view)
 
 // The central region. The map is one view among several rather than the only
 // one, but it is still the default and still where the app lands.
-Void drawMapRegion(Float32 mapW, Float32 mapH, Float32 ctrlH)
+// ---------------------------------------------------------------------------
+// ONE view's content, at the current cursor, filling w x h.
+//
+// Shared by both layouts. A tab and a floating panel showing "2D" must be the
+// same picture, and the only way to guarantee that is for there to be one
+// function that draws it.
+// ---------------------------------------------------------------------------
+Void drawViewBody(Int32 view, Float32 w, Float32 h)
 {
-    const Float32 tabH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y;
-    const Float32 viewH = mapH - tabH;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
-    if(ImGui::BeginTabBar("##central", ImGuiTabBarFlags_None))
+    // Explicitly black, matching every other surface. An explicit push rather
+    // than inherited, because the map is the one panel whose background must
+    // never pick up a tint or an alpha - it is the surface the point cloud is
+    // read against.
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
+    ImGui::PushID(view);
+
+    if(view == 0 || view == 1)
     {
-        const auto viewSel = [](Int32 which) {
-            return (forceView == which && forceViewFrames > 0)
-                 ? ImGuiTabItemFlags_SetSelected : 0;
-        };
-        if(forceViewFrames > 0) --forceViewFrames;
+        // is3D is set immediately before the draw, so both maps can be on
+        // screen at once in the floating layout: each draw sees the flag it
+        // needs, and the 2D and 3D state they read live in separate members.
+        radarView.is3D = (view == 1);
 
-        // Two map tabs. Same viewer, same revolution, different dimension - and
-        // the tab bar is where this app already says "a different way of looking
-        // at the same machine".
-        for(Int32 d = 0; d < 2; ++d)
+        ImGui::BeginChild("##map", ImVec2(w, h), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        radarView.draw(ImGui::GetContentRegionAvail());
+        drawMapHud(p0, ImVec2(w, h));
+        ImGui::GetWindowDrawList()->AddRect(
+            p0, ImVec2(p0.x + w, p0.y + h),
+            IM_COL32(0x3A, 0x3A, 0x3A, 0xFF), 0.0f, 0, 1.0f);
+        ImGui::EndChild();
+    }
+    else if(view == 2)
+    {
+        ImGui::BeginChild("##recmap", ImVec2(w, h), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        recView.draw(ImGui::GetContentRegionAvail());
+        drawRecorderHud(p0, ImVec2(w, h));
+        ImGui::GetWindowDrawList()->AddRect(
+            p0, ImVec2(p0.x + w, p0.y + h),
+            IM_COL32(0x3A, 0x3A, 0x3A, 0xFF), 0.0f, 0, 1.0f);
+        ImGui::EndChild();
+    }
+    else if(view == 3)
+    {
+        // Loaded on first sight rather than at startup: reading the sketch
+        // library costs a directory scan, and most sessions never open it.
+        if(!codeLoaded)
         {
-        Char mapLb[32];
-        const Bool mapTab = ImGui::BeginTabItem(
-            iconTabLabel(mapLb, sizeof(mapLb), d == 0 ? "2D" : "3D"),
-            nullptr, viewSel(d));
-        tabIcon(d == 0 ? ui::Icon::ICON_DIM_2D : ui::Icon::ICON_DIM_3D);
-        if(mapTab)
-        {
-            centralView    = d;
-            radarView.is3D = (d == 1);
-            const ImVec2 p0 = ImGui::GetCursorScreenPos();
-
-            // Explicitly black, matching every other surface. Kept as an
-            // explicit push rather than inherited, because the map is the one
-            // panel whose background must never pick up a tint or an alpha - it
-            // is the surface the point cloud is read against.
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
-            ImGui::PushID(d);
-            ImGui::BeginChild("##map", ImVec2(mapW, viewH), ImGuiChildFlags_None,
-                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-            radarView.draw(ImGui::GetContentRegionAvail());
-            drawMapHud(p0, ImVec2(mapW, viewH));
-            // The display is set INTO the console, so it carries a bezel rather
-            // than an outline. Drawn last so it sits over the point cloud.
-            // No bezel on the map. The board view still gets one, because
-            // that panel IS a depiction of a physical thing; this one is a
-            // terminal, and a terminal's edge is a line.
-            ImGui::GetWindowDrawList()->AddRect(
-                p0, ImVec2(p0.x + mapW, p0.y + viewH),
-                IM_COL32(0x3A, 0x3A, 0x3A, 0xFF), 0.0f, 0, 1.0f);
-            ImGui::EndChild();
-            ImGui::PopID();
-            ImGui::PopStyleColor();
-
-            ImGui::EndTabItem();
-        }
-        }
-
-        // ---- the recorder ------------------------------------------------
-        {
-        Char recLb[32];
-        const Bool recTab = ImGui::BeginTabItem(
-            iconTabLabel(recLb, sizeof(recLb), "Record"), nullptr, viewSel(2));
-        tabIcon(ui::Icon::ICON_RECORD);
-        if(recTab)
-        {
-            centralView = 2;
-            const ImVec2 rp0 = ImGui::GetCursorScreenPos();
-
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
-            ImGui::PushID("recorder");
-            ImGui::BeginChild("##recmap", ImVec2(mapW, viewH), ImGuiChildFlags_None,
-                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-            recView.draw(ImGui::GetContentRegionAvail());
-            drawRecorderHud(rp0, ImVec2(mapW, viewH));
-            ImGui::GetWindowDrawList()->AddRect(
-                rp0, ImVec2(rp0.x + mapW, rp0.y + viewH),
-                IM_COL32(0x3A, 0x3A, 0x3A, 0xFF), 0.0f, 0, 1.0f);
-            ImGui::EndChild();
-            ImGui::PopID();
-            ImGui::PopStyleColor();
-
-            ImGui::EndTabItem();
-        }
-        }
-
-        // ---- the code editor ---------------------------------------------
-        {
-        Char codeLb[32];
-        const Bool codeTab = ImGui::BeginTabItem(
-            iconTabLabel(codeLb, sizeof(codeLb), "Code"), nullptr, viewSel(3));
-        tabIcon(ui::Icon::ICON_CODE);
-        if(codeTab)
-        {
-            centralView = 3;
-
-            // Loaded on first sight rather than at startup: reading the sketch
-            // library costs a directory scan, and most sessions never open this
-            // tab at all.
-            if(!codeLoaded)
+            codeLoaded = true;
+            const Vec<Str> have = sketch::list();
+            if(!have.empty())
             {
-                codeLoaded = true;
-                const Vec<Str> have = sketch::list();
-                if(!have.empty())
-                {
-                    codeName = have.front();
-                    codePath = sketch::pathOf(codeName);
-                    codeEditor.setText(sketch::load(codePath));
-                }
-                else
-                {
-                    codeName = sketch::makeName();
-                    codePath = sketch::pathOf(codeName);
-                    codeEditor.setText(sketch::starter());
-                }
-            }
-
-            // Tree | splitter | editor. The tree's width is the user's, clamped
-            // so a drag can neither squeeze the editor away nor strand the tree
-            // at a width with no grabbable edge.
-            const ImVec2  cp0    = ImGui::GetCursorScreenPos();
-            const Float32 splitW = std::max(ImGui::GetStyle().ItemSpacing.x,
-                                            8.0f * uiDpiScale);
-
-            const Float32 treeW = codeTreeCollapsed
-                ? ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.x * 2.0f
-                : std::max(CODE_TREE_MIN_W * uiDpiScale,
-                           std::min(codeTreeLogicalW * uiDpiScale,
-                                    std::min(CODE_TREE_MAX_W * uiDpiScale,
-                                             mapW * 0.6f)));
-
-            drawCodeTree(treeW, viewH);
-            ImGui::SameLine(0.0f, 0.0f);
-
-            if(codeTreeCollapsed)
-            {
-                // No handle when there is nothing to resize, but the same gap so
-                // the editor does not shift by eight pixels on collapse.
-                ImGui::SetCursorScreenPos(ImVec2(cp0.x + treeW, cp0.y));
-                ImGui::Dummy(ImVec2(splitW, viewH));
+                codeName = have.front();
+                codePath = sketch::pathOf(codeName);
+                codeEditor.setText(sketch::load(codePath));
             }
             else
             {
-                codeTreeSplitter(ImVec2(cp0.x + treeW, cp0.y), viewH, splitW);
+                codeName = sketch::makeName();
+                codePath = sketch::pathOf(codeName);
+                codeEditor.setText(sketch::starter());
             }
-            ImGui::SameLine(0.0f, 0.0f);
+        }
 
-            ui::drawCode(codeView, codeEditor,
-                         ImVec2(std::max(120.0f, mapW - treeW - splitW), viewH),
-                         ImGui::GetTime());
-            handleCodeCommand();
+        // Tree | splitter | editor. The tree's width is the user's, clamped so
+        // a drag can neither squeeze the editor away nor strand the tree at a
+        // width with no grabbable edge.
+        const Float32 splitW = std::max(ImGui::GetStyle().ItemSpacing.x,
+                                        8.0f * uiDpiScale);
 
+        const Float32 treeW = codeTreeCollapsed
+            ? ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.x * 2.0f
+            : std::max(CODE_TREE_MIN_W * uiDpiScale,
+                       std::min(codeTreeLogicalW * uiDpiScale,
+                                std::min(CODE_TREE_MAX_W * uiDpiScale, w * 0.6f)));
+
+        drawCodeTree(treeW, h);
+        ImGui::SameLine(0.0f, 0.0f);
+
+        if(codeTreeCollapsed)
+        {
+            // No handle when there is nothing to resize, but the same gap so
+            // the editor does not shift by eight pixels on collapse.
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + treeW, p0.y));
+            ImGui::Dummy(ImVec2(splitW, h));
+        }
+        else
+        {
+            codeTreeSplitter(ImVec2(p0.x + treeW, p0.y), h, splitW);
+        }
+        ImGui::SameLine(0.0f, 0.0f);
+
+        ui::drawCode(codeView, codeEditor,
+                     ImVec2(std::max(120.0f, w - treeW - splitW), h),
+                     ImGui::GetTime());
+        handleCodeCommand();
+    }
+    else
+    {
+        const board::Which which =
+            static_cast<board::Which>(std::max(0, view - 4));
+
+        ImGui::BeginChild("##board", ImVec2(w, h), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        // Polled inside the body so it only runs while the view is on screen.
+        pollBoardStatus();
+        const ImVec2 bp0 = ImGui::GetCursorScreenPos();
+        board::draw(which, ImGui::GetContentRegionAvail(), boardLive());
+        ui::screenInset(bp0, ImVec2(bp0.x + w, bp0.y + h));
+        ImGui::EndChild();
+    }
+
+    ImGui::PopID();
+    ImGui::PopStyleColor();
+}
+
+// The view's name and icon, for both the tab bar and the panel title bars.
+const Char* viewName(Int32 view)
+{
+    switch(view)
+    {
+    case 0:  return "2D";
+    case 1:  return "3D";
+    case 2:  return "Record";
+    case 3:  return "Code";
+    default: return board::name(static_cast<board::Which>(std::max(0, view - 4)));
+    }
+}
+
+ui::Icon viewIcon(Int32 view)
+{
+    switch(view)
+    {
+    case 0:  return ui::Icon::ICON_DIM_2D;
+    case 1:  return ui::Icon::ICON_DIM_3D;
+    case 2:  return ui::Icon::ICON_RECORD;
+    case 3:  return ui::Icon::ICON_CODE;
+    default: return ui::Icon::ICON_PROCESSOR;
+    }
+}
+
+// ===================================================== the tabbed layout
+
+Void drawTabbedViews(Float32 mapW, Float32 viewH)
+{
+    if(!ImGui::BeginTabBar("##central", ImGuiTabBarFlags_None))
+    {
+        return;
+    }
+
+    const auto viewSel = [](Int32 which)
+    {
+        return (forceView == which && forceViewFrames > 0)
+             ? ImGuiTabItemFlags_SetSelected : 0;
+    };
+    if(forceViewFrames > 0)
+    {
+        --forceViewFrames;
+    }
+
+    const Int32 total = 4 + static_cast<Int32>(board::Which::WHICH_COUNT);
+    for(Int32 v = 0; v < total; ++v)
+    {
+        Char label[48];
+        iconTabLabel(label, sizeof(label), viewName(v));
+
+        const Bool open = ImGui::BeginTabItem(label, nullptr, viewSel(v));
+        tabIcon(viewIcon(v));
+        if(open)
+        {
+            centralView = v;
+            wsFocused   = v;
+            drawViewBody(v, mapW, viewH);
             ImGui::EndTabItem();
         }
+    }
+
+    // Right-aligned, so switching layout is where the tabs end rather than in a
+    // second row of chrome above them.
+    if(ImGui::TabItemButton("  Float  ", ImGuiTabItemFlags_Trailing
+                                       | ImGuiTabItemFlags_NoTooltip))
+    {
+        layoutFloating   = 1;
+        panelLayoutDirty = true;
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Arrange the views as floating panels instead");
+    }
+
+    ImGui::EndTabBar();
+}
+
+// =================================================== the floating layout
+
+// Title-bar height in SCREEN space. Scales with zoom so a zoomed-out board
+// looks right, but never below a size you can actually aim at - a 4 px title
+// bar is a panel you cannot move.
+Float32 wsTitleHeight()
+{
+    const Float32 want = 26.0f * uiDpiScale * wsCanvas.zoom;
+    return std::max(16.0f * uiDpiScale, want);
+}
+
+Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
+{
+    ImGuiIO& io = ImGui::GetIO();
+
+    if(!wsInit)
+    {
+        wsInit = true;
+        // Only lay out afresh when nothing was restored, so a saved arrangement
+        // survives. defaultLayout leaves z dense, which hitTest relies on.
+        Bool any = false;
+        for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
+        {
+            if(wsPanels[i].rect.w > 1.0f)
+            {
+                any = true;
+            }
+        }
+        if(!any)
+        {
+            ws::defaultLayout(wsPanels, ws::PANEL_COUNT);
+            ws::fitAll(wsPanels, ws::PANEL_COUNT, wsCanvas, mapW, viewH);
+        }
+    }
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x16, 0x18, 0x1B, 0xFF));
+    ImGui::BeginChild("##canvas", ImVec2(mapW, viewH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // ---- the board itself, so panning has something to move against -------
+    {
+        const Float32 step = 48.0f * wsCanvas.zoom;
+        if(step > 6.0f)
+        {
+            const ImU32 dot = IM_COL32(0x2A, 0x2D, 0x31, 0xFF);
+            const Float32 ox = std::fmod(wsCanvas.panX, step);
+            const Float32 oy = std::fmod(wsCanvas.panY, step);
+            for(Float32 x = ox; x < mapW; x += step)
+            {
+                for(Float32 y = oy; y < viewH; y += step)
+                {
+                    if(x < 0.0f || y < 0.0f)
+                    {
+                        continue;
+                    }
+                    dl->AddRectFilled(ImVec2(origin.x + x, origin.y + y),
+                                      ImVec2(origin.x + x + 1.0f, origin.y + y + 1.0f),
+                                      dot);
+                }
+            }
+        }
+    }
+
+    // ---- canvas-level input -----------------------------------------------
+    //
+    // NO invisible button over the canvas, deliberately. One was tried and it
+    // broke panel dragging outright: a full-size button takes ImGui's ActiveId
+    // on press, and an item that owns ActiveId makes every later overlapping
+    // item non-hoverable - so the title bars submitted after it never saw their
+    // own click and every panel drag panned the board instead.
+    //
+    // IsWindowHovered() WITHOUT ChildWindows is the right test anyway: it is
+    // true over empty canvas and over title bars, and false over a panel's body.
+    // That is exactly the split we want, because a wheel over a map belongs to
+    // the map's own zoom, not to the board's.
+    const Bool bgHovered = ImGui::IsWindowHovered();
+
+    if(bgHovered && io.MouseWheel != 0.0f)
+    {
+        const Float32 f = (io.MouseWheel > 0.0f) ? ws::ZOOM_STEP : 1.0f / ws::ZOOM_STEP;
+        ws::zoomAt(wsCanvas, f, io.MousePos.x, io.MousePos.y, origin.x, origin.y);
+        panelLayoutDirty = true;
+    }
+
+    // Panning starts only when the press did NOT land on a panel.
+    //
+    // IsItemActive() on the background cannot answer that: it is read here,
+    // immediately after submission, and the panels have not been submitted yet -
+    // so the background is momentarily active for every press, including one
+    // aimed at a title bar. Reading it was why dragging a panel panned the whole
+    // board instead of moving the panel.
+    //
+    // ws::hitTest is the same front-to-back resolution the panels use to draw,
+    // so the two cannot disagree about what is under the cursor.
+    const Float32 titleHPre = wsTitleHeight();
+    Float32 hitH[ws::PANEL_COUNT];
+    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
+    {
+        const ws::Rect sr = ws::toScreen(wsPanels[i].rect, wsCanvas, origin.x, origin.y);
+        hitH[i] = wsPanels[i].collapsed
+                ? titleHPre
+                : titleHPre + std::max(0.0f, sr.h - titleHPre);
+    }
+    const Int32 under = ws::hitTest(wsPanels, ws::PANEL_COUNT, wsCanvas,
+                                    origin.x, origin.y, hitH,
+                                    io.MousePos.x, io.MousePos.y);
+
+    if(bgHovered && under < 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+        wsPanning = true;
+    }
+    // Middle-drag pans from anywhere, panel or not - the usual escape hatch for
+    // a board where the empty space has run out.
+    if(bgHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+    {
+        wsPanning = true;
+    }
+    if(!ImGui::IsMouseDown(ImGuiMouseButton_Left)
+       && !ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+    {
+        wsPanning = false;
+    }
+    if(wsPanning)
+    {
+        wsCanvas.panX += io.MouseDelta.x;
+        wsCanvas.panY += io.MouseDelta.y;
+        panelLayoutDirty = true;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+    }
+
+    // ---- the panels, back to front ----------------------------------------
+    // Submitting in z order means the front-most panel's widgets are submitted
+    // LAST, and ImGui gives the last submitted item at a position the hover -
+    // so overlap resolves the way it looks.
+    Int32 order[ws::PANEL_COUNT];
+    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
+    {
+        order[i] = i;
+    }
+    std::sort(order, order + ws::PANEL_COUNT,
+              [](Int32 a, Int32 b) { return wsPanels[a].z < wsPanels[b].z; });
+
+    const Float32 titleH = wsTitleHeight();
+    Int32 raise = -1;
+
+    for(Int32 oi = 0; oi < ws::PANEL_COUNT; ++oi)
+    {
+        const Int32 i = order[oi];
+        ws::Panel&  p = wsPanels[i];
+        if(!p.open)
+        {
+            continue;
         }
 
-        for(Int32 b = 0; b < static_cast<Int32>(board::Which::WHICH_COUNT); ++b)
-        {
-            const board::Which which = static_cast<board::Which>(b);
-            Char tabLabel[48];
-            iconTabLabel(tabLabel, sizeof(tabLabel), board::name(which));
-            const Bool boardTab = ImGui::BeginTabItem(tabLabel, nullptr, viewSel(b + 4));
-            tabIcon(ui::Icon::ICON_PROCESSOR);
-            if(boardTab)
-            {
-                centralView = b + 4;
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
-                ImGui::BeginChild("##board", ImVec2(mapW, viewH), ImGuiChildFlags_None,
-                                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                // Polled here, inside the tab body, so it only runs while this
-                // view is the one on screen.
-                pollBoardStatus();
-                const ImVec2 bp0 = ImGui::GetCursorScreenPos();
-                board::draw(which, ImGui::GetContentRegionAvail(), boardLive());
-                ui::screenInset(bp0, ImVec2(bp0.x + mapW, bp0.y + viewH));
-                ImGui::EndChild();
-                ImGui::PopStyleColor();
+        const ws::Rect sr = ws::toScreen(p.rect, wsCanvas, origin.x, origin.y);
+        const Float32  bodyH = p.collapsed ? 0.0f : std::max(0.0f, sr.h - titleH);
+        const Float32  fullH = titleH + bodyH;
 
-                ImGui::EndTabItem();
+        // Off screen entirely: skip the whole panel, content included. This is
+        // what keeps a large board cheap - an unseen map is not drawn.
+        if(sr.x + sr.w < origin.x - 4.0f || sr.x > origin.x + mapW + 4.0f
+           || sr.y + fullH < origin.y - 4.0f || sr.y > origin.y + viewH + 4.0f)
+        {
+            continue;
+        }
+
+        ImGui::PushID(i);
+
+        const Bool focused = (wsFocused == i);
+
+        // Frame and title bar.
+        dl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + fullH),
+                          IM_COL32(0x1E, 0x21, 0x25, 0xFF), 4.0f * uiDpiScale);
+        dl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + titleH),
+                          focused ? IM_COL32(0x3A, 0x44, 0x50, 0xFF)
+                                  : IM_COL32(0x2A, 0x2E, 0x34, 0xFF),
+                          4.0f * uiDpiScale, ImDrawFlags_RoundCornersTop);
+        dl->AddRect(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + fullH),
+                    focused ? ui::accent::CYAN : IM_COL32(0x3A, 0x3F, 0x45, 0xFF),
+                    4.0f * uiDpiScale, 0, focused ? 2.0f : 1.0f);
+
+        // ---- title bar: drag to move, double-click to collapse ------------
+        //
+        // The drag area STOPS SHORT of the fold and close buttons. It used to
+        // span the whole bar, and that silently disabled both of them: an item
+        // that owns ImGui's ActiveId makes every later overlapping item
+        // non-hoverable, so the buttons submitted after it never saw a click.
+        // Two widgets cannot share a rectangle; the drag area gives way.
+        const Float32 btn = std::min(titleH - 4.0f * uiDpiScale, 16.0f * uiDpiScale);
+        const Float32 btnZone = (btn > 6.0f)
+                              ? (btn * 2.0f + 14.0f * uiDpiScale) : 0.0f;
+        const Float32 bx = sr.x + sr.w - btn * 2.0f - 10.0f * uiDpiScale;
+
+        ImGui::SetCursorScreenPos(ImVec2(sr.x, sr.y));
+        ImGui::InvisibleButton("##title",
+                               ImVec2(std::max(1.0f, sr.w - btnZone),
+                                      std::max(1.0f, titleH)));
+        const Bool titleHovered = ImGui::IsItemHovered();
+
+        if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        {
+            raise        = i;
+            wsDragPanel  = i;
+            wsDragResize = false;
+            wsDragOrigin = io.MousePos;
+            wsDragRect0  = p.rect;
+        }
+        if(titleHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            p.collapsed      = !p.collapsed;
+            panelLayoutDirty = true;
+        }
+
+        // Title text and icon, centred on the bar's own centreline - the same
+        // rule the status bar follows, and for the same reason.
+        {
+            const Float32 cy  = sr.y + titleH * 0.5f;
+            Float32       tx  = sr.x + 6.0f * uiDpiScale;
+
+            if(ui::iconsReady() && titleH >= ui::iconSize())
+            {
+                ui::iconAt(dl, viewIcon(i), ImVec2(tx, cy - ui::iconSize() * 0.5f));
+                tx += ui::iconSize() + 4.0f * uiDpiScale;
+            }
+
+            const Char*  nm = viewName(i);
+            const ImVec2 ts = ImGui::CalcTextSize(nm);
+            if(ts.y <= titleH)
+            {
+                dl->AddText(ImVec2(tx, cy - ts.y * 0.5f),
+                            focused ? IM_COL32_WHITE : IM_COL32(0xC0, 0xC6, 0xCC, 0xFF),
+                            nm);
+            }
+
+            // Collapse chevron and close, right-aligned on the same centreline.
+            if(btn > 6.0f)
+            {
+                ImGui::SetCursorScreenPos(ImVec2(bx, cy - btn * 0.5f));
+                if(ImGui::InvisibleButton("##fold", ImVec2(btn, btn)))
+                {
+                    p.collapsed      = !p.collapsed;
+                    panelLayoutDirty = true;
+                }
+                const ImU32 fc = ImGui::IsItemHovered() ? IM_COL32_WHITE
+                                                        : IM_COL32(0x9A, 0xA2, 0xAA, 0xFF);
+                dl->AddText(ImVec2(bx, cy - ImGui::GetFontSize() * 0.5f), fc,
+                            p.collapsed ? "+" : "-");
+
+                ImGui::SetCursorScreenPos(ImVec2(bx + btn + 4.0f * uiDpiScale,
+                                                 cy - btn * 0.5f));
+                if(ImGui::InvisibleButton("##close", ImVec2(btn, btn)))
+                {
+                    p.open           = false;
+                    panelLayoutDirty = true;
+                }
+                const ImU32 cc = ImGui::IsItemHovered() ? ui::sem::BAD
+                                                        : IM_COL32(0x9A, 0xA2, 0xAA, 0xFF);
+                dl->AddText(ImVec2(bx + btn + 4.0f * uiDpiScale,
+                                   cy - ImGui::GetFontSize() * 0.5f), cc, "x");
             }
         }
 
-        ImGui::EndTabBar();
+        // ---- body ----------------------------------------------------------
+        if(!p.collapsed && bodyH > 8.0f && sr.w > 8.0f)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(sr.x + 1.0f, sr.y + titleH));
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::BeginChild("##body", ImVec2(sr.w - 2.0f, bodyH),
+                              ImGuiChildFlags_None,
+                              ImGuiWindowFlags_NoScrollbar
+                              | ImGuiWindowFlags_NoScrollWithMouse);
+
+            // The body claims focus too, so clicking into a map raises its panel
+            // rather than only its title bar doing so.
+            if(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)
+               && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+                raise = i;
+            }
+
+            drawViewBody(i, sr.w - 2.0f, bodyH);
+
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+
+            // ---- resize grip, bottom right ---------------------------------
+            const Float32 grip = 14.0f * uiDpiScale;
+            ImGui::SetCursorScreenPos(ImVec2(sr.x + sr.w - grip,
+                                             sr.y + fullH - grip));
+            ImGui::InvisibleButton("##grip", ImVec2(grip, grip));
+            if(ImGui::IsItemHovered() || (wsDragPanel == i && wsDragResize))
+            {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);
+            }
+            if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
+            {
+                raise        = i;
+                wsDragPanel  = i;
+                wsDragResize = true;
+                wsDragOrigin = io.MousePos;
+                wsDragRect0  = p.rect;
+            }
+            for(Int32 k = 1; k <= 3; ++k)
+            {
+                const Float32 o = static_cast<Float32>(k) * 4.0f * uiDpiScale;
+                dl->AddLine(ImVec2(sr.x + sr.w - o, sr.y + fullH - 2.0f),
+                            ImVec2(sr.x + sr.w - 2.0f, sr.y + fullH - o),
+                            IM_COL32(0x70, 0x78, 0x80, 0xFF), 1.0f);
+            }
+        }
+
+        ImGui::PopID();
+    }
+
+    // ---- apply the live drag ----------------------------------------------
+    // Applied once, after every panel is submitted, so a drag cannot be
+    // interrupted by another panel's widget stealing the mouse mid-frame.
+    if(wsDragPanel >= 0)
+    {
+        if(!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            wsDragPanel = -1;
+        }
+        else
+        {
+            ws::Panel& p = wsPanels[wsDragPanel];
+            const Float32 z  = (wsCanvas.zoom > 0.0001f) ? wsCanvas.zoom : 0.0001f;
+            const Float32 dx = (io.MousePos.x - wsDragOrigin.x) / z;
+            const Float32 dy = (io.MousePos.y - wsDragOrigin.y) / z;
+
+            if(wsDragResize)
+            {
+                p.rect.w = std::max(ws::PANEL_MIN_W, wsDragRect0.w + dx);
+                p.rect.h = std::max(ws::PANEL_MIN_H, wsDragRect0.h + dy);
+            }
+            else
+            {
+                p.rect.x = wsDragRect0.x + dx;
+                p.rect.y = wsDragRect0.y + dy;
+            }
+            panelLayoutDirty = true;
+        }
+    }
+
+    if(raise >= 0)
+    {
+        ws::bringToFront(wsPanels, ws::PANEL_COUNT, raise);
+        wsFocused        = raise;
+        centralView      = raise;
+        panelLayoutDirty = true;
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+// The floating layout's own header: back to tabs, the zoom, and which panels
+// are on the board.
+Void drawFloatingHeader(Float32 mapW)
+{
+    const ImGuiStyle& sty = ImGui::GetStyle();
+
+    if(ui::iconButton(ui::Icon::ICON_DIM_2D, "Tabs"))
+    {
+        layoutFloating   = 0;
+        panelLayoutDirty = true;
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Back to one view at a time");
+    }
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+
+    // Panel chips: each toggles one panel onto or off the board.
+    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
+    {
+        if(i)
+        {
+            ImGui::SameLine(0.0f, sty.ItemInnerSpacing.x);
+        }
+        if(ui::segmentedIconButton(viewIcon(i), viewName(i), wsPanels[i].open))
+        {
+            wsPanels[i].open = !wsPanels[i].open;
+            if(wsPanels[i].open)
+            {
+                ws::bringToFront(wsPanels, ws::PANEL_COUNT, i);
+                wsFocused = i;
+            }
+            panelLayoutDirty = true;
+        }
+    }
+
+    // Zoom readout and fit, right-aligned.
+    Char z[32];
+    std::snprintf(z, sizeof(z), "%d%%",
+                  static_cast<Int32>(wsCanvas.zoom * 100.0f + 0.5f));
+
+    const Float32 fitW = ImGui::CalcTextSize("Fit").x + sty.FramePadding.x * 2.0f
+                       + (ui::iconsReady() ? ui::iconSize() + sty.ItemInnerSpacing.x
+                                           : 0.0f);
+    const Float32 zW   = ImGui::CalcTextSize("000%").x;
+    const Float32 need = fitW + zW + sty.ItemInnerSpacing.x * 2.0f;
+
+    const Float32 x = mapW - need;
+    if(x > ImGui::GetCursorPosX())
+    {
+        ImGui::SameLine(x, 0.0f);
+        ImGui::TextDisabled("%s", z);
+        ImGui::SameLine(0.0f, sty.ItemInnerSpacing.x);
+        if(ui::iconButton(ui::Icon::ICON_RESET_VIEW, "Fit"))
+        {
+            ws::fitAll(wsPanels, ws::PANEL_COUNT, wsCanvas,
+                       mapW, ImGui::GetContentRegionAvail().y);
+            panelLayoutDirty = true;
+        }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Frame every open panel  (wheel zooms, drag the "
+                              "background to pan)");
+        }
+    }
+}
+
+// The central region. The map is one view among several rather than the only
+// one, but it is still the default and still where the app lands.
+Void drawMapRegion(Float32 mapW, Float32 mapH, Float32 ctrlH)
+{
+    const Float32 headH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y;
+    const Float32 viewH = mapH - headH;
+
+    if(layoutFloating != 0)
+    {
+        drawFloatingHeader(mapW);
+        drawFloatingWorkspace(mapW, viewH);
+    }
+    else
+    {
+        drawTabbedViews(mapW, viewH);
     }
 
     // The bottom bar belongs to the VIEW above it, not to the central region.
     // Points/Rays/Density and Grid/Trail/Labels configure the map and nothing
     // else, so on a board tab they are not merely disabled - they are absent,
     // and the board gets the height back.
+    //
+    // In the floating layout it follows the FOCUSED panel, so clicking a map
+    // brings up the map's controls.
     if(ctrlH > 0.0f)
     {
         ImGui::BeginChild("##controls", ImVec2(mapW, ctrlH), ImGuiChildFlags_None,
@@ -4269,6 +4830,16 @@ Void app::init(Float32 dpiScale)
             // Seed the live selection too, so the first frame reserves the
             // right bottom-bar height instead of the map's.
             if(forceView >= 0) centralView = forceView;
+            continue;
+        }
+
+        if(std::strcmp(__argv[i], "--layout") == 0 && i + 1 < __argc)
+        {
+            const Char* v = __argv[i + 1];
+            if(_stricmp(v, "floating") == 0 || _stricmp(v, "float") == 0)
+                layoutFloating = 1;
+            else if(_stricmp(v, "tabbed") == 0 || _stricmp(v, "tabs") == 0)
+                layoutFloating = 0;
             continue;
         }
 

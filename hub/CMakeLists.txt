@@ -166,6 +166,9 @@ add_hub_test(test_map_geometry
 add_hub_test(test_lights
     tests/test_lights.cpp src/lights.cpp)
 
+add_hub_test(test_workspace
+    tests/test_workspace.cpp src/workspace.cpp)
+
 # ---------------------------------------------------------------------------
 # The two HARDWARE tests. They need a device plugged in, so they are not part of
 # `ctest` - but they still have to be in a target.
