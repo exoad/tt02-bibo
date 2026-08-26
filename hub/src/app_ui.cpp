@@ -482,11 +482,20 @@ Str          codeName;        // its display name
 Str          codeMessage;     // last save/build note, shown on the toolbar
 Bool         codeLoaded = false;
 
-// Set while a Build & Flash is mid-flight so the second half (the flash) fires
-// when the build finishes rather than racing it.
-Bool codeFlashPending = false;
+// Build & Flash is TWO operations, and which one is in flight decides what a
+// failure means. One boolean could say "a flash is queued" but not "the flash
+// itself just failed", which is why a failed flash used to leave the Code view
+// still saying "flashing" while the status bar said OP FAILED and neither said
+// why.
+enum class CodeOp
+{
+    CODE_OP_NONE = 0,
+    CODE_OP_BUILDING,
+    CODE_OP_FLASHING,
+};
 
-Str  codeFlashTarget  = "sketch";
+CodeOp codeOp         = CodeOp::CODE_OP_NONE;
+Str    codeFlashTarget = "sketch";
 
 Bool    recArmed   = false;   // capturing
 Bool    recPlaying = false;
@@ -1037,6 +1046,38 @@ Void defaultBackupName()
                   root.empty() ? "." : root.c_str(), stamp);
 }
 
+// The most useful line of the flash/build log: the last one the script marked
+// as an error, or failing that the last line it printed at all.
+//
+// The scripts are disciplined about prefixing real failures with "[error]", so
+// this nearly always finds the sentence a person actually needs - "no Pico
+// found: ... Either plug it in, or hold BOOTSEL while connecting USB."
+Str lastFlashError()
+{
+    for(Size i = flashLog.size(); i > 0; --i)
+    {
+        const Str& ln = flashLog[i - 1];
+        if(ln.find("[error]") != Str::npos || ln.find("error:") != Str::npos)
+        {
+            // Drop the marker; the Code view's line is short and the word
+            // "failed" is already in front of it.
+            const Size at = ln.find("[error]");
+            Str out = (at != Str::npos) ? ln.substr(at + 7) : ln;
+            while(!out.empty() && (out.front() == ' ' || out.front() == '\t'))
+            {
+                out.erase(out.begin());
+            }
+            return out.empty() ? ln : out;
+        }
+    }
+
+    if(!flashLog.empty())
+    {
+        return flashLog.back();
+    }
+    return "see the Firmware panel";
+}
+
 Void pumpFlash()
 {
     picoFlash.drainLog(flashLog);
@@ -1060,18 +1101,31 @@ Void pumpFlash()
             // transition rather than started alongside the build, because the
             // two cannot overlap - PicoFlash runs one operation at a time and
             // would simply reject the flash.
-            if(codeFlashPending)
+            // A failure has to say WHY where the person is looking. "OP FAILED"
+            // in the status bar with the reason buried in another panel's log
+            // is a failure report that costs more time than it saves - the
+            // commonest cause by far is simply that the board is not plugged
+            // in, and the script says exactly that.
+            if(codeOp == CodeOp::CODE_OP_BUILDING)
             {
-                codeFlashPending = false;
                 if(s == FlashState::FLASH_STATE_SUCCESS)
                 {
+                    codeOp      = CodeOp::CODE_OP_FLASHING;
                     codeMessage = "built; flashing " + codeFlashTarget;
                     picoFlash.flash(codeFlashTarget);
                 }
                 else
                 {
-                    codeMessage = "build failed - see the Firmware panel";
+                    codeOp      = CodeOp::CODE_OP_NONE;
+                    codeMessage = "build failed: " + lastFlashError();
                 }
+            }
+            else if(codeOp == CodeOp::CODE_OP_FLASHING)
+            {
+                codeOp = CodeOp::CODE_OP_NONE;
+                codeMessage = (s == FlashState::FLASH_STATE_SUCCESS)
+                            ? ("flashed " + codeFlashTarget)
+                            : ("flash failed: " + lastFlashError());
             }
         }
         flashPrev = s;
@@ -2855,8 +2909,8 @@ Void handleCodeCommand()
     {
         if(saveSketch())
         {
-            codeFlashTarget  = sketch::targetFor(codePath);
-            codeFlashPending = true;
+            codeFlashTarget = sketch::targetFor(codePath);
+            codeOp          = CodeOp::CODE_OP_BUILDING;
             picoFlash.build(codeFlashTarget);
         }
         return;
@@ -2915,8 +2969,8 @@ Void drawCodeControls()
     {
         if(saveSketch())
         {
-            codeFlashTarget  = target;
-            codeFlashPending = true;
+            codeFlashTarget = target;
+            codeOp          = CodeOp::CODE_OP_BUILDING;
             picoFlash.build(target);
         }
     }
@@ -2927,7 +2981,8 @@ Void drawCodeControls()
     {
         if(saveSketch())
         {
-            codeFlashPending = false;
+            // Build only: no flash chained onto the end of it.
+            codeOp = CodeOp::CODE_OP_NONE;
             picoFlash.build(target);
         }
     }
@@ -2947,6 +3002,7 @@ Void drawCodeControls()
         // A message naming a failure is red; everything else is a note.
         const Bool bad = codeMessage.find("failed") != Str::npos
                       || codeMessage.find("cannot") != Str::npos
+                      || codeMessage.find("no Pico") != Str::npos
                       || codeMessage.find("not a command") != Str::npos;
         ImGui::TextColored(
             ImGui::ColorConvertU32ToFloat4(bad ? ui::sem::BAD : ui::sem::GOOD),
