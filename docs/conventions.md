@@ -292,6 +292,14 @@ board zooms.
 Layout, canvas and every panel rect persist in `%LOCALAPPDATA%/tt02-auto/panels.txt`.
 `--layout floating` / `--layout tabbed` picks one at startup.
 
+**A panel is ONE child window, frame included.** ImGui renders a parent's whole
+draw list first and every child window afterwards, so a frame drawn into the
+canvas list sits under *every* panel's content no matter how recently it was
+raised - the order is right and the layering is not. Wrapping each panel's
+frame, title, handles and content in its own child makes it a unit, and children
+are sorted by `BeginOrderWithinParent`, which is submission order. Submit in z
+order and the panel stacks whole.
+
 **Two widgets cannot share a rectangle.** An ImGui item that owns `ActiveId`
 makes every later overlapping item non-hoverable, which is silent - the later
 widget simply never fires. It cost two bugs here: a full-canvas background button

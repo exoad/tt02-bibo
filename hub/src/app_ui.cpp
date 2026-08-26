@@ -3257,25 +3257,13 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
     // true over empty canvas and over title bars, and false over a panel's body.
     // That is exactly the split we want, because a wheel over a map belongs to
     // the map's own zoom, not to the board's.
-    const Bool bgHovered = ImGui::IsWindowHovered();
-
-    if(bgHovered && io.MouseWheel != 0.0f)
-    {
-        const Float32 f = (io.MouseWheel > 0.0f) ? ws::ZOOM_STEP : 1.0f / ws::ZOOM_STEP;
-        ws::zoomAt(wsCanvas, f, io.MousePos.x, io.MousePos.y, origin.x, origin.y);
-        panelLayoutDirty = true;
-    }
-
-    // Panning starts only when the press did NOT land on a panel.
+    // What the mouse is over, resolved OURSELVES rather than asked of ImGui.
     //
-    // IsItemActive() on the background cannot answer that: it is read here,
-    // immediately after submission, and the panels have not been submitted yet -
-    // so the background is momentarily active for every press, including one
-    // aimed at a title bar. Reading it was why dragging a panel panned the whole
-    // board instead of moving the panel.
-    //
-    // ws::hitTest is the same front-to-back resolution the panels use to draw,
-    // so the two cannot disagree about what is under the cursor.
+    // Now that a whole panel is one child window, IsWindowHovered() on the
+    // canvas is false over a panel's title bar as well as its body, so it can no
+    // longer tell "empty board" from "a panel's chrome". ws::hitTest can, and it
+    // is the same front-to-back resolution the panels are drawn with, so the two
+    // cannot disagree about what is under the cursor.
     const Float32 titleHPre = wsTitleHeight();
     Float32 hitH[ws::PANEL_COUNT];
     for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
@@ -3289,13 +3277,42 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
                                     origin.x, origin.y, hitH,
                                     io.MousePos.x, io.MousePos.y);
 
-    if(bgHovered && under < 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    // Anywhere inside the canvas region, panels included.
+    const Bool inCanvas = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+
+    // Over a panel's title bar rather than its body.
+    Bool onChrome = false;
+    if(under >= 0)
+    {
+        const ws::Rect sr = ws::toScreen(wsPanels[under].rect, wsCanvas,
+                                         origin.x, origin.y);
+        onChrome = (io.MousePos.y < sr.y + titleHPre);
+    }
+
+    // The wheel belongs to the BOARD over empty canvas and over a title bar, and
+    // to the PANEL over its body - a wheel on a map is the map's own zoom, and
+    // taking it away to move the board would be worse than useless.
+    if(inCanvas && (under < 0 || onChrome) && io.MouseWheel != 0.0f)
+    {
+        const Float32 f = (io.MouseWheel > 0.0f) ? ws::ZOOM_STEP : 1.0f / ws::ZOOM_STEP;
+        ws::zoomAt(wsCanvas, f, io.MousePos.x, io.MousePos.y, origin.x, origin.y);
+        panelLayoutDirty = true;
+    }
+
+    // Panning starts only when the press did NOT land on a panel.
+    //
+    // An invisible background button cannot answer that: it would take ImGui's
+    // ActiveId on press, and an item holding ActiveId makes every later
+    // overlapping item non-hoverable - so the panels submitted after it would
+    // never see their own clicks. That is exactly why dragging a panel used to
+    // pan the whole board.
+    if(inCanvas && under < 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         wsPanning = true;
     }
     // Middle-drag pans from anywhere, panel or not - the usual escape hatch for
     // a board where the empty space has run out.
-    if(bgHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+    if(inCanvas && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
     {
         wsPanning = true;
     }
@@ -3352,16 +3369,55 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
 
         const Bool focused = (wsFocused == i);
 
-        // Frame and title bar.
-        dl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + fullH),
-                          IM_COL32(0x1E, 0x21, 0x25, 0xFF), 4.0f * uiDpiScale);
-        dl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + titleH),
-                          focused ? IM_COL32(0x3A, 0x44, 0x50, 0xFF)
-                                  : IM_COL32(0x2A, 0x2E, 0x34, 0xFF),
-                          4.0f * uiDpiScale, ImDrawFlags_RoundCornersTop);
-        dl->AddRect(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + fullH),
-                    focused ? ui::accent::CYAN : IM_COL32(0x3A, 0x3F, 0x45, 0xFF),
-                    4.0f * uiDpiScale, 0, focused ? 2.0f : 1.0f);
+        // ---- ONE CHILD WINDOW PER PANEL, frame included --------------------
+        //
+        // This is what makes the stacking work, and the reason is not obvious.
+        //
+        // ImGui renders a parent window's whole draw list FIRST and every child
+        // window afterwards. With the frames drawn into the canvas list and only
+        // the bodies in children, a panel could never truly be "on top": its
+        // frame and title bar sat under every other panel's content, however
+        // recently it had been clicked. The order was right and the layering was
+        // not.
+        //
+        // Wrapping each panel - frame, title, handles and content - in its own
+        // child makes it a single unit. Children are sorted by
+        // BeginOrderWithinParent (see ChildWindowComparer in imgui.cpp), which
+        // IS the order they are submitted in, and they are submitted here in z
+        // order. So the panel stacks whole.
+        ImGui::SetCursorScreenPos(ImVec2(sr.x, sr.y));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::BeginChild("##panel",
+                          ImVec2(std::max(1.0f, sr.w), std::max(1.0f, fullH)),
+                          ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar
+                          | ImGuiWindowFlags_NoScrollWithMouse
+                          | ImGuiWindowFlags_NoBackground);
+
+        // The panel's OWN draw list. Using the canvas list here would put the
+        // frame back under every other panel's body, which is the bug above.
+        ImDrawList* pdl = ImGui::GetWindowDrawList();
+
+        // Frame and title bar. The border is inset by a pixel so the child's
+        // clip rect does not shave it in half.
+        pdl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + fullH),
+                           IM_COL32(0x1E, 0x21, 0x25, 0xFF), 4.0f * uiDpiScale);
+        pdl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + titleH),
+                           focused ? IM_COL32(0x3A, 0x44, 0x50, 0xFF)
+                                   : IM_COL32(0x2A, 0x2E, 0x34, 0xFF),
+                           4.0f * uiDpiScale, ImDrawFlags_RoundCornersTop);
+        pdl->AddRect(ImVec2(sr.x + 1.0f, sr.y + 1.0f),
+                     ImVec2(sr.x + sr.w - 1.0f, sr.y + fullH - 1.0f),
+                     focused ? ui::accent::CYAN : IM_COL32(0x3A, 0x3F, 0x45, 0xFF),
+                     4.0f * uiDpiScale, 0, focused ? 2.0f : 1.0f);
+
+        // Clicking anywhere in the panel raises it - the title bar is not the
+        // only part of a window you expect to be able to bring forward.
+        if(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)
+           && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            raise = i;
+        }
 
         // ---- title bar: drag to move, double-click to collapse ------------
         //
@@ -3403,7 +3459,7 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
 
             if(ui::iconsReady() && titleH >= ui::iconSize())
             {
-                ui::iconAt(dl, viewIcon(i), ImVec2(tx, cy - ui::iconSize() * 0.5f));
+                ui::iconAt(pdl, viewIcon(i), ImVec2(tx, cy - ui::iconSize() * 0.5f));
                 tx += ui::iconSize() + 4.0f * uiDpiScale;
             }
 
@@ -3411,9 +3467,9 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
             const ImVec2 ts = ImGui::CalcTextSize(nm);
             if(ts.y <= titleH)
             {
-                dl->AddText(ImVec2(tx, cy - ts.y * 0.5f),
-                            focused ? IM_COL32_WHITE : IM_COL32(0xC0, 0xC6, 0xCC, 0xFF),
-                            nm);
+                pdl->AddText(ImVec2(tx, cy - ts.y * 0.5f),
+                             focused ? IM_COL32_WHITE : IM_COL32(0xC0, 0xC6, 0xCC, 0xFF),
+                             nm);
             }
 
             // Collapse chevron and close, right-aligned on the same centreline.
@@ -3427,8 +3483,8 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
                 }
                 const ImU32 fc = ImGui::IsItemHovered() ? IM_COL32_WHITE
                                                         : IM_COL32(0x9A, 0xA2, 0xAA, 0xFF);
-                dl->AddText(ImVec2(bx, cy - ImGui::GetFontSize() * 0.5f), fc,
-                            p.collapsed ? "+" : "-");
+                pdl->AddText(ImVec2(bx, cy - ImGui::GetFontSize() * 0.5f), fc,
+                             p.collapsed ? "+" : "-");
 
                 ImGui::SetCursorScreenPos(ImVec2(bx + btn + 4.0f * uiDpiScale,
                                                  cy - btn * 0.5f));
@@ -3439,8 +3495,8 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
                 }
                 const ImU32 cc = ImGui::IsItemHovered() ? ui::sem::BAD
                                                         : IM_COL32(0x9A, 0xA2, 0xAA, 0xFF);
-                dl->AddText(ImVec2(bx + btn + 4.0f * uiDpiScale,
-                                   cy - ImGui::GetFontSize() * 0.5f), cc, "x");
+                pdl->AddText(ImVec2(bx + btn + 4.0f * uiDpiScale,
+                                    cy - ImGui::GetFontSize() * 0.5f), cc, "x");
             }
         }
 
@@ -3453,8 +3509,7 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
             // window is a separate ImGui window drawn on top, so anything
             // submitted underneath it is not hoverable - which is exactly why
             // the old bottom-right grip, drawn over the child, never once
-            // fired. The ring belongs to the canvas window and is always
-            // reachable.
+            // fired.
             //
             // The ring is a fixed number of SCREEN pixels and is NOT scaled by
             // zoom: a grab target that shrinks with the board becomes unusable
@@ -3505,9 +3560,9 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
             for(Int32 k = 1; k <= 3; ++k)
             {
                 const Float32 o = static_cast<Float32>(k) * 3.0f * uiDpiScale;
-                dl->AddLine(ImVec2(sr.x + sr.w - o, sr.y + fullH - 1.0f),
-                            ImVec2(sr.x + sr.w - 1.0f, sr.y + fullH - o),
-                            IM_COL32(0x70, 0x78, 0x80, 0xFF), 1.0f);
+                pdl->AddLine(ImVec2(sr.x + sr.w - o, sr.y + fullH - 1.0f),
+                             ImVec2(sr.x + sr.w - 1.0f, sr.y + fullH - o),
+                             IM_COL32(0x70, 0x78, 0x80, 0xFF), 1.0f);
             }
 
             // ---- the content, OPTICALLY zoomed -----------------------------
@@ -3515,20 +3570,18 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
             // The panel is already zoom * canvas pixels wide. Drawing the
             // content into it unchanged gives it MORE PIXELS, so it re-lays-out
             // - more columns in the editor, a wider fit on the map. That is
-            // reflow, not zoom, and it was wrong: zooming in should make the
-            // same thing bigger, not show more of it at the same size.
+            // reflow, not zoom: zooming in should make the same thing bigger,
+            // not show more of it at the same size.
             //
             // So the geometry scale is raised by the same factor for the
             // duration. Everything that derives from dpiScale() - padding,
             // radii, line thicknesses, the editor's cell - grows with it, and
-            // fontScale() carries the text along. The layout then occupies the
-            // same PROPORTION of a panel that is itself bigger, which is what
-            // an optical zoom looks like.
+            // fontScale() carries the text along.
             //
             // Saved and restored around the call rather than set globally,
             // because the sidebar and the status bar are outside the canvas and
             // must not move when the board zooms.
-            const Float32   dpiWas   = uiDpiScale;
+            const Float32    dpiWas   = uiDpiScale;
             const ImGuiStyle styleWas = ImGui::GetStyle();
 
             uiDpiScale = dpiWas * wsCanvas.zoom;
@@ -3548,14 +3601,6 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
                               ImGuiWindowFlags_NoScrollbar
                               | ImGuiWindowFlags_NoScrollWithMouse);
 
-            // The body claims focus too, so clicking into a map raises its panel
-            // rather than only its title bar doing so.
-            if(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)
-               && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            {
-                raise = i;
-            }
-
             drawViewBody(i, innerW, innerH);
 
             ImGui::EndChild();
@@ -3567,6 +3612,8 @@ Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
             ui::setDpiScale(dpiWas);
         }
 
+        ImGui::EndChild();
+        ImGui::PopStyleVar();   // WindowPadding pushed for the panel child
         ImGui::PopID();
     }
 
