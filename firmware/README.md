@@ -4,7 +4,7 @@
 the board, with the smallest thing that can be wrong. It blinks the LED and
 answers commands over USB CDC.
 
-This is the step *before* phase 2 (servo + ESC under code). See AGENTS.md.
+This is the step *before* phase 2 (servo + ESC under code). See ../docs/conventions.md.
 
 ---
 
@@ -114,3 +114,55 @@ If `cyw43_arch_init()` fails the firmware still runs and still answers commands,
 but the LED cannot light. It reports this rather than pretending. A board that
 answers `PING` while reporting `cyw43=FAILED` is a very different problem from a
 board that is silent.
+
+---
+
+## Headers: `shared.h` and `pico2w.h`
+
+Two headers sit under `src/` and are not firmware in themselves.
+
+**`shared.h`** is the manbox alias layer ([github.com/exoad/manbox](https://github.com/exoad/manbox),
+`C_STYLE_GUIDE.md`) — `Int32`, `Float32`, `Void`, `Bool`, `CharSeq`. It is the C
+counterpart of `hub/src/shared.hpp`, so a value that is an `Int32` in the viewer
+is an `Int32` in the firmware. Reproduced verbatim with its BSD-3 notice, plus
+two typedefs (`Utf16`, `Utf32`) that upstream's `CharSeq16`/`CharSeq32` macros
+reference without defining — marked as a local addition in the file.
+
+**`pico2w.h`** wraps the SDK in this project's naming: `gpioOpen`, `gpioWrite`,
+`sleepMs`, `servoWriteUs`, `adcReadVolts`. Everything is `static inline`, so it
+costs nothing at runtime and needs no library — include it and go.
+
+The seam matters: below it the SDK's `snake_case` and `uint`, above it ours.
+Mixing the two inside one function is how a style guide quietly dies.
+
+```c
+#include "pico2w.h"
+
+Int32 main(Void)
+{
+    gpioOpen(28, PIN_DIR_OUT);
+
+    while(true)
+    {
+        gpioToggle(28);
+        sleepMs(400);
+    }
+
+    return 0;
+}
+```
+
+Not wrapped: I2C, SPI and UART. They are stateful and have real configuration,
+and a wrapper that hid that would teach the wrong thing. They get their own
+headers when the ToF sensors and the SD card go on.
+
+The hub's **Code** tab completes every name in `pico2w.h` and `shared.h` with its
+signature and a one-line doc — the table lives in `hub/src/complete.cpp` and is
+kept in step with this header by hand.
+
+## `sketch` — scratch space
+
+A second target, `src/sketch.c`, built alongside `pico_debug` and flashed as
+`build/sketch.uf2`. It is what the hub's Code tab edits, and it is **overwritten
+on every Build & Flash**. Anything worth keeping graduates to its own `.c` and
+its own target in `CMakeLists.txt`.

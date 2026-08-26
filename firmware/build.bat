@@ -103,4 +103,5 @@ if not exist "%BUILD%\pico_debug.uf2" (
 
 echo.
 echo [ok] %BUILD%\pico_debug.uf2
+if exist "%BUILD%\sketch.uf2" echo [ok] %BUILD%\sketch.uf2
 echo      Flash it with:  firmware\flash.bat

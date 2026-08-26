@@ -111,5 +111,5 @@ MIBIDAO pre-wired RC light pairs, 3–7 V, resistors already inline. Driven
 through a **ULN2003** — the Pico's total GPIO current budget (~50 mA) cannot
 drive ten LEDs directly, even at 3.3 V.
 
-See AGENTS.md for the lighting *behaviour* spec (brake/indicator priority,
+See conventions.md for the lighting *behaviour* spec (brake/indicator priority,
 1.5 Hz flash, hazards on watchdog fire).

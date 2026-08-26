@@ -26,6 +26,8 @@ target_link_libraries(pico_debug
     pico_stdlib
     pico_cyw43_arch_none
     pico_unique_id
+    hardware_pwm
+    hardware_adc
 )
 
 # Debug console is USB CDC. UART stdio is off so GP0/GP1 stay free - they are
@@ -34,3 +36,33 @@ pico_enable_stdio_usb(pico_debug 1)
 pico_enable_stdio_uart(pico_debug 0)
 
 pico_add_extra_outputs(pico_debug)
+
+# ---------------------------------------------------------------------------
+# sketch: the scratch program the hub's Code view edits and flashes.
+#
+# Deliberately linked against pico_stdlib ONLY. The point of this target is that
+# a beginner's program builds in a couple of seconds and that a mistake in it
+# cannot break the debug image sitting next to it. Adding cyw43 here would pull
+# in the wireless stack, roughly triple the build, and buy nothing that a plain
+# GPIO on a breadboard needs.
+#
+# USB stdio is on so printf() from a sketch lands in the hub's console. UART
+# stdio stays off for the same reason as above: GP0/GP1 are the servo and ESC.
+# ---------------------------------------------------------------------------
+add_executable(sketch
+    src/sketch.c
+)
+
+# hardware_pwm and hardware_adc are NOT in pico_stdlib, and pico2w.h wraps both.
+# Linking them here rather than making the sketch ask keeps the promise that
+# header makes: include it and everything in it works.
+target_link_libraries(sketch
+    pico_stdlib
+    hardware_pwm
+    hardware_adc
+)
+
+pico_enable_stdio_usb(sketch 1)
+pico_enable_stdio_uart(sketch 0)
+
+pico_add_extra_outputs(sketch)

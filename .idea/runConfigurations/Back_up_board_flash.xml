@@ -1,0 +1,24 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    Reads the board's flash back to a .uf2 in vendor/.
+
+    Worth doing before flashing anything onto a board whose current firmware you
+    do not have the source for. That is exactly how vendor/tt02_control-backup.uf2
+    came to exist, and it is still the only copy of that program anywhere.
+  -->
+  <configuration default="false" name="Back up board flash" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/firmware/backup.bat" />
+    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/firmware" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="cmd.exe" />
+    <option name="INTERPRETER_OPTIONS" value="/c" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

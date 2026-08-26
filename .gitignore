@@ -15,8 +15,13 @@ build/
 *.hex
 *.map
 
-# MSVC / Windows build artifacts
+# MSVC / Windows build artifacts.
+#
+# *.obj also matches Wavefront OBJ models, which are ASSETS and must ship.
+# The negation has to name the directory explicitly - a bare !*.obj would
+# re-admit every compiler output too.
 *.obj
+!hub/assets/models/*.obj
 *.pdb
 *.ilk
 *.idb
@@ -41,4 +46,21 @@ Thumbs.db
 desktop.ini
 
 # Vendored Dear ImGui clone - pinned tag recorded in lidar/README.md.
-lidar/viewer/third_party/
+hub/third_party/
+
+# CLion / CMake. The presets and run configurations ARE committed - they carry
+# the toolchain knowledge and are the point of the setup. Everything below is
+# per-machine state that would only cause conflicts.
+firmware/build-debug/
+cmake-build-*/
+/.idea/workspace.xml
+/.idea/httpRequests/
+/.idea/shelf/
+/.idea/*.iml
+/.idea/modules.xml
+
+# Agent / assistant tooling. Local scratch, never part of the project.
+.claude/
+CLAUDE.md
+.cursor/
+.aider*

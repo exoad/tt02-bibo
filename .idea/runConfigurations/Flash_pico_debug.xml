@@ -1,0 +1,25 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    Puts the bring-up firmware back on the board: LED blink plus the serial
+    command console the hub's Pico 2 W tab talks to.
+
+    This is the way back. Whenever a sketch has left the board in a state you
+    cannot reason about, flash this and you have a known-good image and a working
+    link again.
+  -->
+  <configuration default="false" name="Flash pico_debug" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/firmware/flash.bat" />
+    <option name="SCRIPT_OPTIONS" value="$PROJECT_DIR$/firmware/build/pico_debug.uf2" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/firmware" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="cmd.exe" />
+    <option name="INTERPRETER_OPTIONS" value="/c" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

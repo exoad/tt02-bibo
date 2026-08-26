@@ -1,0 +1,27 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    The AUTHORITATIVE firmware build. Produces both pico_debug.uf2 and
+    sketch.uf2.
+
+    The CMake profile beside it builds the same thing with the same settings and
+    is what CLion uses for indexing and for the green hammer. This script is what
+    to run when something is being flashed for real - it checks the toolchain,
+    the SDK and picotool first and says which one is missing rather than failing
+    a thousand lines into a build.
+  -->
+  <configuration default="false" name="Build firmware (build.bat)" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/firmware/build.bat" />
+    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/firmware" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="cmd.exe" />
+    <option name="INTERPRETER_OPTIONS" value="/c" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

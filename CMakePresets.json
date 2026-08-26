@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "hub",
+      "displayName": "Hub (MSVC x64)",
+      "description": "tt02.exe and its tests. Same flags as hub/build.bat, which stays the authoritative build.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "CMAKE_MAKE_PROGRAM": "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "hub",   "configurePreset": "hub" },
+    { "name": "tests", "configurePreset": "hub",
+      "targets": [ "test_editor", "test_map_geometry", "test_lights" ] }
+  ],
+
+  "testPresets": [
+    { "name": "hub", "configurePreset": "hub", "output": { "outputOnFailure": true } }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "pico2w",
+      "displayName": "Pico 2 W (RP2350, arm-none-eabi)",
+      "description": "Cross build for the car's board. Mirrors firmware/build.bat - change one, change the other. See that script's header for why each of these settings is what it is; they were all learned the hard way.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+
+        "PICO_BOARD": "pico2_w",
+
+        "PICO_SDK_PATH": "${sourceDir}/../vendor/pico-sdk",
+
+        "PICO_TOOLCHAIN_PATH": "C:/msys64/mingw64",
+
+        "picotool_DIR": "${sourceDir}/../vendor/picotool-2.3.0/picotool",
+
+        "CMAKE_MAKE_PROGRAM": "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+      }
+    },
+    {
+      "name": "pico2w-debug",
+      "inherits": "pico2w",
+      "displayName": "Pico 2 W (Debug)",
+      "description": "-O0 with symbols. Bigger and slower, but a stack trace means something.",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "pico2w",       "configurePreset": "pico2w" },
+    { "name": "sketch",       "configurePreset": "pico2w", "targets": [ "sketch" ] },
+    { "name": "pico_debug",   "configurePreset": "pico2w", "targets": [ "pico_debug" ] },
+    { "name": "pico2w-debug", "configurePreset": "pico2w-debug" }
+  ]
+}

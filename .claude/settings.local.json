@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(powershell -NoProfile -Command \"Get-CimInstance Win32_PnPEntity | Where-Object { \\\\$_.Name -match 'COM\\\\d+' } | Select-Object Name, DeviceID, Status | Format-List\")"
-    ]
-  }
-}

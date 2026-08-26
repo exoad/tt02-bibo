@@ -1,0 +1,57 @@
+# Line endings and binary detection.
+#
+# Without this, Git guesses per file and per machine. The guesses are usually
+# right and the exceptions are expensive: a .bat checked out with LF endings can
+# fail in ways that look like a broken script, and a mis-detected binary shows up
+# as a 122,000-line diff that nobody can review.
+
+# Normalise everything to LF inside the repository. Working-copy endings are
+# then whatever the platform wants.
+* text=auto
+
+# ---- must be CRLF in the working copy --------------------------------------
+# cmd.exe is tolerant of LF in most cases and not in all of them. PowerShell
+# here-strings are one of the places it is not.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# ---- must be LF ------------------------------------------------------------
+*.sh   text eol=lf
+
+# ---- source and docs, explicitly text --------------------------------------
+*.c    text
+*.h    text
+*.cpp  text
+*.hpp  text
+*.py   text
+*.md   text
+*.txt  text
+*.json text
+*.rc   text
+*.cmake text
+CMakeLists.txt text
+
+# Wavefront OBJ is a TEXT format, unlike the MSVC .obj that shares its
+# extension. Marking it keeps it diffable and stops any auto-detection from
+# treating the car model as an opaque blob.
+hub/assets/models/*.obj text
+
+# ---- binary ----------------------------------------------------------------
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.uf2  binary
+*.elf  binary
+*.bin  binary
+*.lib  binary
+*.dll  binary
+*.exe  binary
+*.zip  binary
+*.ttf  binary
+
+# ---- diff hints ------------------------------------------------------------
+# Vendored third-party trees are cloned, not tracked, but if one is ever added
+# these keep it out of language statistics and out of review diffs.
+vendor/**            linguist-vendored
+hub/third_party/**   linguist-vendored

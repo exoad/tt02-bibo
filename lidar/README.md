@@ -6,9 +6,12 @@ ImGui viewer that links Slamtec's SDK driver directly.
 This gets repeated on **macOS** and on the **Orange Pi**, so everything below is
 specific rather than approximate.
 
+The viewer is **not here** - it is the whole project's application and lives at
+`hub/`, which builds `tt02.exe`. This directory holds the sensor's own notes and
+a standalone CLI tool.
+
 ```
 lidar/
-  viewer/   Dear ImGui + DirectX 11 live point cloud viewer (the main tool)
   bridge/   CLI tool: streams scan frames as text on stdout, no GUI
 ```
 
@@ -70,7 +73,7 @@ root**:
 ```bash
 git clone https://github.com/Slamtec/rplidar_sdk.git vendor/rplidar_sdk
 git clone --depth 1 --branch v1.92.9 https://github.com/ocornut/imgui.git \
-    lidar/viewer/third_party/imgui
+    hub/third_party/imgui
 ```
 
 **Pin ImGui to `v1.92.9`.** Master is a moving target and 1.92 reworked the font
@@ -80,8 +83,8 @@ that ImGui multiplies by the global DPI factors. Code here depends on that.
 ### Windows
 
 ```bat
-lidar\viewer\build.bat
-lidar\viewer\build\rplidar_imgui.exe
+hub\build.bat
+hub\build\tt02.exe
 ```
 
 `build.bat clean` wipes the build tree first. It builds the SDK driver library if
@@ -97,9 +100,59 @@ works.
 | `--connect [port] [baud]` | Pin a specific port/baud |
 | `--no-connect` | Start disconnected |
 | `--range <metres>` | Pin the view instead of auto-fitting |
-| `--tab <live\|signal\|scan\|device>` | Open straight to a rail tab |
+| `--view <map\|pico>` | Central view to open on |
+| `--map <mode>` | Map render mode, by its lower-case name (`points`, `rays`, `distance`, `contour`, `density`, `occupancy`, `clearance`, `motion`, `sectors`, `gaps`, `validity`, `sweep`, `walls`, `full`) |
+| `--tab <system\|sensors\|vehicle\|firmware\|console>` | Sidebar section to expand and scroll to |
 
-### What the rail shows
+`--view` picks what the **centre** shows; `--tab` picks what the **right sidebar**
+scrolls to. They are independent, and no word means both.
+
+### Central views
+
+Top tabs above the centre panel. The map is one view among several rather than
+the only thing the window can show — the board tab is a live pinout that cannot
+drift out of date the way a diagram in a document does, because the project's own
+pin assignments are compiled in beside the physical pinout.
+
+- **Map** — the lidar map, below.
+- **Pico 2 W** — the board to scale (51 × 21 mm, 2.54 mm pitch), drawn as it
+  looks: green solder mask, white silkscreen, gold castellations, black
+  packages, the shield can over the radio. All 40 pads hoverable.
+
+Because every pad on the real board is gold, the pin category (*assigned /
+power-ground / free GPIO*) moved out of the pad fill and onto a short mask
+stripe just inboard of each pad, plus the label outside the board.
+
+**The board tab shows live state, not just a pinout:**
+
+| Drawn | Means | Source |
+|---|---|---|
+| LED lit / dark / blinking | the actual LED state, animated at the reported rate | `INFO status ... led= blink_hz=` |
+| LED hollow outline | nothing has told us what it is doing | — |
+| green pip on the shield can | `cyw43=up`; red means FAILED | `INFO status ... cyw43=` |
+| green ring on the USB shell | the CDC link is open | `PicoLink` |
+| amber BOOTSEL button | the board is in the bootloader, so every other reading is stale | `picotool` / drive detect |
+| green ring on pads 1 and 2 | GP0/GP1 are being driven, with the µs in the tooltip | `S` line from `tt02_control` |
+
+Two rules the drawing follows:
+
+- **Unknown is not off.** An LED nobody has asked about is drawn hollow; an LED
+  reported off is drawn dark and filled. Defaulting unknowns to off would make a
+  board nobody has talked to look like one that answered and said no.
+- **`blink_hz` beats `led=`.** The firmware reports the LED's *instantaneous*
+  level and its blink rate, so `led=off blink_hz=0.50` means it is blinking and
+  the sample caught the dark half. Observed live on the bench, and the reason the
+  parser treats a non-zero rate as authoritative.
+
+The blink phase is **not** synced to the board — nothing tells us where in its
+cycle it is. What the drawing claims is "it is blinking, at about this rate",
+which is exactly what the reported state supports.
+
+The app polls `STATUS` every 2 s, but only while this tab is on screen, and stops
+permanently after one refusal — `tt02_control` answers `ERR bad command` and must
+not be asked forever.
+
+### Sensor telemetry (Sensors workspace)
 
 Split across tabs rather than made scrollable — there is more telemetry than
 fits at once, and nothing in this app scrolls.
@@ -126,7 +179,7 @@ knowing before relying on quality to detect weak returns.
 - Visual Studio 2022 with **MSVC v142** toolset (14.29) — the SDK `.vcxproj`
   files specify `v142`; v143 alone is not enough without retargeting
 - Windows SDK (d3d11, dxgi, dwmapi)
-- Dear ImGui **v1.92.9**, vendored at `viewer/third_party/imgui`
+- Dear ImGui **v1.92.9**, vendored at `hub/third_party/imgui`
 
 ### The CLI bridge (optional, no GUI)
 
@@ -146,9 +199,9 @@ failure.
 
 ---
 
-## Viewer
+## The map
 
-One self-contained exe. Links `rplidar_driver.lib` and runs the scan loop on a
+One self-contained exe (`hub/build/tt02.exe`). Links `rplidar_driver.lib` and runs the scan loop on a
 worker thread — no helper process, no reimplemented serial protocol.
 
 ### Mouse
@@ -161,6 +214,88 @@ worker thread — no helper process, no reimplemented serial protocol.
 | Double-click left | Reset to auto-fit |
 | Right drag | Measure — distance shown on the line |
 | Hover | Bearing + range readout |
+
+### The bottom bar belongs to the view
+
+Each central view declares its own controls, and **none** is a valid answer. The
+map's bar (render modes, grid/trail/labels, range) configures the map and nothing
+else, so on a board tab it is not disabled — it is absent, and the board gets the
+height back. A view that later grows a control declares its row count in
+`centralControlRows()` and draws it in `drawCentralControls()`; no other code
+changes.
+
+### Render modes
+
+Switched with the segmented row under the map. All five draw the same in-spec
+window and the same furniture (rings, ticks, arrow, blind zone); only the marks
+differ.
+
+Fourteen of them. **Hover any button for what it draws and how to read it** — the
+labels alone do not say, and were never going to. The strip keeps two rows and
+scrolls sideways once cells would be too narrow to read rather than shrinking
+them further. Each mode also tints the viewer background toward its own palette,
+so the active mode is legible from the map and not only from the toggle.
+
+| Mode | Marks | Reads |
+|---|---|---|
+| **Points** | flat dots, current revolution brightest | geometry, unweighted |
+| **Rays** | a line from the sensor to each return | which bearings actually got a return, and where the shadows are |
+| **Distance** | dots ramped by range | near/far structure at a glance |
+| **Contour** | adjacent returns joined into polylines | surfaces as surfaces — a wall reads as a wall, not as the dots it produced |
+| **Density** | hit counts in a fixed 6 cm world grid over a 40-revolution (~4 s) window | what is *stable*: a wall saturates to cream, something that moved leaves a low-count blue smear |
+| **Occupancy** | the same grid, exponentially decayed (τ = 9 s) | short-term memory of the space, with the live revolution drawn over it |
+| **Clearance** | smoothed free-space polygon, one radius per 3° bearing bin | how far it is safe to drive on each bearing — the only mode about the *empty* space |
+| **Motion** | grid cells hit now whose whole neighbourhood the memory map says was empty | what changed. The complement of Density: that shows what stayed put, this shows what did not |
+| **Sectors** | twelve 30° wedges, each out to its nearest obstacle, numbers on a ring | the navigation view. Coarse on purpose — the resolution a steering decision works at |
+| **Gaps** | openings wide enough to drive through, with their width in metres | follow-the-gap, drawn. Width is the chord at the opening's *nearest* edge, so it is what would actually have to fit |
+| **Validity** | why each bearing failed: no return / under 0.05 m / past 12 m | explains the in-spec percentage instead of reporting it |
+| **Sweep** | returns coloured by position within the revolution | the scan takes ~100 ms, not zero. Makes skew from a moving robot visible |
+| **Walls** | straight segments *fitted* to the returns, with lengths | one step past Contour: that joins the dots, this decides which runs actually are a straight surface. The landmarks a SLAM front end keys on |
+| **Full** | every derived layer at once, with the numbers drawn on the map | the field display — for when the laptop is the only instrument you have and nothing may be hidden behind a panel or a hover |
+
+**Every mode prints its own reading** in the HUD, under the mode name: the widest
+gap and its bearing, the tightest sector, the full in-spec breakdown, the sweep
+duration. A mode without a number is a picture.
+
+Two notes on the ones that surprised me:
+
+- **Sectors labels sit on a fixed ring, not at the end of their wedge.** The
+  wedge length is the datum and stays true to scale — but with the sensor among
+  clutter most sectors are a few centimetres and their wedges are a dozen pixels,
+  which put every number in an unreadable pile at the origin.
+- **A sector with nothing inside 12 m** would be drawn at 12 m, off screen at any
+  normal zoom, silently deleting most of the rose. Those clamp to the view edge
+  and get a *broken* arc, so "the wall is here" and "the view ends here" cannot
+  be confused.
+
+Four of these deliberately trade latency for stability, because a map that
+flickers cannot be read:
+
+- **Density** normalises against a **fixed** count, never the current frame's
+  maximum — normalising against a running maximum would make the same count mean
+  a different brightness from frame to frame, which is the one thing a heatmap
+  may not do.
+- **Clearance** closes instantly and opens slowly. An obstacle that appears two
+  metres ahead is reported at two metres on the frame it appears; a free-space
+  map that lags an obstacle is worse than none. A bin that gets no return for a
+  single revolution **holds** rather than opening — at 3° bins and ~505
+  points/rev that is four samples a bin, and an isolated empty bin is noise, not
+  evidence. (At 1.5° it was two samples, a quarter of bins came up empty by
+  chance, and every one drew a spike to the range ceiling.)
+- **Motion** requires the whole 3×3 neighbourhood to be cold, not just the cell.
+  Angular jitter lands a stationary wall's returns in slightly different cells
+  each revolution, so a bare cell-was-empty test lights up every wall edge
+  permanently.
+- **Contour** breaks a run when the gap between consecutive returns exceeds a
+  threshold that **grows with range**. At 0.72° the arc between neighbouring
+  samples is ~13 mm at 1 m and ~150 mm at 12 m, so a fixed threshold either
+  shatters every distant surface or bridges across nearby doorways.
+
+The clearance polygon is drawn as a triangle fan from the sensor, not via
+`AddConvexPolyFilled` — a room's profile is emphatically not convex, and that
+call would fill straight across every doorway and alcove. It *is* star-shaped
+about the sensor by construction (one radius per bearing), so the fan is the
+exact shape rather than an approximation.
 
 ### What the map draws
 
@@ -285,7 +420,7 @@ Not yet run — a starting point, not a verified recipe.
    SDK, no Win32 calls, so it should compile as-is: `./lidar/bridge/build.sh`
 4. **The viewer needs porting work.** `main.cpp` is Win32 + DirectX 11 and
    `build.bat` is MSVC-specific. ImGui ships `imgui_impl_osx` + `imgui_impl_metal`
-   backends in `viewer/third_party/imgui/backends/`, and `lidar_source.cpp` uses
+   backends in `hub/third_party/imgui/backends/`, and `lidar_source.cpp` uses
    Win32 for `CreateFileA` port probing and `QueryDosDeviceA` enumeration, both
    of which need POSIX equivalents (`open()` and globbing `/dev/tty.*`).
    `radar.cpp`, `theme.cpp` and `app_ui.cpp` are portable as written.
