@@ -160,6 +160,14 @@ static Void printHelp(Void)
     printf("INFO help LED ON|OFF - solid\n");
     printf("INFO help LED BLINK <hz> - 0 stops\n");
     printf("INFO help BOOTSEL - reboot into the UF2 bootloader\n");
+    printf("INFO help SENSORS - what is attached\n");
+    printf("INFO help SCAN - every I2C address that answers\n");
+    printf("INFO help TOF - range in mm and a status\n");
+    printf("INFO help TOF MODE SHORT|LONG - 1.3 m or 4 m\n");
+    printf("INFO help DRIVE - servo and esc state\n");
+    printf("INFO help SERVO <us>|CENTER - steering\n");
+    printf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
+    printf("INFO help STOP - neutral both, disarm the esc\n");
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
@@ -369,6 +377,235 @@ static Void handleTofMode(Utf8* arg)
     printf("ERR bad mode: %s\n", arg);
 }
 
+/* ================================================================== drive ==
+ *
+ * The steering servo on GP0 and the ESC on GP1.
+ *
+ * These are the two outputs on this car that can break something. A servo
+ * driven past where its linkage allows stalls and cooks its own motor; an ESC
+ * handed a throttle figure spins a wheel that may be on the ground. So the
+ * limits here are deliberately TIGHTER than the hardware's, and widening them
+ * is a decision somebody makes on purpose rather than a default they inherit.
+ *
+ * ---------------------------------------------------------------------------
+ * THE THREE RULES
+ *
+ * 1. NEUTRAL AT BOOT, ALWAYS. Both channels hold 1500 us from the moment the
+ *    program starts. An ESC will not arm until it has seen neutral, and a
+ *    servo that wakes at an extreme is a servo pushing against a stop.
+ *
+ * 2. THE ESC IS DISARMED UNTIL ASKED. Every throttle command is refused until
+ *    `ESC ARM` is sent, and disarming snaps back to neutral. That is one
+ *    deliberate act between a slider and a moving car.
+ *
+ * 3. NOTHING JUMPS. Commands set a TARGET; a timer walks the output toward it
+ *    at a bounded rate. A slider dragged from one end to the other produces a
+ *    sweep rather than a step, which is the difference between a servo turning
+ *    and a servo being hit.
+ *
+ * ---------------------------------------------------------------------------
+ * BEFORE THE ESC IS EVER ARMED, from docs/wiring.md:
+ *
+ *   - Common ground between the Pico and the ESC is REQUIRED. Signal and ground
+ *     cross between two power domains; without the shared return the ESC sees
+ *     noise, and that presents as erratic behaviour rather than as no behaviour.
+ *   - NEVER connect the BEC 5 V to the Pico while USB is attached. Back-feeding
+ *     the 5 V rail from two sources risks both.
+ *   - Put the car on a stand. A wheel on the ground turns a test into a
+ *     departure.
+ */
+
+#define PIN_SERVO 0
+#define PIN_ESC   1
+
+/*
+ * Tighter than SERVO_MIN_US/MAX_US on purpose.
+ *
+ * A TT-02's steering has perhaps 30 degrees of useful travel and the linkage
+ * binds before the servo's own limits. +/-200 us either side of neutral is a
+ * visible sweep that reaches nothing hard. Widen it once the real end stops are
+ * known - with the servo horn OFF, so a mistake costs nothing.
+ */
+#define SERVO_SAFE_MIN 1300
+#define SERVO_SAFE_MAX 1700
+
+/*
+ * Forward only, and barely. 1500 is neutral; 1600 is a crawl on a bench. The
+ * reverse half is not offered at all - a Hobbywing QuicRun needs a
+ * brake-then-reverse sequence and getting that wrong on a stand is how a
+ * gearbox meets a workbench.
+ */
+#define ESC_SAFE_MIN 1500
+#define ESC_SAFE_MAX 1600
+
+#define SERVO_NEUTRAL_US 1500
+
+/* Microseconds of pulse per tick of the slew timer. At 50 Hz a full 400 us
+ * sweep then takes about half a second, which looks deliberate. */
+#define SLEW_STEP_US 8
+#define SLEW_TICK_MS 20
+
+static Bool  driveUp      = false;
+static Bool  escArmed     = false;
+
+static Int32 servoTarget  = SERVO_NEUTRAL_US;
+static Int32 servoNow     = SERVO_NEUTRAL_US;
+static Int32 escTarget    = SERVO_NEUTRAL_US;
+static Int32 escNow       = SERVO_NEUTRAL_US;
+
+static absolute_time_t nextSlew;
+
+static Int32 clampInt(Int32 v, Int32 lo, Int32 hi)
+{
+    if(v < lo)
+    {
+        return lo;
+    }
+    if(v > hi)
+    {
+        return hi;
+    }
+    return v;
+}
+
+static Void driveOpen(Void)
+{
+    servoOpen(PIN_SERVO);
+    servoOpen(PIN_ESC);
+
+    /* Neutral before anything else can ask for something different. */
+    servoWriteUs(PIN_SERVO, SERVO_NEUTRAL_US);
+    servoWriteUs(PIN_ESC, SERVO_NEUTRAL_US);
+
+    nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
+    driveUp  = true;
+}
+
+/* Walks each output toward its target. Called from the main loop. */
+static Void drivePump(Void)
+{
+    if(!driveUp || !time_reached(nextSlew))
+    {
+        return;
+    }
+    nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
+
+    if(servoNow != servoTarget)
+    {
+        const Int32 d = servoTarget - servoNow;
+        const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
+                         : ((d < -SLEW_STEP_US) ? -SLEW_STEP_US : d);
+        servoNow += step;
+        servoWriteUs(PIN_SERVO, (UInt32) servoNow);
+    }
+
+    /* A disarmed ESC is walked back to neutral rather than snapped there: a
+     * step to neutral from a moving throttle is itself a jolt. */
+    const Int32 want = escArmed ? escTarget : SERVO_NEUTRAL_US;
+    if(escNow != want)
+    {
+        const Int32 d = want - escNow;
+        const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
+                         : ((d < -SLEW_STEP_US) ? -SLEW_STEP_US : d);
+        escNow += step;
+        servoWriteUs(PIN_ESC, (UInt32) escNow);
+    }
+}
+
+static Void printDrive(Void)
+{
+    printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
+           "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
+           servoNow, servoTarget, escNow, escTarget, escArmed ? 1 : 0,
+           SERVO_SAFE_MIN, SERVO_SAFE_MAX, ESC_SAFE_MIN, ESC_SAFE_MAX);
+}
+
+/* Everything to neutral, and the ESC disarmed. The one command worth being able
+ * to send without thinking. */
+static Void driveStop(Void)
+{
+    escArmed    = false;
+    escTarget   = SERVO_NEUTRAL_US;
+    servoTarget = SERVO_NEUTRAL_US;
+
+    /* Immediate, not slewed. A stop that eases in is not a stop. */
+    escNow   = SERVO_NEUTRAL_US;
+    servoNow = SERVO_NEUTRAL_US;
+    if(driveUp)
+    {
+        servoWriteUs(PIN_ESC, SERVO_NEUTRAL_US);
+        servoWriteUs(PIN_SERVO, SERVO_NEUTRAL_US);
+    }
+    printf("OK stop\n");
+}
+
+static Void handleServo(Utf8* arg)
+{
+    if(strcmp(arg, "CENTER") == 0 || strcmp(arg, "CENTRE") == 0)
+    {
+        servoTarget = SERVO_NEUTRAL_US;
+        printDrive();
+        return;
+    }
+
+    const Int32 us = atoi(arg);
+    if(us == 0)
+    {
+        printf("ERR servo wants microseconds, %d-%d\n",
+               SERVO_SAFE_MIN, SERVO_SAFE_MAX);
+        return;
+    }
+
+    /* Clamped rather than rejected: a slider that stops moving at the limit is
+     * clearer than one that silently does nothing past it. The reply reports
+     * what was actually taken. */
+    servoTarget = clampInt(us, SERVO_SAFE_MIN, SERVO_SAFE_MAX);
+    printDrive();
+}
+
+static Void handleEsc(Utf8* arg)
+{
+    if(strcmp(arg, "ARM") == 0)
+    {
+        escArmed  = true;
+        escTarget = SERVO_NEUTRAL_US;
+        printf("INFO esc armed - neutral held\n");
+        printDrive();
+        return;
+    }
+    if(strcmp(arg, "DISARM") == 0)
+    {
+        escArmed  = false;
+        escTarget = SERVO_NEUTRAL_US;
+        printf("INFO esc disarmed\n");
+        printDrive();
+        return;
+    }
+    if(strcmp(arg, "NEUTRAL") == 0)
+    {
+        escTarget = SERVO_NEUTRAL_US;
+        printDrive();
+        return;
+    }
+
+    if(!escArmed)
+    {
+        printf("ERR esc not armed - send ESC ARM first\n");
+        return;
+    }
+
+    const Int32 us = atoi(arg);
+    if(us == 0)
+    {
+        printf("ERR esc wants microseconds, %d-%d\n",
+               ESC_SAFE_MIN, ESC_SAFE_MAX);
+        return;
+    }
+
+    escTarget = clampInt(us, ESC_SAFE_MIN, ESC_SAFE_MAX);
+    printDrive();
+}
+
 static Void handleLine(Utf8* line)
 {
     /* Trim trailing CR/space that a terminal may append. */
@@ -424,6 +661,30 @@ static Void handleLine(Utf8* line)
         return;
     }
 
+    if(strcmp(line, "STOP") == 0)
+    {
+        driveStop();
+        return;
+    }
+
+    if(strcmp(line, "DRIVE") == 0)
+    {
+        printDrive();
+        return;
+    }
+
+    if(strncmp(line, "SERVO ", 6) == 0)
+    {
+        handleServo(line + 6);
+        return;
+    }
+
+    if(strncmp(line, "ESC ", 4) == 0)
+    {
+        handleEsc(line + 4);
+        return;
+    }
+
     if(strcmp(line, "SENSORS") == 0)
     {
         printSensors();
@@ -461,6 +722,10 @@ Int32 main(Void)
      * missing sensor is not a failure here - it is the answer. */
     sensorsOpen();
 
+    /* Both channels to neutral immediately. An ESC will not arm until it has
+     * seen neutral, and a servo that wakes at an extreme is already pushing. */
+    driveOpen();
+
     /* Brings up the CYW43439. Without this the LED cannot be driven at all on
      * a Pico 2 W. It is slow (hundreds of ms) and can fail, so its result is
      * reported rather than assumed - a board that answers PING but reports
@@ -488,6 +753,11 @@ Int32 main(Void)
     for(;;)
     {
         ledTick();
+
+        /* Walks the servo and ESC toward their targets, a few microseconds at a
+         * time. Nothing jumps: a slider dragged end to end produces a sweep
+         * rather than a step. */
+        drivePump();
 
         /* Anything written before the host opens the port is discarded, so the
          * banner waits for a connection rather than being lost. */
