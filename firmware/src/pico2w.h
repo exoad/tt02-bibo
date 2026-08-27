@@ -301,6 +301,25 @@ static inline Void servoCenter(Pin pin)
     servoWriteUs(pin, SERVO_MID_US);
 }
 
+/*
+ * Stops the pulse train. The servo goes limp: no holding torque, no current,
+ * nothing to push against.
+ *
+ * This is the one thing neutral cannot do. If the horn is a tooth off its
+ * spline, or the linkage is the wrong length, then 1500 us IS the binding
+ * position - commanding centre presses the servo against the frame just as
+ * firmly as commanding an end stop, and it will sit there and cook. The only
+ * way out is to stop asking for anything.
+ *
+ * Level 0 leaves the pin driven LOW rather than floating. A floating signal
+ * line is worse than no signal at all: noise on it reads as random pulse
+ * widths, and the servo chases them into whatever it hits first.
+ */
+static inline Void servoRelease(Pin pin)
+{
+    pwm_set_gpio_level((uint) pin, 0);
+}
+
 /* ---- the onboard LED ------------------------------------------------------
  *
  * NOT a GPIO. On the Pico 2 W the user LED is wired to the CYW43439 wireless

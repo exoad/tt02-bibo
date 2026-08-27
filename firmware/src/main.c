@@ -168,6 +168,8 @@ static Void printHelp(Void)
     printf("INFO help SERVO <us>|CENTER - steering\n");
     printf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
     printf("INFO help STOP - neutral both, disarm the esc\n");
+    printf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
+    printf("INFO help SERVO ON - drive the steering again\n");
     printf("INFO help SERVOLIMITS <min> <max> - widen to find end stops\n");
     printf("INFO help ESCLIMITS <min> <max> - widen the throttle range\n");
 }
@@ -475,6 +477,17 @@ static Int32 servoMax = SERVO_DEFAULT_MAX;
 static Int32 escMin   = ESC_DEFAULT_MIN;
 static Int32 escMax   = ESC_DEFAULT_MAX;
 
+/*
+ * Whether the steering output is being driven at all.
+ *
+ * Starts FALSE, and that is the important part. Driving neutral the instant USB
+ * power arrives assumes 1500 us is a safe place for the linkage to be, and on a
+ * car whose horn is a tooth off its spline it is not - the servo picks up the
+ * frame and leans on it before anyone has typed a command. Nothing moves here
+ * until someone asks for it.
+ */
+static Bool  servoLive    = false;
+
 static Int32 servoTarget  = SERVO_NEUTRAL_US;
 static Int32 servoNow     = SERVO_NEUTRAL_US;
 static Int32 escTarget    = SERVO_NEUTRAL_US;
@@ -500,8 +513,13 @@ static Void driveOpen(Void)
     servoOpen(PIN_SERVO);
     servoOpen(PIN_ESC);
 
-    /* Neutral before anything else can ask for something different. */
-    servoWriteUs(PIN_SERVO, SERVO_NEUTRAL_US);
+    /* The steering stays released until asked for. See servoLive. */
+    servoRelease(PIN_SERVO);
+    servoLive = false;
+
+    /* The ESC does get neutral immediately: it is listening for exactly that
+     * to come up disarmed, and an ESC fed no pulse at all sits there beeping
+     * about a lost signal. Neutral is the quiet, safe thing to send it. */
     servoWriteUs(PIN_ESC, SERVO_NEUTRAL_US);
 
     nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
@@ -517,7 +535,7 @@ static Void drivePump(Void)
     }
     nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
 
-    if(servoNow != servoTarget)
+    if(servoLive && servoNow != servoTarget)
     {
         const Int32 d = servoTarget - servoNow;
         const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
@@ -542,13 +560,23 @@ static Void drivePump(Void)
 static Void printDrive(Void)
 {
     printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
+           "servo_on=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            servoNow, servoTarget, escNow, escTarget, escArmed ? 1 : 0,
+           servoLive ? 1 : 0,
            servoMin, servoMax, escMin, escMax);
 }
 
-/* Everything to neutral, and the ESC disarmed. The one command worth being able
- * to send without thinking. */
+/*
+ * The ESC disarmed and neutral, and the steering RELEASED. The one command
+ * worth being able to send without thinking.
+ *
+ * Released rather than centred, and that distinction is the whole point of
+ * this command. Centre is only a safe place to put a servo if 1500 us happens
+ * to be where the linkage wants to sit; if the horn is a tooth off its spline
+ * it is not, and "stop" would then mean "keep pushing, just somewhere else".
+ * Nothing to push with is the only stop that is a stop on every car.
+ */
 static Void driveStop(Void)
 {
     escArmed    = false;
@@ -558,10 +586,11 @@ static Void driveStop(Void)
     /* Immediate, not slewed. A stop that eases in is not a stop. */
     escNow   = SERVO_NEUTRAL_US;
     servoNow = SERVO_NEUTRAL_US;
+    servoLive = false;
     if(driveUp)
     {
         servoWriteUs(PIN_ESC, SERVO_NEUTRAL_US);
-        servoWriteUs(PIN_SERVO, SERVO_NEUTRAL_US);
+        servoRelease(PIN_SERVO);
     }
     printf("OK stop\n");
 }
@@ -624,6 +653,39 @@ static Void handleEscLimits(Utf8* arg)
 
 static Void handleServo(Utf8* arg)
 {
+    /*
+     * OFF stops the pulse train outright. This is the panic button: a servo
+     * leaning on a frame does not need a better number, it needs to stop being
+     * told to hold a position at all.
+     */
+    if(strcmp(arg, "OFF") == 0)
+    {
+        servoLive = false;
+        servoRelease(PIN_SERVO);
+        printf("INFO servo released - no pulse, no holding torque\n");
+        printDrive();
+        return;
+    }
+
+    /*
+     * ON picks up from wherever the target already is, and slews there from
+     * neutral rather than jumping: the servo has been limp and its actual
+     * position is unknown, so the first command after engaging is the one most
+     * likely to be a surprise.
+     */
+    if(strcmp(arg, "ON") == 0)
+    {
+        if(!servoLive)
+        {
+            servoNow  = SERVO_NEUTRAL_US;
+            servoLive = true;
+            servoWriteUs(PIN_SERVO, (UInt32) servoNow);
+        }
+        printf("INFO servo engaged - holding %d us\n", servoTarget);
+        printDrive();
+        return;
+    }
+
     if(strcmp(arg, "CENTER") == 0 || strcmp(arg, "CENTRE") == 0)
     {
         servoTarget = SERVO_NEUTRAL_US;
@@ -634,8 +696,18 @@ static Void handleServo(Utf8* arg)
     const Int32 us = atoi(arg);
     if(us == 0)
     {
-        printf("ERR servo wants microseconds, %d-%d\n",
+        printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
                servoMin, servoMax);
+        return;
+    }
+
+    /* A position asked for while released is remembered, not obeyed. Engaging
+     * is a separate, deliberate act - the same shape as arming the ESC. */
+    if(!servoLive)
+    {
+        servoTarget = clampInt(us, servoMin, servoMax);
+        printf("INFO servo is released - target stored, send SERVO ON\n");
+        printDrive();
         return;
     }
 

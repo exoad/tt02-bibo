@@ -239,6 +239,11 @@ Int32 driveEsc     = 1500;
 Int32 driveEscT    = 1500;
 Bool  driveArmed   = false;
 
+// Whether the board is driving the steering pin at all. Not the same question
+// as "what position is it holding" - a released servo holds nothing, which is
+// the only state that is safe on a car whose centre is not its centre.
+Bool  driveServoOn = false;
+
 // The limits the BOARD reports. Sliders are built from these rather than from
 // constants here, so tightening them in firmware tightens the UI too and the
 // two can never disagree about what is safe.
@@ -276,6 +281,12 @@ Bool  driveEscLimitsDirty = false;
 // When the board was last asked what its drive state is. Throttled, because the
 // asking happens from a draw and a draw happens sixty times a second.
 Float64 driveAskedAt = -1.0;
+
+// Whether a slider handle is under the user's thumb RIGHT NOW. The board's
+// replies must not move a handle being dragged, but they must move everything
+// else - so this is per-slider rather than "is anything in the app active".
+Bool driveServoHeld = false;
+Bool driveEscHeld   = false;
 Float64 tofLastReply = 0.0;
 UInt64  tofReplies   = 0;
 
@@ -315,6 +326,7 @@ Void resetBoardStatus()
     tofModeShort   = false;
     driveKnown     = false;
     driveArmed     = false;
+    driveServoOn   = false;
     driveServo     = 1500;
     driveServoT    = 1500;
     driveEsc       = 1500;
@@ -1009,11 +1021,18 @@ Void observeLine(const PicoLine& ln)
         field("armed=", armed);
         driveArmed = (armed != 0);
 
-        // The slider follows the board only when the user is not dragging it.
-        if(!ImGui::IsAnyItemActive())
+        Int32 on = 0;
+        field("servo_on=", on);
+        driveServoOn = (on != 0);
+
+        // Each slider follows the board unless that slider is being dragged.
+        if(!driveServoHeld)
         {
             driveServoWant = driveServoT;
-            driveEscWant   = driveEscT;
+        }
+        if(!driveEscHeld)
+        {
+            driveEscWant = driveEscT;
         }
 
         driveKnown = true;
@@ -4586,6 +4605,38 @@ Int32 clampInt(Int32 v, Int32 lo, Int32 hi)
     return v;
 }
 
+// Offers the image this view actually needs. Shared by both of the ways a
+// board can fail to answer - the port that will not open, and the port that
+// opens and then says nothing - because they have the same cause and the same
+// fix, and two copies of a button drift.
+Void drawDriveFlashButton()
+{
+    if(picoFlash.busy())
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "%s...", picoFlash.currentOp().c_str());
+        return;
+    }
+
+    if(ui::iconButton(ui::Icon::ICON_FLASH, "Flash Debug / Blink",
+                      ImVec2(280.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+    {
+        // flash.ps1 does the 1200-baud touch itself, and it cannot open the
+        // port while this app is holding it.
+        picoLink.disconnect();
+        releasePicoPortForBoardOp();
+        picoFlash.flash("pico_debug");
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Builds firmware/src/main.c and writes it to the "
+                          "board.\n\nThis OVERWRITES whatever sketch is on "
+                          "there. The\nsource is untouched - rebuild and "
+                          "reflash it from the\nCode view whenever you want "
+                          "it back.");
+    }
+}
+
 // ============================================== the drive view ==
 //
 // Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
@@ -4604,8 +4655,46 @@ Void drawDriveBody(Float32 w, Float32 h)
 
     if(!live)
     {
+        driveServoHeld = false;
+        driveEscHeld   = false;
+        driveKnown     = false;
+
+        const PicoState st = picoLink.state();
+
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "Pico not connected.");
+
+        // A board that is PRESENT but will not talk is a different problem from
+        // a board that is not there, and the fix for it is not "try again".
+        if(st == PicoState::PICO_STATE_ERROR)
+        {
+            ImGui::Spacing();
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                               "The port is there and will not open.");
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                               "Most often this is the firmware, not the cable.\n"
+                               "\n"
+                               "A sketch that never opens a serial console still\n"
+                               "enumerates a COM port - Windows keeps offering it,\n"
+                               "and every attempt to open it hangs. From out here\n"
+                               "that is indistinguishable from a dead board.\n"
+                               "\n"
+                               "This view needs the Debug / Blink firmware\n"
+                               "(firmware/src/main.c). Flashing a sketch from the\n"
+                               "Code view REPLACES it - they are separate programs\n"
+                               "and only one can be on the board at a time.");
+
+            const Str err = picoLink.error();
+            if(!err.empty())
+            {
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                                   "  %s", err.c_str());
+            }
+
+            ImGui::Spacing();
+            drawDriveFlashButton();
+        }
+
         ImGui::EndChild();
         return;
     }
@@ -4644,29 +4733,29 @@ Void drawDriveBody(Float32 w, Float32 h)
                            "on the board at a time.");
         ImGui::Spacing();
 
-        if(picoFlash.busy())
-        {
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                               "%s...", picoFlash.currentOp().c_str());
-        }
-        else if(ui::iconButton(ui::Icon::ICON_FLASH, "Flash Debug / Blink",
-                               ImVec2(280.0f * uiDpiScale, 0.0f),
-                               ui::Tint::TINT_WARN))
-        {
-            // flash.ps1 does the 1200-baud touch itself, and it cannot open the
-            // port while this app is holding it.
-            picoLink.disconnect();
-            releasePicoPortForBoardOp();
-            picoFlash.flash("pico_debug");
-        }
+        drawDriveFlashButton();
 
         ImGui::EndChild();
         return;
     }
 
+    // Poll while the view is open. Not a subscription on the board: this way
+    // the traffic stops dead when the view is not on screen, and a firmware
+    // that is mid-reflash is never mid-broadcast.
+    const Float64 nowPoll = ImGui::GetTime();
+    if(nowPoll - driveAskedAt > 0.25)
+    {
+        driveAskedAt = nowPoll;
+        sendPico("DRIVE");
+    }
+
     // The sweep runs here so it stops the moment the view is not drawn - a
     // servo cycling behind a tab nobody is looking at is exactly the thing that
     // should not be possible.
+    if(driveSweep && !driveServoOn)
+    {
+        driveSweep = false;
+    }
     if(driveSweep)
     {
         const Float64 now = ImGui::GetTime();
@@ -4699,6 +4788,7 @@ Void drawDriveBody(Float32 w, Float32 h)
     if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP",
                       ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 2.0f)))
     {
+        driveSweep     = false;
         driveServoWant = 1500;
         driveEscWant   = 1500;
         sendPico("STOP");
@@ -4706,9 +4796,16 @@ Void drawDriveBody(Float32 w, Float32 h)
     ui::popTint(ui::Tint::TINT_BAD);
     if(ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("Both channels to neutral immediately, and the ESC "
-                          "disarmed.\n\nNot slewed - a stop that eases in is "
-                          "not a stop.");
+        ImGui::SetTooltip(
+            "The ESC to neutral and disarmed, and the steering RELEASED.\n"
+            "\n"
+            "Released, not centred. Centre is only a safe place to leave a\n"
+            "servo if 1500 us is where the linkage wants to sit - if the horn\n"
+            "is a tooth off its spline it is not, and centring would just be\n"
+            "pushing somewhere else. Nothing to push with is the only stop\n"
+            "that works on every car.\n"
+            "\n"
+            "Not slewed. A stop that eases in is not a stop.");
     }
 
     ImGui::Spacing();
@@ -4719,6 +4816,59 @@ Void drawDriveBody(Float32 w, Float32 h)
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                        "Steering  -  GP0");
 
+    // Engaging is a deliberate act, the same shape as arming the ESC. The board
+    // comes up released and stays that way until asked, because driving neutral
+    // at power-on assumes 1500 us is somewhere safe - and on a car whose horn is
+    // a tooth out, the servo picks up the frame before anyone types anything.
+    if(driveServoOn)
+    {
+        ui::pushTint(ui::Tint::TINT_WARN);
+        if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Release the servo",
+                          ImVec2(240.0f * uiDpiScale, 0.0f)))
+        {
+            driveSweep = false;
+            sendPico("SERVO OFF");
+        }
+        ui::popTint(ui::Tint::TINT_WARN);
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Stops the pulse. The servo goes limp - no holding torque, no\n"
+                "current, nothing to push against.\n"
+                "\n"
+                "This is the thing to reach for when it is leaning on the\n"
+                "frame. A better number will not help; not being asked to hold\n"
+                "a position at all is what helps.");
+        }
+
+        ImGui::SameLine();
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "driving");
+    }
+    else
+    {
+        if(ui::iconButton(ui::Icon::ICON_MOTOR_RUN, "Engage the servo",
+                          ImVec2(240.0f * uiDpiScale, 0.0f)))
+        {
+            sendPico("SERVO ON");
+        }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Starts driving GP0, from neutral, slewed.\n"
+                "\n"
+                "Everything below is remembered while released and takes\n"
+                "effect when you engage - so you can set a value first and\n"
+                "then commit to it, rather than the other way round.");
+        }
+
+        ImGui::SameLine();
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "released  -  the servo is limp");
+    }
+
+    ImGui::Spacing();
+
     ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
     if(ImGui::SliderInt("##servo", &driveServoWant,
                         driveServoMin, driveServoMax, "%d us"))
@@ -4727,6 +4877,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
         sendPico(cmd);
     }
+    driveServoHeld = ImGui::IsItemActive();
     if(ImGui::IsItemHovered())
     {
         ImGui::SetTooltip(
@@ -4778,12 +4929,17 @@ Void drawDriveBody(Float32 w, Float32 h)
     }
 
     ImGui::SameLine(0.0f, 12.0f);
-    if(ui::segmentedButton("Sweep", driveSweep, ImVec2(80.0f * uiDpiScale, 0.0f)))
+    ImGui::BeginDisabled(!driveServoOn);
+    if(ui::segmentedIconButton(driveSweep ? ui::Icon::ICON_PAUSE
+                                          : ui::Icon::ICON_PLAY,
+                               "Sweep", driveSweep,
+                               ImVec2(110.0f * uiDpiScale, 0.0f)))
     {
         driveSweep     = !driveSweep;
         driveSweepNext = ImGui::GetTime();
     }
-    if(ImGui::IsItemHovered())
+    ImGui::EndDisabled();
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip(
             "Walks the servo between its limits, back and forth.\n"
@@ -4794,6 +4950,22 @@ Void drawDriveBody(Float32 w, Float32 h)
             "Driven from the hub, not the board, and it stops the moment this\n"
             "view is not on screen - a servo cycling behind a tab nobody is\n"
             "looking at is exactly what should not be possible.");
+    }
+
+    // What the board is actually OUTPUTTING, which lags the slider while the
+    // slew runs. Showing both is what makes the ramp visible rather than
+    // looking like lag. Directly under the buttons that move it: the limits
+    // block below expands, and this must not be pushed away by that.
+    if(driveServoOn)
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "output %d us   target %d us",
+                           driveServo, driveServoT);
+    }
+    else
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "no output   target %d us  (stored)", driveServoT);
     }
 
     // ---- finding the real end stops --------------------------------------
@@ -4854,12 +5026,6 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
-    // What the board is actually OUTPUTTING, which lags the slider while the
-    // slew runs. Showing both is what makes the ramp visible rather than
-    // looking like lag.
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                       "output %d us   target %d us", driveServo, driveServoT);
-
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -4898,6 +5064,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         std::snprintf(cmd, sizeof(cmd), "ESC %d", driveEscWant);
         sendPico(cmd);
     }
+    driveEscHeld = ImGui::IsItemActive();
     ImGui::EndDisabled();
 
     if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -4946,6 +5113,11 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
     }
     ImGui::EndDisabled();
+
+    ImGui::TextColored(
+        ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN : ui::sem::MUTED),
+        "output %d us   target %d us   %s",
+        driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
 
     if(ImGui::TreeNode("Throttle range  -  widen once the car is on a stand"))
     {
@@ -4996,11 +5168,6 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
         ImGui::TreePop();
     }
-
-    ImGui::TextColored(
-        ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN : ui::sem::MUTED),
-        "output %d us   target %d us   %s",
-        driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
 
     ImGui::Spacing();
     ImGui::Separator();
