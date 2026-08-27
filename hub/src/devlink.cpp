@@ -8,6 +8,10 @@
 
 #include <cstring>
 
+/* The registry walk in portKind() needs advapi32. Declared here rather than in
+ * the build scripts so a test that links devlink.cpp on its own gets it too. */
+#pragma comment(lib, "advapi32.lib")
+
 namespace dev {
 namespace {
 
@@ -149,6 +153,93 @@ Bool portPresent(const Str& port)
         }
     }
     return false;
+}
+
+PortKind portKind(const Str& port)
+{
+    if(port.empty())
+    {
+        return PortKind::PORT_KIND_UNKNOWN;
+    }
+
+    HKEY key = nullptr;
+    if(::RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM",
+                       0, KEY_READ, &key) != ERROR_SUCCESS)
+    {
+        return PortKind::PORT_KIND_UNKNOWN;
+    }
+
+    PortKind kind = PortKind::PORT_KIND_UNKNOWN;
+
+    for(DWORD i = 0; ; ++i)
+    {
+        Char  name[512];
+        BYTE  data[512];
+        DWORD nlen = static_cast<DWORD>(sizeof(name));
+        DWORD dlen = static_cast<DWORD>(sizeof(data));
+        DWORD type = 0;
+
+        const LONG r = ::RegEnumValueA(key, i, name, &nlen, nullptr, &type,
+                                       data, &dlen);
+        if(r != ERROR_SUCCESS)
+        {
+            break;
+        }
+        if(type != REG_SZ || dlen == 0)
+        {
+            continue;
+        }
+
+        // Registry strings are not guaranteed to be terminated.
+        if(dlen >= sizeof(data))
+        {
+            dlen = static_cast<DWORD>(sizeof(data)) - 1;
+        }
+        data[dlen] = 0;
+
+        if(!sameName(reinterpret_cast<const Char*>(data), port))
+        {
+            continue;
+        }
+
+        Str dev(name, nlen);
+        for(Char& c : dev)
+        {
+            if(c >= 'A' && c <= 'Z')
+            {
+                c = static_cast<Char>(c - 'A' + 'a');
+            }
+        }
+
+        if(dev.find("silabser") != Str::npos)
+        {
+            kind = PortKind::PORT_KIND_CP210X;
+        }
+        else if(dev.find("usbser") != Str::npos)
+        {
+            kind = PortKind::PORT_KIND_USB_CDC;
+        }
+        else if(dev.find("bthmodem") != Str::npos)
+        {
+            kind = PortKind::PORT_KIND_BLUETOOTH;
+        }
+        break;
+    }
+
+    ::RegCloseKey(key);
+    return kind;
+}
+
+const Char* portKindName(PortKind k)
+{
+    switch(k)
+    {
+    case PortKind::PORT_KIND_CP210X:    return "CP210x - RPLIDAR adapter";
+    case PortKind::PORT_KIND_USB_CDC:   return "USB serial - Pico";
+    case PortKind::PORT_KIND_BLUETOOTH: return "Bluetooth";
+    case PortKind::PORT_KIND_UNKNOWN:   break;
+    }
+    return "unknown";
 }
 
 Loss classify(const Str& port, UInt32 win32Code)

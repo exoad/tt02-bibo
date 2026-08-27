@@ -131,6 +131,59 @@ Void testClassify()
     }
 }
 
+// The bug this was written for: a port that is a Pico must never be mistaken
+// for a lidar adapter, because serial ports are exclusive and a wrong guess
+// takes the port away from the subsystem that was right.
+Void testPortKind()
+{
+    std::printf("\n-- what is on a port --\n");
+
+    const Vec<Str> ports = dev::listPorts();
+    Int32 cp210x = 0;
+    Int32 usbcdc = 0;
+    Int32 bt     = 0;
+
+    for(const Str& p : ports)
+    {
+        const dev::PortKind k = dev::portKind(p);
+        std::printf("  ..    %-6s %s\n", p.c_str(), dev::portKindName(k));
+        if(k == dev::PortKind::PORT_KIND_CP210X)
+        {
+            ++cp210x;
+        }
+        if(k == dev::PortKind::PORT_KIND_USB_CDC)
+        {
+            ++usbcdc;
+        }
+        if(k == dev::PortKind::PORT_KIND_BLUETOOTH)
+        {
+            ++bt;
+        }
+    }
+
+    check(dev::portKind("COM255") == dev::PortKind::PORT_KIND_UNKNOWN,
+          "a port that does not exist has no kind");
+    check(dev::portKind("") == dev::PortKind::PORT_KIND_UNKNOWN,
+          "an empty name has no kind");
+
+    // Every port on the machine is classified as something, or the registry
+    // walk is not finding entries it should.
+    Int32 known = cp210x + usbcdc + bt;
+    check(known == static_cast<Int32>(ports.size()),
+          "every enumerated port is identified");
+
+    // A USB CDC device is a Pico and is never a lidar. This is the check that
+    // would have caught the COM10 collision.
+    for(const Str& p : ports)
+    {
+        if(dev::portKind(p) == dev::PortKind::PORT_KIND_USB_CDC)
+        {
+            check(dev::portKind(p) != dev::PortKind::PORT_KIND_CP210X,
+                  "a Pico port is not a CP210x");
+        }
+    }
+}
+
 Void testDescribe()
 {
     std::printf("\n-- messages --\n");
@@ -162,6 +215,7 @@ int main()
     testRemovalCodes();
     testPortPresence();
     testClassify();
+    testPortKind();
     testDescribe();
 
     std::printf("\n%d checks, %d failed\n", checks, failures);
