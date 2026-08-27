@@ -214,6 +214,24 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
         }
     }
 
+    // ---- every yank leaves the app ---------------------------------------
+    //
+    // Done after the keys of the PREVIOUS frame have been applied, so it
+    // catches a yank however it happened: yy, yG, y in visual mode, x, D, or
+    // the delete half of any operator. The register is the single thing they
+    // all write, so watching it costs one string compare and cannot miss one.
+    //
+    // Empty is not pushed. Clearing somebody's clipboard is never what they
+    // wanted, and the register is briefly empty at the start of every yank.
+    if(e.yankText() != v.lastYank)
+    {
+        v.lastYank = e.yankText();
+        if(!v.lastYank.empty())
+        {
+            ImGui::SetClipboardText(v.lastYank.c_str());
+        }
+    }
+
     if(v.focused)
     {
         // Tell ImGui we own the keyboard this frame, so nothing else in the app
@@ -312,6 +330,52 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
                 continue;                       // control bytes and non-ASCII
             if(ctrl)
                 continue;                       // handled above
+
+            // ---- p and P pull from the system clipboard ------------------
+            //
+            // Checked here, one keystroke before the put, rather than every
+            // frame: opening the clipboard takes a global lock, and a program
+            // that grabs it sixty times a second is a program that makes
+            // copying flaky everywhere else on the desktop.
+            //
+            // Only in normal and visual mode. In insert mode `p` is the letter
+            // p, and clobbering the register every time somebody types the word
+            // "open" would be a genuinely baffling bug.
+            //
+            // Adopted only when the clipboard differs from what we last saw. A
+            // yank inside the editor already pushed its text out, so the two
+            // match and the register is left exactly as vim left it - including
+            // whether it was linewise, which the newline guess below cannot
+            // always recover.
+            const Char ch = static_cast<Char>(wc);
+            if((ch == 'p' || ch == 'P')
+               && (e.mode() == ed::Mode::MODE_NORMAL
+                   || e.mode() == ed::Mode::MODE_VISUAL
+                   || e.mode() == ed::Mode::MODE_VISUAL_LINE))
+            {
+                const Char* clip = ImGui::GetClipboardText();
+                if(clip != nullptr && *clip != '\0' && v.lastYank != clip)
+                {
+                    Str text = clip;
+
+                    // CRLF in, LF held internally - the same normalisation
+                    // sketch::load() does, and for the same reason: every line
+                    // ending in this editor is one byte.
+                    Str lf;
+                    lf.reserve(text.size());
+                    for(Size j = 0; j < text.size(); ++j)
+                    {
+                        if(text[j] != '\r')
+                        {
+                            lf.push_back(text[j]);
+                        }
+                    }
+
+                    const Bool linewise = !lf.empty() && lf.back() == '\n';
+                    e.setYank(lf, linewise);
+                    v.lastYank = lf;
+                }
+            }
 
             ed::Key k;
             k.ch = static_cast<Char>(wc);

@@ -470,7 +470,8 @@ Bool iconButton(Icon ic, const Char* label, const ImVec2& size, Tint tint)
     return hit;
 }
 
-Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut, Bool enabled)
+Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut, Bool enabled,
+                  Bool selected)
 {
     // Enough leading spaces to clear the icon, measured rather than guessed -
     // the icon size and the space width move independently with DPI.
@@ -487,7 +488,7 @@ Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut, Bool enabled
 
     std::snprintf(padded, sizeof(padded), "%*s%s", n, "", label);
 
-    const Bool hit = ImGui::MenuItem(padded, shortcut, false, enabled);
+    const Bool hit = ImGui::MenuItem(padded, shortcut, selected, enabled);
 
     if(iconsReady())
     {

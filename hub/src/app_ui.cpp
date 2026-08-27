@@ -3391,12 +3391,32 @@ Void drawCodeControls()
         ImGui::Separator();
         ImGui::TextDisabled("Sketches");
 
+        // Two lists of filenames in one popup, and a menu entry takes its ID
+        // from its label - so a sketch named sketch.c and firmware/src/sketch.c
+        // are literally the same widget to ImGui, which says so. The path is
+        // unique by construction, so it is the ID.
+        //
+        // The tick marks whichever file is open. That matters most in exactly
+        // the case that caused the clash: when both rows read the same, the
+        // group heading says which is which and the tick says which is live.
+        auto entry = [](ui::Icon ic, const Str& name, const Str& path,
+                        const Char* note, Bool enabled)
+        {
+            ImGui::PushID(path.c_str());
+            const Bool open = !codePath.empty()
+                           && _stricmp(path.c_str(), codePath.c_str()) == 0;
+            const Bool hit  = ui::iconMenuItem(ic, name.c_str(), note, enabled, open);
+            ImGui::PopID();
+            return hit;
+        };
+
         const Vec<Str> lib = sketch::list();
         for(const Str& n : lib)
         {
-            if(ui::iconMenuItem(ui::Icon::ICON_CODE, n.c_str()))
+            const Str p = sketch::pathOf(n);
+            if(entry(ui::Icon::ICON_CODE, n, p, nullptr, true))
             {
-                openCodeFile(sketch::pathOf(n), n);
+                openCodeFile(p, n);
             }
         }
         if(lib.empty())
@@ -3407,18 +3427,26 @@ Void drawCodeControls()
         ImGui::Separator();
         ImGui::TextDisabled("firmware/src");
 
-        const Str      fwd = sketch::firmwareDir();
-        const Vec<Str> fws = sketch::listFirmware();
+        const Str      fwd  = sketch::firmwareDir();
+        const Str      slot = sketch::slotPath();
+        const Vec<Str> fws  = sketch::listFirmware();
         for(const Str& n : fws)
         {
             const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
+            const Str  p   = fwd + "\\" + n;
+
+            // firmware/src/sketch.c is the scratch slot every library sketch is
+            // copied into before a build, which is why it can share a name with
+            // one - and why saying so here is worth a word.
+            const Bool isSlot = !slot.empty()
+                             && _stricmp(p.c_str(), slot.c_str()) == 0;
 
             // A header is not a translation unit. Listed so this matches the
             // tree, disabled so it cannot be chosen and then quietly do nothing.
-            if(ui::iconMenuItem(hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE,
-                                n.c_str(), hdr ? "header" : nullptr, !hdr))
+            if(entry(hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE, n, p,
+                     hdr ? "header" : (isSlot ? "slot" : nullptr), !hdr))
             {
-                openCodeFile(fwd + "\\" + n, n);
+                openCodeFile(p, n);
             }
         }
 

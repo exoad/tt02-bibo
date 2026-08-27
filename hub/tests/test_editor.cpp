@@ -544,6 +544,101 @@ Void testCompletion()
 
 } // namespace
 
+// The register is what the host copies to the system clipboard, so what lands
+// in it matters beyond this file now. gg+yG in particular: it reported "N lines
+// yanked" and nothing reached the clipboard, because nothing was reading the
+// register at all.
+Void testYankRegister()
+{
+    std::printf("\n-- yank register --\n");
+
+    {
+        ed::Editor e;
+        e.setText("alpha\nbeta\ngamma");
+        e.setCursor(2, 3);
+
+        // The whole file, from wherever the caret happens to be.
+        type(e, "gg");
+        type(e, "yG");
+
+        checkStr(e.yankText(), "alpha\nbeta\ngamma\n",
+                 "gg yG yanks every line into the register");
+        check(e.yankIsLinewise(), "gg yG is linewise");
+        check(e.text() == "alpha\nbeta\ngamma", "yanking changes nothing");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("alpha\nbeta");
+        e.setCursor(0, 0);
+        type(e, "yy");
+        checkStr(e.yankText(), "alpha\n", "yy yanks the line with its newline");
+        check(e.yankIsLinewise(), "yy is linewise");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("hello world");
+        e.setCursor(0, 0);
+        type(e, "yw");
+        check(!e.yankIsLinewise(), "yw is characterwise");
+        check(!e.yankText().empty(), "yw fills the register");
+    }
+
+    // x and D write the register too, which is why the host watches the buffer
+    // rather than counting calls to yankRange().
+    {
+        ed::Editor e;
+        e.setText("abcdef");
+        e.setCursor(0, 0);
+        type(e, "3x");
+        checkStr(e.yankText(), "abc", "x fills the register");
+        check(!e.yankIsLinewise(), "x is characterwise");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("abcdef");
+        e.setCursor(0, 2);
+        type(e, "D");
+        checkStr(e.yankText(), "cdef", "D fills the register");
+    }
+
+    // dd, so the delete half of an operator is covered as well.
+    {
+        ed::Editor e;
+        e.setText("alpha\nbeta");
+        e.setCursor(0, 0);
+        type(e, "dd");
+        checkStr(e.yankText(), "alpha\n", "dd fills the register");
+        checkStr(e.text(), "beta", "dd removes the line");
+    }
+
+    // The other direction: text arriving from the system clipboard.
+    {
+        ed::Editor e;
+        e.setText("alpha");
+        e.setCursor(0, 0);
+
+        e.setYank("from elsewhere\n", true);
+        checkStr(e.yankText(), "from elsewhere\n", "setYank loads the register");
+        check(e.yankIsLinewise(), "setYank keeps linewise");
+
+        type(e, "p");
+        checkStr(e.text(), "alpha\nfrom elsewhere",
+                 "p puts linewise clipboard text on its own line");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("ac");
+        e.setCursor(0, 0);
+        e.setYank("b", false);
+        type(e, "p");
+        checkStr(e.text(), "abc", "p splices characterwise clipboard text");
+    }
+}
+
 int main()
 {
     std::printf("editor + syntax tests\n");
@@ -551,6 +646,7 @@ int main()
     testModesAndMotions();
     testEditing();
     testVisual();
+    testYankRegister();
     testAutoClose();
     testCommandLine();
     testDirty();
