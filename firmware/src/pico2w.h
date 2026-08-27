@@ -28,7 +28,20 @@
 #ifndef PICO2W_H
 #define PICO2W_H
 
-#include "shared.h"
+/*
+ * Reached by an explicit relative path rather than by "shared.h" plus a
+ * -I../shared on the command line.
+ *
+ * Both work for the COMPILER - the include directory is set for both firmware
+ * targets and always has been. The difference is every other tool. A quoted
+ * include is resolved relative to THIS file first, so an editor with no project
+ * loaded still finds it; a bare "shared.h" needs the include path, and without
+ * it the whole vocabulary - Int32, UInt16, Bool, Void, Utf8 - goes unresolved,
+ * which paints a red squiggle under essentially every line of every sketch.
+ *
+ * That is a lot of noise to accept in exchange for a slightly prettier include.
+ */
+#include "../../shared/shared.h"
 
 #include "hardware/adc.h"
 #include "hardware/clocks.h"

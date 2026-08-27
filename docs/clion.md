@@ -37,6 +37,24 @@ configure has exactly one toolchain.
 **Pico 2 W (RP2350, arm-none-eabi)** preset. That also gets you building and
 flashing from the IDE.
 
+**How to tell it worked.** The CMake tool window gains a second root next to the
+hub's, and the run-configuration dropdown gains `sketch` and `pico_debug`. If
+neither appears, the attach did not take — reattaching is harmless.
+
+**What is still red if you do NOT attach**, and why each one is the same
+problem wearing a different hat:
+
+| symptom | cause |
+|---|---|
+| `Cannot find directory 'hardware'` / `'pico'` | no SDK include path |
+| `Cannot resolve symbol 'printf'`, `'strcmp'`, `'atof'` | no C standard library include path either — the cross-compiler's, which only the project knows |
+| `C-style cast is used instead of a C++ cast` inside a `.h` | an unowned `.h` is assumed to be C++. The headers are now listed as sources on their targets, so this resolves with the project attached |
+
+The project types (`Int32`, `UInt16`, `Utf8`) resolve **without** attaching:
+`pico2w.h` reaches `shared.h` by an explicit relative path rather than through
+`-I`, precisely so the vocabulary never depends on IDE configuration. Everything
+above needs the toolchain, and the toolchain comes from the project.
+
 `firmware/.clangd` is a fallback for the same problem, pointing the parser at
 that compile database directly. It helps where the IDE falls back to clangd; it
 is not a substitute for attaching the project.
