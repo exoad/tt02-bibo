@@ -4163,12 +4163,55 @@ Void drawRangeBody(Float32 w, Float32 h)
             tofModeShort = true;
             sendPico("TOF MODE SHORT");
         }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Short range - reaches about 1.3 m\n"
+                "\n"
+                "The laser pulses at a HIGHER frequency, which narrows the\n"
+                "window the sensor accepts a return in. A narrower window lets\n"
+                "in less of everything else, so stray infrared is rejected -\n"
+                "which is what actually limits this sensor outdoors.\n"
+                "\n"
+                "Use it when: there is sunlight, a halogen or an incandescent\n"
+                "lamp about, or the target is dark or angled. All of those\n"
+                "weaken the return relative to the background.\n"
+                "\n"
+                "The trade is only reach. Accuracy is no worse - if anything\n"
+                "it is steadier, because there is less to confuse it.\n"
+                "\n"
+                "This is the mode a bumper wants. Nothing useful for stopping\n"
+                "a car is more than a metre away, and daylight is exactly the\n"
+                "condition it has to work in.");
+        }
+
         ImGui::SameLine(0.0f, 2.0f);
         if(ui::segmentedButton("Long", !tofModeShort,
                                ImVec2(88.0f * uiDpiScale, 0.0f)))
         {
             tofModeShort = false;
             sendPico("TOF MODE LONG");
+        }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Long range - reaches about 4 m indoors\n"
+                "\n"
+                "A LOWER pulse frequency and a wider acceptance window, so a\n"
+                "faint return from something far away still counts. That same\n"
+                "width is what lets ambient infrared in, and daylight has a\n"
+                "great deal of it.\n"
+                "\n"
+                "Use it when: indoors, away from a window, and you need to see\n"
+                "past a metre or so.\n"
+                "\n"
+                "The 4 m on the box assumes a white target, a dark room and a\n"
+                "long timing budget. A dark or angled surface returns far less\n"
+                "light and will fall well short of it.\n"
+                "\n"
+                "Watch the signal and ambient figures below: if ambient starts\n"
+                "to approach signal, this mode is being blinded and Short will\n"
+                "do better even though it reaches less far.");
         }
     }
 
