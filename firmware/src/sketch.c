@@ -6,47 +6,55 @@
  * scratch space, not as firmware: anything worth keeping gets its own .c file
  * and its own target in CMakeLists.txt.
  *
- * pico2w.h is the SDK wrapped in this project's own naming. Everything it
- * offers is in the editor's completion list: start typing gpio, led, servo,
- * adc, serial, pwm or watchdog.
+ * ---------------------------------------------------------------------------
+ * RIGHT NOW: bringing up the SPI colour display.
  *
- * ONE LED blinks below: the breadboard one on LED_PIN, and nothing else.
+ *   Display   Pico          why
+ *   GND       GND
+ *   VCC       3V3           these modules are 3.3 V parts
+ *   SCL/SCK   GP18          SPI0 SCK - fixed by the silicon, not a free choice
+ *   SDA/MOSI  GP19          SPI0 TX
+ *   RES       GP20
+ *   DC        GP21          low = command, high = pixel data
+ *   CS        GP17
+ *   BLK       3V3           always on
  *
- * The onboard LED is deliberately left alone - see the block at the bottom of
- * main(). It is on the CYW43439 wireless chip rather than on a GPIO, so it is
- * reached with ledWrite() and NOT with gpioWrite() at any pin number. Blinking
- * both at once is a good demo and a bad diagnostic: when you are trying to work
- * out whether GP3 is doing anything, a second LED blinking on its own schedule
- * is the one thing guaranteed to confuse the answer.
+ * st77xx.h has the driver and, at the top, the ONE line that says whether this
+ * is an ST7789 or an ST7735. If the screen lights but shows nothing sensible,
+ * flip it and reflash. That is the fastest way to find out which you own.
  *
- * So if the LED below does not blink now, the fault is in the wiring or the
- * hardware, and nothing on this board will blink to suggest otherwise.
+ * ---------------------------------------------------------------------------
+ * WHY THIS DRAWS A TEST PATTERN FIRST
  *
- * WIRING (docs/wiring.md has the full map):
+ * These panels are WRITE-ONLY. Nothing can be read back, no command returns an
+ * acknowledgement, and tftInit() can only fail if the SPI pins are wrong - so
+ * there is no return code anywhere that means "the display is working".
  *
- *   GP3 is physical pin 5. Nearest ground is physical pin 3, right beside it.
+ * The picture is the test. Eight known colour bars in a known order, with the
+ * corners marked, tells you in one glance whether the bus works, whether the
+ * bytes are in the right order, whether the geometry is right and whether the
+ * colours are inverted. A "hello world" that just prints text tells you almost
+ * none of that, and when it fails it fails silently.
  *
- *   GP3 (5) ---[ resistor 220R-1k ]--- LED long leg (anode)
- *                                      LED short leg (cathode) --- GND (3)
+ * WHAT YOU SHOULD SEE, in order down the screen:
  *
- *   The resistor may sit on either side of the LED; it limits the current
- *   either way. Without one the LED is a short across a 3.3 V pin and both it
- *   and the pin are at risk.
+ *   white  yellow  cyan  green  magenta  red  blue  black
  *
- *   The LONG leg is the one that must end up connected back to GP3, whether the
- *   resistor is between them or not. An LED fitted the other way round is not
- *   damaged, it simply never lights - which looks exactly like a dead pin.
+ * That is the standard bar order, deliberately, so it can be checked against
+ * any reference. Then:
  *
- * GP3 is free in this project. GP0/GP1 are the servo and ESC, GP4/GP5 are I2C,
- * GP10-GP13 are the ToF XSHUT lines, GP15 is the encoder and GP16-GP19 are SPI
- * for the SD card, so do not blink any of those once the car is wired.
+ *   colours in the WRONG ORDER (blue first)   red and blue are swapped:
+ *                                             change MADCTL in st77xx.h to 0x08
+ *   everything a photographic negative        flip PANEL_INVERT
+ *   bars present but shifted or wrapped       wrong PANEL_W/H or the offsets
+ *   nothing at all, backlight on              wrong panel type, or DC/RES swapped
+ *   snow, tearing, intermittent               SPI too fast - drop PANEL_HZ
  */
 
 #include "pico2w.h"
+#include "st77xx.h"
 
-#define LED_1_PIN 3
-#define LED_2_PIN 2
-#define DELAY_MS 400
+#define STATUS_MS 500
 
 Int32 main(Void)
 {
@@ -59,31 +67,97 @@ Int32 main(Void)
      * See the note above serialOpen() in pico2w.h.
      */
     serialOpen();
-    gpioOpen(LED_1_PIN, PIN_DIR_OUT);
-    gpioOpen(LED_2_PIN, PIN_DIR_OUT);
+
+    const Bool haveTft = tftInit();
+
+    if(!haveTft)
+    {
+        /*
+         * The only failure this driver can actually detect: the SCK pin does not
+         * belong to an SPI controller, so no bus was ever created. Everything
+         * else has to be judged by looking at the screen.
+         */
+        while(true)
+        {
+            serialPrintLine("TFT: bad SPI pins - check PIN_TFT_SCK in st77xx.h");
+            sleepMs(1000);
+        }
+    }
+
+    serialPrintLine("TFT: initialised, drawing test pattern");
+
+    /* ---- the colour bars -------------------------------------------------- */
+
+    const UInt16 BARS[8] = {
+        TFT_WHITE, TFT_YELLOW, TFT_CYAN,  TFT_GREEN,
+        TFT_MAGENTA, TFT_RED,  TFT_BLUE,  TFT_BLACK,
+    };
+
+    /* Computed rather than hard-coded so this is right on both panel sizes.
+     * The last bar takes the remainder, because 240/8 divides evenly and
+     * 160/8 does too but the next panel someone plugs in might not. */
+    const Int32 barH = PANEL_H / 8;
+    for(Int32 i = 0; i < 8; ++i)
+    {
+        const Int32 h = (i == 7) ? (PANEL_H - (barH * 7)) : barH;
+        tftRect(0, barH * i, PANEL_W, h, BARS[i]);
+    }
+
+    /* Corner marks. If one is missing, the visible area is not the size the
+     * driver thinks it is - which is the offset problem, and it is otherwise
+     * genuinely hard to spot. */
+    tftRect(0, 0, 8, 8, TFT_RED);
+    tftRect(PANEL_W - 8, 0, 8, 8, TFT_GREEN);
+    tftRect(0, PANEL_H - 8, 8, 8, TFT_BLUE);
+    tftRect(PANEL_W - 8, PANEL_H - 8, 8, 8, TFT_WHITE);
+
+    /* ---- something to read ------------------------------------------------ */
+
+    tftRect(0, PANEL_H / 2 - 26, PANEL_W, 52, TFT_BLACK);
+    tftText(6, PANEL_H / 2 - 20, "TT02-AUTO", TFT_ORANGE, TFT_BLACK, 2);
+    tftText(6, PANEL_H / 2 + 2,  "DISPLAY OK", TFT_WHITE, TFT_BLACK, 1);
+
+    Utf8 line[32];
+#if PANEL_ST7789
+    tftText(6, PANEL_H / 2 + 14, "ST7789 240X240", TFT_GREY, TFT_BLACK, 1);
+#else
+    tftText(6, PANEL_H / 2 + 14, "ST7735 128X160", TFT_GREY, TFT_BLACK, 1);
+#endif
+
+    /* ---- alive ------------------------------------------------------------ */
+
+    /*
+     * A counter, so a frozen board and a working one look different. A static
+     * picture proves the display was written to ONCE; it says nothing about
+     * whether the program is still running, and those two failures look
+     * identical on a screen that holds its last image.
+     */
+    Int32 ticks = 0;
     while(true)
     {
-        gpioWrite(LED_1_PIN, true);
-        gpioWrite(LED_2_PIN, false);
-        sleepMs(DELAY_MS);
-        gpioWrite(LED_1_PIN, false);
-        gpioWrite(LED_2_PIN, true);
-        sleepMs(DELAY_MS);
+        snprintf(line, sizeof(line), "UP %d S", ticks / 2);
+
+        /* Only the strip that changes is redrawn. Repainting the whole screen
+         * twice a second would work and would also flicker, because there is no
+         * back buffer here - what you draw is what is on the glass. */
+        tftText(6, PANEL_H - 20, line, TFT_CYAN, TFT_BLACK, 1);
+
+        /* The onboard LED as a heartbeat, deliberately NOT a second thing to
+         * debug: if the screen is blank but this blinks, the program is running
+         * and the fault is in the display or its wiring. */
+        if(ledOpen())
+        {
+            ledWrite((ticks & 1) != 0);
+        }
+
+        if((ticks % 20) == 0)
+        {
+            serialPrintf("up %d s, panel %dx%d\n", ticks / 2, PANEL_W, PANEL_H);
+        }
+
+        ++ticks;
+        sleepMs(STATUS_MS);
     }
+
     return 0;
 }
-
-/*
- * The onboard LED, kept here rather than deleted, because it is worth knowing
- * how to reach and it is not obvious. Paste it back into main() to use it:
- *
- *     const Bool haveOnboard = ledOpen();   // before the loop; can fail, as
- *                                           // the wireless chip is a real
- *                                           // peripheral that has to start up
- *
- *     ledWrite(true);                       // inside the loop
- *     ledWrite(false);
- *
- * gpio_put(25, 1), copied from any Pico 1 example, compiles here and runs here
- * and does nothing whatsoever. On this board that pin is not the LED.
- */

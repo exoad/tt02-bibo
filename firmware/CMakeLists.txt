@@ -29,6 +29,7 @@ target_link_libraries(pico_debug
     hardware_pwm
     hardware_adc
     hardware_watchdog
+    hardware_spi
 )
 
 # Debug console is USB CDC. UART stdio is off so GP0/GP1 stay free - they are
@@ -79,6 +80,7 @@ target_link_libraries(sketch
     hardware_pwm
     hardware_adc
     hardware_watchdog
+    hardware_spi
 )
 
 pico_enable_stdio_usb(sketch 1)
