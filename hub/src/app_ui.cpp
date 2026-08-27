@@ -49,6 +49,7 @@
 #include "sketch.hpp"
 #include "reference.hpp"
 #include "devlink.hpp"
+#include "lint.hpp"
 #include "workspace.hpp"
 #include "settings.hpp"
 #include "theme.hpp"
@@ -1324,6 +1325,60 @@ Void pumpCodeWatch()
     LOG_INFO("code", "reloaded %s after an external change", codePath.c_str());
 }
 
+// The last build's diagnostics, kept apart from the linter's so a rebuild
+// replaces one without discarding the other. They are merged for display.
+Vec<diag::Item> codeLintDiags;
+
+// Frames until the buffer is re-linted. Counted from the last EDIT, like
+// autosave, so it never fires mid-word - and re-linting on every keystroke
+// would re-scan the file dozens of times while a single line is typed.
+Int32 codeLintIn = 0;
+
+// Merges the compiler's opinion with the linter's, compiler first.
+//
+// Order matters where both land on one line: the gutter shows the WORST
+// severity, and a build error must not be hidden behind a style warning about
+// the same line.
+Void refreshCodeDiags()
+{
+    codeView.diags = codeDiags;
+    codeView.diags.insert(codeView.diags.end(),
+                          codeLintDiags.begin(), codeLintDiags.end());
+}
+
+// Re-checks the buffer against docs/conventions.md a moment after typing stops.
+//
+// WHY THIS IS SEPARATE FROM THE COMPILER. diagnostics.hpp reports what the
+// build said, which is exact and only exists after a build. This reports what
+// the style audit will say at commit time, which is worth knowing while the
+// line is still under the cursor rather than an hour later.
+//
+// The rules are tools/style_audit.py's, deliberately the same set - a linter
+// that disagrees with the gate either passes what the commit rejects or flags
+// what the project has decided is fine, and both teach people to ignore it.
+Void pumpCodeLint()
+{
+    if(codePath.empty())
+    {
+        codeLintDiags.clear();
+        return;
+    }
+
+    if(--codeLintIn > 0)
+    {
+        return;
+    }
+    codeLintIn = 30;                 // ~0.5 s at 60 fps
+
+    const Size before = codeLintDiags.size();
+    codeLintDiags = lint::check(codeEditor.text(), lint::langOf(codePath));
+
+    if(codeLintDiags.size() != before)
+    {
+        refreshCodeDiags();
+    }
+}
+
 // Saves a few seconds after you stop typing.
 //
 // Counted from the last EDIT, not on a wall clock, so it never fires mid-word.
@@ -1521,7 +1576,7 @@ Void pumpFlash()
             {
                 const Vec<diag::Item> all = diag::parseAll(flashLog);
                 codeDiags       = diag::forFile(all, codePath);
-                codeView.diags  = codeDiags;
+                refreshCodeDiags();
 
                 if(!codeDiags.empty())
                 {
@@ -1609,6 +1664,7 @@ Void pumpData()
     pumpPico();
     pumpFlash();
     pumpDeviceScan();
+    pumpCodeLint();
     pumpPicoRelink();
     pumpCodeWatch();
     pumpCodeAutosave();
@@ -3300,6 +3356,13 @@ Void openCodeFile(const Str& path, const Str& name)
     codeEditor.setText(sketch::load(path));
     codeView.scrollY = 0.0f;
     codeView.diags.clear();      // a new file has not been compiled yet
+    codeDiags.clear();
+
+    // Linted immediately rather than half a second later: opening a file and
+    // seeing nothing, then seeing marks appear, reads as a glitch.
+    codeLintDiags = lint::check(codeEditor.text(), lint::langOf(codePath));
+    codeLintIn    = 30;
+    refreshCodeDiags();
     codeFileStamp = sketch::stamp(path);
     codeMessage   = "opened " + name;
     ui::setNote(codeView, "opened " + name, ImGui::GetTime());

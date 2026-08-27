@@ -105,6 +105,28 @@
   #define PANEL_INVERT  0
 #endif
 
+/* ---------------------------------------------------------------------------
+ * SIZE IS SET AT RUNTIME, by tftInitSize(). The defaults above are just that -
+ * defaults - and tftInit() uses them.
+ *
+ *     tftInitSize(240, 280, 0, 20);     a 1.69 inch ST7789
+ *
+ * WHY THE OFFSETS ARE NOT DECORATION
+ *
+ * The controller always has 240x320 of RAM behind it, whatever glass is stuck
+ * on the front. A shorter panel shows a WINDOW into that RAM, and the offset
+ * says where the window starts. A 240x280 begins 20 rows down; get that wrong
+ * and the picture is shifted off the top by 20 pixels while everything else
+ * looks convincing.
+ *
+ * PANEL_MAX_W and PANEL_MAX_H are the CEILING, not the size. They exist only to
+ * bound the one stack buffer below and gfx.h's frame buffer, both of which have
+ * to be sized when the program is compiled rather than when it runs. 240x320 is
+ * the largest thing this controller drives, so it covers every variant.
+ */
+#define PANEL_MAX_W   240
+#define PANEL_MAX_H   320
+
 #define PIN_TFT_SCK   18
 #define PIN_TFT_MOSI  19
 #define PIN_TFT_CS    17
@@ -116,6 +138,24 @@
  * before - a display that has never worked and a display that is too fast look
  * identical. */
 #define PANEL_HZ      24000000u
+
+/* The panel actually in front of us. Set by tftInit()/tftInitSize(); read
+ * through tftWidth() and tftHeight() rather than PANEL_W and PANEL_H, which are
+ * now only the compile-time defaults. */
+static Int32 tftW    = PANEL_W;
+static Int32 tftH    = PANEL_H;
+static Int32 tftXoff = PANEL_XOFF;
+static Int32 tftYoff = PANEL_YOFF;
+
+static inline Int32 tftWidth(Void)
+{
+    return tftW;
+}
+
+static inline Int32 tftHeight(Void)
+{
+    return tftH;
+}
 
 /* 16 bits per pixel, 5 red / 6 green / 5 blue, which is what COLMOD is set to
  * below. Green gets the spare bit because the eye has most resolution there. */
@@ -193,8 +233,8 @@ static inline Void tftCmd1(UInt8 c, UInt8 p)
  */
 static inline Void tftWindow(Int32 x, Int32 y, Int32 w, Int32 h)
 {
-    const Int32 x0 = x + PANEL_XOFF;
-    const Int32 y0 = y + PANEL_YOFF;
+    const Int32 x0 = x + tftXoff;
+    const Int32 y0 = y + tftYoff;
     const Int32 x1 = x0 + w - 1;
     const Int32 y1 = y0 + h - 1;
 
@@ -262,20 +302,20 @@ static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
         h += y;
         y = 0;
     }
-    if(x + w > PANEL_W)
+    if(x + w > tftW)
     {
-        w = PANEL_W - x;
+        w = tftW - x;
     }
-    if(y + h > PANEL_H)
+    if(y + h > tftH)
     {
-        h = PANEL_H - y;
+        h = tftH - y;
     }
     if(w <= 0 || h <= 0)
     {
         return;
     }
 
-    UInt8 line[PANEL_W * 2];
+    UInt8 line[PANEL_MAX_W * 2];
     const UInt8 hi = (UInt8) (colour >> 8);
     const UInt8 lo = (UInt8) (colour & 0xFF);
     for(Int32 i = 0; i < w; ++i)
@@ -294,7 +334,7 @@ static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 
 static inline Void tftFill(UInt16 colour)
 {
-    tftRect(0, 0, PANEL_W, PANEL_H, colour);
+    tftRect(0, 0, tftW, tftH, colour);
 }
 
 static inline Void tftPixel(Int32 x, Int32 y, UInt16 colour)
@@ -420,7 +460,7 @@ static inline Void tftChar(Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg,
     /* Off-screen entirely: nothing to do, and no window to set. Partial
      * overlap is not clipped here - the caller lays text out, and a half
      * character is worse to look at than a missing one. */
-    if(x < 0 || y < 0 || x + w > PANEL_W || y + h > PANEL_H)
+    if(x < 0 || y < 0 || x + w > tftW || y + h > tftH)
     {
         return;
     }
@@ -476,8 +516,15 @@ static inline Void tftText(Int32 x, Int32 y, const Utf8* s, UInt16 fg, UInt16 bg
  * which is exactly why the first sketch draws a test pattern instead of
  * trusting a return code.
  */
-static inline Bool tftInit(Void)
+static inline Bool tftInitSize(Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 {
+    /* Clamped to what the controller can address, so a typo produces a wrong
+     * picture rather than a window that runs off the end of its RAM. */
+    tftW    = (w <= 0) ? PANEL_MAX_W : ((w > PANEL_MAX_W) ? PANEL_MAX_W : w);
+    tftH    = (h <= 0) ? PANEL_MAX_H : ((h > PANEL_MAX_H) ? PANEL_MAX_H : h);
+    tftXoff = (xoff < 0) ? 0 : xoff;
+    tftYoff = (yoff < 0) ? 0 : yoff;
+
     gpioOpen(PIN_TFT_DC, PIN_DIR_OUT);
     gpioOpen(PIN_TFT_RES, PIN_DIR_OUT);
 
@@ -568,6 +615,12 @@ static inline Bool tftInit(Void)
 
     tftFill(TFT_BLACK);
     return true;
+}
+
+/* The compile-time default, for a sketch that does not care. */
+static inline Bool tftInit(Void)
+{
+    return tftInitSize(PANEL_W, PANEL_H, PANEL_XOFF, PANEL_YOFF);
 }
 
 #endif
