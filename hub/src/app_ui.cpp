@@ -2169,8 +2169,15 @@ Void drawQuickActions()
                 // Only the button sets this - the disconnects around a flash or
                 // a BOOTSEL touch are ours and transient, and treating those as
                 // intent would stop a board ever reconnecting after a reflash.
+                //
+                // Logged because it was NOT, and that made a report of "it
+                // crashes when I press disconnect" impossible to confirm from
+                // the log afterwards: the press left no trace at all.
+                LOG_INFO("pico", "disconnect requested by user (state=%s)",
+                         picoStateText(ps));
                 picoUserDisconnected = true;
                 picoLink.disconnect();
+                LOG_INFO("pico", "disconnect returned");
             }
         }
         else
@@ -3579,7 +3586,17 @@ Void drawCodeControls()
     // ---- row 2: the round trip -------------------------------------------
     const Float32 bh = ImGui::GetFrameHeight();
 
-    ImGui::BeginDisabled(busy);
+    // A HEADER is not a translation unit, and Run on one is meaningless.
+    //
+    // The source picker already knew this and greyed headers out - but the file
+    // TREE happily opens one, and Run then offered "Build & Flash: pico_debug,
+    // compiles gfx.h", which is three kinds of wrong at once. It would build
+    // some unrelated target, flash it, and report success against a file it
+    // never compiled.
+    const Bool onHeader = (codePath.size() > 2
+                           && codePath.compare(codePath.size() - 2, 2, ".h") == 0);
+
+    ImGui::BeginDisabled(busy || onHeader);
 
     // Amber rather than green: this writes to the board. It is the same claim
     // the Firmware panel's Flash button makes, and it has to be the same colour
@@ -3604,13 +3621,25 @@ Void drawCodeControls()
         }
     }
 
-    if(ImGui::IsItemHovered())
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        ImGui::SetTooltip("Build & Flash: %s\n\n"
-                          "Compiles %s\nand writes it to the board, replacing "
-                          "what is on it.",
-                          target.c_str(),
-                          codePath.empty() ? "(unsaved)" : codePath.c_str());
+        if(onHeader)
+        {
+            ImGui::SetTooltip("%s is a header.\n\n"
+                              "Headers are included by other files rather than "
+                              "compiled on their own,\nso there is nothing here "
+                              "to build. Open a .c file - the arrow beside this "
+                              "button\nlists the ones that can be flashed.",
+                              codeName.c_str());
+        }
+        else
+        {
+            ImGui::SetTooltip("Build & Flash: %s\n\n"
+                              "Compiles %s\nand writes it to the board, "
+                              "replacing what is on it.",
+                              target.c_str(),
+                              codePath.empty() ? "(unsaved)" : codePath.c_str());
+        }
     }
 
     // ---- the split-button arrow ------------------------------------------

@@ -119,6 +119,46 @@ struct LinkImplBody
         err = std::move(e);
     }
 
+    // ---- generations ------------------------------------------------------
+    //
+    // disconnect() may DETACH a worker rather than wait for it, when it is
+    // wedged in a driver call that will not return for two minutes. That
+    // worker is still alive and still holds a pointer to this object, so it
+    // must not be allowed to write state belonging to a connection that
+    // started after it was abandoned - a stale "cannot open COM10" landing on
+    // a link that connected fine ten seconds later is a bug that would be
+    // almost impossible to reproduce deliberately.
+    //
+    // Every connect and every disconnect bumps this. A worker keeps the value
+    // it started with and goes quiet the moment it stops matching.
+    Atomic<UInt32> gen{0};
+
+    // Set when disconnect() gave up waiting and detached a worker. That worker
+    // still holds a pointer to this object, so this object can never be freed
+    // afterwards - see the destructor.
+    Atomic<Bool> abandoned{false};
+
+    [[nodiscard]] Bool current(UInt32 mine) const
+    {
+        return gen.load(std::memory_order_acquire) == mine;
+    }
+
+    Void setStateIf(UInt32 mine, PicoState st)
+    {
+        if(current(mine))
+        {
+            state.store(st, std::memory_order_release);
+        }
+    }
+
+    Void setErrorIf(UInt32 mine, Str e)
+    {
+        if(current(mine))
+        {
+            setError(std::move(e));
+        }
+    }
+
     Void pushLine(Bool outgoing, Str text)
     {
         PicoLine ln;
@@ -132,7 +172,7 @@ struct LinkImplBody
             log.pop_front();   // a chatty board loses history, never memory
     }
 
-    Void run(Str port, Int32 baud);
+    Void run(Str port, Int32 baud, UInt32 myGen);
 };
 
 // --- port helpers -----------------------------------------------------------
@@ -387,12 +427,13 @@ inline Bool printable(UInt8 c)
     return c >= 0x20 && c != 0x7F;
 }
 
-Void LinkImpl_run_trampoline(LinkImplBody* self, Str port, Int32 baud)
+Void LinkImpl_run_trampoline(LinkImplBody* self, Str port, Int32 baud,
+                             UInt32 myGen)
 {
-    self->run(std::move(port), baud);
+    self->run(std::move(port), baud, myGen);
 }
 
-Void LinkImplBody::run(Str port, Int32 baud)
+Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
 {
     struct DoneFlag
     {
@@ -412,20 +453,28 @@ Void LinkImplBody::run(Str port, Int32 baud)
                            nullptr);
     if(h == INVALID_HANDLE_VALUE)
     {
+        // Asked to stop while the open was in flight - which is what
+        // CancelSynchronousIo does to a CreateFile that is taking its time.
+        // Not a failure, and reporting one would put a red banner on screen
+        // for a button the user pressed on purpose.
+        if(stop.load(std::memory_order_acquire))
+        {
+            setStateIf(myGen, PicoState::PICO_STATE_DISCONNECTED);
+            return;
+        }
+
         {
             const DWORD     code = ::GetLastError();
             const dev::Loss why  = dev::classify(port, code);
             if(why == dev::Loss::LOSS_UNPLUGGED)
             {
-                setError(dev::describe(why, "Pico", port));
-                state.store(PicoState::PICO_STATE_UNPLUGGED,
-                            std::memory_order_release);
+                setErrorIf(myGen, dev::describe(why, "Pico", port));
+                setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
             }
             else
             {
-                setError(winErrText("cannot open " + path, code));
-                state.store(PicoState::PICO_STATE_ERROR,
-                            std::memory_order_release);
+                setErrorIf(myGen, winErrText("cannot open " + path, code));
+                setStateIf(myGen, PicoState::PICO_STATE_ERROR);
             }
         }
         return;
@@ -434,8 +483,8 @@ Void LinkImplBody::run(Str port, Int32 baud)
     Str cfgErr;
     if(!configurePort(h, baud, /*assertDtr=*/true, &cfgErr))
     {
-        setError(std::move(cfgErr));
-        state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
+        setErrorIf(myGen, std::move(cfgErr));
+        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
         CloseHandle(h);
         return;
     }
@@ -452,8 +501,8 @@ Void LinkImplBody::run(Str port, Int32 baud)
     to.WriteTotalTimeoutConstant   = 1000;
     if(!SetCommTimeouts(h, &to))
     {
-        setError(winErrText("SetCommTimeouts failed", GetLastError()));
-        state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
+        setErrorIf(myGen, winErrText("SetCommTimeouts failed", GetLastError()));
+        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
         CloseHandle(h);
         return;
     }
@@ -468,7 +517,7 @@ Void LinkImplBody::run(Str port, Int32 baud)
         portname = port;
         err.clear();
     }
-    state.store(PicoState::PICO_STATE_CONNECTED, std::memory_order_release);
+    setStateIf(myGen, PicoState::PICO_STATE_CONNECTED);
 
     Str accum;          // partial line carried across reads
     Bool        pendingCr = false;
@@ -499,7 +548,7 @@ Void LinkImplBody::run(Str port, Int32 baud)
             const DWORD n       = static_cast<DWORD>(line.size());
             if(!WriteFile(h, line.data(), n, &written, nullptr) || written != n)
             {
-                setError(winErrText("write failed", GetLastError()));
+                setErrorIf(myGen, winErrText("write failed", GetLastError()));
                 writeFailed = true;
                 break;
             }
@@ -512,7 +561,7 @@ Void LinkImplBody::run(Str port, Int32 baud)
         }
         if(writeFailed)
         {
-            state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
+            setStateIf(myGen, PicoState::PICO_STATE_ERROR);
             break;
         }
 
@@ -536,15 +585,13 @@ Void LinkImplBody::run(Str port, Int32 baud)
             const dev::Loss why = dev::classify(port, code);
             if(why == dev::Loss::LOSS_UNPLUGGED)
             {
-                setError(dev::describe(why, "Pico", port));
-                state.store(PicoState::PICO_STATE_UNPLUGGED,
-                            std::memory_order_release);
+                setErrorIf(myGen, dev::describe(why, "Pico", port));
+                setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
             }
             else
             {
-                setError(winErrText("read failed", code));
-                state.store(PicoState::PICO_STATE_ERROR,
-                            std::memory_order_release);
+                setErrorIf(myGen, winErrText("read failed", code));
+                setStateIf(myGen, PicoState::PICO_STATE_ERROR);
             }
             break;
         }
@@ -637,7 +684,28 @@ PicoLink::PicoLink()
 PicoLink::~PicoLink()
 {
     disconnect();
-    delete pimpl;
+
+    // ---- the one case where this deliberately leaks ------------------------
+    //
+    // disconnect() detaches a worker rather than wait for it when it is wedged
+    // in a driver call that will not return for two minutes. That worker holds
+    // a raw pointer to pimpl and will keep using it until the call returns, so
+    // freeing it here would be a use-after-free on the way out of the program -
+    // a crash on exit, blamed on whatever happened to be running at the time.
+    //
+    // The alternatives are worse. Waiting for it means the app takes two
+    // minutes to close, which is the behaviour that made it look hung in the
+    // first place. Killing the thread leaves the driver's own state half
+    // written.
+    //
+    // So the allocation is abandoned. It is a few kilobytes, it happens only
+    // when a device has already stopped answering, and it happens as the
+    // process is exiting - at which point the OS reclaims everything anyway.
+    // A leak with a reason beats a crash.
+    if(pimpl != nullptr && !pimpl->abandoned.load(std::memory_order_acquire))
+    {
+        delete pimpl;
+    }
     pimpl = nullptr;
 }
 
@@ -674,10 +742,16 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     }
     pimpl->state.store(PicoState::PICO_STATE_CONNECTING, std::memory_order_release);
 
+    // A new generation. Anything still running from a previous one is now
+    // stale and its writes are dropped on the floor.
+    const UInt32 myGen =
+        pimpl->gen.fetch_add(1, std::memory_order_acq_rel) + 1u;
+
     LinkImplBody* raw = pimpl;   // Impl derives from LinkImplBody
     try
     {
-        pimpl->worker = Thread(LinkImpl_run_trampoline, raw, port, useBaud);
+        pimpl->worker = Thread(LinkImpl_run_trampoline, raw, port, useBaud,
+                               myGen);
     }
     catch(...)
     {
@@ -695,8 +769,52 @@ Void PicoLink::disconnect()
     LockGuard<Mutex> life(pimpl->lifeMu);
 
     pimpl->stop.store(true, std::memory_order_release);
+
+    // Retire this generation before touching the thread. Whatever the worker
+    // does from here on - including finishing a two-minute open long after it
+    // was detached - is no longer allowed to reach the visible state.
+    pimpl->gen.fetch_add(1, std::memory_order_acq_rel);
+
     if(pimpl->worker.joinable())
-        pimpl->worker.join();        // blocks until the reader is really gone
+    {
+        // ---- why this is not a plain join() ------------------------------
+        //
+        // It used to be, and pressing Disconnect while the link was still
+        // CONNECTING froze the whole app. The worker is inside CreateFileA at
+        // that moment, and on a USB CDC port whose device has stopped
+        // answering, that call blocks for the full ~120 second driver timeout.
+        // `stop` is not read during a syscall, so setting it changes nothing.
+        // Joining from the UI thread therefore parks the entire interface for
+        // two minutes - long enough that Windows marks it Not Responding and
+        // closing it looks exactly like a crash.
+        //
+        // CancelSynchronousIo breaks a blocking call the worker is sitting in,
+        // which turns the join from two minutes into microseconds. It returns
+        // ERROR_NOT_FOUND when the thread is not blocked, which is fine and
+        // means there was nothing to cancel.
+        const HANDLE th = static_cast<HANDLE>(pimpl->worker.native_handle());
+        if(th != nullptr)
+        {
+            ::CancelSynchronousIo(th);
+        }
+
+        // And a bounded wait, because "should return promptly" is not a
+        // guarantee and the UI freezing is the thing being fixed. If the
+        // worker really will not come back, it is detached and left to finish
+        // on its own rather than held onto at the cost of the interface.
+        //
+        // Safe to detach: the worker only touches the Impl, which outlives
+        // every connection, and it closes its own handle on the way out.
+        if(::WaitForSingleObject(th, 3000) == WAIT_OBJECT_0)
+        {
+            pimpl->worker.join();
+        }
+        else
+        {
+            pimpl->worker.detach();
+            pimpl->abandoned.store(true, std::memory_order_release);
+        }
+    }
 
     pimpl->stop.store(false, std::memory_order_release);
     pimpl->finished.store(false, std::memory_order_release);
