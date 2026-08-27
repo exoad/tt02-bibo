@@ -168,6 +168,22 @@ typedef struct Screen
     Int32 clipW;
     Int32 clipH;
 
+    /* ---- the safe area --------------------------------------------------
+     *
+     * These panels have ROUNDED CORNERS cut into the glass. The controller
+     * still addresses the full rectangle and will happily accept pixels for
+     * the corners; you simply cannot see them, and text placed near an edge
+     * disappears into the curve.
+     *
+     * `safeInset` is how far in from each edge is actually visible. It is a
+     * property of the GLASS, not of the driver, so it lives on the screen
+     * beside the size and offsets - the same category of fact.
+     *
+     * Zero means "the whole rectangle is visible", which is right for a panel
+     * with square corners and wrong for every one of these.
+     */
+    Int32 safeInset;
+
     UInt16 fg;
     UInt16 bg;
     Bool   bgSolid;
@@ -557,6 +573,7 @@ static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff
     s->clipY     = 0;
     s->clipW     = s->width;
     s->clipH     = s->height;
+    s->safeInset = 0;
     s->fg        = TFT_WHITE;
     s->bg        = TFT_BLACK;
     s->bgSolid   = true;

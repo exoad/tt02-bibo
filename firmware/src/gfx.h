@@ -164,6 +164,58 @@ static inline UInt16 gfxHsv(Int32 hue, UInt8 sat, UInt8 val)
 static UInt16 gfxBuf[PANEL_MAX_W * PANEL_MAX_H];
 static Bool   gfxBufTaken = false;
 
+/* ---- the safe area -------------------------------------------------------
+ *
+ * Rounded corners are cut into the glass, so the outermost pixels of a panel
+ * are addressable and invisible. Anything at a corner is lost, and text along
+ * an edge vanishes into the curve.
+ *
+ * Set the inset once and lay out against these instead of against 0 and
+ * width/height. The full rectangle is still reachable - gfxClear() fills it,
+ * and a background should - but anything that has to be READ belongs inside.
+ *
+ *     gfxSafeInset(&screen, 12);
+ *     gfxTextAt(&screen, gfxSafeLeft(&screen), gfxSafeTop(&screen), "HELLO");
+ *
+ * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfxSafeOutline()
+ * for a frame to check against, then take it out.
+ */
+static inline Void gfxSafeInset(Screen* s, Int32 inset)
+{
+    const Int32 most = ((s->width < s->height) ? s->width : s->height) / 3;
+    s->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
+}
+
+static inline Int32 gfxSafeLeft(const Screen* s)
+{
+    return s->safeInset;
+}
+
+static inline Int32 gfxSafeTop(const Screen* s)
+{
+    return s->safeInset;
+}
+
+static inline Int32 gfxSafeRight(const Screen* s)
+{
+    return s->width - s->safeInset;
+}
+
+static inline Int32 gfxSafeBottom(const Screen* s)
+{
+    return s->height - s->safeInset;
+}
+
+static inline Int32 gfxSafeWidth(const Screen* s)
+{
+    return s->width - (2 * s->safeInset);
+}
+
+static inline Int32 gfxSafeHeight(const Screen* s)
+{
+    return s->height - (2 * s->safeInset);
+}
+
 /* ---- clipping ------------------------------------------------------------ */
 
 static inline Void gfxClip(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
@@ -807,6 +859,17 @@ static inline Void gfxPrintf(Screen* s, const Utf8* fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     gfxPrint(s, buf);
+}
+
+/*
+ * Draws the safe area's boundary. A calibration aid, not decoration: run it,
+ * look at the panel, and change the inset until the frame is fully visible with
+ * a little to spare. Then take the call out.
+ */
+static inline Void gfxSafeOutline(Screen* s, UInt16 colour)
+{
+    gfxRect(s, gfxSafeLeft(s), gfxSafeTop(s),
+            gfxSafeWidth(s), gfxSafeHeight(s), colour);
 }
 
 /* ---- start --------------------------------------------------------------- */
