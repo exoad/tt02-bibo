@@ -16,6 +16,7 @@
 #include <d3d11.h>
 #include <wincodec.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -465,6 +466,44 @@ Bool iconButton(Icon ic, const Char* label, const ImVec2& size, Tint tint)
 
         if(fits)
             iconAt(ImGui::GetWindowDrawList(), ic, ImVec2(x, y));
+    }
+    return hit;
+}
+
+Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut, Bool enabled)
+{
+    // Enough leading spaces to clear the icon, measured rather than guessed -
+    // the icon size and the space width move independently with DPI.
+    Char padded[128];
+    const Float32 spaceW = ImGui::CalcTextSize(" ").x;
+    Int32 n = 3;
+    if(iconsReady() && spaceW > 0.0f)
+    {
+        n = static_cast<Int32>(std::ceil((iconSize()
+                                          + ImGui::GetStyle().ItemInnerSpacing.x)
+                                         / spaceW));
+    }
+    n = (n < 0) ? 0 : ((n > 32) ? 32 : n);
+
+    std::snprintf(padded, sizeof(padded), "%*s%s", n, "", label);
+
+    const Bool hit = ImGui::MenuItem(padded, shortcut, false, enabled);
+
+    if(iconsReady())
+    {
+        const ImVec2  a  = ImGui::GetItemRectMin();
+        const ImVec2  b  = ImGui::GetItemRectMax();
+        const Float32 sz = iconSize();
+        const Float32 x  = a.x + ImGui::GetStyle().FramePadding.x;
+        const Float32 y  = a.y + ((b.y - a.y) - sz) * 0.5f;
+
+        // Dimmed with the label when the entry is disabled, or the icon would
+        // be the one bright thing on a greyed-out row.
+        const ImU32 tint = enabled
+            ? IM_COL32_WHITE
+            : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+
+        iconAt(ImGui::GetWindowDrawList(), ic, ImVec2(x, y), tint);
     }
     return hit;
 }

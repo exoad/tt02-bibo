@@ -5,6 +5,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -182,6 +183,44 @@ Bool save(const Str& path, const Str& text, Str& err)
         return false;
     }
     return true;
+}
+
+UInt64 stamp(const Str& path)
+{
+    if(path.empty())
+    {
+        return 0;
+    }
+
+    WIN32_FILE_ATTRIBUTE_DATA fad = {};
+    if(!::GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad))
+    {
+        return 0;
+    }
+    return (static_cast<UInt64>(fad.ftLastWriteTime.dwHighDateTime) << 32)
+         | static_cast<UInt64>(fad.ftLastWriteTime.dwLowDateTime);
+}
+
+Bool remove(const Str& path)
+{
+    if(path.empty())
+    {
+        return false;
+    }
+    return ::DeleteFileA(path.c_str()) != 0;
+}
+
+Void reveal(const Str& path)
+{
+    if(path.empty())
+    {
+        return;
+    }
+    // /select, highlights the file itself rather than merely opening the folder,
+    // which is what somebody right-clicking a file is asking for.
+    const Str arg = "/select,\"" + path + "\"";
+    ::ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr,
+                    SW_SHOWNORMAL);
 }
 
 Str starter()

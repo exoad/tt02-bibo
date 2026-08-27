@@ -116,6 +116,12 @@ const Char* kindTag(cmpl::Kind k) noexcept
 
 } // namespace
 
+Void setNote(CodeView& v, const Str& text, Float64 nowS)
+{
+    v.note    = text;
+    v.noteAtS = nowS;
+}
+
 Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -162,7 +168,9 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
     // so it does not jump a pixel when the file crosses 100 lines.
     Char  numBuf[16];
     std::snprintf(numBuf, sizeof(numBuf), "%d", std::max(1, e.lineCount()));
-    const Float32 gutterW = (static_cast<Float32>(std::strlen(numBuf)) + 2.0f) * charW;
+    // +3 rather than +2: one column for the diagnostic mark on the left, and
+    // one of margin on each side of the number itself.
+    const Float32 gutterW = (static_cast<Float32>(std::strlen(numBuf)) + 3.0f) * charW;
 
     const Float32 textX   = origin.x + gutterW;
     const Float32 viewH   = std::max(lineH, region.y - statusH);
@@ -195,6 +203,16 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
     }
 
     Bool changed = false;
+
+    // Anything the editor wants to say - "3 lines yanked", "already at oldest
+    // change". It produced these all along and nothing ever showed them.
+    {
+        const Str msg = e.takeMessage();
+        if(!msg.empty())
+        {
+            setNote(v, msg, nowS);
+        }
+    }
 
     if(v.focused)
     {
@@ -387,13 +405,53 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
                               syn::gruv::BG1);
         }
 
-        // Line number. The current one is brighter, which is the whole reason
-        // a gutter earns its width.
-        std::snprintf(numBuf, sizeof(numBuf), "%d", l + 1);
+        // ---- line number -------------------------------------------------
+        //
+        // RELATIVE in every mode except insert, and absolute on the caret's own
+        // line. That is vim's `number` + `relativenumber`, and it is not a
+        // stylistic choice: relative numbers exist so `12j` and `4dd` can be
+        // read straight off the screen without counting, which is the entire
+        // point of operator-plus-count editing.
+        //
+        // Insert mode switches to absolute because there are no counted motions
+        // to serve there, and because a compiler error says "line 42", not
+        // "line 42 relative to wherever your caret happens to be".
+        const Bool onCaret  = (l == e.cursor().line);
+        const Bool absolute = onCaret || (e.mode() == ed::Mode::MODE_INSERT);
+
+        const Int32 shown = absolute ? (l + 1)
+                                     : std::abs(l - e.cursor().line);
+        std::snprintf(numBuf, sizeof(numBuf), "%d", shown);
         const Float32 numW = static_cast<Float32>(std::strlen(numBuf)) * charW;
-        dl->AddText(ImVec2(origin.x + gutterW - charW - numW, y),
-                    (l == e.cursor().line) ? syn::gruv::YELLOW : syn::gruv::FG4,
+        // The caret's own number is left-aligned and bright; the relative ones
+        // are right-aligned against it, so the column of distances reads as a
+        // ruler rather than as a list of numbers.
+        const Float32 numX = onCaret
+            ? (origin.x + charW)
+            : (origin.x + gutterW - charW - numW);
+
+        dl->AddText(ImVec2(numX, y),
+                    onCaret ? syn::gruv::YELLOW : syn::gruv::FG4,
                     numBuf);
+
+        // ---- diagnostic mark in the gutter ---------------------------------
+        if(!v.diags.empty())
+        {
+            const Int32 worst = diag::worstOnLine(v.diags, l + 1);
+            if(worst >= 0)
+            {
+                const ImU32 mc =
+                    (worst == static_cast<Int32>(diag::Severity::SEVERITY_ERR))
+                        ? syn::gruv::RED
+                        : (worst == static_cast<Int32>(diag::Severity::SEVERITY_WARN))
+                              ? syn::gruv::YELLOW
+                              : syn::gruv::BLUE;
+
+                const Float32 r = std::max(2.0f, lineH * 0.16f);
+                dl->AddCircleFilled(ImVec2(origin.x + r * 1.6f, y + lineH * 0.5f),
+                                    r, mc, 10);
+            }
+        }
 
         const Str&  src = e.line(l);
         const Int32 len = static_cast<Int32>(src.size());
@@ -416,6 +474,41 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
         Bool open = (l < static_cast<Int32>(blockAt.size())) ? blockAt[static_cast<Size>(l)]
                                                             : false;
         syn::tokenize(src, open, spans);
+
+        // ---- diagnostic underline ------------------------------------------
+        // A squiggle would be prettier and is not worth the vertex count at
+        // 60 fps; a flat rule under the span says the same thing.
+        if(!v.diags.empty())
+        {
+            for(const diag::Item& d : v.diags)
+            {
+                if(d.line != l + 1)
+                {
+                    continue;
+                }
+
+                // Column 0 means the compiler did not say where, so the whole
+                // line is marked rather than a span being invented for it.
+                const Int32 from = (d.column > 0) ? (d.column - 1) : 0;
+                const Int32 to   = (d.column > 0) ? std::min(len, from + 9) : len;
+                if(to <= from)
+                {
+                    continue;
+                }
+
+                const ImU32 uc =
+                    (d.severity == diag::Severity::SEVERITY_ERR)
+                        ? syn::gruv::RED
+                        : (d.severity == diag::Severity::SEVERITY_WARN)
+                              ? syn::gruv::YELLOW
+                              : syn::gruv::BLUE;
+
+                const Float32 uy = y + lineH - 1.5f * dpiScale();
+                dl->AddLine(ImVec2(textX + static_cast<Float32>(from) * charW, uy),
+                            ImVec2(textX + static_cast<Float32>(to) * charW, uy),
+                            uc, std::max(1.0f, 1.5f * dpiScale()));
+            }
+        }
 
         // ONE CELL AT A TIME, and this is the whole reason the caret used to
         // drift.
@@ -602,11 +695,42 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
         const Float32 pw = ImGui::CalcTextSize(pos).x;
         dl->AddText(ImVec2(origin.x + region.x - pw - pad, ty), syn::gruv::FG4, pos);
 
-        // Command line while typing one, else the last message, else a hint.
-        Str mid;
+        // The middle slot, in priority order: what you are typing, then what
+        // just happened, then a hint. A transient note outranks the hint
+        // because it is news; the command line outranks everything because you
+        // are looking straight at it.
+        Str   mid;
+        ImU32 midCol = syn::gruv::GRAY;
+
         if(e.mode() == ed::Mode::MODE_COMMAND)
         {
-            mid = ":" + e.commandLine();
+            mid    = ":" + e.commandLine();
+            midCol = syn::gruv::FG1;
+        }
+        else if(!v.note.empty())
+        {
+            const Float64 age = nowS - v.noteAtS;
+            if(age < NOTE_HOLD_S + NOTE_FADE_S)
+            {
+                mid = v.note;
+
+                // Fades out rather than vanishing. A message that disappears
+                // between glances is one you are never sure you saw.
+                Float32 a = 1.0f;
+                if(age > NOTE_HOLD_S)
+                {
+                    a = 1.0f - static_cast<Float32>((age - NOTE_HOLD_S) / NOTE_FADE_S);
+                }
+                a = std::max(0.0f, std::min(1.0f, a));
+
+                const ImU32 base = syn::gruv::GREEN;
+                midCol = (base & 0x00FFFFFFu)
+                       | (static_cast<ImU32>(a * 255.0f) << 24);
+            }
+            else
+            {
+                v.note.clear();
+            }
         }
         else if(!v.focused)
         {
@@ -615,10 +739,34 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
         if(!mid.empty())
         {
-            dl->AddText(ImVec2(origin.x + mw + pad * 3.0f, ty),
-                        (e.mode() == ed::Mode::MODE_COMMAND) ? syn::gruv::FG1
-                                                             : syn::gruv::GRAY,
-                        mid.c_str());
+            dl->AddText(ImVec2(origin.x + mw + pad * 3.0f, ty), midCol, mid.c_str());
+        }
+
+        // ---- a diagnostic count, right of the position ---------------------
+        if(!v.diags.empty())
+        {
+            Int32 errs = 0;
+            Int32 warns = 0;
+            for(const diag::Item& d : v.diags)
+            {
+                if(d.severity == diag::Severity::SEVERITY_ERR)
+                {
+                    ++errs;
+                }
+                else if(d.severity == diag::Severity::SEVERITY_WARN)
+                {
+                    ++warns;
+                }
+            }
+
+            if(errs > 0 || warns > 0)
+            {
+                Char db[64];
+                std::snprintf(db, sizeof(db), "%d e  %d w", errs, warns);
+                const Float32 dw = ImGui::CalcTextSize(db).x;
+                dl->AddText(ImVec2(origin.x + region.x - pw - dw - pad * 3.0f, ty),
+                            (errs > 0) ? syn::gruv::RED : syn::gruv::YELLOW, db);
+            }
         }
     }
 
