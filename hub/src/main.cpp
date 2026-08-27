@@ -240,7 +240,7 @@ static Void enableDpiAwareness()
     ::SetProcessDPIAware();
 }
 
-static UINT DpiForWindow(HWND hwnd)
+static UINT dpiForWindow(HWND hwnd)
 {
     if(getDpiForWindowFn)
         return getDpiForWindowFn(hwnd);
@@ -303,7 +303,7 @@ static Void minTrackSizeForWindow(HWND hwnd, LONG* outW, LONG* outH)
     // Ask the window itself rather than trusting geometryDpiScale: WM_GETMINMAXINFO
     // fires during CreateWindow and around WM_DPICHANGED, when the cached
     // scale may not match this window's monitor yet.
-    const UINT  dpi   = DpiForWindow(hwnd);
+    const UINT  dpi   = dpiForWindow(hwnd);
     const Float32 scale = (static_cast<Float32>(dpi) / 96.0f) * ui::userScale();
 
     RECT rc = { 0, 0,
@@ -631,7 +631,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     }
 
     // The real DPI of the monitor the window actually landed on.
-    monitorDpiScale  = static_cast<Float32>(DpiForWindow(hwnd)) / 96.0f;
+    monitorDpiScale  = static_cast<Float32>(dpiForWindow(hwnd)) / 96.0f;
     geometryDpiScale = monitorDpiScale * ui::userScale();
 
     if(!createDeviceD3D(hwnd))

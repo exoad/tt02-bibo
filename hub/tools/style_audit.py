@@ -15,8 +15,38 @@ decays silently; this is the check.
 import io, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, '..', 'src')
-TESTS = os.path.join(HERE, '..', 'tests')
+ROOT = os.path.join(HERE, '..', '..')
+
+
+def at(*parts):
+    return os.path.join(ROOT, *parts)
+
+
+# Everything in this repo that is OURS. vendor/ is upstream and is not audited;
+# neither is hub/vendor's imgui copy.
+#
+# The list is explicit rather than a walk because the interesting mistake is a
+# directory nobody remembered - hub/tests/board_preview sat one level below the
+# old TESTS root and was never scanned, and firmware/ was never in scope at all.
+# A walk would have hidden that by silently including them the day they appeared;
+# an explicit list makes adding a directory a decision somebody makes.
+DIRS = [
+    at('hub', 'src'),
+    at('hub', 'tests'),
+    at('hub', 'tests', 'board_preview'),
+    at('lidar', 'bridge'),
+    at('firmware', 'src'),
+    at('shared'),
+]
+
+# C cannot follow two of the C++ rules, so they are not applied to it:
+#
+#   - named casts. C has no static_cast; `(Int64) x` is the only spelling there
+#     is, and banning it would ban casting.
+#   - the .hpp extension. docs/conventions.md carves this out explicitly - a
+#     header that must compile as C is a .h, and that is firmware/ and
+#     shared/shared.h.
+C_ONLY_WAIVES = {'c-style cast'}
 
 def strip_noise(text):
     """Blank out // comments, /* */ comments and "..." literals, keeping
@@ -62,6 +92,22 @@ RULES = [
     ('for with space',  r'\bfor\s+\(',     'for(...)'),
     ('while with space',r'\bwhile\s+\(',   'while(...)'),
     ('switch with space',r'\bswitch\s+\(', 'switch(...)'),
+
+    # Found `static UINT DpiForWindow(HWND)` in main.cpp, three lines from the
+    # Win32 GetDpiForWindow it wraps - which is exactly why it read as fine.
+    ('PascalCase function',
+     r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
+     r'UInt16|UInt32|UInt64|Float32|Float64|Size|Str|Char|Utf8|UINT|LRESULT|HRESULT)'
+     r'\s+[A-Z][A-Za-z0-9]*\s*\(',
+     'functions are camelCase'),
+
+    # Found `static Void sleep_ms(Int32)` in test_pico_link.cpp, where it read
+    # as the Pico SDK call it is named after and is not.
+    ('snake_case function',
+     r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
+     r'UInt16|UInt32|UInt64|Float32|Float64|Size|Str|Char|Utf8)'
+     r'\s+[a-z][a-z0-9]*_[a-z0-9_]+\s*\(',
+     'functions are camelCase'),
 
     ('k-prefixed constant', r'\bk[A-Z][A-Za-z0-9]*\b', 'SCREAMING_SNAKE_CASE'),
     ('m_ member',           r'\bm_[A-Za-z0-9_]+',      'camelCase, no m_'),
@@ -113,6 +159,10 @@ EXEMPT = [
     # to name the builtin; that is the entire point of the file.
     (r'\busing\s+\w+\s*=\s*(float|double|bool|char|int|unsigned|std::)', 'the alias definition itself'),
 
+    # shared.h is the same file for C. `typedef char Utf8;` is the definition,
+    # not a use.
+    (r'^\s*typedef\s+\w+\s+\w+\s*;', 'the alias definition itself'),
+
     # A lambda body genuinely reads better on one line when it is a single
     # expression - `[](const Str& a) { return a > b; }` as a sort predicate. The
     # rule targets function and control-flow bodies, not these.
@@ -125,17 +175,30 @@ def exempt(line):
             return why
     return None
 
+def is_c(path):
+    """A .c, or a .h that has to compile as C - firmware/ and shared/shared.h."""
+    if path.endswith('.c'):
+        return True
+    if not path.endswith('.h'):
+        return False
+    norm = path.replace('\\', '/')
+    return '/firmware/' in norm or norm.endswith('/shared/shared.h')
+
+
 def audit(paths):
     hits = {}
     for path in paths:
         code = strip_noise(rd(path))
         raw  = rd(path).split('\n')
         lines = code.split('\n')
+        waived_here = C_ONLY_WAIVES if is_c(path) else set()
         for i, l in enumerate(lines):
             if not l.strip():
                 continue
             why = exempt(raw[i] if i < len(raw) else '')
             for name, pat, note in RULES:
+                if name in waived_here:
+                    continue
                 for m in re.finditer(pat, l):
                     if why:
                         continue
@@ -148,11 +211,11 @@ def rd(p):
     return io.open(p, encoding='utf-8', errors='surrogateescape').read()
 
 files = []
-for d in (SRC, TESTS):
+for d in DIRS:
     if not os.path.isdir(d):
         continue
     for f in sorted(os.listdir(d)):
-        if f.endswith(('.cpp', '.hpp', '.h')):
+        if f.endswith(('.cpp', '.hpp', '.h', '.c')):
             files.append(os.path.join(d, f))
 
 hits = audit(files)
@@ -178,11 +241,12 @@ for name in [r[0] for r in RULES]:
 HEADER_EXEMPT = {'resource.h'}
 
 print('\n--- header extensions ---')
-for d in (SRC, TESTS):
-    for f in sorted(os.listdir(d)):
-        if f.endswith('.h') and f not in HEADER_EXEMPT:
-            print('  .h header (should be .hpp):', f)
-            total += 1
+for path in files:
+    f = os.path.basename(path)
+    # A C header is correctly a .h - that is the rule, not an exception to it.
+    if f.endswith('.h') and f not in HEADER_EXEMPT and not is_c(path):
+        print('  .h header (should be .hpp):', path)
+        total += 1
 
 print('\n--- includes of .h project headers ---')
 for path in files:
@@ -194,8 +258,16 @@ for path in files:
         # Third-party headers keep whatever extension upstream gave them.
         if inc in HEADER_EXEMPT or inc.startswith(('imgui', 'sl_lidar', 'stb_')):
             continue
+        # C sources include C headers. shared.h and pico2w.h are .h because they
+        # must be, so including them by that name is correct.
+        if is_c(path) or inc in ('shared.h', 'pico2w.h'):
+            continue
         print('  %s:%d  %s' % (os.path.basename(path), i + 1, l.strip()))
         total += 1
 
-print('\n%d violation(s), %d waived by EXEMPT' % (total, waived))
+print('\n%d file(s): %s' % (
+    len(files),
+    ', '.join(sorted(set(os.path.relpath(os.path.dirname(f), ROOT).replace('\\', '/')
+                         for f in files)))))
+print('%d violation(s), %d waived by EXEMPT' % (total, waived))
 sys.exit(0 if total == 0 else 1)

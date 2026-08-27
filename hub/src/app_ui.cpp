@@ -228,14 +228,17 @@ FlashState flashPrev = FlashState::FLASH_STATE_IDLE;
 // Sensors are open by default because they are the two you read, the rest are
 // things you go and do.
 
+// Unscoped on purpose. SECTION_COUNT is an array bound and the rest are array
+// indices at two dozen sites; `enum class` would add a static_cast to every one
+// of them and change nothing about what the code means.
 enum Section
 {
-    SEC_System = 0,
-    SEC_Sensors,
-    SEC_Vehicle,
-    SEC_Firmware,
-    SEC_Console,
-    SEC_Count,
+    SECTION_SYSTEM = 0,
+    SECTION_SENSORS,
+    SECTION_VEHICLE,
+    SECTION_FIRMWARE,
+    SECTION_CONSOLE,
+    SECTION_COUNT,
 };
 
 // ---------------------------------------------------------------------------
@@ -247,9 +250,9 @@ enum Section
 // layout.ini - and what is kept here is only the fact that they ARE floating,
 // which ImGui has no way of knowing.
 // ---------------------------------------------------------------------------
-Int32 sectionOrder[SEC_Count] = { SEC_System, SEC_Sensors, SEC_Vehicle,
-                                  SEC_Firmware, SEC_Console };
-Bool  sectionFloating[SEC_Count] = {};
+Int32 sectionOrder[SECTION_COUNT] = { SECTION_SYSTEM, SECTION_SENSORS, SECTION_VEHICLE,
+                                  SECTION_FIRMWARE, SECTION_CONSOLE };
+Bool  sectionFloating[SECTION_COUNT] = {};
 
 // Logical (96-dpi) pixels, so the column keeps its apparent width across a DPI
 // change or a zoom rather than growing in one and not the other.
@@ -300,7 +303,7 @@ Void loadPanelLayout()
     // file costs a default layout rather than a parser.
     Size i = 0;
     Int32 seen = 0;
-    Int32 order[SEC_Count] = {};
+    Int32 order[SECTION_COUNT] = {};
 
     while(i < txt.size())
     {
@@ -360,11 +363,11 @@ Void loadPanelLayout()
                 codeTreeCollapsed = (c != 0);
             }
         }
-        else if(line.size() > 2 && line[0] == 's' && seen < SEC_Count)
+        else if(line.size() > 2 && line[0] == 's' && seen < SECTION_COUNT)
         {
             Int32 id = -1, fl = 0;
             if(std::sscanf(line.c_str() + 1, "%d %d", &id, &fl) == 2
-               && id >= 0 && id < SEC_Count)
+               && id >= 0 && id < SECTION_COUNT)
             {
                 order[seen++] = id;
                 sectionFloating[id] = (fl != 0);
@@ -391,11 +394,11 @@ Void loadPanelLayout()
 
     // Only accept an order that is a genuine permutation. A partial or repeated
     // one would silently drop a section off the screen with no way back.
-    if(seen == SEC_Count)
+    if(seen == SECTION_COUNT)
     {
-        Bool used[SEC_Count] = {};
+        Bool used[SECTION_COUNT] = {};
         Bool ok = true;
-        for(Int32 k = 0; k < SEC_Count; ++k)
+        for(Int32 k = 0; k < SECTION_COUNT; ++k)
         {
             if(used[order[k]])
             {
@@ -405,7 +408,7 @@ Void loadPanelLayout()
             used[order[k]] = true;
         }
         if(ok)
-            for(Int32 k = 0; k < SEC_Count; ++k)
+            for(Int32 k = 0; k < SECTION_COUNT; ++k)
                 sectionOrder[k] = order[k];
     }
 }
@@ -441,7 +444,7 @@ Void savePanelLayout()
                       p.open ? 1 : 0, p.collapsed ? 1 : 0, p.z);
         out += buf;
     }
-    for(Int32 k = 0; k < SEC_Count; ++k)
+    for(Int32 k = 0; k < SECTION_COUNT; ++k)
     {
         std::snprintf(buf, sizeof(buf), "s %d %d\n",
                       sectionOrder[k], sectionFloating[sectionOrder[k]] ? 1 : 0);
@@ -5074,12 +5077,12 @@ struct SectionEntry
     Void      (*body)();
 };
 
-const SectionEntry SECTIONS[SEC_Count] = {
-    { "    System",   "System",   SEC_System,   true,  ui::Icon::ICON_SYSTEM,   &sectionSystem   },
-    { "    Sensors",  "Sensors",  SEC_Sensors,  true,  ui::Icon::ICON_SENSORS,  &sectionSensors  },
-    { "    Vehicle",  "Vehicle",  SEC_Vehicle,  false, ui::Icon::ICON_VEHICLE,  &sectionVehicle  },
-    { "    Firmware", "Firmware", SEC_Firmware, false, ui::Icon::ICON_FIRMWARE, &sectionFirmware },
-    { "    Console",  "Console",  SEC_Console,  false, ui::Icon::ICON_CONSOLE,  &sectionConsole  },
+const SectionEntry SECTIONS[SECTION_COUNT] = {
+    { "    System",   "System",   SECTION_SYSTEM,   true,  ui::Icon::ICON_SYSTEM,   &sectionSystem   },
+    { "    Sensors",  "Sensors",  SECTION_SENSORS,  true,  ui::Icon::ICON_SENSORS,  &sectionSensors  },
+    { "    Vehicle",  "Vehicle",  SECTION_VEHICLE,  false, ui::Icon::ICON_VEHICLE,  &sectionVehicle  },
+    { "    Firmware", "Firmware", SECTION_FIRMWARE, false, ui::Icon::ICON_FIRMWARE, &sectionFirmware },
+    { "    Console",  "Console",  SECTION_CONSOLE,  false, ui::Icon::ICON_CONSOLE,  &sectionConsole  },
 };
 
 const SectionEntry& sectionById(Int32 id)
@@ -5095,7 +5098,7 @@ const SectionEntry& sectionById(Int32 id)
 // their relative order, and a swap would drop System to the bottom instead.
 Void moveSection(Int32 from, Int32 to)
 {
-    if(from == to || from < 0 || to < 0 || from >= SEC_Count || to >= SEC_Count)
+    if(from == to || from < 0 || to < 0 || from >= SECTION_COUNT || to >= SECTION_COUNT)
         return;
 
     const Int32 moved = sectionOrder[from];
@@ -5147,7 +5150,7 @@ Void drawSidebar(Float32 width, Float32 height)
 
     Int32 dragFrom = -1, dragTo = -1;
 
-    for(Int32 slot = 0; slot < SEC_Count; ++slot)
+    for(Int32 slot = 0; slot < SECTION_COUNT; ++slot)
     {
         const SectionEntry& e = sectionById(sectionOrder[slot]);
 
@@ -5247,7 +5250,7 @@ Void drawSidebar(Float32 width, Float32 height)
 // float above the whole app rather than being clipped to a child region.
 Void drawFloatingPanels()
 {
-    for(Int32 slot = 0; slot < SEC_Count; ++slot)
+    for(Int32 slot = 0; slot < SECTION_COUNT; ++slot)
     {
         const SectionEntry& e = sectionById(sectionOrder[slot]);
         if(!sectionFloating[e.id])
@@ -5502,16 +5505,16 @@ Void app::init(Float32 dpiScale)
         {
             struct TabName { const Char* name; Int32 sec; Int32 sub; };
             static const TabName TAB_NAMES[] = {
-                { "system",   SEC_System,   -1 }, { "overview", SEC_System,   -1 },
-                { "sensors",  SEC_Sensors,  -1 }, { "world",    SEC_Sensors,  -1 },
-                { "lidar",    SEC_Sensors,  -1 },
-                { "live",     SEC_Sensors,   0 }, { "signal",   SEC_Sensors,   1 },
-                { "scan",     SEC_Sensors,   2 }, { "device",   SEC_Sensors,   3 },
+                { "system",   SECTION_SYSTEM,   -1 }, { "overview", SECTION_SYSTEM,   -1 },
+                { "sensors",  SECTION_SENSORS,  -1 }, { "world",    SECTION_SENSORS,  -1 },
+                { "lidar",    SECTION_SENSORS,  -1 },
+                { "live",     SECTION_SENSORS,   0 }, { "signal",   SECTION_SENSORS,   1 },
+                { "scan",     SECTION_SENSORS,   2 }, { "device",   SECTION_SENSORS,   3 },
                 // "map" and "pico" are deliberately absent: they now name central
                 // views (--view), and one word must not select two different things.
-                { "vehicle",  SEC_Vehicle,  -1 },
-                { "firmware", SEC_Firmware, -1 }, { "flash",    SEC_Firmware, -1 },
-                { "console",  SEC_Console,  -1 }, { "debug",    SEC_Console,  -1 },
+                { "vehicle",  SECTION_VEHICLE,  -1 },
+                { "firmware", SECTION_FIRMWARE, -1 }, { "flash",    SECTION_FIRMWARE, -1 },
+                { "console",  SECTION_CONSOLE,  -1 }, { "debug",    SECTION_CONSOLE,  -1 },
             };
             for(const TabName& t : TAB_NAMES)
                 if(_stricmp(__argv[i + 1], t.name) == 0)

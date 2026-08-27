@@ -33,7 +33,7 @@ static const Char* stateName(PicoState s)
     return "?";
 }
 
-static Void sleep_ms(Int32 ms)
+static Void sleepMs(Int32 ms)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
@@ -45,7 +45,7 @@ static Size pump(PicoLink& link, Vec<PicoLine>& sink, Int32 ms, const Char* what
     for(Int32 t = 0; t < ms; t += 16)
     {
         link.drain(sink);
-        sleep_ms(16);
+        sleepMs(16);
     }
     link.drain(sink);
     printf("  [%s] %d ms elapsed, %zu new line(s)\n", what, ms, sink.size() - before);
@@ -84,7 +84,7 @@ int main()
     link.connect(PORT);
 
     for(Int32 i = 0; i < 200 && link.state() == PicoState::PICO_STATE_CONNECTING; ++i)
-        sleep_ms(10);
+        sleepMs(10);
     printf("  state after open: %s\n", stateName(link.state()));
     printf("  port():           '%s'\n", link.port().c_str());
     printf("  error():          '%s'\n", link.error().c_str());
@@ -110,7 +110,7 @@ int main()
     {
         printf("  send(\"%s\")\n", p);
         link.send(p);
-        sleep_ms(120);
+        sleepMs(120);
         link.drain(lines);
     }
 
@@ -164,7 +164,7 @@ int main()
     printf("\n=== 9. reconnect after disconnect ===\n");
     link.connect(PORT);
     for(Int32 i = 0; i < 200 && link.state() == PicoState::PICO_STATE_CONNECTING; ++i)
-        sleep_ms(10);
+        sleepMs(10);
     printf("  state: %s ... %s\n", stateName(link.state()),
            link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL");
     if(link.state() != PicoState::PICO_STATE_CONNECTED)
