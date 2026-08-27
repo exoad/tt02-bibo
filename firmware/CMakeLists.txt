@@ -74,6 +74,7 @@ add_executable(sketch
     src/pico2w.h
     src/st77xx.h
     src/gfx.h
+    src/sdcard.h
 )
 
 # pico_stdlib does not carry PWM, ADC or the watchdog, and the Pico 2 W's own
