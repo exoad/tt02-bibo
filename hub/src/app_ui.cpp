@@ -252,6 +252,30 @@ Int32 driveEscMax   = 1600;
 // the control feel broken.
 Int32 driveServoWant = 1500;
 Int32 driveEscWant   = 1500;
+
+// ---- the sweep ----------------------------------------------------------
+//
+// Driven from the hub rather than the board: it is a testing convenience, and
+// putting it in firmware would mean a car that can start moving on its own
+// because of something left running in a UI.
+Bool    driveSweep     = false;
+Float64 driveSweepNext = 0.0;
+Int32   driveSweepDir  = 1;
+
+// The limits the user is editing, separate from what the board has accepted.
+// Widening is a two-step act - type it, then apply it - because a limit that
+// moved as you dragged would be no limit at all.
+Int32 driveLimitLo = 1300;
+Int32 driveLimitHi = 1700;
+Bool  driveLimitsDirty = false;
+
+Int32 driveEscLimitLo = 1500;
+Int32 driveEscLimitHi = 1600;
+Bool  driveEscLimitsDirty = false;
+
+// When the board was last asked what its drive state is. Throttled, because the
+// asking happens from a draw and a draw happens sixty times a second.
+Float64 driveAskedAt = -1.0;
 Float64 tofLastReply = 0.0;
 UInt64  tofReplies   = 0;
 
@@ -4518,6 +4542,50 @@ Void drawRangeBody(Float32 w, Float32 h)
     ImGui::EndChild();
 }
 
+// One step button: what it says, and what it does.
+struct Step
+{
+    const Char* label;
+    Int32       by;
+};
+
+// Steering steps. 50 us is about a degree and a half of wheel on a TT-02 - big
+// enough to see, small enough that overshooting costs nothing.
+const Step SERVO_STEPS[] =
+{
+    { "-50", -50 }, { "-10", -10 }, { "-1", -1 },
+    { "+1",    1 }, { "+10",  10 }, { "+50", 50 },
+};
+
+// Throttle steps are smaller. A motor that jumps 50 us has already spun up by
+// the time you decide it was too much. The "##esc" suffixes keep these distinct
+// from the steering row - ImGui derives a widget's identity from its label, so
+// two buttons called "-10" would be one button.
+const Step ESC_STEPS[] =
+{
+    { "-10##esc", -10 }, { "-5##esc", -5 }, { "-1##esc", -1 },
+    { "+1##esc",    1 }, { "+5##esc",  5 }, { "+10##esc", 10 },
+};
+
+template <typename T, Size N>
+constexpr Size countOf(const T (&)[N])
+{
+    return N;
+}
+
+Int32 clampInt(Int32 v, Int32 lo, Int32 hi)
+{
+    if(v < lo)
+    {
+        return lo;
+    }
+    if(v > hi)
+    {
+        return hi;
+    }
+    return v;
+}
+
 // ============================================== the drive view ==
 //
 // Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
@@ -4544,11 +4612,82 @@ Void drawDriveBody(Float32 w, Float32 h)
 
     if(!driveKnown)
     {
-        sendPico("DRIVE");
+        // ---- the firmware trap ------------------------------------------
+        //
+        // There are TWO images. `sketch` is whatever is open in the Code view;
+        // `pico_debug` is the one that answers these commands. Pressing Build &
+        // Flash on a sketch replaces pico_debug, and every view that talks to
+        // the board goes quiet - which reads as "the app broke" rather than as
+        // "a different program is running".
+        //
+        // So this says which image it needs, and offers to flash it.
+        //
+        // Asked on a timer rather than every frame: a draw happens sixty times a
+        // second and the board has better things to do.
+        const Float64 nowAsk = ImGui::GetTime();
+        if(nowAsk - driveAskedAt > 1.0)
+        {
+            driveAskedAt = nowAsk;
+            sendPico("DRIVE");
+        }
+
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                           "asking the board...");
+                           "The board is not answering drive commands.");
+        ImGui::Spacing();
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "This view needs the Debug / Blink firmware "
+                           "(firmware/src/main.c).\n"
+                           "\n"
+                           "If you have flashed a sketch from the Code view, "
+                           "that REPLACED it -\n"
+                           "the two are separate programs and only one can be "
+                           "on the board at a time.");
+        ImGui::Spacing();
+
+        if(picoFlash.busy())
+        {
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                               "%s...", picoFlash.currentOp().c_str());
+        }
+        else if(ui::iconButton(ui::Icon::ICON_FLASH, "Flash Debug / Blink",
+                               ImVec2(280.0f * uiDpiScale, 0.0f),
+                               ui::Tint::TINT_WARN))
+        {
+            // flash.ps1 does the 1200-baud touch itself, and it cannot open the
+            // port while this app is holding it.
+            picoLink.disconnect();
+            releasePicoPortForBoardOp();
+            picoFlash.flash("pico_debug");
+        }
+
         ImGui::EndChild();
         return;
+    }
+
+    // The sweep runs here so it stops the moment the view is not drawn - a
+    // servo cycling behind a tab nobody is looking at is exactly the thing that
+    // should not be possible.
+    if(driveSweep)
+    {
+        const Float64 now = ImGui::GetTime();
+        if(now - driveSweepNext > 0.4)
+        {
+            driveSweepNext = now;
+            driveServoWant += driveSweepDir * 50;
+            if(driveServoWant >= driveServoMax)
+            {
+                driveServoWant = driveServoMax;
+                driveSweepDir  = -1;
+            }
+            else if(driveServoWant <= driveServoMin)
+            {
+                driveServoWant = driveServoMin;
+                driveSweepDir  = 1;
+            }
+            Char cmd[32];
+            std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
+            sendPico(cmd);
+        }
     }
 
     // ---- the stop, first and biggest ------------------------------------
@@ -4605,8 +4744,114 @@ Void drawDriveBody(Float32 w, Float32 h)
     ImGui::SameLine();
     if(ui::button("Centre", ImVec2(-FLT_MIN, 0.0f)))
     {
+        driveSweep     = false;
         driveServoWant = 1500;
         sendPico("SERVO CENTER");
+    }
+
+    // ---- exact values, and steps ----------------------------------------
+    //
+    // A slider is for feeling out where things are; a number is for saying
+    // exactly where. Calibration needs both, and reading an end stop off a
+    // slider handle is not reading it.
+    const auto nudge = [](Int32 by)
+    {
+        driveSweep      = false;
+        driveServoWant += by;
+        driveServoWant  = clampInt(driveServoWant, driveServoMin, driveServoMax);
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
+        sendPico(cmd);
+    };
+
+    const Float32 bw = 46.0f * uiDpiScale;
+    for(Size i = 0; i < countOf(SERVO_STEPS); ++i)
+    {
+        if(i > 0)
+        {
+            ImGui::SameLine(0.0f, 3.0f);
+        }
+        if(ui::button(SERVO_STEPS[i].label, ImVec2(bw, 0.0f)))
+        {
+            nudge(SERVO_STEPS[i].by);
+        }
+    }
+
+    ImGui::SameLine(0.0f, 12.0f);
+    if(ui::segmentedButton("Sweep", driveSweep, ImVec2(80.0f * uiDpiScale, 0.0f)))
+    {
+        driveSweep     = !driveSweep;
+        driveSweepNext = ImGui::GetTime();
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Walks the servo between its limits, back and forth.\n"
+            "\n"
+            "For watching the linkage move through its whole travel and seeing\n"
+            "whether anything binds or fouls before you trust a number.\n"
+            "\n"
+            "Driven from the hub, not the board, and it stops the moment this\n"
+            "view is not on screen - a servo cycling behind a tab nobody is\n"
+            "looking at is exactly what should not be possible.");
+    }
+
+    // ---- finding the real end stops --------------------------------------
+    if(ImGui::TreeNode("Limits  -  widen to find the real end stops"))
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "Take the servo horn OFF first.");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "The linkage binds before the servo's own limits do,\n"
+                           "and a servo pushing a stop stalls and cooks itself.\n"
+                           "With the horn off, being wrong costs nothing.");
+        ImGui::Spacing();
+
+        if(!driveLimitsDirty)
+        {
+            driveLimitLo = driveServoMin;
+            driveLimitHi = driveServoMax;
+        }
+
+        ImGui::SetNextItemWidth(120.0f * uiDpiScale);
+        if(ImGui::InputInt("min us", &driveLimitLo, 10, 50))
+        {
+            driveLimitsDirty = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120.0f * uiDpiScale);
+        if(ImGui::InputInt("max us", &driveLimitHi, 10, 50))
+        {
+            driveLimitsDirty = true;
+        }
+
+        ImGui::BeginDisabled(!driveLimitsDirty);
+        if(ui::iconButton(ui::Icon::ICON_SAVE, "Apply to the board",
+                          ImVec2(220.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+        {
+            Char cmd[48];
+            std::snprintf(cmd, sizeof(cmd), "SERVOLIMITS %d %d",
+                          driveLimitLo, driveLimitHi);
+            sendPico(cmd);
+            driveLimitsDirty = false;
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if(ui::button("Reset", ImVec2(100.0f * uiDpiScale, 0.0f)))
+        {
+            sendPico("SERVOLIMITS 1300 1700");
+            driveLimitsDirty = false;
+        }
+
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "The board clamps to 1000-2000 whatever is asked, and\n"
+                           "pulls the current target back inside a narrowed range.\n"
+                           "\n"
+                           "When you have found the numbers, put them in\n"
+                           "SERVO_DEFAULT_MIN / MAX in firmware/src/main.c so they\n"
+                           "survive a reboot.");
+        ImGui::TreePop();
     }
 
     // What the board is actually OUTPUTTING, which lags the slider while the
@@ -4675,6 +4920,83 @@ Void drawDriveBody(Float32 w, Float32 h)
         sendPico("ESC NEUTRAL");
     }
 
+    // Throttle steps are smaller than the servo's. A motor that jumps 50 us is
+    // a motor that has already spun up by the time you decide it was too much.
+    const auto nudgeEsc = [](Int32 by)
+    {
+        driveEscWant += by;
+        driveEscWant  = clampInt(driveEscWant, driveEscMin, driveEscMax);
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "ESC %d", driveEscWant);
+        sendPico(cmd);
+    };
+
+    ImGui::BeginDisabled(!driveArmed);
+    for(Size i = 0; i < countOf(ESC_STEPS); ++i)
+    {
+        if(i > 0)
+        {
+            ImGui::SameLine(0.0f, 3.0f);
+        }
+        // Suffixed: several of these labels repeat the servo row's, and ImGui
+        // derives a widget's identity from its label.
+        if(ui::button(ESC_STEPS[i].label, ImVec2(bw, 0.0f)))
+        {
+            nudgeEsc(ESC_STEPS[i].by);
+        }
+    }
+    ImGui::EndDisabled();
+
+    if(ImGui::TreeNode("Throttle range  -  widen once the car is on a stand"))
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "Wheels off the ground before touching this.");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "The board will not go above 1700 whatever is asked,\n"
+                           "and reverse stays unreachable - a QuicRun needs a\n"
+                           "brake-then-reverse sequence, and getting that wrong on\n"
+                           "a stand is how a gearbox meets a workbench.");
+        ImGui::Spacing();
+
+        if(!driveEscLimitsDirty)
+        {
+            driveEscLimitLo = driveEscMin;
+            driveEscLimitHi = driveEscMax;
+        }
+
+        ImGui::SetNextItemWidth(120.0f * uiDpiScale);
+        if(ImGui::InputInt("min us##esc", &driveEscLimitLo, 10, 50))
+        {
+            driveEscLimitsDirty = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120.0f * uiDpiScale);
+        if(ImGui::InputInt("max us##esc", &driveEscLimitHi, 10, 50))
+        {
+            driveEscLimitsDirty = true;
+        }
+
+        ImGui::BeginDisabled(!driveEscLimitsDirty);
+        if(ui::iconButton(ui::Icon::ICON_SAVE, "Apply to the board##esc",
+                          ImVec2(220.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+        {
+            Char cmd[48];
+            std::snprintf(cmd, sizeof(cmd), "ESCLIMITS %d %d",
+                          driveEscLimitLo, driveEscLimitHi);
+            sendPico(cmd);
+            driveEscLimitsDirty = false;
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if(ui::button("Reset##esc", ImVec2(100.0f * uiDpiScale, 0.0f)))
+        {
+            sendPico("ESCLIMITS 1500 1600");
+            driveEscLimitsDirty = false;
+        }
+        ImGui::TreePop();
+    }
+
     ImGui::TextColored(
         ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN : ui::sem::MUTED),
         "output %d us   target %d us   %s",
@@ -4688,6 +5010,26 @@ Void drawDriveBody(Float32 w, Float32 h)
                        "Nothing here jumps. The board walks each output toward\n"
                        "its target a few microseconds at a time, so a slider\n"
                        "dragged end to end produces a sweep rather than a step.");
+
+    // ---- the wiring this view assumes ------------------------------------
+    //
+    // Written down because a signal wire in the wrong hole looks exactly like
+    // firmware that does not work, and the two are debugged very differently.
+    if(ImGui::TreeNode("Wiring"))
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "  servo signal  ->  GP0\n"
+                           "  ESC signal    ->  GP1\n"
+                           "  ESC ground    ->  a Pico GND  (mandatory)\n"
+                           "\n"
+                           "The ESC's BEC 5 V goes NOWHERE while USB is plugged\n"
+                           "in - two supplies fighting over one rail is how a\n"
+                           "Pico stops being a Pico.\n"
+                           "\n"
+                           "Nothing else is assumed connected. This view does not\n"
+                           "need the display or the ToF sensor.");
+        ImGui::TreePop();
+    }
 
     ImGui::EndChild();
 }
