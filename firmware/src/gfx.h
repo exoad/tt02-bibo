@@ -162,17 +162,25 @@ static inline UInt16 gfxHsv(Int32 hue, UInt8 sat, UInt8 val)
  */
 
 #if GFX_BUFFERED
-static UInt16 gfxBuf[PANEL_W * PANEL_H];
+// Sized for the LARGEST panel this controller drives, because a static array
+// has to be sized when the program is compiled and the actual panel is not
+// known until tftInitSize() runs. 240x320 at 16bpp is 153,600 bytes; a smaller
+// panel simply leaves the tail unused.
+//
+// The STRIDE is PANEL_MAX_W and not the runtime width, deliberately: the row a
+// pixel lives on has to be computed the same way every time, and rebasing the
+// stride when the size changes would invalidate everything already drawn.
+static UInt16 gfxBuf[PANEL_MAX_W * PANEL_MAX_H];
 
 /* Rows touched since the last present. Pushing only these is what makes a small
  * update cheap: a clock ticking in the corner sends twenty rows, not all 240. */
-static Int32 gfxDirtyTop = PANEL_H;
+static Int32 gfxDirtyTop = PANEL_MAX_H;
 static Int32 gfxDirtyBot = -1;
 #endif
 
 static Int32 gfxClipX = 0;
 static Int32 gfxClipY = 0;
-static Int32 gfxClipW = PANEL_W;
+static Int32 gfxClipW = PANEL_W;   /* replaced by gfxInit() with the real size */
 static Int32 gfxClipH = PANEL_H;
 
 static UInt16 gfxFg       = GFX_WHITE;
@@ -198,13 +206,13 @@ static inline Void gfxClip(Int32 x, Int32 y, Int32 w, Int32 h)
         h += y;
         y = 0;
     }
-    if(x + w > PANEL_W)
+    if(x + w > tftWidth())
     {
-        w = PANEL_W - x;
+        w = tftWidth() - x;
     }
-    if(y + h > PANEL_H)
+    if(y + h > tftHeight())
     {
-        h = PANEL_H - y;
+        h = tftHeight() - y;
     }
     if(w < 0)
     {
@@ -223,7 +231,7 @@ static inline Void gfxClip(Int32 x, Int32 y, Int32 w, Int32 h)
 
 static inline Void gfxClipReset(Void)
 {
-    gfxClip(0, 0, PANEL_W, PANEL_H);
+    gfxClip(0, 0, tftWidth(), tftHeight());
 }
 
 /* ---- the two primitives everything else is built from --------------------
@@ -255,7 +263,7 @@ static inline Void gfxSpan(Int32 x, Int32 y, Int32 len, UInt16 colour)
     }
 
 #if GFX_BUFFERED
-    UInt16* p = &gfxBuf[(y * PANEL_W) + x];
+    UInt16* p = &gfxBuf[(y * PANEL_MAX_W) + x];
     for(Int32 i = 0; i < len; ++i)
     {
         p[i] = colour;
@@ -283,11 +291,11 @@ static inline Void gfxPixel(Int32 x, Int32 y, UInt16 colour)
 static inline UInt16 gfxPeek(Int32 x, Int32 y)
 {
 #if GFX_BUFFERED
-    if(x < 0 || y < 0 || x >= PANEL_W || y >= PANEL_H)
+    if(x < 0 || y < 0 || x >= tftWidth() || y >= tftHeight())
     {
         return GFX_BLACK;
     }
-    return gfxBuf[(y * PANEL_W) + x];
+    return gfxBuf[(y * PANEL_MAX_W) + x];
 #else
     (Void) x;
     (Void) y;
@@ -318,30 +326,31 @@ static inline Void gfxPresent(Void)
      * this cannot be one memcpy of the whole frame - the bytes go out a row at
      * a time through a swap. Still one address window and ONE transaction for
      * the lot, which is where nearly all of the win is. */
-    UInt8 row[PANEL_W * 2];
-    tftBeginPixels(0, y, PANEL_W, h);
+    const Int32 w = tftWidth();
+    UInt8 row[PANEL_MAX_W * 2];
+    tftBeginPixels(0, y, w, h);
     for(Int32 r = 0; r < h; ++r)
     {
-        const UInt16* src = &gfxBuf[((y + r) * PANEL_W)];
-        for(Int32 i = 0; i < PANEL_W; ++i)
+        const UInt16* src = &gfxBuf[((y + r) * PANEL_MAX_W)];
+        for(Int32 i = 0; i < w; ++i)
         {
             row[i * 2]     = (UInt8) (src[i] >> 8);
             row[i * 2 + 1] = (UInt8) (src[i] & 0xFF);
         }
-        spiWrite(PIN_TFT_SCK, row, sizeof(row));
+        spiWrite(PIN_TFT_SCK, row, (Size) (w * 2));
     }
     tftEndPixels();
 
-    gfxDirtyTop = PANEL_H;
+    gfxDirtyTop = PANEL_MAX_H;
     gfxDirtyBot = -1;
 #endif
 }
 
 static inline Void gfxClear(UInt16 colour)
 {
-    for(Int32 y = 0; y < PANEL_H; ++y)
+    for(Int32 y = 0; y < tftHeight(); ++y)
     {
-        gfxSpan(0, y, PANEL_W, colour);
+        gfxSpan(0, y, tftWidth(), colour);
     }
 }
 
@@ -844,9 +853,9 @@ static inline Void gfxPrintf(const Utf8* fmt, ...)
  * only tell you the SPI pins were valid - see the note in st77xx.h about the
  * panel being write-only.
  */
-static inline Bool gfxInit(Void)
+static inline Bool gfxInitSize(Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 {
-    if(!tftInit())
+    if(!tftInitSize(w, h, xoff, yoff))
     {
         return false;
     }
@@ -854,6 +863,12 @@ static inline Bool gfxInit(Void)
     gfxClear(GFX_BLACK);
     gfxPresent();
     return true;
+}
+
+/* The compile-time default, for a sketch that does not care. */
+static inline Bool gfxInit(Void)
+{
+    return gfxInitSize(PANEL_W, PANEL_H, PANEL_XOFF, PANEL_YOFF);
 }
 
 #endif
