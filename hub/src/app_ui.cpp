@@ -41,6 +41,8 @@
 #include "radar.hpp"
 #include "icons.hpp"
 #include "lights.hpp"
+#include "applog.hpp"
+#include "diagnostics.hpp"
 #include "code_view.hpp"
 #include "editor.hpp"
 #include "recording.hpp"
@@ -482,6 +484,27 @@ Str          codeName;        // its display name
 Str          codeMessage;     // last save/build note, shown on the toolbar
 Bool         codeLoaded = false;
 
+// ---- IDE state -------------------------------------------------------------
+// Diagnostics from the last build, for the file on screen. Rebuilt when a build
+// finishes; NOT cleared when you type, because a stale mark that says where the
+// error was is more use than no mark at all until you ask again.
+Vec<diag::Item> codeDiags;
+
+// Last-write time of the open file, for noticing an edit made outside the app.
+// Zero means "not watching" - a file we have never successfully stat'd.
+UInt64 codeFileStamp = 0;
+Int32  codeWatchIn   = 0;      // frames until the next stat
+
+// Autosave. Counted in frames from the last edit rather than on a wall clock,
+// so it fires a moment after you STOP typing rather than in the middle of a
+// word.
+Bool  codeAutosave     = true;
+Int32 codeAutosaveIn   = 0;
+
+// A file the tree wants to act on, resolved after the menu closes - deleting an
+// entry while iterating the list that drew it is how a tree crashes.
+Str codePendingDelete;
+
 // Build & Flash is TWO operations, and which one is in flight decides what a
 // failure means. One boolean could say "a flash is queued" but not "the flash
 // itself just failed", which is why a failed flash used to leave the Code view
@@ -493,6 +516,13 @@ enum class CodeOp
     CODE_OP_BUILDING,
     CODE_OP_FLASHING,
 };
+
+// Set when an operation made us drop the Pico link, so it can be restored when
+// the board comes back. Counts down in frames because the board re-enumerates a
+// second or two AFTER the flash script exits.
+Bool  picoRelinkWanted = false;
+Int32 picoRelinkIn     = 0;
+Str   picoRelinkPort;
 
 CodeOp codeOp         = CodeOp::CODE_OP_NONE;
 Str    codeFlashTarget = "sketch";
@@ -637,6 +667,9 @@ Void refreshPicoPorts()
 
 Void connectPico()
 {
+    LOG_INFO("pico", "connect requested: port=%s",
+             (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size()))
+                 ? picoPorts[picoIndex].c_str() : "(none)");
     if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size())) return;
     resetBoardStatus();
     picoLink.connect(picoPorts[picoIndex]);
@@ -1078,9 +1111,181 @@ Str lastFlashError()
     return "see the Firmware panel";
 }
 
+// Drops the Pico serial link before an operation that needs the port ITSELF.
+//
+// flash.ps1 reboots a running board by opening its port at 1200 baud - that is
+// the whole mechanism that saves you reaching for the BOOTSEL button. Windows
+// gives serial ports exclusively, so it cannot do that while the hub has the
+// same port open: the touch fails with "Access to the port 'COM10' is denied",
+// no bootloader ever appears, and the script reports
+//
+//     [error] RPI-RP2 never appeared.
+//
+// while the status bar cheerfully says PICO Connected. Those two facts together
+// read as a broken board rather than as a busy port, which is what makes this
+// worth an explicit release rather than a note in a README.
+//
+// The link is restored once the board has re-enumerated - see pumpPicoRelink().
+Void releasePicoPortForBoardOp()
+{
+    if(picoLink.state() == PicoState::PICO_STATE_DISCONNECTED)
+    {
+        return;
+    }
+
+    picoRelinkPort   = picoLink.port();
+    picoRelinkWanted = true;
+    picoRelinkIn     = 0;      // armed by the operation finishing, not yet
+
+    LOG_INFO("flash", "releasing %s so the 1200-baud touch can open it",
+             picoRelinkPort.c_str());
+    picoLink.disconnect();
+}
+
+// Reconnects after a board operation, once the port is back.
+//
+// Frame-counted rather than immediate: flashing reboots the board, so the port
+// vanishes and returns a second or two after the script exits. Reconnecting the
+// instant the operation ends just fails.
+// Defined further down; the per-frame pumps below need them and sit above them.
+Bool   saveSketch();
+
+// Notices a file edited outside the app, and reloads it.
+//
+// Reloads SILENTLY when the buffer is clean, and refuses when it is dirty -
+// throwing away edits you have not saved to take edits from elsewhere is the
+// one outcome nobody wants. A dirty buffer gets told instead, and the choice is
+// left where it belongs.
+//
+// Polled rather than watched with ReadDirectoryChangesW: one GetFileAttributesEx
+// twice a second costs nothing measurable, and a directory watch would need a
+// thread, a handle to close, and a story about what happens when the sketch
+// library moves.
+Void pumpCodeWatch()
+{
+    if(codePath.empty() || centralView != 3)
+    {
+        return;
+    }
+
+    if(--codeWatchIn > 0)
+    {
+        return;
+    }
+    codeWatchIn = 30;       // twice a second at 60 fps
+
+    const UInt64 now = sketch::stamp(codePath);
+    if(now == 0 || codeFileStamp == 0 || now == codeFileStamp)
+    {
+        codeFileStamp = (codeFileStamp == 0) ? now : codeFileStamp;
+        return;
+    }
+
+    codeFileStamp = now;
+
+    if(codeEditor.dirty())
+    {
+        codeMessage = "changed on disk - save or reload to resolve";
+        ui::setNote(codeView, "changed on disk (buffer is modified)",
+                    ImGui::GetTime());
+        LOG_WARN("code", "%s changed on disk while the buffer was dirty",
+                 codePath.c_str());
+        return;
+    }
+
+    const ed::Cursor keep = codeEditor.cursor();
+    codeEditor.setText(sketch::load(codePath));
+    codeEditor.setCursor(keep.line, keep.col);   // stay where you were reading
+
+    ui::setNote(codeView, "reloaded from disk", ImGui::GetTime());
+    LOG_INFO("code", "reloaded %s after an external change", codePath.c_str());
+}
+
+// Saves a few seconds after you stop typing.
+//
+// Counted from the last EDIT, not on a wall clock, so it never fires mid-word.
+// Only ever writes a file that is already named - autosave must not invent a
+// path, because a file you did not choose the name of is a file you will not
+// find again.
+Void pumpCodeAutosave()
+{
+    if(!codeAutosave || codePath.empty() || !codeEditor.dirty())
+    {
+        codeAutosaveIn = 180;      // ~3 s
+        return;
+    }
+
+    if(--codeAutosaveIn > 0)
+    {
+        return;
+    }
+    codeAutosaveIn = 180;
+
+    if(saveSketch())
+    {
+        ui::setNote(codeView, "autosaved", ImGui::GetTime());
+    }
+}
+
+Void pumpPicoRelink()
+{
+    if(!picoRelinkWanted || picoRelinkIn <= 0)
+    {
+        return;
+    }
+
+    --picoRelinkIn;
+    if(picoRelinkIn > 0)
+    {
+        return;
+    }
+
+    picoRelinkWanted = false;
+    refreshPicoPorts();
+
+    for(Int32 i = 0; i < static_cast<Int32>(picoPorts.size()); ++i)
+    {
+        if(_stricmp(picoPorts[i].c_str(), picoRelinkPort.c_str()) == 0)
+        {
+            picoIndex = i;
+            LOG_INFO("pico", "board is back on %s; reconnecting",
+                     picoRelinkPort.c_str());
+            connectPico();
+            return;
+        }
+    }
+    // The port did not come back under the same name. Leaving it disconnected
+    // is right: the Link panel shows what happened and a person can pick.
+    LOG_WARN("pico", "%s did not come back after the operation",
+             picoRelinkPort.c_str());
+}
+
 Void pumpFlash()
 {
+    // Mirror the scripts' output into the session log. This is the single most
+    // useful thing in the file: it is the toolchain's own account of what it
+    // tried, and it is otherwise lost when the panel is cleared.
+    const Size before = flashLog.size();
     picoFlash.drainLog(flashLog);
+    for(Size i = before; i < flashLog.size(); ++i)
+    {
+        const Str& ln = flashLog[i];
+
+        // picotool draws a progress bar with carriage returns, which arrives
+        // here as enormous lines of "Saving file: [====] 47%". One backup put
+        // twelve of them in the log and buried everything else. The bar is for
+        // a person watching; the log wants the outcome.
+        if(ln.find("Saving file:") != Str::npos
+           || ln.find("Loading into") != Str::npos)
+        {
+            continue;
+        }
+
+        const Bool bad = ln.find("[error]") != Str::npos;
+        ::applog::writef(bad ? ::applog::Level::LEVEL_ERROR
+                             : ::applog::Level::LEVEL_DEBUG,
+                         "script", "%s", ln.c_str());
+    }
     if(flashLog.size() > FLASH_LOG_MAX)
         flashLog.erase(flashLog.begin(),
                           flashLog.begin() + (flashLog.size() - FLASH_LOG_MAX));
@@ -1097,6 +1302,28 @@ Void pumpFlash()
             picoFlash.refreshBoard();
             refreshPicoPorts();
 
+            // ~2 s at 60 fps, which is about how long a freshly flashed board
+            // takes to come back as a serial device.
+            if(picoRelinkWanted)
+            {
+                picoRelinkIn = 120;
+            }
+
+            // The compiler's own opinion of the file on screen. Parsed from the
+            // build output rather than from a second parser of our own, so what
+            // the editor marks and what the build failed on cannot disagree.
+            {
+                const Vec<diag::Item> all = diag::parseAll(flashLog);
+                codeDiags       = diag::forFile(all, codePath);
+                codeView.diags  = codeDiags;
+
+                if(!codeDiags.empty())
+                {
+                    LOG_INFO("code", "%d diagnostic(s) for %s",
+                             static_cast<Int32>(codeDiags.size()), codeName.c_str());
+                }
+            }
+
             // The second half of the Code view's Build & Flash. Chained on the
             // transition rather than started alongside the build, because the
             // two cannot overlap - PicoFlash runs one operation at a time and
@@ -1112,20 +1339,30 @@ Void pumpFlash()
                 {
                     codeOp      = CodeOp::CODE_OP_FLASHING;
                     codeMessage = "built; flashing " + codeFlashTarget;
+                    LOG_INFO("code", "build ok; flashing %s", codeFlashTarget.c_str());
+                    releasePicoPortForBoardOp();
                     picoFlash.flash(codeFlashTarget);
                 }
                 else
                 {
                     codeOp      = CodeOp::CODE_OP_NONE;
                     codeMessage = "build failed: " + lastFlashError();
+                    LOG_ERROR("code", "build failed: %s", lastFlashError().c_str());
                 }
             }
             else if(codeOp == CodeOp::CODE_OP_FLASHING)
             {
                 codeOp = CodeOp::CODE_OP_NONE;
-                codeMessage = (s == FlashState::FLASH_STATE_SUCCESS)
-                            ? ("flashed " + codeFlashTarget)
-                            : ("flash failed: " + lastFlashError());
+                if(s == FlashState::FLASH_STATE_SUCCESS)
+                {
+                    codeMessage = "flashed " + codeFlashTarget;
+                    LOG_INFO("code", "flashed %s", codeFlashTarget.c_str());
+                }
+                else
+                {
+                    codeMessage = "flash failed: " + lastFlashError();
+                    LOG_ERROR("code", "flash failed: %s", lastFlashError().c_str());
+                }
             }
         }
         flashPrev = s;
@@ -1165,6 +1402,9 @@ Void pumpData()
 
     pumpPico();
     pumpFlash();
+    pumpPicoRelink();
+    pumpCodeWatch();
+    pumpCodeAutosave();
 }
 
 Void applyRange()
@@ -1176,6 +1416,10 @@ Void applyRange()
 
 Void connect()
 {
+    LOG_INFO("lidar", "connect requested: port=%s baud=%d",
+             (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
+                 ? lidarPorts[portIndex].c_str() : "(none)",
+             BAUDS[baudIndex]);
     if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size())) return;
 
     radarView.clear();
@@ -1189,6 +1433,7 @@ Void startBackup()
     // The board is about to be rebooted into BOOTSEL by backup.ps1, which takes
     // its COM port away; an open link would just fault.
     picoLink.disconnect();
+    releasePicoPortForBoardOp();
     picoFlash.backup(backupBuf);
 }
 
@@ -2726,6 +2971,7 @@ Void drawRecorderControls()
 
 // ================================================================= code view
 
+// Last-write time of `path`, or 0 if it cannot be read.
 // Writes the buffer to the sketch library AND to firmware/src/sketch.c.
 //
 // Both, always. The library copy is the one that survives; the slot is what
@@ -2765,6 +3011,14 @@ Bool saveSketch()
 
     codeEditor.clearDirty();
     codeMessage = "saved " + codeName;
+
+    // Our OWN write must not look like somebody else's. Without this the
+    // watcher below would see the file change a frame later and offer to
+    // reload the buffer we just wrote.
+    codeFileStamp = sketch::stamp(codePath);
+
+    ui::setNote(codeView, "saved " + codeName, ImGui::GetTime());
+    LOG_INFO("code", "saved %s", codePath.c_str());
     return true;
 }
 
@@ -2779,7 +3033,10 @@ Void openCodeFile(const Str& path, const Str& name)
     codeName = name;
     codeEditor.setText(sketch::load(path));
     codeView.scrollY = 0.0f;
-    codeMessage = "opened " + name;
+    codeView.diags.clear();      // a new file has not been compiled yet
+    codeFileStamp = sketch::stamp(path);
+    codeMessage   = "opened " + name;
+    ui::setNote(codeView, "opened " + name, ImGui::GetTime());
 }
 
 // Defined down with sidebarSplitter(), so the two drag handles sit together and
@@ -2832,7 +3089,7 @@ Void drawCodeTree(Float32 w, Float32 h)
     // one dropped into the folder from Explorer.
     static Vec<Str> libFiles;
     static Vec<Str> fwFiles;
-    static Int32            rescanIn = 0;
+    static Int32    rescanIn = 0;
     if(rescanIn <= 0)
     {
         libFiles = sketch::list();
@@ -2841,12 +3098,75 @@ Void drawCodeTree(Float32 w, Float32 h)
     }
     --rescanIn;
 
-    const auto row = [](const Str& name, const Str& path, Bool sel, ui::Icon ic)
+    // One row, plus the right-click menu that belongs to it.
+    //
+    // The menu is opened with BeginPopupContextItem, which scopes it to THIS
+    // row's ID - so it acts on the file you right-clicked rather than on
+    // whichever one happens to be selected. Those are different files often
+    // enough to matter.
+    //
+    // Destructive entries do not act here. They record what was asked and the
+    // caller resolves it after the tree has finished drawing: deleting a file
+    // while iterating the list that drew it is how a tree crashes.
+    const auto row = [](const Str& name, const Str& path, Bool sel, ui::Icon ic,
+                        Bool deletable)
     {
         ImGui::PushID(path.c_str());
         ui::icon(ic);
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         const Bool hit = ImGui::Selectable(name.c_str(), sel);
+
+        if(ImGui::BeginPopupContextItem("##rowmenu"))
+        {
+            ImGui::TextDisabled("%s", name.c_str());
+            ImGui::Separator();
+
+            if(ui::iconMenuItem(ui::Icon::ICON_CODE, "Open"))
+            {
+                openCodeFile(path, name);
+            }
+
+            if(ui::iconMenuItem(ui::Icon::ICON_SAVE, "Duplicate"))
+            {
+                const Str copyName = sketch::makeName();
+                Str       err;
+                if(sketch::save(sketch::pathOf(copyName), sketch::load(path), err))
+                {
+                    openCodeFile(sketch::pathOf(copyName), copyName);
+                }
+                else
+                {
+                    codeMessage = err;
+                }
+            }
+
+            if(ui::iconMenuItem(ui::Icon::ICON_OPEN, "Reveal in Explorer"))
+            {
+                sketch::reveal(path);
+            }
+
+            ImGui::Separator();
+
+            // firmware/src files are NOT deletable from here. They are the real
+            // firmware and are in git; losing one to a stray right-click would
+            // be a genuinely bad afternoon.
+            ImGui::BeginDisabled(!deletable);
+            ui::pushTint(ui::Tint::TINT_BAD);
+            if(ui::iconMenuItem(ui::Icon::ICON_CLEAR, "Delete"))
+            {
+                codePendingDelete = path;
+            }
+            ui::popTint(ui::Tint::TINT_BAD);
+            ImGui::EndDisabled();
+
+            if(!deletable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("firmware/src is tracked in git - delete it there");
+            }
+
+            ImGui::EndPopup();
+        }
+
         ImGui::PopID();
         return hit;
     };
@@ -2857,8 +3177,10 @@ Void drawCodeTree(Float32 w, Float32 h)
         {
             const Str p = sketch::pathOf(n);
             if(row(n, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
-                   ui::Icon::ICON_CODE))
+                   ui::Icon::ICON_CODE, true))
+            {
                 openCodeFile(p, n);
+            }
         }
         if(libFiles.empty())
             ImGui::TextDisabled("  none saved yet");
@@ -2873,8 +3195,10 @@ Void drawCodeTree(Float32 w, Float32 h)
             const Str p = d + "\\" + n;
             const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
             if(row(n, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
-                   hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE))
+                   hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE, false))
+            {
                 openCodeFile(p, n);
+            }
         }
         if(fwFiles.empty())
             ImGui::TextDisabled("  repo not found");
@@ -2883,6 +3207,46 @@ Void drawCodeTree(Float32 w, Float32 h)
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
+
+    // ---- destructive actions, resolved AFTER the tree has drawn ----------
+    // Never during it. Deleting a file while iterating the list that drew it is
+    // how a tree crashes, and the popup that asked for it is a child of the row
+    // that would disappear.
+    if(!codePendingDelete.empty())
+    {
+        const Str victim = codePendingDelete;
+        codePendingDelete.clear();
+
+        if(sketch::remove(victim))
+        {
+            LOG_INFO("code", "deleted %s", victim.c_str());
+            rescanIn = 0;                   // the tree must forget it now
+
+            // If it was the open one, fall back to something rather than
+            // leaving the editor pointed at a file that no longer exists.
+            if(_stricmp(victim.c_str(), codePath.c_str()) == 0)
+            {
+                const Vec<Str> left = sketch::list();
+                if(!left.empty())
+                {
+                    openCodeFile(sketch::pathOf(left.front()), left.front());
+                }
+                else
+                {
+                    codeName = sketch::makeName();
+                    codePath = sketch::pathOf(codeName);
+                    codeEditor.setText(sketch::starter());
+                    codeFileStamp = 0;
+                }
+            }
+            ui::setNote(codeView, "deleted", ImGui::GetTime());
+        }
+        else
+        {
+            codeMessage = "could not delete " + victim;
+            LOG_ERROR("code", "delete failed: %s", victim.c_str());
+        }
+    }
 }
 
 // The `:` commands the editor hands up. Everything the editor cannot know about
@@ -2895,6 +3259,8 @@ Void handleCodeCommand()
 
     if(cmd == "w" || cmd == "wq" || cmd == "x")
     {
+        // saveSketch() sets the note itself, so :w and the Save button say the
+        // same thing in the same place.
         saveSketch();
         return;
     }
@@ -2961,11 +3327,15 @@ Void drawCodeControls()
     // or the colour stops meaning anything.
     const Str target = sketch::targetFor(codePath);
 
-    Char flashLabel[64];
-    std::snprintf(flashLabel, sizeof(flashLabel), "Build & Flash %s", target.c_str());
-
-    if(ui::iconButton(ui::Icon::ICON_FLASH, flashLabel,
-                      ImVec2(280.0f * uiDpiScale, bh), ui::Tint::TINT_WARN))
+    // "Run", because that is the verb every IDE uses and the one a person
+    // reaches for. What it ACTUALLY does - compile, then overwrite the board's
+    // flash - is in the tooltip, because a button that writes to hardware
+    // should not hide that behind a friendly word.
+    //
+    // Still amber. It is the same claim the Firmware panel's Flash button makes
+    // and it has to be the same colour or the colour stops meaning anything.
+    if(ui::iconButton(ui::Icon::ICON_PLAY, "Run",
+                      ImVec2(120.0f * uiDpiScale, bh), ui::Tint::TINT_WARN))
     {
         if(saveSketch())
         {
@@ -2975,9 +3345,86 @@ Void drawCodeControls()
         }
     }
 
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Build & Flash: %s\n\n"
+                          "Compiles %s\nand writes it to the board, replacing "
+                          "what is on it.",
+                          target.c_str(),
+                          codePath.empty() ? "(unsaved)" : codePath.c_str());
+    }
+
+    // ---- the split-button arrow ------------------------------------------
+    //
+    // Run acts on the file that is OPEN, which is right nearly always and
+    // impossible to be sure of at a glance. This is the "nearly": one click to
+    // see exactly which source is about to be compiled, and to pick another.
+    //
+    // A built-in picker rather than the OS dialog. What is worth choosing here
+    // is a small known set - the sketch library and firmware/src - and a native
+    // dialog would happily let you pick a .png from the desktop and then fail
+    // somewhere much less obvious.
+    ImGui::SameLine(0.0f, 1.0f);
+    if(ui::button("v", ImVec2(bh, bh), ui::Tint::TINT_WARN))
+    {
+        ImGui::OpenPopup("##srcpick");
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Choose which source file Run compiles");
+    }
+
+    if(ImGui::BeginPopup("##srcpick"))
+    {
+        // What is about to happen, spelled out. The whole reason this popup
+        // exists is that it was not obvious.
+        ImGui::TextDisabled("Run compiles this file:");
+        ImGui::Separator();
+        ImGui::TextUnformatted(codeName.empty() ? "(unsaved)" : codeName.c_str());
+        ImGui::TextDisabled("%s", codePath.empty() ? "" : codePath.c_str());
+        ImGui::TextDisabled("target %s  ->  firmware/build/%s.uf2",
+                            target.c_str(), target.c_str());
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Sketches");
+
+        const Vec<Str> lib = sketch::list();
+        for(const Str& n : lib)
+        {
+            if(ui::iconMenuItem(ui::Icon::ICON_CODE, n.c_str()))
+            {
+                openCodeFile(sketch::pathOf(n), n);
+            }
+        }
+        if(lib.empty())
+        {
+            ImGui::TextDisabled("  none saved");
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("firmware/src");
+
+        const Str      fwd = sketch::firmwareDir();
+        const Vec<Str> fws = sketch::listFirmware();
+        for(const Str& n : fws)
+        {
+            const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
+
+            // A header is not a translation unit. Listed so this matches the
+            // tree, disabled so it cannot be chosen and then quietly do nothing.
+            if(ui::iconMenuItem(hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE,
+                                n.c_str(), hdr ? "header" : nullptr, !hdr))
+            {
+                openCodeFile(fwd + "\\" + n, n);
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+
     ImGui::SameLine();
-    if(ui::iconButton(ui::Icon::ICON_BUILD, "Build only",
-                      ImVec2(150.0f * uiDpiScale, bh)))
+    if(ui::iconButton(ui::Icon::ICON_BUILD, "Build",
+                      ImVec2(130.0f * uiDpiScale, bh)))
     {
         if(saveSketch())
         {
@@ -2986,7 +3433,24 @@ Void drawCodeControls()
             picoFlash.build(target);
         }
     }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Compile only. Does not touch the board.");
+    }
     ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    ImGui::TextUnformatted("|");
+    ImGui::SameLine();
+
+    if(ImGui::Checkbox("auto", &codeAutosave))
+    {
+        codeAutosaveIn = 180;
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Autosave a few seconds after you stop typing");
+    }
 
     ImGui::SameLine();
     ImGui::TextUnformatted("|");
@@ -4372,10 +4836,12 @@ Void drawFlashControls()
                       ui::Tint::TINT_WARN))
     {
         picoLink.disconnect();
+        releasePicoPortForBoardOp();
         picoFlash.rebootBootsel();
     }
     ImGui::SameLine();
     if(ui::iconButton(ui::Icon::ICON_REBOOT, "Normally", ImVec2(half, bh)))
+        releasePicoPortForBoardOp();
         picoFlash.rebootNormal();
     ImGui::EndDisabled();
 
@@ -4424,6 +4890,7 @@ Void drawFlashControls()
             // flash.ps1 does the 1200-baud touch itself, and it cannot open the
             // port while this app has it.
             picoLink.disconnect();
+            releasePicoPortForBoardOp();
             picoFlash.flash(confirmId);
             ImGui::CloseCurrentPopup();
         }
@@ -4924,6 +5391,10 @@ Void codeTreeSplitter(const ImVec2& at, Float32 h, Float32 thickness)
 
 Void app::init(Float32 dpiScale)
 {
+    // First thing, so everything after it is on the record - including the
+    // startup that fails.
+    applog::init();
+    LOG_INFO("app", "init: dpi=%.3f", static_cast<Float64>(dpiScale));
     uiDpiScale = dpiScale > 0.0f ? dpiScale : 1.0f;
 
     loadPanelLayout();
@@ -5232,6 +5703,11 @@ Void app::frame()
 
 Void app::shutdown()
 {
+    LOG_INFO("app", "shutdown requested");
     lidarSource.stop();
     picoLink.disconnect();
+
+    // Last, so anything the two lines above logged on their way out is in the
+    // file before it closes.
+    applog::shutdown();
 }

@@ -15,6 +15,32 @@ once, and Ctrl-clicking `gpioOpen()` from a sketch lands in
 
 ---
 
+## If every INCLUDE in firmware/ is red
+
+Symptom, in `pico2w.h` or any firmware source:
+
+```
+#include "shared.h"        Cannot find file 'shared.h' in search paths: ...\firmware\src.
+#include "hardware/adc.h"  Cannot find directory 'hardware' in search paths: ...
+```
+
+**Nothing is wrong with the code or the build.** `firmware/build/compile_commands.json`
+lists ~208 translation units with every one of those paths on them. The file
+simply belongs to no *loaded* project, so the parser falls back to searching the
+file's own directory and nothing else.
+
+`firmware/` is a **separate CMake project** and has to be attached - it
+cross-compiles for `arm-none-eabi` while the root is MSVC x64, and one CMake
+configure has exactly one toolchain.
+
+**Fix:** `File | Attach Project…` → `firmware/CMakeLists.txt` → choose the
+**Pico 2 W (RP2350, arm-none-eabi)** preset. That also gets you building and
+flashing from the IDE.
+
+`firmware/.clangd` is a fallback for the same problem, pointing the parser at
+that compile database directly. It helps where the IDE falls back to clangd; it
+is not a substitute for attaching the project.
+
 ## If every symbol is red
 
 That is the symptom of CLion having opened this folder as a plain directory
@@ -66,7 +92,7 @@ to find and are documented at length in that script's header:
   both fail on this machine
 
 Indexing the SDK gives completion on `gpio_put`, `pwm_set_gpio_level` and the
-rest — 191 translation units.
+rest — 208 translation units.
 
 ---
 

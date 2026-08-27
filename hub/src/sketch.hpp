@@ -62,6 +62,27 @@ namespace sketch {
 [[nodiscard]] Str  load(const Str& path);
 [[nodiscard]] Bool save(const Str& path, const Str& text, Str& err);
 
+// ---------------------------------------------------------------------------
+// Filesystem operations, kept HERE rather than in the UI.
+//
+// This file already owns every Windows call the sketch library makes. Pulling
+// <windows.h> into app_ui.cpp to add three more brought min/max and
+// SEVERITY_ERROR with it and broke two unrelated headers - the macros in that
+// header are a genuine hazard and the fewer translation units that see them the
+// better.
+// ---------------------------------------------------------------------------
+
+// Last-write time as an opaque, comparable number. 0 when the file cannot be
+// stat'd, which callers must treat as "unknown", not as "very old".
+[[nodiscard]] UInt64 stamp(const Str& path);
+
+// Deletes a file. False if it could not be removed.
+[[nodiscard]] Bool remove(const Str& path);
+
+// Opens Explorer with `path` selected. Best-effort and silent on failure -
+// nothing about the app depends on it.
+Void reveal(const Str& path);
+
 // The program a new sketch starts from: a blink on GP28 with the wiring in a
 // comment above it. A blank buffer is a worse starting point than a working
 // program you can change one number in.

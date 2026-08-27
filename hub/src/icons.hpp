@@ -185,6 +185,16 @@ Void iconAt(ImDrawList* dl, Icon ic, const ImVec2& pos, ImU32 tint = IM_COL32_WH
                               const ImVec2& size = ImVec2(0, 0),
                               Tint tint = Tint::TINT_NONE);
 
+// A context-menu entry with an icon in its left margin.
+//
+// MenuItem centres nothing and has no margin of its own, so the icon is drawn
+// over the leading spaces of a padded label - the same trick iconTabLabel uses,
+// and for the same reason: no hand-rolled widget, and the highlight, the
+// keyboard navigation and the close-on-click all still belong to ImGui.
+[[nodiscard]] Bool iconMenuItem(Icon ic, const Char* label,
+                                const Char* shortcut = nullptr,
+                                Bool enabled = true);
+
 // One cell of a mutually-exclusive row, with an icon in its left margin. The
 // segmented-button equivalent of iconButton().
 [[nodiscard]] Bool segmentedIconButton(Icon ic, const Char* label, Bool selected,

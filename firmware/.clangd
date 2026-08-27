@@ -1,0 +1,48 @@
+# Fallback flags for the firmware, for any tool that parses these files WITHOUT
+# the CMake project loaded.
+#
+# WHY THIS EXISTS
+#
+# firmware/ is a separate CMake project - it cross-compiles for arm-none-eabi
+# while the root project is MSVC x64, and one CMake configure has one toolchain.
+# Until it is attached in the IDE, a file here belongs to no project, and the
+# parser falls back to searching only the file's own directory. The symptom is
+# every include underlined at once:
+#
+#     #include "shared.h"        Cannot find file 'shared.h' in search paths:
+#                                C:\...\firmware\src.
+#     #include "hardware/adc.h"  Cannot find directory 'hardware' ...
+#
+# Nothing is wrong with the code or the build - the build has every one of those
+# paths. See firmware/build/compile_commands.json, which lists 200-odd
+# translation units with the full include set.
+#
+# CompilationDatabase points the parser at exactly that file, so headers like
+# pico2w.h resolve by inheriting the flags of a .c that includes them.
+#
+# THIS IS A FALLBACK, NOT THE FIX. Attaching the project is the fix, and it also
+# gets you building and flashing from the IDE:
+#
+#     File | Attach Project...  ->  firmware/CMakeLists.txt
+#     then pick the "Pico 2 W (RP2350, arm-none-eabi)" preset
+#
+# See docs/clion.md.
+
+CompileFlags:
+  CompilationDatabase: build
+
+  # Dropped because they are for the ARM cross-compiler and a host parser does
+  # not understand them. Keeping them produces a wall of "unknown argument"
+  # noise on top of the real diagnostics.
+  Remove:
+    - -mcpu=*
+    - -mthumb
+    - -mfloat-abi=*
+    - -mfpu=*
+    - --specs=*
+
+Diagnostics:
+  # The SDK's own headers are not ours to fix, and every one of their warnings
+  # would sit in the same list as a genuine mistake in a sketch.
+  Suppress:
+    - pp_file_not_found_angled_include_not_fatal
