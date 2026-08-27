@@ -44,7 +44,8 @@
 
 #include "pico2w.h"
 
-#define LED_PIN 3 
+#define LED_1_PIN 3
+#define LED_2_PIN 2
 #define DELAY_MS 100
 
 Int32 main(Void)
@@ -58,17 +59,17 @@ Int32 main(Void)
      * See the note above serialOpen() in pico2w.h.
      */
     serialOpen();
-
-    gpioOpen(LED_PIN, PIN_DIR_OUT);
-
+    gpioOpen(LED_1_PIN, PIN_DIR_OUT);
+    gpioOpen(LED_2_PIN, PIN_DIR_OUT);
     while(true)
     {
-        gpioWrite(LED_PIN, true);
+        gpioWrite(LED_1_PIN, true);
+        gpioWrite(LED_2_PIN, false);
         sleepMs(DELAY_MS);
-        gpioWrite(LED_PIN, false);
+        gpioWrite(LED_1_PIN, false);
+        gpioWrite(LED_2_PIN, true);
         sleepMs(DELAY_MS);
     }
-
     return 0;
 }
 

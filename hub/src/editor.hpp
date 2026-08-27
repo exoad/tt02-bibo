@@ -17,21 +17,34 @@
 // This is not vim. It is the set of bindings that carry most of the day-to-day
 // use, and nothing beyond it. What IS here:
 //
-//   modes     normal, insert, visual, visual-line, command (`:`)
-//   motions   h j k l, w b e, 0 ^ $, gg G, {count} prefix on all of them
+//   modes     normal, insert, visual, visual-line, command (`:` `/` `?`)
+//   motions   h j k l, w b e, W B E, ge, 0 ^ $, gg G, H M L, %,
+//             f F t T with ; and , to repeat, {count} on all of them
 //   enter     i a I A o O
 //   delete    x X, dd dw d$ D, {count}dd
 //   change    cc cw C, s
-//   yank/put  yy yw, p P
-//   misc      r<char>, J, u, Ctrl-R, ZZ
-//   visual    v V then d y c x
-//   command   :w :q :wq :q! :{number}
+//   yank/put  yy yw, p P                    (bridged to the system clipboard)
+//   search    / ? n N, * #
+//   objects   iw aw, i( a( i{ a{ i[ a[ i< a<, i" a" i' a'  after d c y
+//   operators d c y > < with any motion or object, {op}{count}{motion} too
+//   marks     m<char>, '<char> and `<char>
+//   repeat    .  - repeats the last change, insert-mode text included
+//   scroll    Ctrl-D Ctrl-U
+//   misc      r<char>, ~, J, u, Ctrl-R, ZZ
+//   visual    v V then d y c x > < ~
+//   command   :w :q :wq :q! :{number}, :s/// and :%s/// with g and i
 //
-// What is NOT here, and would be missed: registers beyond the unnamed one,
-// marks, macros, `.` repeat, search (/ ? n N), text objects (ciw, di"), and
-// counts on operators in the {op}{count}{motion} order (3dw). If one of those
-// starts costing real time, add it here with a test rather than approximating
-// it in the UI layer.
+// What is still NOT here: registers beyond the unnamed one, macros (q @),
+// :g//, and folds. If one of those starts costing real time, add it here with
+// a test rather than approximating it in the UI layer.
+//
+// WHY NOT A LIBRARY. Zep and libvim both exist and both were considered. Each
+// wants to own the buffer, the syntax colouring and the theme, which is most
+// of what this editor already is - adopting one would mean re-fitting the
+// gruvbox palette, the pico2w.h completion, the diagnostic gutter, the
+// external-change reload and the clipboard bridge onto somebody else's model
+// and throwing away the tests that cover them. The gap was a list of commands,
+// not an architecture, and a list of commands is the cheap thing to write.
 // ---------------------------------------------------------------------------
 #pragma once
 
@@ -189,6 +202,29 @@ public:
     // linewise, which is the same guess vim makes.
     Void setYank(const Str& text, Bool linewise);
 
+    // The character the command line opened with: ':' for an ex command, '/'
+    // or '?' for a search. The UI draws it, because a prompt showing what you
+    // are typing INTO is the difference between a search and a command that
+    // silently was not one.
+    [[nodiscard]] Char commandPrefix() const
+    {
+        return cmdPrefix;
+    }
+
+    // The last thing searched for, so the UI can highlight every match. Empty
+    // until something has been searched.
+    [[nodiscard]] const Str& searchPattern() const
+    {
+        return lastSearch;
+    }
+
+    // ---- viewport --------------------------------------------------------
+    // Where the view currently is, pushed in by whoever is drawing. H, M, L and
+    // Ctrl-D/Ctrl-U are defined in terms of the SCREEN rather than the buffer,
+    // so without this they would have to guess, and a guess that is wrong by
+    // one line is worse than not having them.
+    Void setViewport(Int32 firstLine, Int32 lineSpan);
+
     // ---- selection -------------------------------------------------------
     // Ordered [start, end] inclusive of start, exclusive of end, in visual mode.
     // Returns false when nothing is selected.
@@ -219,9 +255,34 @@ private:
     // is not a motion, leaving `out` untouched.
     [[nodiscard]] Bool motion(Char c, Int32 count, Cursor& out, Bool& linewise);
 
+    // Anything that consumes a motion: d c y > <. One place, so an operator
+    // added later works with every motion and every text object at once.
+    Void applyOperator(Char op, Cursor a, Cursor b, Bool linewise);
+
     Void deleteRange(Cursor a, Cursor b, Bool linewise, Bool yank);
     Void yankRange(Cursor a, Cursor b, Bool linewise);
     Void put(Bool before);
+
+    // ---- search ----------------------------------------------------------
+    // Wraps at the end of the buffer, as vim does. Returns false only when the
+    // pattern is nowhere at all, which is the one case worth a message.
+    [[nodiscard]] Bool searchFrom(const Str& pat, Bool forward, Cursor from,
+                                  Cursor& out) const;
+    Void runSearch(const Str& pat, Bool forward, Int32 count);
+
+    // ---- the multi-key commands ------------------------------------------
+    [[nodiscard]] Bool findInLine(Char cmd, Char target, Int32 count,
+                                  Cursor& out) const;
+    [[nodiscard]] Bool matchBracket(Cursor& out) const;
+
+    // `kind` is 'i' or 'a'; `obj` is w, (, {, [, <, " or '. Half-open [a, b) in
+    // the same convention the operators use.
+    [[nodiscard]] Bool textObject(Char kind, Char obj, Cursor& a, Cursor& b,
+                                  Bool& linewise) const;
+
+    Void indentLines(Int32 first, Int32 last, Bool rightwards);
+    Void substitute(const Str& spec);
+    [[nodiscard]] Str wordUnder(Cursor at) const;
 
     Void insertChar(Char c);
     Void newlineWithIndent();
@@ -238,6 +299,47 @@ private:
     // cleared whenever a command completes or is abandoned.
     Int32 pendCount = 0;
     Char  pendOp    = 0;
+
+    // The rest of the multi-key commands, each waiting for exactly one more
+    // character. Separate fields rather than one because they can nest: `d`
+    // pending an operator AND `i` pending an object is `di(`.
+    Char  pendFind    = 0;   // f F t T, awaiting the target character
+    Char  pendObjKind = 0;   // i or a, awaiting the object character
+    Char  pendMark    = 0;   // m, ' or `, awaiting the mark name
+
+    // A count typed BETWEEN the operator and the motion: the 3 in d3w. Vim
+    // multiplies it by any count before the operator, so 2d3w deletes six.
+    Int32 pendOpCount = 0;
+
+    // ---- search state ----------------------------------------------------
+    Str  lastSearch;
+    Bool searchForward = true;
+
+    // ---- f/F/t/T state, for ; and , ---------------------------------------
+    Char lastFindCmd  = 0;
+    Char lastFindChar = 0;
+
+    Map<Char, Cursor> marks;
+
+    // ---- the dot register --------------------------------------------------
+    // The keys of the last change, replayed verbatim by `.`. Recording the KEYS
+    // rather than a parsed command is what makes `.` work for an insert - ciw,
+    // the replacement text and the Escape are one sequence and repeat as one.
+    Vec<Key> recBuf;
+    Vec<Key> lastChange;
+    Bool     replaying  = false;
+    Bool     changeOpen = false;
+
+    // Bumped by pushUndo(), which every mutating command already calls. That
+    // makes "did this key change the buffer" a comparison rather than a rule
+    // each command has to remember to follow.
+    UInt64 changeSeq = 0;
+
+    // Set by the UI. Defaults are a sane screenful for the headless tests.
+    Int32 viewFirst = 0;
+    Int32 viewSpan  = 24;
+
+    Char cmdPrefix = ':';
 
     Cursor  visAnchor;
     Str     cmdLine;

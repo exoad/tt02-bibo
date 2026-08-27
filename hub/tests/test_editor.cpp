@@ -639,6 +639,428 @@ Void testYankRegister()
     }
 }
 
+// Feeds a special key, for the sequences that need Escape or Enter.
+Void esc(ed::Editor& e)
+{
+    ed::Key k;
+    k.sp = ed::Special::SPECIAL_ESC;
+    e.key(k);
+}
+
+Void enter(ed::Editor& e)
+{
+    ed::Key k;
+    k.sp = ed::Special::SPECIAL_ENTER;
+    e.key(k);
+}
+
+Void testSearch()
+{
+    std::printf("\n-- search --\n");
+
+    ed::Editor e;
+    e.setText("alpha beta\ngamma beta\ndelta");
+    e.setCursor(0, 0);
+
+    type(e, "/beta");
+    check(e.mode() == ed::Mode::MODE_COMMAND, "/ opens the command line");
+    check(e.commandPrefix() == '/', "and it knows it is a search, not a colon");
+    checkStr(e.commandLine(), "beta", "the pattern is what was typed");
+
+    enter(e);
+    check(e.mode() == ed::Mode::MODE_NORMAL, "enter leaves command mode");
+    check(e.cursor().line == 0 && e.cursor().col == 6, "/ lands on the first match");
+
+    type(e, "n");
+    check(e.cursor().line == 1 && e.cursor().col == 6, "n goes to the next");
+
+    // Wraps, as vim does.
+    type(e, "n");
+    check(e.cursor().line == 0 && e.cursor().col == 6, "n wraps to the top");
+
+    type(e, "N");
+    check(e.cursor().line == 1 && e.cursor().col == 6, "N goes back");
+
+    // A search that finds nothing must not move the caret.
+    {
+        ed::Editor f;
+        f.setText("one\ntwo");
+        f.setCursor(1, 1);
+        type(f, "/zzz");
+        enter(f);
+        check(f.cursor().line == 1 && f.cursor().col == 1,
+              "a search with no match leaves the caret alone");
+        checkStr(f.takeMessage(), "pattern not found: zzz",
+                 "and says so on the status line");
+    }
+
+    // Smartcase: lowercase is insensitive, any capital makes it exact.
+    {
+        ed::Editor f;
+        f.setText("xx Gpio");
+        f.setCursor(0, 0);
+        type(f, "/gpio");
+        enter(f);
+        check(f.cursor().col == 3, "an all-lowercase pattern ignores case");
+
+        // The capitalised pattern must SKIP the lowercase one at column 3.
+        ed::Editor g;
+        g.setText("xx gpio yy Gpio");
+        g.setCursor(0, 0);
+        type(g, "/Gpio");
+        enter(g);
+        check(g.cursor().col == 11, "a pattern with a capital is exact");
+    }
+
+    // Backwards.
+    {
+        ed::Editor f;
+        f.setText("hit\nmiss\nhit");
+        f.setCursor(1, 0);
+        type(f, "?hit");
+        enter(f);
+        check(f.cursor().line == 0, "? searches backwards");
+    }
+
+    // * takes the word under the caret.
+    {
+        ed::Editor f;
+        f.setText("gpioWrite(1);\nsleepMs(2);\ngpioWrite(0);");
+        f.setCursor(0, 2);
+        type(f, "*");
+        check(f.cursor().line == 2, "* finds the next use of the word under the caret");
+        checkStr(f.searchPattern(), "gpioWrite", "and remembers what it searched for");
+    }
+
+    // A search is the editor's business and must never reach the caller.
+    {
+        ed::Editor f;
+        f.setText("abc");
+        type(f, "/ab");
+        enter(f);
+        checkStr(f.takeSubmittedCommand(), "",
+                 "a search does not submit a command to the host");
+    }
+}
+
+Void testFindInLine()
+{
+    std::printf("\n-- f F t T ; , --\n");
+
+    ed::Editor e;
+    e.setText("alpha,beta,gamma");
+    e.setCursor(0, 0);
+
+    type(e, "f,");
+    check(e.cursor().col == 5, "f lands ON the character");
+
+    type(e, ";");
+    check(e.cursor().col == 10, "; repeats it");
+
+    type(e, ",");
+    check(e.cursor().col == 5, ", repeats it backwards");
+
+    e.setCursor(0, 0);
+    type(e, "t,");
+    check(e.cursor().col == 4, "t stops one short");
+
+    e.setCursor(0, 15);
+    type(e, "F,");
+    check(e.cursor().col == 10, "F searches backwards");
+
+    e.setCursor(0, 0);
+    type(e, "2f,");
+    check(e.cursor().col == 10, "a count takes the second match");
+
+    // As an operator target, f is inclusive.
+    {
+        ed::Editor f;
+        f.setText("alpha,beta");
+        f.setCursor(0, 0);
+        type(f, "df,");
+        checkStr(f.text(), "beta", "df deletes through the character");
+    }
+
+    // A character that is not there changes nothing.
+    {
+        ed::Editor f;
+        f.setText("abc");
+        f.setCursor(0, 0);
+        type(f, "fz");
+        check(f.cursor().col == 0, "f with no match does not move");
+    }
+}
+
+Void testTextObjects()
+{
+    std::printf("\n-- text objects --\n");
+
+    {
+        ed::Editor e;
+        e.setText("one two three");
+        e.setCursor(0, 5);            // on "two"
+        type(e, "diw");
+        checkStr(e.text(), "one  three", "diw takes the word and leaves the spaces");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("one two three");
+        e.setCursor(0, 5);
+        type(e, "daw");
+        checkStr(e.text(), "one three", "daw takes the trailing space too");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("gpioWrite(LED_PIN, true);");
+        e.setCursor(0, 14);           // inside the parentheses
+        type(e, "di(");
+        checkStr(e.text(), "gpioWrite();", "di( empties the parentheses");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("gpioWrite(LED_PIN);");
+        e.setCursor(0, 12);
+        type(e, "da(");
+        checkStr(e.text(), "gpioWrite;", "da( takes the brackets as well");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("serialPrint(\"hello world\");");
+        e.setCursor(0, 15);
+        type(e, "ci\"");
+        checkStr(e.text(), "serialPrint(\"\");", "ci\" empties the string");
+        check(e.mode() == ed::Mode::MODE_INSERT, "and leaves you in insert mode");
+    }
+
+    // Across lines, which is the case that makes ci{ worth having.
+    {
+        ed::Editor e;
+        e.setText("void f()\n{\n    body();\n}\ntail");
+        e.setCursor(2, 4);
+        type(e, "di{");
+        checkStr(e.text(), "void f()\n{}\ntail", "di{ works across lines");
+    }
+
+    // yi( must not change the buffer.
+    {
+        ed::Editor e;
+        e.setText("f(abc)");
+        e.setCursor(0, 3);
+        type(e, "yi(");
+        checkStr(e.text(), "f(abc)", "yi( changes nothing");
+        checkStr(e.yankText(), "abc", "and fills the register");
+    }
+
+    // An object with no enclosing pair is a no-op, not a crash or a wipe.
+    {
+        ed::Editor e;
+        e.setText("no brackets here");
+        e.setCursor(0, 4);
+        type(e, "di(");
+        checkStr(e.text(), "no brackets here", "di( with no pair does nothing");
+    }
+}
+
+Void testDotRepeat()
+{
+    std::printf("\n-- . repeat --\n");
+
+    {
+        ed::Editor e;
+        e.setText("aaa\naaa\naaa");
+        e.setCursor(0, 0);
+        type(e, "x");
+        checkStr(e.text(), "aa\naaa\naaa", "x deletes one");
+
+        type(e, "j0");
+        type(e, ".");
+        checkStr(e.text(), "aa\naa\naaa", ". repeats it");
+
+        type(e, "j0");
+        type(e, ".");
+        checkStr(e.text(), "aa\naa\naa", "and again");
+    }
+
+    // The whole insert is repeated, not just the last key.
+    {
+        ed::Editor e;
+        e.setText("one two\nthree four");
+        e.setCursor(0, 0);
+        type(e, "ciwX");
+        esc(e);
+        checkStr(e.text(), "X two\nthree four", "ciw then text");
+
+        type(e, "j0");
+        type(e, ".");
+        checkStr(e.text(), "X two\nX four", ". repeats the change AND its text");
+    }
+
+    // dd repeats.
+    {
+        ed::Editor e;
+        e.setText("a\nb\nc\nd");
+        e.setCursor(0, 0);
+        type(e, "dd");
+        type(e, ".");
+        checkStr(e.text(), "c\nd", ". repeats dd");
+    }
+}
+
+Void testIndentAndCase()
+{
+    std::printf("\n-- indent, case, marks --\n");
+
+    {
+        ed::Editor e;
+        e.setText("a\nb\nc");
+        e.setCursor(0, 0);
+        type(e, ">>");
+        checkStr(e.text(), "    a\nb\nc", ">> indents one line");
+
+        type(e, "<<");
+        checkStr(e.text(), "a\nb\nc", "<< takes it back");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("a\nb\nc");
+        e.setCursor(0, 0);
+        type(e, "3>>");
+        checkStr(e.text(), "    a\n    b\n    c", "a count indents that many lines");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("x\n\ny");
+        e.setCursor(0, 0);
+        type(e, "3>>");
+        checkStr(e.text(), "    x\n\n    y",
+                 "a blank line is left blank rather than filled with spaces");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("abc");
+        e.setCursor(0, 0);
+        type(e, "~");
+        checkStr(e.text(), "Abc", "~ flips one character and advances");
+        type(e, "~");
+        checkStr(e.text(), "ABc", "and again");
+    }
+
+    // Marks.
+    {
+        ed::Editor e;
+        e.setText("one\ntwo\nthree\nfour");
+        e.setCursor(1, 1);
+        type(e, "ma");
+        type(e, "G");
+        check(e.cursor().line == 3, "G moved away");
+        type(e, "'a");
+        check(e.cursor().line == 1, "'a comes back");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("hello");
+        e.setCursor(0, 0);
+        type(e, "'z");
+        checkStr(e.takeMessage(), "mark not set", "an unset mark says so");
+    }
+}
+
+Void testBracketMatch()
+{
+    std::printf("\n-- %% and WORD motions --\n");
+
+    {
+        ed::Editor e;
+        e.setText("if(a && (b))");
+        e.setCursor(0, 2);
+        type(e, "%");
+        check(e.cursor().col == 11, "%% finds the matching close across nesting");
+
+        type(e, "%");
+        check(e.cursor().col == 2, "and back again");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("void f()\n{\n    x;\n}");
+        e.setCursor(1, 0);
+        type(e, "%");
+        check(e.cursor().line == 3, "%% spans lines");
+    }
+
+    // W steps over punctuation that w stops at.
+    {
+        ed::Editor e;
+        e.setText("a->b c");
+        e.setCursor(0, 0);
+        type(e, "W");
+        check(e.cursor().col == 5, "W jumps the whole blob");
+
+        e.setCursor(0, 0);
+        type(e, "w");
+        check(e.cursor().col < 5, "w stops inside it");
+    }
+}
+
+Void testSubstitute()
+{
+    std::printf("\n-- :s --\n");
+
+    {
+        ed::Editor e;
+        e.setText("foo bar foo");
+        e.setCursor(0, 0);
+        type(e, ":s/foo/baz/");
+        enter(e);
+        checkStr(e.text(), "baz bar foo", ":s replaces the first on the line");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("foo bar foo");
+        e.setCursor(0, 0);
+        type(e, ":s/foo/baz/g");
+        enter(e);
+        checkStr(e.text(), "baz bar baz", "g replaces every one");
+    }
+
+    {
+        ed::Editor e;
+        e.setText("aa\nbb\naa");
+        e.setCursor(0, 0);
+        type(e, ":%s/aa/zz/g");
+        enter(e);
+        checkStr(e.text(), "zz\nbb\nzz", "%%s does the whole file");
+    }
+
+    // :s must not reach the host either.
+    {
+        ed::Editor e;
+        e.setText("abc");
+        type(e, ":s/a/b/");
+        enter(e);
+        checkStr(e.takeSubmittedCommand(), "", ":s is not submitted to the host");
+    }
+
+    // An alternative delimiter, so paths do not need escaping.
+    {
+        ed::Editor e;
+        e.setText("/usr/lib");
+        e.setCursor(0, 0);
+        type(e, ":s#/usr#/opt#");
+        enter(e);
+        checkStr(e.text(), "/opt/lib", "any character can be the delimiter");
+    }
+}
+
 int main()
 {
     std::printf("editor + syntax tests\n");
@@ -647,6 +1069,13 @@ int main()
     testEditing();
     testVisual();
     testYankRegister();
+    testSearch();
+    testFindInLine();
+    testTextObjects();
+    testDotRepeat();
+    testIndentAndCase();
+    testBracketMatch();
+    testSubstitute();
     testAutoClose();
     testCommandLine();
     testDirty();

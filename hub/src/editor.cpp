@@ -122,8 +122,12 @@ Void Editor::setMode(Mode m)
         cmdLine.clear();
     if(m == Mode::MODE_NORMAL)
     {
-        pendCount = 0;
-        pendOp    = 0;
+        pendCount   = 0;
+        pendOp      = 0;
+        pendFind    = 0;
+        pendObjKind = 0;
+        pendMark    = 0;
+        pendOpCount = 0;
     }
     clampCursor();
 }
@@ -196,6 +200,8 @@ Int32 Editor::indentOf(Int32 lineIdx) const
 
 Void Editor::pushUndo()
 {
+    ++changeSeq;
+
     Snapshot s;
     s.lines = lines;
     s.cur   = cur;
@@ -522,6 +528,96 @@ Bool Editor::motion(Char c, Int32 count, Cursor& out, Bool& linewise)
         break;
     }
 
+    // WORD motions: whitespace-delimited, so they step over punctuation that w
+    // and b stop at. In C this is the difference between crossing `foo->bar`
+    // in one press and in five.
+    case 'W':
+    {
+        const Str& sl  = line(p.line);
+        const Int32 len = static_cast<Int32>(sl.size());
+        for(Int32 i = 0; i < n; ++i)
+        {
+            while(p.col < len && !space(sl[static_cast<Size>(p.col)]))
+            {
+                ++p.col;
+            }
+            while(p.col < len && space(sl[static_cast<Size>(p.col)]))
+            {
+                ++p.col;
+            }
+        }
+        break;
+    }
+
+    case 'B':
+    {
+        const Str& sl = line(p.line);
+        for(Int32 i = 0; i < n; ++i)
+        {
+            while(p.col > 0 && space(sl[static_cast<Size>(p.col - 1)]))
+            {
+                --p.col;
+            }
+            while(p.col > 0 && !space(sl[static_cast<Size>(p.col - 1)]))
+            {
+                --p.col;
+            }
+        }
+        break;
+    }
+
+    case 'E':
+    {
+        const Str& sl  = line(p.line);
+        const Int32 len = static_cast<Int32>(sl.size());
+        for(Int32 i = 0; i < n; ++i)
+        {
+            ++p.col;
+            while(p.col < len && space(sl[static_cast<Size>(p.col)]))
+            {
+                ++p.col;
+            }
+            while(p.col + 1 < len && !space(sl[static_cast<Size>(p.col + 1)]))
+            {
+                ++p.col;
+            }
+        }
+        break;
+    }
+
+    // Screen-relative, which is why the view has to be pushed in. Without a
+    // viewport these would silently mean something else.
+    case 'H':
+        p.line   = std::max(0, std::min(lineCount() - 1, viewFirst + (n - 1)));
+        p.col    = indentOf(p.line);
+        linewise = true;
+        break;
+
+    case 'M':
+        p.line   = std::max(0, std::min(lineCount() - 1,
+                                        viewFirst + (viewSpan / 2)));
+        p.col    = indentOf(p.line);
+        linewise = true;
+        break;
+
+    case 'L':
+        p.line   = std::max(0, std::min(lineCount() - 1,
+                                        viewFirst + viewSpan - n));
+        p.col    = indentOf(p.line);
+        linewise = true;
+        break;
+
+    case '%':
+    {
+        Cursor m;
+        if(!matchBracket(m))
+        {
+            return false;
+        }
+        p = m;
+        break;
+    }
+
     case 'G':
         // With a count, G is "go to line N"; without, "go to the last line".
         p.line   = (count > 0) ? std::min(lineCount() - 1, count - 1)
@@ -766,6 +862,40 @@ Bool Editor::key(const Key& k)
     const Str              beforeL   = lines[static_cast<Size>(
                                           std::min<Int32>(cur.line, lineCount() - 1))];
 
+    // ---- recording for `.` -------------------------------------------------
+    //
+    // A change is not one key. `ciw` plus its replacement text plus Escape is
+    // five or fifty, and `.` has to repeat all of it - which is why the KEYS are
+    // recorded rather than a parsed command. Replaying the keys reproduces the
+    // insert for free; a parsed representation would have to model it.
+    //
+    // A fresh recording starts on any key pressed in normal mode with nothing
+    // pending. Anything else - the motion after an operator, every character of
+    // an insert - appends to the recording already running.
+    const UInt64 seqBefore = changeSeq;
+    Bool         dotKey    = false;
+    if(!replaying)
+    {
+        const Bool idle = (md == Mode::MODE_NORMAL) && (pendOp == 0)
+                       && (pendFind == 0) && (pendObjKind == 0)
+                       && (pendMark == 0) && (pendCount == 0);
+
+        // `.` is neither recorded nor committed. Recording it would nest; and
+        // committing after it would overwrite lastChange with whatever keys
+        // happened to be in the buffer - the `0` of a `j0` - so the SECOND `.`
+        // would replay that instead and silently do nothing.
+        dotKey = idle && (k.ch == '.');
+        if(idle && !dotKey)
+        {
+            recBuf.clear();
+            changeOpen = false;
+        }
+        if(!dotKey)
+        {
+            recBuf.push_back(k);
+        }
+    }
+
     switch(md)
     {
     case Mode::MODE_INSERT:       applyInsertKey(k);  break;
@@ -777,6 +907,26 @@ Bool Editor::key(const Key& k)
     }
 
     clampCursor();
+
+    if(!replaying && !dotKey)
+    {
+        if(changeSeq != seqBefore)
+        {
+            changeOpen = true;
+        }
+
+        // Committed only once the command is FINISHED - back in normal mode with
+        // nothing pending. Committing per key would make `.` after `ciwfoo<Esc>`
+        // repeat only the final keystroke.
+        const Bool settled = (md == Mode::MODE_NORMAL) && (pendOp == 0)
+                          && (pendFind == 0) && (pendObjKind == 0)
+                          && (pendMark == 0);
+        if(changeOpen && settled)
+        {
+            lastChange = recBuf;
+            changeOpen = false;
+        }
+    }
 
     return cur.line != beforeCur.line || cur.col != beforeCur.col
         || lines.size() != beforeN
@@ -866,12 +1016,779 @@ Void Editor::applyInsertKey(const Key& k)
     }
 }
 
+
+Void Editor::setViewport(Int32 firstLine, Int32 lineSpan)
+{
+    viewFirst = std::max(0, firstLine);
+    viewSpan  = std::max(1, lineSpan);
+}
+
+// ------------------------------------------------------------------- search
+
+// LITERAL, not a regular expression, and deliberately so. These are hundred-line
+// C sketches; `/gpio` is what gets typed, and a regex engine would mean std::regex
+// - which would silently reinterpret every . ( ) [ ] * + in the C under the caret
+// as syntax. Searching for `gpioWrite(LED` would then find nothing and give no
+// hint why. Literal is the behaviour that matches what people actually type here.
+//
+// Smartcase, as vim does it: an all-lowercase pattern ignores case, a pattern
+// with any capital in it is exact.
+namespace {
+
+Bool patternHasUpper(const Str& p)
+{
+    for(Char c : p)
+    {
+        if(c >= 'A' && c <= 'Z')
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Char lowerOf(Char c)
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<Char>(c - 'A' + 'a') : c;
+}
+
+// Index of `pat` in `hay` at or after `from`, or -1.
+Int32 findIn(const Str& hay, const Str& pat, Int32 from, Bool caseless)
+{
+    const Int32 hn = static_cast<Int32>(hay.size());
+    const Int32 pn = static_cast<Int32>(pat.size());
+    if(pn == 0 || pn > hn)
+    {
+        return -1;
+    }
+    for(Int32 i = std::max(0, from); i + pn <= hn; ++i)
+    {
+        Int32 j = 0;
+        while(j < pn)
+        {
+            const Char a = hay[static_cast<Size>(i + j)];
+            const Char b = pat[static_cast<Size>(j)];
+            if(caseless ? (lowerOf(a) != lowerOf(b)) : (a != b))
+            {
+                break;
+            }
+            ++j;
+        }
+        if(j == pn)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Last index of `pat` in `hay` strictly before `before`, or -1.
+Int32 rfindIn(const Str& hay, const Str& pat, Int32 before, Bool caseless)
+{
+    Int32 best = -1;
+    Int32 at   = 0;
+    while(true)
+    {
+        const Int32 hit = findIn(hay, pat, at, caseless);
+        if(hit < 0 || hit >= before)
+        {
+            break;
+        }
+        best = hit;
+        at   = hit + 1;
+    }
+    return best;
+}
+
+} // namespace
+
+Bool Editor::searchFrom(const Str& pat, Bool forward, Cursor from,
+                        Cursor& out) const
+{
+    if(pat.empty() || lineCount() == 0)
+    {
+        return false;
+    }
+
+    const Bool caseless = !patternHasUpper(pat);
+    const Int32 n = lineCount();
+
+    if(forward)
+    {
+        // Start just past the caret so `n` advances rather than finding the
+        // match it is already sitting on.
+        Int32 col = from.col + 1;
+        for(Int32 step = 0; step <= n; ++step)
+        {
+            const Int32 l = (from.line + step) % n;
+            const Int32 startAt = (step == 0) ? col : 0;
+            const Int32 hit = findIn(line(l), pat, startAt, caseless);
+            if(hit >= 0)
+            {
+                out = Cursor{ l, hit };
+                return true;
+            }
+        }
+        return false;
+    }
+
+    for(Int32 step = 0; step <= n; ++step)
+    {
+        const Int32 l = ((from.line - step) % n + n) % n;
+        const Int32 limit = (step == 0) ? from.col
+                                        : static_cast<Int32>(line(l).size());
+        const Int32 hit = rfindIn(line(l), pat, limit, caseless);
+        if(hit >= 0)
+        {
+            out = Cursor{ l, hit };
+            return true;
+        }
+    }
+    return false;
+}
+
+Void Editor::runSearch(const Str& pat, Bool forward, Int32 count)
+{
+    if(pat.empty())
+    {
+        return;
+    }
+
+    Cursor at = cur;
+    const Int32 n = std::max(1, count);
+    for(Int32 i = 0; i < n; ++i)
+    {
+        Cursor hit;
+        if(!searchFrom(pat, forward, at, hit))
+        {
+            message = "pattern not found: " + pat;
+            return;
+        }
+        at = hit;
+    }
+    cur = at;
+}
+
+Str Editor::wordUnder(Cursor at) const
+{
+    const Str& sl = line(at.line);
+    const Int32 len = static_cast<Int32>(sl.size());
+    if(at.col < 0 || at.col >= len)
+    {
+        return Str();
+    }
+
+    Int32 b = at.col;
+    Int32 e = at.col;
+
+    // Standing on punctuation, step forward to the next word rather than
+    // returning nothing - which is what vim's * does and what feels right.
+    if(!wordChar(sl[static_cast<Size>(b)]))
+    {
+        while(b < len && !wordChar(sl[static_cast<Size>(b)]))
+        {
+            ++b;
+        }
+        if(b >= len)
+        {
+            return Str();
+        }
+        e = b;
+    }
+
+    while(b > 0 && wordChar(sl[static_cast<Size>(b - 1)]))
+    {
+        --b;
+    }
+    while(e + 1 < len && wordChar(sl[static_cast<Size>(e + 1)]))
+    {
+        ++e;
+    }
+    return sl.substr(static_cast<Size>(b), static_cast<Size>(e - b + 1));
+}
+
+// -------------------------------------------------------------- f F t T
+
+Bool Editor::findInLine(Char cmd, Char target, Int32 count, Cursor& out) const
+{
+    const Str&  sl  = line(cur.line);
+    const Int32 len = static_cast<Int32>(sl.size());
+    const Bool  fwd = (cmd == 'f' || cmd == 't');
+
+    Int32 at = cur.col;
+    const Int32 n = std::max(1, count);
+
+    for(Int32 i = 0; i < n; ++i)
+    {
+        // `t` stops one short, so repeating it has to start one further along
+        // or it would find the character it is already parked next to.
+        Int32 probe = fwd ? (at + 1) : (at - 1);
+        if((cmd == 't' && i > 0))
+        {
+            ++probe;
+        }
+        else if(cmd == 'T' && i > 0)
+        {
+            --probe;
+        }
+
+        Bool got = false;
+        while(fwd ? (probe < len) : (probe >= 0))
+        {
+            if(sl[static_cast<Size>(probe)] == target)
+            {
+                got = true;
+                break;
+            }
+            probe += fwd ? 1 : -1;
+        }
+        if(!got)
+        {
+            return false;
+        }
+        at = probe;
+    }
+
+    if(cmd == 't')
+    {
+        --at;
+    }
+    else if(cmd == 'T')
+    {
+        ++at;
+    }
+
+    out = Cursor{ cur.line, std::max(0, at) };
+    return true;
+}
+
+// ------------------------------------------------------------------- %
+
+Bool Editor::matchBracket(Cursor& out) const
+{
+    const Str&  sl  = line(cur.line);
+    const Int32 len = static_cast<Int32>(sl.size());
+
+    // vim scans FORWARD along the line for the first bracket, so % works from
+    // anywhere on `    if(x)` rather than only from the parenthesis itself.
+    Int32 at = cur.col;
+    while(at < len)
+    {
+        const Char c = sl[static_cast<Size>(at)];
+        if(c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}')
+        {
+            break;
+        }
+        ++at;
+    }
+    if(at >= len)
+    {
+        return false;
+    }
+
+    const Char open = sl[static_cast<Size>(at)];
+    Char       want = 0;
+    Bool       fwd  = true;
+    switch(open)
+    {
+    case '(': want = ')'; fwd = true;  break;
+    case '[': want = ']'; fwd = true;  break;
+    case '{': want = '}'; fwd = true;  break;
+    case ')': want = '('; fwd = false; break;
+    case ']': want = '['; fwd = false; break;
+    case '}': want = '{'; fwd = false; break;
+    default: return false;
+    }
+
+    Int32 depth = 0;
+    Int32 l = cur.line;
+    Int32 c = at;
+
+    while(l >= 0 && l < lineCount())
+    {
+        const Str&  ls  = line(l);
+        const Int32 ln  = static_cast<Int32>(ls.size());
+
+        while(c >= 0 && c < ln)
+        {
+            const Char ch = ls[static_cast<Size>(c)];
+            if(ch == open)
+            {
+                ++depth;
+            }
+            else if(ch == want)
+            {
+                --depth;
+                if(depth == 0)
+                {
+                    out = Cursor{ l, c };
+                    return true;
+                }
+            }
+            c += fwd ? 1 : -1;
+        }
+
+        l += fwd ? 1 : -1;
+        if(l < 0 || l >= lineCount())
+        {
+            break;
+        }
+        c = fwd ? 0 : std::max(0, static_cast<Int32>(line(l).size()) - 1);
+    }
+    return false;
+}
+
+// -------------------------------------------------------- text objects
+
+Bool Editor::textObject(Char kind, Char obj, Cursor& a, Cursor& b,
+                        Bool& linewise) const
+{
+    linewise = false;
+    const Str&  sl  = line(cur.line);
+    const Int32 len = static_cast<Int32>(sl.size());
+
+    if(obj == 'w' || obj == 'W')
+    {
+        if(len == 0)
+        {
+            return false;
+        }
+        const Int32 at = std::min(cur.col, len - 1);
+
+        // Word or run-of-whitespace, whichever the caret is standing in - so
+        // diw in the gap between two words deletes the gap.
+        const Bool onWord = (obj == 'w') ? wordChar(sl[static_cast<Size>(at)])
+                                         : !space(sl[static_cast<Size>(at)]);
+        const auto same = [&](Char c)
+        {
+            if(obj == 'W')
+            {
+                return space(c) != onWord ? false : true;
+            }
+            return onWord ? wordChar(c) : !wordChar(c);
+        };
+
+        Int32 s0 = at;
+        Int32 e0 = at;
+        while(s0 > 0 && same(sl[static_cast<Size>(s0 - 1)]))
+        {
+            --s0;
+        }
+        while(e0 + 1 < len && same(sl[static_cast<Size>(e0 + 1)]))
+        {
+            ++e0;
+        }
+
+        // `aw` takes the trailing whitespace too, and only falls back to the
+        // leading run when there is none after - which is vim's rule and the
+        // reason daw at the end of a line does not leave a dangling space.
+        if(kind == 'a')
+        {
+            Int32 e1 = e0;
+            while(e1 + 1 < len && space(sl[static_cast<Size>(e1 + 1)]))
+            {
+                ++e1;
+            }
+            if(e1 != e0)
+            {
+                e0 = e1;
+            }
+            else
+            {
+                while(s0 > 0 && space(sl[static_cast<Size>(s0 - 1)]))
+                {
+                    --s0;
+                }
+            }
+        }
+
+        a = Cursor{ cur.line, s0 };
+        b = Cursor{ cur.line, e0 + 1 };
+        return true;
+    }
+
+    // Brackets. Scans outward from the caret across lines, so ci{ works from
+    // anywhere inside a function body.
+    Char openCh  = 0;
+    Char closeCh = 0;
+    switch(obj)
+    {
+    case '(': case ')': case 'b': openCh = '('; closeCh = ')'; break;
+    case '[': case ']':           openCh = '['; closeCh = ']'; break;
+    case '{': case '}': case 'B': openCh = '{'; closeCh = '}'; break;
+    case '<': case '>':           openCh = '<'; closeCh = '>'; break;
+    default: break;
+    }
+
+    if(openCh != 0)
+    {
+        // Backwards for the unmatched opener.
+        Int32 depth = 0;
+        Int32 l = cur.line;
+        Int32 c = cur.col;
+        Cursor op{ -1, -1 };
+
+        while(l >= 0)
+        {
+            const Str& ls = line(l);
+            if(c < 0)
+            {
+                c = static_cast<Int32>(ls.size()) - 1;
+            }
+            while(c >= 0)
+            {
+                const Char ch = ls[static_cast<Size>(c)];
+                if(ch == closeCh && !(l == cur.line && c == cur.col))
+                {
+                    ++depth;
+                }
+                else if(ch == openCh)
+                {
+                    if(depth == 0)
+                    {
+                        op = Cursor{ l, c };
+                        break;
+                    }
+                    --depth;
+                }
+                --c;
+            }
+            if(op.line >= 0)
+            {
+                break;
+            }
+            --l;
+            c = -1;
+        }
+        if(op.line < 0)
+        {
+            return false;
+        }
+
+        // Forwards for its partner.
+        depth = 0;
+        l = op.line;
+        c = op.col;
+        Cursor cl{ -1, -1 };
+        while(l < lineCount())
+        {
+            const Str&  ls = line(l);
+            const Int32 ln = static_cast<Int32>(ls.size());
+            while(c < ln)
+            {
+                const Char ch = ls[static_cast<Size>(c)];
+                if(ch == openCh)
+                {
+                    ++depth;
+                }
+                else if(ch == closeCh)
+                {
+                    --depth;
+                    if(depth == 0)
+                    {
+                        cl = Cursor{ l, c };
+                        break;
+                    }
+                }
+                ++c;
+            }
+            if(cl.line >= 0)
+            {
+                break;
+            }
+            ++l;
+            c = 0;
+        }
+        if(cl.line < 0)
+        {
+            return false;
+        }
+
+        if(kind == 'a')
+        {
+            a = op;
+            b = Cursor{ cl.line, cl.col + 1 };
+        }
+        else
+        {
+            a = Cursor{ op.line, op.col + 1 };
+            b = cl;
+        }
+        return true;
+    }
+
+    // Quotes, which are their own closer - so they are paired by counting from
+    // the start of the line rather than by nesting.
+    if(obj == '"' || obj == '\'' || obj == '`')
+    {
+        Int32 openAt  = -1;
+        Int32 closeAt = -1;
+        Bool  inside  = false;
+        Int32 last    = -1;
+
+        for(Int32 i = 0; i < len; ++i)
+        {
+            if(sl[static_cast<Size>(i)] != obj)
+            {
+                continue;
+            }
+            if(i > 0 && sl[static_cast<Size>(i - 1)] == '\\')
+            {
+                continue;                      // an escaped quote is not one
+            }
+            if(!inside)
+            {
+                inside = true;
+                last   = i;
+            }
+            else
+            {
+                inside = false;
+                if(cur.col >= last && cur.col <= i)
+                {
+                    openAt  = last;
+                    closeAt = i;
+                    break;
+                }
+            }
+        }
+        if(openAt < 0)
+        {
+            return false;
+        }
+
+        if(kind == 'a')
+        {
+            a = Cursor{ cur.line, openAt };
+            b = Cursor{ cur.line, closeAt + 1 };
+        }
+        else
+        {
+            a = Cursor{ cur.line, openAt + 1 };
+            b = Cursor{ cur.line, closeAt };
+        }
+        return true;
+    }
+
+    return false;
+}
+
+// ------------------------------------------------------------- operators
+
+Void Editor::applyOperator(Char op, Cursor a, Cursor b, Bool linewise)
+{
+    if(before(b, a))
+    {
+        std::swap(a, b);
+    }
+
+    switch(op)
+    {
+    case 'y':
+        yankRange(a, b, linewise);
+        cur = a;                    // vim leaves the caret at the start of a yank
+        break;
+
+    case 'd':
+        deleteRange(a, b, linewise, true);
+        break;
+
+    case 'c':
+        if(linewise)
+        {
+            // Same as cc: the lines go, one blank line at the original indent
+            // stays, and insert starts on it. Deleting the line outright would
+            // put the caret on the following line, which is not what c means.
+            yankRange(a, b, true);
+            pushUndo();
+            const Int32 ind = indentOf(a.line);
+            lines.erase(lines.begin() + a.line, lines.begin() + b.line + 1);
+            lines.insert(lines.begin() + a.line, Str(static_cast<Size>(ind), ' '));
+            cur = Cursor{ a.line, ind };
+            setMode(Mode::MODE_INSERT);
+        }
+        else
+        {
+            deleteRange(a, b, linewise, true);
+            setMode(Mode::MODE_INSERT);
+        }
+        break;
+
+    case '>':
+        indentLines(a.line, b.line, true);
+        break;
+
+    case '<':
+        indentLines(a.line, b.line, false);
+        break;
+
+    default:
+        break;
+    }
+}
+
+Void Editor::indentLines(Int32 first, Int32 last, Bool rightwards)
+{
+    first = std::max(0, first);
+    last  = std::min(lineCount() - 1, last);
+    if(first > last)
+    {
+        return;
+    }
+
+    pushUndo();
+    for(Int32 l = first; l <= last; ++l)
+    {
+        Str& sl = lines[static_cast<Size>(l)];
+        if(rightwards)
+        {
+            // A blank line stays blank. Indenting whitespace into nothing leaves
+            // trailing spaces that no one asked for and every linter reports.
+            if(!sl.empty())
+            {
+                sl.insert(0, static_cast<Size>(INDENT), ' ');
+            }
+        }
+        else
+        {
+            Int32 take = 0;
+            while(take < INDENT && take < static_cast<Int32>(sl.size())
+                  && sl[static_cast<Size>(take)] == ' ')
+            {
+                ++take;
+            }
+            if(take > 0)
+            {
+                sl.erase(0, static_cast<Size>(take));
+            }
+        }
+    }
+    cur.line = std::max(first, std::min(cur.line, last));
+    cur.col  = indentOf(cur.line);
+}
+
+// ------------------------------------------------------------ :s/foo/bar/
+
+Void Editor::substitute(const Str& spec)
+{
+    // spec is what came after the colon: "s/a/b/g" or "%s/a/b/gi". Any single
+    // character may be the delimiter, as in vim, because a path is much easier
+    // to substitute with :s#/usr#/opt# than with a line of backslashes.
+    Size i = 0;
+    Bool wholeFile = false;
+    if(i < spec.size() && spec[i] == '%')
+    {
+        wholeFile = true;
+        ++i;
+    }
+    if(i >= spec.size() || spec[i] != 's')
+    {
+        return;
+    }
+    ++i;
+    if(i >= spec.size())
+    {
+        return;
+    }
+
+    const Char delim = spec[i];
+    ++i;
+
+    Str parts[3];
+    Int32 which = 0;
+    for(; i < spec.size() && which < 3; ++i)
+    {
+        if(spec[i] == '\\' && i + 1 < spec.size() && spec[i + 1] == delim)
+        {
+            parts[which].push_back(delim);
+            ++i;
+            continue;
+        }
+        if(spec[i] == delim)
+        {
+            ++which;
+            continue;
+        }
+        parts[which].push_back(spec[i]);
+    }
+
+    const Str& pat  = parts[0];
+    const Str& repl = parts[1];
+    const Str& flag = parts[2];
+    if(pat.empty())
+    {
+        return;
+    }
+
+    const Bool all      = flag.find('g') != Str::npos;
+    const Bool caseless = (flag.find('i') != Str::npos) || !patternHasUpper(pat);
+
+    const Int32 from = wholeFile ? 0 : cur.line;
+    const Int32 to   = wholeFile ? (lineCount() - 1) : cur.line;
+
+    Int32 hits  = 0;
+    Int32 touchedLines = 0;
+    Bool  first = true;
+
+    for(Int32 l = from; l <= to; ++l)
+    {
+        Str&  sl = lines[static_cast<Size>(l)];
+        Int32 at = 0;
+        Bool  touched = false;
+
+        while(true)
+        {
+            const Int32 hit = findIn(sl, pat, at, caseless);
+            if(hit < 0)
+            {
+                break;
+            }
+            if(first)
+            {
+                pushUndo();
+                first = false;
+            }
+            sl.erase(static_cast<Size>(hit), pat.size());
+            sl.insert(static_cast<Size>(hit), repl);
+            at = hit + static_cast<Int32>(repl.size());
+            ++hits;
+            touched = true;
+            if(!all)
+            {
+                break;
+            }
+        }
+        if(touched)
+        {
+            ++touchedLines;
+        }
+    }
+
+    Char buf[96];
+    if(hits == 0)
+    {
+        std::snprintf(buf, sizeof(buf), "pattern not found: %s", pat.c_str());
+    }
+    else
+    {
+        std::snprintf(buf, sizeof(buf), "%d substitution%s on %d line%s",
+                      hits, hits == 1 ? "" : "s",
+                      touchedLines, touchedLines == 1 ? "" : "s");
+    }
+    message = buf;
+    clampCursor();
+}
+
 Void Editor::applyNormalKey(const Key& k)
 {
     if(k.sp == Special::SPECIAL_ESC)
     {
-        pendCount = 0;
-        pendOp    = 0;
+        pendCount   = 0;
+        pendOp      = 0;
+        pendFind    = 0;
+        pendObjKind = 0;
+        pendMark    = 0;
+        pendOpCount = 0;
         return;
     }
 
@@ -919,6 +1836,22 @@ Void Editor::applyNormalKey(const Key& k)
         return;
     }
 
+    // Half a screen, which is why the viewport has to be pushed in. The caret
+    // moves and the VIEW follows it, rather than the other way round - the code
+    // that draws already scrolls to keep the caret visible.
+    if(k.ctrl && (c == 'd' || c == 'D'))
+    {
+        cur.line = std::min(lineCount() - 1, cur.line + std::max(1, viewSpan / 2));
+        cur.col  = indentOf(cur.line);
+        return;
+    }
+    if(k.ctrl && (c == 'u' || c == 'U'))
+    {
+        cur.line = std::max(0, cur.line - std::max(1, viewSpan / 2));
+        cur.col  = indentOf(cur.line);
+        return;
+    }
+
     // ---- pending r<char>: replace the character under the caret ------------
     if(pendOp == 'r')
     {
@@ -935,7 +1868,7 @@ Void Editor::applyNormalKey(const Key& k)
         return;
     }
 
-    // ---- pending g: only gg is supported -----------------------------------
+    // ---- pending g ---------------------------------------------------------
     if(pendOp == 'g')
     {
         pendOp = 0;
@@ -944,7 +1877,136 @@ Void Editor::applyNormalKey(const Key& k)
             cur.line = (pendCount > 0) ? std::min(lineCount() - 1, pendCount - 1) : 0;
             cur.col  = indentOf(cur.line);
         }
+        else if(c == 'e')
+        {
+            // Back to the end of the previous word - the motion you want when
+            // the caret has overshot and `b` would land at the wrong end.
+            const Str& sl = line(cur.line);
+            Int32 i = cur.col;
+            for(Int32 r = 0; r < std::max(1, pendCount); ++r)
+            {
+                --i;
+                while(i > 0 && !wordChar(sl[static_cast<Size>(i)]))
+                {
+                    --i;
+                }
+                while(i > 0 && wordChar(sl[static_cast<Size>(i - 1)])
+                      && !wordChar(sl[static_cast<Size>(i)]))
+                {
+                    --i;
+                }
+            }
+            cur.col = std::max(0, i);
+        }
         pendCount = 0;
+        return;
+    }
+
+    // ---- pending f/F/t/T: this key is the target character ------------------
+    if(pendFind != 0)
+    {
+        const Char cmd = pendFind;
+        pendFind = 0;
+
+        const Char op    = pendOp;
+        const Int32 total = std::max(1, pendCount) * std::max(1, pendOpCount);
+        pendOp      = 0;
+        pendCount   = 0;
+        pendOpCount = 0;
+
+        if(c < 32 || c >= 127)
+        {
+            return;
+        }
+
+        lastFindCmd  = cmd;
+        lastFindChar = c;
+
+        Cursor to;
+        if(!findInLine(cmd, c, total, to))
+        {
+            return;                          // vim beeps; we simply do nothing
+        }
+
+        if(op != 0)
+        {
+            // f as an operator target is INCLUSIVE of the character it lands on,
+            // unlike w. dfx has to take the x or it is not what anyone means.
+            applyOperator(op, cur, Cursor{ to.line, to.col + 1 }, false);
+        }
+        else
+        {
+            cur = to;
+        }
+        return;
+    }
+
+    // ---- pending i/a: this key names the text object ------------------------
+    if(pendObjKind != 0)
+    {
+        const Char kind = pendObjKind;
+        pendObjKind = 0;
+
+        const Char op = pendOp;
+        pendOp      = 0;
+        pendCount   = 0;
+        pendOpCount = 0;
+
+        Cursor a;
+        Cursor b;
+        Bool   lw = false;
+        if(op != 0 && textObject(kind, c, a, b, lw))
+        {
+            applyOperator(op, a, b, lw);
+        }
+        return;
+    }
+
+    // ---- pending m / ' / ` : this key names the mark ------------------------
+    if(pendMark != 0)
+    {
+        const Char what = pendMark;
+        pendMark = 0;
+
+        const Char op = pendOp;
+        pendOp    = 0;
+        pendCount = 0;
+
+        if(c < 32 || c >= 127)
+        {
+            return;
+        }
+
+        if(what == 'm')
+        {
+            marks[c] = cur;
+            return;
+        }
+
+        const auto it = marks.find(c);
+        if(it == marks.end())
+        {
+            message = "mark not set";
+            return;
+        }
+
+        // ' goes to the first non-blank of the line and is linewise; ` goes to
+        // the exact column. Vim distinguishes them and so does this.
+        Cursor to = it->second;
+        to.line = std::max(0, std::min(lineCount() - 1, to.line));
+        if(what == '\'')
+        {
+            to.col = indentOf(to.line);
+        }
+
+        if(op != 0)
+        {
+            applyOperator(op, cur, to, what == '\'');
+        }
+        else
+        {
+            cur = to;
+        }
         return;
     }
 
@@ -970,19 +2032,63 @@ Void Editor::applyNormalKey(const Key& k)
     }
 
     // ---- an operator is pending: this key must be its motion ----------------
-    if(pendOp == 'd' || pendOp == 'c' || pendOp == 'y')
+    if(pendOp == 'd' || pendOp == 'c' || pendOp == 'y'
+       || pendOp == '>' || pendOp == '<')
     {
+        // A count typed BETWEEN the operator and the motion - the 3 in d3w.
+        // Multiplied by any count before the operator, so 2d3w takes six.
+        if(c >= '1' && c <= '9')
+        {
+            pendOpCount = pendOpCount * 10 + (c - '0');
+            return;
+        }
+        if(c == '0' && pendOpCount > 0)
+        {
+            pendOpCount *= 10;
+            return;
+        }
+
+        // These need one more key each, so the operator stays pending.
+        if(c == 'i' || c == 'a')
+        {
+            pendObjKind = c;
+            return;
+        }
+        if(c == 'f' || c == 'F' || c == 't' || c == 'T')
+        {
+            pendFind = c;
+            return;
+        }
+        if(c == '\'' || c == '`')
+        {
+            pendMark = c;
+            return;
+        }
+
         const Char op = pendOp;
         pendOp = 0;
-        const Int32 count = pendCount;
-        pendCount = 0;
 
-        // Doubling the operator (dd, cc, yy) acts on whole lines.
+        // Zero has to survive. "No count" is not "a count of one": G with no
+        // count is the LAST line and G with a count of one is line one, so
+        // collapsing them turns yG into yy.
+        const Int32 count = (pendCount == 0 && pendOpCount == 0)
+                          ? 0
+                          : (std::max(1, pendCount) * std::max(1, pendOpCount));
+        pendCount   = 0;
+        pendOpCount = 0;
+
+        // Doubling the operator (dd, cc, yy, >>, <<) acts on whole lines.
         if(c == op)
         {
             const Int32 n    = std::max(1, count);
             Cursor      a    = Cursor{ cur.line, 0 };
             Cursor      b    = Cursor{ std::min(lineCount() - 1, cur.line + n - 1), 0 };
+
+            if(op == '>' || op == '<')
+            {
+                indentLines(a.line, b.line, op == '>');
+                return;
+            }
 
             if(op == 'y')
             {
@@ -990,7 +2096,7 @@ Void Editor::applyNormalKey(const Key& k)
             }
             else if(op == 'd')
             {
-                deleteRange(a, b, true, true);;
+                deleteRange(a, b, true, true);
             }
             else               // cc: clear the lines but keep one, and insert
             {
@@ -1025,13 +2131,7 @@ Void Editor::applyNormalKey(const Key& k)
 
         // A forward motion used as an operator target is exclusive; k/j make it
         // a line operation.
-        if(op == 'y')      yankRange(cur, to, linewise);
-        else if(op == 'd') deleteRange(cur, to, linewise, true);
-        else
-        {
-            deleteRange(cur, to, linewise, true);
-            setMode(Mode::MODE_INSERT);
-        }
+        applyOperator(op, cur, to, linewise);
         return;
     }
 
@@ -1168,12 +2268,141 @@ Void Editor::applyNormalKey(const Key& k)
     case 'v': visAnchor = cur; setMode(Mode::MODE_VISUAL);      break;
     case 'V': visAnchor = cur; setMode(Mode::MODE_VISUAL_LINE); break;
 
+    // ---- search ----------------------------------------------------------
+    case '/':
+    case '?':
+        setMode(Mode::MODE_COMMAND);
+        cmdPrefix = c;
+        cmdLine.clear();
+        break;
+
+    case 'n':
+        runSearch(lastSearch, searchForward, count);
+        break;
+
+    case 'N':
+        runSearch(lastSearch, !searchForward, count);
+        break;
+
+    case '*':
+    case '#':
+    {
+        // Search for the word the caret is on. The single most useful key in
+        // vim for reading code you did not write, and the one whose absence is
+        // felt within about a minute.
+        const Str w = wordUnder(cur);
+        if(w.empty())
+        {
+            break;
+        }
+        lastSearch    = w;
+        searchForward = (c == '*');
+        runSearch(lastSearch, searchForward, count);
+        break;
+    }
+
+    // ---- repeat -----------------------------------------------------------
+    case '.':
+    {
+        if(lastChange.empty() || replaying)
+        {
+            break;
+        }
+
+        // The recording is replayed through the front door, so every command
+        // behaves exactly as it did the first time. `replaying` stops the
+        // replay from recording itself over the thing being replayed.
+        const Vec<Key> take = lastChange;
+        replaying = true;
+        for(const Key& rk : take)
+        {
+            key(rk);
+        }
+        replaying = false;
+        break;
+    }
+
+    // ---- repeat the last f/F/t/T -------------------------------------------
+    case ';':
+    case ',':
+    {
+        if(lastFindCmd == 0)
+        {
+            break;
+        }
+
+        // `,` is the same search the other way round.
+        Char cmd = lastFindCmd;
+        if(c == ',')
+        {
+            switch(cmd)
+            {
+            case 'f': cmd = 'F'; break;
+            case 'F': cmd = 'f'; break;
+            case 't': cmd = 'T'; break;
+            case 'T': cmd = 't'; break;
+            default: break;
+            }
+        }
+
+        Cursor to;
+        if(findInLine(cmd, lastFindChar, count, to))
+        {
+            cur = to;
+        }
+        break;
+    }
+
+    // ---- case ---------------------------------------------------------------
+    case '~':
+    {
+        Str& sl = lines[static_cast<Size>(cur.line)];
+        const Int32 n = std::max(1, count);
+        Bool touched = false;
+        for(Int32 i = 0; i < n && cur.col < static_cast<Int32>(sl.size()); ++i)
+        {
+            Char& ch = sl[static_cast<Size>(cur.col)];
+            if(ch >= 'a' && ch <= 'z')
+            {
+                if(!touched)
+                {
+                    pushUndo();
+                    touched = true;
+                }
+                ch = static_cast<Char>(ch - 'a' + 'A');
+            }
+            else if(ch >= 'A' && ch <= 'Z')
+            {
+                if(!touched)
+                {
+                    pushUndo();
+                    touched = true;
+                }
+                ch = static_cast<Char>(ch - 'A' + 'a');
+            }
+            ++cur.col;
+        }
+        break;
+    }
+
+    case 'm':
+    case '\'':
+    case '`':
+        pendMark = c;
+        return;
+
+    case 'f': case 'F': case 't': case 'T':
+        pendFind = c;
+        return;   // keep the count for the target
+
     case 'd': case 'c': case 'y': case 'r': case 'g': case 'Z':
+    case '>': case '<':
         pendOp = c;
         return;   // keep the count for the motion
 
     case ':':
         setMode(Mode::MODE_COMMAND);
+        cmdPrefix = ':';
         cmdLine.clear();
         break;
 
@@ -1281,10 +2510,28 @@ Void Editor::applyCommandKey(const Key& k)
     if(k.sp == Special::SPECIAL_ESC)
     {
         setMode(Mode::MODE_NORMAL);
+        cmdPrefix = ':';
         return;
     }
     if(k.sp == Special::SPECIAL_ENTER)
     {
+        // A search is the editor's own business and never reaches the caller -
+        // only :w and :q do, and handing them a "/gpio" to puzzle over would be
+        // a bug waiting for a careless strcmp.
+        if(cmdPrefix == '/' || cmdPrefix == '?')
+        {
+            const Bool fwd = (cmdPrefix == '/');
+            if(!cmdLine.empty())
+            {
+                lastSearch    = cmdLine;
+                searchForward = fwd;
+            }
+            setMode(Mode::MODE_NORMAL);
+            cmdPrefix = ':';
+            runSearch(lastSearch, fwd, 1);
+            return;
+        }
+
         submitted = cmdLine;
 
         // :N jumps to a line. Handled here rather than by the caller because it
@@ -1296,15 +2543,28 @@ Void Editor::applyCommandKey(const Key& k)
             cur.col   = indentOf(cur.line);
             submitted.clear();
         }
+        // :s and :%s likewise - substitution is buffer work, not file work.
+        else if(!cmdLine.empty()
+                && (cmdLine[0] == 's' || (cmdLine[0] == '%' && cmdLine.size() > 1
+                                          && cmdLine[1] == 's')))
+        {
+            substitute(cmdLine);
+            submitted.clear();
+        }
         setMode(Mode::MODE_NORMAL);
         return;
     }
     if(k.sp == Special::SPECIAL_BACKSPACE)
     {
         if(cmdLine.empty())
+        {
             setMode(Mode::MODE_NORMAL);   // backspacing off the colon leaves
+            cmdPrefix = ':';
+        }
         else
+        {
             cmdLine.pop_back();
+        }
         return;
     }
     if(k.ch >= 32 && k.ch < 127)

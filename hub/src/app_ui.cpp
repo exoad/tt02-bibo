@@ -3510,7 +3510,8 @@ Void drawCodeControls()
     }
     else
     {
-        ImGui::TextDisabled("i insert - esc normal - :w save - hjkl move");
+        ImGui::TextDisabled("i insert - esc normal - :w save - / find - "
+                            "ciw change word - . repeat");
     }
 }
 
