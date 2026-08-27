@@ -140,6 +140,22 @@ static inline UInt64 nowUs(Void)
  * Brings up stdio. Nothing printed before this call arrives anywhere, and on
  * USB the host also needs a moment to enumerate - if the first few lines of a
  * program never show up, that is why, not a broken printf.
+ *
+ * ---------------------------------------------------------------------------
+ * CALL THIS IN EVERY SKETCH, INCLUDING ONES THAT PRINT NOTHING.
+ *
+ * USB is not automatic. This is what starts the device stack, and a program
+ * that never calls it never enumerates: no COM port, no VID_2E8A, nothing for
+ * the flasher to touch at 1200 baud to ask for the bootloader. The board runs
+ * perfectly and is INVISIBLE to the host, and the only way back in is holding
+ * BOOTSEL while plugging the cable, by hand, every single time.
+ *
+ * That is not hypothetical. On 2026-08-26 a sketch without it went on the
+ * board, and from that moment the hub reported "no Pico found: no RPI-RP2 drive
+ * and no VID_2E8A serial port" and kept reporting it until the button was held
+ * down manually. It reads exactly like dead hardware.
+ *
+ * It costs a few KB of flash. It is what keeps the board flashable.
  */
 static inline Void serialOpen(Void)
 {

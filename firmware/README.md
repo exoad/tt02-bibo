@@ -173,6 +173,19 @@ Also there: `tempC()` (die temperature, ADC channel 4), `watchdogStart()` /
 by waiting for USB enumeration. Pass 0 to wait forever, which is right on the
 bench and wrong on the car.
 
+### Call `serialOpen()` in every sketch
+
+Even one that prints nothing.
+
+USB is not automatic. `serialOpen()` starts the device stack, and a program that
+never calls it **never enumerates** - no COM port, no `VID_2E8A`, nothing for
+`flash.ps1` to touch at 1200 baud to request the bootloader. The board runs
+perfectly and is invisible to the host, and the only way back in is holding
+BOOTSEL while plugging the cable, by hand, every time.
+
+It reads exactly like dead hardware. It is not: `picotool info` in BOOTSEL will
+happily show you the program that is on there.
+
 Not wrapped: I2C, SPI and UART. They are stateful and have real configuration,
 and a wrapper that hid that would teach the wrong thing. They get their own
 headers when the ToF sensors and the SD card go on.
