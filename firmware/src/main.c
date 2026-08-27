@@ -344,15 +344,25 @@ static Void handleTofMode(Utf8* arg)
         return;
     }
 
+    /* Stop, reconfigure, start.
+     *
+     * Changing the VCSEL period and the phase windows underneath a running
+     * measurement leaves the sensor half-configured for as long as that
+     * measurement lasts, and what it does with the result is undefined.
+     * ST's own driver brackets it this way and so does this. */
     if(strcmp(arg, "SHORT") == 0)
     {
+        vl53StopRanging(&tofFront);
         vl53SetMode(&tofFront, VL53_MODE_SHORT);
+        vl53ClearInterruptAndStart(&tofFront);
         printf("OK tof mode short\n");
         return;
     }
     if(strcmp(arg, "LONG") == 0)
     {
+        vl53StopRanging(&tofFront);
         vl53SetMode(&tofFront, VL53_MODE_LONG);
+        vl53ClearInterruptAndStart(&tofFront);
         printf("OK tof mode long\n");
         return;
     }

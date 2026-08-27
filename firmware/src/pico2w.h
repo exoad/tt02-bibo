@@ -610,6 +610,28 @@ static inline Size spiTransfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
  * GP4/GP5 is I2C0, and is what docs/wiring.md reserves for this bus.
  */
 
+/*
+ * How long any single I2C transaction may take before it is abandoned.
+ *
+ * THIS IS NOT A TUNING PARAMETER, it is a safety net, and it exists because the
+ * alternative is a board that stops.
+ *
+ * The SDK's i2c_read_blocking and i2c_write_blocking block FOREVER. If a device
+ * holds SDA low - a sensor that has lost its way, a half-seated jumper, a
+ * missing pull-up - the call never returns. The program stops there, and with
+ * it the USB stack, so the board enumerates, answers nothing, and looks
+ * bricked. Every symptom points at the host.
+ *
+ * That is not hypothetical. It happened here: the range sensor stopped
+ * responding and took the whole debug link with it, and the board had to be
+ * recovered through the bootloader.
+ *
+ * 10 ms is far longer than any transaction this project makes - a 32-byte
+ * exchange at 400 kHz is under a millisecond - so a timeout means something is
+ * genuinely wrong rather than merely slow.
+ */
+#define I2C_TIMEOUT_US 10000u
+
 /* Which controller an SDA pin belongs to, or NULL if it is not an SDA pin. */
 static inline i2c_inst_t* i2cForSda(Pin sda)
 {
@@ -665,7 +687,7 @@ static inline Bool i2cPresent(Pin sda, UInt8 addr)
     }
 
     UInt8 dummy = 0;
-    return i2c_read_blocking(bus, addr, &dummy, 1, false) >= 0;
+    return i2c_read_timeout_us(bus, addr, &dummy, 1, false, I2C_TIMEOUT_US) >= 0;
 }
 
 /* Writes `n` bytes. `hold` true leaves the bus claimed for a repeated start,
@@ -679,7 +701,8 @@ static inline Size i2cWrite(Pin sda, UInt8 addr, const UInt8* data, Size n,
     {
         return 0;
     }
-    const Int32 sent = (Int32) i2c_write_blocking(bus, addr, data, n, hold);
+    const Int32 sent =
+        (Int32) i2c_write_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US);
     return (sent < 0) ? 0u : (Size) sent;
 }
 
@@ -690,7 +713,8 @@ static inline Size i2cRead(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
     {
         return 0;
     }
-    const Int32 got = (Int32) i2c_read_blocking(bus, addr, data, n, hold);
+    const Int32 got =
+        (Int32) i2c_read_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US);
     return (got < 0) ? 0u : (Size) got;
 }
 
