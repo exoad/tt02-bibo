@@ -29,6 +29,7 @@ enum class Icon
     // ---- central views ----
     ICON_RADAR = 0,      // the map view
     ICON_PROCESSOR,      // the Pico board view
+    ICON_REFERENCE,      // the reference library
 
     // ---- sidebar sections ----
     ICON_SYSTEM,

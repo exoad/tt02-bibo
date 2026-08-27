@@ -49,6 +49,11 @@ enum class Which
     WHICH_CODE,
     WHICH_BOARD,
 
+    // Appended rather than slotted in beside the other static view, so every
+    // index above keeps the meaning a saved layout and a --view argument
+    // already gave it.
+    WHICH_REFERENCE,
+
     WHICH_COUNT
 };
 

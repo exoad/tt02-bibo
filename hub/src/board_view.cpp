@@ -635,6 +635,47 @@ const Char* name(Which w)
     return "";
 }
 
+// ---- the pin table, for other views -------------------------------------
+// A read-only window onto PICO2_W. The reference library draws the same forty
+// rows as a flat chart; this file draws them on a board. Neither owns a copy.
+
+Int32 pinCount()
+{
+    return PIN_COUNT;
+}
+
+PinRef pinAt(Int32 i)
+{
+    PinRef out;
+    if(i < 0 || i >= PIN_COUNT)
+    {
+        return out;
+    }
+
+    const Pin& p = PICO2_W[i];
+    out.phys = p.phys;
+    out.name = p.name;
+
+    // The ground note is an invariant repeated on every ground pad, which is
+    // right on a board drawing where you hover one pad at a time and wrong on a
+    // chart where it would print eight times down one column.
+    out.use  = (p.kind == Kind::KIND_GROUND) ? nullptr : p.use;
+
+    switch(p.kind)
+    {
+    case Kind::KIND_GPIO:   out.role = PinRole::PIN_ROLE_GPIO;   break;
+    case Kind::KIND_GROUND: out.role = PinRole::PIN_ROLE_GROUND; break;
+    case Kind::KIND_POWER:  out.role = PinRole::PIN_ROLE_POWER;  break;
+    case Kind::KIND_SYS:    out.role = PinRole::PIN_ROLE_SYS;    break;
+    }
+    return out;
+}
+
+Bool pinOnLeft(Int32 phys)
+{
+    return onLeft(phys);
+}
+
 // One "label value" chip in the live strip, drawn right to left. Returns the new
 // right edge so the caller can pack the next one beside it.
 Float32 liveChip(ImDrawList* dl, ImFont* f, Float32 fs, Float32 right, Float32 y,
