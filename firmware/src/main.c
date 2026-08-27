@@ -51,6 +51,7 @@
  * one that has to be able to answer "what is attached and what does it say" -
  * a sketch cannot, because the hub does not know what sketch is on the board. */
 #include "pico2w.h"
+#include "steering_cal.h"
 #include "vl53l1x.h"
 
 /* Not LINE_MAX: POSIX reserves that name and <limits.h> defines it on some
@@ -168,6 +169,7 @@ static Void printHelp(Void)
     printf("INFO help SERVO <us>|CENTER - steering\n");
     printf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
     printf("INFO help STOP - neutral both, disarm the esc\n");
+    printf("INFO help SERVOTRIM <us> - move where centre is\n");
     printf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
     printf("INFO help SERVO ON - drive the steering again\n");
     printf("INFO help SERVOLIMITS <min> <max> - widen to find end stops\n");
@@ -430,8 +432,13 @@ static Void handleTofMode(Utf8* arg)
  * visible sweep that reaches nothing hard. Widen it once the real end stops are
  * known - with the servo horn OFF, so a mistake costs nothing.
  */
-#define SERVO_DEFAULT_MIN 1300
-#define SERVO_DEFAULT_MAX 1700
+/*
+ * Measured on this car, not guessed. steering_cal.h is written by the hub's
+ * Drive view; if nobody has calibrated yet it carries the old 1300-1700 guess
+ * and says so in its stamp.
+ */
+#define SERVO_DEFAULT_MIN STEER_CAL_LEFT
+#define SERVO_DEFAULT_MAX STEER_CAL_RIGHT
 
 /*
  * The HARD bound. Nothing widens past this, whatever is asked - it is the
@@ -488,8 +495,18 @@ static Int32 escMax   = ESC_DEFAULT_MAX;
  */
 static Bool  servoLive    = false;
 
-static Int32 servoTarget  = SERVO_NEUTRAL_US;
-static Int32 servoNow     = SERVO_NEUTRAL_US;
+/*
+ * Where the wheels actually point straight.
+ *
+ * SERVO_NEUTRAL_US is the middle of the SERVO's range and has nothing to say
+ * about the CAR's. The horn only fits its spline at whole-tooth intervals, so
+ * straight-ahead lands wherever it lands - and treating 1500 as centre is how a
+ * servo comes to lean on a frame at what everyone is calling neutral.
+ */
+static Int32 servoCenterUs = STEER_CAL_CENTER;
+
+static Int32 servoTarget  = STEER_CAL_CENTER;
+static Int32 servoNow     = STEER_CAL_CENTER;
 static Int32 escTarget    = SERVO_NEUTRAL_US;
 static Int32 escNow       = SERVO_NEUTRAL_US;
 
@@ -560,10 +577,10 @@ static Void drivePump(Void)
 static Void printDrive(Void)
 {
     printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
-           "servo_on=%d "
+           "servo_on=%d servo_c=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            servoNow, servoTarget, escNow, escTarget, escArmed ? 1 : 0,
-           servoLive ? 1 : 0,
+           servoLive ? 1 : 0, servoCenterUs,
            servoMin, servoMax, escMin, escMax);
 }
 
@@ -581,11 +598,11 @@ static Void driveStop(Void)
 {
     escArmed    = false;
     escTarget   = SERVO_NEUTRAL_US;
-    servoTarget = SERVO_NEUTRAL_US;
+    servoTarget = servoCenterUs;
 
     /* Immediate, not slewed. A stop that eases in is not a stop. */
     escNow   = SERVO_NEUTRAL_US;
-    servoNow = SERVO_NEUTRAL_US;
+    servoNow = servoCenterUs;
     servoLive = false;
     if(driveUp)
     {
@@ -625,7 +642,8 @@ static Void handleLimits(Utf8* arg)
     servoMin = clampInt(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
     servoMax = clampInt(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
 
-    servoTarget = clampInt(servoTarget, servoMin, servoMax);
+    servoTarget   = clampInt(servoTarget, servoMin, servoMax);
+    servoCenterUs = clampInt(servoCenterUs, servoMin, servoMax);
     printDrive();
 }
 
@@ -648,6 +666,27 @@ static Void handleEscLimits(Utf8* arg)
     escMax = clampInt(hi, ESC_HARD_MIN, ESC_HARD_MAX);
 
     escTarget = clampInt(escTarget, escMin, escMax);
+    printDrive();
+}
+
+/*
+ * Moves where "centre" is.
+ *
+ * Clamped into the working range, because a centre outside the limits is a
+ * centre the servo can never be commanded to - SERVO CENTER would silently mean
+ * something else, which is worse than refusing.
+ */
+static Void handleTrim(Utf8* arg)
+{
+    const Int32 us = atoi(arg);
+    if(us == 0)
+    {
+        printf("ERR trim wants microseconds, %d-%d\n", servoMin, servoMax);
+        return;
+    }
+
+    servoCenterUs = clampInt(us, servoMin, servoMax);
+    printf("INFO centre is now %d us\n", servoCenterUs);
     printDrive();
 }
 
@@ -677,7 +716,7 @@ static Void handleServo(Utf8* arg)
     {
         if(!servoLive)
         {
-            servoNow  = SERVO_NEUTRAL_US;
+            servoNow  = servoCenterUs;
             servoLive = true;
             servoWriteUs(PIN_SERVO, (UInt32) servoNow);
         }
@@ -688,7 +727,7 @@ static Void handleServo(Utf8* arg)
 
     if(strcmp(arg, "CENTER") == 0 || strcmp(arg, "CENTRE") == 0)
     {
-        servoTarget = SERVO_NEUTRAL_US;
+        servoTarget = clampInt(servoCenterUs, servoMin, servoMax);
         printDrive();
         return;
     }
@@ -825,6 +864,12 @@ static Void handleLine(Utf8* line)
     if(strcmp(line, "DRIVE") == 0)
     {
         printDrive();
+        return;
+    }
+
+    if(strncmp(line, "SERVOTRIM ", 10) == 0)
+    {
+        handleTrim(line + 10);
         return;
     }
 

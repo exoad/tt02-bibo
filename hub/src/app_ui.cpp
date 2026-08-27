@@ -244,6 +244,32 @@ Bool  driveArmed   = false;
 // the only state that is safe on a car whose centre is not its centre.
 Bool  driveServoOn = false;
 
+// Where the board thinks centre is. Not 1500 in general - see the calibration
+// block below for why that matters more than it sounds.
+Int32 driveServoC  = 1500;
+
+// ---- the calibration ----------------------------------------------------
+//
+// Three measurements of ONE car: the two ends its steering can actually reach,
+// and where its wheels point straight. None of them are derivable. A servo's
+// range is 1000-2000 us and says nothing about linkage length, and the horn
+// only meets its spline at whole-tooth intervals, so straight-ahead lands
+// wherever it lands.
+//
+// Held here as the working copy, saved to settings so a session does not lose
+// them, and written out to firmware/src/steering_cal.h when the user commits -
+// three places on purpose. Settings is what survives a restart; the header is
+// what survives a reflash and what other code can actually read.
+Int32 calLeft   = 1300;
+Int32 calCenter = 1500;
+Int32 calRight  = 1700;
+Bool  calLoaded = false;
+Bool  calDirty  = false;
+
+// What the header on disk says, so the view can show whether the working copy
+// has drifted from what the firmware would actually be built with.
+Str calWritten;
+
 // The limits the BOARD reports. Sliders are built from these rather than from
 // constants here, so tightening them in firmware tightens the UI too and the
 // two can never disagree about what is safe.
@@ -327,6 +353,7 @@ Void resetBoardStatus()
     driveKnown     = false;
     driveArmed     = false;
     driveServoOn   = false;
+    driveServoC    = 1500;
     driveServo     = 1500;
     driveServoT    = 1500;
     driveEsc       = 1500;
@@ -1024,6 +1051,8 @@ Void observeLine(const PicoLine& ln)
         Int32 on = 0;
         field("servo_on=", on);
         driveServoOn = (on != 0);
+
+        field("servo_c=", driveServoC);
 
         // Each slider follows the board unless that slider is being dragged.
         if(!driveServoHeld)
@@ -3665,6 +3694,12 @@ Void openCodeFile(const Str& path, const Str& name)
     if(codeEditor.dirty() && !codePath.empty())
         saveSketch();
 
+    // Marks the view as loaded even though it may never have been drawn. Its
+    // first draw otherwise runs a lazy init that picks the first sketch in the
+    // library, which would replace whatever was just opened - the view would
+    // switch, announce "opened steering_cal.h", and show a different file.
+    codeLoaded = true;
+
     codePath = path;
     codeName = name;
     codeEditor.setText(sketch::load(path));
@@ -4637,6 +4672,188 @@ Void drawDriveFlashButton()
     }
 }
 
+// ---- the calibration, on disk ------------------------------------------
+
+Str steeringCalPath()
+{
+    const Str d = sketch::firmwareDir();
+    return d.empty() ? Str() : (d + "\\steering_cal.h");
+}
+
+// Loaded from settings, not from the header. The header is generated output -
+// parsing back what we printed would make the two silently diverge the moment
+// somebody hand-edits it, and the file itself says not to do that.
+Void loadCalibration()
+{
+    calLoaded = true;
+    calWritten = sketch::load(steeringCalPath());
+
+    const Str txt = settings::read("steering.txt");
+    if(txt.empty())
+    {
+        return;
+    }
+
+    Int32 l = 0;
+    Int32 c = 0;
+    Int32 r = 0;
+    if(std::sscanf(txt.c_str(), "%d %d %d", &l, &c, &r) == 3
+       && l > 0 && c > 0 && r > 0 && l < c && c < r)
+    {
+        calLeft   = l;
+        calCenter = c;
+        calRight  = r;
+    }
+}
+
+Void saveCalibration()
+{
+    Char buf[64];
+    std::snprintf(buf, sizeof(buf), "%d %d %d\n", calLeft, calCenter, calRight);
+    settings::write("steering.txt", Str(buf));
+}
+
+// The generated header, built as text so the view can SHOW it before anything
+// is written. A file that appears on disk with no preview is a file nobody
+// reads until it is wrong.
+Str steeringCalText()
+{
+    Char when[64] = "unknown date";
+    const std::time_t now = std::time(nullptr);
+    std::tm           tm{};
+    if(localtime_s(&tm, &now) == 0)
+    {
+        std::strftime(when, sizeof(when), "%Y-%m-%d", &tm);
+    }
+
+    Char buf[2048];
+    std::snprintf(buf, sizeof(buf),
+        "/* ---------------------------------------------------------------------------\n"
+        " * Steering calibration - GENERATED.\n"
+        " *\n"
+        " * Written by the hub's Drive view. Edit it THERE, not here: the next \"Write to\n"
+        " * firmware\" overwrites this file completely, and a number typed in by hand is\n"
+        " * gone the first time anyone touches the calibration UI.\n"
+        " *\n"
+        " * These are measurements of one particular car, not a datasheet. A servo's own\n"
+        " * range is 1000-2000 us; what a TT-02's steering can actually reach is narrower\n"
+        " * and off-centre, because the horn only fits the spline at whole-tooth\n"
+        " * intervals and the linkage is whatever length it is. There is no way to know\n"
+        " * these numbers except by moving the servo and watching.\n"
+        " *\n"
+        " * CENTER is the interesting one. 1500 us is the middle of the servo's range and\n"
+        " * has nothing to say about where a car's wheels point straight - assuming it\n"
+        " * does is how a servo ends up leaning on a frame at \"neutral\".\n"
+        " * ------------------------------------------------------------------------- */\n"
+        "#pragma once\n"
+        "\n"
+        "/* Full lock one way. */\n"
+        "#define STEER_CAL_LEFT %d\n"
+        "\n"
+        "/* Wheels straight ahead. Not necessarily 1500, and usually not. */\n"
+        "#define STEER_CAL_CENTER %d\n"
+        "\n"
+        "/* Full lock the other way. */\n"
+        "#define STEER_CAL_RIGHT %d\n"
+        "\n"
+        "/* When these were measured, and by whom, so a stale calibration can be spotted\n"
+        " * rather than trusted. \"defaults\" means nobody has calibrated this car yet. */\n"
+        "#define STEER_CAL_STAMP \"measured %s\"\n",
+        calLeft, calCenter, calRight, when);
+    return Str(buf);
+}
+
+// Pulls the three numbers back out of a generated header.
+//
+// Not a parser for the file - a parser for what we ourselves printed, used only
+// to answer "is what is on disk the same three numbers". Anything unrecognised
+// reads as "no", which is the safe answer: it prompts a write rather than
+// claiming agreement that was never established.
+Bool readCalNumbers(const Str& text, Int32& l, Int32& c, Int32& r)
+{
+    const auto one = [&text](const Char* key, Int32& out)
+    {
+        const Size at = text.find(key);
+        if(at == Str::npos)
+        {
+            return false;
+        }
+        out = std::atoi(text.c_str() + at + std::strlen(key));
+        return out > 0;
+    };
+
+    return one("#define STEER_CAL_LEFT ", l)
+        && one("#define STEER_CAL_CENTER ", c)
+        && one("#define STEER_CAL_RIGHT ", r);
+}
+
+// One row of the calibration: what it is, where it is, and the two things you
+// ever want to do with it.
+//
+// "Set to here" captures the TARGET rather than the output, deliberately. The
+// output is mid-slew half the time, and capturing a number the servo is merely
+// passing through would record a position nobody ever looked at.
+Void calRow(const Char* label, const Char* help, Int32* value)
+{
+    ImGui::PushID(label);
+
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "%-10s", label);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", help);
+    }
+
+    ImGui::SameLine(110.0f * uiDpiScale);
+    ImGui::SetNextItemWidth(110.0f * uiDpiScale);
+    if(ImGui::InputInt("##us", value, 1, 10))
+    {
+        *value  = clampInt(*value, 1000, 2000);
+        calDirty = true;
+        saveCalibration();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!driveKnown);
+    if(ui::button("Set to here", ImVec2(120.0f * uiDpiScale, 0.0f)))
+    {
+        *value   = driveServoT;
+        calDirty = true;
+        saveCalibration();
+    }
+    ImGui::EndDisabled();
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Records where the servo is being told to hold, right\n"
+                          "now, as this point.\n"
+                          "\n"
+                          "The TARGET, not the output - the output is mid-ramp\n"
+                          "half the time, and a number the servo was only\n"
+                          "passing through is not a position anyone looked at.");
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!driveServoOn);
+    if(ui::button("Go", ImVec2(60.0f * uiDpiScale, 0.0f)))
+    {
+        driveSweep     = false;
+        driveServoWant = *value;
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "SERVO %d", *value);
+        sendPico(cmd);
+    }
+    ImGui::EndDisabled();
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Drives the servo to this point, so you can check it\n"
+                          "is still where you thought it was.\n"
+                          "\n"
+                          "Needs the servo engaged.");
+    }
+
+    ImGui::PopID();
+}
+
 // ============================================== the drive view ==
 //
 // Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
@@ -4968,7 +5185,167 @@ Void drawDriveBody(Float32 w, Float32 h)
                            "no output   target %d us  (stored)", driveServoT);
     }
 
-    // ---- finding the real end stops --------------------------------------
+    // ---- the calibration -------------------------------------------------
+    //
+    // Three named points instead of a min/max pair, because a car has three
+    // interesting positions and only two of them are ends. Centre used to be
+    // assumed to be 1500 and that assumption is what put a servo against a
+    // frame - it is a measurement now, like the other two.
+    if(ImGui::TreeNode("Calibration  -  the three numbers for THIS car"))
+    {
+        if(!calLoaded)
+        {
+            loadCalibration();
+        }
+
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "Servo horn OFF while you find these.");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "Engage, step until the output shaft reaches each end,\n"
+                           "and press Set to here. With the horn off, being wrong\n"
+                           "costs nothing at all.");
+        ImGui::Spacing();
+
+        calRow("Max left", "Full lock one way. Where the STEERING stops, which is\n"
+                           "not where the servo stops - the linkage binds first,\n"
+                           "and the servo will happily keep pushing past it.",
+               &calLeft);
+        calRow("Centre",   "Wheels straight ahead.\n"
+                           "\n"
+                           "The one that matters most and the one nobody measures.\n"
+                           "1500 us is the middle of the SERVO's range and says\n"
+                           "nothing about the CAR's - the horn only meets its\n"
+                           "spline at whole-tooth intervals, so straight-ahead\n"
+                           "lands wherever it lands.",
+               &calCenter);
+        calRow("Max right", "Full lock the other way.", &calRight);
+
+        ImGui::Spacing();
+
+        const Bool ordered = (calLeft < calCenter && calCenter < calRight);
+        if(!ordered)
+        {
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
+                               "Left must be below centre, and centre below right.");
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                               "If your steering runs the other way, swap which end\n"
+                               "you call left - the firmware only needs the order.");
+        }
+
+        ImGui::BeginDisabled(!ordered || !driveKnown);
+        if(ui::iconButton(ui::Icon::ICON_SEND, "Send to the board",
+                          ImVec2(200.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+        {
+            Char cmd[48];
+            std::snprintf(cmd, sizeof(cmd), "SERVOLIMITS %d %d", calLeft, calRight);
+            sendPico(cmd);
+            std::snprintf(cmd, sizeof(cmd), "SERVOTRIM %d", calCenter);
+            sendPico(cmd);
+        }
+        ImGui::EndDisabled();
+        if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Applies these to the RUNNING board so you can try\n"
+                              "them immediately.\n"
+                              "\n"
+                              "Lost on the next reboot - Write to firmware is what\n"
+                              "makes them stick.");
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!ordered);
+        if(ui::iconButton(ui::Icon::ICON_SAVE, "Write to firmware",
+                          ImVec2(210.0f * uiDpiScale, 0.0f)))
+        {
+            const Str path = steeringCalPath();
+            const Str text = steeringCalText();
+            Str       err;
+            if(path.empty())
+            {
+                LOG_WARN("drive", "no firmware directory - nothing written");
+            }
+            else if(sketch::save(path, text, err))
+            {
+                calWritten = text;
+                calDirty   = false;
+                LOG_INFO("drive", "wrote %s", path.c_str());
+            }
+            else
+            {
+                LOG_WARN("drive", "could not write steering_cal.h: %s",
+                         err.c_str());
+            }
+        }
+        ImGui::EndDisabled();
+        if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Writes firmware/src/steering_cal.h.\n"
+                              "\n"
+                              "main.c includes it, so these become the limits and\n"
+                              "the centre the board comes up with. Reflash after\n"
+                              "writing or the board keeps running the old ones.");
+        }
+
+        // Whether what is on screen matches what the firmware would build with.
+        // Silence here would mean "written" and "typed but not written" look
+        // identical, which is the whole problem generated files have.
+        {
+            Int32 fl = 0;
+            Int32 fc = 0;
+            Int32 fr = 0;
+            if(calWritten.empty()
+               || !readCalNumbers(calWritten, fl, fc, fr))
+            {
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                                   "steering_cal.h could not be read.");
+            }
+            else if(fl != calLeft || fc != calCenter || fr != calRight)
+            {
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                                   "steering_cal.h still says %d / %d / %d.",
+                                   fl, fc, fr);
+            }
+            else
+            {
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD),
+                                   "Matches steering_cal.h - the firmware would "
+                                   "build with these.");
+            }
+        }
+
+        if(ui::iconButton(ui::Icon::ICON_CODE, "Open steering_cal.h",
+                          ImVec2(210.0f * uiDpiScale, 0.0f)))
+        {
+            const Str path = steeringCalPath();
+            if(!path.empty())
+            {
+                openCodeFile(path, "steering_cal.h");
+                forceView       = 3;
+                forceViewFrames = 4;
+            }
+        }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Opens the generated header in the Code view, so\n"
+                              "the numbers are readable as code rather than only\n"
+                              "as boxes in a panel.");
+        }
+
+        if(driveKnown)
+        {
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                               "The board is currently using  %d / %d / %d.",
+                               driveServoMin, driveServoC, driveServoMax);
+        }
+
+        ImGui::TreePop();
+    }
+
+    // ---- the raw limits, still reachable ---------------------------------
+    //
+    // Kept because finding an end stop means pushing PAST where you think it
+    // is, and the calibration above will not let you: it clamps to what the
+    // board already accepts. This is the way out of that circle.
     if(ImGui::TreeNode("Limits  -  widen to find the real end stops"))
     {
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
@@ -5018,11 +5395,12 @@ Void drawDriveBody(Float32 w, Float32 h)
 
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "The board clamps to 1000-2000 whatever is asked, and\n"
-                           "pulls the current target back inside a narrowed range.\n"
+                           "pulls the current target and centre back inside a\n"
+                           "narrowed range.\n"
                            "\n"
-                           "When you have found the numbers, put them in\n"
-                           "SERVO_DEFAULT_MIN / MAX in firmware/src/main.c so they\n"
-                           "survive a reboot.");
+                           "Widen here to go looking; record what you find in the\n"
+                           "Calibration block above, which is what gets written\n"
+                           "into the firmware.");
         ImGui::TreePop();
     }
 
