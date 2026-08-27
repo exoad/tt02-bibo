@@ -18,6 +18,12 @@ enum class PicoState
     PICO_STATE_DISCONNECTED,
     PICO_STATE_CONNECTING,
     PICO_STATE_CONNECTED,
+
+    // The board went away - unplugged, or rebooted into BOOTSEL, which drops
+    // the CDC port by design and is the single commonest way this link ends.
+    // Not an error, for the reasons in devlink.hpp.
+    PICO_STATE_UNPLUGGED,
+
     PICO_STATE_ERROR,
 };
 

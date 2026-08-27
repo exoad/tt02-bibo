@@ -46,7 +46,7 @@
 
 #define LED_1_PIN 3
 #define LED_2_PIN 2
-#define DELAY_MS 100
+#define DELAY_MS 400
 
 Int32 main(Void)
 {

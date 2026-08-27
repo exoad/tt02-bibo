@@ -48,6 +48,7 @@
 #include "recording.hpp"
 #include "sketch.hpp"
 #include "reference.hpp"
+#include "devlink.hpp"
 #include "workspace.hpp"
 #include "settings.hpp"
 #include "theme.hpp"
@@ -618,7 +619,38 @@ struct ScopedFont
 
 Void refreshPorts()
 {
+    // Captured BEFORE the list is replaced, and restored by NAME rather than by
+    // index. The enumeration reorders and shrinks as things are plugged and
+    // unplugged, so an index that meant COM7 a second ago can mean COM3 now -
+    // and silently retargeting somebody's Connect button at a different device
+    // is the worst outcome available here.
+    const Str wasSelected =
+        (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
+            ? lidarPorts[static_cast<Size>(portIndex)]
+            : Str();
+
     lidarPorts = LidarSource::listPorts();
+
+    // A port that vanished while it was selected STAYS in the list. After an
+    // unplug the combo should still read COM7: that is the thing you are going
+    // to reconnect to when the cable goes back in, and dropping it makes the
+    // app look like it has forgotten what it was talking to.
+    if(!wasSelected.empty())
+    {
+        Bool present = false;
+        for(const Str& p : lidarPorts)
+        {
+            if(_stricmp(p.c_str(), wasSelected.c_str()) == 0)
+            {
+                present = true;
+                break;
+            }
+        }
+        if(!present)
+        {
+            lidarPorts.push_back(wasSelected);
+        }
+    }
 
     portItems.clear();
     for(const auto& s : lidarPorts) portItems.push_back(s.c_str());
@@ -627,6 +659,20 @@ Void refreshPorts()
     {
         portIndex = -1;
         return;
+    }
+
+    // Whatever was chosen stays chosen, present or not.
+    if(!wasSelected.empty())
+    {
+        for(Int32 i = 0; i < static_cast<Int32>(lidarPorts.size()); ++i)
+        {
+            if(_stricmp(lidarPorts[static_cast<Size>(i)].c_str(),
+                        wasSelected.c_str()) == 0)
+            {
+                portIndex = i;
+                return;
+            }
+        }
     }
 
     // Identify the CP210x bridge outright where we can - the remaining ports on
@@ -883,6 +929,11 @@ const Char* picoStateText(PicoState s)
     case PicoState::PICO_STATE_CONNECTING: return "Connecting";
     case PicoState::PICO_STATE_CONNECTED:  return "Connected";
     case PicoState::PICO_STATE_ERROR:      return "Error";
+
+    // A Pico that rebooted into BOOTSEL drops its CDC port BY DESIGN, and that
+    // happens on every single flash. Calling it an error made the normal path
+    // through this app look like a failure.
+    case PicoState::PICO_STATE_UNPLUGGED:  return "Not connected";
     default:                    return "Not connected";
     }
 }
@@ -894,6 +945,7 @@ ImU32 picoStateColor(PicoState s)
     case PicoState::PICO_STATE_CONNECTING: return ui::sem::WARN;
     case PicoState::PICO_STATE_CONNECTED:  return ui::sem::GOOD;
     case PicoState::PICO_STATE_ERROR:      return ui::sem::BAD;
+    case PicoState::PICO_STATE_UNPLUGGED:  return ui::sem::MUTED;
     default:                    return ui::sem::MUTED;
     }
 }
@@ -905,6 +957,12 @@ const Char* lidarStateText()
     case LidarState::LIDAR_STATE_CONNECTING: return "Connecting";
     case LidarState::LIDAR_STATE_SCANNING:   return "Scanning";
     case LidarState::LIDAR_STATE_ERROR:      return "Error";
+
+    // Spelled out rather than left to the default, because it is a DECISION:
+    // a device somebody unplugged reads as not connected, which is what it is.
+    // "Error" is reserved for the cases where something is actually wrong.
+    case LidarState::LIDAR_STATE_UNPLUGGED:  return "Not connected";
+
     default:
         // "Not connected" would be a lie while the port is open and the motor
         // is simply parked. Those are different situations and the operator
@@ -923,6 +981,7 @@ ImU32 lidarStateColor()
     case LidarState::LIDAR_STATE_CONNECTING: return ui::sem::WARN;
     case LidarState::LIDAR_STATE_SCANNING:   return ui::sem::GOOD;
     case LidarState::LIDAR_STATE_ERROR:      return ui::sem::BAD;
+    case LidarState::LIDAR_STATE_UNPLUGGED:  return ui::sem::MUTED;
     default:
         // Connected but not spinning is a deliberate state, not an absence.
         return lidarSource.connected() ? ui::sem::WARN : ui::sem::MUTED;
@@ -936,6 +995,7 @@ ImU32 lidarStateColorOnViewport()
     case LidarState::LIDAR_STATE_CONNECTING: return ui::plot::WARN;
     case LidarState::LIDAR_STATE_SCANNING:   return ui::plot::OK;
     case LidarState::LIDAR_STATE_ERROR:      return ui::plot::BAD;
+    case LidarState::LIDAR_STATE_UNPLUGGED:  return ui::plot::IDLE;
     default:
         return lidarSource.connected() ? ui::plot::WARN : ui::plot::IDLE;
     }
@@ -2046,12 +2106,33 @@ Void drawConnection()
         ImGui::EndDisabled();
     }
 
-    const Str err = lidarSource.error();
-    if(!err.empty() && lidarSource.state() == LidarState::LIDAR_STATE_ERROR)
+    const Str        err = lidarSource.error();
+    const LidarState ls  = lidarSource.state();
+
+    if(!err.empty() && ls == LidarState::LIDAR_STATE_ERROR)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::BAD);
         ImGui::TextWrapped("%s", err.c_str());
         ImGui::PopStyleColor();
+    }
+    else if(!err.empty() && ls == LidarState::LIDAR_STATE_UNPLUGGED)
+    {
+        // Muted, not red. A pulled cable is a thing somebody did on purpose and
+        // already knows about; the line is here to confirm the app noticed, not
+        // to raise an alarm about it.
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::MUTED);
+        ImGui::TextWrapped("%s", err.c_str());
+        ImGui::PopStyleColor();
+
+        // And the useful half: say when it is back, so the answer to "did it
+        // come back" is on screen instead of being something to go and check.
+        const Str was = lidarSource.port();
+        if(!was.empty() && dev::portPresent(was))
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::GOOD);
+            ImGui::TextWrapped("%s is back - connect when ready", was.c_str());
+            ImGui::PopStyleColor();
+        }
     }
 }
 
@@ -4398,7 +4479,13 @@ Void drawPicoLinkBlock()
     }
 
     const Str err = picoLink.error();
-    if(!err.empty() && st == PicoState::PICO_STATE_ERROR)
+    if(!err.empty() && st == PicoState::PICO_STATE_UNPLUGGED)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::MUTED);
+        ImGui::TextWrapped("%s", err.c_str());
+        ImGui::PopStyleColor();
+    }
+    else if(!err.empty() && st == PicoState::PICO_STATE_ERROR)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::BAD);
         ImGui::TextWrapped("%s", err.c_str());
@@ -5606,8 +5693,27 @@ Void app::init(Float32 dpiScale)
 
         if(i + 1 < __argc && __argv[i + 1][0] != '-')
         {
+            const Char* want  = __argv[i + 1];
+            Bool        found = false;
             for(Int32 p = 0; p < static_cast<Int32>(lidarPorts.size()); ++p)
-                if(_stricmp(lidarPorts[p].c_str(), __argv[i + 1]) == 0) portIndex = p;
+            {
+                if(_stricmp(lidarPorts[p].c_str(), want) == 0)
+                {
+                    portIndex = p;
+                    found     = true;
+                }
+            }
+
+            // A named port that is NOT enumerated is offered anyway, and the
+            // connect is allowed to fail on it. Silently falling back to some
+            // other port is worse in every way: --connect COM7 would talk to
+            // whatever happened to be selected, and the script that asked for
+            // COM7 would report success against the wrong device.
+            if(!found)
+            {
+                lidarPorts.push_back(Str(want));
+                portIndex = static_cast<Int32>(lidarPorts.size()) - 1;
+            }
         }
         if(i + 2 < __argc && __argv[i + 2][0] != '-')
         {

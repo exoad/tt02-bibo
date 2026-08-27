@@ -12,6 +12,8 @@
 #include "shared.hpp"
 #include "lidar_source.hpp"
 
+#include "devlink.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -64,7 +66,17 @@ constexpr Int32 MAX_CONSECUTIVE_TIMEOUTS = 5;
 // leaves a small window in which another process could claim it in between, in
 // which case the driver's own failure path still reports a problem - just less
 // precisely. Worth it for a correct message in the overwhelmingly common case.
-Str probePort(const Str& devPath, const Str& friendly)
+// Opens and immediately closes the port, to find out whether it CAN be opened
+// before the driver touches it - the driver's own report of this failure is
+// unreliable, which is the whole reason this exists.
+//
+// Returns the Win32 code, or 0 on success. It deliberately does NOT decide what
+// the code MEANS: it used to, with its own copy of the removal list, and that
+// copy drifted from the one the mid-scan path used. An unplugged lidar was a
+// quiet disconnection when the cable came out mid-scan and a red error when you
+// pressed Connect afterwards, which is the same event described two ways.
+// One rule, in devlink.hpp, and this reports into it.
+DWORD probePort(const Str& devPath)
 {
     HANDLE h = CreateFileA(devPath.c_str(),
                            GENERIC_READ | GENERIC_WRITE,
@@ -75,20 +87,23 @@ Str probePort(const Str& devPath, const Str& friendly)
                            nullptr);
     if(h != INVALID_HANDLE_VALUE) {
         CloseHandle(h);
-        return Str();
+        return 0;
     }
+    return GetLastError();
+}
 
-    const DWORD err = GetLastError();
+// The fault-side wording, for codes that are NOT a removal. Only reached when
+// the port is genuinely there and still would not open.
+Str openFailText(const Str& friendly, DWORD err)
+{
     switch(err) {
-        case ERROR_FILE_NOT_FOUND:
-        case ERROR_PATH_NOT_FOUND:
-            return "cannot open " + friendly + " (no such port; is the device plugged in?)";
         case ERROR_ACCESS_DENIED:
         case ERROR_SHARING_VIOLATION:
             return "cannot open " + friendly + " (in use by another program)";
         default: {
             Char buf[64];
-            std::snprintf(buf, sizeof(buf), " (win32 error %lu)", static_cast<unsigned long>(err));
+            std::snprintf(buf, sizeof(buf), " (win32 error %lu)",
+                          static_cast<unsigned long>(err));
             return "cannot open " + friendly + buf;
         }
     }
@@ -130,6 +145,11 @@ struct LidarSource::Impl
     // Touched only by poll(), i.e. only by the UI thread.
     UInt64 lastSeenSeq = 0;
 
+    // The port this session was opened on. Held under mtx so the UI can read it
+    // after the worker has gone, which is exactly when it is wanted: to watch
+    // for the device coming back.
+    Str openedPort;
+
     Void setError(const Str& msg)
     {
         {
@@ -137,6 +157,25 @@ struct LidarSource::Impl
             errorMsg = msg;
         }
         state.store(LidarState::LIDAR_STATE_ERROR, std::memory_order_release);
+    }
+
+    // A link that stopped, classified before it is reported. Everything that
+    // can fail once the device is open goes through here rather than straight
+    // to setError, so "the cable came out" cannot be dressed up as a fault
+    // in one code path and not another.
+    Void setLost(const Str& port, UInt32 code, const Str& faultMsg)
+    {
+        const dev::Loss why = dev::classify(port, code);
+        {
+            LockGuard<Mutex> lock(mtx);
+            errorMsg = (why == dev::Loss::LOSS_UNPLUGGED)
+                     ? dev::describe(why, "RPLIDAR C1", port)
+                     : faultMsg;
+        }
+        state.store(why == dev::Loss::LOSS_UNPLUGGED
+                        ? LidarState::LIDAR_STATE_UNPLUGGED
+                        : LidarState::LIDAR_STATE_ERROR,
+                    std::memory_order_release);
     }
 
     Void run(Str port, Int32 baud);
@@ -147,6 +186,11 @@ struct LidarSource::Impl
 Void LidarSource::Impl::run(Str port, Int32 baud)
 {
     using namespace sl;
+
+    {
+        LockGuard<Mutex> lock(mtx);
+        openedPort = port;
+    }
 
     state.store(LidarState::LIDAR_STATE_CONNECTING, std::memory_order_release);
 
@@ -172,9 +216,9 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
     do {
         // Done before the driver touches the port, because the driver's own
         // report of this failure is unreliable - see probePort().
-        Str portProblem = probePort(devPath, port);
-        if(!portProblem.empty()) {
-            setError(portProblem);
+        const DWORD probe = probePort(devPath);
+        if(probe != 0) {
+            setLost(port, probe, openFailText(port, probe));
             break;
         }
 
@@ -189,7 +233,11 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         // connect() failing means the port itself would not open: it does not
         // exist, or another process holds it. Nothing to do with baud rate.
         if(SL_IS_FAIL(drv->connect(channel))) {
-            setError("cannot open " + port + " (in use or missing)");
+            // Distinguishes "not plugged in" from "another program has it",
+            // which are the two causes and want completely different actions
+            // from the person reading it.
+            setLost(port, ::GetLastError(),
+                    "cannot open " + port + " - another program may have it");
             break;
         }
 
@@ -197,7 +245,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         // the port are fine; the framing is wrong or the device is unpowered.
         sl_lidar_response_device_info_t rawInfo;
         if(SL_IS_FAIL(drv->getDeviceInfo(rawInfo))) {
-            setError("no response from device on " + port +
+            setLost(port, 0, "no response from device on " + port +
                       " (wrong baud rate?)");
             break;
         }
@@ -328,8 +376,11 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                 statTimeouts.fetch_add(1, std::memory_order_relaxed);
 
                 if(++consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
-                    setError("device stopped responding on " + port +
-                              " (cable unplugged?)");
+                    // No code to offer - the SDK swallowed it - so the port
+                    // enumeration decides on its own, which is the signal that
+                    // was authoritative anyway.
+                    setLost(port, 0,
+                            "device stopped responding on " + port);
                     break;
                 }
                 continue;
@@ -396,8 +447,12 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 
     // A clean shutdown returns to Idle; a failure keeps its Error state and the
     // message that explains it.
-    if(state.load(std::memory_order_acquire) != LidarState::LIDAR_STATE_ERROR)
+    const LidarState endState = state.load(std::memory_order_acquire);
+    if(endState != LidarState::LIDAR_STATE_ERROR
+       && endState != LidarState::LIDAR_STATE_UNPLUGGED)
+    {
         state.store(LidarState::LIDAR_STATE_IDLE, std::memory_order_release);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +540,12 @@ Str LidarSource::error() const
 {
     LockGuard<Mutex> lock(pimpl->mtx);
     return pimpl->errorMsg;
+}
+
+Str LidarSource::port() const
+{
+    LockGuard<Mutex> lock(pimpl->mtx);
+    return pimpl->openedPort;
 }
 
 LidarDeviceInfo LidarSource::info() const
