@@ -79,6 +79,55 @@
  * device at 0x29 is a much clearer failure than a sensor that never ranges. */
 #define VL53_MODEL_ID 0xEACC
 
+/* ---- timing budget --------------------------------------------------------
+ *
+ * How long the sensor integrates for, per measurement. This is the single
+ * biggest control over how far it reaches, and leaving it unset is a mistake
+ * that hides well: the sensor still ranges, still reports status 0, and simply
+ * cannot see anything far away.
+ *
+ * Longer means more photons collected, which means a weak return from a distant
+ * or dark surface rises above the noise. Roughly:
+ *
+ *   20 ms    short reach, fast                       ~1.0 m in long mode
+ *   50 ms    the sensible default                    ~2.5 m
+ *   100 ms   what the 4 m figure on the box assumes  ~3.6 m
+ *   200 ms   diminishing returns indoors             ~4.0 m
+ *
+ * The numbers below are ST's, from the ULD driver. They are pre-computed
+ * macro-period timeouts rather than anything derivable from the milliseconds,
+ * and they DIFFER BY DISTANCE MODE - which is why changing the mode has to
+ * re-apply the budget, and why vl53SetMode() does.
+ */
+typedef enum Vl53Budget
+{
+    VL53_BUDGET_20MS = 0,
+    VL53_BUDGET_33MS,
+    VL53_BUDGET_50MS,
+    VL53_BUDGET_100MS,
+    VL53_BUDGET_200MS,
+    VL53_BUDGET_500MS
+} Vl53Budget;
+
+/* Registers 0x005E and 0x0061, indexed [budget][0..1]. */
+static const UInt16 VL53_BUDGET_LONG[6][2] = {
+    { 0x001E, 0x0022 },   /*  20 ms */
+    { 0x0060, 0x006E },   /*  33 ms */
+    { 0x00AD, 0x00C6 },   /*  50 ms */
+    { 0x01CC, 0x01EA },   /* 100 ms */
+    { 0x02D9, 0x02F8 },   /* 200 ms */
+    { 0x048F, 0x04A4 }    /* 500 ms */
+};
+
+static const UInt16 VL53_BUDGET_SHORT[6][2] = {
+    { 0x001D, 0x0027 },   /*  20 ms */
+    { 0x00D6, 0x006E },   /*  33 ms */
+    { 0x01AE, 0x01E8 },   /*  50 ms */
+    { 0x02E1, 0x0388 },   /* 100 ms */
+    { 0x03E1, 0x0496 },   /* 200 ms */
+    { 0x0591, 0x05C1 }    /* 500 ms */
+};
+
 typedef enum Vl53Mode
 {
     /* Up to about 1.3 m, and much better in bright light. The right default for
@@ -95,6 +144,13 @@ typedef struct Vl53
     Pin   sda;
     UInt8 addr;
     Bool  ok;
+
+    /* Remembered because the timing budget's register values DEPEND on the
+     * distance mode. Changing one without re-applying the other leaves the
+     * sensor integrating for a length of time it was not configured for, which
+     * shortens its reach without reporting anything wrong. */
+    Vl53Mode   mode;
+    Vl53Budget budget;
 
     /* The interrupt polarity the sensor was configured with. vl53Ready()
      * compares against it, and reading it back rather than assuming is what
@@ -152,6 +208,10 @@ static const UInt8 VL53_DEFAULT_CONFIG[91] = {
  * decide what counts as a return. Short mode narrows them, which is what makes
  * it reject the ambient infrared that swamps the long mode in daylight.
  */
+/* Forward declared: setting the mode re-applies the budget, and setting the
+ * budget needs to know the mode. */
+static inline Bool vl53SetBudget(Vl53* v, Vl53Budget budget);
+
 static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
 {
     if(!v->ok)
@@ -159,18 +219,54 @@ static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
         return false;
     }
 
+    v->mode = mode;
+
     if(mode == VL53_MODE_SHORT)
     {
-        return i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x14)
+        const Bool okShort =
+               i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x14)
             && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x07)
             && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x05)
             && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38);
+
+        return okShort && vl53SetBudget(v, v->budget);
     }
 
-    return i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x0A)
+    const Bool okLong =
+           i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x0A)
         && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x0F)
         && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x0D)
         && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8);
+
+    /* The budget's values are mode-specific, so it goes back in. */
+    return okLong && vl53SetBudget(v, v->budget);
+}
+
+/*
+ * How long each measurement integrates for.
+ *
+ * Must be set - the configuration block alone does not leave a usable budget,
+ * and a sensor without one ranges happily and cannot see past about a metre.
+ */
+static inline Bool vl53SetBudget(Vl53* v, Vl53Budget budget)
+{
+    if(!v->ok)
+    {
+        return false;
+    }
+    if((Int32) budget < 0 || (Int32) budget > (Int32) VL53_BUDGET_500MS)
+    {
+        return false;
+    }
+
+    v->budget = budget;
+
+    const UInt16* row = (v->mode == VL53_MODE_SHORT)
+                      ? VL53_BUDGET_SHORT[(Int32) budget]
+                      : VL53_BUDGET_LONG[(Int32) budget];
+
+    return i2cWriteReg16U16(v->sda, v->addr, 0x005E, row[0])
+        && i2cWriteReg16U16(v->sda, v->addr, 0x0061, row[1]);
 }
 
 /* ---- bring-up ------------------------------------------------------------ */
@@ -192,6 +288,8 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
     v->addr        = addr;
     v->ok          = false;
     v->intPolarity = 1;
+    v->mode        = VL53_MODE_LONG;
+    v->budget      = VL53_BUDGET_50MS;
 
     /* Is anything there at all? A separate check from the ID below, because
      * "nothing answers" and "something answers and is not a VL53L1X" are
@@ -278,7 +376,50 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
         }
     }
 
+    /* Mode first, then budget - and vl53SetMode re-applies the budget anyway,
+     * because the two are not independent. 50 ms reaches about 2.5 m, which is
+     * a useful indoor default; raise it for more reach at a lower rate. */
     vl53SetMode(v, VL53_MODE_LONG);
+    vl53SetBudget(v, VL53_BUDGET_50MS);
+    return true;
+}
+
+/*
+ * Signal and ambient rates, in mega-counts per second, 16.16 fixed point.
+ *
+ * The diagnostic that tells you WHY a reading is what it is. A strong signal at
+ * a short distance means something really is close - including a protective
+ * film still stuck on the lens, which is by far the commonest reason a brand
+ * new sensor reads a few centimetres and never changes.
+ *
+ * A high AMBIENT rate with a weak signal means the sensor is being blinded by
+ * infrared in the room, which is what short mode exists to fix.
+ */
+static inline Bool vl53Rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
+{
+    if(!v->ok)
+    {
+        return false;
+    }
+
+    UInt16 sig = 0;
+    UInt16 amb = 0;
+
+    /* 0x0098 is the signal rate for this measurement, 0x009A the ambient. */
+    if(!i2cReadReg16U16(v->sda, v->addr, 0x0098, &sig)
+       || !i2cReadReg16U16(v->sda, v->addr, 0x009A, &amb))
+    {
+        return false;
+    }
+
+    if(signalOut != NULL)
+    {
+        *signalOut = sig;
+    }
+    if(ambientOut != NULL)
+    {
+        *ambientOut = amb;
+    }
     return true;
 }
 

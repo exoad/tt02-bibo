@@ -312,8 +312,22 @@ static Void printTof(Void)
     {
         const UInt16 mm = vl53Distance(&tofFront);
         const UInt8  st = vl53Status(&tofFront);
+
+        /* The rates are read BEFORE the interrupt is cleared - they belong
+         * to THIS measurement, and clearing first would hand back whatever
+         * the next one produces.
+         *
+         * They are what turns "83 mm" from a number into a diagnosis. A
+         * strong signal at a short distance means something really is that
+         * close, which includes a protective film still on the lens; a weak
+         * signal with a high ambient means the sensor is being blinded by
+         * infrared in the room. */
+        UInt16 sig = 0;
+        UInt16 amb = 0;
+        (Void) vl53Rates(&tofFront, &sig, &amb);
+
         vl53Clear(&tofFront);
-        printf("OK tof %u %u\n", mm, st);
+        printf("OK tof %u %u %u %u\n", mm, st, sig, amb);
         return;
     }
 

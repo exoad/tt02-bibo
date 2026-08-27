@@ -212,6 +212,20 @@ Bool   sensorTof     = false;
 // two are kept together and never separated.
 Int32   tofMm        = 0;
 Int32   tofStatus    = 255;
+
+// The rates that came with the newest reading, in the sensor's own 16.16 fixed
+// point, or -1 when the firmware did not send them.
+//
+// These are what make a wrong-looking number diagnosable rather than merely
+// wrong: a STRONG signal at a short distance means something really is that
+// close - a protective film on the lens is the classic - while a weak signal
+// with a high ambient means the sensor is being blinded by room infrared.
+Int32   tofSignal    = -1;
+Int32   tofAmbient   = -1;
+
+// Which distance mode the board is in. The firmware boots in LONG, so that is
+// what this starts as - it is a mirror of the board's state, not a request.
+Bool    tofModeShort = false;
 Float64 tofLastReply = 0.0;
 UInt64  tofReplies   = 0;
 
@@ -246,6 +260,9 @@ Void resetBoardStatus()
     tofHistoryWrapped = false;
     tofSeenMin     = 0;
     tofSeenMax     = 0;
+    tofSignal      = -1;
+    tofAmbient     = -1;
+    tofModeShort   = false;
     dbgAwait       = false;
     dbgLastPoll   = 0.0;
 }
@@ -939,10 +956,18 @@ Void observeLine(const PicoLine& ln)
             return;
         }
 
-        Int32 mm = 0;
-        Int32 st = 0;
-        if(std::sscanf(a, "%d %d", &mm, &st) == 2)
+        // Signal and ambient are optional: an older firmware sends two fields
+        // and a newer one sends four, and reading however many arrived means
+        // the hub works with both rather than refusing the older one.
+        Int32 mm  = 0;
+        Int32 st  = 0;
+        Int32 sig = -1;
+        Int32 amb = -1;
+        const Int32 got = std::sscanf(a, "%d %d %d %d", &mm, &st, &sig, &amb);
+        if(got >= 2)
         {
+            tofSignal  = (got >= 3) ? sig : -1;
+            tofAmbient = (got >= 4) ? amb : -1;
             tofMm        = mm;
             tofStatus    = st;
             tofLastReply = ImGui::GetTime();
@@ -4123,6 +4148,30 @@ Void drawRangeBody(Float32 w, Float32 h)
                     col, what);
     }
 
+    // ---- the mode switch ------------------------------------------------
+    //
+    // SHORT reaches about 1.3 m and rejects ambient infrared well; LONG reaches
+    // about 4 m and is easily blinded. Which one is right depends on the room,
+    // so it belongs on screen rather than in a #define.
+    if(live && sensorTof)
+    {
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + w - 190.0f * uiDpiScale,
+                                         p0.y + pad - 4.0f * uiDpiScale));
+        if(ui::segmentedButton("Short", tofModeShort,
+                               ImVec2(88.0f * uiDpiScale, 0.0f)))
+        {
+            tofModeShort = true;
+            sendPico("TOF MODE SHORT");
+        }
+        ImGui::SameLine(0.0f, 2.0f);
+        if(ui::segmentedButton("Long", !tofModeShort,
+                               ImVec2(88.0f * uiDpiScale, 0.0f)))
+        {
+            tofModeShort = false;
+            sendPico("TOF MODE LONG");
+        }
+    }
+
     const Float32 top = p0.y + pad + 28.0f * uiDpiScale;
 
     if(!live || !sensorTof)
@@ -4252,10 +4301,25 @@ Void drawRangeBody(Float32 w, Float32 h)
         Char buf[96];
         if(tofSeenMax > 0)
         {
-            std::snprintf(buf, sizeof(buf),
-                          "seen %d - %d mm     %llu readings",
-                          tofSeenMin, tofSeenMax,
-                          static_cast<unsigned long long>(tofReplies));
+            // The rates are in the sensor's 16.16 fixed point; the top 16 bits
+            // are whole mega-counts per second, which is all the resolution
+            // worth showing.
+            if(tofSignal >= 0)
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "seen %d - %d mm   %llu readings   "
+                              "signal %d   ambient %d",
+                              tofSeenMin, tofSeenMax,
+                              static_cast<unsigned long long>(tofReplies),
+                              tofSignal >> 7, tofAmbient >> 7);
+            }
+            else
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "seen %d - %d mm     %llu readings",
+                              tofSeenMin, tofSeenMax,
+                              static_cast<unsigned long long>(tofReplies));
+            }
         }
         else
         {
@@ -4266,6 +4330,48 @@ Void drawRangeBody(Float32 w, Float32 h)
         // How stale the number is. A link that has gone quiet leaves the last
         // reading on screen looking perfectly current, which is the one way a
         // display like this can actively mislead.
+        // ---- why the reading is what it is -----------------------------
+        //
+        // The DISTANCE pattern alone cannot tell you. A first version of this
+        // guessed "protective film" from short-and-steady readings and was
+        // wrong on the real sensor: the rates said signal 5, ambient 511, which
+        // is not a close object at all.
+        //
+        // The RATIO is the diagnosis:
+        //
+        //   ambient >> signal    the sensor is blinded by infrared in the room.
+        //                        Sunlight, halogen and incandescent lamps all
+        //                        pour out the wavelength it listens on. Short
+        //                        mode exists for exactly this.
+        //
+        //   signal very high     something really is that close - which
+        //   at a short range      includes the protective film every one of
+        //                         these ships with, nearly invisible and stuck
+        //                         over the lens.
+        if(tofSignal >= 0 && tofReplies > 30)
+        {
+            const Char* why = nullptr;
+
+            if(tofAmbient > (tofSignal * 8) && tofAmbient > 32)
+            {
+                why = "Ambient light is swamping the signal - try Short mode, "
+                      "or move away from a window or lamp.";
+            }
+            else if(tofSeenMax > 0 && tofSeenMax < 200
+                    && (tofSeenMax - tofSeenMin) < 60
+                    && tofSignal > 64)
+            {
+                why = "Short, steady and a strong return - is the protective "
+                      "film still on the lens?";
+            }
+
+            if(why != nullptr)
+            {
+                dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale),
+                            ui::sem::WARN, why);
+            }
+        }
+
         const Float64 age = ImGui::GetTime() - tofLastReply;
         if(tofReplies > 0 && age > 1.0)
         {
