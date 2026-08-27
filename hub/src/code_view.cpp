@@ -454,6 +454,11 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
     const Int32 last  = std::min(e.lineCount() - 1,
                                  first + static_cast<Int32>(viewH / lineH) + 1);
 
+    // H, M, L and Ctrl-D/Ctrl-U mean "the screen", not "the buffer", so the
+    // editor is told where the screen is - from the same two numbers the drawing
+    // below uses, which is what keeps them from ever disagreeing.
+    e.setViewport(first, std::max(1, static_cast<Int32>(viewH / lineH)));
+
     ed::Cursor selA, selB;
     const Bool hasSel = e.selection(selA, selB);
 
@@ -768,8 +773,9 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
         if(e.mode() == ed::Mode::MODE_COMMAND)
         {
-            mid    = ":" + e.commandLine();
-            midCol = syn::gruv::FG1;
+            mid    = Str(1, e.commandPrefix()) + e.commandLine();
+            midCol = (e.commandPrefix() == ':') ? syn::gruv::FG1
+                                                : syn::gruv::AQUA;
         }
         else if(!v.note.empty())
         {
