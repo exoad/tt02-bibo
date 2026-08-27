@@ -4301,9 +4301,10 @@ Void drawRangeBody(Float32 w, Float32 h)
         Char buf[96];
         if(tofSeenMax > 0)
         {
-            // The rates are in the sensor's 16.16 fixed point; the top 16 bits
-            // are whole mega-counts per second, which is all the resolution
-            // worth showing.
+            // Raw, in the sensor's own fixed point. Scaling them into
+            // "mega-counts per second" would be a unit nobody can check and
+            // would suggest a precision that is not there - the RATIO is the
+            // whole diagnostic and it is scale-free.
             if(tofSignal >= 0)
             {
                 std::snprintf(buf, sizeof(buf),
@@ -4311,7 +4312,7 @@ Void drawRangeBody(Float32 w, Float32 h)
                               "signal %d   ambient %d",
                               tofSeenMin, tofSeenMax,
                               static_cast<unsigned long long>(tofReplies),
-                              tofSignal >> 7, tofAmbient >> 7);
+                              tofSignal, tofAmbient);
             }
             else
             {
@@ -4352,17 +4353,23 @@ Void drawRangeBody(Float32 w, Float32 h)
         {
             const Char* why = nullptr;
 
-            if(tofAmbient > (tofSignal * 8) && tofAmbient > 32)
+            // Blinded: the room's infrared drowns the return. The threshold
+            // is deliberately high - signal and ambient are COMPARABLE in
+            // normal use, so "ambient exceeds signal" on its own means nothing.
+            if(tofAmbient > (tofSignal * 6) && tofSignal < 300)
             {
                 why = "Ambient light is swamping the signal - try Short mode, "
                       "or move away from a window or lamp.";
             }
-            else if(tofSeenMax > 0 && tofSeenMax < 200
-                    && (tofSeenMax - tofSeenMin) < 60
-                    && tofSignal > 64)
+            // A STRONG return from a FIXED short distance, whatever is in
+            // front. That is not a room; it is something on the lens. Every one
+            // of these sensors ships with a protective film that is nearly
+            // invisible and reflects the laser straight back.
+            else if(tofSeenMax > 0 && tofSeenMax < 250 && tofSignal > 200
+                    && (tofSeenMax - tofSeenMin) < (tofSeenMax / 2))
             {
-                why = "Short, steady and a strong return - is the protective "
-                      "film still on the lens?";
+                why = "A strong return from a fixed short distance - is the "
+                      "protective film still on the lens?";
             }
 
             if(why != nullptr)

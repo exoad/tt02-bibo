@@ -119,8 +119,12 @@ static const UInt16 VL53_BUDGET_LONG[6][2] = {
     { 0x048F, 0x04A4 }    /* 500 ms */
 };
 
+/* NOTE the first row. ST publishes a 15 ms entry for short mode that has no
+ * long-mode counterpart, so the two tables are not row-for-row the same budget
+ * - this one starts at ST's 20 ms values, matching the enum, and the 15 ms
+ * entry is simply not offered. */
 static const UInt16 VL53_BUDGET_SHORT[6][2] = {
-    { 0x001D, 0x0027 },   /*  20 ms */
+    { 0x0051, 0x006E },   /*  20 ms */
     { 0x00D6, 0x006E },   /*  33 ms */
     { 0x01AE, 0x01E8 },   /*  50 ms */
     { 0x02E1, 0x0388 },   /* 100 ms */
@@ -227,7 +231,22 @@ static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
                i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x14)
             && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x07)
             && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x05)
-            && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38);
+            && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
+
+            /* The sigma-delta pair, and the reason short mode reported a
+             * hardware fault when these were missing.
+             *
+             * The configuration block leaves 0x78 = 0x0F0D and 0x7A = 0x0E0E,
+             * which are the LONG values. Changing the VCSEL periods above
+             * without changing these leaves the sensor with a phase window
+             * that does not match the period it is now pulsing at - which is
+             * not a wrong reading, it is an inconsistent configuration, and it
+             * reports as a fault.
+             *
+             * Long mode worked precisely BECAUSE it agreed with the block by
+             * accident. That is why only one of the two modes was broken. */
+            && i2cWriteReg16U16(v->sda, v->addr, 0x0078, 0x0705)
+            && i2cWriteReg16U16(v->sda, v->addr, 0x007A, 0x0606);
 
         return okShort && vl53SetBudget(v, v->budget);
     }
@@ -236,7 +255,14 @@ static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
            i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x0A)
         && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x0F)
         && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x0D)
-        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8);
+        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
+
+        /* Written explicitly even though the configuration block already
+         * leaves these values. Relying on that meant long mode worked by
+         * agreement rather than by instruction, and switching to short and
+         * back would otherwise never restore them. */
+        && i2cWriteReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
+        && i2cWriteReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
 
     /* The budget's values are mode-specific, so it goes back in. */
     return okLong && vl53SetBudget(v, v->budget);
@@ -405,9 +431,19 @@ static inline Bool vl53Rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOu
     UInt16 sig = 0;
     UInt16 amb = 0;
 
-    /* 0x0098 is the signal rate for this measurement, 0x009A the ambient. */
+    /*
+     * 0x0098 is the crosstalk-corrected peak SIGNAL rate for this measurement,
+     * and 0x0090 is the AMBIENT rate. Both are the sensor's own fixed point;
+     * the ratio between them is what matters and the absolute units do not.
+     *
+     * The ambient register is 0x0090 and NOT 0x009A. Reading 0x009A returns a
+     * different field entirely, and it returns a large, almost unchanging
+     * number - which read exactly like a sensor being swamped by room light and
+     * was nothing of the kind. Worth naming, because a plausible wrong answer
+     * from a wrong register is the hardest kind to notice.
+     */
     if(!i2cReadReg16U16(v->sda, v->addr, 0x0098, &sig)
-       || !i2cReadReg16U16(v->sda, v->addr, 0x009A, &amb))
+       || !i2cReadReg16U16(v->sda, v->addr, 0x0090, &amb))
     {
         return false;
     }
