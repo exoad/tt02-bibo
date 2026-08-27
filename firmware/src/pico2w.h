@@ -466,6 +466,31 @@ static inline Bool spiOpen(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
     return true;
 }
 
+/*
+ * Clock polarity and phase - SPI "mode", which spi_init() does NOT set: it
+ * leaves mode 0 (clock idles LOW, sample on the leading edge).
+ *
+ *   mode 0   cpol false, cpha false     most sensors, most SD cards
+ *   mode 3   cpol true,  cpha true      ST7789 and friends
+ *
+ * A device on the wrong mode does not half-work. It reads every byte shifted by
+ * a bit and behaves as though nothing was ever sent, which is indistinguishable
+ * from a wiring fault and is why this is worth naming rather than leaving to a
+ * default nobody remembers.
+ */
+static inline Void spiMode(Pin sck, Bool cpol, Bool cpha)
+{
+    spi_inst_t* const bus = spiForSck(sck);
+    if(bus == NULL)
+    {
+        return;
+    }
+    spi_set_format(bus, 8,
+                   cpol ? SPI_CPOL_1 : SPI_CPOL_0,
+                   cpha ? SPI_CPHA_1 : SPI_CPHA_0,
+                   SPI_MSB_FIRST);
+}
+
 /* What the hardware actually settled on, which is rarely exactly what was asked
  * for - the divider is an integer. Worth printing during bring-up. */
 static inline UInt32 spiBaud(Pin sck, UInt32 hz)
