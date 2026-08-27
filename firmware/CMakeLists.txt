@@ -17,6 +17,10 @@ pico_sdk_init()
 
 add_executable(pico_debug
     src/main.c
+
+    # See the note on the sketch target: listed so the IDE knows this header is
+    # C and which target's include paths apply to it.
+    src/pico2w.h
 )
 
 # pico_cyw43_arch_none: the wireless chip is brought up so its GPIO (and so the
@@ -59,6 +63,15 @@ pico_add_extra_outputs(pico_debug)
 # ---------------------------------------------------------------------------
 add_executable(sketch
     src/sketch.c
+
+    # Headers listed as SOURCES on purpose. CMake does not need them - it finds
+    # them through the include path - but an IDE decides what LANGUAGE a .h is
+    # by which target owns it, and an unowned .h is assumed to be C++. That is
+    # why pico2w.h showed "C-style cast is used instead of a C++ cast" on every
+    # (UInt8) in a file that cannot contain a C++ cast. Listing them here says
+    # plainly: these are C, and they belong to this program.
+    src/pico2w.h
+    src/st77xx.h
 )
 
 # pico_stdlib does not carry PWM, ADC or the watchdog, and the Pico 2 W's own

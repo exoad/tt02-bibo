@@ -30,11 +30,17 @@
  * follows docs/conventions.md; every snake_case identifier below is an SDK name.
  */
 
+/* stdio for printf/snprintf. It arrives transitively through pico/stdlib.h and
+ * always has, which is exactly why it was missing here - a header you rely on
+ * without naming is one that disappears the day the chain above it changes. */
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 
-#include "shared.h"
+/* Explicit relative path, so this resolves without an include path being set.
+ * See the note in pico2w.h. */
+#include "../../shared/shared.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
