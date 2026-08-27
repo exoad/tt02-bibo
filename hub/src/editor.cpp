@@ -618,6 +618,12 @@ Bool Editor::motion(Char c, Int32 count, Cursor& out, Bool& linewise)
 
 // ------------------------------------------------------------------- operators
 
+Void Editor::setYank(const Str& text, Bool linewise)
+{
+    yankBuf      = text;
+    yankLinewise = linewise;
+}
+
 Void Editor::yankRange(Cursor a, Cursor b, Bool linewise)
 {
     if(before(b, a))
@@ -980,7 +986,7 @@ Void Editor::applyNormalKey(const Key& k)
 
             if(op == 'y')
             {
-                yankRange(a, b, true);;
+                yankRange(a, b, true);
             }
             else if(op == 'd')
             {

@@ -191,9 +191,13 @@ Void iconAt(ImDrawList* dl, Icon ic, const ImVec2& pos, ImU32 tint = IM_COL32_WH
 // over the leading spaces of a padded label - the same trick iconTabLabel uses,
 // and for the same reason: no hand-rolled widget, and the highlight, the
 // keyboard navigation and the close-on-click all still belong to ImGui.
+// Note that MenuItem takes its ID from the label, so two entries reading the
+// same thing in one popup are the same widget as far as ImGui is concerned.
+// Where the labels are filenames that is not hypothetical - push an ID around
+// the call, keyed on something unique like the full path.
 [[nodiscard]] Bool iconMenuItem(Icon ic, const Char* label,
                                 const Char* shortcut = nullptr,
-                                Bool enabled = true);
+                                Bool enabled = true, Bool selected = false);
 
 // One cell of a mutually-exclusive row, with an icon in its left margin. The
 // segmented-button equivalent of iconButton().

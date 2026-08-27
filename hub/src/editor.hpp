@@ -165,6 +165,30 @@ public:
     // "already at oldest change". Cleared when read.
     [[nodiscard]] Str takeMessage();
 
+    // ---- the unnamed register --------------------------------------------
+    // Exposed so the host can bridge it to the system clipboard. This class
+    // includes no OS header at all and is not going to start; that is what
+    // makes it testable without a window.
+    //
+    // vim keeps its registers to itself and wants "+y to reach the desktop.
+    // That is the wrong default here: this is one small editor inside a larger
+    // app, and a yank you cannot paste into a browser is a yank that did not
+    // work as far as anybody using it is concerned.
+    [[nodiscard]] const Str& yankText() const
+    {
+        return yankBuf;
+    }
+
+    [[nodiscard]] Bool yankIsLinewise() const
+    {
+        return yankLinewise;
+    }
+
+    // Load the register from outside, so p puts down what was copied in another
+    // program. Text ending in a newline came off whole lines and is treated as
+    // linewise, which is the same guess vim makes.
+    Void setYank(const Str& text, Bool linewise);
+
     // ---- selection -------------------------------------------------------
     // Ordered [start, end] inclusive of start, exclusive of end, in visual mode.
     // Returns false when nothing is selected.

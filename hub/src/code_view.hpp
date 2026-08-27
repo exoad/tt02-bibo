@@ -51,6 +51,17 @@ struct CodeView
     // opinion about code it has not compiled.
     Vec<diag::Item> diags;
 
+    // ---- clipboard bridge ------------------------------------------------
+    // The last register contents this view pushed to, or pulled from, the
+    // system clipboard. Held so the two are only touched when they actually
+    // differ - opening the clipboard is a global lock and doing it every frame
+    // is both wasteful and a good way to fight with another program.
+    //
+    // Compared by content rather than by a counter bumped at each yank site.
+    // There are six such sites in editor.cpp and forgetting one would fail
+    // silently, which is the exact bug this fixes.
+    Str     lastYank;
+
     // ---- transient status message ----------------------------------------
     // "3 lines yanked", "saved sketch.c". Shown on the status line and faded
     // out, because a message that stays forever stops being noticed and a
