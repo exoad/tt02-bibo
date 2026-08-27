@@ -1,34 +1,60 @@
 /*
- * A small driver for the ST7789 and ST7735 SPI colour panels.
+ * The ST7789 / ST7735 panel driver: pins, commands, and one Screen.
+ *
+ * ---------------------------------------------------------------------------
+ * HOW THE TWO LAYERS FIT TOGETHER
+ *
+ * This file OWNS the hardware and hands back a Screen. gfx.h DRAWS into one.
+ *
+ *     Screen screen;
+ *     tftOpen(&screen, 240, 280, 0, 20);      the panel is now yours
+ *     tftFill(&screen, TFT_YELLOW);
+ *
+ * Every call takes the screen it acts on, so nothing is implicit and the
+ * panel's size, pins and state live in one visible place rather than in file
+ * statics. The practical payoff is that a sketch reads top-down - what is
+ * connected, then what it is - instead of inheriting it from a header you have
+ * to go and open.
+ *
+ * gfx.h layers on the SAME Screen rather than introducing a second type:
+ *
+ *     Screen screen;
+ *     gfxOpen(&screen, 240, 280, 0, 20);      panel + back buffer + context
+ *     gfxRectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
+ *     gfxPresent(&screen);
  *
  * ---------------------------------------------------------------------------
  * WHICH PANEL HAVE I GOT?
  *
- * The little boards labelled GND / VCC / SCL / SDA / RES / DC / CS / BLK are
- * sold with either controller behind them and the silkscreen rarely says. They
- * take the same wiring and almost the same commands, so this driver does both
- * and you pick with ONE line below.
+ * The boards labelled GND / VCC / SCL / SDA / RES / DC / CS / BLK ship with
+ * either controller behind them and the silkscreen rarely says. They take the
+ * same wiring and almost the same commands, so this drives both and you pick
+ * with the one define below.
  *
- *   ST7789   usually 240x240 (1.3") or 240x320 (2.0"), and INVERTED by default
- *   ST7735   usually 128x160 (1.8") or 128x128 (1.44"), not inverted
+ *   ST7789   240x240, 240x280, 240x320 or 172x320, and INVERTED at the glass
+ *   ST7735   128x160 or 128x128, not inverted
  *
- * Start with the default. If the screen lights up but shows nothing sensible,
- * change PANEL and reflash - that is a ten-second experiment and it is the
- * fastest way to find out what you own.
+ * SIZE IS AN ARGUMENT, not a define. The controller always has 240x320 of RAM
+ * whatever glass is on the front, so a shorter panel shows a WINDOW into that
+ * RAM and the offset says where the window starts. A 240x280 begins 20 rows
+ * down; get that wrong and the picture is shifted off the top by 20 pixels
+ * while everything else looks convincing.
  *
- * The symptom table, because these are the four things that actually happen:
+ * The symptom table, because these are what actually happens:
  *
- *   backlight on, screen black      wrong panel, or DC/RES on the wrong pin
- *   colours inverted (white->black) wrong PANEL_INVERT for this board
- *   image shifted by a few pixels   wrong PANEL_XOFF / PANEL_YOFF
- *   noise, or flickers and tears    SPI too fast - drop PANEL_HZ to 8000000
+ *   backlight on, screen black      wrong controller, or DC and RES swapped
+ *   only part of the screen painted wrong size passed to tftOpen
+ *   image shifted, a band unpainted wrong offset
+ *   colours inverted                wrong PANEL_INVERT
+ *   blue where yellow should be     red and blue swapped - MADCTL 0x00 -> 0x08
+ *   noise, tearing, intermittent    SPI too fast - drop PANEL_HZ
  *
  * ---------------------------------------------------------------------------
  * WIRING as built on this desk
  *
  *   Display   Pico          why
  *   GND       GND
- *   VCC       3V3           these modules are 3.3 V parts; do not feed them 5 V
+ *   VCC       3V3           these are 3.3 V parts; do not feed them 5 V
  *   SCL/SCK   GP18          SPI0 SCK - fixed by the silicon, not a free choice
  *   SDA/MOSI  GP19          SPI0 TX
  *   RES       GP20          plain GPIO
@@ -36,14 +62,13 @@
  *   CS        GP17          plain GPIO, driven by us rather than the hardware
  *   BLK       3V3           always on. Move to a GPIO for PWM brightness.
  *
- * There is no MISO. These panels are write-only in practice: you cannot read
- * back what is on the screen, which is why there is no "read pixel" here and
- * why every drawing routine has to know what it drew.
+ * There is no MISO. These panels are write-only in practice: nothing can be
+ * read back, which is why there is no "read pixel" here and why every drawing
+ * routine has to know what it drew.
  *
  * GP17/GP18/GP19 are the SPI pins docs/wiring.md reserves for the MicroSD card.
- * That is FINE and is the point of a bus - SCK and MOSI are shared, and the two
- * devices are told apart by their separate CS lines. The card will want its own
- * CS on a different pin when it arrives.
+ * That is FINE and is the point of a bus - SCK and MOSI are shared and the two
+ * devices are told apart by their separate CS lines.
  */
 #ifndef TT02_ST77XX_H
 #define TT02_ST77XX_H
@@ -55,110 +80,39 @@
 #define PANEL_ST7735 0
 /* ========================================================================== */
 
-/*
- * ST7789 SIZE. The controller is the same part in every one of these; only the
- * glass differs, and the module rarely says which it is. Set it to the number
- * printed on the listing you bought - or try them: a wrong size draws, it just
- * draws in the wrong place, which is a far better clue than a blank screen.
- *
- *   1  240x240   1.3 inch square
- *   2  240x280   1.69 inch tall
- *   3  240x320   2.0 inch
- *   4  172x320   1.47 inch
- *
- * The offsets are not decoration. The controller has 240x320 of RAM regardless,
- * so a shorter panel shows a WINDOW into it - a 240x280 starts 20 rows down,
- * and without that offset the top of the image is off the top of the glass.
- */
-#define PANEL_ST7789_SIZE 1
-
 #if PANEL_ST7789
-  #if PANEL_ST7789_SIZE == 2
-    #define PANEL_W     240
-    #define PANEL_H     280
-    #define PANEL_XOFF  0
-    #define PANEL_YOFF  20
-  #elif PANEL_ST7789_SIZE == 3
-    #define PANEL_W     240
-    #define PANEL_H     320
-    #define PANEL_XOFF  0
-    #define PANEL_YOFF  0
-  #elif PANEL_ST7789_SIZE == 4
-    #define PANEL_W     172
-    #define PANEL_H     320
-    #define PANEL_XOFF  34
-    #define PANEL_YOFF  0
-  #else
-    #define PANEL_W     240
-    #define PANEL_H     240
-    #define PANEL_XOFF  0
-    #define PANEL_YOFF  0
-  #endif
   /* ST7789 panels are wired inverted at the glass, so "invert on" is what
    * produces correct colours. This looks backwards and is not. */
   #define PANEL_INVERT  1
 #else
-  #define PANEL_W       128
-  #define PANEL_H       160
-  #define PANEL_XOFF    0
-  #define PANEL_YOFF    0
   #define PANEL_INVERT  0
 #endif
 
-/* ---------------------------------------------------------------------------
- * SIZE IS SET AT RUNTIME, by tftInitSize(). The defaults above are just that -
- * defaults - and tftInit() uses them.
- *
- *     tftInitSize(240, 280, 0, 20);     a 1.69 inch ST7789
- *
- * WHY THE OFFSETS ARE NOT DECORATION
- *
- * The controller always has 240x320 of RAM behind it, whatever glass is stuck
- * on the front. A shorter panel shows a WINDOW into that RAM, and the offset
- * says where the window starts. A 240x280 begins 20 rows down; get that wrong
- * and the picture is shifted off the top by 20 pixels while everything else
- * looks convincing.
- *
- * PANEL_MAX_W and PANEL_MAX_H are the CEILING, not the size. They exist only to
- * bound the one stack buffer below and gfx.h's frame buffer, both of which have
- * to be sized when the program is compiled rather than when it runs. 240x320 is
- * the largest thing this controller drives, so it covers every variant.
+/*
+ * The CEILING, not the size. It bounds the one stack buffer below and gfx.h's
+ * frame buffer, both of which must be sized when the program is compiled rather
+ * than when it runs. 240x320 is the largest this controller drives.
  */
 #define PANEL_MAX_W   240
 #define PANEL_MAX_H   320
 
+/* Default pins. tftOpenOn() takes them explicitly if a board differs. */
 #define PIN_TFT_SCK   18
 #define PIN_TFT_MOSI  19
 #define PIN_TFT_CS    17
 #define PIN_TFT_DC    21
 #define PIN_TFT_RES   20
 
-/* 24 MHz. Comfortably inside what these panels manage and slow enough that a
+/*
+ * 24 MHz. Comfortably inside what these panels manage and slow enough that a
  * long jumper wire is not the reason it fails. Raise it once it works, never
- * before - a display that has never worked and a display that is too fast look
- * identical. */
+ * before - a display that has never worked and one that is too fast look
+ * identical.
+ */
 #define PANEL_HZ      24000000u
 
-/* The panel actually in front of us. Set by tftInit()/tftInitSize(); read
- * through tftWidth() and tftHeight() rather than PANEL_W and PANEL_H, which are
- * now only the compile-time defaults. */
-static Int32 tftW    = PANEL_W;
-static Int32 tftH    = PANEL_H;
-static Int32 tftXoff = PANEL_XOFF;
-static Int32 tftYoff = PANEL_YOFF;
-
-static inline Int32 tftWidth(Void)
-{
-    return tftW;
-}
-
-static inline Int32 tftHeight(Void)
-{
-    return tftH;
-}
-
 /* 16 bits per pixel, 5 red / 6 green / 5 blue, which is what COLMOD is set to
- * below. Green gets the spare bit because the eye has most resolution there. */
+ * below. Green gets the spare bit because the eye resolves most detail there. */
 #define TFT_RGB(r, g, b) \
     ((UInt16) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
 
@@ -173,57 +127,115 @@ static inline Int32 tftHeight(Void)
 #define TFT_GREY    TFT_RGB(128, 128, 128)
 #define TFT_ORANGE  TFT_RGB(255, 140, 0)
 
-/* ---- the wire ------------------------------------------------------------ */
-
-/*
- * CS LOW means "this transaction is mine"; raising it ENDS the transaction.
+/* ---- the Screen -----------------------------------------------------------
  *
- * That is the whole reason these are bracketed rather than each call driving CS
- * itself. A command and its parameters are ONE transaction: raise CS between
- * them and the controller treats the parameters as a fresh transaction that
- * begins with no command, and throws them away.
+ * Everything about one panel, in one place. Passed to every call in this file
+ * and in gfx.h, which is what lets a sketch say what it has rather than inherit
+ * it from a header.
  *
- * The failure that produces is deeply unhelpful. SLPOUT takes no parameters, so
- * the panel still wakes up and the backlight still comes on - but COLMOD,
- * MADCTL, CASET, RASET and RAMWR all lose their data, so nothing is ever drawn.
- * A lit, blank screen and a dead wire look identical, and this is the reason
- * for it.
+ * The gfx fields live here rather than in gfx.h because they belong to the
+ * SCREEN, not to the library: a clip rectangle and a text colour are as much
+ * part of "the thing being drawn on" as its width is. They sit inert until
+ * gfxOpen() claims them.
  */
-static inline Void tftSelect(Void)
+typedef struct Screen
 {
-    gpioWrite(PIN_TFT_CS, false);
+    /* geometry, in pixels */
+    Int32 width;
+    Int32 height;
+    Int32 xoff;
+    Int32 yoff;
+
+    /* pins */
+    Pin sck;
+    Pin mosi;
+    Pin cs;
+    Pin dc;
+    Pin res;
+
+    /* ---- gfx.h's business ------------------------------------------------ */
+
+    /* The back buffer, or NULL to draw straight at the panel. */
+    UInt16* buf;
+
+    /* Rows touched since the last present. Pushing only these is what makes a
+     * small update cheap - a clock ticking in a corner sends twenty rows. */
+    Int32 dirtyTop;
+    Int32 dirtyBot;
+
+    Int32 clipX;
+    Int32 clipY;
+    Int32 clipW;
+    Int32 clipH;
+
+    UInt16 fg;
+    UInt16 bg;
+    Bool   bgSolid;
+    Int32  textScale;
+    Int32  cursorX;
+    Int32  cursorY;
+} Screen;
+
+static inline Int32 tftWidth(const Screen* s)
+{
+    return (s != NULL) ? s->width : 0;
 }
 
-static inline Void tftDeselect(Void)
+static inline Int32 tftHeight(const Screen* s)
 {
-    gpioWrite(PIN_TFT_CS, true);
+    return (s != NULL) ? s->height : 0;
+}
+
+/* ---- the wire ------------------------------------------------------------
+ *
+ * CS LOW means "this transaction is mine"; raising it ENDS the transaction.
+ *
+ * That is why these are bracketed rather than each call driving CS itself. A
+ * command and its parameters are ONE transaction: raise CS between them and the
+ * controller treats the parameters as a fresh transaction beginning with no
+ * command, and throws them away.
+ *
+ * The failure that produces is deeply unhelpful, and cost a day. SLPOUT takes
+ * no parameters, so the panel still wakes and the backlight still comes on -
+ * but COLMOD, MADCTL, CASET, RASET and RAMWR all lose their data and nothing is
+ * ever drawn. A lit blank screen and a dead wire look identical.
+ */
+static inline Void tftSelect(const Screen* s)
+{
+    gpioWrite(s->cs, false);
+}
+
+static inline Void tftDeselect(const Screen* s)
+{
+    gpioWrite(s->cs, true);
 }
 
 /* A command and its parameters, as one transaction. `n` may be 0. */
-static inline Void tftWrite(UInt8 cmd, const UInt8* params, Size n)
+static inline Void tftWrite(const Screen* s, UInt8 cmd, const UInt8* params,
+                            Size n)
 {
-    tftSelect();
+    tftSelect(s);
 
-    gpioWrite(PIN_TFT_DC, false);          /* low = this byte is a command */
-    spiWriteByte(PIN_TFT_SCK, cmd);
+    gpioWrite(s->dc, false);              /* low = this byte is a command */
+    spiWriteByte(s->sck, cmd);
 
     if(params != NULL && n > 0)
     {
-        gpioWrite(PIN_TFT_DC, true);       /* high = these are its parameters */
-        spiWrite(PIN_TFT_SCK, params, n);
+        gpioWrite(s->dc, true);           /* high = these are its parameters */
+        spiWrite(s->sck, params, n);
     }
 
-    tftDeselect();
+    tftDeselect(s);
 }
 
-static inline Void tftCmd(UInt8 c)
+static inline Void tftCmd(const Screen* s, UInt8 c)
 {
-    tftWrite(c, NULL, 0);
+    tftWrite(s, c, NULL, 0);
 }
 
-static inline Void tftCmd1(UInt8 c, UInt8 p)
+static inline Void tftCmd1(const Screen* s, UInt8 c, UInt8 p)
 {
-    tftWrite(c, &p, 1);
+    tftWrite(s, c, &p, 1);
 }
 
 /*
@@ -231,10 +243,10 @@ static inline Void tftCmd1(UInt8 c, UInt8 p)
  * into it", which is why there is no per-pixel addressing anywhere below - the
  * controller advances its own cursor and wraps at the right edge.
  */
-static inline Void tftWindow(Int32 x, Int32 y, Int32 w, Int32 h)
+static inline Void tftWindow(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
 {
-    const Int32 x0 = x + tftXoff;
-    const Int32 y0 = y + tftYoff;
+    const Int32 x0 = x + s->xoff;
+    const Int32 y0 = y + s->yoff;
     const Int32 x1 = x0 + w - 1;
     const Int32 y1 = y0 + h - 1;
 
@@ -244,49 +256,52 @@ static inline Void tftWindow(Int32 x, Int32 y, Int32 w, Int32 h)
     buf[1] = (UInt8) (x0 & 0xFF);
     buf[2] = (UInt8) (x1 >> 8);
     buf[3] = (UInt8) (x1 & 0xFF);
-    tftWrite(0x2A, buf, 4);                /* CASET - column address */
+    tftWrite(s, 0x2A, buf, 4);            /* CASET - column address */
 
     buf[0] = (UInt8) (y0 >> 8);
     buf[1] = (UInt8) (y0 & 0xFF);
     buf[2] = (UInt8) (y1 >> 8);
     buf[3] = (UInt8) (y1 & 0xFF);
-    tftWrite(0x2B, buf, 4);                /* RASET - row address */
+    tftWrite(s, 0x2B, buf, 4);            /* RASET - row address */
 }
 
 /*
  * Opens a pixel write: sets the window, issues RAMWR, and LEAVES CS low with DC
- * high so the pixels can follow in the same transaction. Close with
- * tftEndPixels() - and note that RAMWR is exactly the command that must not be
- * separated from its data, since its "parameters" are the whole image.
+ * high so pixels can follow in the same transaction. Close with tftEndPixels().
+ * RAMWR is exactly the command whose data must not be separated from it, since
+ * its "parameters" are the whole image.
  */
-static inline Void tftBeginPixels(Int32 x, Int32 y, Int32 w, Int32 h)
+static inline Void tftBeginPixels(const Screen* s, Int32 x, Int32 y, Int32 w,
+                                  Int32 h)
 {
-    tftWindow(x, y, w, h);
+    tftWindow(s, x, y, w, h);
 
-    tftSelect();
-    gpioWrite(PIN_TFT_DC, false);
-    spiWriteByte(PIN_TFT_SCK, 0x2C);       /* RAMWR */
-    gpioWrite(PIN_TFT_DC, true);
+    tftSelect(s);
+    gpioWrite(s->dc, false);
+    spiWriteByte(s->sck, 0x2C);           /* RAMWR */
+    gpioWrite(s->dc, true);
     /* CS stays LOW; the caller streams pixels now. */
 }
 
-static inline Void tftEndPixels(Void)
+static inline Void tftEndPixels(const Screen* s)
 {
-    tftDeselect();
+    tftDeselect(s);
 }
 
-/* ---- drawing ------------------------------------------------------------- */
+/* ---- drawing -------------------------------------------------------------
+ *
+ * These go STRAIGHT to the panel and ignore any back buffer. They are the
+ * driver's own drawing, for bring-up and for sketches that want nothing else.
+ * gfx.h is the layer that buffers.
+ */
 
 /*
- * Filled rectangle. Streamed from a small buffer rather than a framebuffer: a
- * 240x240 screen at 16bpp is 115 KB, which the RP2350 could hold, but a driver
- * that needs a fifth of RAM before it draws anything is a bad neighbour to
- * every sketch that uses it.
- *
- * Clipped rather than trusted. An off-screen rectangle should draw nothing, not
- * wrap around and corrupt the far edge.
+ * Filled rectangle, streamed from a small buffer rather than a framebuffer.
+ * Clipped rather than trusted: an off-screen rectangle draws nothing instead of
+ * wrapping around and corrupting the far edge.
  */
-static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+static inline Void tftRect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
+                           UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -302,20 +317,20 @@ static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
         h += y;
         y = 0;
     }
-    if(x + w > tftW)
+    if(x + w > s->width)
     {
-        w = tftW - x;
+        w = s->width - x;
     }
-    if(y + h > tftH)
+    if(y + h > s->height)
     {
-        h = tftH - y;
+        h = s->height - y;
     }
     if(w <= 0 || h <= 0)
     {
         return;
     }
 
-    UInt8 line[PANEL_MAX_W * 2];
+    UInt8       line[PANEL_MAX_W * 2];
     const UInt8 hi = (UInt8) (colour >> 8);
     const UInt8 lo = (UInt8) (colour & 0xFF);
     for(Int32 i = 0; i < w; ++i)
@@ -324,33 +339,32 @@ static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
         line[i * 2 + 1] = lo;
     }
 
-    tftBeginPixels(x, y, w, h);
+    tftBeginPixels(s, x, y, w, h);
     for(Int32 r = 0; r < h; ++r)
     {
-        spiWrite(PIN_TFT_SCK, line, (Size) (w * 2));
+        spiWrite(s->sck, line, (Size) (w * 2));
     }
-    tftEndPixels();
+    tftEndPixels(s);
 }
 
-static inline Void tftFill(UInt16 colour)
+static inline Void tftFill(const Screen* s, UInt16 colour)
 {
-    tftRect(0, 0, tftW, tftH, colour);
+    tftRect(s, 0, 0, s->width, s->height, colour);
 }
 
-static inline Void tftPixel(Int32 x, Int32 y, UInt16 colour)
+static inline Void tftPixel(const Screen* s, Int32 x, Int32 y, UInt16 colour)
 {
-    tftRect(x, y, 1, 1, colour);
+    tftRect(s, x, y, 1, 1, colour);
 }
 
-/* ---- text ---------------------------------------------------------------- */
-
-/*
+/* ---- text ----------------------------------------------------------------
+ *
  * A 5x7 font, five bytes per glyph, one byte per column, bit 0 at the top.
  *
- * Covers space through Z: digits, capitals and the punctuation a status
- * readout needs. Lowercase is folded to uppercase rather than shipped as a
- * second set of glyphs - this is for labels on a 240 pixel screen, not for
- * prose, and half a font that is CORRECT beats a whole one that is guessed at.
+ * Covers space through Z: digits, capitals and the punctuation a status readout
+ * needs. Lowercase folds to uppercase rather than shipping a second set of
+ * glyphs - this is for labels on a 240 pixel screen, not for prose, and half a
+ * font that is CORRECT beats a whole one that is guessed at.
  */
 static const UInt8 FONT5X7[59][5] = {
     { 0x00, 0x00, 0x00, 0x00, 0x00 },   /* 32 space */
@@ -414,24 +428,21 @@ static const UInt8 FONT5X7[59][5] = {
     { 0x61, 0x51, 0x49, 0x45, 0x43 },   /* Z  */
 };
 
-/* Biggest text this will draw. Bounds the stack buffer in tftChar below, which
- * is what lets a glyph go out in ONE transfer. */
+/* Biggest text the driver will draw. Bounds the stack buffer below, which is
+ * what lets a glyph go out in ONE transfer. */
 #define TFT_MAX_SCALE 4
 
 /*
  * One character, streamed as a single window.
  *
- * The obvious implementation calls tftRect once per pixel-block, which is 48
- * transfers per character - each one two commands, eight address bytes and a
- * pair of GPIO toggles, to move as little as four bytes of colour. It works and
- * it is visibly slow: the overhead is thirty times the payload.
- *
- * Building the glyph into a buffer and pushing it in one go costs at most
- * 24 * 32 * 2 = 1536 bytes of stack at the largest scale, and turns a whole
- * character into one address setup and one burst.
+ * The obvious implementation calls tftRect once per pixel block: 48 transfers a
+ * character, each two commands, eight address bytes and a pair of GPIO toggles
+ * to move as little as four bytes of colour. Building the glyph into a buffer
+ * costs at most 1536 bytes of stack and turns a character into one address
+ * setup and one burst.
  */
-static inline Void tftChar(Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg,
-                           Int32 scale)
+static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg,
+                           UInt16 bg, Int32 scale)
 {
     if(scale < 1)
     {
@@ -457,10 +468,10 @@ static inline Void tftChar(Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg,
     const Int32 w = 6 * scale;
     const Int32 h = 8 * scale;
 
-    /* Off-screen entirely: nothing to do, and no window to set. Partial
-     * overlap is not clipped here - the caller lays text out, and a half
-     * character is worse to look at than a missing one. */
-    if(x < 0 || y < 0 || x + w > tftW || y + h > tftH)
+    /* Off-screen entirely: nothing to do. Partial overlap is not clipped here -
+     * the caller lays text out, and half a character is worse to look at than a
+     * missing one. */
+    if(x < 0 || y < 0 || x + w > s->width || y + h > s->height)
     {
         return;
     }
@@ -480,9 +491,8 @@ static inline Void tftChar(Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg,
         {
             const Int32 gc = col / scale;
 
-            /* The sixth column is the gap between characters, and it is DRAWN
-             * rather than skipped so that overwriting text does not leave a comb
-             * of old pixels standing between the new ones. */
+            /* The sixth column is the gap between characters, DRAWN rather than
+             * skipped so overwriting text leaves no comb of old pixels. */
             const UInt8 bits = (gc < 5) ? glyph[gc] : 0x00;
             const Bool  on   = (gr < 7) && (((bits >> gr) & 1u) != 0u);
 
@@ -491,136 +501,167 @@ static inline Void tftChar(Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg,
         }
     }
 
-    tftBeginPixels(x, y, w, h);
-    spiWrite(PIN_TFT_SCK, cell, at);
-    tftEndPixels();
+    tftBeginPixels(s, x, y, w, h);
+    spiWrite(s->sck, cell, at);
+    tftEndPixels(s);
 }
 
-static inline Void tftText(Int32 x, Int32 y, const Utf8* s, UInt16 fg, UInt16 bg,
-                           Int32 scale)
+static inline Void tftText(const Screen* s, Int32 x, Int32 y, const Utf8* str,
+                           UInt16 fg, UInt16 bg, Int32 scale)
 {
     Int32 cx = x;
-    while(*s != '\0')
+    while(str != NULL && *str != '\0')
     {
-        tftChar(cx, y, *s, fg, bg, scale);
+        tftChar(s, cx, y, *str, fg, bg, scale);
         cx += 6 * scale;
-        ++s;
+        ++str;
     }
 }
 
 /* ---- bring-up ------------------------------------------------------------ */
 
 /*
- * Resets and configures the panel. Returns false only if the SPI pins do not
- * form a bus - everything after that is write-only and cannot be checked,
- * which is exactly why the first sketch draws a test pattern instead of
- * trusting a return code.
+ * Brings up a panel on the given pins and fills `s` in.
+ *
+ * Returns false only if the SPI pins do not form a bus. Everything after that
+ * is write-only and cannot be checked, which is exactly why a first sketch
+ * draws a test pattern rather than trusting a return code.
  */
-static inline Bool tftInitSize(Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff,
+                             Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
 {
+    if(s == NULL)
+    {
+        return false;
+    }
+
     /* Clamped to what the controller can address, so a typo produces a wrong
-     * picture rather than a window that runs off the end of its RAM. */
-    tftW    = (w <= 0) ? PANEL_MAX_W : ((w > PANEL_MAX_W) ? PANEL_MAX_W : w);
-    tftH    = (h <= 0) ? PANEL_MAX_H : ((h > PANEL_MAX_H) ? PANEL_MAX_H : h);
-    tftXoff = (xoff < 0) ? 0 : xoff;
-    tftYoff = (yoff < 0) ? 0 : yoff;
+     * picture rather than a window running off the end of its RAM. */
+    s->width  = (w <= 0) ? PANEL_MAX_W : ((w > PANEL_MAX_W) ? PANEL_MAX_W : w);
+    s->height = (h <= 0) ? PANEL_MAX_H : ((h > PANEL_MAX_H) ? PANEL_MAX_H : h);
+    s->xoff   = (xoff < 0) ? 0 : xoff;
+    s->yoff   = (yoff < 0) ? 0 : yoff;
 
-    gpioOpen(PIN_TFT_DC, PIN_DIR_OUT);
-    gpioOpen(PIN_TFT_RES, PIN_DIR_OUT);
+    s->sck  = sck;
+    s->mosi = mosi;
+    s->cs   = cs;
+    s->dc   = dc;
+    s->res  = res;
 
-    if(!spiOpen(PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_CS, PANEL_HZ))
+    /* gfx.h's fields, left inert until gfxOpen() claims them. A screen used
+     * only through this file never allocates a back buffer. */
+    s->buf       = NULL;
+    s->dirtyTop  = s->height;
+    s->dirtyBot  = -1;
+    s->clipX     = 0;
+    s->clipY     = 0;
+    s->clipW     = s->width;
+    s->clipH     = s->height;
+    s->fg        = TFT_WHITE;
+    s->bg        = TFT_BLACK;
+    s->bgSolid   = true;
+    s->textScale = 1;
+    s->cursorX   = 0;
+    s->cursorY   = 0;
+
+    gpioOpen(s->dc, PIN_DIR_OUT);
+    gpioOpen(s->res, PIN_DIR_OUT);
+
+    if(!spiOpen(s->sck, s->mosi, s->cs, PANEL_HZ))
     {
         return false;
     }
 
     /* Mode 3. spi_init leaves mode 0, and an ST7789 on the wrong mode reads
      * every byte shifted and behaves exactly as though nothing was sent. */
-    spiMode(PIN_TFT_SCK, true, true);
+    spiMode(s->sck, true, true);
 
-    /* Hardware reset. The 120 ms is from the datasheet and is not padding:
+    /* Hardware reset. The delays are from the datasheet and are not padding:
      * talking to the controller before it has finished resetting is the classic
      * way to get a panel that works only every other power-up. */
-    gpioWrite(PIN_TFT_RES, true);
+    gpioWrite(s->res, true);
     sleepMs(50);
-    gpioWrite(PIN_TFT_RES, false);
+    gpioWrite(s->res, false);
     sleepMs(50);
-    gpioWrite(PIN_TFT_RES, true);
+    gpioWrite(s->res, true);
     sleepMs(150);
 
-    tftCmd(0x01);                 /* SWRESET */
+    tftCmd(s, 0x01);              /* SWRESET */
     sleepMs(150);
-    tftCmd(0x11);                 /* SLPOUT - leave sleep */
+    tftCmd(s, 0x11);              /* SLPOUT - leave sleep */
     sleepMs(255);
 
 #if PANEL_ST7735
     {
-        /* Frame rate and power control. These values are the ones in every
-         * ST7735 bring-up in existence, including Adafruit's; they are panel
-         * timings rather than anything derivable. */
+        /* Frame rate and power control. These are the values in every ST7735
+         * bring-up in existence; they are panel timings rather than anything
+         * derivable. */
         UInt8 b[16];
 
-        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(0xB1, b, 3);
-        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(0xB2, b, 3);
+        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(s, 0xB1, b, 3);
+        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(s, 0xB2, b, 3);
         b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D;
         b[3] = 0x01; b[4] = 0x2C; b[5] = 0x2D;
-        tftWrite(0xB3, b, 6);
+        tftWrite(s, 0xB3, b, 6);
 
-        tftCmd1(0xB4, 0x07);                                 /* INVCTR */
-        b[0] = 0xA2; b[1] = 0x02; b[2] = 0x84; tftWrite(0xC0, b, 3);
-        tftCmd1(0xC1, 0xC5);
-        b[0] = 0x0A; b[1] = 0x00; tftWrite(0xC2, b, 2);
-        b[0] = 0x8A; b[1] = 0x2A; tftWrite(0xC3, b, 2);
-        b[0] = 0x8A; b[1] = 0xEE; tftWrite(0xC4, b, 2);
-        tftCmd1(0xC5, 0x0E);                                 /* VMCTR1 */
+        tftCmd1(s, 0xB4, 0x07);                                /* INVCTR   */
+        b[0] = 0xA2; b[1] = 0x02; b[2] = 0x84;
+        tftWrite(s, 0xC0, b, 3);
+        tftCmd1(s, 0xC1, 0xC5);
+        b[0] = 0x0A; b[1] = 0x00; tftWrite(s, 0xC2, b, 2);
+        b[0] = 0x8A; b[1] = 0x2A; tftWrite(s, 0xC3, b, 2);
+        b[0] = 0x8A; b[1] = 0xEE; tftWrite(s, 0xC4, b, 2);
+        tftCmd1(s, 0xC5, 0x0E);                                /* VMCTR1   */
     }
-    tftCmd1(0x3A, 0x05);                 /* COLMOD - 16 bit on ST7735 */
+    tftCmd1(s, 0x3A, 0x05);       /* COLMOD - 16 bit on ST7735 */
 #else
-    tftCmd1(0x3A, 0x55);                 /* COLMOD - 16 bit on ST7789 */
+    tftCmd1(s, 0x3A, 0x55);       /* COLMOD - 16 bit on ST7789 */
     sleepMs(10);
 
-    /* PORCTRL, GCTRL, VCOMS, LCMCTRL, VDVVRHEN, VRHS, VDVS, PWCTRL1 - the
-     * ST7789 power and porch settings. The datasheet defaults work on some
+    /* The ST7789 power and porch settings. The datasheet defaults work on some
      * modules and not others; these are the values that work on all of them. */
     {
         UInt8 p[5];
         p[0] = 0x0C; p[1] = 0x0C; p[2] = 0x00; p[3] = 0x33; p[4] = 0x33;
-        tftWrite(0xB2, p, 5);            /* PORCTRL */
-        tftCmd1(0xB7, 0x35);             /* GCTRL   */
-        tftCmd1(0xBB, 0x19);             /* VCOMS   */
-        tftCmd1(0xC0, 0x2C);             /* LCMCTRL */
-        tftCmd1(0xC2, 0x01);             /* VDVVRHEN */
-        tftCmd1(0xC3, 0x12);             /* VRHS    */
-        tftCmd1(0xC4, 0x20);             /* VDVS    */
-        tftCmd1(0xC6, 0x0F);             /* FRCTRL2 - 60 Hz */
+        tftWrite(s, 0xB2, p, 5);       /* PORCTRL  */
+        tftCmd1(s, 0xB7, 0x35);        /* GCTRL    */
+        tftCmd1(s, 0xBB, 0x19);        /* VCOMS    */
+        tftCmd1(s, 0xC0, 0x2C);        /* LCMCTRL  */
+        tftCmd1(s, 0xC2, 0x01);        /* VDVVRHEN */
+        tftCmd1(s, 0xC3, 0x12);        /* VRHS     */
+        tftCmd1(s, 0xC4, 0x20);        /* VDVS     */
+        tftCmd1(s, 0xC6, 0x0F);        /* FRCTRL2 - 60 Hz */
         p[0] = 0xA4; p[1] = 0xA1;
-        tftWrite(0xD0, p, 2);            /* PWCTRL1 */
+        tftWrite(s, 0xD0, p, 2);       /* PWCTRL1  */
     }
 #endif
 
     /* MADCTL: row/column order and RGB-versus-BGR. 0x00 is the identity, which
      * is right for the common modules. If red and blue come out swapped, this
      * is the byte to change - try 0x08. */
-    tftCmd1(0x36, 0x00);
+    tftCmd1(s, 0x36, 0x00);
 
 #if PANEL_INVERT
-    tftCmd(0x21);                 /* INVON  */
+    tftCmd(s, 0x21);              /* INVON  */
 #else
-    tftCmd(0x20);                 /* INVOFF */
+    tftCmd(s, 0x20);              /* INVOFF */
 #endif
 
-    tftCmd(0x13);                 /* NORON - normal display */
+    tftCmd(s, 0x13);              /* NORON - normal display */
     sleepMs(10);
-    tftCmd(0x29);                 /* DISPON */
+    tftCmd(s, 0x29);              /* DISPON */
     sleepMs(120);
 
-    tftFill(TFT_BLACK);
+    tftFill(s, TFT_BLACK);
     return true;
 }
 
-/* The compile-time default, for a sketch that does not care. */
-static inline Bool tftInit(Void)
+/* The same, on this project's pins. What a sketch normally calls. */
+static inline Bool tftOpen(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 {
-    return tftInitSize(PANEL_W, PANEL_H, PANEL_XOFF, PANEL_YOFF);
+    return tftOpenOn(s, w, h, xoff, yoff,
+                     PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_CS,
+                     PIN_TFT_DC, PIN_TFT_RES);
 }
 
 #endif

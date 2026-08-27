@@ -46,6 +46,7 @@
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
+#include "hardware/i2c.h"
 #include "hardware/pwm.h"
 #include "hardware/spi.h"
 #include "hardware/watchdog.h"
@@ -432,8 +433,31 @@ static inline spi_inst_t* spiForSck(Pin sck)
 {
     switch(sck)
     {
-    case 2: case 6: case 18: return spi0;
+    case 2: case 6: case 18: case 22: return spi0;
     case 10: case 14: case 26: return spi1;
+    default: return NULL;
+    }
+}
+
+/*
+ * Which controller a MISO pin belongs to. Worth its own function because MISO
+ * is the pin people get wrong: it is the only one of the four that the silicon
+ * constrains and that a plain GPIO cannot stand in for.
+ *
+ * CS can be any pin at all - it is just an output somebody wiggles. SCK, MOSI
+ * and MISO cannot: each is a specific peripheral output on a specific pad. So
+ * "I moved CS to a free pin" is always fine and "I moved MISO to a free pin" is
+ * always broken, and the two mistakes look identical on a wiring diagram.
+ *
+ *   SPI0 MISO   GP0  GP4  GP16  GP20
+ *   SPI1 MISO   GP8  GP12 GP24  GP28
+ */
+static inline spi_inst_t* spiForMiso(Pin miso)
+{
+    switch(miso)
+    {
+    case 0: case 4: case 16: case 20: return spi0;
+    case 8: case 12: case 24: case 28: return spi1;
     default: return NULL;
     }
 }
@@ -462,6 +486,42 @@ static inline Bool spiOpen(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
     {
         gpioOpen(csPin, PIN_DIR_OUT);
         gpioWrite(csPin, true);        /* idle HIGH; low means "listen to me" */
+    }
+    return true;
+}
+
+/*
+ * The same, with MISO - for a device that ANSWERS. A display never does, which
+ * is why spiOpen() above leaves it out; an SD card does nothing else.
+ *
+ * Returns false if the four pins are not all the same controller, which is the
+ * check worth having: MISO on a pad that cannot carry it fails silently, the
+ * card never appears to respond, and every symptom points at the card.
+ */
+static inline Bool spiOpenFull(Pin sck, Pin mosi, Pin miso, Pin csPin,
+                               UInt32 hz)
+{
+    spi_inst_t* const bus  = spiForSck(sck);
+    spi_inst_t* const rxBus = spiForMiso(miso);
+
+    if(bus == NULL || rxBus == NULL || bus != rxBus)
+    {
+        return false;
+    }
+
+    spi_init(bus, hz);
+    gpio_set_function((uint) sck, GPIO_FUNC_SPI);
+    gpio_set_function((uint) mosi, GPIO_FUNC_SPI);
+    gpio_set_function((uint) miso, GPIO_FUNC_SPI);
+
+    /* A pull-up on MISO, because an SD card leaves the line floating until it
+     * is selected and a floating input reads as noise rather than as idle. */
+    gpio_pull_up((uint) miso);
+
+    if(csPin >= 0)
+    {
+        gpioOpen(csPin, PIN_DIR_OUT);
+        gpioWrite(csPin, true);
     }
     return true;
 }
@@ -526,6 +586,180 @@ static inline Size spiTransfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
     }
     const Int32 moved = (Int32) spi_write_read_blocking(bus, tx, rx, n);
     return (moved < 0) ? 0u : (Size) moved;
+}
+
+/* ---- I2C -------------------------------------------------------------------
+ *
+ * Two wires, many devices. Unlike SPI there are no chip selects: every device
+ * has an ADDRESS, and the one whose address goes out at the start of a
+ * transaction is the one that answers. That is why a display, four range
+ * sensors and an IMU can share GP4 and GP5 - and why two devices that ship with
+ * the SAME address cannot, which is what the ToF sensors' XSHUT lines are for.
+ *
+ * Both lines are OPEN DRAIN: a device can pull them low but never drive them
+ * high, so something has to pull them up. Most breakout boards have the
+ * resistors on them already; if yours does not, the bus needs about 4.7k on
+ * each line to 3V3. Without them SDA and SCL float and nothing answers, which
+ * looks exactly like a dead sensor.
+ *
+ * Which pins each controller can use is fixed by the silicon:
+ *
+ *   I2C0   SDA GP0 GP4 GP8 GP12 GP16 GP20     SCL GP1 GP5 GP9 GP13 GP17 GP21
+ *   I2C1   SDA GP2 GP6 GP10 GP14 GP18 GP26    SCL GP3 GP7 GP11 GP15 GP19 GP27
+ *
+ * GP4/GP5 is I2C0, and is what docs/wiring.md reserves for this bus.
+ */
+
+/* Which controller an SDA pin belongs to, or NULL if it is not an SDA pin. */
+static inline i2c_inst_t* i2cForSda(Pin sda)
+{
+    switch(sda)
+    {
+    case 0: case 4: case 8: case 12: case 16: case 20: return i2c0;
+    case 2: case 6: case 10: case 14: case 18: case 26: return i2c1;
+    default: return NULL;
+    }
+}
+
+/*
+ * Brings up an I2C bus and enables the RP2350's internal pull-ups.
+ *
+ * The internal ones are weak - tens of kilohms - and are a safety net rather
+ * than the real thing. They are enough for a short jumper to one board and NOT
+ * enough for a long bus or several devices, where the module's own 4.7k
+ * resistors do the work. Enabling them costs nothing and turns "no pull-ups at
+ * all" from a silent failure into a working bus.
+ *
+ * Returns false if the pins do not belong to one controller, rather than
+ * bringing up a bus that cannot work.
+ */
+static inline Bool i2cOpen(Pin sda, Pin scl, UInt32 hz)
+{
+    i2c_inst_t* const bus = i2cForSda(sda);
+    if(bus == NULL)
+    {
+        return false;
+    }
+
+    i2c_init(bus, hz);
+    gpio_set_function((uint) sda, GPIO_FUNC_I2C);
+    gpio_set_function((uint) scl, GPIO_FUNC_I2C);
+    gpio_pull_up((uint) sda);
+    gpio_pull_up((uint) scl);
+    return true;
+}
+
+/*
+ * Is anything at `addr`?
+ *
+ * A zero-length read: the address goes out and the device either acknowledges
+ * or it does not. Nothing is transferred, so this is safe to do to an address
+ * you know nothing about - which is what makes scanning the bus possible.
+ */
+static inline Bool i2cPresent(Pin sda, UInt8 addr)
+{
+    i2c_inst_t* const bus = i2cForSda(sda);
+    if(bus == NULL)
+    {
+        return false;
+    }
+
+    UInt8 dummy = 0;
+    return i2c_read_blocking(bus, addr, &dummy, 1, false) >= 0;
+}
+
+/* Writes `n` bytes. `hold` true leaves the bus claimed for a repeated start,
+ * which is how a register read is done: write the register, then read without
+ * letting go. Returns bytes written, or 0 on failure. */
+static inline Size i2cWrite(Pin sda, UInt8 addr, const UInt8* data, Size n,
+                            Bool hold)
+{
+    i2c_inst_t* const bus = i2cForSda(sda);
+    if(bus == NULL || data == NULL || n == 0)
+    {
+        return 0;
+    }
+    const Int32 sent = (Int32) i2c_write_blocking(bus, addr, data, n, hold);
+    return (sent < 0) ? 0u : (Size) sent;
+}
+
+static inline Size i2cRead(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
+{
+    i2c_inst_t* const bus = i2cForSda(sda);
+    if(bus == NULL || data == NULL || n == 0)
+    {
+        return 0;
+    }
+    const Int32 got = (Int32) i2c_read_blocking(bus, addr, data, n, hold);
+    return (got < 0) ? 0u : (Size) got;
+}
+
+/*
+ * Reads `n` bytes from a 16-bit register - the addressing the VL53L1X and most
+ * modern sensors use. Write the register index, then read WITHOUT releasing the
+ * bus: letting go between the two is what makes a sensor return the wrong
+ * register, or nothing.
+ */
+static inline Bool i2cReadReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data,
+                                Size n)
+{
+    UInt8 r[2];
+    r[0] = (UInt8) (reg >> 8);
+    r[1] = (UInt8) (reg & 0xFF);
+
+    if(i2cWrite(sda, addr, r, 2, true) != 2)
+    {
+        return false;
+    }
+    return i2cRead(sda, addr, data, n, false) == n;
+}
+
+static inline Bool i2cWriteReg16(Pin sda, UInt8 addr, UInt16 reg,
+                                 const UInt8* data, Size n)
+{
+    /* Register index and payload must go out as ONE transaction, so they are
+     * assembled into one buffer rather than written twice. */
+    UInt8 buf[36];
+    if(n + 2 > sizeof(buf))
+    {
+        return false;
+    }
+    buf[0] = (UInt8) (reg >> 8);
+    buf[1] = (UInt8) (reg & 0xFF);
+    for(Size i = 0; i < n; ++i)
+    {
+        buf[i + 2] = data[i];
+    }
+    return i2cWrite(sda, addr, buf, n + 2, false) == (n + 2);
+}
+
+static inline Bool i2cWriteReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8 v)
+{
+    return i2cWriteReg16(sda, addr, reg, &v, 1);
+}
+
+static inline Bool i2cWriteReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16 v)
+{
+    UInt8 b[2];
+    b[0] = (UInt8) (v >> 8);
+    b[1] = (UInt8) (v & 0xFF);
+    return i2cWriteReg16(sda, addr, reg, b, 2);
+}
+
+static inline Bool i2cReadReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8* out)
+{
+    return i2cReadReg16(sda, addr, reg, out, 1);
+}
+
+static inline Bool i2cReadReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
+{
+    UInt8 b[2];
+    if(!i2cReadReg16(sda, addr, reg, b, 2))
+    {
+        return false;
+    }
+    *out = (UInt16) (((UInt16) b[0] << 8) | b[1]);
+    return true;
 }
 
 /* ---- reboot --------------------------------------------------------------- */

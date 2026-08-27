@@ -15,6 +15,10 @@
 | GP13 | ToF #4 XSHUT |
 | GP15 | Encoder signal |
 | GP20 | TFT reset (RES) |
+| GP22 | free — good for MicroSD CS (CS can be any GPIO) |
+| GP26 | SPI1 SCK (MicroSD CLK) |
+| GP27 | SPI1 MOSI (MicroSD) |
+| GP28 | SPI1 MISO (MicroSD) — **must** be GP8/12/24/28, the silicon says so |
 | GP21 | TFT data/command (DC) |
 | GP16 | SPI MISO (SD card) |
 | GP17 | SPI CS — shared bus: TFT now, MicroSD needs its own CS |
