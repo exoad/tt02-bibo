@@ -734,6 +734,29 @@ Bool isBusy()
 
 // ---------------------------------------------------------------- pico ----
 
+// Set by the window procedure when Windows says the device tree changed, and
+// consumed by pumpDeviceScan() below.
+Atomic<Bool> deviceChangePending{false};
+
+// Frames until the rescan runs. The notification arrives BEFORE the COM port
+// exists - it is about the device NODE, and the serial driver registers its
+// port a moment later - so rescanning immediately finds nothing and the app
+// concludes the board is still absent. Which is the bug, arriving by a
+// slightly different road.
+Int32 deviceScanIn = 0;
+
+// Backstop, in frames. A notification that never arrives - or arrives while the
+// window is not pumping messages - would otherwise leave the app permanently
+// convinced nothing is attached, and that is precisely the failure this exists
+// to fix. It should not be reachable by a different route.
+Int32 deviceScanIdle = 0;
+
+// Set when the user presses Disconnect, cleared when they press Connect. A
+// device reappearing should reconnect, EXCEPT when they deliberately let go of
+// it: an app that grabs the port straight back makes Disconnect useless.
+Bool picoUserDisconnected  = false;
+Bool lidarUserDisconnected = false;
+
 Void refreshPicoPorts()
 {
     picoPorts = PicoLink::listPicoPorts();
@@ -751,6 +774,8 @@ Void refreshPicoPorts()
 
 Void connectPico()
 {
+    picoUserDisconnected = false;
+
     LOG_INFO("pico", "connect requested: port=%s",
              (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size()))
                  ? picoPorts[picoIndex].c_str() : "(none)");
@@ -1325,6 +1350,89 @@ Void pumpCodeAutosave()
     }
 }
 
+// Defined further down, beside the rest of the lidar controls; declared here
+// because the rescan below may want to reconnect a device that just appeared.
+Void connect();
+
+// Rescans the ports after something was plugged in or unplugged.
+//
+// WHY THIS DID NOT EXIST, and why the absence was invisible: both port lists
+// were built once at startup and then only ever refreshed by an explicit
+// button, a flash, or a BOOTSEL reboot. Launch the app with nothing attached,
+// plug a board in, and it was never noticed - Connect stayed greyed out
+// forever with nothing on screen to suggest what to do about it.
+//
+// Event-driven rather than polled: the answer is almost always "nothing
+// changed", and asking Windows for the port list every frame to learn that
+// would be sixty registry walks a second for nothing.
+Void pumpDeviceScan()
+{
+    // ~2 s at 60 fps. Only fires when a notification did not.
+    constexpr Int32 IDLE_FRAMES  = 120;
+
+    // ~0.4 s. Long enough for the serial driver to have registered the port,
+    // short enough that plugging a board in feels immediate.
+    constexpr Int32 SETTLE_FRAMES = 24;
+
+    if(deviceChangePending.exchange(false, std::memory_order_acq_rel))
+    {
+        deviceScanIn = SETTLE_FRAMES;
+    }
+
+    Bool due = false;
+    if(deviceScanIn > 0)
+    {
+        --deviceScanIn;
+        due = (deviceScanIn == 0);
+    }
+    if(++deviceScanIdle >= IDLE_FRAMES)
+    {
+        deviceScanIdle = 0;
+        due            = true;
+    }
+    if(!due)
+    {
+        return;
+    }
+
+    const Bool hadPico  = (picoIndex >= 0);
+    const Bool hadLidar = (portIndex >= 0);
+
+    refreshPicoPorts();
+    refreshPorts();
+
+    // ---- a board that has just appeared -----------------------------------
+    //
+    // Reconnecting matches what the app does at startup, so plugging a board in
+    // behaves the same as having it plugged in already - which is the whole
+    // point. It does NOT override an explicit Disconnect.
+    if(!hadPico && picoIndex >= 0)
+    {
+        LOG_INFO("pico", "board appeared on %s",
+                 picoPorts[static_cast<Size>(picoIndex)].c_str());
+
+        const PicoState ps = picoLink.state();
+        if(!picoUserDisconnected
+           && ps != PicoState::PICO_STATE_CONNECTED
+           && ps != PicoState::PICO_STATE_CONNECTING)
+        {
+            connectPico();
+        }
+    }
+
+    if(!hadLidar && portIndex >= 0)
+    {
+        LOG_INFO("lidar", "RPLIDAR adapter appeared on %s",
+                 lidarPorts[static_cast<Size>(portIndex)].c_str());
+
+        if(!lidarUserDisconnected && !lidarSource.connected()
+           && lidarSource.state() != LidarState::LIDAR_STATE_CONNECTING)
+        {
+            connect();
+        }
+    }
+}
+
 Void pumpPicoRelink()
 {
     if(!picoRelinkWanted || picoRelinkIn <= 0)
@@ -1500,6 +1608,7 @@ Void pumpData()
 
     pumpPico();
     pumpFlash();
+    pumpDeviceScan();
     pumpPicoRelink();
     pumpCodeWatch();
     pumpCodeAutosave();
@@ -1514,6 +1623,8 @@ Void applyRange()
 
 Void connect()
 {
+    lidarUserDisconnected = false;
+
     LOG_INFO("lidar", "connect requested: port=%s baud=%d",
              (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
                  ? lidarPorts[portIndex].c_str() : "(none)",
@@ -2053,15 +2164,41 @@ Void drawQuickActions()
         {
             if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Disconnect Pico",
                               ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+            {
+                // Deliberate, so a rescan must not grab the port straight back.
+                // Only the button sets this - the disconnects around a flash or
+                // a BOOTSEL touch are ours and transient, and treating those as
+                // intent would stop a board ever reconnecting after a reflash.
+                picoUserDisconnected = true;
                 picoLink.disconnect();
+            }
         }
         else
         {
-            ImGui::BeginDisabled(picoIndex < 0);
+            // Greyed out when no board is present - and a greyed-out control
+            // with no explanation reads as a broken one. It gets a reason.
+            const Bool noPico = (picoIndex < 0);
+            ImGui::BeginDisabled(noPico);
             if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect Pico",
                               ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+            {
                 connectPico();
+            }
             ImGui::EndDisabled();
+
+            if(noPico
+               && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip(
+                    "No Pico found.\n\n"
+                    "Plug the board in - it is detected automatically, and this "
+                    "button enables itself\nwithin about a second. Nothing "
+                    "needs pressing first.\n\n"
+                    "If it stays greyed: the board is running a sketch that "
+                    "never called serialOpen(),\nso it never enumerated over "
+                    "USB. Hold BOOTSEL while plugging the cable in\nand flash "
+                    "it again.");
+            }
         }
 
         ImGui::TableNextRow();
@@ -2125,7 +2262,10 @@ Void drawConnection()
     {
         if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Disconnect",
                           ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+        {
+            lidarUserDisconnected = true;
             lidarSource.stop();
+        }
     }
     else
     {
@@ -5773,6 +5913,14 @@ Void app::init(Float32 dpiScale)
     // it has nothing live to show until the link is open, and every launch was
     // opening it closed. --no-connect suppresses both, as it always has.
     if(!suppress) connectPico();
+}
+
+Void app::notifyDeviceChange()
+{
+    // Called from the window procedure, so it touches nothing but an atomic and
+    // returns immediately. The rescan itself happens on the UI thread in
+    // pumpDeviceScan(), where it is safe to touch the port lists.
+    deviceChangePending.store(true, std::memory_order_release);
 }
 
 Void app::setDpiScale(Float32 dpiScale)

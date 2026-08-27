@@ -473,6 +473,15 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
     switch(msg)
     {
+    case WM_DEVICECHANGE:
+        // Windows broadcasts DBT_DEVNODES_CHANGED to top-level windows whenever
+        // the device tree changes, with no registration needed for that
+        // particular event - which is exactly the "something was plugged in"
+        // signal, for free. Not consumed: it is passed on below like any other
+        // message we merely observe.
+        app::notifyDeviceChange();
+        break;
+
     case WM_SIZE:
     {
         if(wparam == SIZE_MINIMIZED)
