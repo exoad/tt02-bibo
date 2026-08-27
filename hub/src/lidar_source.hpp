@@ -57,6 +57,12 @@ enum class LidarState
     LIDAR_STATE_IDLE,
     LIDAR_STATE_CONNECTING,
     LIDAR_STATE_SCANNING,
+
+    // The cable came out. Deliberately NOT an error: unplugging a USB device is
+    // something a person does on purpose, and answering it with a red banner and
+    // a Win32 code trains them to ignore red banners. See devlink.hpp.
+    LIDAR_STATE_UNPLUGGED,
+
     LIDAR_STATE_ERROR,
 };
 
@@ -94,6 +100,11 @@ public:
 
     LidarState      state() const;
     Str     error() const;        // last error message, empty if none
+
+    // The port this session was opened on, whether or not it is still there.
+    // Kept so the UI can watch for the device coming back without having to
+    // remember what it was talking to.
+    [[nodiscard]] Str port() const;
     LidarDeviceInfo info() const;
     LidarScanInfo   scanInfo() const;    // valid once scanning starts
     LidarStats      stats() const;        // session counters, always readable

@@ -20,6 +20,8 @@
 
 #include "pico_link.hpp"
 
+#include "devlink.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -410,8 +412,22 @@ Void LinkImplBody::run(Str port, Int32 baud)
                            nullptr);
     if(h == INVALID_HANDLE_VALUE)
     {
-        setError(winErrText("cannot open " + path, GetLastError()));
-        state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
+        {
+            const DWORD     code = ::GetLastError();
+            const dev::Loss why  = dev::classify(port, code);
+            if(why == dev::Loss::LOSS_UNPLUGGED)
+            {
+                setError(dev::describe(why, "Pico", port));
+                state.store(PicoState::PICO_STATE_UNPLUGGED,
+                            std::memory_order_release);
+            }
+            else
+            {
+                setError(winErrText("cannot open " + path, code));
+                state.store(PicoState::PICO_STATE_ERROR,
+                            std::memory_order_release);
+            }
+        }
         return;
     }
 
@@ -513,8 +529,23 @@ Void LinkImplBody::run(Str port, Int32 baud)
             if(code == ERROR_OPERATION_ABORTED)
                 continue;   // recoverable: purge/abort raced with the read
 
-            setError(winErrText("read failed (device removed?)", code));
-            state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
+            // A Pico that has been unplugged - or told to reboot into
+            // BOOTSEL, which drops the CDC port on purpose - is not a fault.
+            // Reporting it as one made every deliberate reflash look like a
+            // failure, which is precisely how a warning stops being read.
+            const dev::Loss why = dev::classify(port, code);
+            if(why == dev::Loss::LOSS_UNPLUGGED)
+            {
+                setError(dev::describe(why, "Pico", port));
+                state.store(PicoState::PICO_STATE_UNPLUGGED,
+                            std::memory_order_release);
+            }
+            else
+            {
+                setError(winErrText("read failed", code));
+                state.store(PicoState::PICO_STATE_ERROR,
+                            std::memory_order_release);
+            }
             break;
         }
 

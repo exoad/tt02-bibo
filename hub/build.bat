@@ -17,7 +17,12 @@ set "OBJ=%BUILD%\obj"
 set "IMGUI=%ROOT%third_party\imgui"
 set "SDK=%ROOT%..\vendor\rplidar_sdk"
 set "SDKLIB=%SDK%\output\x64\Release\rplidar_driver.lib"
-set "EXE=%BUILD%\tt02.exe"
+rem  TT02_EXE_NAME overrides the output name. There for exactly one
+rem  situation: the app is running and holding tt02.exe, so a link cannot
+rem  replace it, and the alternative is killing somebody's live session
+rem  just to verify a build.
+if not defined TT02_EXE_NAME set "TT02_EXE_NAME=tt02.exe"
+set "EXE=%BUILD%\%TT02_EXE_NAME%"
 
 if /i "%~1"=="clean" (
     echo [clean] removing %BUILD%
