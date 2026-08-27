@@ -501,6 +501,19 @@ static inline Bool vl53Clear(Vl53* v)
         && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
 }
 
+/*
+ * Clears any stale interrupt and starts ranging again.
+ *
+ * The pair belongs together after a reconfiguration: the interrupt left over
+ * from the previous settings would otherwise be handed back as the first
+ * "reading" under the new ones, which is the one measurement guaranteed to be
+ * wrong.
+ */
+static inline Bool vl53ClearInterruptAndStart(Vl53* v)
+{
+    return vl53Clear(v) && vl53StartRanging(v);
+}
+
 /* Millimetres to whatever is in front. Meaningless unless vl53Status() is 0. */
 static inline UInt16 vl53Distance(const Vl53* v)
 {
