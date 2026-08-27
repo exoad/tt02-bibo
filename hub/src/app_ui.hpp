@@ -22,6 +22,15 @@ Void shutdown();
 // scaling stays in step with the rescaled style and fonts.
 Void setDpiScale(Float32 dpiScale);
 
+// Something was plugged in or unplugged. Called from the window procedure on
+// WM_DEVICECHANGE; safe to call as often as Windows sends it, because the
+// actual rescan is debounced.
+//
+// Event-driven rather than polled because the answer is almost always "nothing
+// changed", and asking Windows for the port list sixty times a second to find
+// that out would be sixty registry walks a second for no reason.
+Void notifyDeviceChange();
+
 
 
 } // namespace app
