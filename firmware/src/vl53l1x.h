@@ -1,0 +1,393 @@
+/*
+ * VL53L1X time-of-flight range sensor, over I2C.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IT ACTUALLY MEASURES
+ *
+ * It fires an infrared laser and times how long the light takes to come back.
+ * Light covers a metre in about 3.3 nanoseconds, so a 4-metre reading is a
+ * 26-nanosecond measurement - which is why this is a whole sensor with its own
+ * processor rather than a pin you read.
+ *
+ * The answer is a distance in MILLIMETRES to whatever is in a cone in front of
+ * it. Not a point: a cone, 27 degrees wide by default. At two metres that cone
+ * is nearly a metre across, so "the distance" is really "the nearest thing in
+ * a fairly wide view", which matters when using it to find a wall.
+ *
+ *     Vl53 tof;
+ *     vl53Open(&tof, PIN_SDA, VL53_ADDR_DEFAULT);
+ *     vl53StartRanging(&tof);
+ *
+ *     if(vl53Ready(&tof))
+ *     {
+ *         const UInt16 mm = vl53Distance(&tof);
+ *         vl53Clear(&tof);              // arm the next measurement
+ *     }
+ *
+ * ---------------------------------------------------------------------------
+ * WIRING
+ *
+ *   Sensor   Pico     why
+ *   VIN      3V3      the module regulates; the die is 2.8 V
+ *   GND      GND
+ *   SDA      GP4      I2C0
+ *   SCL      GP5      I2C0
+ *   XSHUT    -        optional; see below
+ *   INT      -        optional; see below
+ *
+ * XSHUT holds the sensor in reset. It is only needed with SEVERAL sensors: they
+ * all ship at address 0x29 and cannot share a bus until each has been given a
+ * different one, which is done by holding all but one in reset and re-addressing
+ * the one that is awake. With a single sensor there is nothing to disambiguate.
+ *
+ * INT pulses when a measurement is ready, so a program can sleep instead of
+ * asking. vl53Ready() asks, which costs one I2C read and needs no wire.
+ *
+ * ---------------------------------------------------------------------------
+ * THE CONFIGURATION BLOCK
+ *
+ * Bringing this sensor up means writing 91 bytes into registers 0x2D..0x87.
+ * Most of them are marked "not user-modifiable" by ST and are not documented
+ * anywhere - they are the calibration ST's own driver writes, and the sensor
+ * does not work without them.
+ *
+ * That is unsatisfying and it is also the situation. The block below is ST's
+ * published default from the VL53L1X ULD driver, kept as one array rather than
+ * scattered through the code, with the handful of bytes that ARE meaningful
+ * called out by name in the comments beside them.
+ */
+#ifndef TT02_VL53L1X_H
+#define TT02_VL53L1X_H
+
+#include "pico2w.h"
+
+#define VL53_ADDR_DEFAULT 0x29
+
+/* The registers worth naming. The rest live inside the config block. */
+#define VL53_REG_CONFIG_START     0x002D
+#define VL53_REG_GPIO_HV_MUX      0x0030
+#define VL53_REG_GPIO_TIO_STATUS  0x0031
+#define VL53_REG_RANGE_VALID_HIGH 0x0069
+#define VL53_REG_SYSTEM_INTERRUPT 0x0086
+#define VL53_REG_SYSTEM_START     0x0087
+#define VL53_REG_RESULT_STATUS    0x0089
+#define VL53_REG_RESULT_DISTANCE  0x0096
+#define VL53_REG_FIRMWARE_STATUS  0x00E5
+#define VL53_REG_MODEL_ID         0x010F
+
+/* What the sensor says it is. Checked at open, because a wrong-but-present
+ * device at 0x29 is a much clearer failure than a sensor that never ranges. */
+#define VL53_MODEL_ID 0xEACC
+
+typedef enum Vl53Mode
+{
+    /* Up to about 1.3 m, and much better in bright light. The right default for
+     * a bumper: the ambient infrared in daylight is what limits this sensor,
+     * not the laser. */
+    VL53_MODE_SHORT = 0,
+
+    /* Up to about 4 m indoors, and easily blinded outdoors. */
+    VL53_MODE_LONG
+} Vl53Mode;
+
+typedef struct Vl53
+{
+    Pin   sda;
+    UInt8 addr;
+    Bool  ok;
+
+    /* The interrupt polarity the sensor was configured with. vl53Ready()
+     * compares against it, and reading it back rather than assuming is what
+     * makes the check work on a module wired either way round. */
+    UInt8 intPolarity;
+} Vl53;
+
+/*
+ * ST's published default configuration, registers 0x2D through 0x87.
+ *
+ * Comments mark the bytes that are documented and meaningful. Everything
+ * unmarked is "not user-modifiable" in ST's own words - undocumented
+ * calibration that the sensor does not work without.
+ */
+static const UInt8 VL53_DEFAULT_CONFIG[91] = {
+    0x00,   /* 0x2D */
+    0x00,   /* 0x2E  I2C pull-up level */
+    0x00,   /* 0x2F  GPIO pull-up level */
+    0x01,   /* 0x30  interrupt polarity lives in bit 4 */
+    0x02,   /* 0x31 */
+    0x00, 0x02, 0x08, 0x00, 0x08, 0x10, 0x01, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0xFF, 0x00, 0x0F, 0x00, 0x00, 0x00,
+    0x00, 0x00,     /* 0x44, 0x45 */
+    0x20,   /* 0x46  interrupt on "new sample ready" */
+    0x0B, 0x00, 0x00, 0x02, 0x0A, 0x21, 0x00, 0x00, 0x05,
+    0x00, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x38, 0xFF,
+    0x01, 0x00, 0x08, 0x00, 0x00, 0x01, 0xDB, 0x0F, 0x01,
+    0xF1, 0x0D,
+    0x01,   /* 0x64  sigma threshold, high byte - 90 mm by default */
+    0x68,   /* 0x65  sigma threshold, low byte */
+    0x00,   /* 0x66  minimum count rate, high byte */
+    0x80,   /* 0x67  minimum count rate, low byte */
+    0x08, 0xB8, 0x00, 0x00,
+    0x00,   /* 0x6C  inter-measurement period, 32 bits from here */
+    0x00, 0x0F, 0x89,
+    0x00, 0x00,
+    0x00,   /* 0x72  distance threshold high, high byte */
+    0x00,   /* 0x73  distance threshold high, low byte */
+    0x00,   /* 0x74  distance threshold low, high byte */
+    0x00,   /* 0x75  distance threshold low, low byte */
+    0x00, 0x01, 0x0F, 0x0D, 0x0E, 0x0E, 0x00, 0x00, 0x02,
+    0xC7,   /* 0x7F  region-of-interest centre */
+    0xFF,   /* 0x80  region-of-interest size, X and Y */
+    0x9B, 0x00, 0x00, 0x00, 0x01,
+    0x00,   /* 0x86  clear interrupt */
+    0x00    /* 0x87  start/stop ranging */
+};
+
+/* ---- distance mode ------------------------------------------------------- */
+
+/*
+ * Short or long range.
+ *
+ * These four registers are the phase and timing windows the sensor uses to
+ * decide what counts as a return. Short mode narrows them, which is what makes
+ * it reject the ambient infrared that swamps the long mode in daylight.
+ */
+static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
+{
+    if(!v->ok)
+    {
+        return false;
+    }
+
+    if(mode == VL53_MODE_SHORT)
+    {
+        return i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x14)
+            && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x07)
+            && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x05)
+            && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38);
+    }
+
+    return i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x0A)
+        && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x0F)
+        && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x0D)
+        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8);
+}
+
+/* ---- bring-up ------------------------------------------------------------ */
+
+/*
+ * Wakes the sensor, checks it is one, and writes the configuration.
+ *
+ * The bus must already be open - i2cOpen() - because several devices share it
+ * and it is not this driver's to configure.
+ */
+static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
+{
+    if(v == NULL)
+    {
+        return false;
+    }
+
+    v->sda         = sda;
+    v->addr        = addr;
+    v->ok          = false;
+    v->intPolarity = 1;
+
+    /* Is anything there at all? A separate check from the ID below, because
+     * "nothing answers" and "something answers and is not a VL53L1X" are
+     * different problems with different fixes. */
+    if(!i2cPresent(sda, addr))
+    {
+        return false;
+    }
+
+    UInt16 model = 0;
+    if(!i2cReadReg16U16(sda, addr, VL53_REG_MODEL_ID, &model)
+       || model != VL53_MODEL_ID)
+    {
+        return false;
+    }
+
+    /*
+     * Wait for the firmware to finish booting. Writing configuration into a
+     * sensor that is still starting up is the classic way to get one that
+     * ranges but returns nonsense.
+     */
+    Bool booted = false;
+    for(Int32 i = 0; i < 1000; ++i)
+    {
+        UInt8 st = 0;
+        if(i2cReadReg16U8(sda, addr, VL53_REG_FIRMWARE_STATUS, &st)
+           && (st & 0x01u) != 0u)
+        {
+            booted = true;
+            break;
+        }
+        sleepMs(2);
+    }
+    if(!booted)
+    {
+        return false;
+    }
+
+    /* The block goes in one register at a time. It could go as one burst, and
+     * a burst would need a 93-byte buffer for a one-off - not worth it. */
+    for(Int32 i = 0; i < 91; ++i)
+    {
+        const UInt16 reg = (UInt16) (VL53_REG_CONFIG_START + i);
+        if(!i2cWriteReg16U8(sda, addr, reg, VL53_DEFAULT_CONFIG[i]))
+        {
+            return false;
+        }
+    }
+
+    v->ok = true;
+
+    /*
+     * One throwaway measurement, which ST's own driver also does. The first
+     * result after configuration is not trustworthy, and starting a program by
+     * showing a wrong number is worse than starting it a hundred milliseconds
+     * later.
+     */
+    (Void) i2cWriteReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x40);
+    for(Int32 i = 0; i < 500; ++i)
+    {
+        UInt8 st = 0;
+        if(i2cReadReg16U8(sda, addr, VL53_REG_GPIO_TIO_STATUS, &st))
+        {
+            if((st & 0x01u) == v->intPolarity)
+            {
+                break;
+            }
+        }
+        sleepMs(2);
+    }
+    (Void) i2cWriteReg16U8(sda, addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
+    (Void) i2cWriteReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x00);
+
+    /* VHV config, which ST's driver writes after the first range. */
+    (Void) i2cWriteReg16U8(sda, addr, 0x0008, 0x09);
+    (Void) i2cWriteReg16U8(sda, addr, 0x000B, 0x00);
+
+    /* Read back the polarity actually configured rather than assuming it. */
+    {
+        UInt8 mux = 0;
+        if(i2cReadReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
+        {
+            v->intPolarity = ((mux & 0x10u) != 0u) ? 0u : 1u;
+        }
+    }
+
+    vl53SetMode(v, VL53_MODE_LONG);
+    return true;
+}
+
+/* ---- ranging ------------------------------------------------------------- */
+
+static inline Bool vl53StartRanging(Vl53* v)
+{
+    return v->ok
+        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
+}
+
+static inline Bool vl53StopRanging(Vl53* v)
+{
+    return v->ok
+        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
+}
+
+/* True when a new measurement is waiting. Costs one register read. */
+static inline Bool vl53Ready(const Vl53* v)
+{
+    if(!v->ok)
+    {
+        return false;
+    }
+    UInt8 st = 0;
+    if(!i2cReadReg16U8(v->sda, v->addr, VL53_REG_GPIO_TIO_STATUS, &st))
+    {
+        return false;
+    }
+    return (st & 0x01u) == v->intPolarity;
+}
+
+/*
+ * Arms the next measurement.
+ *
+ * Must be called after every reading. Without it the sensor holds the same
+ * result forever and vl53Ready() stays true - which looks exactly like a
+ * distance that has frozen, and sends you looking at the wrong thing.
+ */
+static inline Bool vl53Clear(Vl53* v)
+{
+    return v->ok
+        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
+}
+
+/* Millimetres to whatever is in front. Meaningless unless vl53Status() is 0. */
+static inline UInt16 vl53Distance(const Vl53* v)
+{
+    if(!v->ok)
+    {
+        return 0;
+    }
+    UInt16 mm = 0;
+    if(!i2cReadReg16U16(v->sda, v->addr, VL53_REG_RESULT_DISTANCE, &mm))
+    {
+        return 0;
+    }
+    return mm;
+}
+
+/*
+ * 0 means the reading is good. Anything else means it is not, and the distance
+ * that came with it should be ignored rather than shown.
+ *
+ * The raw codes are remapped by ST's driver into a friendlier set; this returns
+ * the friendly one, because the raw values are not in a useful order.
+ */
+static inline UInt8 vl53Status(const Vl53* v)
+{
+    if(!v->ok)
+    {
+        return 255;
+    }
+
+    UInt8 raw = 0;
+    if(!i2cReadReg16U8(v->sda, v->addr, VL53_REG_RESULT_STATUS, &raw))
+    {
+        return 255;
+    }
+    raw &= 0x1Fu;
+
+    switch(raw)
+    {
+    case 9:  return 0;    /* the only "good" raw code */
+    case 6:  return 1;    /* sigma too high - the answer is too noisy */
+    case 4:  return 2;    /* signal too weak - nothing came back */
+    case 8:  return 3;    /* out of the valid phase - beyond range */
+    case 5:  return 4;    /* hardware fail */
+    case 12: return 5;    /* wrapped target - an echo from further than it says */
+    case 18: return 6;    /* synchronisation */
+    case 3:  return 7;    /* merged pulse */
+    default: return 8;    /* something else */
+    }
+}
+
+static inline const Utf8* vl53StatusName(UInt8 status)
+{
+    switch(status)
+    {
+    case 0: return "OK";
+    case 1: return "TOO NOISY";
+    case 2: return "NO SIGNAL";
+    case 3: return "OUT OF RANGE";
+    case 4: return "HARDWARE FAIL";
+    case 5: return "WRAPPED TARGET";
+    case 6: return "SYNC";
+    case 7: return "MERGED PULSE";
+    default: return "UNKNOWN";
+    }
+}
+
+#endif
