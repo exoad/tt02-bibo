@@ -691,9 +691,39 @@ Void refreshPorts()
         }
     }
 
-    // Fallback: a USB bridge normally enumerates above the built-in ports.
-    if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size()))
-        portIndex = static_cast<Int32>(lidarPorts.size()) - 1;
+    // ---- and if it cannot be identified, SELECT NOTHING --------------------
+    //
+    // There used to be a fallback here: "a USB bridge normally enumerates above
+    // the built-in ports", so pick the highest number. It is a reasonable guess
+    // and it caused a genuinely confusing failure.
+    //
+    // Serial ports are EXCLUSIVE. With the lidar unplugged there was no CP210x
+    // to find, so the guess picked the highest port on the machine - which was
+    // COM10, the Pico. The lidar then opened the Pico's port, the Pico could
+    // not, and the app reported an error about a board that was sitting there
+    // working perfectly. Two subsystems, one port, and the one that was RIGHT
+    // lost it to the one that was guessing.
+    //
+    // So: no guess. If nothing here is a CP210x, nothing is selected, Connect
+    // is disabled and the panel says why. "I do not know which port your lidar
+    // is on" is a true and useful thing to say; picking one at random and
+    // failing on it is neither.
+    //
+    // A Bluetooth port would have been the other bad outcome - the machine has
+    // six - and connecting to one produces a timeout that looks like a broken
+    // lidar rather than like a wrong port.
+    portIndex = -1;
+}
+
+// True when a port could belong to the lidar. Used to grey out the ones that
+// certainly cannot, rather than hiding them - a port that is missing from the
+// list looks like a driver problem, and a port that is visible and disabled
+// explains itself.
+Bool portCouldBeLidar(const Str& port)
+{
+    const dev::PortKind k = dev::portKind(port);
+    return k == dev::PortKind::PORT_KIND_CP210X
+        || k == dev::PortKind::PORT_KIND_UNKNOWN;
 }
 
 Bool isBusy()
@@ -5724,7 +5754,18 @@ Void app::init(Float32 dpiScale)
         break;
     }
 
-    if(!suppress) connect();
+    // Only when a port was actually identified. refreshPorts() leaves
+    // portIndex at -1 when it cannot tell which port the lidar is on, and
+    // auto-connecting anyway would open somebody else's device - which is
+    // exactly how the lidar ended up holding the Pico's COM10.
+    if(!suppress && portIndex >= 0)
+    {
+        connect();
+    }
+    else if(!suppress)
+    {
+        LOG_INFO("lidar", "no RPLIDAR adapter found; not auto-connecting");
+    }
 
     // The Pico is the other half of "launched with no arguments, both devices
     // connected", which is what this app is documented to do - but only the

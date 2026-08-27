@@ -67,6 +67,40 @@ enum class Loss
 // an unplugged cable.
 [[nodiscard]] Bool portPresent(const Str& port);
 
+// ---------------------------------------------------------------------------
+// WHAT IS ON A PORT
+//
+// "COM10" says nothing about what is plugged into it, and guessing is worse
+// than useless: serial ports are EXCLUSIVE, so a subsystem that guesses wrong
+// does not merely fail - it takes the port away from the subsystem that was
+// right, and both then report an error about hardware that is working.
+//
+// That is not hypothetical. With the lidar unplugged, its "a USB bridge
+// normally enumerates above the built-in ports" fallback picked the highest
+// number on the machine, which was the Pico, and the two fought over COM10
+// until neither worked.
+//
+// HKLM\HARDWARE\DEVICEMAP\SERIALCOMM maps each driver's device name to the
+// port it owns, which answers the question outright and needs neither SetupAPI
+// nor WMI:
+//
+//   \Device\Silabser0  -> COM7    the CP210x bridge every RPLIDAR adapter uses
+//   \Device\USBSER000  -> COM10   a USB CDC device, which is what a Pico is
+//   \Device\BthModem0  -> COM3    a Bluetooth link, and never anything we want
+enum class PortKind
+{
+    PORT_KIND_UNKNOWN = 0,
+    PORT_KIND_CP210X,      // Silicon Labs bridge - the RPLIDAR adapter
+    PORT_KIND_USB_CDC,     // a USB serial device - the Pico
+    PORT_KIND_BLUETOOTH    // an outgoing Bluetooth port, always a dead end
+};
+
+[[nodiscard]] PortKind portKind(const Str& port);
+
+// Human-readable, for a dropdown that would otherwise be six identical-looking
+// COM numbers with no way to tell which is which.
+[[nodiscard]] const Char* portKindName(PortKind k);
+
 // The verdict. `win32Code` may be 0 when the caller has no code to offer, in
 // which case the enumeration decides on its own.
 [[nodiscard]] Loss classify(const Str& port, UInt32 win32Code);
