@@ -34,6 +34,7 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
+#include "hardware/spi.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/cyw43_arch.h"
@@ -388,6 +389,105 @@ static inline Void watchdogFeed(Void)
 static inline Bool watchdogCausedReboot(Void)
 {
     return watchdog_caused_reboot();
+}
+
+/* ---- SPI ------------------------------------------------------------------
+ *
+ * A synchronous bus with a clock line, so unlike I2C it has no addresses: every
+ * device gets its own CHIP SELECT, and the one whose CS is held low is the one
+ * listening. That is why several devices can share SCK and MOSI and still not
+ * collide - and why forgetting to raise CS again is the classic way to make the
+ * next device on the bus appear broken.
+ *
+ * The RP2350 has two controllers, and which pins each can use is fixed by the
+ * silicon rather than chosen freely:
+ *
+ *   SPI0   SCK  GP2  GP6  GP18        MOSI GP3  GP7  GP19       MISO GP0 GP4 GP16
+ *   SPI1   SCK  GP10 GP14 GP26        MOSI GP11 GP15 GP27       MISO GP8 GP12
+ *
+ * spiOpen() works out which controller the pins belong to, so a wrong pairing
+ * fails here with a false rather than silently producing a dead bus.
+ *
+ * CS is deliberately NOT handled by the hardware. The SDK's hardware CS drops
+ * between bytes, which several displays and cards read as the end of a
+ * transaction; driving it as a plain GPIO around a whole transfer is both
+ * simpler to reason about and what nearly every driver does.
+ */
+
+/* Which controller a SCK pin belongs to, or NULL if it is not a SCK pin. */
+static inline spi_inst_t* spiForSck(Pin sck)
+{
+    switch(sck)
+    {
+    case 2: case 6: case 18: return spi0;
+    case 10: case 14: case 26: return spi1;
+    default: return NULL;
+    }
+}
+
+/*
+ * Brings up an SPI bus. `csPin` may be -1 when the caller drives chip select
+ * itself, which is what you want with more than one device on the bus.
+ *
+ * Returns false if the pins do not belong to one controller, rather than
+ * bringing up a bus that cannot work. Baud is a request: the hardware picks the
+ * closest it can reach and spiBaud() reports what was actually set.
+ */
+static inline Bool spiOpen(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
+{
+    spi_inst_t* const bus = spiForSck(sck);
+    if(bus == NULL)
+    {
+        return false;
+    }
+
+    spi_init(bus, hz);
+    gpio_set_function((uint) sck, GPIO_FUNC_SPI);
+    gpio_set_function((uint) mosi, GPIO_FUNC_SPI);
+
+    if(csPin >= 0)
+    {
+        gpioOpen(csPin, PIN_DIR_OUT);
+        gpioWrite(csPin, true);        /* idle HIGH; low means "listen to me" */
+    }
+    return true;
+}
+
+/* What the hardware actually settled on, which is rarely exactly what was asked
+ * for - the divider is an integer. Worth printing during bring-up. */
+static inline UInt32 spiBaud(Pin sck, UInt32 hz)
+{
+    spi_inst_t* const bus = spiForSck(sck);
+    return (bus == NULL) ? 0u : (UInt32) spi_set_baudrate(bus, hz);
+}
+
+/* Blocking write. Returns the number of bytes sent, or 0 for a bad SCK pin. */
+static inline Size spiWrite(Pin sck, const UInt8* data, Size n)
+{
+    spi_inst_t* const bus = spiForSck(sck);
+    if(bus == NULL || data == NULL || n == 0)
+    {
+        return 0;
+    }
+    const Int32 sent = (Int32) spi_write_blocking(bus, data, n);
+    return (sent < 0) ? 0u : (Size) sent;
+}
+
+static inline Size spiWriteByte(Pin sck, UInt8 b)
+{
+    return spiWrite(sck, &b, 1);
+}
+
+/* Full duplex: sends `tx` and captures the same number of bytes into `rx`. */
+static inline Size spiTransfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
+{
+    spi_inst_t* const bus = spiForSck(sck);
+    if(bus == NULL || tx == NULL || rx == NULL || n == 0)
+    {
+        return 0;
+    }
+    const Int32 moved = (Int32) spi_write_read_blocking(bus, tx, rx, n);
+    return (moved < 0) ? 0u : (Size) moved;
 }
 
 /* ---- reboot --------------------------------------------------------------- */

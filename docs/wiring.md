@@ -14,8 +14,10 @@
 | GP12 | ToF #3 XSHUT |
 | GP13 | ToF #4 XSHUT |
 | GP15 | Encoder signal |
+| GP20 | TFT reset (RES) |
+| GP21 | TFT data/command (DC) |
 | GP16 | SPI MISO (SD card) |
-| GP17 | SPI CS |
+| GP17 | SPI CS — shared bus: TFT now, MicroSD needs its own CS |
 | GP18 | SPI SCK |
 | GP19 | SPI MOSI |
 | GND | **Common ground with ESC — mandatory** |

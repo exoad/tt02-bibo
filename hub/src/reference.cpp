@@ -568,6 +568,71 @@ Void drawI2c(const Canvas& c)
     note(c, 20.0f, ny, 620.0f, NOTES2, 3);
 }
 
+// ================================================ page: the SPI display ==
+
+Void drawSpiDisplay(const Canvas& c)
+{
+    const Float32 y0 = heading(c, 20.0f, 26.0f, 620.0f,
+                               "SPI colour display  -  ST7789 / ST7735");
+
+    // The wiring table, which is the thing actually wanted at the bench.
+    struct Row
+    {
+        const Char* pad;
+        const Char* pin;
+        const Char* note;
+        ImU32       col;
+    };
+    const Row ROWS[] = {
+        { "GND",      "GND",  "",                                    C_GROUND },
+        { "VCC",      "3V3",  "3.3 V part - do NOT feed it 5 V",     C_POWER  },
+        { "SCL / SCK","GP18", "SPI0 SCK - fixed by the silicon",     C_USED   },
+        { "SDA / MOSI","GP19","SPI0 TX",                             C_USED   },
+        { "RES",      "GP20", "reset, plain GPIO",                   C_GPIO   },
+        { "DC",       "GP21", "low = command, high = pixel data",    C_GPIO   },
+        { "CS",       "GP17", "chip select, driven by us",           C_USED   },
+        { "BLK",      "3V3",  "backlight; a GPIO gives PWM dimming", C_POWER  },
+    };
+
+    Float32 y = y0 + 14.0f;
+    c.text(20.0f,  y, INK_DIM, "display", 10.0f);
+    c.text(120.0f, y, INK_DIM, "Pico", 10.0f);
+    c.text(200.0f, y, INK_DIM, "why", 10.0f);
+    y += 16.0f;
+
+    for(const Row& r : ROWS)
+    {
+        c.rectFilled(20.0f, y - 9.0f, 108.0f, y + 9.0f,
+                     IM_COL32(0x22, 0x26, 0x2C, 0xFF), 3.0f);
+        c.text(26.0f, y, INK, r.pad, 11.0f);
+
+        c.rectFilled(120.0f, y - 9.0f, 176.0f, y + 9.0f, r.col, 3.0f);
+        c.text(126.0f, y, PAPER, r.pin, 11.0f);
+
+        c.text(200.0f, y, INK_DIM, r.note, 10.0f);
+        y += 22.0f;
+    }
+
+    // There is no MISO, and that is the fact everything else follows from.
+    const Char* const NOTES[] = {
+        "There is no MISO. The panel is WRITE-ONLY.",
+        "Nothing can be read back, no command acknowledges, and no return code",
+        "anywhere means \"the display works\". That is why the first sketch draws",
+        "colour bars: the picture IS the test, and a blank screen and a broken",
+        "one are otherwise indistinguishable.",
+    };
+    Float32 ny = note(c, 20.0f, y + 8.0f, 620.0f, NOTES, 5);
+
+    const Char* const NOTES2[] = {
+        "SCK and MOSI are shared. CS is what picks a device.",
+        "Unlike I2C there are no addresses: every device gets its own chip select,",
+        "and the one held LOW is the one listening. So the MicroSD card can join",
+        "GP18/GP19 later on its own CS - and forgetting to raise CS again is the",
+        "classic way to make the NEXT device on the bus look broken.",
+    };
+    note(c, 20.0f, ny, 620.0f, NOTES2, 5);
+}
+
 // ============================================== page: resistor colours ==
 
 Void drawResistorCode(const Canvas& c)
@@ -669,6 +734,13 @@ constexpr Page PAGES[] = {
         .blurb    = "Which holes are joined, and how hard to push",
         .natural  = ImVec2(660.0f, 480.0f),
         .draw     = drawBreadboard,
+    },
+    {
+        .category = "Buses",
+        .title    = "SPI display",
+        .blurb    = "ST7789 / ST7735 wiring, and why it is write-only",
+        .natural  = ImVec2(660.0f, 520.0f),
+        .draw     = drawSpiDisplay,
     },
     {
         .category = "Buses",
