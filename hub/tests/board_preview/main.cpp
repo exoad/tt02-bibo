@@ -1,4 +1,4 @@
-// Throwaway preview harness for board::Draw().
+// Throwaway preview harness for board::draw().
 //
 // A window, a dx11 device, and one full-window call into board_view.cpp. It
 // exists so the diagram can be looked at before app_ui.cpp has a tab for it.
@@ -9,12 +9,18 @@
 //
 // Optional args:  --w N --h N   client size in physical px
 //                 --frames N    render N frames then exit (0 = run until closed)
+//
+// The device/swapchain names here deliberately match hub/src/main.cpp's. This
+// is the same boilerplate against the same API, and two spellings of `rtv`
+// across two files that do the identical thing is how a reader starts believing
+// they differ.
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
 #include "board_view.hpp"
+#include "shared.hpp"
 #include "theme.hpp"
 
 #include <d3d11.h>
@@ -26,31 +32,41 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-static ID3D11Device*           g_device    = nullptr;
-static ID3D11DeviceContext*    g_context   = nullptr;
-static IDXGISwapChain*         g_swapchain = nullptr;
-static ID3D11RenderTargetView* g_rtv       = nullptr;
-static bool                    g_resize    = false;
+static ID3D11Device*           d3dDevice  = nullptr;
+static ID3D11DeviceContext*    d3dContext = nullptr;
+static IDXGISwapChain*         swapChain  = nullptr;
+static ID3D11RenderTargetView* rtv        = nullptr;
+static Bool                    wantResize = false;
+
+static const Int32 DEFAULT_WIDTH  = 980;
+static const Int32 DEFAULT_HEIGHT = 760;
+
+// Below this a reported DPI is not a scale factor, it is a failed query.
+static const Float32 MIN_SANE_DPI_SCALE = 0.5f;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
-static void CreateRenderTarget()
+static Void createRenderTarget()
 {
     ID3D11Texture2D* back = nullptr;
-    g_swapchain->GetBuffer(0, IID_PPV_ARGS(&back));
-    if (back)
+    swapChain->GetBuffer(0, IID_PPV_ARGS(&back));
+    if(back)
     {
-        g_device->CreateRenderTargetView(back, nullptr, &g_rtv);
+        d3dDevice->CreateRenderTargetView(back, nullptr, &rtv);
         back->Release();
     }
 }
 
-static void CleanupRenderTarget()
+static Void cleanupRenderTarget()
 {
-    if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; }
+    if(rtv)
+    {
+        rtv->Release();
+        rtv = nullptr;
+    }
 }
 
-static bool CreateDeviceD3D(HWND hwnd)
+static Bool createDeviceD3D(HWND hwnd)
 {
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
@@ -62,41 +78,70 @@ static bool CreateDeviceD3D(HWND hwnd)
     sd.Windowed          = TRUE;
     sd.SwapEffect        = DXGI_SWAP_EFFECT_DISCARD;
 
-    const D3D_FEATURE_LEVEL levels[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
+    const D3D_FEATURE_LEVEL LEVELS[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
     D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_11_0;
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels, 2,
-        D3D11_SDK_VERSION, &sd, &g_swapchain, &g_device, &got, &g_context);
-    if (hr == DXGI_ERROR_UNSUPPORTED)
-        hr = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 2,
-            D3D11_SDK_VERSION, &sd, &g_swapchain, &g_device, &got, &g_context);
-    if (FAILED(hr)) return false;
+        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, LEVELS, 2,
+        D3D11_SDK_VERSION, &sd, &swapChain, &d3dDevice, &got, &d3dContext);
 
-    CreateRenderTarget();
+    // WARP is the software rasteriser. A preview harness that will not open on
+    // a machine without a D3D11 GPU is a preview harness nobody can use.
+    if(hr == DXGI_ERROR_UNSUPPORTED)
+    {
+        hr = D3D11CreateDeviceAndSwapChain(
+            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, LEVELS, 2,
+            D3D11_SDK_VERSION, &sd, &swapChain, &d3dDevice, &got, &d3dContext);
+    }
+    if(FAILED(hr))
+    {
+        return false;
+    }
+
+    createRenderTarget();
     return true;
 }
 
-static void CleanupDeviceD3D()
+static Void cleanupDeviceD3D()
 {
-    CleanupRenderTarget();
-    if (g_swapchain) { g_swapchain->Release(); g_swapchain = nullptr; }
-    if (g_context)   { g_context->Release();   g_context   = nullptr; }
-    if (g_device)    { g_device->Release();    g_device    = nullptr; }
+    cleanupRenderTarget();
+    if(swapChain)
+    {
+        swapChain->Release();
+        swapChain = nullptr;
+    }
+    if(d3dContext)
+    {
+        d3dContext->Release();
+        d3dContext = nullptr;
+    }
+    if(d3dDevice)
+    {
+        d3dDevice->Release();
+        d3dDevice = nullptr;
+    }
 }
 
-static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
-    if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
+    if(ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
+    {
+        return 1;
+    }
 
-    switch (msg)
+    switch(msg)
     {
     case WM_SIZE:
-        if (wp != SIZE_MINIMIZED) g_resize = true;
+        if(wparam != SIZE_MINIMIZED)
+        {
+            wantResize = true;
+        }
         return 0;
     case WM_SYSCOMMAND:
-        if ((wp & 0xfff0) == SC_KEYMENU) return 0;
+        if((wparam & 0xfff0) == SC_KEYMENU)
+        {
+            return 0;
+        }
         break;
     case WM_DESTROY:
         ::PostQuitMessage(0);
@@ -104,43 +149,95 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     default:
         break;
     }
-    return ::DefWindowProcW(hwnd, msg, wp, lp);
+    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-static int ArgInt(int argc, char** argv, const char* key, int def)
+static Int32 argInt(Int32 argc, Char** argv, const Char* key, Int32 fallback)
 {
-    for (int i = 1; i + 1 < argc; ++i)
-        if (std::strcmp(argv[i], key) == 0) return std::atoi(argv[i + 1]);
-    return def;
+    for(Int32 i = 1; i + 1 < argc; ++i)
+    {
+        if(std::strcmp(argv[i], key) == 0)
+        {
+            return std::atoi(argv[i + 1]);
+        }
+    }
+    return fallback;
 }
 
-int main(int argc, char** argv)
+// Same shape as hub/src/main.cpp's enableDpiAwareness(), minus the 8.1 and Vista
+// fallbacks: this is a bench tool for this machine, not a shipped binary.
+typedef HANDLE DpiAwarenessContext;
+typedef BOOL (WINAPI* PFN_SetProcessDpiAwarenessContext)(DpiAwarenessContext);
+typedef UINT (WINAPI* PFN_GetDpiForWindow)(HWND);
+
+// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+static const DpiAwarenessContext DPI_CONTEXT_PER_MONITOR_V2 =
+    reinterpret_cast<DpiAwarenessContext>(static_cast<INT_PTR>(-4));
+
+static Void enableDpiAwareness()
 {
-    const int want_w = ArgInt(argc, argv, "--w", 980);
-    const int want_h = ArgInt(argc, argv, "--h", 760);
-    int frames_left  = ArgInt(argc, argv, "--frames", 0);
+    HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+    if(!user32)
+    {
+        return;
+    }
 
-    typedef BOOL (WINAPI* PFN_SetCtx)(HANDLE);
-    if (HMODULE u32 = ::GetModuleHandleW(L"user32.dll"))
-        if (PFN_SetCtx f = (PFN_SetCtx)::GetProcAddress(u32, "SetProcessDpiAwarenessContext"))
-            f((HANDLE)-4);   // PER_MONITOR_AWARE_V2
+    // reinterpret_cast, not a C-style cast: GetProcAddress hands back a FARPROC
+    // and turning one function-pointer type into another is what it is for.
+    PFN_SetProcessDpiAwarenessContext setCtx =
+        reinterpret_cast<PFN_SetProcessDpiAwarenessContext>(
+            ::GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+    if(setCtx)
+    {
+        setCtx(DPI_CONTEXT_PER_MONITOR_V2);
+    }
+}
 
-    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0,
+static Float32 dpiScaleFor(HWND hwnd)
+{
+    Float32 dpi = 1.0f;
+
+    HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+    if(user32)
+    {
+        PFN_GetDpiForWindow getDpi = reinterpret_cast<PFN_GetDpiForWindow>(
+            ::GetProcAddress(user32, "GetDpiForWindow"));
+        if(getDpi)
+        {
+            dpi = static_cast<Float32>(getDpi(hwnd)) / 96.0f;
+        }
+    }
+
+    return dpi < MIN_SANE_DPI_SCALE ? 1.0f : dpi;
+}
+
+Int32 main(Int32 argc, Char** argv)
+{
+    const Int32 wantW = argInt(argc, argv, "--w", DEFAULT_WIDTH);
+    const Int32 wantH = argInt(argc, argv, "--h", DEFAULT_HEIGHT);
+    Int32 framesLeft  = argInt(argc, argv, "--frames", 0);
+
+    enableDpiAwareness();
+
+    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, wndProc, 0, 0,
                        ::GetModuleHandleW(nullptr), nullptr, nullptr, nullptr,
                        nullptr, L"BoardPreview", nullptr };
     ::RegisterClassExW(&wc);
 
-    RECT r = { 0, 0, want_w, want_h };
+    RECT r = { 0, 0, wantW, wantH };
     ::AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"board_view preview",
                                 WS_OVERLAPPEDWINDOW, 80, 40,
                                 r.right - r.left, r.bottom - r.top,
                                 nullptr, nullptr, wc.hInstance, nullptr);
-    if (!hwnd) return 1;
-
-    if (!CreateDeviceD3D(hwnd))
+    if(!hwnd)
     {
-        CleanupDeviceD3D();
+        return 1;
+    }
+
+    if(!createDeviceD3D(hwnd))
+    {
+        cleanupDeviceD3D();
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
         return 1;
     }
@@ -148,14 +245,7 @@ int main(int argc, char** argv)
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(hwnd);
 
-    float dpi = 1.0f;
-    if (HMODULE u32 = ::GetModuleHandleW(L"user32.dll"))
-    {
-        typedef UINT (WINAPI* PFN_GetDpi)(HWND);
-        if (PFN_GetDpi f = (PFN_GetDpi)::GetProcAddress(u32, "GetDpiForWindow"))
-            dpi = (float)f(hwnd) / 96.0f;
-    }
-    if (dpi < 0.5f) dpi = 1.0f;
+    const Float32 dpi = dpiScaleFor(hwnd);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -166,26 +256,32 @@ int main(int argc, char** argv)
     ui::setDpiScale(dpi);
 
     ImGui_ImplWin32_Init(hwnd);
-    ImGui_ImplDX11_Init(g_device, g_context);
+    ImGui_ImplDX11_Init(d3dDevice, d3dContext);
 
-    bool running = true;
-    while (running)
+    Bool running = true;
+    while(running)
     {
         MSG msg;
-        while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
+        while(::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
         {
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
-            if (msg.message == WM_QUIT) running = false;
+            if(msg.message == WM_QUIT)
+            {
+                running = false;
+            }
         }
-        if (!running) break;
-
-        if (g_resize)
+        if(!running)
         {
-            g_resize = false;
-            CleanupRenderTarget();
-            g_swapchain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
-            CreateRenderTarget();
+            break;
+        }
+
+        if(wantResize)
+        {
+            wantResize = false;
+            cleanupRenderTarget();
+            swapChain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+            createRenderTarget();
         }
 
         ImGui_ImplDX11_NewFrame();
@@ -214,19 +310,22 @@ int main(int argc, char** argv)
         ImGui::PopStyleVar();
 
         ImGui::Render();
-        const float clear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        g_context->OMSetRenderTargets(1, &g_rtv, nullptr);
-        g_context->ClearRenderTargetView(g_rtv, clear);
+        const Float32 CLEAR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        d3dContext->OMSetRenderTargets(1, &rtv, nullptr);
+        d3dContext->ClearRenderTargetView(rtv, CLEAR);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        g_swapchain->Present(1, 0);
+        swapChain->Present(1, 0);
 
-        if (frames_left > 0 && --frames_left == 0) running = false;
+        if(framesLeft > 0 && --framesLeft == 0)
+        {
+            running = false;
+        }
     }
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-    CleanupDeviceD3D();
+    cleanupDeviceD3D();
     ::DestroyWindow(hwnd);
     ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
     return 0;
