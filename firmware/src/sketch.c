@@ -44,8 +44,8 @@
 
 #include "pico2w.h"
 
-#define LED_PIN 3
-#define DELAY_MS 400
+#define LED_PIN 3 
+#define DELAY_MS 100
 
 Int32 main(Void)
 {

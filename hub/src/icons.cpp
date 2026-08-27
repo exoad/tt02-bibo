@@ -70,6 +70,7 @@ constexpr Entry FILES[] = {
     { Icon::ICON_HAZARD,          "exclamation" },
     { Icon::ICON_SEND,            "arrow-transition" },
     { Icon::ICON_HELP,            "information" },
+    { Icon::ICON_REFERENCE,       "blue-document" },
     { Icon::ICON_CODE,            "document" },
 
     { Icon::ICON_STATUS_OK,       "status" },

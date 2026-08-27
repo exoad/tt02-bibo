@@ -25,6 +25,36 @@ enum class Which
 // Display name, for the tab that selects it.
 const Char* name(Which w);
 
+// ---- the pin table, for other views -------------------------------------
+//
+// Exposed so the reference library can lay the same facts out as a flat pinout
+// chart while this file keeps drawing the physical board. Two renderings, ONE
+// table - a second copy of forty rows would drift from docs/wiring.md the first
+// week and nobody would notice which one was stale.
+enum class PinRole : UInt8
+{
+    PIN_ROLE_GPIO = 0,
+    PIN_ROLE_GROUND,
+    PIN_ROLE_POWER,
+    PIN_ROLE_SYS
+};
+
+struct PinRef
+{
+    Int32       phys = 0;          // physical pad, 1..40
+    const Char* name = nullptr;    // silkscreen name
+    const Char* use  = nullptr;    // this project's wiring, or nullptr if free
+    PinRole     role = PinRole::PIN_ROLE_GPIO;
+};
+
+[[nodiscard]] Int32  pinCount();
+[[nodiscard]] PinRef pinAt(Int32 i);
+
+// True for pads 1..20, which run down the LEFT edge. 21..40 run UP the right,
+// so 40 is top-right - the ordering that trips up everyone who assumes the two
+// columns both count downward.
+[[nodiscard]] Bool pinOnLeft(Int32 phys);
+
 // What is known about the board RIGHT NOW, so the drawing can show the state of
 // the real thing rather than a diagram of one.
 //

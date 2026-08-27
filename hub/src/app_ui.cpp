@@ -47,6 +47,7 @@
 #include "editor.hpp"
 #include "recording.hpp"
 #include "sketch.hpp"
+#include "reference.hpp"
 #include "workspace.hpp"
 #include "settings.hpp"
 #include "theme.hpp"
@@ -275,6 +276,10 @@ Bool    codeTreeCollapsed = false;
 // and a tab are never two implementations of one picture.
 Int32       layoutFloating = 0;
 ws::Panel   wsPanels[ws::PANEL_COUNT];
+
+// The reference library's browsing state - which page, the drawer width, the
+// zoom. Held here rather than inside the module so the panel stays re-entrant.
+ref::State  refView;
 ws::Canvas  wsCanvas;
 Bool        wsInit = false;
 
@@ -2485,7 +2490,7 @@ Void sectionSensors()
 
 // The permanent left region: the map, with the control bar under it. Both are
 // sized by the caller, which owns the split between map and sidebar.
-// --view <map|pico> preselects a central tab at startup. Held for a few frames
+// --view <map|3d|record|code|pico|reference> preselects a central tab at startup. Held for a few frames
 // because a tab bar only honours SetSelected once it has laid its items out,
 
 // which is not on frame one.
@@ -3540,6 +3545,14 @@ Void drawCentralControls(Int32 view)
 // same picture, and the only way to guarantee that is for there to be one
 // function that draws it.
 // ---------------------------------------------------------------------------
+// Views 0-3 are the fixed ones, then one per board, then the reference
+// library. Appended at the end so every index already in a saved layout keeps
+// meaning what it meant.
+constexpr Int32 BOARD_VIEW_0 = 4;
+constexpr Int32 REF_VIEW =
+    BOARD_VIEW_0 + static_cast<Int32>(board::Which::WHICH_COUNT);
+constexpr Int32 VIEW_COUNT = REF_VIEW + 1;
+
 Void drawViewBody(Int32 view, Float32 w, Float32 h)
 {
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -3633,10 +3646,20 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
                      ImGui::GetTime());
         handleCodeCommand();
     }
+    else if(view == REF_VIEW)
+    {
+        ImGui::BeginChild("##ref", ImVec2(w, h), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar
+                          | ImGuiWindowFlags_NoScrollWithMouse);
+        const ImVec2 rp0 = ImGui::GetCursorScreenPos();
+        ref::draw(refView, ImGui::GetContentRegionAvail());
+        ui::screenInset(rp0, ImVec2(rp0.x + w, rp0.y + h));
+        ImGui::EndChild();
+    }
     else
     {
         const board::Which which =
-            static_cast<board::Which>(std::max(0, view - 4));
+            static_cast<board::Which>(std::max(0, view - BOARD_VIEW_0));
 
         ImGui::BeginChild("##board", ImVec2(w, h), ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -3661,8 +3684,13 @@ const Char* viewName(Int32 view)
     case 1:  return "3D";
     case 2:  return "Record";
     case 3:  return "Code";
-    default: return board::name(static_cast<board::Which>(std::max(0, view - 4)));
+    default: break;
     }
+    if(view == REF_VIEW)
+    {
+        return "Reference";
+    }
+    return board::name(static_cast<board::Which>(std::max(0, view - BOARD_VIEW_0)));
 }
 
 ui::Icon viewIcon(Int32 view)
@@ -3673,8 +3701,9 @@ ui::Icon viewIcon(Int32 view)
     case 1:  return ui::Icon::ICON_DIM_3D;
     case 2:  return ui::Icon::ICON_RECORD;
     case 3:  return ui::Icon::ICON_CODE;
-    default: return ui::Icon::ICON_PROCESSOR;
+    default: break;
     }
+    return (view == REF_VIEW) ? ui::Icon::ICON_REFERENCE : ui::Icon::ICON_PROCESSOR;
 }
 
 // ===================================================== the tabbed layout
@@ -3696,7 +3725,7 @@ Void drawTabbedViews(Float32 mapW, Float32 viewH)
         --forceViewFrames;
     }
 
-    const Int32 total = 4 + static_cast<Int32>(board::Which::WHICH_COUNT);
+    const Int32 total = VIEW_COUNT;
     for(Int32 v = 0; v < total; ++v)
     {
         Char label[48];
@@ -5509,8 +5538,15 @@ Void app::init(Float32 dpiScale)
                      _stricmp(v, "pico2w") == 0 ||
                      _stricmp(v, "board") == 0)
                      {
-                         forceView = 4;
-                         forceViewFrames = 4;;
+                         forceView = BOARD_VIEW_0;
+                         forceViewFrames = 4;
+                     }
+            else if(_stricmp(v, "reference") == 0 ||
+                     _stricmp(v, "ref") == 0 ||
+                     _stricmp(v, "docs") == 0)
+                     {
+                         forceView = REF_VIEW;
+                         forceViewFrames = 4;
                      }
 
             // Seed the live selection too, so the first frame reserves the
