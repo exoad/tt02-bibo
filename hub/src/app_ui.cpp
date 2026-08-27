@@ -194,6 +194,40 @@ DebugStatus debugStatus;
 
 // STATUS polling. tt02_control answers `ERR bad command`, so a board running it
 // must not be asked again every two seconds forever - one refusal is enough.
+// ---- what the board says is attached ------------------------------------
+//
+// The hub cannot see the Pico's pins. It can only ask, which is why these are
+// answers rather than assumptions - the difference between a row that reads
+// "not wired" because nothing is wired and one that reads it because nobody
+// ever checked.
+//
+// `tofAsked` separates "no" from "not yet". Before the first reply the honest
+// state is unknown, and drawing that as absent would be a guess.
+Bool   sensorsAsked  = false;
+Bool   sensorI2c     = false;
+Bool   sensorTof     = false;
+
+// The newest range, and whether it is worth believing. A distance that arrived
+// with a bad status is not a shorter distance - it is not a distance - so the
+// two are kept together and never separated.
+Int32   tofMm        = 0;
+Int32   tofStatus    = 255;
+Float64 tofLastReply = 0.0;
+UInt64  tofReplies   = 0;
+
+// A rolling history for the strip chart. Fixed size, oldest overwritten - a
+// chart that grows without bound is a leak with a picture on it.
+constexpr Int32 TOF_HISTORY = 240;
+Float32 tofHistory[TOF_HISTORY] = {};
+Int32   tofHistoryAt = 0;
+Bool    tofHistoryWrapped = false;
+
+// Extremes since connect. Sweeping the sensor and reading these off is the
+// honest answer to "how far does it reach" for THIS sensor in THIS light,
+// which no datasheet figure can give.
+Int32 tofSeenMin = 0;
+Int32 tofSeenMax = 0;
+
 Bool   dbgUnsupported = false;
 Bool   dbgAwait       = false;
 Float64 dbgLastPoll   = 0.0;
@@ -202,6 +236,16 @@ Void resetBoardStatus()
 {
     debugStatus             = DebugStatus();
     dbgUnsupported = false;
+    sensorsAsked   = false;
+    sensorI2c      = false;
+    sensorTof      = false;
+    tofMm          = 0;
+    tofStatus      = 255;
+    tofReplies     = 0;
+    tofHistoryAt   = 0;
+    tofHistoryWrapped = false;
+    tofSeenMin     = 0;
+    tofSeenMax     = 0;
     dbgAwait       = false;
     dbgLastPoll   = 0.0;
 }
@@ -862,6 +906,79 @@ Void observeLine(const PicoLine& ln)
         return;
     }
 
+    // "OK sensors i2c=1 tof=1 tof_addr=0x29" - what the board found at boot.
+    //
+    // Read as key=value pairs rather than by position, so a sensor added to the
+    // firmware later is ignored by an older hub instead of breaking the parse.
+    if(t.compare(0, 11, "OK sensors ") == 0)
+    {
+        const Char* p = t.c_str();
+        if(const Char* q = std::strstr(p, "i2c="))
+        {
+            sensorI2c = (std::atoi(q + 4) != 0);
+        }
+        if(const Char* q = std::strstr(p, "tof="))
+        {
+            sensorTof = (std::atoi(q + 4) != 0);
+        }
+        sensorsAsked = true;
+
+        LOG_INFO("pico", "sensors: i2c=%d tof=%d",
+                 sensorI2c ? 1 : 0, sensorTof ? 1 : 0);
+        return;
+    }
+
+    // "OK tof <mm> <status>", or "OK tof busy" when the measurement is not
+    // finished. Busy is NOT an error: the sensor takes tens of milliseconds and
+    // the hub is entitled to ask more often than that.
+    if(t.compare(0, 7, "OK tof ") == 0)
+    {
+        const Char* a = t.c_str() + 7;
+        if(std::strncmp(a, "busy", 4) == 0)
+        {
+            return;
+        }
+
+        Int32 mm = 0;
+        Int32 st = 0;
+        if(std::sscanf(a, "%d %d", &mm, &st) == 2)
+        {
+            tofMm        = mm;
+            tofStatus    = st;
+            tofLastReply = ImGui::GetTime();
+            ++tofReplies;
+
+            // Only a GOOD reading enters the history and the extremes. A bad
+            // one plotted as a number would draw a cliff that never happened.
+            if(st == 0)
+            {
+                tofHistory[tofHistoryAt] = static_cast<Float32>(mm);
+                tofHistoryAt = (tofHistoryAt + 1) % TOF_HISTORY;
+                if(tofHistoryAt == 0)
+                {
+                    tofHistoryWrapped = true;
+                }
+
+                if(tofSeenMax == 0 || mm < tofSeenMin)
+                {
+                    tofSeenMin = mm;
+                }
+                if(mm > tofSeenMax)
+                {
+                    tofSeenMax = mm;
+                }
+            }
+        }
+        return;
+    }
+
+    if(t.compare(0, 12, "ERR tof abse") == 0)
+    {
+        sensorTof    = false;
+        sensorsAsked = true;
+        return;
+    }
+
     // "OK led on" / "OK led off" / "OK led blink 2.00" - the acknowledgement,
     // so a command the user typed takes effect on the drawing immediately
     // rather than at the next poll.
@@ -976,6 +1093,53 @@ Void pollBoardStatus()
 
     dbgLastPoll = now;
     sendPico("STATUS");
+}
+
+// Asks the board what is attached, once per connection.
+//
+// Separate from the range poll because the answer does not change while the
+// board is running - a sensor cannot be plugged into a Pico that is already
+// powered without it being reset - so asking repeatedly would be noise on a
+// link that is also carrying the readings.
+Void pollSensorList()
+{
+    if(dbgUnsupported || sensorsAsked)
+    {
+        return;
+    }
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        return;
+    }
+    sendPico("SENSORS");
+}
+
+// Asks for a range reading, at a rate the sensor can actually sustain.
+//
+// Only while the Range view is on screen. Polling a sensor nobody is looking at
+// fills the console log and the link with traffic to no purpose, and this link
+// is also how firmware gets flashed.
+Void pollTof(Bool wanted)
+{
+    if(!wanted || !sensorTof || dbgUnsupported)
+    {
+        return;
+    }
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        return;
+    }
+
+    // ~10 Hz. The sensor's own measurement is slower than this, so asking
+    // faster would only be told "busy" more often.
+    static Float64 lastAsk = 0.0;
+    const Float64  now     = ImGui::GetTime();
+    if(now - lastAsk < 0.1)
+    {
+        return;
+    }
+    lastAsk = now;
+    sendPico("TOF");
 }
 
 const Char* picoStateText(PicoState s)
@@ -3895,7 +4059,225 @@ Void drawCentralControls(Int32 view)
 constexpr Int32 BOARD_VIEW_0 = 4;
 constexpr Int32 REF_VIEW =
     BOARD_VIEW_0 + static_cast<Int32>(board::Which::WHICH_COUNT);
-constexpr Int32 VIEW_COUNT = REF_VIEW + 1;
+constexpr Int32 RANGE_VIEW = REF_VIEW + 1;
+constexpr Int32 VIEW_COUNT = RANGE_VIEW + 1;
+
+// ============================================== the range view ==
+//
+// What the ToF sensor on the car's nose is seeing, live.
+//
+// The hub cannot see the Pico's pins, so everything here is an ANSWER from the
+// board rather than an assumption about it. That distinction is the whole point
+// of the top strip: "not detected" and "never asked" look the same on screen if
+// you let them, and they are completely different problems.
+Void drawRangeBody(Float32 w, Float32 h)
+{
+    ImGui::BeginChild("##range", ImVec2(w, h), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar
+                      | ImGuiWindowFlags_NoScrollWithMouse);
+
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImDrawList*  dl = ImGui::GetWindowDrawList();
+
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h),
+                      IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
+
+    const Float32 pad  = 16.0f * uiDpiScale;
+    const Bool    live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
+
+    // ---- the top strip: is there a sensor at all ------------------------
+    {
+        const Char* what = nullptr;
+        ImU32       col  = ui::sem::MUTED;
+
+        if(!live)
+        {
+            what = "Pico not connected";
+        }
+        else if(!sensorsAsked)
+        {
+            what = "asking the board what is attached...";
+            col  = ui::sem::WARN;
+        }
+        else if(!sensorI2c)
+        {
+            what = "no I2C bus on the board";
+            col  = ui::sem::BAD;
+        }
+        else if(!sensorTof)
+        {
+            what = "no VL53L1X found at 0x29";
+            col  = ui::sem::BAD;
+        }
+        else
+        {
+            what = "VL53L1X on I2C0, GP4 / GP5";
+            col  = ui::sem::GOOD;
+        }
+
+        ui::iconAt(dl, sensorTof ? ui::Icon::ICON_STATUS_OK
+                                 : ui::Icon::ICON_STATUS_IDLE,
+                   ImVec2(p0.x + pad, p0.y + pad));
+        dl->AddText(ImVec2(p0.x + pad + ui::iconSize() + 8.0f * uiDpiScale,
+                           p0.y + pad),
+                    col, what);
+    }
+
+    const Float32 top = p0.y + pad + 28.0f * uiDpiScale;
+
+    if(!live || !sensorTof)
+    {
+        // Nothing to plot, and a chart of nothing is worse than a sentence.
+        const Char* hint =
+            !live ? "Connect the Pico from the sidebar."
+                  : "Flash pico_debug - it is the image that reports sensors.\n"
+                    "Then check the wiring: VIN to 3V3, SDA to GP4, SCL to GP5.";
+        dl->AddText(ImVec2(p0.x + pad, top + 8.0f * uiDpiScale),
+                    ui::sem::MUTED, hint);
+        ImGui::EndChild();
+        return;
+    }
+
+    const Bool good = (tofStatus == 0);
+
+    // ---- the number ------------------------------------------------------
+    {
+        Char buf[32];
+        std::snprintf(buf, sizeof(buf), good ? "%d" : "----", tofMm);
+
+        ImFont* const f  = ui::fonts.big ? ui::fonts.big : ImGui::GetFont();
+        const Float32 fs = (f != nullptr && f->LegacySize > 0.0f)
+                         ? f->LegacySize * 2.0f
+                         : ImGui::GetFontSize() * 3.0f;
+
+        dl->AddText(f, fs, ImVec2(p0.x + pad, top),
+                    good ? IM_COL32(0xE8, 0xE4, 0xDA, 0xFF) : ui::sem::MUTED, buf);
+
+        const Float32 numW = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf).x;
+        dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
+                           top + fs * 0.55f),
+                    ui::sem::MUTED, "mm");
+
+        if(good)
+        {
+            std::snprintf(buf, sizeof(buf), "%d.%02d m",
+                          tofMm / 1000, (tofMm % 1000) / 10);
+            dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
+                               top + fs * 0.05f),
+                        ui::plot::OK, buf);
+        }
+
+        // The status, spelled out. A bad reading is not a short reading.
+        if(!good)
+        {
+            const Char* why =
+                (tofStatus == 1) ? "too noisy"
+              : (tofStatus == 2) ? "no signal - nothing came back"
+              : (tofStatus == 3) ? "out of range"
+              : (tofStatus == 4) ? "hardware fault"
+              : (tofStatus == 5) ? "wrapped target - an echo from further away"
+              : "no reading";
+            dl->AddText(ImVec2(p0.x + pad, top + fs + 4.0f * uiDpiScale),
+                        ui::sem::WARN, why);
+        }
+    }
+
+    // ---- the strip chart -------------------------------------------------
+    //
+    // A number alone is hard to WATCH. Moving a hand and seeing the trace
+    // follow says the sensor is tracking; a digit flickering between 812 and
+    // 809 says almost nothing.
+    const Float32 chartTop = top + 92.0f * uiDpiScale;
+    const Float32 chartH   = std::max(60.0f, (p0.y + h) - chartTop - 62.0f * uiDpiScale);
+    const Float32 chartW   = w - (2.0f * pad);
+
+    const ImVec2 c0(p0.x + pad, chartTop);
+    const ImVec2 c1(c0.x + chartW, chartTop + chartH);
+
+    dl->AddRectFilled(c0, c1, IM_COL32(0x14, 0x16, 0x1A, 0xFF));
+    dl->AddRect(c0, c1, IM_COL32(0x30, 0x32, 0x38, 0xFF));
+
+    // A fixed 2 m scale rather than one fitted to the data. An autoscaling
+    // chart looks identical whether the sensor is sweeping a room or jittering
+    // by three millimetres, which is the opposite of what it is for.
+    constexpr Float32 FULL_MM = 2000.0f;
+
+    for(Int32 g = 1; g < 4; ++g)
+    {
+        const Float32 gy = c1.y - (chartH * (static_cast<Float32>(g) / 4.0f));
+        dl->AddLine(ImVec2(c0.x, gy), ImVec2(c1.x, gy),
+                    IM_COL32(0x26, 0x28, 0x2E, 0xFF));
+
+        Char lab[16];
+        std::snprintf(lab, sizeof(lab), "%.1fm",
+                      static_cast<Float64>(FULL_MM * (static_cast<Float32>(g) / 4.0f)
+                                           / 1000.0f));
+        dl->AddText(ImVec2(c0.x + 4.0f, gy - 14.0f * uiDpiScale),
+                    IM_COL32(0x50, 0x52, 0x58, 0xFF), lab);
+    }
+
+    {
+        const Int32 count = tofHistoryWrapped ? TOF_HISTORY : tofHistoryAt;
+        if(count > 1)
+        {
+            const Float32 step = chartW / static_cast<Float32>(TOF_HISTORY - 1);
+
+            ImVec2 prev(0.0f, 0.0f);
+            Bool   havePrev = false;
+
+            for(Int32 i = 0; i < count; ++i)
+            {
+                // Oldest first, so the trace runs left to right in time.
+                const Int32 idx = tofHistoryWrapped
+                                ? ((tofHistoryAt + i) % TOF_HISTORY)
+                                : i;
+
+                Float32 v = tofHistory[idx] / FULL_MM;
+                v = (v < 0.0f) ? 0.0f : ((v > 1.0f) ? 1.0f : v);
+
+                const ImVec2 pt(c0.x + (static_cast<Float32>(i) * step),
+                                c1.y - (v * chartH));
+                if(havePrev)
+                {
+                    dl->AddLine(prev, pt, ui::plot::OK, 1.6f);
+                }
+                prev     = pt;
+                havePrev = true;
+            }
+        }
+    }
+
+    // ---- the footer ------------------------------------------------------
+    {
+        Char buf[96];
+        if(tofSeenMax > 0)
+        {
+            std::snprintf(buf, sizeof(buf),
+                          "seen %d - %d mm     %llu readings",
+                          tofSeenMin, tofSeenMax,
+                          static_cast<unsigned long long>(tofReplies));
+        }
+        else
+        {
+            std::snprintf(buf, sizeof(buf), "no good reading yet");
+        }
+        dl->AddText(ImVec2(c0.x, c1.y + 8.0f * uiDpiScale), ui::sem::MUTED, buf);
+
+        // How stale the number is. A link that has gone quiet leaves the last
+        // reading on screen looking perfectly current, which is the one way a
+        // display like this can actively mislead.
+        const Float64 age = ImGui::GetTime() - tofLastReply;
+        if(tofReplies > 0 && age > 1.0)
+        {
+            std::snprintf(buf, sizeof(buf), "last reply %.0f s ago", age);
+            dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale),
+                        ui::sem::WARN, buf);
+        }
+    }
+
+    ui::screenInset(p0, ImVec2(p0.x + w, p0.y + h));
+    ImGui::EndChild();
+}
 
 Void drawViewBody(Int32 view, Float32 w, Float32 h)
 {
@@ -3990,6 +4372,14 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
                      ImGui::GetTime());
         handleCodeCommand();
     }
+    else if(view == RANGE_VIEW)
+    {
+        // Polled only while this view is drawn - which is to say, only while
+        // somebody is looking at it. See pollTof().
+        pollSensorList();
+        pollTof(true);
+        drawRangeBody(w, h);
+    }
     else if(view == REF_VIEW)
     {
         ImGui::BeginChild("##ref", ImVec2(w, h), ImGuiChildFlags_None,
@@ -4034,6 +4424,10 @@ const Char* viewName(Int32 view)
     {
         return "Reference";
     }
+    if(view == RANGE_VIEW)
+    {
+        return "Range";
+    }
     return board::name(static_cast<board::Which>(std::max(0, view - BOARD_VIEW_0)));
 }
 
@@ -4046,6 +4440,10 @@ ui::Icon viewIcon(Int32 view)
     case 2:  return ui::Icon::ICON_RECORD;
     case 3:  return ui::Icon::ICON_CODE;
     default: break;
+    }
+    if(view == RANGE_VIEW)
+    {
+        return ui::Icon::ICON_TOF;
     }
     return (view == REF_VIEW) ? ui::Icon::ICON_REFERENCE : ui::Icon::ICON_PROCESSOR;
 }
@@ -5889,6 +6287,12 @@ Void app::init(Float32 dpiScale)
                      _stricmp(v, "board") == 0)
                      {
                          forceView = BOARD_VIEW_0;
+                         forceViewFrames = 4;
+                     }
+            else if(_stricmp(v, "range") == 0 ||
+                     _stricmp(v, "tof") == 0)
+                     {
+                         forceView = RANGE_VIEW;
                          forceViewFrames = 4;
                      }
             else if(_stricmp(v, "reference") == 0 ||

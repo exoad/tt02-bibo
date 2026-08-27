@@ -53,6 +53,7 @@ enum class Which
     // index above keeps the meaning a saved layout and a --view argument
     // already gave it.
     WHICH_REFERENCE,
+    WHICH_RANGE,
 
     WHICH_COUNT
 };
