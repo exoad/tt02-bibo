@@ -54,6 +54,7 @@ enum class Which
     // already gave it.
     WHICH_REFERENCE,
     WHICH_RANGE,
+    WHICH_DRIVE,
 
     WHICH_COUNT
 };

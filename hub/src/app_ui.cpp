@@ -226,6 +226,32 @@ Int32   tofAmbient   = -1;
 // Which distance mode the board is in. The firmware boots in LONG, so that is
 // what this starts as - it is a mirror of the board's state, not a request.
 Bool    tofModeShort = false;
+
+// ---- the drive channels -------------------------------------------------
+//
+// Mirrors of the BOARD's state, not requests. The board owns the limits and
+// the arming, because it is the thing holding the wires - a hub that decided
+// those would be a hub whose safety evaporates the moment it disconnects.
+Bool  driveKnown   = false;
+Int32 driveServo   = 1500;   // what the board is outputting
+Int32 driveServoT  = 1500;   // what it is heading toward
+Int32 driveEsc     = 1500;
+Int32 driveEscT    = 1500;
+Bool  driveArmed   = false;
+
+// The limits the BOARD reports. Sliders are built from these rather than from
+// constants here, so tightening them in firmware tightens the UI too and the
+// two can never disagree about what is safe.
+Int32 driveServoMin = 1300;
+Int32 driveServoMax = 1700;
+Int32 driveEscMin   = 1500;
+Int32 driveEscMax   = 1600;
+
+// What the sliders are showing. Separate from the board's value so dragging is
+// smooth - snapping the handle to a reply that arrives every 200 ms would make
+// the control feel broken.
+Int32 driveServoWant = 1500;
+Int32 driveEscWant   = 1500;
 Float64 tofLastReply = 0.0;
 UInt64  tofReplies   = 0;
 
@@ -263,6 +289,14 @@ Void resetBoardStatus()
     tofSignal      = -1;
     tofAmbient     = -1;
     tofModeShort   = false;
+    driveKnown     = false;
+    driveArmed     = false;
+    driveServo     = 1500;
+    driveServoT    = 1500;
+    driveEsc       = 1500;
+    driveEscT      = 1500;
+    driveServoWant = 1500;
+    driveEscWant   = 1500;
     dbgAwait       = false;
     dbgLastPoll   = 0.0;
 }
@@ -920,6 +954,54 @@ Void observeLine(const PicoLine& ln)
 
         dbgUnsupported = false;
         dbgAwait       = false;
+        return;
+    }
+
+    // "OK drive servo=1500 servo_t=1500 esc=1500 esc_t=1500 armed=0 ..."
+    //
+    // Read by NAME, like the sensor line, so a field added later is ignored
+    // rather than shifting everything after it.
+    if(t.compare(0, 9, "OK drive ") == 0)
+    {
+        const Char* p = t.c_str();
+        const auto  field = [p](const Char* key, Int32& out)
+        {
+            if(const Char* q = std::strstr(p, key))
+            {
+                out = std::atoi(q + std::strlen(key));
+            }
+        };
+
+        field("servo=",     driveServo);
+        field("servo_t=",   driveServoT);
+        field("esc=",       driveEsc);
+        field("esc_t=",     driveEscT);
+        field("servo_min=", driveServoMin);
+        field("servo_max=", driveServoMax);
+        field("esc_min=",   driveEscMin);
+        field("esc_max=",   driveEscMax);
+
+        Int32 armed = 0;
+        field("armed=", armed);
+        driveArmed = (armed != 0);
+
+        // The slider follows the board only when the user is not dragging it.
+        if(!ImGui::IsAnyItemActive())
+        {
+            driveServoWant = driveServoT;
+            driveEscWant   = driveEscT;
+        }
+
+        driveKnown = true;
+        return;
+    }
+
+    if(t.compare(0, 7, "OK stop") == 0)
+    {
+        driveArmed     = false;
+        driveServoWant = 1500;
+        driveEscWant   = 1500;
+        LOG_INFO("pico", "stop acknowledged");
         return;
     }
 
@@ -4085,7 +4167,8 @@ constexpr Int32 BOARD_VIEW_0 = 4;
 constexpr Int32 REF_VIEW =
     BOARD_VIEW_0 + static_cast<Int32>(board::Which::WHICH_COUNT);
 constexpr Int32 RANGE_VIEW = REF_VIEW + 1;
-constexpr Int32 VIEW_COUNT = RANGE_VIEW + 1;
+constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
+constexpr Int32 VIEW_COUNT = DRIVE_VIEW + 1;
 
 // ============================================== the range view ==
 //
@@ -4435,6 +4518,180 @@ Void drawRangeBody(Float32 w, Float32 h)
     ImGui::EndChild();
 }
 
+// ============================================== the drive view ==
+//
+// Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
+//
+// EVERY LIMIT HERE COMES FROM THE BOARD. The sliders are built from the range
+// the firmware reports, not from constants in this file, so tightening the
+// firmware tightens the UI and the two can never disagree about what is safe.
+// A hub that decided the limits would be a hub whose safety disappears the
+// moment it disconnects - and the board keeps holding the wires either way.
+Void drawDriveBody(Float32 w, Float32 h)
+{
+    ImGui::BeginChild("##drive", ImVec2(w, h), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollWithMouse);
+
+    const Bool live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
+
+    if(!live)
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "Pico not connected.");
+        ImGui::EndChild();
+        return;
+    }
+
+    if(!driveKnown)
+    {
+        sendPico("DRIVE");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "asking the board...");
+        ImGui::EndChild();
+        return;
+    }
+
+    // ---- the stop, first and biggest ------------------------------------
+    //
+    // Above the controls rather than below them, and full width. The one thing
+    // somebody reaches for without looking should not be somewhere they have to
+    // find.
+    ui::pushTint(ui::Tint::TINT_BAD);
+    if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP",
+                      ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 2.0f)))
+    {
+        driveServoWant = 1500;
+        driveEscWant   = 1500;
+        sendPico("STOP");
+    }
+    ui::popTint(ui::Tint::TINT_BAD);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Both channels to neutral immediately, and the ESC "
+                          "disarmed.\n\nNot slewed - a stop that eases in is "
+                          "not a stop.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ---- steering --------------------------------------------------------
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "Steering  -  GP0");
+
+    ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
+    if(ImGui::SliderInt("##servo", &driveServoWant,
+                        driveServoMin, driveServoMax, "%d us"))
+    {
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
+        sendPico(cmd);
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "1500 us is centre. The range is %d-%d, which the BOARD sets.\n"
+            "\n"
+            "Deliberately narrower than the servo's own 1000-2000: a TT-02's\n"
+            "steering binds against its linkage well before the servo's limits,\n"
+            "and a servo pushing a stop stalls and cooks itself.\n"
+            "\n"
+            "Widen it in firmware once the real end stops are known - with the\n"
+            "servo horn OFF, so being wrong costs nothing.",
+            driveServoMin, driveServoMax);
+    }
+
+    ImGui::SameLine();
+    if(ui::button("Centre", ImVec2(-FLT_MIN, 0.0f)))
+    {
+        driveServoWant = 1500;
+        sendPico("SERVO CENTER");
+    }
+
+    // What the board is actually OUTPUTTING, which lags the slider while the
+    // slew runs. Showing both is what makes the ramp visible rather than
+    // looking like lag.
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "output %d us   target %d us", driveServo, driveServoT);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ---- throttle --------------------------------------------------------
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "Throttle  -  GP1  (ESC)");
+
+    // Arming is a separate, deliberate act. The slider does nothing until it
+    // happens, and the board refuses throttle commands regardless of what this
+    // checkbox says - this is the reminder, not the enforcement.
+    Bool arm = driveArmed;
+    if(ui::checkbox("Arm the ESC", &arm))
+    {
+        sendPico(arm ? "ESC ARM" : "ESC DISARM");
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "The ESC ignores every throttle command until this is on.\n"
+            "\n"
+            "BEFORE ARMING:\n"
+            "  - the car on a stand, wheels off the ground\n"
+            "  - common ground between the Pico and the ESC (mandatory)\n"
+            "  - the BEC 5 V NOT connected while USB is\n"
+            "\n"
+            "Enforced on the BOARD, not here. This checkbox is the reminder.");
+    }
+
+    ImGui::BeginDisabled(!driveArmed);
+    ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
+    if(ImGui::SliderInt("##esc", &driveEscWant,
+                        driveEscMin, driveEscMax, "%d us"))
+    {
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "ESC %d", driveEscWant);
+        sendPico(cmd);
+    }
+    ImGui::EndDisabled();
+
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip(
+            "1500 us is neutral. The range is %d-%d - forward only, and barely.\n"
+            "\n"
+            "1600 is a crawl on a bench. Reverse is not offered at all: a\n"
+            "QuicRun needs a brake-then-reverse sequence, and getting that\n"
+            "wrong on a stand is how a gearbox meets a workbench.\n"
+            "\n"
+            "The board ramps toward whatever you set rather than jumping to it.",
+            driveEscMin, driveEscMax);
+    }
+
+    ImGui::SameLine();
+    if(ui::button("Neutral", ImVec2(-FLT_MIN, 0.0f)))
+    {
+        driveEscWant = 1500;
+        sendPico("ESC NEUTRAL");
+    }
+
+    ImGui::TextColored(
+        ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN : ui::sem::MUTED),
+        "output %d us   target %d us   %s",
+        driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "Nothing here jumps. The board walks each output toward\n"
+                       "its target a few microseconds at a time, so a slider\n"
+                       "dragged end to end produces a sweep rather than a step.");
+
+    ImGui::EndChild();
+}
+
 Void drawViewBody(Int32 view, Float32 w, Float32 h)
 {
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -4528,6 +4785,10 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
                      ImGui::GetTime());
         handleCodeCommand();
     }
+    else if(view == DRIVE_VIEW)
+    {
+        drawDriveBody(w, h);
+    }
     else if(view == RANGE_VIEW)
     {
         // Polled only while this view is drawn - which is to say, only while
@@ -4584,6 +4845,10 @@ const Char* viewName(Int32 view)
     {
         return "Range";
     }
+    if(view == DRIVE_VIEW)
+    {
+        return "Drive";
+    }
     return board::name(static_cast<board::Which>(std::max(0, view - BOARD_VIEW_0)));
 }
 
@@ -4600,6 +4865,10 @@ ui::Icon viewIcon(Int32 view)
     if(view == RANGE_VIEW)
     {
         return ui::Icon::ICON_TOF;
+    }
+    if(view == DRIVE_VIEW)
+    {
+        return ui::Icon::ICON_SERVO;
     }
     return (view == REF_VIEW) ? ui::Icon::ICON_REFERENCE : ui::Icon::ICON_PROCESSOR;
 }
