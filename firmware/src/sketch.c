@@ -43,6 +43,16 @@
 
 Int32 main(Void)
 {
+    /*
+     * FIRST, and in every sketch you write, even one that prints nothing.
+     *
+     * This starts the USB stack. Without it the board runs fine and never
+     * enumerates - no COM port for the flasher to reboot at 1200 baud - and the
+     * only way to flash it again is holding BOOTSEL while plugging the cable.
+     * See the note above serialOpen() in pico2w.h.
+     */
+    serialOpen();
+
     gpioOpen(LED_PIN, PIN_DIR_OUT);
 
     /* The wireless chip is a real peripheral and can fail to start. If it does,
