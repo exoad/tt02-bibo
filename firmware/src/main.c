@@ -168,6 +168,8 @@ static Void printHelp(Void)
     printf("INFO help SERVO <us>|CENTER - steering\n");
     printf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
     printf("INFO help STOP - neutral both, disarm the esc\n");
+    printf("INFO help SERVOLIMITS <min> <max> - widen to find end stops\n");
+    printf("INFO help ESCLIMITS <min> <max> - widen the throttle range\n");
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
@@ -426,8 +428,15 @@ static Void handleTofMode(Utf8* arg)
  * visible sweep that reaches nothing hard. Widen it once the real end stops are
  * known - with the servo horn OFF, so a mistake costs nothing.
  */
-#define SERVO_SAFE_MIN 1300
-#define SERVO_SAFE_MAX 1700
+#define SERVO_DEFAULT_MIN 1300
+#define SERVO_DEFAULT_MAX 1700
+
+/*
+ * The HARD bound. Nothing widens past this, whatever is asked - it is the
+ * servo's own specification, and beyond it the pulse means nothing at all.
+ */
+#define SERVO_HARD_MIN 1000
+#define SERVO_HARD_MAX 2000
 
 /*
  * Forward only, and barely. 1500 is neutral; 1600 is a crawl on a bench. The
@@ -435,8 +444,14 @@ static Void handleTofMode(Utf8* arg)
  * brake-then-reverse sequence and getting that wrong on a stand is how a
  * gearbox meets a workbench.
  */
-#define ESC_SAFE_MIN 1500
-#define ESC_SAFE_MAX 1600
+#define ESC_DEFAULT_MIN 1500
+#define ESC_DEFAULT_MAX 1600
+
+/* Reverse stays unreachable even by widening. Finding a steering end stop is
+ * careful work; discovering reverse by accident is not the same kind of
+ * experiment. */
+#define ESC_HARD_MIN 1500
+#define ESC_HARD_MAX 1700
 
 #define SERVO_NEUTRAL_US 1500
 
@@ -447,6 +462,18 @@ static Void handleTofMode(Utf8* arg)
 
 static Bool  driveUp      = false;
 static Bool  escArmed     = false;
+
+/*
+ * The working limits, widened only on purpose.
+ *
+ * They start narrow and are raised a little at a time while watching the
+ * linkage, which is how an end stop is FOUND. Guessing them from a datasheet
+ * gets you a number the linkage has never heard of.
+ */
+static Int32 servoMin = SERVO_DEFAULT_MIN;
+static Int32 servoMax = SERVO_DEFAULT_MAX;
+static Int32 escMin   = ESC_DEFAULT_MIN;
+static Int32 escMax   = ESC_DEFAULT_MAX;
 
 static Int32 servoTarget  = SERVO_NEUTRAL_US;
 static Int32 servoNow     = SERVO_NEUTRAL_US;
@@ -517,7 +544,7 @@ static Void printDrive(Void)
     printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            servoNow, servoTarget, escNow, escTarget, escArmed ? 1 : 0,
-           SERVO_SAFE_MIN, SERVO_SAFE_MAX, ESC_SAFE_MIN, ESC_SAFE_MAX);
+           servoMin, servoMax, escMin, escMax);
 }
 
 /* Everything to neutral, and the ESC disarmed. The one command worth being able
@@ -539,6 +566,62 @@ static Void driveStop(Void)
     printf("OK stop\n");
 }
 
+/*
+ * Widens or narrows the working range.
+ *
+ * Clamped to the HARD bound, and the target is pulled back inside the new range
+ * so narrowing can never leave an output sitting outside its own limits.
+ *
+ * This is the calibration path: with the servo horn OFF, step the limit outward
+ * until the servo reaches the angle the steering actually needs, then put the
+ * horn back on. Doing it with the linkage attached is how a servo discovers a
+ * stop by pushing against it.
+ */
+static Void handleLimits(Utf8* arg)
+{
+    Int32 lo = 0;
+    Int32 hi = 0;
+    if(sscanf(arg, "%d %d", &lo, &hi) != 2)
+    {
+        printf("ERR limits wants <min> <max>\n");
+        return;
+    }
+
+    if(lo >= hi)
+    {
+        printf("ERR limits min must be below max\n");
+        return;
+    }
+
+    servoMin = clampInt(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
+    servoMax = clampInt(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
+
+    servoTarget = clampInt(servoTarget, servoMin, servoMax);
+    printDrive();
+}
+
+static Void handleEscLimits(Utf8* arg)
+{
+    Int32 lo = 0;
+    Int32 hi = 0;
+    if(sscanf(arg, "%d %d", &lo, &hi) != 2)
+    {
+        printf("ERR esclimits wants <min> <max>\n");
+        return;
+    }
+    if(lo >= hi)
+    {
+        printf("ERR esclimits min must be below max\n");
+        return;
+    }
+
+    escMin = clampInt(lo, ESC_HARD_MIN, ESC_HARD_MAX);
+    escMax = clampInt(hi, ESC_HARD_MIN, ESC_HARD_MAX);
+
+    escTarget = clampInt(escTarget, escMin, escMax);
+    printDrive();
+}
+
 static Void handleServo(Utf8* arg)
 {
     if(strcmp(arg, "CENTER") == 0 || strcmp(arg, "CENTRE") == 0)
@@ -552,14 +635,14 @@ static Void handleServo(Utf8* arg)
     if(us == 0)
     {
         printf("ERR servo wants microseconds, %d-%d\n",
-               SERVO_SAFE_MIN, SERVO_SAFE_MAX);
+               servoMin, servoMax);
         return;
     }
 
     /* Clamped rather than rejected: a slider that stops moving at the limit is
      * clearer than one that silently does nothing past it. The reply reports
      * what was actually taken. */
-    servoTarget = clampInt(us, SERVO_SAFE_MIN, SERVO_SAFE_MAX);
+    servoTarget = clampInt(us, servoMin, servoMax);
     printDrive();
 }
 
@@ -598,11 +681,11 @@ static Void handleEsc(Utf8* arg)
     if(us == 0)
     {
         printf("ERR esc wants microseconds, %d-%d\n",
-               ESC_SAFE_MIN, ESC_SAFE_MAX);
+               escMin, escMax);
         return;
     }
 
-    escTarget = clampInt(us, ESC_SAFE_MIN, ESC_SAFE_MAX);
+    escTarget = clampInt(us, escMin, escMax);
     printDrive();
 }
 
@@ -670,6 +753,18 @@ static Void handleLine(Utf8* line)
     if(strcmp(line, "DRIVE") == 0)
     {
         printDrive();
+        return;
+    }
+
+    if(strncmp(line, "SERVOLIMITS ", 12) == 0)
+    {
+        handleLimits(line + 12);
+        return;
+    }
+
+    if(strncmp(line, "ESCLIMITS ", 10) == 0)
+    {
+        handleEscLimits(line + 10);
         return;
     }
 

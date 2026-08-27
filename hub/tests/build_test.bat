@@ -31,6 +31,7 @@ cl /nologo /EHsc /O2 /MT /W3 /std:c++20 ^
   /I "%ROOT%\vendor\rplidar_sdk\sdk\src" ^
   "%HERE%test_lidar_source.cpp" ^
   "%ROOT%\hub\src\lidar_source.cpp" ^
+  "%ROOT%\hub\src\devlink.cpp" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_lidar_source.exe" ^
   /link /LTCG "%ROOT%\vendor\rplidar_sdk\output\x64\Release\rplidar_driver.lib" ws2_32.lib advapi32.lib
