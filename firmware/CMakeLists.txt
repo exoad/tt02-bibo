@@ -72,6 +72,7 @@ add_executable(sketch
     # plainly: these are C, and they belong to this program.
     src/pico2w.h
     src/st77xx.h
+    src/gfx.h
 )
 
 # pico_stdlib does not carry PWM, ADC or the watchdog, and the Pico 2 W's own

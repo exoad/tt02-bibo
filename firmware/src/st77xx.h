@@ -55,11 +55,45 @@
 #define PANEL_ST7735 0
 /* ========================================================================== */
 
+/*
+ * ST7789 SIZE. The controller is the same part in every one of these; only the
+ * glass differs, and the module rarely says which it is. Set it to the number
+ * printed on the listing you bought - or try them: a wrong size draws, it just
+ * draws in the wrong place, which is a far better clue than a blank screen.
+ *
+ *   1  240x240   1.3 inch square
+ *   2  240x280   1.69 inch tall
+ *   3  240x320   2.0 inch
+ *   4  172x320   1.47 inch
+ *
+ * The offsets are not decoration. The controller has 240x320 of RAM regardless,
+ * so a shorter panel shows a WINDOW into it - a 240x280 starts 20 rows down,
+ * and without that offset the top of the image is off the top of the glass.
+ */
+#define PANEL_ST7789_SIZE 1
+
 #if PANEL_ST7789
-  #define PANEL_W       240
-  #define PANEL_H       240
-  #define PANEL_XOFF    0
-  #define PANEL_YOFF    0
+  #if PANEL_ST7789_SIZE == 2
+    #define PANEL_W     240
+    #define PANEL_H     280
+    #define PANEL_XOFF  0
+    #define PANEL_YOFF  20
+  #elif PANEL_ST7789_SIZE == 3
+    #define PANEL_W     240
+    #define PANEL_H     320
+    #define PANEL_XOFF  0
+    #define PANEL_YOFF  0
+  #elif PANEL_ST7789_SIZE == 4
+    #define PANEL_W     172
+    #define PANEL_H     320
+    #define PANEL_XOFF  34
+    #define PANEL_YOFF  0
+  #else
+    #define PANEL_W     240
+    #define PANEL_H     240
+    #define PANEL_XOFF  0
+    #define PANEL_YOFF  0
+  #endif
   /* ST7789 panels are wired inverted at the glass, so "invert on" is what
    * produces correct colours. This looks backwards and is not. */
   #define PANEL_INVERT  1
@@ -101,25 +135,55 @@
 
 /* ---- the wire ------------------------------------------------------------ */
 
+/*
+ * CS LOW means "this transaction is mine"; raising it ENDS the transaction.
+ *
+ * That is the whole reason these are bracketed rather than each call driving CS
+ * itself. A command and its parameters are ONE transaction: raise CS between
+ * them and the controller treats the parameters as a fresh transaction that
+ * begins with no command, and throws them away.
+ *
+ * The failure that produces is deeply unhelpful. SLPOUT takes no parameters, so
+ * the panel still wakes up and the backlight still comes on - but COLMOD,
+ * MADCTL, CASET, RASET and RAMWR all lose their data, so nothing is ever drawn.
+ * A lit, blank screen and a dead wire look identical, and this is the reason
+ * for it.
+ */
+static inline Void tftSelect(Void)
+{
+    gpioWrite(PIN_TFT_CS, false);
+}
+
+static inline Void tftDeselect(Void)
+{
+    gpioWrite(PIN_TFT_CS, true);
+}
+
+/* A command and its parameters, as one transaction. `n` may be 0. */
+static inline Void tftWrite(UInt8 cmd, const UInt8* params, Size n)
+{
+    tftSelect();
+
+    gpioWrite(PIN_TFT_DC, false);          /* low = this byte is a command */
+    spiWriteByte(PIN_TFT_SCK, cmd);
+
+    if(params != NULL && n > 0)
+    {
+        gpioWrite(PIN_TFT_DC, true);       /* high = these are its parameters */
+        spiWrite(PIN_TFT_SCK, params, n);
+    }
+
+    tftDeselect();
+}
+
 static inline Void tftCmd(UInt8 c)
 {
-    gpioWrite(PIN_TFT_DC, false);          /* low = this byte is a command */
-    gpioWrite(PIN_TFT_CS, false);
-    spiWriteByte(PIN_TFT_SCK, c);
-    gpioWrite(PIN_TFT_CS, true);
+    tftWrite(c, NULL, 0);
 }
 
-static inline Void tftData(const UInt8* d, Size n)
+static inline Void tftCmd1(UInt8 c, UInt8 p)
 {
-    gpioWrite(PIN_TFT_DC, true);           /* high = this is data */
-    gpioWrite(PIN_TFT_CS, false);
-    spiWrite(PIN_TFT_SCK, d, n);
-    gpioWrite(PIN_TFT_CS, true);
-}
-
-static inline Void tftData8(UInt8 b)
-{
-    tftData(&b, 1);
+    tftWrite(c, &p, 1);
 }
 
 /*
@@ -136,21 +200,39 @@ static inline Void tftWindow(Int32 x, Int32 y, Int32 w, Int32 h)
 
     UInt8 buf[4];
 
-    tftCmd(0x2A);                          /* CASET - column address */
     buf[0] = (UInt8) (x0 >> 8);
     buf[1] = (UInt8) (x0 & 0xFF);
     buf[2] = (UInt8) (x1 >> 8);
     buf[3] = (UInt8) (x1 & 0xFF);
-    tftData(buf, 4);
+    tftWrite(0x2A, buf, 4);                /* CASET - column address */
 
-    tftCmd(0x2B);                          /* RASET - row address */
     buf[0] = (UInt8) (y0 >> 8);
     buf[1] = (UInt8) (y0 & 0xFF);
     buf[2] = (UInt8) (y1 >> 8);
     buf[3] = (UInt8) (y1 & 0xFF);
-    tftData(buf, 4);
+    tftWrite(0x2B, buf, 4);                /* RASET - row address */
+}
 
-    tftCmd(0x2C);                          /* RAMWR - pixels follow */
+/*
+ * Opens a pixel write: sets the window, issues RAMWR, and LEAVES CS low with DC
+ * high so the pixels can follow in the same transaction. Close with
+ * tftEndPixels() - and note that RAMWR is exactly the command that must not be
+ * separated from its data, since its "parameters" are the whole image.
+ */
+static inline Void tftBeginPixels(Int32 x, Int32 y, Int32 w, Int32 h)
+{
+    tftWindow(x, y, w, h);
+
+    tftSelect();
+    gpioWrite(PIN_TFT_DC, false);
+    spiWriteByte(PIN_TFT_SCK, 0x2C);       /* RAMWR */
+    gpioWrite(PIN_TFT_DC, true);
+    /* CS stays LOW; the caller streams pixels now. */
+}
+
+static inline Void tftEndPixels(Void)
+{
+    tftDeselect();
 }
 
 /* ---- drawing ------------------------------------------------------------- */
@@ -193,8 +275,6 @@ static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
         return;
     }
 
-    tftWindow(x, y, w, h);
-
     UInt8 line[PANEL_W * 2];
     const UInt8 hi = (UInt8) (colour >> 8);
     const UInt8 lo = (UInt8) (colour & 0xFF);
@@ -204,13 +284,12 @@ static inline Void tftRect(Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
         line[i * 2 + 1] = lo;
     }
 
-    gpioWrite(PIN_TFT_DC, true);
-    gpioWrite(PIN_TFT_CS, false);
+    tftBeginPixels(x, y, w, h);
     for(Int32 r = 0; r < h; ++r)
     {
         spiWrite(PIN_TFT_SCK, line, (Size) (w * 2));
     }
-    gpioWrite(PIN_TFT_CS, true);
+    tftEndPixels();
 }
 
 static inline Void tftFill(UInt16 colour)
@@ -372,8 +451,9 @@ static inline Void tftChar(Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg,
         }
     }
 
-    tftWindow(x, y, w, h);
-    tftData(cell, at);
+    tftBeginPixels(x, y, w, h);
+    spiWrite(PIN_TFT_SCK, cell, at);
+    tftEndPixels();
 }
 
 static inline Void tftText(Int32 x, Int32 y, const Utf8* s, UInt16 fg, UInt16 bg,
@@ -406,6 +486,10 @@ static inline Bool tftInit(Void)
         return false;
     }
 
+    /* Mode 3. spi_init leaves mode 0, and an ST7789 on the wrong mode reads
+     * every byte shifted and behaves exactly as though nothing was sent. */
+    spiMode(PIN_TFT_SCK, true, true);
+
     /* Hardware reset. The 120 ms is from the datasheet and is not padding:
      * talking to the controller before it has finished resetting is the classic
      * way to get a panel that works only every other power-up. */
@@ -428,31 +512,48 @@ static inline Bool tftInit(Void)
          * timings rather than anything derivable. */
         UInt8 b[16];
 
-        tftCmd(0xB1); b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftData(b, 3);
-        tftCmd(0xB2); b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftData(b, 3);
-        tftCmd(0xB3);
+        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(0xB1, b, 3);
+        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(0xB2, b, 3);
         b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D;
         b[3] = 0x01; b[4] = 0x2C; b[5] = 0x2D;
-        tftData(b, 6);
+        tftWrite(0xB3, b, 6);
 
-        tftCmd(0xB4); tftData8(0x07);                        /* INVCTR */
-        tftCmd(0xC0); b[0] = 0xA2; b[1] = 0x02; b[2] = 0x84; tftData(b, 3);
-        tftCmd(0xC1); tftData8(0xC5);
-        tftCmd(0xC2); b[0] = 0x0A; b[1] = 0x00; tftData(b, 2);
-        tftCmd(0xC3); b[0] = 0x8A; b[1] = 0x2A; tftData(b, 2);
-        tftCmd(0xC4); b[0] = 0x8A; b[1] = 0xEE; tftData(b, 2);
-        tftCmd(0xC5); tftData8(0x0E);                        /* VMCTR1 */
+        tftCmd1(0xB4, 0x07);                                 /* INVCTR */
+        b[0] = 0xA2; b[1] = 0x02; b[2] = 0x84; tftWrite(0xC0, b, 3);
+        tftCmd1(0xC1, 0xC5);
+        b[0] = 0x0A; b[1] = 0x00; tftWrite(0xC2, b, 2);
+        b[0] = 0x8A; b[1] = 0x2A; tftWrite(0xC3, b, 2);
+        b[0] = 0x8A; b[1] = 0xEE; tftWrite(0xC4, b, 2);
+        tftCmd1(0xC5, 0x0E);                                 /* VMCTR1 */
     }
-    tftCmd(0x3A); tftData8(0x05);        /* COLMOD - 16 bit on ST7735 */
+    tftCmd1(0x3A, 0x05);                 /* COLMOD - 16 bit on ST7735 */
 #else
-    tftCmd(0x3A); tftData8(0x55);        /* COLMOD - 16 bit on ST7789 */
+    tftCmd1(0x3A, 0x55);                 /* COLMOD - 16 bit on ST7789 */
     sleepMs(10);
+
+    /* PORCTRL, GCTRL, VCOMS, LCMCTRL, VDVVRHEN, VRHS, VDVS, PWCTRL1 - the
+     * ST7789 power and porch settings. The datasheet defaults work on some
+     * modules and not others; these are the values that work on all of them. */
+    {
+        UInt8 p[5];
+        p[0] = 0x0C; p[1] = 0x0C; p[2] = 0x00; p[3] = 0x33; p[4] = 0x33;
+        tftWrite(0xB2, p, 5);            /* PORCTRL */
+        tftCmd1(0xB7, 0x35);             /* GCTRL   */
+        tftCmd1(0xBB, 0x19);             /* VCOMS   */
+        tftCmd1(0xC0, 0x2C);             /* LCMCTRL */
+        tftCmd1(0xC2, 0x01);             /* VDVVRHEN */
+        tftCmd1(0xC3, 0x12);             /* VRHS    */
+        tftCmd1(0xC4, 0x20);             /* VDVS    */
+        tftCmd1(0xC6, 0x0F);             /* FRCTRL2 - 60 Hz */
+        p[0] = 0xA4; p[1] = 0xA1;
+        tftWrite(0xD0, p, 2);            /* PWCTRL1 */
+    }
 #endif
 
     /* MADCTL: row/column order and RGB-versus-BGR. 0x00 is the identity, which
      * is right for the common modules. If red and blue come out swapped, this
      * is the byte to change - try 0x08. */
-    tftCmd(0x36); tftData8(0x00);
+    tftCmd1(0x36, 0x00);
 
 #if PANEL_INVERT
     tftCmd(0x21);                 /* INVON  */
