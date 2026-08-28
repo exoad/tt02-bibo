@@ -248,6 +248,15 @@ Bool  driveServoOn = false;
 // block below for why that matters more than it sounds.
 Int32 driveServoC  = 1500;
 
+// Steering as a fraction of this car's travel, -1 to +1. What the board
+// reports, and what the slider shows.
+//
+// The board sends it in thousandths so no float has to survive a printf on a
+// microcontroller; it becomes a fraction here, where floats are free.
+Float32 driveSteer     = 0.0f;
+Float32 driveSteerWant = 0.0f;
+Bool    driveSteerHeld = false;
+
 // ---- the calibration ----------------------------------------------------
 //
 // Three measurements of ONE car: the two ends its steering can actually reach,
@@ -354,6 +363,9 @@ Void resetBoardStatus()
     driveArmed     = false;
     driveServoOn   = false;
     driveServoC    = 1500;
+    driveSteer     = 0.0f;
+    driveSteerWant = 0.0f;
+    driveSteerHeld = false;
     driveServo     = 1500;
     driveServoT    = 1500;
     driveEsc       = 1500;
@@ -1053,6 +1065,14 @@ Void observeLine(const PicoLine& ln)
         driveServoOn = (on != 0);
 
         field("servo_c=", driveServoC);
+
+        Int32 milli = 0;
+        field("steer_m=", milli);
+        driveSteer = static_cast<Float32>(milli) / 1000.0f;
+        if(!driveSteerHeld)
+        {
+            driveSteerWant = driveSteer;
+        }
 
         // Each slider follows the board unless that slider is being dragged.
         if(!driveServoHeld)
@@ -5108,6 +5128,48 @@ Void drawDriveBody(Float32 w, Float32 h)
     }
 
     ImGui::Spacing();
+
+    // ---- steering, as a fraction of THIS car's travel -------------------
+    ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
+    if(ImGui::SliderFloat("##steer", &driveSteerWant, -1.0f, 1.0f, "%+.2f"))
+    {
+        driveSweep = false;
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "STEER %.3f",
+                      static_cast<Float64>(driveSteerWant));
+        sendPico(cmd);
+    }
+    driveSteerHeld = ImGui::IsItemActive();
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "-1 is full lock one way, +1 the other, 0 is wheels straight.\n"
+            "\n"
+            "The two sides are scaled SEPARATELY, from the calibration. This\n"
+            "car throws %d us one way from centre and %d the other, so half\n"
+            "left and half right are not the same number of microseconds -\n"
+            "and anything that added a fixed amount to a midpoint would pull\n"
+            "to one side every time it was asked for half.\n"
+            "\n"
+            "This is the command the autonomy layer should use. Nothing above\n"
+            "the calibration needs to know what a microsecond is.",
+            driveServoC - driveServoMin, driveServoMax - driveServoC);
+    }
+
+    ImGui::SameLine();
+    if(ui::button("Straight", ImVec2(-FLT_MIN, 0.0f)))
+    {
+        driveSweep     = false;
+        driveSteerWant = 0.0f;
+        sendPico("STEER 0");
+    }
+
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "steering %+.2f   =  %d us", driveSteer, driveServoT);
+
+    ImGui::Spacing();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "Raw microseconds  -  for calibrating, not for driving");
 
     ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
     if(ImGui::SliderInt("##servo", &driveServoWant,

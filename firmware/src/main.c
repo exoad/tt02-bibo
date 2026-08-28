@@ -169,6 +169,7 @@ static Void printHelp(Void)
     printf("INFO help SERVO <us>|CENTER - steering\n");
     printf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
     printf("INFO help STOP - neutral both, disarm the esc\n");
+    printf("INFO help STEER <-1..1> - steer as a fraction of this car's travel\n");
     printf("INFO help SERVOTRIM <us> - move where centre is\n");
     printf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
     printf("INFO help SERVO ON - drive the steering again\n");
@@ -525,6 +526,62 @@ static Int32 clampInt(Int32 v, Int32 lo, Int32 hi)
     return v;
 }
 
+/*
+ * Steering as a fraction of THIS car's travel: -1 is full lock one way, +1 is
+ * full lock the other, 0 is wheels straight.
+ *
+ * The two sides are scaled separately, and that is the entire point. This car
+ * throws 254 us one way from centre and 186 us the other - the linkage is not
+ * symmetric and no linkage ever is. Code that adds microseconds to a midpoint
+ * therefore steers further one way than the other, and a car that pulls left
+ * every time it is asked for "half" is a bug that hides for a long time
+ * because every individual command looks reasonable.
+ *
+ * Above this line nothing knows what a microsecond is. That is the deal: the
+ * calibration is the only place the numbers live, and changing it changes every
+ * caller at once.
+ */
+static Int32 steerToUs(Float32 n)
+{
+    if(n < -1.0f)
+    {
+        n = -1.0f;
+    }
+    if(n > 1.0f)
+    {
+        n = 1.0f;
+    }
+
+    /* A centre sitting on top of an end is not a range to interpolate across.
+     * It happens while limits are being narrowed, and it must not divide. */
+    const Int32 lo = servoCenterUs - servoMin;
+    const Int32 hi = servoMax - servoCenterUs;
+
+    if(n < 0.0f)
+    {
+        return servoCenterUs + (Int32) (n * (Float32) ((lo > 0) ? lo : 0));
+    }
+    return servoCenterUs + (Int32) (n * (Float32) ((hi > 0) ? hi : 0));
+}
+
+/* The inverse, in THOUSANDTHS so it can be printed without a float formatter.
+ * -1000 to +1000. */
+static Int32 steerFromUs(Int32 us)
+{
+    const Int32 d = us - servoCenterUs;
+    if(d == 0)
+    {
+        return 0;
+    }
+    if(d < 0)
+    {
+        const Int32 lo = servoCenterUs - servoMin;
+        return (lo > 0) ? ((d * 1000) / lo) : 0;
+    }
+    const Int32 hi = servoMax - servoCenterUs;
+    return (hi > 0) ? ((d * 1000) / hi) : 0;
+}
+
 static Void driveOpen(Void)
 {
     servoOpen(PIN_SERVO);
@@ -577,10 +634,10 @@ static Void drivePump(Void)
 static Void printDrive(Void)
 {
     printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
-           "servo_on=%d servo_c=%d "
+           "servo_on=%d servo_c=%d steer_m=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            servoNow, servoTarget, escNow, escTarget, escArmed ? 1 : 0,
-           servoLive ? 1 : 0, servoCenterUs,
+           servoLive ? 1 : 0, servoCenterUs, steerFromUs(servoTarget),
            servoMin, servoMax, escMin, escMax);
 }
 
@@ -676,6 +733,22 @@ static Void handleEscLimits(Utf8* arg)
  * centre the servo can never be commanded to - SERVO CENTER would silently mean
  * something else, which is worse than refusing.
  */
+static Void handleSteer(Utf8* arg)
+{
+    /* Rejected rather than defaulted: "STEER" with nothing after it is far more
+     * likely to be a truncated command than a request to centre, and guessing
+     * that it means zero would turn a typo into a movement. */
+    if(arg[0] == '\0')
+    {
+        printf("ERR steer wants -1.0 to 1.0\n");
+        return;
+    }
+
+    const Float32 n = (Float32) atof(arg);
+    servoTarget = clampInt(steerToUs(n), servoMin, servoMax);
+    printDrive();
+}
+
 static Void handleTrim(Utf8* arg)
 {
     const Int32 us = atoi(arg);
@@ -864,6 +937,21 @@ static Void handleLine(Utf8* line)
     if(strcmp(line, "DRIVE") == 0)
     {
         printDrive();
+        return;
+    }
+
+    if(strncmp(line, "STEER ", 6) == 0)
+    {
+        handleSteer(line + 6);
+        return;
+    }
+
+    /* Bare STEER, so the "wants an argument" message is reachable. Without this
+     * it falls through to "unknown command", which is true but unhelpful: the
+     * command exists, the argument does not. */
+    if(strcmp(line, "STEER") == 0)
+    {
+        handleSteer(line + 5);
         return;
     }
 
