@@ -5470,6 +5470,37 @@ Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 
 // ---------------------------------------------------------------------------
 constexpr Float32 DRIVE_TAIL_W = 120.0f;
 
+// How far into its working range the throttle is, 0..1.
+//
+// ONE function, because there were three copies and two of them were wrong.
+// They measured from a hardcoded 1500 rather than from the calibrated idle:
+//
+//     span = escMax - 1500          frac = (us - 1500) / span
+//
+// which was correct while idle WAS 1500 and silently stopped being correct the
+// day it was measured at 1541. From then on the bar read 41% - four of ten
+// blocks lit - with the motor standing still, and disagreed with the percentage
+// printed above it, which had been written later and got it right.
+//
+// That is the whole argument for not having three of these. A number computed
+// in one place can be wrong; a number computed in three places is wrong in two
+// of them eventually, and the disagreement is the only symptom.
+//
+// Clamped, because a disarmed ESC sits at neutral - BELOW idle - and a negative
+// fraction would draw a bar going the other way.
+Float32 throttleFraction(Int32 us)
+{
+    const Int32 span = driveEscMax - driveEscMin;
+    if(span <= 0)
+    {
+        return 0.0f;   // the range collapses while limits are being edited
+    }
+
+    const Float32 f = static_cast<Float32>(us - driveEscMin)
+                    / static_cast<Float32>(span);
+    return (f < 0.0f) ? 0.0f : ((f > 1.0f) ? 1.0f : f);
+}
+
 // A section head: a rule, the name in the title face, and what it is for.
 //
 // Sections were MUTED body text, which is exactly what the captions under them
@@ -5902,14 +5933,11 @@ Void drawDriveBody(Float32 w, Float32 h)
         const ImVec2 here = ImGui::GetCursorScreenPos();
         const ImVec2 cp0(here.x + ((full - caw) * 0.5f), here.y);
 
-        // The throttle as a fraction of ITS range, which is what the rear
-        // wheels warm with. Guarded: the range collapses to nothing while
-        // limits are being edited, and dividing by it would light the wheels
-        // on a car that is doing nothing.
-        const Int32   span  = driveEscMax - 1500;
-        const Float32 power = (span > 0)
-            ? (static_cast<Float32>(driveEscT - 1500) / static_cast<Float32>(span))
-            : 0.0f;
+        // The throttle as a fraction of ITS range, which is what the shaft
+        // fills with. The TARGET rather than the output, deliberately: this is
+        // the one place showing what has been asked for, and the bar below
+        // shows what is actually being given.
+        const Float32 power = throttleFraction(driveEscT);
 
         drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
                     driveSteerNow, power, driveServoOn, driveArmed,
@@ -6567,11 +6595,7 @@ Void drawDriveBody(Float32 w, Float32 h)
     // The percentage belongs up here with the other readings, not stranded
     // under the power bar where it was the only thing on its line.
     {
-        const Int32   span = driveEscMax - driveEscMin;
-        const Float32 frac = (span > 0)
-            ? (static_cast<Float32>(driveEsc - driveEscMin)
-               / static_cast<Float32>(span))
-            : 0.0f;
+        const Float32 frac = throttleFraction(driveEsc);
 
         Char r[32];
         std::snprintf(r, sizeof(r), "%.0f%%",
@@ -6654,10 +6678,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         const ImVec2  b0   = ImGui::GetCursorScreenPos();
         ImDrawList*   dl   = ImGui::GetWindowDrawList();
 
-        const Int32   span = driveEscMax - 1500;
-        const Float32 frac = (span > 0)
-            ? (static_cast<Float32>(driveEsc - 1500) / static_cast<Float32>(span))
-            : 0.0f;
+        const Float32 frac = throttleFraction(driveEsc);
 
         dl->AddRectFilled(b0, ImVec2(b0.x + barW, b0.y + barH),
                           IM_COL32(0x14, 0x15, 0x18, 0xFF), 2.0f);
