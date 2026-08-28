@@ -57,6 +57,33 @@
 /* 1 ms, which keeps the blink smooth while still returning promptly. */
 #define POLL_TIMEOUT_US 1000
 
+/* ---- the deadman ----------------------------------------------------------
+ *
+ * How long the board will keep DRIVING with nothing heard from the host.
+ *
+ * There was no such limit until now, and the gap was not small: if the hub
+ * crashed, hung, or was closed while the ESC was armed and moving, drivePump()
+ * went on writing the last throttle to the pin forever. On USB power the cable
+ * coming out takes the board with it, which hid the problem; on the BEC it will
+ * not. docs/conventions.md has described a 200 ms rule since the beginning and
+ * nothing implemented it - the previous firmware, tt02_control, did have one,
+ * so it was lost in the rewrite rather than never written.
+ *
+ * The host does not have to be a person at a keyboard, either: minimising the
+ * hub stops its frame loop entirely, so anything relying on the PC to send a
+ * stop stops running at exactly the moment it is needed.
+ *
+ * 400 ms rather than 200. The hub's own DRIVE poll runs at 250 ms and a
+ * keyboard controller sends on key CHANGES rather than on a timer, so 200 would
+ * trip on somebody holding W steadily and doing nothing wrong. 400 leaves one
+ * missed poll of margin and is a few centimetres at the speeds this car does.
+ *
+ * It only applies while the car is actually being DRIVEN - armed AND commanded
+ * above idle. Arming and then sitting still is not a hazard, and a timeout that
+ * disarmed somebody for reading the screen is a timeout that gets switched off.
+ */
+#define DEADMAN_MS 400u
+
 /* -------------------------------------------------------------- commands -- */
 
 /* Whether the lamp came up, whatever the lamp happens to BE on this board. */
@@ -196,6 +223,11 @@ static Void handleLed(CharSeq arg)
  * number, which is still useful - it says something is there. */
 #define ADDR_SCAN_FIRST 0x08
 #define ADDR_SCAN_LAST  0x77
+
+/* When the last command arrived, and whether the deadman has already fired.
+ * The flag stops it stopping and reporting again every millisecond after. */
+static UInt32 lastCmdMs      = 0;
+static Bool   deadmanTripped = false;
 
 static Bool i2cUp   = false;
 static Vl53 tofFront;
@@ -857,6 +889,12 @@ static Void handleLine(Utf8* line)
 
     textUpper(line);
 
+    /* ANY line from the host counts as liveness, including one that turns out
+     * to be a bad command. The question this asks is "is somebody still there",
+     * not "is somebody still there and getting it right". */
+    lastCmdMs      = nowMs();
+    deadmanTripped = false;
+
     /* "?" is HELP, and is not a row of its own: it would print as a command in
      * its own listing, which is one more thing than anybody wants to read. */
     if(textEq(line, "?"))
@@ -920,7 +958,8 @@ Int32 main(Void)
     statusBlink(IDLE_BLINK_HZ);
 
     Utf8 line[LINE_CAP];
-    Size len = 0;
+    Size len      = 0;
+    Bool overlong = false;
     Bool announced = false;
 
     for(;;)
@@ -931,6 +970,28 @@ Int32 main(Void)
          * time. Nothing jumps: a slider dragged end to end produces a sweep
          * rather than a step. */
         drivePump();
+
+        /* ---- the deadman ------------------------------------------------
+         *
+         * driveStop() FIRST, then the report. serialPrintf blocks while the CDC
+         * TX buffer is full, for up to half a second, and a host that has
+         * stopped draining the port is one of the exact situations this exists
+         * for - so the car is stopped before anything is printed, not after.
+         */
+        {
+            const DriveState dm      = driveRead();
+            const Bool       driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs);
+
+            if(driving && !deadmanTripped && (nowMs() - lastCmdMs) > DEADMAN_MS)
+            {
+                driveStop();
+                lightsForceLamp(LAMP_COUNT);
+                deadmanTripped = true;
+
+                serialPrintf("ERR deadman - no command for %u ms, stopped\n",
+                             (UInt32) DEADMAN_MS);
+            }
+        }
 
         /* AFTER drivePump, and reading the ACTUAL servo and ESC output rather
          * than their targets. The slew limiter means the two differ for about a
@@ -972,9 +1033,19 @@ Int32 main(Void)
 
         if(c == '\n' || c == '\r')
         {
-            line[len] = '\0';
-            handleLine(line);
-            len = 0;
+            /* A line that overran is discarded at its END, not where it
+             * overran - see below. */
+            if(!overlong)
+            {
+                line[len] = '\0';
+                handleLine(line);
+            }
+            len      = 0;
+            overlong = false;
+        }
+        else if(overlong)
+        {
+            /* Swallowing the rest of an over-long line. */
         }
         else if(len + 1 < LINE_CAP)
         {
@@ -982,9 +1053,19 @@ Int32 main(Void)
         }
         else
         {
-            /* Overlong line: drop it rather than silently truncating into a
-             * command that means something else. */
-            len = 0;
+            /*
+             * This said it dropped the line and did not.
+             *
+             * Setting len = 0 with no "swallow" state left the TAIL of an
+             * over-long line accumulating as a fresh command: a 200-byte line
+             * produced this error AND whatever bytes 129 onward happened to
+             * parse as - a command nobody sent, synthesised out of the middle
+             * of one they did. On a link that steers a vehicle that is worth
+             * more than a comment. The host side already got this right with an
+             * explicit flag; this is the same fix.
+             */
+            len      = 0;
+            overlong = true;
             serialPrintf("ERR line too long\n");
         }
     }
