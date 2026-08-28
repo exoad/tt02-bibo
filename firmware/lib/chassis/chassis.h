@@ -88,8 +88,8 @@
  * stop is careful work, discovering reverse by accident is not the same kind of
  * experiment.
  */
-#define ESC_DEFAULT_MIN 1500
-#define ESC_DEFAULT_MAX 1600
+#define ESC_DEFAULT_MIN THROTTLE_CAL_MIN
+#define ESC_DEFAULT_MAX THROTTLE_CAL_MAX
 #define ESC_HARD_MIN    1500
 #define ESC_HARD_MAX    1700
 

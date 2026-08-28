@@ -4840,10 +4840,25 @@ Str steeringCalText()
         "/* Full lock the other way. */\n"
         "#define STEER_CAL_RIGHT %d\n"
         "\n"
+        "/* ---- throttle ------------------------------------------------------------\n"
+        " *\n"
+        " * The working range for the ESC, and the reason this section exists: the\n"
+        " * steering has been persisted here since it was measured, and the throttle was\n"
+        " * not. Anything set with ESCLIMITS lived in RAM and was silently back to\n"
+        " * 1500-1600 after the next reboot or reflash - which is not a calibration, it\n"
+        " * is a setting you have to remember to make again.\n"
+        " *\n"
+        " * Still forward-only. The board refuses anything below 1500 whatever is written\n"
+        " * here; reverse needs a brake-then-reverse sequence and is not something to\n"
+        " * reach by editing a number.\n"
+        " */\n"
+        "#define THROTTLE_CAL_MIN %d\n"
+        "#define THROTTLE_CAL_MAX %d\n"
+        "\n"
         "/* When these were measured, and by whom, so a stale calibration can be spotted\n"
         " * rather than trusted. \"defaults\" means nobody has calibrated this car yet. */\n"
         "#define STEER_CAL_STAMP \"measured %s\"\n",
-        calLeft, calCenter, calRight, when);
+        calLeft, calCenter, calRight, driveEscMin, driveEscMax, when);
     return Str(buf);
 }
 
@@ -4869,6 +4884,27 @@ Bool readCalNumbers(const Str& text, Int32& l, Int32& c, Int32& r)
     return one("#define STEER_CAL_LEFT ", l)
         && one("#define STEER_CAL_CENTER ", c)
         && one("#define STEER_CAL_RIGHT ", r);
+}
+
+// The throttle pair, separately: a header written before the throttle was
+// persisted has the three steering numbers and not these, and that file is
+// still readable - it just needs writing again.
+Bool readThrottleNumbers(const Str& text, Int32& lo, Int32& hi)
+{
+    const Char* p = text.c_str();
+    const auto  one = [p](const Char* key, Int32& out)
+    {
+        const Char* q = std::strstr(p, key);
+        if(q == nullptr)
+        {
+            return false;
+        }
+        out = std::atoi(q + std::strlen(key));
+        return out > 0;
+    };
+
+    return one("#define THROTTLE_CAL_MIN ", lo)
+        && one("#define THROTTLE_CAL_MAX ", hi);
 }
 
 // One row of the calibration: what it is, where it is, and the two things you
@@ -5467,7 +5503,9 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::EndDisabled();
         if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Writes firmware/lib/chassis/cal.h.\n"
+            ImGui::SetTooltip("Writes firmware/lib/chassis/cal.h - the three\n"
+                              "steering numbers AND the throttle range the\n"
+                              "board is currently using.\n"
                               "\n"
                               "main.c includes it, so these become the limits and\n"
                               "the centre the board comes up with. Reflash after\n"
@@ -5492,6 +5530,17 @@ Void drawDriveBody(Float32 w, Float32 h)
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
                                    "cal.h still says %d / %d / %d.",
                                    fl, fc, fr);
+            }
+            else if(Int32 tl = 0, th = 0;
+                    !readThrottleNumbers(calWritten, tl, th)
+                    || tl != driveEscMin || th != driveEscMax)
+            {
+                // The steering matches and the throttle does not, which is what
+                // a header written before the throttle was persisted looks
+                // like. Worth its own sentence rather than a silent green tick.
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                                   "Steering matches; the throttle range in "
+                                   "cal.h does not.");
             }
             else
             {
