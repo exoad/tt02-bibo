@@ -339,16 +339,21 @@ Bool    boardLightsOn = true;
 Float64 lightsLastPoll = 0.0;
 
 // Every lamp in the firmware's model, in its Lamp order:
-//   0 headL  1 headR  2 tailL  3 tailR  4 indL  5 indR  6 revL  7 revR
+//   0 headL  1 headR  2 tailL  3 tailR
+//   4 indFL  5 indFR  6 indRL  7 indRR
+//   8 revL   9 revR
+//
+// Ten, not eight: the car gets front AND rear indicators. The rear pair has no
+// LED yet and the firmware computes it anyway, so this array carries it too.
 //
 // Levels 0..255, straight from the board. A lamp with no LED soldered to it
 // still has a correct level - the rule computes all eight whether or not the
 // wiring shows them - so the drawing can display the whole car's lighting while
 // only two of them exist in copper. That is the point of the split: wiring the
 // next LED changes a table in the firmware and nothing here.
-constexpr Int32 LAMP_N = 8;
+constexpr Int32 LAMP_N = 10;
 Int32 boardLamp[LAMP_N] = {};
-Int32 boardLampPin[LAMP_N] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+Int32 boardLampPin[LAMP_N] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 
 Int32 driveServoMin = 1300;
 Int32 driveServoMax = 1700;
