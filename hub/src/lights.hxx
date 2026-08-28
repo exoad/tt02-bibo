@@ -12,7 +12,7 @@
 // tested (tests/test_lights.cxx), because three of these rules are the kind
 // that look right and are not:
 //
-//   * The indicator OVERRIDES the brake on its own side.
+//   * The indicator does NOT override the brake - separate lamps on this car.
 //   * Hazards are both sides in phase, not alternating.
 //   * Front and rear on one side share ONE clock, or they drift apart.
 // ---------------------------------------------------------------------------

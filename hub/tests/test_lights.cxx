@@ -147,9 +147,12 @@ Void testTailAndBrake()
     checkNear(lights::solve(drl, T_OFF).headL, 1.00f, "headlight full");
 }
 
-Void testOverride()
+// The rule this used to test was REMOVED, and the test is inverted rather than
+// deleted. A rule that was once there and is deliberately gone needs a test
+// saying so, or the next person who knows how cars work puts it back.
+Void testNoOverride()
 {
-    std::printf("the indicator overrides the brake on its own side\n");
+    std::printf("the indicator does NOT interrupt the brake\n");
 
     lights::Input in;
     in.brake = true;
@@ -158,22 +161,30 @@ Void testOverride()
     const lights::Lamps on  = lights::solve(in, T_ON);
     const lights::Lamps off = lights::solve(in, T_OFF);
 
-    // THE ASYMMETRY. This is the whole test.
-    checkNear(on.tailR,  0.0f, "right rear dark while its indicator is lit");
-    checkNear(off.tailR, 1.00f, "right rear back to brake between flashes");
-    checkNear(on.tailL,  1.00f, "left rear stays solid throughout (on phase)");
-    checkNear(off.tailL, 1.00f, "left rear stays solid throughout (off phase)");
+    // On a car whose rear indicator and brake share ONE bulb, the indicator has
+    // to interrupt the brake to be seen at all. This car has separate LEDs for
+    // each, so interrupting is pure loss: it makes a brake light blink, which
+    // is the one thing a brake light must never do.
+    checkNear(on.tailR,  1.00f, "right rear stays solid while its indicator is lit");
+    checkNear(off.tailR, 1.00f, "and between flashes");
+    checkNear(on.tailL,  1.00f, "left rear solid too");
+    checkNear(off.tailL, 1.00f, "left rear solid between flashes");
 
-    checkNear(on.indRR,  1.0f, "and the right indicator is what is lit instead");
-    checkNear(off.indRR, 0.0f, "right indicator dark between flashes");
+    // The indicator still blinks. It is simply beside the brake rather than
+    // instead of it.
+    checkNear(on.indRR,  1.0f, "the right indicator blinks independently");
+    checkNear(off.indRR, 0.0f, "dark between flashes");
+    checkNear(on.indRL,  0.0f, "and the other side is not indicating");
 
-    // Hazards while braking: BOTH sides alternate, neither stays solid.
+    // Hazards while braking: all four reds stay lit, both indicators blink.
     lights::Input haz;
     haz.brake = true;
     haz.turn  = lights::Turn::TURN_HAZARD;
     const lights::Lamps h = lights::solve(haz, T_ON);
-    check(h.tailL == 0.0f && h.tailR == 0.0f,
-          "hazards while braking interrupt both sides");
+    check(h.tailL == 1.00f && h.tailR == 1.00f,
+          "hazards while braking leave both brake lamps solid");
+    check(h.indRL == 1.0f && h.indRR == 1.0f,
+          "and blink both indicators together");
 }
 
 Void testReverse()
@@ -349,9 +360,9 @@ Void testDetectFeedsSolve()
           "braking into a right-hander is both at once");
 
     const lights::Lamps on = lights::solve(in, T_ON);
-    checkNear(on.tailL, lights::BRAKE_LEVEL, "the left lamp brakes hard");
-    checkNear(on.tailR, 0.0f, "and the right is interrupted by its own indicator");
-    checkNear(on.indRR, 1.0f, "which is lit");
+    checkNear(on.tailL, lights::BRAKE_LEVEL, "both brake lamps are hard on");
+    checkNear(on.tailR, lights::BRAKE_LEVEL, "including the indicating side");
+    checkNear(on.indRR, 1.0f, "and the indicator blinks beside it");
 }
 
 } // namespace
@@ -364,7 +375,7 @@ int main()
     testOneClock();
     testHazard();
     testTailAndBrake();
-    testOverride();
+    testNoOverride();
     testReverse();
 
     testTurnThreshold();

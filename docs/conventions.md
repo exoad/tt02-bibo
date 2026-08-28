@@ -516,6 +516,10 @@ A driver that needed another driver would be two things wearing one name. The
 moment that is allowed, the folders stop meaning anything — which is why this is
 a build failure and not a guideline.
 
+Every public function, setting and type is listed in
+[firmware-api.md](firmware-api.md), including which of them persist across a
+reflash and what the five parts of a properly-finished setting are.
+
 **Application code includes `tt02.h` and nothing else.** Reaching past it to a
 specific header still compiles and is still wrong: it makes every file's
 dependencies something you have to read the top of the file to know, and a

@@ -52,13 +52,21 @@ Lamps solve(const Input& in, Float64 seconds) noexcept
     out.tailL = red;
     out.tailR = red;
 
-    // THE OVERRIDE. On a side that is indicating, the red lamp is interrupted
-    // while the indicator is lit, so that side alternates bright/off while the
-    // other stays solid. That asymmetry is what makes it look like a car and
-    // not like a light show - and it is why the indicator has to be resolved
-    // before the brake rather than drawn beside it.
-    if(leftTurn && on)  out.tailL = 0.0f;
-    if(rightTurn && on) out.tailR = 0.0f;
+    // NO OVERRIDE. The red lamp is not interrupted by anything.
+    //
+    // It was, and the reason was a real convention applied to the wrong car. On
+    // many cars the rear indicator and the brake light are ONE bulb, so the
+    // indicator must interrupt the brake to be seen - and that interruption is
+    // what makes such a car read as a car.
+    //
+    // This car does not have that bulb. Tails and indicators are separate LEDs
+    // on separate pins, with a second indicator pair going on the rear, so they
+    // never compete for one lamp. Applied anyway it made the brake light blink
+    // in antiphase to the signal beside it, which is the one thing a brake
+    // light must not do.
+    //
+    // A shared-bulb cluster, if one is ever fitted, is a BINDING problem - two
+    // lamps on one pin - not a rule.
 
     // Reverse. Small, white, and not interrupted by anything: it says which way
     // the gearbox is, which no other signal contradicts.

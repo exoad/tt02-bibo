@@ -346,12 +346,13 @@ static Void printDrive(Void)
 {
     const DriveState d = driveRead();
     serialPrintf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
-           "servo_on=%d servo_c=%d steer_m=%d steer_now=%d slew=%d "
+           "servo_on=%d servo_c=%d steer_m=%d steer_now=%d "
+           "slew=%d slew_esc=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            d.servoUs, d.servoTargetUs, d.escUs, d.escTargetUs,
            d.escArmed ? 1 : 0, d.servoLive ? 1 : 0, d.centerUs, d.steerMilli,
            d.steerNowMilli,
-           d.slewStepUs,
+           d.steerSlewUs, d.throttleSlewUs,
            d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
 }
 
@@ -377,26 +378,69 @@ static Void handleSteer(CharSeq arg)
     printDrive();
 }
 
+/*
+ * SLEW [STEER|THROTTLE] <us>
+ *
+ * With no target, sets both - which is what "the response rate" meant when
+ * there was only one, and is still the common case on a bench where you want
+ * everything slow while watching something.
+ */
 static Void handleSlew(CharSeq arg)
 {
+    CharSeq rest = textWord(arg, "STEER");
+    if(rest != NULL)
+    {
+        Int32 us = 0;
+        if(!textInt(rest, &us) || !driveSetSteerSlew(us))
+        {
+            serialPrintf("ERR slew steer wants %d-%d us per tick\n",
+                         SLEW_MIN_STEP, SLEW_MAX_STEP);
+            return;
+        }
+        printDrive();
+        return;
+    }
+
+    rest = textWord(arg, "THROTTLE");
+    if(rest != NULL)
+    {
+        Int32 us = 0;
+        if(!textInt(rest, &us) || !driveSetThrottleSlew(us))
+        {
+            serialPrintf("ERR slew throttle wants %d-%d us per tick\n",
+                         SLEW_MIN_STEP, SLEW_MAX_STEP);
+            return;
+        }
+        printDrive();
+        return;
+    }
+
     Int32 us = 0;
     if(!textInt(arg, &us) || !driveSetSlew(us))
     {
-        serialPrintf("ERR slew wants microseconds per tick, %d-%d\n",
+        serialPrintf("ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
                      SLEW_MIN_STEP, SLEW_MAX_STEP);
         return;
     }
 
-    /* Reported in a unit a person thinks in as well as the one the firmware
+    /*
+     * Reported in a unit a person thinks in as well as the one the firmware
      * uses. "8 us per tick" is a number nobody has intuition about; "400 us/s,
      * full travel 1100 ms" is the fact that decides whether it is fast enough
-     * to steer around something. */
+     * to steer around something.
+     */
     const DriveState d = driveRead();
-    const Int32 perSec = d.slewStepUs * (1000 / SLEW_TICK_MS);
-    serialPrintf("INFO slew %d us/tick = %d us/s, full travel %d ms\n",
-                 d.slewStepUs, perSec,
+    const Int32 perSec = d.steerSlewUs * (1000 / SLEW_TICK_MS);
+    serialPrintf("INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
+                 d.steerSlewUs, perSec,
                  (perSec > 0) ? (((d.servoMaxUs - d.servoMinUs) * 1000) / perSec)
                               : 0);
+
+    const Int32 escPerSec = d.throttleSlewUs * (1000 / SLEW_TICK_MS);
+    serialPrintf("INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
+                 d.throttleSlewUs, escPerSec,
+                 (escPerSec > 0) ? (((d.escMaxUs - d.escMinUs) * 1000) / escPerSec)
+                                 : 0);
     printDrive();
 }
 
@@ -759,7 +803,7 @@ static const Command COMMANDS[] =
     { "DRIVE",       "",                        "servo and esc state",                      cmdDrive },
     { "STOP",        "",                        "neutral both, disarm the esc",             cmdStop },
     { "STEER",       " <-1..1>",                "steer as a fraction of this car's travel", handleSteer },
-    { "SLEW",        " <us>",                   "how fast outputs may move, per tick",      handleSlew },
+    { "SLEW",        " [STEER|THROTTLE] <us>",  "how fast an output may move, per tick",    handleSlew },
     { "SERVO",       " <us>|ON|OFF|CENTER",     "steering; OFF stops the pulse, servo limp", handleServo },
     { "SERVOTRIM",   " <us>",                   "move where centre is",                     handleTrim },
     { "SERVOLIMITS", " <min> <max>",            "widen to find the real end stops",         handleLimits },

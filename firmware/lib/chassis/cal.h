@@ -65,7 +65,13 @@
  * 440 us of steering travel in 1.1 seconds - deliberate on a bench and far too
  * slow to steer around anything.
  */
-#define SLEW_CAL_STEP 8
+#define SLEW_CAL_STEER    8
+
+/* The throttle's own rate. Separate from the steering because the right answer
+ * is different: a servo should arrive promptly, an ESC should be led there.
+ * Starts equal to the steering, which is what the single shared rate used to
+ * give - so nothing changes until it is tuned. */
+#define SLEW_CAL_THROTTLE 8
 
 /* ---- when the tail lamps go out ------------------------------------------
  *

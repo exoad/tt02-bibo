@@ -275,6 +275,16 @@ Int32 driveSlew = 8;
 Int32 driveSlewWant = 8;
 Bool  driveSlewHeld = false;
 
+// The throttle's own response rate, separate from the steering's.
+//
+// They shared one number until the firmware split them, so tuning the steering
+// quick made the throttle violent and gentling the throttle made the steering
+// vague. Neither is a setting anybody would choose - it was the only shape
+// available.
+Int32 driveEscSlew     = 8;
+Int32 driveEscSlewWant = 8;
+Bool  driveEscSlewHeld = false;
+
 // How far past idle the throttle must go before the tail lamps go out, in
 // microseconds. The board owns it; this follows unless the slider is being
 // dragged, the same deal every other control here makes.
@@ -1124,6 +1134,12 @@ Void observeLine(const PicoLine& ln)
         if(!driveSlewHeld)
         {
             driveSlewWant = driveSlew;
+        }
+
+        field("slew_esc=", driveEscSlew);
+        if(!driveEscSlewHeld)
+        {
+            driveEscSlewWant = driveEscSlew;
         }
 
         Int32 milli = 0;
@@ -5219,9 +5235,14 @@ Str steeringCalText()
         " * They live here anyway for one reason - this is the file that survives a\n"
         " * reflash - and they are PRINTED here because this generator rewrites the\n"
         " * whole header. Anything it does not print is deleted, and chassis.h needs\n"
-        " * SLEW_CAL_STEP to compile.\n"
+        " * SLEW_CAL_STEER and SLEW_CAL_THROTTLE to compile.\n"
         " */\n"
-        "#define SLEW_CAL_STEP %d\n"
+        "#define SLEW_CAL_STEER    %d\n"
+        "\n"
+        "/* The throttle's own rate. Separate from the steering because the right\n"
+        " * answer is different: a servo should arrive promptly, an ESC should be\n"
+        " * led there. */\n"
+        "#define SLEW_CAL_THROTTLE %d\n"
         "\n"
         "/* Microseconds past idle at which the car counts as being driven and the\n"
         " * tail lamps go out. Mirrored below neutral for reverse. */\n"
@@ -5231,7 +5252,7 @@ Str steeringCalText()
         " * rather than trusted. \"defaults\" means nobody has calibrated this car yet. */\n"
         "#define STEER_CAL_STAMP \"measured %s\"\n",
         calLeft, calCenter, calRight, driveEscMin, driveEscMax,
-        driveSlew, boardLightsOff, when);
+        driveSlew, driveEscSlew, boardLightsOff, when);
     return Str(buf);
 }
 
@@ -5923,7 +5944,7 @@ Void drawDriveBody(Float32 w, Float32 h)
     // the difference between "creeps" and "moves" lives, and on a linear scale
     // that entire question is the first tenth of the track.
     {
-        driveSection("Response", "how fast an output may move");
+        driveSection("Steering response", "how fast the servo may move");
 
         // The reading goes on the HEAD's line rather than beside the slider,
         // which is what lets the slider run to the shared right edge.
@@ -5944,7 +5965,7 @@ Void drawDriveBody(Float32 w, Float32 h)
                             ImGuiSliderFlags_Logarithmic))
         {
             Char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "SLEW %d", driveSlewWant);
+            std::snprintf(cmd, sizeof(cmd), "SLEW STEER %d", driveSlewWant);
             sendPico(cmd);
         }
         driveSlewHeld = ImGui::IsItemActive();
@@ -6496,6 +6517,51 @@ Void drawDriveBody(Float32 w, Float32 h)
     }
 
     // ---- throttle --------------------------------------------------------
+    driveSection("Throttle response", "how fast the ESC may move");
+
+    {
+        const Int32 perSec = driveEscSlew * 50;
+        const Int32 span   = driveEscMax - driveEscMin;
+
+        Char r[64];
+        std::snprintf(r, sizeof(r), "%d us/s   idle to full %.2f s",
+                      perSec,
+                      (perSec > 0) ? (static_cast<Float64>(span) / perSec) : 0.0);
+        driveReading(ui::sem::MUTED, r);
+    }
+
+    ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
+    if(ImGui::SliderInt("##slewesc", &driveEscSlewWant, 1, 200, "%d us/tick",
+                        ImGuiSliderFlags_Logarithmic))
+    {
+        Char cmd[40];
+        std::snprintf(cmd, sizeof(cmd), "SLEW THROTTLE %d", driveEscSlewWant);
+        sendPico(cmd);
+    }
+    driveEscSlewHeld = ImGui::IsItemActive();
+
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "How fast the ESC's pulse may move, per 20 ms tick. Separate\n"
+            "from the steering, and it should be: a servo wants to arrive\n"
+            "promptly, an ESC wants to be led there.\n"
+            "\n"
+            "This is the one that decides whether the car pulls away or\n"
+            "lurches. Throttle slammed on spins the wheels; slammed off\n"
+            "pitches the car onto its nose; and a brushed motor asked for\n"
+            "a step change draws a spike the BEC feels.\n"
+            "\n"
+            "The usable range is only %d us wide (%d to %d), so a rate\n"
+            "that feels gentle on the steering's 440 us of travel crosses\n"
+            "the whole throttle band in a fraction of the time.\n"
+            "\n"
+            "Not saved by itself - Write to firmware, under Throttle\n"
+            "range, is what keeps it across a reflash.",
+            driveEscMax - driveEscMin, driveEscMin, driveEscMax);
+    }
+
+    ImGui::Spacing();
     driveSection("Throttle", "GP1  (ESC)");
 
     // The percentage belongs up here with the other readings, not stranded
