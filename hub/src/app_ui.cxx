@@ -5172,8 +5172,22 @@ Str steeringCalText()
         std::strftime(when, sizeof(when), "%Y-%m-%d", &tm);
     }
 
-    Char buf[2048];
-    std::snprintf(buf, sizeof(buf),
+    /*
+     * Big enough, and CHECKED - because it was neither.
+     *
+     * This was 2048 and the header grew past it. snprintf truncates silently
+     * and returns what it WOULD have written, which nothing looked at, so the
+     * Drive view wrote a cal.h that stopped mid-comment. The firmware then
+     * would not compile, and the failure surfaced three steps away from the
+     * button that caused it.
+     *
+     * A fixed buffer holding generated source is always one edit from this. The
+     * size is generous now, but the guard below is the part that matters: if it
+     * ever does not fit, this returns nothing and the caller refuses to write,
+     * because no file at all is a better outcome than half of one.
+     */
+    Char buf[8192];
+    const Int32 need = std::snprintf(buf, sizeof(buf),
         "/* ---------------------------------------------------------------------------\n"
         " * Steering calibration - GENERATED.\n"
         " *\n"
@@ -5253,6 +5267,14 @@ Str steeringCalText()
         "#define STEER_CAL_STAMP \"measured %s\"\n",
         calLeft, calCenter, calRight, driveEscMin, driveEscMax,
         driveSlew, driveEscSlew, boardLightsOff, when);
+
+    if(need < 0 || static_cast<Size>(need) >= sizeof(buf))
+    {
+        LOG_WARN("drive", "cal.h would be %d bytes, buffer is %d - not written",
+                 need, static_cast<Int32>(sizeof(buf)));
+        return Str();
+    }
+
     return Str(buf);
 }
 
@@ -5469,6 +5491,15 @@ Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 
 // is most of what made this look like a pile rather than a page.
 // ---------------------------------------------------------------------------
 constexpr Float32 DRIVE_TAIL_W = 120.0f;
+
+// One width for every nudge button - the servo steps and the throttle steps -
+// so the two rows line up with each other as well as with everything else.
+//
+// It used to be a local in the steering block that the THROTTLE block also
+// read, which worked only because the two happened to be in the same scope. The
+// moment the steering steps moved into the Calibration fold, the throttle
+// stopped compiling - which is the good version of that mistake.
+constexpr Float32 DRIVE_STEP_W = 46.0f;
 
 // How far into its working range the throttle is, 0..1.
 //
@@ -5885,35 +5916,6 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
     }
 
-    // ---- the stop, first and biggest ------------------------------------
-    //
-    // Above the controls rather than below them, and full width. The one thing
-    // somebody reaches for without looking should not be somewhere they have to
-    // find.
-    ui::pushTint(ui::Tint::TINT_BAD);
-    if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP",
-                      ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 2.0f)))
-    {
-        driveSweep     = false;
-        driveServoWant = 1500;
-        driveEscWant   = 1500;
-        sendPico("STOP");
-    }
-    ui::popTint(ui::Tint::TINT_BAD);
-    if(ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip(
-            "The ESC to neutral and disarmed, and the steering RELEASED.\n"
-            "\n"
-            "Released, not centred. Centre is only a safe place to leave a\n"
-            "servo if 1500 us is where the linkage wants to sit - if the horn\n"
-            "is a tooth off its spline it is not, and centring would just be\n"
-            "pushing somewhere else. Nothing to push with is the only stop\n"
-            "that works on every car.\n"
-            "\n"
-            "Not slewed. A stop that eases in is not a stop.");
-    }
-
     ImGui::Spacing();
 
     // ---- the car ---------------------------------------------------------
@@ -5962,118 +5964,6 @@ Void drawDriveBody(Float32 w, Float32 h)
 
     ImGui::Spacing();
 
-    // ---- how fast anything is allowed to move ---------------------------
-    //
-    // A slider rather than presets. Four named buttons tell you four points and
-    // hide the rest of the range; the useful rate for a given job is somewhere
-    // between them and the only way to find it is to move it and watch.
-    //
-    // LOGARITHMIC, because the interesting part is the bottom. 1 to 20 is where
-    // the difference between "creeps" and "moves" lives, and on a linear scale
-    // that entire question is the first tenth of the track.
-    {
-        driveSection("Steering response", "how fast the servo may move");
-
-        // The reading goes on the HEAD's line rather than beside the slider,
-        // which is what lets the slider run to the shared right edge.
-        {
-            const Int32 perSec = driveSlew * 50;
-            const Int32 travel = driveServoMax - driveServoMin;
-
-            Char r[64];
-            std::snprintf(r, sizeof(r), "%d us/s   lock to lock %.2f s",
-                          perSec,
-                          (perSec > 0) ? (static_cast<Float64>(travel) / perSec)
-                                       : 0.0);
-            driveReading(ui::sem::MUTED, r);
-        }
-
-        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-        if(ImGui::SliderInt("##slew", &driveSlewWant, 1, 200, "%d us/tick",
-                            ImGuiSliderFlags_Logarithmic))
-        {
-            Char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "SLEW STEER %d", driveSlewWant);
-            sendPico(cmd);
-        }
-        driveSlewHeld = ImGui::IsItemActive();
-
-        if(ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip(
-                "Microseconds of pulse the board may move an output, per\n"
-                "20 ms tick. It governs the steering AND the throttle.\n"
-                "\n"
-                "The scale is logarithmic: the interesting range is the\n"
-                "bottom, where the difference between creeping and moving\n"
-                "lives, and a linear track would bury it in the first tenth.\n"
-                "\n"
-                "  ~2    creeps - slow enough to stop the moment a linkage\n"
-                "        binds, which is what finding an end stop wants\n"
-                "  8     the default. A slider dragged end to end sweeps\n"
-                "        rather than flinging the servo at a stop\n"
-                "  ~40   lock to lock in about a fifth of a second, quick\n"
-                "        enough to correct a line\n"
-                "  200   faster than the servo can physically follow, so the\n"
-                "        limit stops being this software and starts being\n"
-                "        the hardware\n"
-                "\n"
-                "Not saved by itself - Write to firmware, under Throttle\n"
-                "range, is what keeps it across a reflash.");
-        }
-
-    }
-
-
-    // ---- when the tail lamps go out ------------------------------------
-    //
-    // Beside Response because it is the same KIND of thing: a judgement about
-    // where a boundary sits, found by watching the car rather than measured off
-    // it. Idle is the pulse at which the motor sits still; this is how far past
-    // that counts as actually going somewhere.
-    {
-        driveSection("Tail lamps", "how much throttle counts as moving");
-
-        {
-            const Bool lit = (boardLamp[2] > 0) || (boardLamp[3] > 0);
-            driveReading(lit ? ui::sem::BAD : ui::sem::MUTED,
-                         lit ? "lit" : "dark");
-        }
-
-        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-        if(ImGui::SliderInt("##lightsoff", &lightsOffWant, 0, 60, "%d us past idle"))
-        {
-            Char cmd[40];
-            std::snprintf(cmd, sizeof(cmd), "LIGHTS OFFAT %d", lightsOffWant);
-            sendPico(cmd);
-        }
-        lightsOffHeld = ImGui::IsItemActive();
-
-        if(ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip(
-                "The tail lamps are lit whenever the car is not being driven,\n"
-                "and go out once the throttle clears idle by this much.\n"
-                "\n"
-                "Zero means the lamps go out the instant the throttle leaves\n"
-                "idle, which lights them off for a car that has not really\n"
-                "pulled away. Wind it up until they stay on at a crawl and go\n"
-                "out when the car actually goes somewhere.\n"
-                "\n"
-                "Mirrored for reverse: this far BELOW neutral counts as being\n"
-                "driven backwards, and lights the reverse lamps instead.\n"
-                "\n"
-                "Idle here is %d us and full throttle is %d, so the whole\n"
-                "usable range is %d us wide.\n"
-                "\n"
-                "Not saved to the board's calibration by itself - Write to\n"
-                "firmware, under Throttle range, is what makes it stick.",
-                driveEscMin, driveEscMax, driveEscMax - driveEscMin);
-        }
-
-    }
-
-    ImGui::Spacing();
     // ---- steering --------------------------------------------------------
     driveSection("Steering", "GP0");
 
@@ -6196,6 +6086,83 @@ Void drawDriveBody(Float32 w, Float32 h)
         sendPico("STEER 0");
     }
 
+    // ---- how fast anything is allowed to move ---------------------------
+    //
+    // A slider rather than presets. Four named buttons tell you four points and
+    // hide the rest of the range; the useful rate for a given job is somewhere
+    // between them and the only way to find it is to move it and watch.
+    //
+    // LOGARITHMIC, because the interesting part is the bottom. 1 to 20 is where
+    // the difference between "creeps" and "moves" lives, and on a linear scale
+    // that entire question is the first tenth of the track.
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "Response  -  how fast the servo may move");
+
+        // The reading goes on the HEAD's line rather than beside the slider,
+        // which is what lets the slider run to the shared right edge.
+        {
+            const Int32 perSec = driveSlew * 50;
+            const Int32 travel = driveServoMax - driveServoMin;
+
+            Char r[64];
+            std::snprintf(r, sizeof(r), "%d us/s   lock to lock %.2f s",
+                          perSec,
+                          (perSec > 0) ? (static_cast<Float64>(travel) / perSec)
+                                       : 0.0);
+            driveReading(ui::sem::MUTED, r);
+        }
+
+        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
+        if(ImGui::SliderInt("##slew", &driveSlewWant, 1, 200, "%d us/tick",
+                            ImGuiSliderFlags_Logarithmic))
+        {
+            Char cmd[32];
+            std::snprintf(cmd, sizeof(cmd), "SLEW STEER %d", driveSlewWant);
+            sendPico(cmd);
+        }
+        driveSlewHeld = ImGui::IsItemActive();
+
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Microseconds of pulse the board may move an output, per\n"
+                "20 ms tick. It governs the steering AND the throttle.\n"
+                "\n"
+                "The scale is logarithmic: the interesting range is the\n"
+                "bottom, where the difference between creeping and moving\n"
+                "lives, and a linear track would bury it in the first tenth.\n"
+                "\n"
+                "  ~2    creeps - slow enough to stop the moment a linkage\n"
+                "        binds, which is what finding an end stop wants\n"
+                "  8     the default. A slider dragged end to end sweeps\n"
+                "        rather than flinging the servo at a stop\n"
+                "  ~40   lock to lock in about a fifth of a second, quick\n"
+                "        enough to correct a line\n"
+                "  200   faster than the servo can physically follow, so the\n"
+                "        limit stops being this software and starts being\n"
+                "        the hardware\n"
+                "\n"
+                "Not saved by itself - Write to firmware, under Throttle\n"
+                "range, is what keeps it across a reflash.");
+        }
+
+    }
+
+
+    // ---- the calibration -------------------------------------------------
+    //
+    // Three named points instead of a min/max pair, because a car has three
+    // interesting positions and only two of them are ends. Centre used to be
+    // assumed to be 1500 and that assumption is what put a servo against a
+    // frame - it is a measurement now, like the other two.
+    if(ImGui::TreeNode("Calibration  -  the three numbers for THIS car"))
+    {
+        if(!calLoaded)
+        {
+            loadCalibration();
+        }
+
     ImGui::Spacing();
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                        "Raw microseconds  -  for calibrating, not for driving");
@@ -6246,7 +6213,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         sendPico(cmd);
     };
 
-    const Float32 bw = 46.0f * uiDpiScale;
+    const Float32 bw = DRIVE_STEP_W * uiDpiScale;
     for(Size i = 0; i < countOf(SERVO_STEPS); ++i)
     {
         if(i > 0)
@@ -6312,18 +6279,6 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "%s", st);
     }
 
-    // ---- the calibration -------------------------------------------------
-    //
-    // Three named points instead of a min/max pair, because a car has three
-    // interesting positions and only two of them are ends. Centre used to be
-    // assumed to be 1500 and that assumption is what put a servo against a
-    // frame - it is a measurement now, like the other two.
-    if(ImGui::TreeNode("Calibration  -  the three numbers for THIS car"))
-    {
-        if(!calLoaded)
-        {
-            loadCalibration();
-        }
 
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
                            "Servo horn OFF while you find these.");
@@ -6387,7 +6342,13 @@ Void drawDriveBody(Float32 w, Float32 h)
             const Str path = steeringCalPath();
             const Str text = steeringCalText();
             Str       err;
-            if(path.empty())
+            if(text.empty())
+            {
+                // steeringCalText() has already said why. Writing here would
+                // put a truncated header on disk, which is how this was found.
+                LOG_WARN("drive", "refusing to write an incomplete cal.h");
+            }
+            else if(path.empty())
             {
                 LOG_WARN("drive", "no firmware directory - nothing written");
             }
@@ -6544,51 +6505,6 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
-    // ---- throttle --------------------------------------------------------
-    driveSection("Throttle response", "how fast the ESC may move");
-
-    {
-        const Int32 perSec = driveEscSlew * 50;
-        const Int32 span   = driveEscMax - driveEscMin;
-
-        Char r[64];
-        std::snprintf(r, sizeof(r), "%d us/s   idle to full %.2f s",
-                      perSec,
-                      (perSec > 0) ? (static_cast<Float64>(span) / perSec) : 0.0);
-        driveReading(ui::sem::MUTED, r);
-    }
-
-    ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-    if(ImGui::SliderInt("##slewesc", &driveEscSlewWant, 1, 200, "%d us/tick",
-                        ImGuiSliderFlags_Logarithmic))
-    {
-        Char cmd[40];
-        std::snprintf(cmd, sizeof(cmd), "SLEW THROTTLE %d", driveEscSlewWant);
-        sendPico(cmd);
-    }
-    driveEscSlewHeld = ImGui::IsItemActive();
-
-    if(ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip(
-            "How fast the ESC's pulse may move, per 20 ms tick. Separate\n"
-            "from the steering, and it should be: a servo wants to arrive\n"
-            "promptly, an ESC wants to be led there.\n"
-            "\n"
-            "This is the one that decides whether the car pulls away or\n"
-            "lurches. Throttle slammed on spins the wheels; slammed off\n"
-            "pitches the car onto its nose; and a brushed motor asked for\n"
-            "a step change draws a spike the BEC feels.\n"
-            "\n"
-            "The usable range is only %d us wide (%d to %d), so a rate\n"
-            "that feels gentle on the steering's 440 us of travel crosses\n"
-            "the whole throttle band in a fraction of the time.\n"
-            "\n"
-            "Not saved by itself - Write to firmware, under Throttle\n"
-            "range, is what keeps it across a reflash.",
-            driveEscMax - driveEscMin, driveEscMin, driveEscMax);
-    }
-
     ImGui::Spacing();
     driveSection("Throttle", "GP1  (ESC)");
 
@@ -6702,6 +6618,8 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::Dummy(ImVec2(barW, barH));
     }
 
+    const Float32 escBw = DRIVE_STEP_W * uiDpiScale;
+
     ImGui::BeginDisabled(!driveArmed);
     for(Size i = 0; i < countOf(ESC_STEPS); ++i)
     {
@@ -6711,7 +6629,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
         // Suffixed: several of these labels repeat the servo row's, and ImGui
         // derives a widget's identity from its label.
-        if(ui::button(ESC_STEPS[i].label, ImVec2(bw, 0.0f)))
+        if(ui::button(ESC_STEPS[i].label, ImVec2(escBw, 0.0f)))
         {
             nudgeEsc(ESC_STEPS[i].by);
         }
@@ -6723,6 +6641,56 @@ Void drawDriveBody(Float32 w, Float32 h)
         std::snprintf(line, sizeof(line), "output %d us   target %d us   %s",
                       driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
         driveLamp(driveArmed, driveArmed ? ui::sem::BAD : ui::sem::MUTED, line);
+    }
+
+    // Response belongs WITH the thing it governs, not in a settings pile at the
+    // top of the page. It was a section of its own between Steering's
+    // collapsibles and the actual Throttle controls, which read as a third
+    // subject wedged between two halves of a second one.
+    ImGui::Spacing();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "Response  -  how fast the ESC may move");
+
+    {
+        const Int32 perSec = driveEscSlew * 50;
+        const Int32 span   = driveEscMax - driveEscMin;
+
+        Char r[64];
+        std::snprintf(r, sizeof(r), "%d us/s   idle to full %.2f s",
+                      perSec,
+                      (perSec > 0) ? (static_cast<Float64>(span) / perSec) : 0.0);
+        driveReading(ui::sem::MUTED, r);
+    }
+
+    ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
+    if(ImGui::SliderInt("##slewesc", &driveEscSlewWant, 1, 200, "%d us/tick",
+                        ImGuiSliderFlags_Logarithmic))
+    {
+        Char cmd[40];
+        std::snprintf(cmd, sizeof(cmd), "SLEW THROTTLE %d", driveEscSlewWant);
+        sendPico(cmd);
+    }
+    driveEscSlewHeld = ImGui::IsItemActive();
+
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "How fast the ESC's pulse may move, per 20 ms tick. Separate\n"
+            "from the steering, and it should be: a servo wants to arrive\n"
+            "promptly, an ESC wants to be led there.\n"
+            "\n"
+            "This is the one that decides whether the car pulls away or\n"
+            "lurches. Throttle slammed on spins the wheels; slammed off\n"
+            "pitches the car onto its nose; and a brushed motor asked for\n"
+            "a step change draws a spike the BEC feels.\n"
+            "\n"
+            "The usable range is only %d us wide (%d to %d), so a rate\n"
+            "that feels gentle on the steering's 440 us of travel crosses\n"
+            "the whole throttle band in a fraction of the time.\n"
+            "\n"
+            "Not saved by itself - Write to firmware, under Throttle\n"
+            "range, is what keeps it across a reflash.",
+            driveEscMax - driveEscMin, driveEscMin, driveEscMax);
     }
 
     if(ImGui::TreeNode("Throttle range  -  widen once the car is on a stand"))
@@ -6774,6 +6742,66 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
         ImGui::TreePop();
     }
+
+    // ---- lights ----------------------------------------------------------
+    //
+    // Its own section, at the end. The tail-lamp threshold used to sit second
+    // from the top, between the steering and the throttle - a LIGHTING setting
+    // in the middle of the drivetrain, with no lighting section for it to
+    // belong to. Subjects were interleaved and that is most of what made the
+    // page read as a pile.
+    driveSection("Lights", "what the lamps do");
+
+    // ---- when the tail lamps go out ------------------------------------
+    //
+    // Beside Response because it is the same KIND of thing: a judgement about
+    // where a boundary sits, found by watching the car rather than measured off
+    // it. Idle is the pulse at which the motor sits still; this is how far past
+    // that counts as actually going somewhere.
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "Tail lamps  -  how much throttle counts as moving");
+
+        {
+            const Bool lit = (boardLamp[2] > 0) || (boardLamp[3] > 0);
+            driveReading(lit ? ui::sem::BAD : ui::sem::MUTED,
+                         lit ? "lit" : "dark");
+        }
+
+        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
+        if(ImGui::SliderInt("##lightsoff", &lightsOffWant, 0, 60, "%d us past idle"))
+        {
+            Char cmd[40];
+            std::snprintf(cmd, sizeof(cmd), "LIGHTS OFFAT %d", lightsOffWant);
+            sendPico(cmd);
+        }
+        lightsOffHeld = ImGui::IsItemActive();
+
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "The tail lamps are lit whenever the car is not being driven,\n"
+                "and go out once the throttle clears idle by this much.\n"
+                "\n"
+                "Zero means the lamps go out the instant the throttle leaves\n"
+                "idle, which lights them off for a car that has not really\n"
+                "pulled away. Wind it up until they stay on at a crawl and go\n"
+                "out when the car actually goes somewhere.\n"
+                "\n"
+                "Mirrored for reverse: this far BELOW neutral counts as being\n"
+                "driven backwards, and lights the reverse lamps instead.\n"
+                "\n"
+                "Idle here is %d us and full throttle is %d, so the whole\n"
+                "usable range is %d us wide.\n"
+                "\n"
+                "Not saved to the board's calibration by itself - Write to\n"
+                "firmware, under Throttle range, is what makes it stick.",
+                driveEscMin, driveEscMax, driveEscMax - driveEscMin);
+        }
+
+    }
+
+    ImGui::Spacing();
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -8164,10 +8192,79 @@ Bool tearOffButton(Int32 id, Bool floating)
     return hit;
 }
 
+// ---------------------------------------------------------------------------
+// The emergency stop.
+//
+// PINNED above the sidebar's scroll, so it is in the same place in every view
+// and at every scroll position. It used to live at the top of the Drive view,
+// which meant the one control somebody reaches for without looking was only
+// there if they happened to be on the right tab - and the moment you are
+// reaching for it is the moment you are not going to go and find it first.
+//
+// Deliberately NOT disabled when the link is down. A stop you cannot press
+// because the program has decided it would not work is worse than one that
+// presses and does nothing: the second at least matches what a person expects
+// a red button to do, and the console says what happened.
+// ---------------------------------------------------------------------------
+Void drawEmergencyStop(Float32 width)
+{
+    ui::pushTint(ui::Tint::TINT_BAD);
+    if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP",
+                      ImVec2(width, ImGui::GetFrameHeight() * 2.0f)))
+    {
+        // The hub's own idea of what it is asking for is reset too. Leaving the
+        // sliders where they were would have them fight the board back to the
+        // old target on the next poll, which is a stop that undoes itself.
+        driveSweep     = false;
+        driveServoWant = 1500;
+        driveEscWant   = 1500;
+        sendPico("STOP");
+        LOG_WARN("drive", "emergency stop");
+    }
+    ui::popTint(ui::Tint::TINT_BAD);
+
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Everything off.\n"
+            "\n"
+            "The ESC to neutral and disarmed, the steering RELEASED, and any\n"
+            "lamp being held on by hand handed back to the car.\n"
+            "\n"
+            "Released, not centred. Centre is only a safe place to leave a\n"
+            "servo if 1500 us is where the linkage wants to sit - if the horn\n"
+            "is a tooth off its spline it is not, and centring would just be\n"
+            "pushing somewhere else. Nothing to push with is the only stop\n"
+            "that works on every car.\n"
+            "\n"
+            "Not slewed. A stop that eases in is not a stop.");
+    }
+}
+
 Void drawSidebar(Float32 width, Float32 height)
 {
-    ImGui::BeginChild("##sidebar", ImVec2(width, height), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_None);
+    // An OUTER child holding the pinned button and the scrolling column.
+    //
+    // It has to be a child, not just two things drawn in a row. ImGui puts the
+    // cursor back at the WINDOW's left content edge after an item, not at
+    // wherever the caller had moved it - so the button drew correctly at the
+    // sidebar's x and the scrolling column below it then started at the far
+    // left of the app, on top of the console. A child makes "the window's left
+    // edge" mean this column's left edge, which is the only way to say it that
+    // an item cannot undo. Same fix the central region needed, same reason.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::BeginChild("##sidebarcol", ImVec2(width, height), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+
+    const Float32 stopH = ImGui::GetFrameHeight() * 2.0f;
+    drawEmergencyStop(width);
+    ImGui::Spacing();
+
+    const Float32 rest = height - stopH - ImGui::GetStyle().ItemSpacing.y * 2.0f;
+
+    ImGui::BeginChild("##sidebar", ImVec2(width, std::max(40.0f, rest)),
+                      ImGuiChildFlags_None, ImGuiWindowFlags_None);
 
     Int32 dragFrom = -1, dragTo = -1;
 
@@ -8264,6 +8361,8 @@ Void drawSidebar(Float32 width, Float32 height)
     // twice or not at all in the frame it moved.
     if(dragFrom >= 0)
         moveSection(dragFrom, dragTo);
+    ImGui::EndChild();
+
     ImGui::EndChild();
 }
 

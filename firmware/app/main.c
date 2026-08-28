@@ -773,10 +773,29 @@ static Void cmdDrive(CharSeq arg)
     printDrive();
 }
 
+/*
+ * STOP - the one command that has to work when nothing else is going right.
+ *
+ * The drivetrain first, because that is the part that can hurt somebody:
+ * throttle to neutral and disarmed, steering RELEASED rather than centred.
+ * Released is the stronger claim - centre is only a safe place to leave a servo
+ * if 1500 us is where the linkage wants to sit, and on a car whose horn is a
+ * tooth off its spline it is not. Nothing to push with is the only stop that
+ * works on every car.
+ *
+ * Then any FORCED lamp is dropped. That is not a safety matter - a lamp cannot
+ * hurt anyone - but a lamp being held on by hand is an output somebody is
+ * commanding, and a stop that leaves an output commanded is not a stop. The
+ * lamps go back to following the car, which with the throttle now at neutral
+ * means the tails come on. That is correct: the car is not being driven.
+ */
 static Void cmdStop(CharSeq arg)
 {
     (Void) arg;
+
     driveStop();
+    lightsForceLamp(LAMP_COUNT);
+
     serialPrintf("OK stop\n");
 }
 
@@ -801,7 +820,7 @@ static const Command COMMANDS[] =
     { "TOF",         " [MODE SHORT|LONG]",      "range in mm; the mode is 1.3 m or 4 m",    cmdTof },
 
     { "DRIVE",       "",                        "servo and esc state",                      cmdDrive },
-    { "STOP",        "",                        "neutral both, disarm the esc",             cmdStop },
+    { "STOP",        "",                        "everything off: neutral, disarm, release", cmdStop },
     { "STEER",       " <-1..1>",                "steer as a fraction of this car's travel", handleSteer },
     { "SLEW",        " [STEER|THROTTLE] <us>",  "how fast an output may move, per tick",    handleSlew },
     { "SERVO",       " <us>|ON|OFF|CENTER",     "steering; OFF stops the pulse, servo limp", handleServo },
