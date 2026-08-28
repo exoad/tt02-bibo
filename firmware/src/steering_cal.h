@@ -18,14 +18,14 @@
 #pragma once
 
 /* Full lock one way. */
-#define STEER_CAL_LEFT 1300
+#define STEER_CAL_LEFT 1230
 
 /* Wheels straight ahead. Not necessarily 1500, and usually not. */
-#define STEER_CAL_CENTER 1500
+#define STEER_CAL_CENTER 1484
 
 /* Full lock the other way. */
-#define STEER_CAL_RIGHT 1700
+#define STEER_CAL_RIGHT 1670
 
 /* When these were measured, and by whom, so a stale calibration can be spotted
  * rather than trusted. "defaults" means nobody has calibrated this car yet. */
-#define STEER_CAL_STAMP "defaults - never calibrated"
+#define STEER_CAL_STAMP "measured 2026-08-27"
