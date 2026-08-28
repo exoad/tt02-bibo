@@ -298,6 +298,18 @@ Str calWritten;
 // The limits the BOARD reports. Sliders are built from these rather than from
 // constants here, so tightening them in firmware tightens the UI too and the
 // two can never disagree about what is safe.
+// ---- the indicator scaffolding. TEMPORARY - see firmware/lib/lights.h ----
+//
+// What the BOARD says its lamps are doing, not what this hub would have
+// decided. The rule runs in the firmware, because the car has to indicate when
+// no laptop is attached; this only draws the answer. lights::detect() in the
+// hub is the same rule for the 3D view and the two are deliberately separate -
+// one is the car, the other is a picture of it.
+Int32   boardTurn    = 0;       // -1 left, 0 off, +1 right
+Bool    boardTurnLit = false;   // lit THIS INSTANT, so the drawing can blink
+Bool    boardLightsOn = true;
+Float64 lightsLastPoll = 0.0;
+
 Int32 driveServoMin = 1300;
 Int32 driveServoMax = 1700;
 Int32 driveEscMin   = 1500;
@@ -1045,6 +1057,27 @@ Void observeLine(const PicoLine& ln)
         return;
     }
 
+    // "OK lights on=1 side=left lit=1 left_pin=15 right_pin=13"
+    if(t.compare(0, 10, "OK lights ") == 0)
+    {
+        const Char* p = t.c_str();
+        if(const Char* q = std::strstr(p, "side="))
+        {
+            boardTurn = (std::strncmp(q + 5, "left", 4) == 0)  ? -1
+                      : (std::strncmp(q + 5, "right", 5) == 0) ?  1
+                                                               :  0;
+        }
+        if(const Char* q = std::strstr(p, "lit="))
+        {
+            boardTurnLit = (std::atoi(q + 4) != 0);
+        }
+        if(const Char* q = std::strstr(p, "on="))
+        {
+            boardLightsOn = (std::atoi(q + 3) != 0);
+        }
+        return;
+    }
+
     if(t.compare(0, 7, "OK stop") == 0)
     {
         driveArmed     = false;
@@ -1215,6 +1248,25 @@ Void pollBoardStatus()
 
     dbgLastPoll = now;
     sendPico("STATUS");
+}
+
+// Asks the board what its indicator lamps are doing.
+//
+// Fast, because the point is to WATCH it blink: at 1.5 Hz the lamp changes
+// every 267 ms, so a two-second poll would show a still frame of a flashing
+// light. 120 ms is comfortably inside the shorter half-cycle.
+//
+// TEMPORARY, with the rest of the indicator scaffolding.
+Void pollLights()
+{
+    if(dbgUnsupported) return;
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED) return;
+
+    const Float64 now = ImGui::GetTime();
+    if(lightsLastPoll > 0.0 && (now - lightsLastPoll) < 0.12) return;
+
+    lightsLastPoll = now;
+    sendPico("LIGHTS");
 }
 
 // Asks the board what is attached, once per connection.
@@ -5205,7 +5257,7 @@ Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 
 // because there is nothing about the body worth reporting: the shell does not
 // steer, does not drive, and drawing it would be decoration competing with the
 // two things that are actually live.
-Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32 steerN, Float32 powerN, Bool servoLive, Bool armed)
+Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32 steerN, Float32 powerN, Bool servoLive, Bool armed, Int32 turnSide, Bool turnLit)
 {
     const ImVec2 p1(p0.x + w, p0.y + h);
 
@@ -5238,6 +5290,36 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     // Warms with throttle along its whole length: this is the one part that
     // carries power from the motor to the rear axle, and it is the honest place
     // to show that something is being asked of it.
+    // ---- the indicator lamps. TEMPORARY, with the rest of the scaffolding --
+    //
+    // Drawn OUTBOARD of the front wheels, where an indicator is on a car, and
+    // drawn before the drivetrain so a beam crossing one reads as the lamp
+    // being behind the axle rather than painted over it.
+    //
+    // Dark when the side is not indicating, dark when it is indicating and the
+    // flasher is between flashes: the same lamp in two states rather than two
+    // different things, which is what makes the blink read as a blink.
+    {
+        const Float32 lampR = base * 0.055f;
+        const Float32 lampX = track + wheelW * 2.6f;
+        const Float32 lampY = axleF - wheelH * 0.35f;
+
+        const ImU32 amber = IM_COL32(0xFF, 0xA5, 0x1E, 0xFF);
+        const ImU32 dark  = IM_COL32(0x3A, 0x2E, 0x1A, 0xFF);
+
+        const Bool litL = (turnSide < 0) && turnLit;
+        const Bool litR = (turnSide > 0) && turnLit;
+
+        ui::led(dl, ImVec2(mid.x - lampX, lampY), lampR, amber, litL);
+        ui::led(dl, ImVec2(mid.x + lampX, lampY), lampR, amber, litR);
+
+        // A dim ring even when dark, so the lamp is visibly PRESENT and unlit
+        // rather than absent. An indicator you cannot find between flashes is
+        // one you cannot tell from a broken one.
+        dl->AddCircle(ImVec2(mid.x - lampX, lampY), lampR, dark, 0, 1.0f);
+        dl->AddCircle(ImVec2(mid.x + lampX, lampY), lampR, dark, 0, 1.0f);
+    }
+
     const Float32 g = armed ? powerN : 0.0f;
     const ImU32 shaftFill = IM_COL32(0x3A + static_cast<Int32>(0x80 * g),
                                      0x40 + static_cast<Int32>(0x30 * g),
@@ -5537,7 +5619,8 @@ Void drawDriveBody(Float32 w, Float32 h)
             : 0.0f;
 
         drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
-                    driveSteer, power, driveServoOn, driveArmed);
+                    driveSteer, power, driveServoOn, driveArmed,
+                    boardTurn, boardTurnLit);
 
         ImGui::Dummy(ImVec2(full, cah));
         if(ImGui::IsItemHovered())
@@ -6395,6 +6478,9 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
     }
     else if(view == DRIVE_VIEW)
     {
+        // Polled inside the body, so the fast LIGHTS poll only runs while
+        // somebody is actually watching the lamps. TEMPORARY.
+        pollLights();
         drawDriveBody(w, h);
     }
     else if(view == RANGE_VIEW)
@@ -7790,6 +7876,13 @@ Void app::init(Float32 dpiScale)
                      _stricmp(v, "tof") == 0)
                      {
                          forceView = RANGE_VIEW;
+                         forceViewFrames = 4;
+                     }
+            else if(_stricmp(v, "drive") == 0 ||
+                     _stricmp(v, "servo") == 0 ||
+                     _stricmp(v, "esc") == 0)
+                     {
+                         forceView = DRIVE_VIEW;
                          forceViewFrames = 4;
                      }
             else if(_stricmp(v, "reference") == 0 ||

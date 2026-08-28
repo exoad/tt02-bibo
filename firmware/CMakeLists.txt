@@ -52,6 +52,7 @@ set(TT02_LIB
     lib/hal.h
     lib/gfx.h
     lib/status.h
+    lib/lights.h
     lib/drivers/display.h
     lib/drivers/range.h
     lib/drivers/storage.h
