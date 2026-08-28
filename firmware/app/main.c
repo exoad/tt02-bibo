@@ -33,10 +33,6 @@
 /* stdio for printf/snprintf. It arrives transitively through pico/stdlib.h and
  * always has, which is exactly why it was missing here - a header you rely on
  * without naming is one that disappears the day the chain above it changes. */
-/* printf only. String handling, parsing and case folding all live in text.h
- * now, so this is the last of libc that the console reaches for directly. */
-#include <stdio.h>
-
 /* The whole library. An application includes this and nothing else of ours -
  * see docs/conventions.md, and the style audit that enforces it. */
 #include "../lib/tt02.h"
@@ -73,14 +69,14 @@ static Void printId(Void)
     Utf8 uid[24];
     boardId(uid, sizeof(uid));
 
-    printf("INFO id board=%s sdk=%s built=%s %s uid=%s cyw43=%s\n",
+    serialPrintf("INFO id board=%s sdk=%s built=%s %s uid=%s cyw43=%s\n",
            PICO_BOARD, PICO_SDK_VERSION_STRING, __DATE__, __TIME__,
            uid, cyw43Word());
 }
 
 static Void printStatus(Void)
 {
-    printf("INFO status up_ms=%u led=%s blink_hz=%.2f cyw43=%s\n",
+    serialPrintf("INFO status up_ms=%u led=%s blink_hz=%.2f cyw43=%s\n",
            nowMs(),
            statusIsLit() ? "on" : "off",
            (Float64) statusRate(),
@@ -89,26 +85,26 @@ static Void printStatus(Void)
 
 static Void printHelp(Void)
 {
-    printf("INFO help PING - answers PONG\n");
-    printf("INFO help ID - board, sdk, build time, unique id\n");
-    printf("INFO help STATUS - uptime and led state\n");
-    printf("INFO help LED ON|OFF - solid\n");
-    printf("INFO help LED BLINK <hz> - 0 stops\n");
-    printf("INFO help BOOTSEL - reboot into the UF2 bootloader\n");
-    printf("INFO help SENSORS - what is attached\n");
-    printf("INFO help SCAN - every I2C address that answers\n");
-    printf("INFO help TOF - range in mm and a status\n");
-    printf("INFO help TOF MODE SHORT|LONG - 1.3 m or 4 m\n");
-    printf("INFO help DRIVE - servo and esc state\n");
-    printf("INFO help SERVO <us>|CENTER - steering\n");
-    printf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
-    printf("INFO help STOP - neutral both, disarm the esc\n");
-    printf("INFO help STEER <-1..1> - steer as a fraction of this car's travel\n");
-    printf("INFO help SERVOTRIM <us> - move where centre is\n");
-    printf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
-    printf("INFO help SERVO ON - drive the steering again\n");
-    printf("INFO help SERVOLIMITS <min> <max> - widen to find end stops\n");
-    printf("INFO help ESCLIMITS <min> <max> - widen the throttle range\n");
+    serialPrintf("INFO help PING - answers PONG\n");
+    serialPrintf("INFO help ID - board, sdk, build time, unique id\n");
+    serialPrintf("INFO help STATUS - uptime and led state\n");
+    serialPrintf("INFO help LED ON|OFF - solid\n");
+    serialPrintf("INFO help LED BLINK <hz> - 0 stops\n");
+    serialPrintf("INFO help BOOTSEL - reboot into the UF2 bootloader\n");
+    serialPrintf("INFO help SENSORS - what is attached\n");
+    serialPrintf("INFO help SCAN - every I2C address that answers\n");
+    serialPrintf("INFO help TOF - range in mm and a status\n");
+    serialPrintf("INFO help TOF MODE SHORT|LONG - 1.3 m or 4 m\n");
+    serialPrintf("INFO help DRIVE - servo and esc state\n");
+    serialPrintf("INFO help SERVO <us>|CENTER - steering\n");
+    serialPrintf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
+    serialPrintf("INFO help STOP - neutral both, disarm the esc\n");
+    serialPrintf("INFO help STEER <-1..1> - steer as a fraction of this car's travel\n");
+    serialPrintf("INFO help SERVOTRIM <us> - move where centre is\n");
+    serialPrintf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
+    serialPrintf("INFO help SERVO ON - drive the steering again\n");
+    serialPrintf("INFO help SERVOLIMITS <min> <max> - widen to find end stops\n");
+    serialPrintf("INFO help ESCLIMITS <min> <max> - widen the throttle range\n");
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
@@ -125,7 +121,7 @@ static Void handleLed(Utf8* arg)
     {
         statusBlink(0.0f);
         statusSolid(true);
-        printf("OK led on%s\n", ledCaveat());
+        serialPrintf("OK led on%s\n", ledCaveat());
         return;
     }
 
@@ -133,7 +129,7 @@ static Void handleLed(Utf8* arg)
     {
         statusBlink(0.0f);
         statusSolid(false);
-        printf("OK led off%s\n", ledCaveat());
+        serialPrintf("OK led off%s\n", ledCaveat());
         return;
     }
 
@@ -144,12 +140,12 @@ static Void handleLed(Utf8* arg)
         Float32 hz = 0.0f;
         if(!textFloat(textAfter(arg, "BLINK "), &hz))
         {
-            printf("ERR blink wants a rate in hz\n");
+            serialPrintf("ERR blink wants a rate in hz\n");
             return;
         }
         if(hz < 0.0f || hz > BLINK_MAX_HZ)
         {
-            printf("ERR blink rate out of range (0-%.0f hz)\n",
+            serialPrintf("ERR blink rate out of range (0-%.0f hz)\n",
                    (Float64) BLINK_MAX_HZ);
             return;
         }
@@ -159,11 +155,11 @@ static Void handleLed(Utf8* arg)
         {
             statusSolid(false);
         }
-        printf("OK led blink %.2f\n", (Float64) hz);
+        serialPrintf("OK led blink %.2f\n", (Float64) hz);
         return;
     }
 
-    printf("ERR bad LED argument: %s\n", arg);
+    serialPrintf("ERR bad LED argument: %s\n", arg);
 }
 
 /* ================================================================ sensors ==
@@ -215,7 +211,7 @@ static Void sensorsOpen(Void)
  */
 static Void printSensors(Void)
 {
-    printf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
+    serialPrintf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
            i2cUp ? 1 : 0, tofUp ? 1 : 0, VL53_ADDR_DEFAULT);
 }
 
@@ -225,7 +221,7 @@ static Void printScan(Void)
 {
     if(!i2cUp)
     {
-        printf("ERR scan i2c not up\n");
+        serialPrintf("ERR scan i2c not up\n");
         return;
     }
 
@@ -234,11 +230,11 @@ static Void printScan(Void)
     {
         if(i2cPresent(SENSOR_SDA, (UInt8) a))
         {
-            printf("INFO scan 0x%02X\n", a);
+            serialPrintf("INFO scan 0x%02X\n", a);
             ++found;
         }
     }
-    printf("OK scan %d\n", found);
+    serialPrintf("OK scan %d\n", found);
 }
 
 /*
@@ -252,7 +248,7 @@ static Void printTof(Void)
 {
     if(!tofUp)
     {
-        printf("ERR tof absent\n");
+        serialPrintf("ERR tof absent\n");
         return;
     }
 
@@ -275,20 +271,20 @@ static Void printTof(Void)
         (Void) vl53Rates(&tofFront, &sig, &amb);
 
         vl53Clear(&tofFront);
-        printf("OK tof %u %u %u %u\n", mm, st, sig, amb);
+        serialPrintf("OK tof %u %u %u %u\n", mm, st, sig, amb);
         return;
     }
 
     /* Not ready is not an error - the sensor takes tens of milliseconds per
      * measurement and the host is entitled to ask more often than that. */
-    printf("OK tof busy\n");
+    serialPrintf("OK tof busy\n");
 }
 
 static Void handleTofMode(Utf8* arg)
 {
     if(!tofUp)
     {
-        printf("ERR tof absent\n");
+        serialPrintf("ERR tof absent\n");
         return;
     }
 
@@ -303,7 +299,7 @@ static Void handleTofMode(Utf8* arg)
         vl53StopRanging(&tofFront);
         vl53SetMode(&tofFront, VL53_MODE_SHORT);
         vl53ClearInterruptAndStart(&tofFront);
-        printf("OK tof mode short\n");
+        serialPrintf("OK tof mode short\n");
         return;
     }
     if(textEq(arg, "LONG"))
@@ -311,10 +307,10 @@ static Void handleTofMode(Utf8* arg)
         vl53StopRanging(&tofFront);
         vl53SetMode(&tofFront, VL53_MODE_LONG);
         vl53ClearInterruptAndStart(&tofFront);
-        printf("OK tof mode long\n");
+        serialPrintf("OK tof mode long\n");
         return;
     }
-    printf("ERR bad mode: %s\n", arg);
+    serialPrintf("ERR bad mode: %s\n", arg);
 }
 
 /* ================================================================== drive ==
@@ -331,7 +327,7 @@ static Void handleTofMode(Utf8* arg)
 static Void printDrive(Void)
 {
     const DriveState d = driveRead();
-    printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
+    serialPrintf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
            "servo_on=%d servo_c=%d steer_m=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            d.servoUs, d.servoTargetUs, d.escUs, d.escTargetUs,
@@ -346,14 +342,14 @@ static Void handleSteer(Utf8* arg)
      * that it means zero would turn a typo into a movement. */
     if(arg[0] == '\0')
     {
-        printf("ERR steer wants -1.0 to 1.0\n");
+        serialPrintf("ERR steer wants -1.0 to 1.0\n");
         return;
     }
 
     Float32 n = 0.0f;
     if(!textFloat(arg, &n))
     {
-        printf("ERR steer wants -1.0 to 1.0\n");
+        serialPrintf("ERR steer wants -1.0 to 1.0\n");
         return;
     }
 
@@ -367,12 +363,12 @@ static Void handleTrim(Utf8* arg)
     if(!textInt(arg, &us))
     {
         const DriveState d = driveRead();
-        printf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
+        serialPrintf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
         return;
     }
 
     driveTrim(us);
-    printf("INFO centre is now %d us\n", driveRead().centerUs);
+    serialPrintf("INFO centre is now %d us\n", driveRead().centerUs);
     printDrive();
 }
 
@@ -382,12 +378,12 @@ static Void handleLimits(Utf8* arg)
     Int32 hi = 0;
     if(!textTwoInts(arg, &lo, &hi))
     {
-        printf("ERR limits wants <min> <max>\n");
+        serialPrintf("ERR limits wants <min> <max>\n");
         return;
     }
     if(!driveSetSteerLimits(lo, hi))
     {
-        printf("ERR limits min must be below max\n");
+        serialPrintf("ERR limits min must be below max\n");
         return;
     }
     printDrive();
@@ -399,12 +395,12 @@ static Void handleEscLimits(Utf8* arg)
     Int32 hi = 0;
     if(!textTwoInts(arg, &lo, &hi))
     {
-        printf("ERR esclimits wants <min> <max>\n");
+        serialPrintf("ERR esclimits wants <min> <max>\n");
         return;
     }
     if(!driveSetThrottleLimits(lo, hi))
     {
-        printf("ERR esclimits min must be below max\n");
+        serialPrintf("ERR esclimits min must be below max\n");
         return;
     }
     printDrive();
@@ -420,7 +416,7 @@ static Void handleServo(Utf8* arg)
     if(textEq(arg, "OFF"))
     {
         driveEngage(false);
-        printf("INFO servo released - no pulse, no holding torque\n");
+        serialPrintf("INFO servo released - no pulse, no holding torque\n");
         printDrive();
         return;
     }
@@ -428,7 +424,7 @@ static Void handleServo(Utf8* arg)
     if(textEq(arg, "ON"))
     {
         driveEngage(true);
-        printf("INFO servo engaged - holding %d us\n", driveRead().servoTargetUs);
+        serialPrintf("INFO servo engaged - holding %d us\n", driveRead().servoTargetUs);
         printDrive();
         return;
     }
@@ -444,7 +440,7 @@ static Void handleServo(Utf8* arg)
     if(!textInt(arg, &us))
     {
         const DriveState d = driveRead();
-        printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
+        serialPrintf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
                d.servoMinUs, d.servoMaxUs);
         return;
     }
@@ -455,7 +451,7 @@ static Void handleServo(Utf8* arg)
     driveSteerUs(us);
     if(!wasLive)
     {
-        printf("INFO servo is released - target stored, send SERVO ON\n");
+        serialPrintf("INFO servo is released - target stored, send SERVO ON\n");
     }
     printDrive();
 }
@@ -465,14 +461,14 @@ static Void handleEsc(Utf8* arg)
     if(textEq(arg, "ARM"))
     {
         driveArm(true);
-        printf("INFO esc armed - neutral held\n");
+        serialPrintf("INFO esc armed - neutral held\n");
         printDrive();
         return;
     }
     if(textEq(arg, "DISARM"))
     {
         driveArm(false);
-        printf("INFO esc disarmed\n");
+        serialPrintf("INFO esc disarmed\n");
         printDrive();
         return;
     }
@@ -487,14 +483,14 @@ static Void handleEsc(Utf8* arg)
     if(!textInt(arg, &us))
     {
         const DriveState d = driveRead();
-        printf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
+        serialPrintf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
         return;
     }
 
     /* The module owns the arming rule; this only reports it. */
     if(!driveThrottleUs(us))
     {
-        printf("ERR esc not armed - send ESC ARM first\n");
+        serialPrintf("ERR esc not armed - send ESC ARM first\n");
         return;
     }
     printDrive();
@@ -514,7 +510,7 @@ static Void handleLine(Utf8* line)
 
     if(textEq(line, "PING"))
     {
-        printf("PONG\n");
+        serialPrintf("PONG\n");
         return;
     }
 
@@ -538,7 +534,7 @@ static Void handleLine(Utf8* line)
 
     if(textEq(line, "BOOTSEL"))
     {
-        printf("INFO rebooting into bootloader\n");
+        serialPrintf("INFO rebooting into bootloader\n");
         rebootToBootsel();          /* flushes, then does not return */
         return;
     }
@@ -552,7 +548,7 @@ static Void handleLine(Utf8* line)
     if(textEq(line, "STOP"))
     {
         driveStop();
-        printf("OK stop\n");
+        serialPrintf("OK stop\n");
         return;
     }
 
@@ -631,7 +627,7 @@ static Void handleLine(Utf8* line)
         return;
     }
 
-    printf("ERR unknown command: %s\n", line);
+    serialPrintf("ERR unknown command: %s\n", line);
 }
 
 /* ------------------------------------------------------------------ main -- */
@@ -678,7 +674,7 @@ Int32 main(Void)
         const Bool host = serialHostPresent();
         if(!announced && host)
         {
-            printf("INFO ready %s sdk=%s - type HELP\n",
+            serialPrintf("INFO ready %s sdk=%s - type HELP\n",
                    PICO_BOARD, PICO_SDK_VERSION_STRING);
             announced = true;
         }
@@ -708,7 +704,7 @@ Int32 main(Void)
             /* Overlong line: drop it rather than silently truncating into a
              * command that means something else. */
             len = 0;
-            printf("ERR line too long\n");
+            serialPrintf("ERR line too long\n");
         }
     }
 }

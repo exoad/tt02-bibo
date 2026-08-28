@@ -410,6 +410,54 @@ else:
         print('  %-40s %4d' % (path, c_casts[path]))
     print('  %-40s %4d' % ('TOTAL', sum(c_casts.values())))
 
+# ---------------------------------------------------------------------------
+# Application code uses the LIBRARY, not libc.
+#
+# firmware/lib wraps the C standard library so the project has one vocabulary:
+# serialPrintf rather than printf, textEq rather than strcmp, textInt rather
+# than atoi. The wrappers cost nothing - they are macros or static inline - and
+# the point is not speed, it is that the seam is complete. A console calling
+# printf() directly was the one place reaching past it, sixty-two times, and
+# the day the transport is not stdio that is sixty-two call sites to find
+# instead of one definition to change.
+#
+# Only app/ and scratch/ are checked. lib/ is WHERE the wrapping happens, so
+# text.h naming strtol is the wrapper doing its job.
+# ---------------------------------------------------------------------------
+print('\n--- application code reaching past the library ---')
+
+LIBC_DIRECT = [
+    ('printf',   'serialPrintf'),
+    ('puts',     'serialPrintLine'),
+    ('fputs',    'serialPrint'),
+    ('strcmp',   'textEq'),
+    ('strncmp',  'textStarts'),
+    ('strlen',   'textLen'),
+    ('atoi',     'textInt'),
+    ('atof',     'textFloat'),
+    ('sscanf',   'textTwoInts'),
+    ('toupper',  'textUpper'),
+]
+
+libc_bad = 0
+for path in files:
+    norm = path.replace('\\', '/')
+    if '/firmware/app/' not in norm and '/firmware/scratch/' not in norm:
+        continue
+    code = strip_noise(rd(path))
+    for i, line in enumerate(code.split('\n')):
+        for name, instead in LIBC_DIRECT:
+            # Whole word followed by a paren, so snprintf does not match printf
+            # and textLen does not match strlen.
+            if re.search(r'(?<![A-Za-z0-9_])' + name + r'\s*\(', line):
+                print('  %-22s %5d  %s( -> use %s('
+                      % (os.path.basename(path), i + 1, name, instead))
+                libc_bad += 1
+
+if libc_bad == 0:
+    print('  ok')
+total += libc_bad
+
 print('\n--- header extensions ---')
 for path in files:
     f = os.path.basename(path)

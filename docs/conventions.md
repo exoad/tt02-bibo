@@ -334,6 +334,33 @@ formatting problem, they are a design one — a function taking eleven parameter
 was hard to read wrapped as well, and the wrapping was hiding it. Shortening
 those signatures is real work and is not done.
 
+### Application code uses the library, not libc
+
+`firmware/lib` wraps the C standard library so the project has one vocabulary:
+
+| instead of | use | from |
+|---|---|---|
+| `printf` | `serialPrintf` | `hal.h` |
+| `puts` / `fputs` | `serialPrintLine` / `serialPrint` | `hal.h` |
+| `strcmp(a,b)==0` | `textEq` | `text.h` |
+| `strncmp(s,p,n)==0` | `textStarts` | `text.h` |
+| `atoi` / `atof` | `textInt` / `textFloat` | `text.h` |
+| `sscanf("%d %d")` | `textTwoInts` | `text.h` |
+| `toupper` loop | `textUpper` | `text.h` |
+
+The wrappers cost nothing — they are macros or `static inline` and compile to
+exactly what they wrap. **The point is that the seam is complete.** `hal.h` is
+where the SDK's spelling stops and this project's begins, and a console calling
+`printf()` directly was the one place reaching past it — sixty-two times. The
+day the transport is not stdio (a UDP link, a log to the SD card, both at once)
+that is sixty-two call sites to find instead of one definition to change.
+
+`app/` and `scratch/` include **`../lib/tt02.h` and nothing else**, and name no
+libc function at all. The style audit checks this and names the replacement.
+
+**`lib/` is exempt, because it is where the wrapping happens.** `text.h` naming
+`strtol` is the wrapper doing its job.
+
 ### `static inline` is `static`, in C++
 
 `static` on a free function already gives it internal linkage, and a static

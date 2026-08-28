@@ -191,7 +191,21 @@ static inline Void serialPrintLine(CharSeq text)
     puts(text);
 }
 
-/* Variadic, so a macro rather than a function. */
+/*
+ * Formatted output to the host.
+ *
+ * A macro rather than a function because it is variadic and a forwarding
+ * wrapper would cost a va_list round trip for nothing. It compiles to exactly
+ * the printf it wraps.
+ *
+ * The point is not overhead - there is none - it is that the SEAM is complete.
+ * hal.h is where the SDK's spelling stops and this project's begins, and a
+ * console calling printf() directly was the one place that reached past it,
+ * sixty-two times. Everything a program needs now has a name from this library,
+ * so the day the transport is not stdio - a UDP link, a log to the SD card,
+ * both at once - there is one definition to change instead of sixty-two call
+ * sites to find.
+ */
 #define serialPrintf(...) printf(__VA_ARGS__)
 
 /*
