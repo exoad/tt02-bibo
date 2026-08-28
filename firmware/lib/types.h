@@ -79,4 +79,23 @@ typedef Void* Any;
 typedef uint16_t Utf16;
 typedef uint32_t Utf32;
 
+/*
+ * A macro's VALUE as a string literal.
+ *
+ * The two-step is not decoration. A parameter is NOT macro-expanded before the
+ * # operator sees it, so a single-level STRINGIFY(PICO_DEFAULT_LED_PIN) yields
+ * the string "PICO_DEFAULT_LED_PIN" rather than "25". Passing it through an
+ * outer macro first forces the expansion, and the inner one then stringifies
+ * what it became. Every C codebase writes this pair eventually; here it is
+ * once, spelled out, instead of three times in three headers.
+ *
+ * Guarded because it is a common enough name that a vendor header may already
+ * have claimed it, and a redefinition warning in a build this quiet would be
+ * noise nobody reads.
+ */
+#ifndef STRINGIFY
+#define STRINGIFY_INNER(x) #x
+#define STRINGIFY(x) STRINGIFY_INNER(x)
+#endif
+
 #endif

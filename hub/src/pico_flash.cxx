@@ -399,7 +399,11 @@ Void PicoFlash::refreshCatalog()
         Str s = trim(line);
         if(s.empty() || s[0] == '#') continue;
 
-        // id | name | uf2 path | buildable | description
+        // id | name | uf2 path | build | description
+        //
+        // The build field names the board ("pico2_w" / "pico2") or is "no".
+        // "yes" and "true" are the old spelling, from when there was only one
+        // board, and still mean the W.
         Str field[5];
         Int32         n     = 0;
         Size      start = 0;
@@ -424,8 +428,22 @@ Void PicoFlash::refreshCatalog()
         e.id          = field[0];
         e.name        = field[1].empty() ? field[0] : field[1];
         e.uf2Path    = root + "\\" + toBackslashes(field[2]);
-        e.buildable   = (_stricmp(field[3].c_str(), "yes") == 0 ||
-                         _stricmp(field[3].c_str(), "true") == 0);
+        const Str  build     = field[3];
+        const Bool legacyYes = (_stricmp(build.c_str(), "yes") == 0 ||
+                                _stricmp(build.c_str(), "true") == 0);
+        const Bool none      = (build.empty() ||
+                                _stricmp(build.c_str(), "no") == 0 ||
+                                _stricmp(build.c_str(), "false") == 0);
+
+        e.buildable = !none;
+        if(legacyYes)
+        {
+            e.board = "pico2_w";
+        }
+        else if(!none)
+        {
+            e.board = build;
+        }
         e.description = field[4];
 
         WIN32_FILE_ATTRIBUTE_DATA fa{};
@@ -574,14 +592,16 @@ Void PicoFlash::build(const Str& id)
         pimpl().log("[error] repo root not found"); return;;
     }
 
-    Str name = id;
-    Bool        can  = false;
+    Str name  = id;
+    Str board;
+    Bool        can   = false;
     {
         LockGuard<Mutex> lk(pimpl().mu);
         if(const FirmwareEntry* e = findEntry(pimpl().catalog, id))
         {
-            name = e->name;
-            can  = e->buildable;
+            name  = e->name;
+            can   = e->buildable;
+            board = e->board;
         }
     }
     if(!can)
@@ -597,12 +617,24 @@ Void PicoFlash::build(const Str& id)
         pimpl().logf("[error] missing %s", bat.c_str()); return;;
     }
 
-    const Str desc = "building " + name;
-    pimpl().start(desc, [root, bat]()
+    const Str desc = "building " + name
+                   + (board.empty() ? Str() : Str(" for ") + board);
+
+    pimpl().start(desc, [root, bat, board]()
     {
-        // build.bat takes no target: it builds what firmware/CMakeLists.txt
-        // defines. Any future second target belongs in the script, not here.
-        const Str cmd = "cmd.exe /s /c \"" + quote(bat) + "\"";
+        // build.bat still takes no TARGET - it builds everything
+        // firmware/CMakeLists.txt defines - but it does take a BOARD, and that
+        // decides which tree the output lands in. Passing it is what keeps the
+        // car's image out of the W's build directory and the other way round.
+        //
+        // An entry with no board is one this repo does not build, and the check
+        // above has already refused those.
+        Str cmd = "cmd.exe /s /c \"" + quote(bat);
+        if(!board.empty())
+        {
+            cmd += " " + board;
+        }
+        cmd += "\"";
         return runCapture(cmd, root, [](const Str& l) { pimpl().log(l); });
     });
 }

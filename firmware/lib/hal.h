@@ -46,6 +46,11 @@
  */
 #include "types.h"
 
+/* pico/stdlib.h FIRST, and on its own line, because it is what drags in the
+ * board header - and the board header is what decides, below, whether this
+ * build has a wireless chip at all. Everything after it can then ask. */
+#include "pico/stdlib.h"
+
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
@@ -55,8 +60,15 @@
 #include "pico/unique_id.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
+
+/* Only on a board that HAS the chip. On a plain Pico 2 this header is still on
+ * the include path - the SDK ships it unconditionally - but nothing links
+ * pico_cyw43_arch, so including it here would compile and then fail at the
+ * link with a wall of undefined references to a peripheral the board does not
+ * physically have. Ask the board, not the SDK. */
+#if defined(CYW43_WL_GPIO_LED_PIN)
 #include "pico/cyw43_arch.h"
-#include "pico/stdlib.h"
+#endif
 
 /* ---- types --------------------------------------------------------------- */
 
@@ -415,20 +427,33 @@ static inline Void servoRelease(Pin pin)
 
 /* ---- the onboard LED ------------------------------------------------------
  *
- * NOT a GPIO. On the Pico 2 W the user LED is wired to the CYW43439 wireless
- * chip, so it cannot be reached with gpioWrite() at any pin number - the chip
- * has to be brought up first and then driven through its own GPIO space. This
- * catches everybody once: the classic `gpio_put(25, 1)` from a Pico 1 example
- * compiles, runs, and does nothing at all here.
+ * The one part of this header where the two boards genuinely differ, so it is
+ * the one part written twice.
  *
- * ledOpen() must be called before any other led* function, and it can FAIL -
- * the chip is a real peripheral on a real bus. Check the return: if you ignore
- * it, every later call silently does nothing and you will spend the evening
- * looking at your wiring instead.
+ *   Pico 2 W - the LED hangs off the CYW43439 wireless chip. It is NOT a GPIO
+ *              and cannot be reached with gpioWrite() at any pin number: the
+ *              chip has to be brought up first and then driven through its own
+ *              GPIO space. This catches everybody once, because the classic
+ *              `gpio_put(25, 1)` from a Pico 1 example compiles, runs, and
+ *              does nothing at all.
+ *
+ *   Pico 2    - the LED is exactly what you expect: GP25, a plain output.
+ *              Bringing it up cannot fail.
+ *
+ * The API above the split does not change, which is the whole point: statusOpen
+ * and every sketch that blinks are written once and run on either board. Only
+ * the four functions below know which board they were compiled for, and they
+ * are told by the SDK's own board header rather than by anything this project
+ * has to remember to set.
+ *
+ * ledOpen() must be called before any other led* function, and on the W it can
+ * FAIL - the chip is a real peripheral on a real bus. Check the return: if you
+ * ignore it, every later call silently does nothing and you will spend the
+ * evening looking at your wiring instead.
  */
 
 /*
- * Whether the chip came up, remembered here rather than by every caller.
+ * Whether the lamp came up, remembered here rather than by every caller.
  *
  * ledWrite() used to drive the CYW43439 whether or not it had initialised, so
  * each program carried its own `cyw43Ok` guard and its own copy of the reason.
@@ -437,16 +462,11 @@ static inline Void servoRelease(Pin pin)
  */
 static Bool ledUp = false;
 
+#if defined(CYW43_WL_GPIO_LED_PIN)
+
 static inline Bool ledOpen(Void)
 {
     ledUp = (cyw43_arch_init() == 0);
-    return ledUp;
-}
-
-/* Whether the chip is up. For a program that wants to REPORT the failure
- * rather than merely survive it. */
-static inline Bool ledPresent(Void)
-{
     return ledUp;
 }
 
@@ -461,6 +481,78 @@ static inline Void ledWrite(Bool on)
 static inline Bool ledRead(Void)
 {
     return ledUp && cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
+}
+
+/* Where the lamp is, for a program that reports its own wiring. */
+static inline CharSeq ledBackend(Void)
+{
+    return "cyw43";
+}
+
+#elif defined(PICO_DEFAULT_LED_PIN)
+
+static inline Bool ledOpen(Void)
+{
+    gpio_init((uint) PICO_DEFAULT_LED_PIN);
+    gpio_set_dir((uint) PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    ledUp = true;
+    return ledUp;
+}
+
+static inline Void ledWrite(Bool on)
+{
+    if(ledUp)
+    {
+        gpio_put((uint) PICO_DEFAULT_LED_PIN, on);
+    }
+}
+
+static inline Bool ledRead(Void)
+{
+    return ledUp && gpio_get((uint) PICO_DEFAULT_LED_PIN);
+}
+
+static inline CharSeq ledBackend(Void)
+{
+    return "gpio" STRINGIFY(PICO_DEFAULT_LED_PIN);
+}
+
+#else
+
+/*
+ * A board with no lamp at all. Not either of ours, but the alternative to
+ * handling it is a build that fails with a macro error nobody can read, and
+ * this way a program written for the car still compiles and runs on it - it
+ * just cannot wave.
+ */
+static inline Bool ledOpen(Void)
+{
+    ledUp = false;
+    return false;
+}
+
+static inline Void ledWrite(Bool on)
+{
+    (Void) on;
+}
+
+static inline Bool ledRead(Void)
+{
+    return false;
+}
+
+static inline CharSeq ledBackend(Void)
+{
+    return "none";
+}
+
+#endif
+
+/* Whether the lamp is up. For a program that wants to REPORT the failure
+ * rather than merely survive it. */
+static inline Bool ledPresent(Void)
+{
+    return ledUp;
 }
 
 static inline Void ledToggle(Void)

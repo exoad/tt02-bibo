@@ -1,8 +1,17 @@
 cmake_minimum_required(VERSION 3.13)
 
-# Pico 2 W: RP2350 plus a CYW43439. The board matters here beyond pin naming -
-# the user LED is on the wireless chip, so pico_cyw43_arch is required just to
-# blink it. Overridable for the bench mule (e.g. -DPICO_BOARD=pico_w).
+# Two boards, one firmware.
+#
+#   pico2_w  the breadboard workhorse. RP2350 plus a CYW43439, and the user LED
+#            hangs off that chip - so pico_cyw43_arch has to be linked just to
+#            blink it.
+#   pico2    the board that goes IN THE CAR. Same RP2350, same pinout for
+#            everything this project uses, but no wireless chip: the LED is a
+#            plain GPIO and cyw43 must NOT be linked.
+#
+# The default stays pico2_w because that is the board on the desk and the one
+# every existing script, path and note already means. Build the car's image
+# with:  firmware\build.bat pico2
 if(NOT DEFINED PICO_BOARD)
     set(PICO_BOARD pico2_w)
 endif()
@@ -14,6 +23,21 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
+
+# Whether THIS board has the wireless chip, asked of the SDK rather than
+# pattern-matched off the board name. The board header carries
+# `pico_board_cmake_set(PICO_CYW43_SUPPORTED, 1)` and the SDK lifts that into a
+# CMake variable while loading it - so pico2_w answers yes, pico2 answers
+# nothing, and a board nobody has thought about yet answers correctly on its
+# own. Matching on a trailing "_w" would have been shorter and would have been
+# a rule this project invented about somebody else's naming.
+if(PICO_CYW43_SUPPORTED)
+    set(TT02_LED_LIBS pico_cyw43_arch_none)
+    message(STATUS "tt02: ${PICO_BOARD} - LED via CYW43439, linking cyw43_arch")
+else()
+    set(TT02_LED_LIBS "")
+    message(STATUS "tt02: ${PICO_BOARD} - LED on a plain GPIO, no cyw43")
+endif()
 
 # Headers are listed as SOURCES on purpose. CMake does not need them - it finds
 # them through the include path - but an IDE decides what LANGUAGE a .h is by
@@ -40,12 +64,14 @@ add_executable(pico_debug
     ${TT02_LIB}
 )
 
-# pico_cyw43_arch_none: the wireless chip is brought up so its GPIO (and so the
-# LED) works, but no networking stack is linked. AP mode + UDP arrive in phase 3;
-# pulling lwip in now would cost flash and build time for nothing.
+# TT02_LED_LIBS is pico_cyw43_arch_none on the W and empty on the plain Pico 2 -
+# see the board test above. _none is the no-networking variant: the chip is
+# brought up so its GPIO (and so the LED) works, and no lwIP is linked. AP mode
+# + UDP arrive in phase 3; pulling lwip in now would cost flash and build time
+# for nothing.
 target_link_libraries(pico_debug
     pico_stdlib
-    pico_cyw43_arch_none
+    ${TT02_LED_LIBS}
     pico_unique_id
     hardware_pwm
     hardware_adc
@@ -86,22 +112,20 @@ add_executable(sketch
     ${TT02_LIB}
 )
 
-# pico_stdlib does not carry PWM, ADC or the watchdog, and the Pico 2 W's own
-# LED hangs off the CYW43439 rather than a GPIO - so the wireless arch has to be
-# linked just to blink it. Linking all of them here rather than making each
-# sketch ask keeps the promise tt02.h makes: include it and everything in it
-# works.
+# pico_stdlib does not carry PWM, ADC or the watchdog, and on the Pico 2 W the
+# LED hangs off the CYW43439 rather than a GPIO - so there the wireless arch has
+# to be linked just to blink it. Linking all of them here rather than making
+# each sketch ask keeps the promise tt02.h makes: include it and everything in
+# it works.
 #
-# COST, stated honestly: cyw43_arch roughly doubles a CLEAN build of this target
-# (86 -> ~190 translation units). Incremental builds are unaffected - editing
-# sketch.c still recompiles one file - and a first-hour program that cannot
-# blink the LED everybody can see is the worse trade.
-#
-# _none is the no-networking variant: the chip is brought up so its GPIO works,
-# and no lwIP is linked. AP mode arrives in phase 3.
+# COST, stated honestly: on the W, cyw43_arch roughly doubles a CLEAN build of
+# this target (86 -> ~190 translation units). Incremental builds are unaffected
+# - editing sketch.c still recompiles one file - and a first-hour program that
+# cannot blink the LED everybody can see is the worse trade. The car's pico2
+# build does not pay it at all: TT02_LED_LIBS is empty there.
 target_link_libraries(sketch
     pico_stdlib
-    pico_cyw43_arch_none
+    ${TT02_LED_LIBS}
     hardware_pwm
     hardware_adc
     hardware_watchdog

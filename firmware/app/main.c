@@ -59,64 +59,77 @@
 
 /* -------------------------------------------------------------- commands -- */
 
-static CharSeq cyw43Word(Void)
+/* Whether the lamp came up, whatever the lamp happens to BE on this board. */
+static CharSeq lampWord(Void)
 {
-    return ledPresent() ? "up" : "FAILED";
+    return ledPresent() ? "yes" : "no";
 }
 
-static Void printId(Void)
+/*
+ * The trailing " cyw43=up" field - emitted ONLY on a board that has the chip.
+ *
+ * Absent, not false, on the plain Pico 2. There is no wireless chip in that
+ * package to be down, and the hub reads this field to light a chip indicator:
+ * reporting cyw43=FAILED there would paint a hardware fault on a board that is
+ * working perfectly. A field that does not apply is one you leave out, and the
+ * hub already treats "not mentioned" as "nothing to say".
+ */
+static CharSeq cyw43Field(Void)
 {
+#if defined(CYW43_WL_GPIO_LED_PIN)
+    return ledPresent() ? " cyw43=up" : " cyw43=FAILED";
+#else
+    return "";
+#endif
+}
+
+static Void printId(CharSeq arg)
+{
+    (Void) arg;
+
     Utf8 uid[24];
     boardId(uid, sizeof(uid));
 
-    serialPrintf("INFO id board=%s sdk=%s built=%s %s uid=%s cyw43=%s\n",
+    serialPrintf("INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
            PICO_BOARD, PICO_SDK_VERSION_STRING, __DATE__, __TIME__,
-           uid, cyw43Word());
+           uid, ledBackend(), lampWord(), cyw43Field());
 }
 
-static Void printStatus(Void)
+static Void printStatus(CharSeq arg)
 {
-    serialPrintf("INFO status up_ms=%u led=%s blink_hz=%.2f cyw43=%s\n",
+    (Void) arg;
+
+    /* board= is on THIS line as well as on ID, because STATUS is the line
+     * anything polls. The hub asks for it every couple of seconds and asks for
+     * ID only when a person clicks something - so a field that appears solely
+     * on ID is a field the hub almost never has. There are two boards in this
+     * project now and telling them apart is worth six characters a poll. */
+    serialPrintf("INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
            nowMs(),
+           PICO_BOARD,
            statusIsLit() ? "on" : "off",
            (Float64) statusRate(),
-           cyw43Word());
-}
-
-static Void printHelp(Void)
-{
-    serialPrintf("INFO help PING - answers PONG\n");
-    serialPrintf("INFO help ID - board, sdk, build time, unique id\n");
-    serialPrintf("INFO help STATUS - uptime and led state\n");
-    serialPrintf("INFO help LED ON|OFF - solid\n");
-    serialPrintf("INFO help LED BLINK <hz> - 0 stops\n");
-    serialPrintf("INFO help BOOTSEL - reboot into the UF2 bootloader\n");
-    serialPrintf("INFO help SENSORS - what is attached\n");
-    serialPrintf("INFO help SCAN - every I2C address that answers\n");
-    serialPrintf("INFO help TOF - range in mm and a status\n");
-    serialPrintf("INFO help TOF MODE SHORT|LONG - 1.3 m or 4 m\n");
-    serialPrintf("INFO help DRIVE - servo and esc state\n");
-    serialPrintf("INFO help SERVO <us>|CENTER - steering\n");
-    serialPrintf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
-    serialPrintf("INFO help STOP - neutral both, disarm the esc\n");
-    serialPrintf("INFO help STEER <-1..1> - steer as a fraction of this car's travel\n");
-    serialPrintf("INFO help SLEW <us> - how fast outputs may move, per tick\n");
-    serialPrintf("INFO help SERVOTRIM <us> - move where centre is\n");
-    serialPrintf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
-    serialPrintf("INFO help SERVO ON - drive the steering again\n");
-    serialPrintf("INFO help SERVOLIMITS <min> <max> - widen to find end stops\n");
-    serialPrintf("INFO help ESCLIMITS <min> <max> - widen the throttle range\n");
+           ledBackend(), lampWord(), cyw43Field());
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
-/* The " (cyw43 down, no effect)" tail on an LED reply. An OK that did nothing
- * has to say so, or a dead wireless chip looks like a dead command parser. */
+/* The tail on an LED reply when there is nothing to light. An OK that did
+ * nothing has to say so, or a dead lamp looks like a dead command parser - and
+ * the two boards fail this differently, so they say it differently. */
 static CharSeq ledCaveat(Void)
 {
-    return ledPresent() ? "" : " (cyw43 down, no effect)";
+    if(ledPresent())
+    {
+        return "";
+    }
+#if defined(CYW43_WL_GPIO_LED_PIN)
+    return " (cyw43 down, no effect)";
+#else
+    return " (no lamp on this board, no effect)";
+#endif
 }
 
-static Void handleLed(Utf8* arg)
+static Void handleLed(CharSeq arg)
 {
     if(textEq(arg, "ON"))
     {
@@ -210,16 +223,20 @@ static Void sensorsOpen(Void)
  * Shaped as key=value pairs so a reader that does not know about a sensor added
  * later ignores it rather than failing to parse the line.
  */
-static Void printSensors(Void)
+static Void printSensors(CharSeq arg)
 {
+    (Void) arg;
+
     serialPrintf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
            i2cUp ? 1 : 0, tofUp ? 1 : 0, VL53_ADDR_DEFAULT);
 }
 
 /* Every address that acknowledges. The same job as the standalone scanner
  * sketch, available over the link so the hub can offer it too. */
-static Void printScan(Void)
+static Void printScan(CharSeq arg)
 {
+    (Void) arg;
+
     if(!i2cUp)
     {
         serialPrintf("ERR scan i2c not up\n");
@@ -281,7 +298,7 @@ static Void printTof(Void)
     serialPrintf("OK tof busy\n");
 }
 
-static Void handleTofMode(Utf8* arg)
+static Void handleTofMode(CharSeq arg)
 {
     if(!tofUp)
     {
@@ -337,7 +354,7 @@ static Void printDrive(Void)
            d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
 }
 
-static Void handleSteer(Utf8* arg)
+static Void handleSteer(CharSeq arg)
 {
     /* Rejected rather than defaulted: "STEER" with nothing after it is far more
      * likely to be a truncated command than a request to centre, and guessing
@@ -382,7 +399,7 @@ static Void handleSlew(CharSeq arg)
     printDrive();
 }
 
-static Void handleTrim(Utf8* arg)
+static Void handleTrim(CharSeq arg)
 {
     Int32 us = 0;
     if(!textInt(arg, &us))
@@ -397,41 +414,42 @@ static Void handleTrim(Utf8* arg)
     printDrive();
 }
 
-static Void handleLimits(Utf8* arg)
+/*
+ * SERVOLIMITS and ESCLIMITS, which are one command with two setters.
+ *
+ * They were written out twice, identically apart from the word in the error
+ * messages and the function called - and the two copies had already drifted
+ * once, because the ordering bug fixed in driveSetSteerLimits had to be
+ * remembered a second time for the throttle.
+ */
+static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
 {
     Int32 lo = 0;
     Int32 hi = 0;
     if(!textTwoInts(arg, &lo, &hi))
     {
-        serialPrintf("ERR limits wants <min> <max>\n");
+        serialPrintf("ERR %s wants <min> <max>\n", name);
         return;
     }
-    if(!driveSetSteerLimits(lo, hi))
+    if(!set(lo, hi))
     {
-        serialPrintf("ERR limits min must be below max\n");
+        serialPrintf("ERR %s min must be below max\n", name);
         return;
     }
     printDrive();
 }
 
-static Void handleEscLimits(Utf8* arg)
+static Void handleLimits(CharSeq arg)
 {
-    Int32 lo = 0;
-    Int32 hi = 0;
-    if(!textTwoInts(arg, &lo, &hi))
-    {
-        serialPrintf("ERR esclimits wants <min> <max>\n");
-        return;
-    }
-    if(!driveSetThrottleLimits(lo, hi))
-    {
-        serialPrintf("ERR esclimits min must be below max\n");
-        return;
-    }
-    printDrive();
+    limitsCommand(arg, "servolimits", driveSetSteerLimits);
 }
 
-static Void handleServo(Utf8* arg)
+static Void handleEscLimits(CharSeq arg)
+{
+    limitsCommand(arg, "esclimits", driveSetThrottleLimits);
+}
+
+static Void handleServo(CharSeq arg)
 {
     /*
      * OFF stops the pulse train outright. This is the panic button: a servo
@@ -481,7 +499,7 @@ static Void handleServo(Utf8* arg)
     printDrive();
 }
 
-static Void handleEsc(Utf8* arg)
+static Void handleEsc(CharSeq arg)
 {
     if(textEq(arg, "ARM"))
     {
@@ -522,6 +540,113 @@ static Void handleEsc(Utf8* arg)
 }
 
 
+/* ---- the command table ---------------------------------------------------
+ *
+ * One row per command; the dispatcher and HELP both read it.
+ *
+ * They used to be two lists. A chain of twenty if(textStarts(...)) blocks with
+ * the argument offset written out by hand - line + 10 for "SERVOTRIM ",
+ * line + 12 for "SERVOLIMITS " - and a printHelp() that spelled the same
+ * commands out again in prose. Two lists of the same thing drift: the offsets
+ * were a silent hazard, because miscounting one makes the argument parser read
+ * from the middle of the command word and the command merely stops working.
+ *
+ * Matching is by WHOLE WORD, so the order of the rows means nothing. The old
+ * chain worked only because SERVOTRIM and SERVOLIMITS happened to be tested
+ * before SERVO, which textStarts() would otherwise have matched first.
+ *
+ * `usage` is what may follow the name and `what` is one line about it; HELP
+ * prints them and nothing else has to be kept in step.
+ */
+typedef Void (*CmdRun)(CharSeq arg);
+
+typedef struct
+{
+    CharSeq name;
+    CharSeq usage;
+    CharSeq what;
+    CmdRun  run;
+} Command;
+
+/* Defined below the table, which it walks. */
+static Void printHelp(CharSeq arg);
+
+/* TOF's subcommand, kept here rather than as a second row: "TOF MODE LONG" is
+ * an argument to TOF, not a command called "TOF MODE", and whole-word matching
+ * would hand the whole thing to TOF anyway. */
+static Void cmdTof(CharSeq arg)
+{
+    CharSeq mode = textWord(arg, "MODE");
+    if(mode != NULL)
+    {
+        handleTofMode(mode);
+        return;
+    }
+    printTof();
+}
+
+static Void cmdPing(CharSeq arg)
+{
+    (Void) arg;
+    serialPrintf("PONG\n");
+}
+
+static Void cmdDrive(CharSeq arg)
+{
+    (Void) arg;
+    printDrive();
+}
+
+static Void cmdStop(CharSeq arg)
+{
+    (Void) arg;
+    driveStop();
+    serialPrintf("OK stop\n");
+}
+
+static Void cmdBootsel(CharSeq arg)
+{
+    (Void) arg;
+    serialPrintf("INFO rebooting into bootloader\n");
+    rebootToBootsel();          /* flushes, then does not return */
+}
+
+static const Command COMMANDS[] =
+{
+    { "PING",        "",                        "answers PONG",                             cmdPing },
+    { "ID",          "",                        "board, sdk, build time, unique id",        printId },
+    { "STATUS",      "",                        "uptime and led state",                     printStatus },
+    { "HELP",        "",                        "this list",                                printHelp },
+    { "BOOTSEL",     "",                        "reboot into the UF2 bootloader",           cmdBootsel },
+    { "LED",         " ON|OFF|BLINK <hz>",      "solid, or blink; 0 stops",                 handleLed },
+
+    { "SENSORS",     "",                        "what is attached",                         printSensors },
+    { "SCAN",        "",                        "every I2C address that answers",           printScan },
+    { "TOF",         " [MODE SHORT|LONG]",      "range in mm; the mode is 1.3 m or 4 m",    cmdTof },
+
+    { "DRIVE",       "",                        "servo and esc state",                      cmdDrive },
+    { "STOP",        "",                        "neutral both, disarm the esc",             cmdStop },
+    { "STEER",       " <-1..1>",                "steer as a fraction of this car's travel", handleSteer },
+    { "SLEW",        " <us>",                   "how fast outputs may move, per tick",      handleSlew },
+    { "SERVO",       " <us>|ON|OFF|CENTER",     "steering; OFF stops the pulse, servo limp", handleServo },
+    { "SERVOTRIM",   " <us>",                   "move where centre is",                     handleTrim },
+    { "SERVOLIMITS", " <min> <max>",            "widen to find the real end stops",         handleLimits },
+    { "ESC",         " ARM|DISARM|NEUTRAL|<us>", "throttle",                                handleEsc },
+    { "ESCLIMITS",   " <min> <max>",            "widen the throttle range",                 handleEscLimits },
+};
+
+static const Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
+
+static Void printHelp(CharSeq arg)
+{
+    (Void) arg;
+    for(Size i = 0; i < COMMAND_COUNT; ++i)
+    {
+        serialPrintf("INFO help %s%s - %s\n",
+                     COMMANDS[i].name, COMMANDS[i].usage, COMMANDS[i].what);
+    }
+}
+
 static Void handleLine(Utf8* line)
 {
     /* A terminal decides for itself what to put at the end of a line. Without
@@ -533,129 +658,22 @@ static Void handleLine(Utf8* line)
 
     textUpper(line);
 
-    if(textEq(line, "PING"))
+    /* "?" is HELP, and is not a row of its own: it would print as a command in
+     * its own listing, which is one more thing than anybody wants to read. */
+    if(textEq(line, "?"))
     {
-        serialPrintf("PONG\n");
+        printHelp(line);
         return;
     }
 
-    if(textEq(line, "ID"))
+    for(Size i = 0; i < COMMAND_COUNT; ++i)
     {
-        printId();
-        return;
-    }
-
-    if(textEq(line, "STATUS"))
-    {
-        printStatus();
-        return;
-    }
-
-    if(textEq(line, "HELP") || textEq(line, "?"))
-    {
-        printHelp();
-        return;
-    }
-
-    if(textEq(line, "BOOTSEL"))
-    {
-        serialPrintf("INFO rebooting into bootloader\n");
-        rebootToBootsel();          /* flushes, then does not return */
-        return;
-    }
-
-    if(textStarts(line, "LED "))
-    {
-        handleLed(line + 4);
-        return;
-    }
-
-    if(textEq(line, "STOP"))
-    {
-        driveStop();
-        serialPrintf("OK stop\n");
-        return;
-    }
-
-    if(textEq(line, "DRIVE"))
-    {
-        printDrive();
-        return;
-    }
-
-    if(textStarts(line, "STEER "))
-    {
-        handleSteer(line + 6);
-        return;
-    }
-
-    /* Bare STEER, so the "wants an argument" message is reachable. Without this
-     * it falls through to "unknown command", which is true but unhelpful: the
-     * command exists, the argument does not. */
-    if(textEq(line, "STEER"))
-    {
-        handleSteer(line + 5);
-        return;
-    }
-
-    if(textStarts(line, "SLEW "))
-    {
-        handleSlew(textAfter(line, "SLEW "));
-        return;
-    }
-
-    if(textStarts(line, "SERVOTRIM "))
-    {
-        handleTrim(line + 10);
-        return;
-    }
-
-    if(textStarts(line, "SERVOLIMITS "))
-    {
-        handleLimits(line + 12);
-        return;
-    }
-
-    if(textStarts(line, "ESCLIMITS "))
-    {
-        handleEscLimits(line + 10);
-        return;
-    }
-
-    if(textStarts(line, "SERVO "))
-    {
-        handleServo(line + 6);
-        return;
-    }
-
-    if(textStarts(line, "ESC "))
-    {
-        handleEsc(line + 4);
-        return;
-    }
-
-    if(textEq(line, "SENSORS"))
-    {
-        printSensors();
-        return;
-    }
-
-    if(textEq(line, "SCAN"))
-    {
-        printScan();
-        return;
-    }
-
-    if(textEq(line, "TOF"))
-    {
-        printTof();
-        return;
-    }
-
-    if(textStarts(line, "TOF MODE "))
-    {
-        handleTofMode(line + 9);
-        return;
+        CharSeq arg = textWord(line, COMMANDS[i].name);
+        if(arg != NULL)
+        {
+            COMMANDS[i].run(arg);
+            return;
+        }
     }
 
     serialPrintf("ERR unknown command: %s\n", line);
@@ -675,11 +693,14 @@ Int32 main(Void)
      * are different answers. */
     driveOpen();
 
-    /* Brings up the CYW43439, which is what the LED hangs off. Slow (hundreds
-     * of ms) and able to fail, so the result is REPORTED rather than assumed -
-     * a board that answers PING but says cyw43=FAILED is a very different
-     * problem from a board that is silent. statusOpen() remembers it; every
-     * later call is a no-op rather than a crash. */
+    /* Brings up whatever this board's LED hangs off.
+     *
+     * On the Pico 2 W that is the CYW43439 - slow (hundreds of ms) and able to
+     * fail, so the result is REPORTED rather than assumed: a board that answers
+     * PING but says cyw43=FAILED is a very different problem from a board that
+     * is silent. On the plain Pico 2 it is GP25 and cannot fail. Either way
+     * statusOpen() remembers the outcome and every later call is a no-op
+     * rather than a crash. */
     statusOpen();
 
     /* Visible proof of life the moment power is applied, before any host could

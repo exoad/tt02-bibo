@@ -20,6 +20,12 @@ struct FirmwareEntry
     Str uf2Path;      // absolute, resolved at scan time
     Bool        buildable = false;   // has a build script we can invoke
 
+    // Which board this image is FOR - "pico2_w", "pico2", or "" when nothing
+    // here builds it. Passed straight to build.bat, and shown next to the
+    // entry, because a UF2 carries no hint of it: the RP2350 takes either image
+    // without complaint and a wrong one fails silently at run time.
+    Str board;
+
     // Filled in by refreshCatalog() from the filesystem.
     Bool        present    = false;
     Int64   sizeBytes = 0;
