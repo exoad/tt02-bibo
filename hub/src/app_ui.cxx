@@ -275,6 +275,13 @@ Int32 driveSlew = 8;
 Int32 driveSlewWant = 8;
 Bool  driveSlewHeld = false;
 
+// How far past idle the throttle must go before the tail lamps go out, in
+// microseconds. The board owns it; this follows unless the slider is being
+// dragged, the same deal every other control here makes.
+Int32 lightsOffWant = 10;
+Bool  lightsOffHeld = false;
+Int32 boardLightsOff = 10;
+
 // Steering as a fraction of this car's travel, -1 to +1. What the board
 // reports, and what the slider shows.
 //
@@ -327,10 +334,21 @@ Str calWritten;
 // no laptop is attached; this only draws the answer. lights::detect() in the
 // hub is the same rule for the 3D view and the two are deliberately separate -
 // one is the car, the other is a picture of it.
-Int32   boardTurn    = 0;       // -1 left, 0 off, +1 right
-Bool    boardTurnLit = false;   // lit THIS INSTANT, so the drawing can blink
+Int32   boardTurn     = 0;       // -1 left, 0 off, +1 right
 Bool    boardLightsOn = true;
 Float64 lightsLastPoll = 0.0;
+
+// Every lamp in the firmware's model, in its Lamp order:
+//   0 headL  1 headR  2 tailL  3 tailR  4 indL  5 indR  6 revL  7 revR
+//
+// Levels 0..255, straight from the board. A lamp with no LED soldered to it
+// still has a correct level - the rule computes all eight whether or not the
+// wiring shows them - so the drawing can display the whole car's lighting while
+// only two of them exist in copper. That is the point of the split: wiring the
+// next LED changes a table in the firmware and nothing here.
+constexpr Int32 LAMP_N = 8;
+Int32 boardLamp[LAMP_N] = {};
+Int32 boardLampPin[LAMP_N] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 
 Int32 driveServoMin = 1300;
 Int32 driveServoMax = 1700;
@@ -1132,23 +1150,53 @@ Void observeLine(const PicoLine& ln)
         return;
     }
 
-    // "OK lights on=1 side=left lit=1 left_pin=15 right_pin=13"
+    // "OK lights on=1 turn=off forced=no levels=0,0,255,255,0,0,0,0
+    //             pins=-1,-1,15,13,-1,-1,-1,-1"
     if(t.compare(0, 10, "OK lights ") == 0)
     {
         const Char* p = t.c_str();
-        if(const Char* q = std::strstr(p, "side="))
+        if(const Char* q = std::strstr(p, "turn="))
         {
             boardTurn = (std::strncmp(q + 5, "left", 4) == 0)  ? -1
                       : (std::strncmp(q + 5, "right", 5) == 0) ?  1
                                                                :  0;
         }
-        if(const Char* q = std::strstr(p, "lit="))
-        {
-            boardTurnLit = (std::atoi(q + 4) != 0);
-        }
         if(const Char* q = std::strstr(p, "on="))
         {
             boardLightsOn = (std::atoi(q + 3) != 0);
+        }
+
+        // Two comma lists, read the same way. Short lists leave the tail of the
+        // array alone rather than zeroing it: a board running older firmware
+        // says less, and saying less should not read as "every lamp is dark".
+        const auto commas = [](const Char* q, Int32* out, Int32 n)
+        {
+            if(q == nullptr) return;
+            for(Int32 i = 0; i < n && *q != '\0' && *q != ' '; ++i)
+            {
+                out[i] = std::atoi(q);
+                const Char* c = std::strchr(q, ',');
+                if(c == nullptr || *(c + 1) == '\0') break;
+                q = c + 1;
+            }
+        };
+
+        if(const Char* q = std::strstr(p, "off_us="))
+        {
+            boardLightsOff = std::atoi(q + 7);
+            if(!lightsOffHeld)
+            {
+                lightsOffWant = boardLightsOff;
+            }
+        }
+
+        if(const Char* q = std::strstr(p, "levels="))
+        {
+            commas(q + 7, boardLamp, LAMP_N);
+        }
+        if(const Char* q = std::strstr(p, "pins="))
+        {
+            commas(q + 5, boardLampPin, LAMP_N);
         }
         return;
     }
@@ -5156,10 +5204,29 @@ Str steeringCalText()
         "#define THROTTLE_CAL_MIN %d\n"
         "#define THROTTLE_CAL_MAX %d\n"
         "\n"
+        "/* ---- tuning, not measurement ---------------------------------------------\n"
+        " *\n"
+        " * Everything above is a fact about this car that was found by moving it.\n"
+        " * These are not: they are choices about how fast an output may move and\n"
+        " * about where \"moving\" starts, and a different answer is right for a bench\n"
+        " * than for driving.\n"
+        " *\n"
+        " * They live here anyway for one reason - this is the file that survives a\n"
+        " * reflash - and they are PRINTED here because this generator rewrites the\n"
+        " * whole header. Anything it does not print is deleted, and chassis.h needs\n"
+        " * SLEW_CAL_STEP to compile.\n"
+        " */\n"
+        "#define SLEW_CAL_STEP %d\n"
+        "\n"
+        "/* Microseconds past idle at which the car counts as being driven and the\n"
+        " * tail lamps go out. Mirrored below neutral for reverse. */\n"
+        "#define LIGHT_CAL_OFF_US %d\n"
+        "\n"
         "/* When this car was last calibrated, so a stale set of numbers can be spotted\n"
         " * rather than trusted. \"defaults\" means nobody has calibrated this car yet. */\n"
         "#define STEER_CAL_STAMP \"measured %s\"\n",
-        calLeft, calCenter, calRight, driveEscMin, driveEscMax, when);
+        calLeft, calCenter, calRight, driveEscMin, driveEscMax,
+        driveSlew, boardLightsOff, when);
     return Str(buf);
 }
 
@@ -5370,7 +5437,7 @@ Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 
 // because there is nothing about the body worth reporting: the shell does not
 // steer, does not drive, and drawing it would be decoration competing with the
 // two things that are actually live.
-Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32 steerN, Float32 powerN, Bool servoLive, Bool armed, Int32 turnSide, Bool turnLit)
+Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32 steerN, Float32 powerN, Bool servoLive, Bool armed, const Int32* lamp, const Int32* lampPin)
 {
     const ImVec2 p1(p0.x + w, p0.y + h);
 
@@ -5406,38 +5473,49 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     // Warms with throttle along its whole length: this is the one part that
     // carries power from the motor to the rear axle, and it is the honest place
     // to show that something is being asked of it.
-    // ---- the indicator lamps. TEMPORARY, with the rest of the scaffolding --
+    // ---- the lamps --------------------------------------------------------
     //
-    // Drawn OUTBOARD of the front wheels, where an indicator is on a car, and
-    // drawn before the drivetrain so a beam crossing one reads as the lamp
-    // being behind the axle rather than painted over it.
+    // All four corners, from the board's own answer. Indicators outboard of the
+    // FRONT wheels and tails outboard of the REAR ones, where they are on a car.
     //
-    // Dark when the side is not indicating, dark when it is indicating and the
-    // flasher is between flashes: the same lamp in two states rather than two
-    // different things, which is what makes the blink read as a blink.
+    // Drawn before the drivetrain so a beam crossing one reads as the lamp being
+    // behind the axle rather than painted over it.
+    //
+    // A lamp with no LED soldered to it is drawn as an EMPTY ring rather than a
+    // dark one. The firmware computes all eight either way, so "this lamp is off"
+    // and "this lamp does not exist yet" are different facts and the drawing
+    // should not merge them - the whole reason the pin list is reported at all.
     {
         const Float32 lampR = base * 0.055f;
         const Float32 lampX = track + wheelW * 2.6f;
-        const Float32 lampY = axleF - wheelH * 0.35f;
+        const Float32 lampFY = axleF - wheelH * 0.35f;
+        const Float32 lampRY = axleR + wheelH * 0.35f;
 
-        // BRYELLOW rather than a true amber. A real indicator is amber and this
-        // is one shade off it, which is the price of having exactly sixteen
-        // colours; next to the rest of the drawing the consistency is worth more
-        // than the accuracy.
-        const ImU32 amber = ui::ansi::BRYELLOW;
-        const ImU32 dark  = IM_COL32(0x3A, 0x3A, 0x00, 0xFF);
+        // BRYELLOW rather than a true amber, and BRRED for the tails. A real
+        // indicator is amber and this is a shade off it, which is the price of
+        // having exactly sixteen colours; next to the rest of the drawing the
+        // consistency is worth more than the accuracy.
+        const ImU32 unwired = ui::ansi::GRID;
 
-        const Bool litL = (turnSide < 0) && turnLit;
-        const Bool litR = (turnSide > 0) && turnLit;
+        const auto oneLamp = [&](Float32 x, Float32 y, Int32 idx, ImU32 col)
+        {
+            const Bool wired = (lampPin[idx] >= 0);
+            const Bool lit   = wired && (lamp[idx] > 0);
 
-        ui::led(dl, ImVec2(mid.x - lampX, lampY), lampR, amber, litL);
-        ui::led(dl, ImVec2(mid.x + lampX, lampY), lampR, amber, litR);
+            if(wired)
+            {
+                ui::led(dl, ImVec2(x, y), lampR, col, lit);
+            }
+            dl->AddCircle(ImVec2(x, y), lampR,
+                          wired ? ((col & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT))
+                                : unwired,
+                          0, WIRE_W);
+        };
 
-        // A dim ring even when dark, so the lamp is visibly PRESENT and unlit
-        // rather than absent. An indicator you cannot find between flashes is
-        // one you cannot tell from a broken one.
-        dl->AddCircle(ImVec2(mid.x - lampX, lampY), lampR, dark, 0, 1.0f);
-        dl->AddCircle(ImVec2(mid.x + lampX, lampY), lampR, dark, 0, 1.0f);
+        oneLamp(mid.x - lampX, lampFY, 4, ui::ansi::BRYELLOW);   // indL
+        oneLamp(mid.x + lampX, lampFY, 5, ui::ansi::BRYELLOW);   // indR
+        oneLamp(mid.x - lampX, lampRY, 2, ui::ansi::BRRED);      // tailL
+        oneLamp(mid.x + lampX, lampRY, 3, ui::ansi::BRRED);      // tailR
     }
 
     const Float32 g = armed ? powerN : 0.0f;
@@ -5752,7 +5830,7 @@ Void drawDriveBody(Float32 w, Float32 h)
 
         drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
                     driveSteerNow, power, driveServoOn, driveArmed,
-                    boardTurn, boardTurnLit);
+                    boardLamp, boardLampPin);
 
         ImGui::Dummy(ImVec2(full, cah));
         if(ImGui::IsItemHovered())
@@ -5816,8 +5894,8 @@ Void drawDriveBody(Float32 w, Float32 h)
                 "        limit stops being this software and starts being\n"
                 "        the hardware\n"
                 "\n"
-                "Not saved to the board's calibration by itself - put the\n"
-                "value in SLEW_CAL_STEP in cal.h to keep it across a reflash.");
+                "Not saved by itself - Write to firmware, under Throttle\n"
+                "range, is what keeps it across a reflash.");
         }
 
         // What it means for THIS car, which is the only form worth reading.
@@ -5833,6 +5911,57 @@ Void drawDriveBody(Float32 w, Float32 h)
                            (perSec > 0)
                                ? (static_cast<Float64>(travel) / perSec)
                                : 0.0);
+    }
+
+
+    // ---- when the tail lamps go out ------------------------------------
+    //
+    // Beside Response because it is the same KIND of thing: a judgement about
+    // where a boundary sits, found by watching the car rather than measured off
+    // it. Idle is the pulse at which the motor sits still; this is how far past
+    // that counts as actually going somewhere.
+    {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "Tail lamps  -  how much throttle counts as moving");
+
+        ImGui::SetNextItemWidth(-260.0f * uiDpiScale);
+        if(ImGui::SliderInt("##lightsoff", &lightsOffWant, 0, 60, "%d us past idle"))
+        {
+            Char cmd[40];
+            std::snprintf(cmd, sizeof(cmd), "LIGHTS OFFAT %d", lightsOffWant);
+            sendPico(cmd);
+        }
+        lightsOffHeld = ImGui::IsItemActive();
+
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "The tail lamps are lit whenever the car is not being driven,\n"
+                "and go out once the throttle clears idle by this much.\n"
+                "\n"
+                "Zero means the lamps go out the instant the throttle leaves\n"
+                "idle, which lights them off for a car that has not really\n"
+                "pulled away. Wind it up until they stay on at a crawl and go\n"
+                "out when the car actually goes somewhere.\n"
+                "\n"
+                "Mirrored for reverse: this far BELOW neutral counts as being\n"
+                "driven backwards, and lights the reverse lamps instead.\n"
+                "\n"
+                "Idle here is %d us and full throttle is %d, so the whole\n"
+                "usable range is %d us wide.\n"
+                "\n"
+                "Not saved to the board's calibration by itself - Write to\n"
+                "firmware, under Throttle range, is what makes it stick.",
+                driveEscMin, driveEscMax, driveEscMax - driveEscMin);
+        }
+
+        ImGui::SameLine();
+        {
+            ScopedFont sf(ui::fonts.small);
+            const Bool lit = (boardLamp[2] > 0) || (boardLamp[3] > 0);
+            colored(lit ? ui::sem::BAD : ui::sem::MUTED,
+                    lit ? "tails lit" : "tails dark");
+        }
     }
 
     ImGui::Spacing();
@@ -5871,6 +6000,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::SameLine();
         driveLamp(true, ui::sem::WARN, "driving");
     }
+
     else
     {
         if(ui::iconButton(ui::Icon::ICON_MOTOR_RUN, "Engage the servo",

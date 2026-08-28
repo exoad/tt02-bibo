@@ -67,6 +67,23 @@
  */
 #define SLEW_CAL_STEP 8
 
+/* ---- when the tail lamps go out ------------------------------------------
+ *
+ * Microseconds ABOVE idle at which the car counts as being driven, and the
+ * tails extinguish. Below it the motor is turning but barely, and a car
+ * crawling is a car that has not really pulled away - the lamp should still be
+ * on.
+ *
+ * Also used the other way for reverse: more than this BELOW neutral counts as
+ * being driven backwards.
+ *
+ * Tuning, not measurement, like the slew step above - it is a judgement about
+ * when "moving" starts, and the honest answer is whatever looks right on the
+ * car. It lives here for the same reason: this is the file that survives a
+ * reflash.
+ */
+#define LIGHT_CAL_OFF_US 10
+
 /* When this car was last calibrated, so a stale set of numbers can be spotted
  * rather than trusted. "defaults" means nobody has calibrated this car yet. */
 #define STEER_CAL_STAMP "measured 2026-08-28"
