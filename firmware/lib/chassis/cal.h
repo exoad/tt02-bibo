@@ -26,6 +26,21 @@
 /* Full lock the other way. */
 #define STEER_CAL_RIGHT 1670
 
+/* ---- throttle ------------------------------------------------------------
+ *
+ * The working range for the ESC, and the reason this section exists: the
+ * steering has been persisted here since it was measured, and the throttle was
+ * not. Anything set with ESCLIMITS lived in RAM and was silently back to
+ * 1500-1600 after the next reboot or reflash - which is not a calibration, it
+ * is a setting you have to remember to make again.
+ *
+ * Still forward-only. The board refuses anything below 1500 whatever is written
+ * here; reverse needs a brake-then-reverse sequence and is not something to
+ * reach by editing a number.
+ */
+#define THROTTLE_CAL_MIN 1500
+#define THROTTLE_CAL_MAX 1600
+
 /* When these were measured, and by whom, so a stale calibration can be spotted
  * rather than trusted. "defaults" means nobody has calibrated this car yet. */
 #define STEER_CAL_STAMP "measured 2026-08-27"
