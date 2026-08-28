@@ -255,7 +255,9 @@ for name in [r[0] for r in RULES]:
 # things wearing one name, and the moment that is allowed the folders stop
 # meaning anything.
 LAYERS = {
-    'firmware/lib':          {'shared.h'},
+    # hal.h is the floor everything stands on, so lib root may name it. hal.h
+    # itself only needs shared.h, and naming itself is not a thing a file does.
+    'firmware/lib':          {'shared.h', 'hal.h'},
     'firmware/lib/drivers':  {'hal.h', 'drivers/display.h'},
     'firmware/lib/chassis':  {'hal.h', 'chassis/cal.h'},
     'firmware/app':          {'tt02.h'},
@@ -267,7 +269,7 @@ LAYERS = {
 # silence.
 LAYER_EXTRA = {
     'firmware/lib/gfx.h':  {'drivers/display.h'},
-    'firmware/lib/tt02.h': {'hal.h', 'gfx.h', 'drivers/display.h',
+    'firmware/lib/tt02.h': {'hal.h', 'gfx.h', 'status.h', 'drivers/display.h',
                             'drivers/range.h', 'drivers/storage.h',
                             'chassis/cal.h', 'chassis/chassis.h'},
 }

@@ -25,6 +25,7 @@ set(TT02_LIB
     lib/tt02.h
     lib/hal.h
     lib/gfx.h
+    lib/status.h
     lib/drivers/display.h
     lib/drivers/range.h
     lib/drivers/storage.h

@@ -38,14 +38,10 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-/* Explicit relative path, so this resolves without an include path being set.
- * See the note in pico2w.h. */
+/* The whole library. An application includes this and nothing else of ours -
+ * see docs/conventions.md, and the style audit that enforces it. */
 #include "tt02.h"
 
-#include "pico/stdlib.h"
-#include "pico/cyw43_arch.h"
-#include "pico/bootrom.h"
-#include "pico/unique_id.h"
 
 /* The sensor drivers. pico_debug is the image the hub talks to, so it is the
  * one that has to be able to answer "what is attached and what does it say" -
@@ -66,87 +62,29 @@
 /* 1 ms, which keeps the blink smooth while still returning promptly. */
 #define POLL_TIMEOUT_US 1000
 
-#define BOOTSEL_FLUSH_MS 50
-
-static Bool cyw43Ok = false;   /* did the wireless chip come up?              */
-static Bool ledOn = false;
-static Float32 blinkHz = 0.0f; /* 0 = not blinking                            */
-static absolute_time_t nextToggle;
-
-/* ------------------------------------------------------------------ led --- */
-
-/* Half a period per toggle, so `hz` counts full on-off cycles per second. */
-static Int64 halfPeriodUs(Float32 hz)
-{
-    return (Int64) (500000.0f / hz);
-}
-
-/* The debug image's own, which TRACKS the state and tolerates a wireless chip
- * that failed to start. pico2w.h's dbgLedWrite() is a bare pass-through; this one
- * is what STATUS reports and what the blink timer drives, so it keeps its
- * behaviour under a name of its own rather than shadowing the wrapper. */
-static Void dbgLedWrite(Bool on)
-{
-    ledOn = on;
-    if(cyw43Ok)
-    {
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
-    }
-}
-
-static Void ledSetBlink(Float32 hz)
-{
-    blinkHz = hz;
-    if(hz > 0.0f)
-    {
-        nextToggle = make_timeout_time_us(halfPeriodUs(hz));
-    }
-}
-
-static Void ledTick(Void)
-{
-    if(blinkHz <= 0.0f)
-    {
-        return;
-    }
-    if(!time_reached(nextToggle))
-    {
-        return;
-    }
-
-    dbgLedWrite(!ledOn);
-    nextToggle = make_timeout_time_us(halfPeriodUs(blinkHz));
-}
-
 /* -------------------------------------------------------------- commands -- */
 
 static CharSeq cyw43Word(Void)
 {
-    return cyw43Ok ? "up" : "FAILED";
+    return ledPresent() ? "up" : "FAILED";
 }
 
 static Void printId(Void)
 {
-    pico_unique_board_id_t id;
-    pico_get_unique_board_id(&id);
-
-    Utf8 hex[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1];
-    for(Int32 i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES; ++i)
-    {
-        snprintf(hex + i * 2, 3, "%02X", id.id[i]);
-    }
+    Utf8 uid[24];
+    boardId(uid, sizeof(uid));
 
     printf("INFO id board=%s sdk=%s built=%s %s uid=%s cyw43=%s\n",
            PICO_BOARD, PICO_SDK_VERSION_STRING, __DATE__, __TIME__,
-           hex, cyw43Word());
+           uid, cyw43Word());
 }
 
 static Void printStatus(Void)
 {
     printf("INFO status up_ms=%u led=%s blink_hz=%.2f cyw43=%s\n",
-           (UInt32) to_ms_since_boot(get_absolute_time()),
-           ledOn ? "on" : "off",
-           (Float64) blinkHz,
+           nowMs(),
+           statusIsLit() ? "on" : "off",
+           (Float64) statusRate(),
            cyw43Word());
 }
 
@@ -187,23 +125,23 @@ static Void upperInPlace(Utf8* s)
  * has to say so, or a dead wireless chip looks like a dead command parser. */
 static CharSeq ledCaveat(Void)
 {
-    return cyw43Ok ? "" : " (cyw43 down, no effect)";
+    return ledPresent() ? "" : " (cyw43 down, no effect)";
 }
 
 static Void handleLed(Utf8* arg)
 {
     if(strcmp(arg, "ON") == 0)
     {
-        ledSetBlink(0.0f);
-        dbgLedWrite(true);
+        statusBlink(0.0f);
+        statusSolid(true);
         printf("OK led on%s\n", ledCaveat());
         return;
     }
 
     if(strcmp(arg, "OFF") == 0)
     {
-        ledSetBlink(0.0f);
-        dbgLedWrite(false);
+        statusBlink(0.0f);
+        statusSolid(false);
         printf("OK led off%s\n", ledCaveat());
         return;
     }
@@ -218,10 +156,10 @@ static Void handleLed(Utf8* arg)
             return;
         }
 
-        ledSetBlink(hz);
+        statusBlink(hz);
         if(hz == 0.0f)
         {
-            dbgLedWrite(false);
+            statusSolid(false);
         }
         printf("OK led blink %.2f\n", (Float64) hz);
         return;
@@ -601,9 +539,7 @@ static Void handleLine(Utf8* line)
     if(strcmp(line, "BOOTSEL") == 0)
     {
         printf("INFO rebooting into bootloader\n");
-        stdio_flush();
-        sleep_ms(BOOTSEL_FLUSH_MS);
-        reset_usb_boot(0, 0);       /* does not return */
+        rebootToBootsel();          /* flushes, then does not return */
         return;
     }
 
@@ -702,35 +638,27 @@ static Void handleLine(Utf8* line)
 
 Int32 main(Void)
 {
-    stdio_init_all();
+    serialOpen();
 
     /* Sensors come up at boot so SENSORS and TOF can answer immediately. A
      * missing sensor is not a failure here - it is the answer. */
     sensorsOpen();
 
-    /* Both channels to neutral immediately. An ESC will not arm until it has
-     * seen neutral, and a servo that wakes at an extreme is already pushing. */
+    /* The ESC to neutral, the steering RELEASED. See chassis.h for why those
+     * are different answers. */
     driveOpen();
 
-    /* Brings up the CYW43439. Without this the LED cannot be driven at all on
-     * a Pico 2 W. It is slow (hundreds of ms) and can fail, so its result is
-     * reported rather than assumed - a board that answers PING but reports
-     * cyw43=FAILED is a very different problem from a board that is silent. */
-    cyw43Ok = (cyw43_arch_init() == 0);
+    /* Brings up the CYW43439, which is what the LED hangs off. Slow (hundreds
+     * of ms) and able to fail, so the result is REPORTED rather than assumed -
+     * a board that answers PING but says cyw43=FAILED is a very different
+     * problem from a board that is silent. statusOpen() remembers it; every
+     * later call is a no-op rather than a crash. */
+    statusOpen();
 
-    /* Visible proof of life the moment power is applied, before any host has
-     * opened the port: three quick flashes, then a slow idle heartbeat. */
-    if(cyw43Ok)
-    {
-        for(Int32 i = 0; i < HELLO_FLASHES; ++i)
-        {
-            dbgLedWrite(true);
-            sleep_ms(HELLO_FLASH_MS);
-            dbgLedWrite(false);
-            sleep_ms(HELLO_FLASH_MS);
-        }
-    }
-    ledSetBlink(IDLE_BLINK_HZ);
+    /* Visible proof of life the moment power is applied, before any host could
+     * be listening: three quick flashes, then a slow idle heartbeat. */
+    statusHello(HELLO_FLASHES, HELLO_FLASH_MS);
+    statusBlink(IDLE_BLINK_HZ);
 
     Utf8 line[LINE_CAP];
     Size len = 0;
@@ -738,7 +666,7 @@ Int32 main(Void)
 
     for(;;)
     {
-        ledTick();
+        statusTick();
 
         /* Walks the servo and ESC toward their targets, a few microseconds at a
          * time. Nothing jumps: a slider dragged end to end produces a sweep
@@ -747,19 +675,20 @@ Int32 main(Void)
 
         /* Anything written before the host opens the port is discarded, so the
          * banner waits for a connection rather than being lost. */
-        if(!announced && stdio_usb_connected())
+        const Bool host = serialHostPresent();
+        if(!announced && host)
         {
             printf("INFO ready %s sdk=%s - type HELP\n",
                    PICO_BOARD, PICO_SDK_VERSION_STRING);
             announced = true;
         }
-        if(announced && !stdio_usb_connected())
+        if(announced && !host)
         {
             announced = false;      /* re-announce on the next connection */
         }
 
-        const Int32 c = getchar_timeout_us(POLL_TIMEOUT_US);
-        if(c == PICO_ERROR_TIMEOUT)
+        const Int32 c = serialReadChar(POLL_TIMEOUT_US);
+        if(c == SERIAL_NONE)
         {
             continue;
         }
