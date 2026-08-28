@@ -743,6 +743,198 @@ Void drawResistorCode(const Canvas& c)
     note(c, ex - 340.0f, y + 16.0f, 620.0f, NOTES, 3);
 }
 
+// ========================================================= page: RPLIDAR C1 ==
+//
+// Every number on this page is from the SLAMTEC RPLIDAR C1M1 datasheet, rev 1.1
+// (2024-03-12): the wire table is Figure 2-6, the supply figures Figure 2-7, the
+// serial levels Figure 2-8, and the measurement line Figure 2-1.
+//
+// It is here rather than in a browser tab because the two facts most likely to
+// waste an evening - that it wants 800 mA to START against 230 mA to run, and
+// that it only ever speaks 460800 - are both invisible at the bench and both
+// present as a broken sensor rather than as what they are.
+
+Void drawLidarC1(const Canvas& c)
+{
+    const Float32 y0 = heading(c, 20.0f, 26.0f, 620.0f,
+                               "RPLIDAR C1  -  connector, limits and key numbers");
+    c.text(20.0f, y0 + 2.0f, INK_DIM,
+           "XH2.54-5P on the scanner. Four wires in a five-way housing.", 11.0f);
+
+    struct Wire
+    {
+        const Char* colour;
+        const Char* signal;
+        const Char* type;
+        const Char* what;
+        const Char* lo;
+        const Char* typ;
+        const Char* hi;
+        ImU32       col;
+    };
+
+    // The palette's own colours stand in for the wire colours, which is why the
+    // colour NAME is printed on every swatch and every table row: a reader must
+    // be able to pick the wire out of a loom without trusting a screen's idea of
+    // yellow.
+    const Wire WIRES[] = {
+        { "red",    "VCC", "Power",  "Total power",                       "4.8V", "5V", "5.2V", C_POWER  },
+        { "yellow", "TX",  "Output", "Serial output of the scanner core", "0V",   "/",  "3.5V", C_USED   },
+        { "green",  "RX",  "Input",  "Serial input of the scanner core",  "0V",   "/",  "3.5V", C_GPIO   },
+        { "black",  "GND", "Power",  "Ground",                            "0V",   "0V", "0V",   C_GROUND },
+    };
+
+    // ---- the connector itself --------------------------------------------
+    const Float32 hx0 = 30.0f;
+    const Float32 hx1 = 246.0f;
+    const Float32 hy0 = y0 + 22.0f;
+    const Float32 hy1 = y0 + 90.0f;
+
+    c.rectFilled(hx0, hy0, hx1, hy1, IM_COL32(0x1E, 0x22, 0x2A, 0xFF), 4.0f);
+    c.rect(hx0, hy0, hx1, hy1, RULE, 4.0f, 1.0f);
+
+    for(Int32 i = 0; i < 5; ++i)
+    {
+        const Float32 px = hx0 + 22.0f + (static_cast<Float32>(i) * 42.0f);
+
+        // The fifth position carries no wire. Drawn as an empty slot rather than
+        // left off the picture, because a gap in a five-way housing reads as a
+        // wire that fell out every single time it is not shown to be deliberate.
+        if(i >= 4)
+        {
+            c.rect(px - 15.0f, hy0 + 10.0f, px + 15.0f, hy1 - 10.0f, RULE, 2.0f, 1.0f);
+            c.text(px, (hy0 + hy1) * 0.5f, INK_FAINT, "empty", 10.0f,
+                   Canvas::Align::ALIGN_CENTRE);
+            continue;
+        }
+
+        const Wire& w = WIRES[i];
+        c.rectFilled(px - 15.0f, hy0 + 10.0f, px + 15.0f, hy1 - 10.0f, w.col, 2.0f);
+        c.text(px, (hy0 + hy1) * 0.5f, PAPER, w.signal, 11.0f,
+               Canvas::Align::ALIGN_CENTRE);
+
+        c.line(px, hy1, px, hy1 + 22.0f, w.col, 3.0f);
+        c.text(px, hy1 + 34.0f, INK, w.colour, 11.0f, Canvas::Align::ALIGN_CENTRE);
+    }
+
+    // ---- electrical limits, beside it ------------------------------------
+    struct Lim
+    {
+        const Char* k;
+        const Char* v;
+    };
+    const Lim LIMS[] = {
+        { "supply",        "4.8 / 5.0 / 5.2 V" },
+        { "ripple",        "150 mV max" },
+        { "start current", "800 mA" },
+        { "run current",   "230 mA typ, 260 max" },
+        { "logic level",   "3.3 V TTL, 3.5 V max" },
+        { "serial",        "460800 baud, 8N1" },
+    };
+
+    const Float32 ex = 360.0f;
+    c.text(ex, y0 + 10.0f, INK, "Electrical", 12.0f);
+    c.line(ex, y0 + 20.0f, 640.0f, y0 + 20.0f, RULE, 1.0f);
+
+    Float32 ly = y0 + 36.0f;
+    for(const Lim& l : LIMS)
+    {
+        c.text(ex, ly, INK_DIM, l.k, 11.0f);
+        c.text(ex + 106.0f, ly, INK, l.v, 11.0f);
+        ly += 18.0f;
+    }
+
+    // ---- the wire table --------------------------------------------------
+    Float32 ty = y0 + 172.0f;
+    c.text(20.0f,  ty, INK_DIM, "colour",      10.0f);
+    c.text(112.0f, ty, INK_DIM, "signal",      10.0f);
+    c.text(172.0f, ty, INK_DIM, "type",        10.0f);
+    c.text(238.0f, ty, INK_DIM, "description", 10.0f);
+    c.text(474.0f, ty, INK_DIM, "min",         10.0f);
+    c.text(534.0f, ty, INK_DIM, "typ",         10.0f);
+    c.text(588.0f, ty, INK_DIM, "max",         10.0f);
+    ty += 18.0f;
+
+    for(const Wire& w : WIRES)
+    {
+        c.rectFilled(20.0f, ty - 9.0f, 100.0f, ty + 9.0f, w.col, 3.0f);
+        c.text(26.0f, ty, PAPER, w.colour, 11.0f);
+
+        c.text(112.0f, ty, INK,     w.signal, 11.0f);
+        c.text(172.0f, ty, INK_DIM, w.type,   10.0f);
+        c.text(238.0f, ty, INK_DIM, w.what,   10.0f);
+        c.text(474.0f, ty, INK,     w.lo,     10.0f);
+        c.text(534.0f, ty, INK,     w.typ,    10.0f);
+        c.text(588.0f, ty, INK,     w.hi,     10.0f);
+        ty += 24.0f;
+    }
+
+    // ---- the measurement numbers ------------------------------------------
+    struct Spec
+    {
+        const Char* k;
+        const Char* v;
+    };
+    const Spec LEFT[] = {
+        { "range",         "0.05 - 12 m  (white, 70% reflective)" },
+        { "dark surface",  "0.05 - 6 m  (black, 10% reflective)" },
+        { "accuracy",      "+/- 30 mm" },
+        { "resolution",    "15 mm" },
+        { "field of view", "360 deg, blind inside 0.05 m" },
+    };
+    const Spec RIGHT[] = {
+        { "sample rate",   "5 kHz  (~500 per revolution)" },
+        { "scan rate",     "8 - 12 Hz, 10 Hz typical" },
+        { "angular res",   "0.72 deg at 10 Hz" },
+        { "scan plane",    "0 - 1.5 deg flatness" },
+        { "ambient light", "40 klux" },
+    };
+
+    const Float32 ky = y0 + 306.0f;
+    c.text(20.0f, ky, INK, "From the datasheet", 12.0f);
+    c.line(20.0f, ky + 12.0f, 640.0f, ky + 12.0f, RULE, 1.0f);
+
+    Float32 sy = ky + 28.0f;
+    for(const Spec& s : LEFT)
+    {
+        c.text(20.0f,  sy, INK_DIM, s.k, 11.0f);
+        c.text(120.0f, sy, INK,     s.v, 11.0f);
+        sy += 18.0f;
+    }
+
+    sy = ky + 28.0f;
+    for(const Spec& s : RIGHT)
+    {
+        c.text(360.0f, sy, INK_DIM, s.k, 11.0f);
+        c.text(460.0f, sy, INK,     s.v, 11.0f);
+        sy += 18.0f;
+    }
+
+    const Char* const NOTES[] = {
+        "It takes 800 mA to START and 230 mA once it is spinning.",
+        "A supply sized for the running figure browns out at spin-up, and an under-fed",
+        "C1 does not fail cleanly - it reports short or missing returns, which reads as a",
+        "dirty window or a dead sensor rather than as a power problem. Ripple has to stay",
+        "under 150 mV for the same reason. The BEC's 2 A budget is shared with a servo.",
+    };
+    Float32 ny = note(c, 20.0f, y0 + 440.0f, 620.0f, NOTES, 5);
+
+    const Char* const NOTES2[] = {
+        "Resolution is 15 mm and accuracy is +/- 30 mm. Do not read the last digit.",
+        "A readout of \"437 mm\" is three significant figures from a sensor that cannot",
+        "separate two surfaces 15 mm apart and may be 30 mm out on both of them. The 12 m",
+        "ceiling is the 70% reflectivity number as well - matte black drops it to 6 m.",
+    };
+    ny = note(c, 20.0f, ny, 620.0f, NOTES2, 4);
+
+    const Char* const NOTES3[] = {
+        "460800 baud, 8N1. The datasheet lists no other rate.",
+        "The SDK's own samples default to 115200, and a C1 asked to talk at 115200 says",
+        "nothing at all - which looks exactly like a dead device on a good cable.",
+    };
+    note(c, 20.0f, ny, 620.0f, NOTES3, 3);
+}
+
 // ============================================================== table ==
 //
 // THE place to add a page.
@@ -788,6 +980,13 @@ constexpr Page PAGES[] = {
         .blurb    = "The bands, and a worked example",
         .natural  = ImVec2(660.0f, 330.0f),
         .draw     = drawResistorCode,
+    },
+    {
+        .category = "Sensors",
+        .title    = "RPLIDAR C1",
+        .blurb    = "The four-wire connector, its limits, and the datasheet numbers",
+        .natural  = ImVec2(660.0f, 760.0f),
+        .draw     = drawLidarC1,
     },
 };
 

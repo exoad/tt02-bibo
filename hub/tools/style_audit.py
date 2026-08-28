@@ -40,6 +40,7 @@ DIRS = [
     at('firmware', 'lib', 'chassis'),
     at('firmware', 'app'),
     at('firmware', 'scratch'),
+    at('firmware', 'tests'),
     at('shared'),
 ]
 
@@ -262,6 +263,9 @@ LAYERS = {
     'firmware/lib/chassis':  {'hal.h', 'chassis/cal.h'},
     'firmware/app':          {'tt02.h'},
     'firmware/scratch':      {'tt02.h'},
+    # A host test of ONE header includes that header, not the umbrella - the
+    # umbrella drags in the SDK and these compile with MSVC.
+    'firmware/tests':        {'text.h', 'types.h'},
 }
 
 # gfx draws INTO a Screen, so it is the one file at lib root that legitimately
@@ -269,7 +273,8 @@ LAYERS = {
 # silence.
 LAYER_EXTRA = {
     'firmware/lib/gfx.h':  {'drivers/display.h'},
-    'firmware/lib/tt02.h': {'hal.h', 'gfx.h', 'status.h', 'drivers/display.h',
+    'firmware/lib/tt02.h': {'hal.h', 'text.h', 'gfx.h', 'status.h',
+                            'drivers/display.h',
                             'drivers/range.h', 'drivers/storage.h',
                             'chassis/cal.h', 'chassis/chassis.h'},
 }

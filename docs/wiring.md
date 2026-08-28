@@ -59,8 +59,14 @@ bugs. Check them first.
   BEC with USB also connected risks both.
 
 - **Consolidating to BEC-only power later needs a 1000 µF / 25 V cap** across the
-  5 V rail. The BEC budget is 2 A total; the lidar draws ~230 mA on top of a
-  servo, which is tight — it likely wants its own supply.
+  5 V rail. The BEC budget is 2 A total; the lidar draws ~230 mA running on top
+  of a servo, which is tight — it likely wants its own supply.
+
+  Size it on the **start** current, not the running one: the C1 pulls **800 mA
+  to spin up** against 230 mA once turning, and the datasheet wants ripple under
+  150 mV. An under-fed C1 does not fail cleanly — it reports short or missing
+  returns, which reads as a dirty window or a dead sensor rather than as a power
+  problem.
 
 - **All VL53L1X boot at I2C address 0x29.** Firmware must sequence the XSHUT
   lines at startup to bring them up one at a time and assign unique addresses.
@@ -121,8 +127,34 @@ lead.
 RPLIDAR C1, XH2.54-5P. Pin order is **VCC, TX, RX, GND** = red, yellow, green,
 black. One of the five positions is unpopulated — that is correct, not a fault.
 
+From the C1M1 datasheet rev 1.1, Figure 2-6 — external interface signal
+definition:
+
+| Colour | Signal | Type | Description | Min | Typ | Max |
+|---|---|---|---|---|---|---|
+| Red | VCC | Power | Total power | 4.8 V | 5 V | 5.2 V |
+| Yellow | TX | Output | Serial output of the scanner core | 0 V | / | 3.5 V |
+| Green | RX | Input | Serial input of the scanner core | 0 V | / | 3.5 V |
+| Black | GND | Power | Ground | 0 V | 0 V | 0 V |
+
+Serial is **3.3 V TTL UART, 460800 baud, 8N1** (Figure 2-8). The datasheet lists
+no other rate — 460800 is the only one, not a preferred one.
+
+Power (Figure 2-7): **800 mA to start, 230 mA typical running** (260 mA max at
+10 Hz), ripple **≤ 150 mV**. The start figure is the one that sizes the supply.
+
+Key measurement numbers (Figure 2-1): 0.05–12 m range on a 70 %-reflective
+target and 0.05–6 m on a 10 %-reflective one, ±30 mm accuracy, **15 mm
+resolution**, 5 kHz sample rate, 8–12 Hz scan rate (10 Hz typical), 0.72°
+angular resolution, 360° field of view with a 0–1.5° scan-plane flatness, 40 klux
+ambient limit, IP54. Working temperature −10 to 40 °C, and it will not **start**
+below 0 °C (Figure 2-9).
+
 Currently connected over USB to the host, not to the Pico. GP9 is reserved for
 UART RX if the reactive lidar layer is ever moved onto the Pico.
+
+The same facts are drawn in the hub's Reference viewer under **Sensors →
+RPLIDAR C1**.
 
 ---
 

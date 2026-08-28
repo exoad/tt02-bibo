@@ -24,6 +24,7 @@ pico_sdk_init()
 set(TT02_LIB
     lib/tt02.h
     lib/types.h
+    lib/text.h
     lib/hal.h
     lib/gfx.h
     lib/status.h
