@@ -3933,6 +3933,81 @@ Void drawCodeTree(Float32 w, Float32 h)
         return hit;
     };
 
+    // A folder glyph, DRAWN rather than sprited.
+    //
+    // The icon set is Fugue and this project ships 69 of its files; a folder is
+    // not among them. Pressing one of the others into service - a card, a table,
+    // a server - would put a symbol on screen that means something else, and the
+    // one thing a file tree must not do is lie about what a row is.
+    //
+    // Two shapes: a tab, and a body. An open folder leans its lid back, which is
+    // the only difference a person needs to see at 16 pixels.
+    const auto folderGlyph = [](Bool open)
+    {
+        const Float32 sz = ui::iconSize();
+        const ImVec2  at = ImGui::GetCursorScreenPos();
+        ImDrawList*   dl = ImGui::GetWindowDrawList();
+
+        // Vertically centred on the text line, like ui::icon does.
+        const Float32 y0 = at.y + ((ImGui::GetTextLineHeight() - sz) * 0.5f);
+        const Float32 x0 = at.x;
+
+        const ImU32 body = open ? IM_COL32(0xD8, 0x9E, 0x3C, 0xFF)
+                                : IM_COL32(0xB0, 0x82, 0x33, 0xFF);
+        const ImU32 tab  = IM_COL32(0x8A, 0x66, 0x28, 0xFF);
+
+        // The tab, along the top-left.
+        dl->AddRectFilled(ImVec2(x0 + sz * 0.06f, y0 + sz * 0.18f),
+                          ImVec2(x0 + sz * 0.46f, y0 + sz * 0.34f),
+                          tab, sz * 0.06f);
+
+        // The body. An open folder is drawn a touch shallower so the lid reads
+        // as tipped rather than as a different rectangle.
+        dl->AddRectFilled(ImVec2(x0 + sz * 0.06f, y0 + sz * 0.30f),
+                          ImVec2(x0 + sz * 0.94f,
+                                 y0 + sz * (open ? 0.80f : 0.86f)),
+                          body, sz * 0.08f);
+
+        ImGui::Dummy(ImVec2(sz, ImGui::GetTextLineHeight()));
+    };
+
+    // One node of the firmware tree: a directory and what is directly in it.
+    //
+    // Built from the relative paths listFirmware() returns ("lib\\drivers\\
+    // display.h"), rather than walking the disk again - the list is already the
+    // architecture, in dependency order, and re-deriving it here would be a
+    // second opinion about the same thing.
+    struct FwNode
+    {
+        Str          name;                 // the folder's own name
+        Vec<Str>     files;                // leaf names, in list order
+        Vec<FwNode>  dirs;
+    };
+
+    const auto fwInsert = [](auto&& self, FwNode& node, const Str& rel) -> Void
+    {
+        const Size cut = rel.find('\\');
+        if(cut == Str::npos)
+        {
+            node.files.push_back(rel);
+            return;
+        }
+
+        const Str head = rel.substr(0, cut);
+        const Str tail = rel.substr(cut + 1);
+
+        for(FwNode& d : node.dirs)
+        {
+            if(d.name == head)
+            {
+                self(self, d, tail);
+                return;
+            }
+        }
+        node.dirs.push_back(FwNode{ head, {}, {} });
+        self(self, node.dirs.back(), tail);
+    };
+
     if(ImGui::TreeNodeEx("Sketches", ImGuiTreeNodeFlags_DefaultOpen))
     {
         for(const Str& n : libFiles)
@@ -3949,22 +4024,86 @@ Void drawCodeTree(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
-    if(ImGui::TreeNodeEx("firmware", ImGuiTreeNodeFlags_DefaultOpen))
+    // ---- firmware, as the folders it actually is -------------------------
+    //
+    // It used to be a flat list of paths - "lib\\drivers\\display.h" printed as
+    // text - which is a tree written down rather than a tree. The layering IS
+    // the architecture here, so the view that shows the files should show it.
     {
-        const Str d = sketch::firmwareDir();
+        FwNode root{ "firmware", {}, {} };
         for(const Str& n : fwFiles)
         {
-            const Str p = d + "\\" + n;
-            const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
-            if(row(n, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
-                   hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE, false))
-            {
-                openCodeFile(p, n);
-            }
+            fwInsert(fwInsert, root, n);
         }
-        if(fwFiles.empty())
-            ImGui::TextDisabled("  repo not found");
-        ImGui::TreePop();
+
+        const Str dir = sketch::firmwareDir();
+
+        // Recursive, so a folder added under lib/ appears without anyone
+        // teaching this function about it.
+        const auto drawNode = [&](auto&& self, const FwNode& node,
+                                  const Str& prefix) -> Void
+        {
+            for(const FwNode& d : node.dirs)
+            {
+                ImGui::PushID(d.name.c_str());
+
+                // The glyph sits before the label, so the arrow, the folder and
+                // the name read left to right the way every file tree does.
+                const Bool openNode = ImGui::TreeNodeEx(
+                    "##dir", ImGuiTreeNodeFlags_DefaultOpen
+                             | ImGuiTreeNodeFlags_SpanAvailWidth);
+
+                ImGui::SameLine(0.0f, 0.0f);
+                folderGlyph(openNode);
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+                ImGui::TextUnformatted(d.name.c_str());
+
+                if(openNode)
+                {
+                    self(self, d, prefix + d.name + "\\");
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+
+            for(const Str& f : node.files)
+            {
+                const Str rel = prefix + f;
+                const Str p   = dir + "\\" + rel;
+                const Bool hdr = (f.size() > 2
+                                  && f.compare(f.size() - 2, 2, ".h") == 0);
+
+                // The LEAF name in the tree, the RELATIVE path everywhere else -
+                // two files called main.c in different folders must not look
+                // like one row, and the editor's title should still say which.
+                if(row(f, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
+                       hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE,
+                       false))
+                {
+                    openCodeFile(p, rel);
+                }
+            }
+        };
+
+        ImGui::PushID("fwroot");
+        const Bool openRoot = ImGui::TreeNodeEx(
+            "##fw", ImGuiTreeNodeFlags_DefaultOpen
+                    | ImGuiTreeNodeFlags_SpanAvailWidth);
+        ImGui::SameLine(0.0f, 0.0f);
+        folderGlyph(openRoot);
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextUnformatted("firmware");
+
+        if(openRoot)
+        {
+            drawNode(drawNode, root, Str());
+            if(fwFiles.empty())
+            {
+                ImGui::TextDisabled("  repo not found");
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
     }
 
     ImGui::EndChild();
@@ -5009,6 +5148,178 @@ Void driveLamp(Bool lit, ImU32 colour, const Char* label)
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(colour), "%s", label);
 }
 
+// ---- the car, seen from above ---------------------------------------------
+//
+// A wireframe rather than a picture. The point is not to look like a TT-02 -
+// it is to answer, at a glance and from across the bench, the two questions
+// somebody standing next to a powered car actually has: WHICH WAY ARE THE
+// FRONT WHEELS POINTING, and IS THE MOTOR LIVE.
+//
+// Both are things the numbers already say and nobody reads in time. "steering
+// +0.42" is a fact you have to convert; a wheel turned forty-two percent of the
+// way to full lock is a thing you see. That conversion is the whole job.
+//
+// Drawn in the console's own language: a bevelled plate for the chassis, lamps
+// for state, and a recessed well behind it all so it reads as an instrument set
+// into the panel rather than a diagram printed on it.
+
+// How far the front wheels swing on screen at full lock.
+//
+// A TT-02's actual steering is around 28 degrees and drawing it true looks
+// timid at this size - the wheel barely moves and the display fails at its one
+// job. Exaggerated to 34, which is legible and still plainly a steering angle
+// rather than a caster wheel spinning.
+constexpr Float32 CHASSIS_LOCK_DEG = 34.0f;
+
+// One wheel, rotated about its own centre.
+Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 deg, ImU32 fill, ImU32 edge)
+{
+    const Float32 r  = deg * 3.14159265f / 180.0f;
+    const Float32 cs = std::cos(r);
+    const Float32 sn = std::sin(r);
+
+    const ImVec2 corner[4] = {
+        ImVec2(-hw, -hh), ImVec2(hw, -hh), ImVec2(hw, hh), ImVec2(-hw, hh)
+    };
+
+    ImVec2 p[4];
+    for(Int32 i = 0; i < 4; ++i)
+    {
+        p[i] = ImVec2(c.x + (corner[i].x * cs) - (corner[i].y * sn),
+                      c.y + (corner[i].x * sn) + (corner[i].y * cs));
+    }
+
+    dl->AddQuadFilled(p[0], p[1], p[2], p[3], fill);
+    dl->AddQuad(p[0], p[1], p[2], p[3], edge, 1.0f);
+
+    // A tread line down the middle, so a rotated wheel reads as rotated rather
+    // than as a slightly different rectangle.
+    const ImVec2 t0(c.x - (hh * 0.62f * -sn), c.y - (hh * 0.62f * cs));
+    const ImVec2 t1(c.x + (hh * 0.62f * -sn), c.y + (hh * 0.62f * cs));
+    dl->AddLine(t0, t1, edge, 1.0f);
+}
+
+// steerN is -1..+1 of THIS car's travel; powerN is 0..1 of its throttle range.
+//
+// A DRIVETRAIN, not a car. Two axle beams and the shaft between them - the "I"
+// - with a wheel on each end and nothing else. There is no bodywork here
+// because there is nothing about the body worth reporting: the shell does not
+// steer, does not drive, and drawing it would be decoration competing with the
+// two things that are actually live.
+Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32 steerN, Float32 powerN, Bool servoLive, Bool armed)
+{
+    const ImVec2 p1(p0.x + w, p0.y + h);
+
+    // The well the drivetrain sits in.
+    dl->AddRectFilled(p0, p1, IM_COL32(0x0E, 0x0F, 0x12, 0xFF), 4.0f);
+
+    const ImVec2 mid((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
+
+    // Everything is derived from the wheelbase, so the drawing scales with the
+    // panel rather than being a pile of tuned pixels.
+    const Float32 byH  = h * 0.62f;
+    const Float32 byW  = w * 0.46f;
+    const Float32 base = (byH < byW) ? byH : byW;   // front axle to rear axle
+
+    const Float32 axleF = mid.y - (base * 0.5f);
+    const Float32 axleR = mid.y + (base * 0.5f);
+    const Float32 track = base * 0.42f;             // centre to wheel centre
+
+    const Float32 wheelH = base * 0.20f;
+    const Float32 wheelW = base * 0.075f;
+
+    const Float32 beamT  = base * 0.045f;           // half-thickness of a beam
+    const Float32 shaftT = base * 0.030f;
+
+    const ImU32 steel     = IM_COL32(0x4A, 0x50, 0x5A, 0xFF);
+    const ImU32 steelEdge = IM_COL32(0x7A, 0x82, 0x8E, 0xFF);
+
+    // ---- the shaft, drawn first so the axles sit on top ------------------
+    //
+    // Warms with throttle along its whole length: this is the one part that
+    // carries power from the motor to the rear axle, and it is the honest place
+    // to show that something is being asked of it.
+    const Float32 g = armed ? powerN : 0.0f;
+    const ImU32 shaftFill = IM_COL32(0x3A + static_cast<Int32>(0x80 * g),
+                                     0x40 + static_cast<Int32>(0x30 * g),
+                                     0x4A, 0xFF);
+
+    dl->AddRectFilled(ImVec2(mid.x - shaftT, axleF),
+                      ImVec2(mid.x + shaftT, axleR), shaftFill, shaftT);
+    dl->AddRect(ImVec2(mid.x - shaftT, axleF),
+                ImVec2(mid.x + shaftT, axleR),
+                armed ? IM_COL32(0xD8, 0x9E, 0x3C, 0xFF) : steelEdge,
+                shaftT, 0, 1.0f);
+
+    // ---- the two axle beams ---------------------------------------------
+    const auto beam = [&](Float32 y)
+    {
+        dl->AddRectFilled(ImVec2(mid.x - track, y - beamT),
+                          ImVec2(mid.x + track, y + beamT), steel, beamT);
+        dl->AddRect(ImVec2(mid.x - track, y - beamT),
+                    ImVec2(mid.x + track, y + beamT), steelEdge, beamT, 0, 1.0f);
+    };
+    beam(axleF);
+    beam(axleR);
+
+    // A hub at each end, so a wheel reads as mounted on the beam rather than
+    // floating beside it.
+    const auto hub = [&](Float32 x, Float32 y)
+    {
+        dl->AddCircleFilled(ImVec2(x, y), beamT * 1.15f, steel, 12);
+        dl->AddCircle(ImVec2(x, y), beamT * 1.15f, steelEdge, 12, 1.0f);
+    };
+
+    // ---- wheels -----------------------------------------------------------
+    const Float32 deg = steerN * CHASSIS_LOCK_DEG;
+
+    // Front: dark when released, because a released servo holds nothing and the
+    // wheels are wherever the ground last left them. Drawing them straight would
+    // be the display inventing a fact.
+    const ImU32 frontFill = servoLive ? IM_COL32(0x3E, 0x44, 0x4E, 0xFF)
+                                      : IM_COL32(0x24, 0x26, 0x2A, 0xFF);
+    const ImU32 frontEdge = servoLive ? IM_COL32(0x9A, 0xA4, 0xB4, 0xFF)
+                                      : IM_COL32(0x4A, 0x4E, 0x55, 0xFF);
+
+    drawWheel(dl, ImVec2(mid.x - track, axleF), wheelW, wheelH, deg, frontFill, frontEdge);
+    drawWheel(dl, ImVec2(mid.x + track, axleF), wheelW, wheelH, deg, frontFill, frontEdge);
+    hub(mid.x - track, axleF);
+    hub(mid.x + track, axleF);
+
+    // Rear: the driven pair. They warm rather than spin - nothing on this car
+    // measures speed yet, so brightness is a COMMAND and not a reading, and
+    // animating it would imply a measurement that does not exist.
+    const ImU32 rearFill = IM_COL32(0x24 + static_cast<Int32>(0x86 * g),
+                                    0x26 + static_cast<Int32>(0x30 * g),
+                                    0x2A, 0xFF);
+    const ImU32 rearEdge = armed ? IM_COL32(0xD8, 0x9E, 0x3C, 0xFF)
+                                 : IM_COL32(0x4A, 0x4E, 0x55, 0xFF);
+
+    drawWheel(dl, ImVec2(mid.x - track, axleR), wheelW, wheelH, 0.0f, rearFill, rearEdge);
+    drawWheel(dl, ImVec2(mid.x + track, axleR), wheelW, wheelH, 0.0f, rearFill, rearEdge);
+    hub(mid.x - track, axleR);
+    hub(mid.x + track, axleR);
+
+    // ---- labels -----------------------------------------------------------
+    const ImU32 faint = IM_COL32(0x60, 0x5C, 0x56, 0xFF);
+
+    const Char* const FRONT = "FRONT";
+    const Char* const REAR  = "REAR";
+    dl->AddText(ImVec2(mid.x - (ImGui::CalcTextSize(FRONT).x * 0.5f),
+                       p0.y + (6.0f * uiDpiScale)), faint, FRONT);
+    dl->AddText(ImVec2(mid.x - (ImGui::CalcTextSize(REAR).x * 0.5f),
+                       p1.y - (20.0f * uiDpiScale)), faint, REAR);
+
+    // The angle beside the front axle: a number and a picture of the same
+    // thing, because one is checkable and the other is fast.
+    Char deglabel[24];
+    std::snprintf(deglabel, sizeof(deglabel), "%+.0f deg", static_cast<Float64>(deg));
+    dl->AddText(ImVec2(mid.x + track + (wheelW * 2.6f), axleF - (7.0f * uiDpiScale)),
+                servoLive ? ui::sem::WARN : faint, deglabel);
+
+    ui::screenInset(p0, p1, 0.85f);
+}
+
 // ============================================== the drive view ==
 //
 // Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
@@ -5196,6 +5507,54 @@ Void drawDriveBody(Float32 w, Float32 h)
             "that works on every car.\n"
             "\n"
             "Not slewed. A stop that eases in is not a stop.");
+    }
+
+    ImGui::Spacing();
+
+    // ---- the car ---------------------------------------------------------
+    //
+    // What the numbers below already say, in the form somebody standing next to
+    // a powered car can read without converting anything.
+    {
+        // The well is NARROWER than the panel and centred. Full width left the
+        // car adrift in a metre of empty black, which reads as a rendering
+        // fault rather than as a diagram - an instrument is the size of the
+        // thing it shows, not the size of the space it was given.
+        const Float32 full = ImGui::GetContentRegionAvail().x;
+        const Float32 want = 460.0f * uiDpiScale;
+        const Float32 caw  = (full < want) ? full : want;
+        const Float32 cah  = 250.0f * uiDpiScale;
+
+        const ImVec2 here = ImGui::GetCursorScreenPos();
+        const ImVec2 cp0(here.x + ((full - caw) * 0.5f), here.y);
+
+        // The throttle as a fraction of ITS range, which is what the rear
+        // wheels warm with. Guarded: the range collapses to nothing while
+        // limits are being edited, and dividing by it would light the wheels
+        // on a car that is doing nothing.
+        const Int32   span  = driveEscMax - 1500;
+        const Float32 power = (span > 0)
+            ? (static_cast<Float32>(driveEscT - 1500) / static_cast<Float32>(span))
+            : 0.0f;
+
+        drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
+                    driveSteer, power, driveServoOn, driveArmed);
+
+        ImGui::Dummy(ImVec2(full, cah));
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "The car from above, drawn from what the BOARD reports.\n"
+                "\n"
+                "Front wheels turn with the steering. They go dark when the\n"
+                "servo is released, because a released servo holds nothing and\n"
+                "the wheels are wherever the ground last left them - drawing\n"
+                "them straight would be the display inventing a fact.\n"
+                "\n"
+                "Rear wheels warm with throttle. They do not spin: nothing on\n"
+                "this car measures speed yet, so brightness is a COMMAND and\n"
+                "not a reading, and that difference is worth being able to see.");
+        }
     }
 
     ImGui::Spacing();
@@ -5728,6 +6087,49 @@ Void drawDriveBody(Float32 w, Float32 h)
         std::snprintf(cmd, sizeof(cmd), "ESC %d", driveEscWant);
         sendPico(cmd);
     };
+
+    // A power bar, because a microsecond figure is not a sense of how much.
+    //
+    // Segmented rather than smooth: a continuous bar invites reading a
+    // precision that is not there. Ten blocks of the throttle's own range say
+    // "about a third" without pretending to say more.
+    {
+        const Float32 barW = ImGui::GetContentRegionAvail().x - (120.0f * uiDpiScale);
+        const Float32 barH = 10.0f * uiDpiScale;
+        const ImVec2  b0   = ImGui::GetCursorScreenPos();
+        ImDrawList*   dl   = ImGui::GetWindowDrawList();
+
+        const Int32   span = driveEscMax - 1500;
+        const Float32 frac = (span > 0)
+            ? (static_cast<Float32>(driveEsc - 1500) / static_cast<Float32>(span))
+            : 0.0f;
+
+        dl->AddRectFilled(b0, ImVec2(b0.x + barW, b0.y + barH),
+                          IM_COL32(0x14, 0x15, 0x18, 0xFF), 2.0f);
+
+        constexpr Int32 SEGS = 10;
+        const Float32 segW = (barW - (2.0f * uiDpiScale) * (SEGS - 1)) / SEGS;
+        for(Int32 i = 0; i < SEGS; ++i)
+        {
+            const Float32 at = static_cast<Float32>(i + 1) / SEGS;
+            const Bool    on = driveArmed && (frac >= at - (0.5f / SEGS));
+            const Float32 x  = b0.x + (i * (segW + 2.0f * uiDpiScale));
+
+            // The top of the range is amber: the last blocks are the ones worth
+            // noticing before pressing anything else.
+            const ImU32 lit = (i >= SEGS - 3) ? ui::sem::WARN : ui::sem::GOOD;
+            dl->AddRectFilled(ImVec2(x, b0.y), ImVec2(x + segW, b0.y + barH),
+                              on ? lit : IM_COL32(0x26, 0x28, 0x2C, 0xFF), 1.0f);
+        }
+        ui::screenInset(b0, ImVec2(b0.x + barW, b0.y + barH), 0.7f);
+
+        ImGui::Dummy(ImVec2(barW, barH));
+        ImGui::SameLine();
+        ImGui::TextColored(
+            ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN
+                                                      : ui::sem::MUTED),
+            "%.0f%%", static_cast<Float64>((driveArmed ? frac : 0.0f) * 100.0f));
+    }
 
     ImGui::BeginDisabled(!driveArmed);
     for(Size i = 0; i < countOf(ESC_STEPS); ++i)
