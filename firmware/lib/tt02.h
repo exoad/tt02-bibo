@@ -44,6 +44,20 @@
  * layer it is reaching into without anyone having to look it up. This is
  * enforced, not encouraged.
  * ------------------------------------------------------------------------- */
+/*
+ * EVERY PROJECT INCLUDE IN THIS LIBRARY IS RELATIVE TO THE FILE THAT WRITES IT.
+ *
+ * "../hal.h" from lib/drivers/, not "hal.h". Uglier, and it resolves for a tool
+ * that has loaded nothing: a quoted include is searched next to the including
+ * file first, so a driver naming a header one directory up must say so. The
+ * bare spelling needs -Ifirmware/lib, which comes from the CMake project - and
+ * an editor that has not attached the project then underlines every include in
+ * the library at once, which reads as broken code rather than as unconfigured
+ * tooling.
+ *
+ * The include path is still set for both targets, so either spelling compiles.
+ * This one also parses.
+ */
 #pragma once
 
 #include "hal.h"

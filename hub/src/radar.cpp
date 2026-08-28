@@ -76,6 +76,25 @@ constexpr Float32 MIN_VALID_MM = 50.0f;
 // zone exists to prevent, so the window is applied in both places.
 constexpr Float32 MAX_VALID_MM = 12000.0f;
 
+// The C1M1 datasheet rev 1.1, Figure 2-1, gives TWO ranges and we only ever
+// used one: 0.05-12 m against a 70%-reflective target, and 0.05-6 m against a
+// 10%-reflective one. So 12 m is the WHITE-WALL figure. A dark target at 8 m is
+// outside what the sensor is specified to see, and the "in-spec" percentage is
+// correspondingly optimistic on a dark scene.
+//
+// Not enforced as a second ceiling, because nothing here knows the reflectivity
+// of what it is looking at - it is recorded so the number is not mistaken for a
+// guarantee it never was.
+constexpr Float32 DARK_TARGET_MAX_MM = 6000.0f;
+
+// Figure 2-1: Resolution 15 mm, Accuracy +/-30 mm.
+//
+// This is what the sensor can DISTINGUISH, and it is why the readouts below do
+// not print a millimetre. Two surfaces 10 mm apart are one surface to a C1, and
+// a display that says "437 mm" is offering three significant figures the device
+// cannot support - which reads as precision and is decoration.
+constexpr Float32 RESOLUTION_MM = 15.0f;
+
 // Below this radius the blind disc is too small to render as anything but a
 // smudge, so it is skipped and the sensor hub stands in for it.
 //
@@ -366,19 +385,48 @@ Float32 niceStepDown(Float32 raw)
     return s * p;
 }
 
-// Ring labels: round metres above a metre, millimetres below.
+// Ring labels. The rings are chosen radii, not measurements - a ring drawn at
+// exactly 500 mm IS at 500 mm - so these are printed as asked.
 Void formatRing(Char* buf, Size n, Float32 mm)
 {
-    if(mm >= 1000.0f) std::snprintf(buf, n, "%.1f m", static_cast<Float64>(mm) / 1000.0);
-    else               std::snprintf(buf, n, "%.0f mm", static_cast<Float64>(mm));
+    if(mm >= 1000.0f)
+    {
+        std::snprintf(buf, n, "%.1f m", static_cast<Float64>(mm) / 1000.0);
+    }
+    else
+    {
+        std::snprintf(buf, n, "%.0f mm", static_cast<Float64>(mm));
+    }
 }
 
-// Readout labels: as much precision as the magnitude deserves.
+// Readout labels: as much precision as the SENSOR deserves, which is a
+// different question from what the magnitude deserves.
+//
+// This used to print "%.0f mm" below a metre - "437 mm", three significant
+// figures. The C1 resolves 15 mm and is accurate to +/-30 mm, so the last digit
+// of that was never measured, and the digit before it was decoration. A readout
+// that jitters between 437 and 441 while nothing moves teaches you to distrust
+// the display; one that reads 440 and stays there is telling the truth.
+//
+// So: snapped to the resolution below a metre, and two decimals of a metre
+// above it - 10 mm granularity, which is still finer than the accuracy but
+// coarse enough not to claim anything absurd.
 Void formatDist(Char* buf, Size n, Float32 mm)
 {
-    if(mm < 1000.0f)  std::snprintf(buf, n, "%.0f mm", static_cast<Float64>(mm));
-    else if(mm < 10000.0f) std::snprintf(buf, n, "%.2f m", static_cast<Float64>(mm) / 1000.0);
-    else                    std::snprintf(buf, n, "%.1f m", static_cast<Float64>(mm) / 1000.0);
+    if(mm < 1000.0f)
+    {
+        const Float32 snapped =
+            std::round(mm / RESOLUTION_MM) * RESOLUTION_MM;
+        std::snprintf(buf, n, "%.0f mm", static_cast<Float64>(snapped));
+    }
+    else if(mm < 10000.0f)
+    {
+        std::snprintf(buf, n, "%.2f m", static_cast<Float64>(mm) / 1000.0);
+    }
+    else
+    {
+        std::snprintf(buf, n, "%.1f m", static_cast<Float64>(mm) / 1000.0);
+    }
 }
 
 // ------------------------------------------------------------- primitives ---

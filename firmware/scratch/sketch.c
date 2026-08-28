@@ -40,7 +40,7 @@
  * by daylight. Start on LONG and switch if readings collapse near a window.
  */
 
-#include "tt02.h"
+#include "../lib/tt02.h"
 
 /* ---- the screen ---------------------------------------------------------- */
 #define SCREEN_W     240

@@ -39,7 +39,7 @@
 
 /* The whole library. An application includes this and nothing else of ours -
  * see docs/conventions.md, and the style audit that enforces it. */
-#include "tt02.h"
+#include "../lib/tt02.h"
 
 
 /* The sensor drivers. pico_debug is the image the hub talks to, so it is the

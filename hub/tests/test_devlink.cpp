@@ -172,16 +172,51 @@ Void testPortKind()
     check(known == static_cast<Int32>(ports.size()),
           "every enumerated port is identified");
 
-    // A USB CDC device is a Pico and is never a lidar. This is the check that
-    // would have caught the COM10 collision.
+    // Whatever is attached, nothing the machine reports may be BOTH a Pico and
+    // a lidar adapter. Stated over the enumeration rather than over one port,
+    // so it says something when there is no Pico plugged in.
+    Int32 both = 0;
     for(const Str& p : ports)
     {
-        if(dev::portKind(p) == dev::PortKind::PORT_KIND_USB_CDC)
+        const dev::PortKind k = dev::portKind(p);
+        if(k == dev::PortKind::PORT_KIND_USB_CDC
+           && dev::couldBeLidar(k))
         {
-            check(dev::portKind(p) != dev::PortKind::PORT_KIND_CP210X,
-                  "a Pico port is not a CP210x");
+            ++both;
         }
     }
+    check(both == 0, "no enumerated port is both a Pico and a lidar candidate");
+}
+
+// The rule that stops the lidar grabbing the Pico's port.
+//
+// This replaces a check that read as if it guarded the COM10 collision and
+// could not: it asked whether a port already known to be USB_CDC was also
+// CP210X, inside the branch that had just established it was not. A PortKind is
+// one value, so that could never fail - and it only ran at all when a Pico
+// happened to be plugged in, so the count of checks changed depending on what
+// was on the desk.
+//
+// Over the KINDS, so it needs no hardware and covers the cases the machine does
+// not currently have.
+Void testLidarRule()
+{
+    std::printf("\n-- what may be the lidar --\n");
+
+    check(dev::couldBeLidar(dev::PortKind::PORT_KIND_CP210X),
+          "a CP210x is the adapter every RPLIDAR uses");
+
+    check(!dev::couldBeLidar(dev::PortKind::PORT_KIND_USB_CDC),
+          "a USB CDC port is a Pico and is NEVER the lidar");
+
+    check(!dev::couldBeLidar(dev::PortKind::PORT_KIND_BLUETOOTH),
+          "a Bluetooth port is never the lidar");
+
+    // Deliberately permissive: an adapter nobody has seen before should be
+    // offerable. Refusing it would be a worse failure than offering it, because
+    // a port missing from the list reads as a driver problem.
+    check(dev::couldBeLidar(dev::PortKind::PORT_KIND_UNKNOWN),
+          "an unrecognised port is still offered");
 }
 
 Void testDescribe()
@@ -216,6 +251,7 @@ int main()
     testPortPresence();
     testClassify();
     testPortKind();
+    testLidarRule();
     testDescribe();
 
     std::printf("\n%d checks, %d failed\n", checks, failures);

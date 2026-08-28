@@ -23,7 +23,7 @@
  * Exits 0 on PASS, 1 on FAIL.
  */
 
-#include "text.h"
+#include "../lib/text.h"
 
 #include <stdio.h>
 #include <string.h>
