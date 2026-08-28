@@ -179,7 +179,7 @@ Str   lastCmd;                  // last line we sent, trimmed
 // ---- what pico_debug reports about itself ---------------------------------
 //
 // Parsed out of `INFO status` / `INFO id` / `OK led ...`, which is the
-// vocabulary in firmware/src/main.c. Kept separate from VehicleStatus above
+// vocabulary in firmware/app/main.c. Kept separate from VehicleStatus above
 // because the two come from DIFFERENT firmware: pico_debug answers STATUS,
 // tt02_control answers `?`, and neither understands the other's command. A
 // board runs one of them, so at most one of these two structs is ever live.
@@ -266,7 +266,7 @@ Bool    driveSteerHeld = false;
 // wherever it lands.
 //
 // Held here as the working copy, saved to settings so a session does not lose
-// them, and written out to firmware/src/steering_cal.h when the user commits -
+// them, and written out to firmware/lib/chassis/cal.h when the user commits -
 // three places on purpose. Settings is what survives a restart; the header is
 // what survives a reflash and what other code can actually read.
 Int32 calLeft   = 1300;
@@ -654,7 +654,7 @@ RadarView recView;
 rec::Recording recording;
 
 // ---- the Code view ---------------------------------------------------------
-// A sketch is edited here, written to firmware/src/sketch.c, and built and
+// A sketch is edited here, written to firmware/scratch/sketch.c, and built and
 // flashed by the SAME scripts the Firmware panel uses. There is one toolchain
 // path in this project and this is a front-end to it.
 ed::Editor   codeEditor;
@@ -3657,7 +3657,7 @@ Void drawRecorderControls()
 // ================================================================= code view
 
 // Last-write time of `path`, or 0 if it cannot be read.
-// Writes the buffer to the sketch library AND to firmware/src/sketch.c.
+// Writes the buffer to the sketch library AND to firmware/scratch/sketch.c.
 //
 // Both, always. The library copy is the one that survives; the slot is what
 // CMake compiles. Saving only the library would build stale code, and saving
@@ -3717,7 +3717,7 @@ Void openCodeFile(const Str& path, const Str& name)
     // Marks the view as loaded even though it may never have been drawn. Its
     // first draw otherwise runs a lazy init that picks the first sketch in the
     // library, which would replace whatever was just opened - the view would
-    // switch, announce "opened steering_cal.h", and show a different file.
+    // switch, announce "opened cal.h", and show a different file.
     codeLoaded = true;
 
     codePath = path;
@@ -3859,7 +3859,7 @@ Void drawCodeTree(Float32 w, Float32 h)
 
             if(!deletable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
-                ImGui::SetTooltip("firmware/src is tracked in git - delete it there");
+                ImGui::SetTooltip("firmware/ is tracked in git - delete it there");
             }
 
             ImGui::EndPopup();
@@ -3885,7 +3885,7 @@ Void drawCodeTree(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
-    if(ImGui::TreeNodeEx("firmware/src", ImGuiTreeNodeFlags_DefaultOpen))
+    if(ImGui::TreeNodeEx("firmware", ImGuiTreeNodeFlags_DefaultOpen))
     {
         const Str d = sketch::firmwareDir();
         for(const Str& n : fwFiles)
@@ -4109,7 +4109,7 @@ Void drawCodeControls()
         ImGui::TextDisabled("Sketches");
 
         // Two lists of filenames in one popup, and a menu entry takes its ID
-        // from its label - so a sketch named sketch.c and firmware/src/sketch.c
+        // from its label - so a sketch named sketch.c and firmware/scratch/sketch.c
         // are literally the same widget to ImGui, which says so. The path is
         // unique by construction, so it is the ID.
         //
@@ -4142,7 +4142,7 @@ Void drawCodeControls()
         }
 
         ImGui::Separator();
-        ImGui::TextDisabled("firmware/src");
+        ImGui::TextDisabled("firmware");
 
         const Str      fwd  = sketch::firmwareDir();
         const Str      slot = sketch::slotPath();
@@ -4152,7 +4152,7 @@ Void drawCodeControls()
             const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
             const Str  p   = fwd + "\\" + n;
 
-            // firmware/src/sketch.c is the scratch slot every library sketch is
+            // firmware/scratch/sketch.c is the scratch slot every library sketch is
             // copied into before a build, which is why it can share a name with
             // one - and why saying so here is worth a word.
             const Bool isSlot = !slot.empty()
@@ -4684,7 +4684,7 @@ Void drawDriveFlashButton()
     }
     if(ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("Builds firmware/src/main.c and writes it to the "
+        ImGui::SetTooltip("Builds firmware/app/main.c and writes it to the "
                           "board.\n\nThis OVERWRITES whatever sketch is on "
                           "there. The\nsource is untouched - rebuild and "
                           "reflash it from the\nCode view whenever you want "
@@ -4697,7 +4697,7 @@ Void drawDriveFlashButton()
 Str steeringCalPath()
 {
     const Str d = sketch::firmwareDir();
-    return d.empty() ? Str() : (d + "\\steering_cal.h");
+    return d.empty() ? Str() : (d + "\\lib\\chassis\\cal.h");
 }
 
 // Loaded from settings, not from the header. The header is generated output -
@@ -4918,7 +4918,7 @@ Void drawDriveBody(Float32 w, Float32 h)
                                "that is indistinguishable from a dead board.\n"
                                "\n"
                                "This view needs the Debug / Blink firmware\n"
-                               "(firmware/src/main.c). Flashing a sketch from the\n"
+                               "(firmware/app/main.c). Flashing a sketch from the\n"
                                "Code view REPLACES it - they are separate programs\n"
                                "and only one can be on the board at a time.");
 
@@ -4963,7 +4963,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::Spacing();
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "This view needs the Debug / Blink firmware "
-                           "(firmware/src/main.c).\n"
+                           "(firmware/app/main.c).\n"
                            "\n"
                            "If you have flashed a sketch from the Code view, "
                            "that REPLACED it -\n"
@@ -5362,14 +5362,14 @@ Void drawDriveBody(Float32 w, Float32 h)
             }
             else
             {
-                LOG_WARN("drive", "could not write steering_cal.h: %s",
+                LOG_WARN("drive", "could not write cal.h: %s",
                          err.c_str());
             }
         }
         ImGui::EndDisabled();
         if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Writes firmware/src/steering_cal.h.\n"
+            ImGui::SetTooltip("Writes firmware/lib/chassis/cal.h.\n"
                               "\n"
                               "main.c includes it, so these become the limits and\n"
                               "the centre the board comes up with. Reflash after\n"
@@ -5387,29 +5387,29 @@ Void drawDriveBody(Float32 w, Float32 h)
                || !readCalNumbers(calWritten, fl, fc, fr))
             {
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                                   "steering_cal.h could not be read.");
+                                   "cal.h could not be read.");
             }
             else if(fl != calLeft || fc != calCenter || fr != calRight)
             {
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                                   "steering_cal.h still says %d / %d / %d.",
+                                   "cal.h still says %d / %d / %d.",
                                    fl, fc, fr);
             }
             else
             {
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD),
-                                   "Matches steering_cal.h - the firmware would "
+                                   "Matches cal.h - the firmware would "
                                    "build with these.");
             }
         }
 
-        if(ui::iconButton(ui::Icon::ICON_CODE, "Open steering_cal.h",
+        if(ui::iconButton(ui::Icon::ICON_CODE, "Open cal.h",
                           ImVec2(210.0f * uiDpiScale, 0.0f)))
         {
             const Str path = steeringCalPath();
             if(!path.empty())
             {
-                openCodeFile(path, "steering_cal.h");
+                openCodeFile(path, "cal.h");
                 forceView       = 3;
                 forceViewFrames = 4;
             }

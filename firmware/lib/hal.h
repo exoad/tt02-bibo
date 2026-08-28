@@ -41,7 +41,7 @@
  *
  * That is a lot of noise to accept in exchange for a slightly prettier include.
  */
-#include "../../shared/shared.h"
+#include "shared.h"
 
 #include "hardware/adc.h"
 #include "hardware/clocks.h"

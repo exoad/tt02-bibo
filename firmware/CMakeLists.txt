@@ -15,12 +15,26 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
-add_executable(pico_debug
-    src/main.c
+# Headers are listed as SOURCES on purpose. CMake does not need them - it finds
+# them through the include path - but an IDE decides what LANGUAGE a .h is by
+# which target owns it, and an unowned .h is assumed to be C++. That is why
+# hal.h showed "C-style cast is used instead of a C++ cast" on every (UInt8) in
+# a file that cannot contain a C++ cast. Listing them says plainly: these are C,
+# and they belong to this program.
+set(TT02_LIB
+    lib/tt02.h
+    lib/hal.h
+    lib/gfx.h
+    lib/drivers/display.h
+    lib/drivers/range.h
+    lib/drivers/storage.h
+    lib/chassis/chassis.h
+    lib/chassis/cal.h
+)
 
-    # See the note on the sketch target: listed so the IDE knows this header is
-    # C and which target's include paths apply to it.
-    src/pico2w.h
+add_executable(pico_debug
+    app/main.c
+    ${TT02_LIB}
 )
 
 # pico_cyw43_arch_none: the wireless chip is brought up so its GPIO (and so the
@@ -45,6 +59,7 @@ pico_enable_stdio_uart(pico_debug 0)
 # shared/ holds the project's C vocabulary (shared.h). One copy, used by the
 # firmware and mirrored by shared/shared.hpp for the hub.
 target_include_directories(pico_debug PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib"
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
 )
 
@@ -63,25 +78,14 @@ pico_add_extra_outputs(pico_debug)
 # stdio stays off for the same reason as above: GP0/GP1 are the servo and ESC.
 # ---------------------------------------------------------------------------
 add_executable(sketch
-    src/sketch.c
-
-    # Headers listed as SOURCES on purpose. CMake does not need them - it finds
-    # them through the include path - but an IDE decides what LANGUAGE a .h is
-    # by which target owns it, and an unowned .h is assumed to be C++. That is
-    # why pico2w.h showed "C-style cast is used instead of a C++ cast" on every
-    # (UInt8) in a file that cannot contain a C++ cast. Listing them here says
-    # plainly: these are C, and they belong to this program.
-    src/pico2w.h
-    src/st77xx.h
-    src/gfx.h
-    src/sdcard.h
-    src/vl53l1x.h
+    scratch/sketch.c
+    ${TT02_LIB}
 )
 
 # pico_stdlib does not carry PWM, ADC or the watchdog, and the Pico 2 W's own
 # LED hangs off the CYW43439 rather than a GPIO - so the wireless arch has to be
 # linked just to blink it. Linking all of them here rather than making each
-# sketch ask keeps the promise pico2w.h makes: include it and everything in it
+# sketch ask keeps the promise tt02.h makes: include it and everything in it
 # works.
 #
 # COST, stated honestly: cyw43_arch roughly doubles a CLEAN build of this target
@@ -105,6 +109,7 @@ pico_enable_stdio_usb(sketch 1)
 pico_enable_stdio_uart(sketch 0)
 
 target_include_directories(sketch PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib"
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
 )
 

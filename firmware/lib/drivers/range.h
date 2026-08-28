@@ -59,7 +59,7 @@
 #ifndef TT02_VL53L1X_H
 #define TT02_VL53L1X_H
 
-#include "pico2w.h"
+#include "hal.h"
 
 #define VL53_ADDR_DEFAULT 0x29
 

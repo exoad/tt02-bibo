@@ -40,9 +40,7 @@
  * by daylight. Start on LONG and switch if readings collapse near a window.
  */
 
-#include "pico2w.h"
-#include "gfx.h"
-#include "vl53l1x.h"
+#include "tt02.h"
 
 /* ---- the screen ---------------------------------------------------------- */
 #define SCREEN_W     240
