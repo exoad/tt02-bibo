@@ -2848,8 +2848,8 @@ Void drawSensorFootprint(const MarkCtx& c)
     const ImVec2 a(c.s0.x - h, c.s0.y - h);
     const ImVec2 b(c.s0.x + h, c.s0.y + h);
 
-    c.dl->AddRectFilled(a, b, IM_COL32(0x2A, 0x2E, 0x34, 0xC0));
-    c.dl->AddRect(a, b, IM_COL32(0xC8, 0xD2, 0xDC, 0xD0), 0.0f, 0,
+    c.dl->AddRectFilled(a, b, (ui::ansi::BLACK & 0x00FFFFFFu) | (0xC0u << IM_COL32_A_SHIFT));
+    c.dl->AddRect(a, b, (ui::ansi::WHITE & 0x00FFFFFFu) | (0xD0u << IM_COL32_A_SHIFT), 0.0f, 0,
                   std::max(1.0f, 1.2f * c.dpi));
 }
 
@@ -3327,7 +3327,7 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
                    (c.p0.y + c.p1.y) * 0.5f - boxH * 0.5f);
     const ImVec2 b(a.x + boxW, a.y + boxH);
 
-    ui::plate(a, b, IM_COL32(0x22, 0x25, 0x2A, 0xE8), ImGui::GetStyle().FrameRounding);
+    ui::plate(a, b, (ui::ansi::BLACK & 0x00FFFFFFu) | (0xE8u << IM_COL32_A_SHIFT), 0.0f);
 
     for(Int32 i = 0; i < nr; ++i)
     {
@@ -3390,10 +3390,10 @@ Void drawMarksMinimal(const MarkCtx& c, const MapState& st, const Deque<Vec<Lida
         {
             // Star-shaped about the sensor by construction, so the fan is exact.
             emitFan(c.dl, c.s0, poly, CLR_BINS,
-                    IM_COL32(0x18, 0x3A, 0x6E, 0xC0), c.uv);
+                    (ui::ansi::BLUE  & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT), c.uv);
             for(Int32 i = 0; i < CLR_BINS; ++i)
                 c.dl->AddLine(poly[i], poly[(i + 1) % CLR_BINS],
-                              IM_COL32(0x6E, 0xB8, 0xFF, 0x90), 1.6f * c.dpi);
+                              (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0xC0u << IM_COL32_A_SHIFT), 1.6f * c.dpi);
         }
     }
 

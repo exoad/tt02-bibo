@@ -97,7 +97,16 @@ struct LinkImplBody
     // Data shared with the UI thread.
     mutable Mutex      mu;
     Deque<PicoLine>    log;
-    Deque<Str> txq;
+    // What is waiting to go out. The flag rides WITH the payload: the echo
+    // into the log happens on the worker thread, long after send() returned,
+    // and a parallel deque of flags would be one mispop away from labelling the
+    // wrong line.
+    struct TxItem
+    {
+        Str  text;
+        Bool poll = false;
+    };
+    Deque<TxItem> txq;
     Str             err;
     Str             portname;
 
@@ -159,12 +168,13 @@ struct LinkImplBody
         }
     }
 
-    Void pushLine(Bool outgoing, Str text)
+    Void pushLine(Bool outgoing, Str text, Bool poll = false)
     {
         PicoLine ln;
         ln.tS      = elapsedS();
         ln.outgoing = outgoing;
         ln.text     = std::move(text);
+        ln.poll     = poll;
 
         LockGuard<Mutex> lk(mu);
         log.push_back(std::move(ln));
@@ -535,14 +545,15 @@ Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
     while(!stop.load(std::memory_order_acquire))
     {
         // ---- transmit anything the UI queued -------------------------------
-        Deque<Str> outbound;
+        Deque<TxItem> outbound;
         {
             LockGuard<Mutex> lk(mu);
             outbound.swap(txq);
         }
         Bool writeFailed = false;
-        for(auto& line : outbound)
+        for(auto& item : outbound)
         {
+            Str&        line    = item.text;
             DWORD       written = 0;
             const DWORD n       = static_cast<DWORD>(line.size());
             if(!WriteFile(h, line.data(), n, &written, nullptr) || written != n)
@@ -556,7 +567,7 @@ Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
             Str echo = line;
             while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
                 echo.pop_back();
-            pushLine(true, std::move(echo));
+            pushLine(true, std::move(echo), item.poll);
         }
         if(writeFailed)
         {
@@ -845,7 +856,7 @@ Str PicoLink::port() const
     return pimpl->portname;
 }
 
-Void PicoLink::send(const Str& line)
+Void PicoLink::send(const Str& line, Bool poll)
 {
     if(!pimpl)
         return;
@@ -869,7 +880,10 @@ Void PicoLink::send(const Str& line)
         pimpl->drops.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    pimpl->txq.push_back(std::move(payload));
+    Impl::TxItem item;
+    item.text = std::move(payload);
+    item.poll = poll;
+    pimpl->txq.push_back(std::move(item));
 }
 
 Size PicoLink::drain(Vec<PicoLine>& out)
