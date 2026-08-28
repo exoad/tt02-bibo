@@ -1923,9 +1923,19 @@ stages rather than in one pass.
       firmware now exists on this machine only as a read-back binary
       (`vendor/tt02_control-backup.uf2`, gitignored). Get the source into
       `firmware/` before that .uf2 is the last copy anywhere.
-- [ ] **Phase 2: make the servo move under code.** Still the gate for the whole
-      project. Note the correction above: control firmware emitting 1500 µs
-      neutral on two channels already exists and runs — what has not been shown
-      is a servo actually moving. Toolchain, build, flash and backup all work
-      from this machine now, so the remaining work is wiring and testing, not
-      setup.
+- [x] **Phase 2: make the servo move under code** — 2026-08-27. Steering sweeps
+      its full travel on command, and the ESC is verified. Calibrated on this
+      car: left 1230, **centre 1484**, right 1670, in
+      `firmware/src/steering_cal.h`.
+
+      Centre is 1484, not 1500. The servo was binding at what the firmware
+      called neutral, and that is why it kept stalling against the frame.
+
+      The throw is asymmetric — 254 µs one way, 186 µs the other. Anything that
+      assumes ±X µs from centre steers further one way than the other, so the
+      next layer needs a normalised command that maps through the calibration
+      rather than adding microseconds to a midpoint.
+
+      The evening it took was a missing common ground, hidden by a breadboard
+      power rail that is split in the middle. See the invariant in
+      [wiring.md](wiring.md).
