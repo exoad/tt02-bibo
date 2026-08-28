@@ -100,6 +100,7 @@ static Void printHelp(Void)
     serialPrintf("INFO help ESC ARM|DISARM|NEUTRAL|<us> - throttle\n");
     serialPrintf("INFO help STOP - neutral both, disarm the esc\n");
     serialPrintf("INFO help STEER <-1..1> - steer as a fraction of this car's travel\n");
+    serialPrintf("INFO help SLEW <us> - how fast outputs may move, per tick\n");
     serialPrintf("INFO help SERVOTRIM <us> - move where centre is\n");
     serialPrintf("INFO help SERVO OFF - stop the pulse, servo goes limp\n");
     serialPrintf("INFO help SERVO ON - drive the steering again\n");
@@ -328,10 +329,11 @@ static Void printDrive(Void)
 {
     const DriveState d = driveRead();
     serialPrintf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
-           "servo_on=%d servo_c=%d steer_m=%d "
+           "servo_on=%d servo_c=%d steer_m=%d slew=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            d.servoUs, d.servoTargetUs, d.escUs, d.escTargetUs,
            d.escArmed ? 1 : 0, d.servoLive ? 1 : 0, d.centerUs, d.steerMilli,
+           d.slewStepUs,
            d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
 }
 
@@ -354,6 +356,29 @@ static Void handleSteer(Utf8* arg)
     }
 
     driveSteer(n);
+    printDrive();
+}
+
+static Void handleSlew(CharSeq arg)
+{
+    Int32 us = 0;
+    if(!textInt(arg, &us) || !driveSetSlew(us))
+    {
+        serialPrintf("ERR slew wants microseconds per tick, %d-%d\n",
+                     SLEW_MIN_STEP, SLEW_MAX_STEP);
+        return;
+    }
+
+    /* Reported in a unit a person thinks in as well as the one the firmware
+     * uses. "8 us per tick" is a number nobody has intuition about; "400 us/s,
+     * full travel 1100 ms" is the fact that decides whether it is fast enough
+     * to steer around something. */
+    const DriveState d = driveRead();
+    const Int32 perSec = d.slewStepUs * (1000 / SLEW_TICK_MS);
+    serialPrintf("INFO slew %d us/tick = %d us/s, full travel %d ms\n",
+                 d.slewStepUs, perSec,
+                 (perSec > 0) ? (((d.servoMaxUs - d.servoMinUs) * 1000) / perSec)
+                              : 0);
     printDrive();
 }
 
@@ -570,6 +595,12 @@ static Void handleLine(Utf8* line)
     if(textEq(line, "STEER"))
     {
         handleSteer(line + 5);
+        return;
+    }
+
+    if(textStarts(line, "SLEW "))
+    {
+        handleSlew(textAfter(line, "SLEW "));
         return;
     }
 
