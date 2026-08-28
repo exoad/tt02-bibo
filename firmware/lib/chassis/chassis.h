@@ -116,8 +116,25 @@
  * probably to a value set at runtime rather than baked in here, since bench
  * work and driving want different answers and neither is a bug.
  */
-#define SLEW_STEP_US SLEW_CAL_STEP
 #define SLEW_TICK_MS 20
+
+/*
+ * TWO rates, not one. The steering and the throttle want different answers and
+ * always did.
+ *
+ * A servo should get where it is told promptly - a steering correction that
+ * arrives late is a correction applied to a car that has already moved past the
+ * thing it was avoiding. An ESC should not: throttle slammed on spins the
+ * wheels, throttle slammed off pitches the car onto its nose, and a brushed
+ * motor asked for a step change draws a current spike that the BEC feels.
+ *
+ * They shared one number until now, so tuning the steering to be quick made the
+ * throttle violent and gentling the throttle made the steering vague. Neither
+ * of those is a setting anybody would choose; it was just the only shape
+ * available.
+ */
+#define STEER_SLEW_US    SLEW_CAL_STEER
+#define THROTTLE_SLEW_US SLEW_CAL_THROTTLE
 
 /*
  * The bounds on that rate.
@@ -165,7 +182,8 @@ typedef struct
     Int32 servoMaxUs;
     Int32 escMinUs;
     Int32 escMaxUs;
-    Int32 slewStepUs;    /* us of pulse per 20 ms tick */
+    Int32 steerSlewUs;    /* us of pulse per 20 ms tick, steering */
+    Int32 throttleSlewUs; /* ...and throttle. They are separate settings.  */
 } DriveState;
 
 /* ---- state --------------------------------------------------------------- */
@@ -208,7 +226,8 @@ static Int32 escNow      = DRIVE_NEUTRAL_US;
  * the steering crawled to wherever a slider was dragged, which reads as lag in
  * the UI and is a real limit on the car.
  */
-static Int32 slewStepUs = SLEW_STEP_US;
+static Int32 steerSlewUs    = STEER_SLEW_US;
+static Int32 throttleSlewUs = THROTTLE_SLEW_US;
 
 static absolute_time_t nextSlew;
 
@@ -306,8 +325,8 @@ static inline Void drivePump(Void)
     if(servoLive && servoNow != servoTarget)
     {
         const Int32 d    = servoTarget - servoNow;
-        const Int32 step = (d > slewStepUs) ? slewStepUs
-                         : ((d < -slewStepUs) ? -slewStepUs : d);
+        const Int32 step = (d > steerSlewUs) ? steerSlewUs
+                         : ((d < -steerSlewUs) ? -steerSlewUs : d);
         servoNow += step;
         servoWriteUs(PIN_SERVO, (UInt32) servoNow);
     }
@@ -318,8 +337,8 @@ static inline Void drivePump(Void)
     if(escNow != want)
     {
         const Int32 d    = want - escNow;
-        const Int32 step = (d > slewStepUs) ? slewStepUs
-                         : ((d < -slewStepUs) ? -slewStepUs : d);
+        const Int32 step = (d > throttleSlewUs) ? throttleSlewUs
+                         : ((d < -throttleSlewUs) ? -throttleSlewUs : d);
         escNow += step;
         servoWriteUs(PIN_ESC, (UInt32) escNow);
     }
@@ -368,25 +387,54 @@ static inline DriveState driveRead(Void)
     s.servoMaxUs    = servoMax;
     s.escMinUs      = escMin;
     s.escMaxUs      = escMax;
-    s.slewStepUs    = slewStepUs;
+    s.steerSlewUs    = steerSlewUs;
+    s.throttleSlewUs = throttleSlewUs;
     return s;
 }
 
 /*
- * How fast the outputs may move, in microseconds of pulse per 20 ms tick.
+ * How fast the STEERING may move, in microseconds of pulse per 20 ms tick.
  *
  * Clamped rather than refused, so a caller asking for "as fast as possible" by
  * passing a large number gets the ceiling instead of an error. Returns false
  * only for a value that is not a rate at all.
  */
-static inline Bool driveSetSlew(Int32 usPerTick)
+static inline Bool driveSetSteerSlew(Int32 usPerTick)
 {
     if(usPerTick <= 0)
     {
         return false;
     }
-    slewStepUs = driveClamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
+    steerSlewUs = driveClamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
     return true;
+}
+
+/*
+ * How fast the THROTTLE may move. Same units, same bounds, different setting.
+ *
+ * This is the one that decides whether the car pulls away or lurches. It is
+ * separate from the steering because the right answer is different: a servo
+ * wants to arrive promptly and an ESC wants to be led there.
+ */
+static inline Bool driveSetThrottleSlew(Int32 usPerTick)
+{
+    if(usPerTick <= 0)
+    {
+        return false;
+    }
+    throttleSlewUs = driveClamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
+    return true;
+}
+
+/*
+ * Both at once, which is what "the response rate" meant when there was only
+ * one. Kept because it is genuinely the common case on a bench - you are
+ * usually asking for everything to be slow while you watch something - and
+ * because a caller that does not care should not have to make two calls.
+ */
+static inline Bool driveSetSlew(Int32 usPerTick)
+{
+    return driveSetSteerSlew(usPerTick) && driveSetThrottleSlew(usPerTick);
 }
 
 /* ---- steering ------------------------------------------------------------ */

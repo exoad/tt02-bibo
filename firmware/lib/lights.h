@@ -79,9 +79,10 @@
  *                      Indicating left while the wheels go right is the one
  *                      thing an indicator must never do.
  *
- *                 THE OVERRIDE: an indicating side interrupts its own tail
- *                 lamp. That asymmetry - one side alternating, the other solid
- *                 - is what makes a car read as a car rather than a light show.
+ *                 The indicators do NOT interrupt the tails. On a car whose
+ *                 rear indicator and brake share one bulb they must; this car
+ *                 has separate LEDs for each, and a brake light that blinks is
+ *                 a brake light nobody can read. See lightsSolve().
  *
  * HEAD            Manual. Nothing the car knows implies "it is dark".
  *
@@ -400,11 +401,23 @@ static inline Void lightsSolve(const LightInput* in, LightTurn turn, Bool flash,
     out->level[LAMP_TAIL_L] = red;
     out->level[LAMP_TAIL_R] = red;
 
-    /* THE OVERRIDE. An indicating side interrupts its own tail while the
-     * indicator is lit, so that side alternates and the other stays solid. It
-     * has to be resolved AFTER the tail rather than beside it. */
-    if(left  && flash) out->level[LAMP_TAIL_L] = LAMP_OFF;
-    if(right && flash) out->level[LAMP_TAIL_R] = LAMP_OFF;
+    /*
+     * NO OVERRIDE. The tails are not interrupted by anything.
+     *
+     * They were, until 2026-08-28, and the reason was a real convention applied
+     * to the wrong car. On many cars the REAR indicator and the brake light are
+     * one bulb, so the indicator has to interrupt the brake to be seen at all -
+     * and that interruption is what makes such a car read as a car.
+     *
+     * This car does not have that bulb. The tails and the indicators are
+     * separate LEDs on separate pins, and a second pair of indicators is going
+     * on the rear, so nothing here is ever competing for the same lamp. Applied
+     * anyway, it made the brake light blink in antiphase to the signal beside
+     * it, which is exactly what a brake light must not do.
+     *
+     * If a shared-bulb cluster is ever fitted, the override belongs in the
+     * BINDING - two lamps mapped to one pin - and not back in here.
+     */
 
     /*
      * Reverse lamps: lit while the car is being driven BACKWARDS.
