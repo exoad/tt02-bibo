@@ -152,6 +152,15 @@ typedef struct
     Bool  servoLive;     /* is the steering pin being driven at all           */
     Int32 centerUs;      /* where the wheels point straight, measured         */
     Int32 steerMilli;    /* the target as -1000..1000 of this car's travel    */
+
+    /* Where the wheels ACTUALLY are, on the same scale.
+     *
+     * Not the same thing as steerMilli and the difference is the slew limiter:
+     * a full-lock command arrives at once and the servo takes about a second to
+     * walk there, so for a whole second these two disagree. Anything watching
+     * the car - an indicator lamp, a controller - wants this one; anything
+     * reporting what was asked for wants the other. */
+    Int32 steerNowMilli;
     Int32 servoMinUs;
     Int32 servoMaxUs;
     Int32 escMinUs;
@@ -354,6 +363,7 @@ static inline DriveState driveRead(Void)
     s.servoLive     = servoLive;
     s.centerUs      = servoCenterUs;
     s.steerMilli    = driveSteerFromUs(servoTarget);
+    s.steerNowMilli = driveSteerFromUs(servoNow);
     s.servoMinUs    = servoMin;
     s.servoMaxUs    = servoMax;
     s.escMinUs      = escMin;

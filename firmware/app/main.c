@@ -540,6 +540,50 @@ static Void handleEsc(CharSeq arg)
 }
 
 
+/* ---------------------------------------------------------------------------
+ * LIGHTS - the indicator scaffolding. TEMPORARY, see lib/lights.h.
+ *
+ * Reports which way the car thinks it is turning and whether the lamp is lit
+ * this instant. The hub polls it to draw the pair in the Drive view, which is
+ * the only reason the "lit" half is reported at all - a blink you can see on
+ * screen at the same rate as the one on the bench is how you tell the rule is
+ * running rather than the LED merely being on.
+ * ------------------------------------------------------------------------- */
+static Void printLights(CharSeq arg)
+{
+    (Void) arg;
+
+    const LightTurn t = lightsSide();
+    serialPrintf("OK lights on=%d side=%s lit=%d left_pin=%d right_pin=%d\n",
+                 lightsEnabled() ? 1 : 0,
+                 (t == LIGHT_TURN_LEFT) ? "left"
+                     : (t == LIGHT_TURN_RIGHT) ? "right" : "off",
+                 lightsIsLit() ? 1 : 0,
+                 LIGHT_LEFT_PIN, LIGHT_RIGHT_PIN);
+}
+
+static Void handleLights(CharSeq arg)
+{
+    if(textEq(arg, "ON"))
+    {
+        lightsEnable(true);
+        printLights(arg);
+        return;
+    }
+    if(textEq(arg, "OFF"))
+    {
+        lightsEnable(false);
+        printLights(arg);
+        return;
+    }
+    if(arg[0] == '\0')
+    {
+        printLights(arg);
+        return;
+    }
+    serialPrintf("ERR lights wants ON, OFF, or nothing\n");
+}
+
 /* ---- the command table ---------------------------------------------------
  *
  * One row per command; the dispatcher and HELP both read it.
@@ -633,6 +677,10 @@ static const Command COMMANDS[] =
     { "SERVOLIMITS", " <min> <max>",            "widen to find the real end stops",         handleLimits },
     { "ESC",         " ARM|DISARM|NEUTRAL|<us>", "throttle",                                handleEsc },
     { "ESCLIMITS",   " <min> <max>",            "widen the throttle range",                 handleEscLimits },
+
+    /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
+     * the wheel encoder. See lib/lights.h. */
+    { "LIGHTS",      " [ON|OFF]",               "indicator lamps, and which way",           handleLights },
 };
 
 static const Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
@@ -703,6 +751,12 @@ Int32 main(Void)
      * rather than a crash. */
     statusOpen();
 
+    /* The indicator lamps. TEMPORARY scaffolding on borrowed pins - lib/lights.h
+     * says which and why. Opened AFTER driveOpen() so that if the two ever
+     * disagree about a pin, the drivetrain wins: a stray LED is a cosmetic
+     * fault and a servo pin that is secretly an output is not. */
+    lightsOpen();
+
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */
     statusHello(HELLO_FLASHES, HELLO_FLASH_MS);
@@ -720,6 +774,12 @@ Int32 main(Void)
          * time. Nothing jumps: a slider dragged end to end produces a sweep
          * rather than a step. */
         drivePump();
+
+        /* AFTER drivePump, and reading steerNowMilli rather than steerMilli, so
+         * the lamp follows where the wheels have actually got to. Reading the
+         * target would flash the indicator a full second before the car began
+         * to turn, which is the one thing that would make this look fake. */
+        lightsTick(driveRead().steerNowMilli);
 
         /* Anything written before the host opens the port is discarded, so the
          * banner waits for a connection rather than being lost. */

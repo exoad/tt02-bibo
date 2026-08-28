@@ -320,10 +320,12 @@ LAYERS = {
 LAYER_EXTRA = {
     'firmware/lib/gfx.h':  {'drivers/display.h'},
     'firmware/lib/status.h': {'hal.h'},
+    'firmware/lib/lights.h': {'hal.h'},
     'firmware/lib/tt02.h': {'hal.h', 'text.h', 'gfx.h', 'status.h',
                             'drivers/display.h',
                             'drivers/range.h', 'drivers/storage.h',
-                            'chassis/cal.h', 'chassis/chassis.h'},
+                            'chassis/cal.h', 'chassis/chassis.h',
+                            'lights.h'},
 }
 
 def layer_of(path):
