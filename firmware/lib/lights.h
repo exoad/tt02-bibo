@@ -12,7 +12,7 @@
  *   THE BINDING   which GPIO each lamp is soldered to today. This is temporary
  *                 and is one table, below.
  *
- * The car has eight lamps in the model whether or not eight LEDs exist. A lamp
+ * The car has ten lamps in the model whether or not ten LEDs exist. A lamp
  * with no pin bound simply is not written - lightsSolve() still computes it,
  * and LIGHTS still reports it, so wiring an LED later is filling in a table
  * entry rather than writing a rule.
@@ -25,11 +25,23 @@
  *          goes on, this table gives GP15 back - a pin cannot be an
  *          interrupt-driven input and an LED at the same time.
  *
- *     GP13 is ToF #4 XSHUT, free only because the I2C bus is empty (SCAN
- *          answers 0).
+ *          That is the one borrowing here with a deadline on it.
+ *
+ *     GP13 and GP12 are ToF #4 and #3 XSHUT, free only because the I2C bus is
+ *          empty (SCAN answers 0). They stop being free the moment a third or
+ *          fourth ToF is fitted.
+ *
+ *     GP14 is the only one of the four that is genuinely spare. It is the
+ *          neighbour set aside for the encoder's B channel if quadrature were
+ *          ever wanted, and this car is forward-only, so it is not.
  *
  * The permanent map is in docs/wiring.md: GP2/GP3 indicators, GP6/GP7 tails,
  * GP8 both heads. Moving there is editing the table and nothing else.
+ *
+ * TWO PAIRS OF INDICATORS are coming - front and rear, four amber lamps. The
+ * model already has all four and computes them; only the rear pair has no pin.
+ * Wiring them is two numbers in the table below, which is the whole reason the
+ * rules and the binding are separate things.
  * ===========================================================================
  *
  * ---- the rules, and how honest each one is --------------------------------
@@ -73,7 +85,10 @@
  *
  * HEAD            Manual. Nothing the car knows implies "it is dark".
  *
- * REVERSE         Never. chassis.h is forward-only.
+ * REVERSE         Lit while the throttle is as far BELOW neutral as the tails
+ *                 threshold. chassis.h is forward-only today, so it never
+ *                 happens - the rule is written for the day it does rather
+ *                 than being the thing somebody remembers afterwards.
  *
  * The same rules are implemented in hub/src/lights.hxx so they can be watched
  * on screen, and the constants are deliberately identical. If one changes,
@@ -101,8 +116,10 @@ typedef enum
     LAMP_HEAD_R,
     LAMP_TAIL_L,
     LAMP_TAIL_R,
-    LAMP_IND_L,
-    LAMP_IND_R,
+    LAMP_IND_FL,
+    LAMP_IND_FR,
+    LAMP_IND_RL,
+    LAMP_IND_RR,
     LAMP_REV_L,
     LAMP_REV_R,
     LAMP_COUNT
@@ -199,14 +216,16 @@ typedef enum
 
 static Int32 lightPin[LAMP_COUNT] =
 {
-    LIGHT_PIN_NONE,   /* LAMP_HEAD_L */
-    LIGHT_PIN_NONE,   /* LAMP_HEAD_R */
-    15,               /* LAMP_TAIL_L - borrowed from the wheel encoder */
-    13,               /* LAMP_TAIL_R - borrowed from ToF #4 XSHUT      */
-    LIGHT_PIN_NONE,   /* LAMP_IND_L  */
-    LIGHT_PIN_NONE,   /* LAMP_IND_R  */
-    LIGHT_PIN_NONE,   /* LAMP_REV_L  */
-    LIGHT_PIN_NONE    /* LAMP_REV_R  */
+    LIGHT_PIN_NONE,   /* LAMP_HEAD_L                                      */
+    LIGHT_PIN_NONE,   /* LAMP_HEAD_R                                      */
+    15,               /* LAMP_TAIL_L - borrowed from the WHEEL ENCODER     */
+    14,               /* LAMP_TAIL_R - genuinely spare today               */
+    13,               /* LAMP_IND_FL - borrowed from ToF #4 XSHUT          */
+    12,               /* LAMP_IND_FR - borrowed from ToF #3 XSHUT          */
+    LIGHT_PIN_NONE,   /* LAMP_IND_RL - the second pair, not wired yet      */
+    LIGHT_PIN_NONE,   /* LAMP_IND_RR                                      */
+    LIGHT_PIN_NONE,   /* LAMP_REV_L                                       */
+    LIGHT_PIN_NONE    /* LAMP_REV_R                                       */
 };
 
 /* ---- state, one copy - the same deal chassis.h makes -------------------- */
@@ -333,8 +352,25 @@ static inline Void lightsSolve(const LightInput* in, LightTurn turn, Bool flash,
     /* Hazards are BOTH sides IN PHASE, not alternating. Alternating is what a
      * film prop does and is the single most common way to get this wrong; both
      * sides reading one `flash` makes being in phase structural. */
-    out->level[LAMP_IND_L] = (left  && flash) ? LAMP_FULL : LAMP_OFF;
-    out->level[LAMP_IND_R] = (right && flash) ? LAMP_FULL : LAMP_OFF;
+    /*
+     * FRONT and REAR on a side share ONE flash, structurally.
+     *
+     * Not two timers that happen to agree - two indicators on the same corner
+     * of the same car blinking a frame apart is instantly, obviously wrong, and
+     * per-lamp timers drift. They read the same `flash`, so being in step is
+     * not something that has to be maintained.
+     *
+     * The rear pair has no LED on it yet. It is computed and reported anyway,
+     * which is what makes wiring it later a change to the pin table and nothing
+     * else.
+     */
+    const UInt8 amberL = (left  && flash) ? LAMP_FULL : LAMP_OFF;
+    const UInt8 amberR = (right && flash) ? LAMP_FULL : LAMP_OFF;
+
+    out->level[LAMP_IND_FL] = amberL;
+    out->level[LAMP_IND_RL] = amberL;
+    out->level[LAMP_IND_FR] = amberR;
+    out->level[LAMP_IND_RR] = amberR;
 
     const UInt8 head = in->headOn ? LAMP_FULL : LAMP_OFF;
     out->level[LAMP_HEAD_L] = head;

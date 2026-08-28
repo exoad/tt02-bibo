@@ -48,11 +48,23 @@ GPIO currently shows which lamp. Today:
 | Lamp | Pin | Note |
 |---|---|---|
 | tailL | GP15 | **borrowed from the wheel encoder** |
-| tailR | GP13 | borrowed from ToF #4 XSHUT |
-| everything else | — | computed, reported, not wired |
+| tailR | GP14 | genuinely spare — the encoder B channel, unused on a forward-only car |
+| indFL | GP13 | borrowed from ToF #4 XSHUT |
+| indFR | GP12 | borrowed from ToF #3 XSHUT |
+| indRL, indRR | — | the second indicator pair, not wired yet |
+| headL/R, revL/R | — | computed, reported, not wired |
 
-GP15 goes back to the encoder the moment the Hall sensor is fitted. The
-permanent five-pin map is the one above: GP2/GP3 indicators, GP6/GP7 tails,
+The car gets **two pairs of indicators**, front and rear. All four are in the
+model and computed; the rear pair simply has no pin. Front and rear on a side
+share one flash structurally rather than by two timers agreeing — two lamps on
+the same corner blinking a frame apart is instantly wrong, and per-lamp timers
+drift.
+
+GP15 goes back to the encoder the moment the Hall sensor is fitted — that is the
+one borrowing with a deadline on it. GP12 and GP13 stop being free the moment a
+third or fourth ToF goes on the bus.
+
+The permanent five-pin map is the one above: GP2/GP3 indicators, GP6/GP7 tails,
 GP8 both heads. Moving there is editing that table and nothing else.
 
 **The tail lamps mean "no throttle", not "braking".** There is no brake on this

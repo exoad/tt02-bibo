@@ -553,7 +553,9 @@ static Void handleEsc(CharSeq arg)
 /* The lamp names, in Lamp order, so the reply reads the way the model does. */
 static CharSeq LAMP_NAME[LAMP_COUNT] =
 {
-    "headL", "headR", "tailL", "tailR", "indL", "indR", "revL", "revR"
+    "headL", "headR", "tailL", "tailR",
+    "indFL", "indFR", "indRL", "indRR",
+    "revL",  "revR"
 };
 
 /*
@@ -578,8 +580,8 @@ static Void printLights(CharSeq arg)
      * in one. levels[] and pins[] are in Lamp order, which is the order
      * LAMP_NAME is in and the order the model declares them. */
     serialPrintf("OK lights on=%d turn=%s forced=%s off_us=%d"
-                 " levels=%u,%u,%u,%u,%u,%u,%u,%u"
-                 " pins=%d,%d,%d,%d,%d,%d,%d,%d\n",
+                 " levels=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u"
+                 " pins=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
                  lightsEnabled() ? 1 : 0,
                  (t == LIGHT_TURN_LEFT)  ? "left"
                      : (t == LIGHT_TURN_RIGHT)  ? "right"
@@ -590,8 +592,10 @@ static Void printLights(CharSeq arg)
                  (UInt32) s.level[2], (UInt32) s.level[3],
                  (UInt32) s.level[4], (UInt32) s.level[5],
                  (UInt32) s.level[6], (UInt32) s.level[7],
+                 (UInt32) s.level[8], (UInt32) s.level[9],
                  lightPin[0], lightPin[1], lightPin[2], lightPin[3],
-                 lightPin[4], lightPin[5], lightPin[6], lightPin[7]);
+                 lightPin[4], lightPin[5], lightPin[6], lightPin[7],
+                 lightPin[8], lightPin[9]);
 }
 
 /*
