@@ -4,7 +4,7 @@ REM
 REM   tests\build_editor_test.bat        - compile only
 REM   tests\build_editor_test.bat run    - compile then run
 REM
-REM diagnostics.cpp is ImGui-free by design, so the vim bindings, the auto-closing
+REM diagnostics.cxx is ImGui-free by design, so the vim bindings, the auto-closing
 REM includes imgui.h only for IM_COL32, hence the include path below.
 
 setlocal
@@ -23,8 +23,8 @@ cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\src" ^
   /I"%HERE%..\..\shared" ^
   /I"%HERE%..\third_party\imgui" ^
-  "%HERE%test_diagnostics.cpp" ^
-  "%HERE%..\src\diagnostics.cpp" ^
+  "%HERE%test_diagnostics.cxx" ^
+  "%HERE%..\src\diagnostics.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_diagnostics.exe" ^
   /link /SUBSYSTEM:CONSOLE

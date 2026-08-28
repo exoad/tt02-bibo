@@ -4,7 +4,7 @@ REM
 REM   tests\build_geom_test.bat        - compile only
 REM   tests\build_geom_test.bat run    - compile then run
 REM
-REM No hardware and no ImGui: lint.cpp is a pure state machine, which
+REM No hardware and no ImGui: lint.cxx is a pure state machine, which
 REM is what makes the docs/conventions.md rules checkable before any LED exists.
 
 setlocal
@@ -21,9 +21,9 @@ if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\..\shared" /I"%HERE%..\src" ^
-  "%HERE%test_lint.cpp" ^
-  "%HERE%..\src\lint.cpp" ^
-  "%HERE%..\src\diagnostics.cpp" ^
+  "%HERE%test_lint.cxx" ^
+  "%HERE%..\src\lint.cxx" ^
+  "%HERE%..\src\diagnostics.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_lint.exe" ^
   /link /SUBSYSTEM:CONSOLE

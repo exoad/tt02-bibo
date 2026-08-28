@@ -33,7 +33,7 @@ cl /nologo /EHsc /O2 /MT /W4 /std:c++20 ^
   /I "%HERE%..\..\shared" ^
   /I "%ROOT%\rplidar_sdk\sdk\include" ^
   /I "%ROOT%\rplidar_sdk\sdk\src" ^
-  "%HERE%lidar_bridge.cpp" ^
+  "%HERE%lidar_bridge.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\lidar_bridge.exe" ^
   /link /LTCG "%ROOT%\rplidar_sdk\output\x64\Release\rplidar_driver.lib" ws2_32.lib

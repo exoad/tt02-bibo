@@ -128,7 +128,7 @@ the style audit enforces.
 
 **`types.h`** is the manbox alias layer ([github.com/exoad/manbox](https://github.com/exoad/manbox),
 `C_STYLE_GUIDE.md`) — `Int32`, `Float32`, `Void`, `Bool`, `CharSeq`. It is the C
-counterpart of `hub/src/shared.hpp`, so a value that is an `Int32` in the viewer
+counterpart of `hub/src/shared.hxx`, so a value that is an `Int32` in the viewer
 is an `Int32` in the firmware. Reproduced verbatim with its BSD-3 notice, plus
 two typedefs (`Utf16`, `Utf32`) that upstream's `CharSeq16`/`CharSeq32` macros
 reference without defining — marked as a local addition in the file.
@@ -196,7 +196,7 @@ and a wrapper that hid that would teach the wrong thing. They get their own
 headers when the ToF sensors and the SD card go on.
 
 The hub's **Code** tab completes every name in `hal.h` and `types.h` with its
-signature and a one-line doc — the table lives in `hub/src/complete.cpp` and is
+signature and a one-line doc — the table lives in `hub/src/complete.cxx` and is
 kept in step with this header by hand.
 
 ## `sketch` — scratch space

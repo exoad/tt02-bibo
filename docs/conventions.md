@@ -253,14 +253,103 @@ surrounding history.
 | `constexpr` constants, macros, non-type template params | `SCREAMING_SNAKE_CASE` — no `k` prefix |
 | Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS` |
 | Namespaces | lowercase — `ui`, `board`, `app` |
-| Headers | `.hpp`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.hpp`’s C twin, `firmware/lib/types.h` |
-| Vocabulary | one place: `shared/shared.hpp` for C++, `shared/shared.h` for C. Both are on the include path of every target |
+| Headers | `.hxx`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.hxx`’s C twin, `firmware/lib/types.h` |
+| Vocabulary | one place: `shared/shared.hxx` for C++, `shared/shared.h` for C. Both are on the include path of every target |
 | Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
-| Standard library | use the `shared/shared.hpp` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
+| Standard library | use the `shared/shared.hxx` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
 | Aggregate init | designated initializers where the type has named members — `Vec3{ .x = 1.0f, .y = 0.0f }` |
 | Control keywords | `if(cond)`, not `if (cond)` |
-| Casts | named casts only. **No C-style casts** |
+| Casts | named casts only. **No C-style casts** — see below |
+
+### File extensions ARE the language
+
+| | |
+|---|---|
+| `.c` `.h` | C. `firmware/` and nothing else |
+| `.cxx` `.hxx` | C++. `hub/`, `lidar/bridge/`, `shared/shared.hxx` |
+
+`.cpp` and `.hpp` are not used. Neither is a bare `.h` outside `firmware/`, and
+the style audit fails on all three.
+
+The reason is not taste. `.h` was doing double duty as "a C header" and "a
+header nobody thought about", and **most editors assume an unowned `.h` is
+C++** — which is how a perfectly correct C header ends up underlined for using
+`NULL` instead of `nullptr`, and how `(UInt8)` in a file that cannot contain a
+C++ cast gets flagged as a C-style cast. Splitting the extensions means the
+language is knowable from the filename by a tool that has loaded nothing.
+
+`resource.h` is the one exception: `rc.exe` compiles it, which is neither a C
+nor a C++ compiler, and renaming it would break the resource build to satisfy a
+rule about headers.
+
+### Named casts, everywhere the language has them
+
+`static_cast`, `reinterpret_cast`, `const_cast`. Never `(Type) x`.
+
+A C-style cast is four different casts wearing one spelling, and which one you
+get depends on the types — so it silently becomes a `reinterpret_cast` the day
+somebody changes a declaration three files away. The named forms say what was
+meant and fail when the meaning stops being available.
+
+MSVC has no `-Wold-style-cast`, so this is held by `hub/tools/style_audit.py`
+rather than by the compiler.
+
+**C is carved out because C has no named casts** — `(Int64) x` is the only
+spelling the language has, and banning it would ban casting. That carve-out is
+COUNTED and printed by the audit rather than applied silently, because
+`firmware/` is expected to become C++ eventually and every one of those casts is
+work that move inherits. A waiver nobody can see is a waiver that grows.
+
+**When a file moves from C to C++, the waiver stops with it.** Renaming
+`something.h` to `something.hxx` is not a rename — it is a commitment to convert
+its casts, and the audit will start saying so.
+
+### A parameter list never wraps
+
+In a **definition or declaration**. One line, however long:
+
+```cpp
+Void emitDiscs(ImDrawList* dl, const Dot* dots, Int32 count, Float32 r, ImU32 col, const ImVec2& uv)
+```
+
+not
+
+```cpp
+Void emitDiscs(ImDrawList* dl, const Dot* dots, Int32 count,
+               Float32 r, ImU32 col, const ImVec2& uv)
+```
+
+A signature is a contract. One that has to be reassembled across lines before it
+can be read is one people stop reading, and a parameter added to the second line
+of a wrapped list is a parameter nobody reviewing the first line will see.
+
+**Call sites may wrap and often should.** A call's arguments are expressions, and
+an expression is allowed to be long — the rule is about the contract, not about
+every parenthesis in the file.
+
+The honest cost: 91 signatures were unwrapped when this rule was written and
+**47 of them now exceed 100 columns**, the worst at 167. Those are not a
+formatting problem, they are a design one — a function taking eleven parameters
+was hard to read wrapped as well, and the wrapping was hiding it. Shortening
+those signatures is real work and is not done.
+
+### `static inline` is `static`, in C++
+
+`static` on a free function already gives it internal linkage, and a static
+function is only emitted where it is used — so `inline` tells a C++ compiler
+nothing it did not know.
+
+**C is the exception and keeps `static inline`.** There it is the standard idiom
+for a definition in a header: without `static` every translation unit emits a
+copy and they collide at link time, and without `inline` the compiler is not
+asked to inline it. `firmware/` has 148 of them and they are all correct.
+
+This is worth knowing because most editors assume an unowned `.h` is C++ and
+will flag every one of them as redundant. That is the editor being wrong about
+the language, not the code being wrong — and it is the same misreading that
+makes `NULL` and `(UInt8)` look like mistakes in a C header. Attaching the
+firmware CMake project fixes all three at once; see [clion.md](clion.md).
 
 ## The central region has two layouts
 
@@ -306,7 +395,7 @@ widget simply never fires. It cost two bugs here: a full-canvas background butto
 disabled panel dragging, and a full-width title bar disabled its own fold and
 close buttons. Overlap deliberately, or not at all.
 
-**Types come from `hub/src/shared.hpp`** — `Int32`, `Float32`, `Bool`, `Void`,
+**Types come from `hub/src/shared.hxx`** — `Int32`, `Float32`, `Bool`, `Void`,
 `Size`, `Str`, `UniqPtr<T>`, `Opt<T>`. They are `using` aliases, so they are the
 same types third-party signatures use; the boundary needs no conversion. Bare
 `long` is deliberately NOT aliased: it is 32-bit on Windows and 64-bit on the

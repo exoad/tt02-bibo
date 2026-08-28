@@ -107,7 +107,7 @@ static inline UInt16 gfxBlend(UInt16 a, UInt16 b, UInt8 t)
     return (UInt16) ((r << 11) | (g << 5) | bl);
 }
 
-static inline UInt16 gfxDim(UInt16 c, UInt8 amount)
+static UInt16 gfxDim(UInt16 c, UInt8 amount)
 {
     return gfxBlend(c, GFX_BLACK, amount);
 }
@@ -121,7 +121,7 @@ static inline UInt16 gfxLighten(UInt16 c, UInt8 amount)
  * Hue 0-359, saturation and value 0-255. Integer throughout - no float, no
  * table - so a rainbow sweep costs nothing on a chip that would rather not.
  */
-static inline UInt16 gfxHsv(Int32 hue, UInt8 sat, UInt8 val)
+static UInt16 gfxHsv(Int32 hue, UInt8 sat, UInt8 val)
 {
     hue = ((hue % 360) + 360) % 360;
 
@@ -180,45 +180,45 @@ static Bool   gfxBufTaken = false;
  * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfxSafeOutline()
  * for a frame to check against, then take it out.
  */
-static inline Void gfxSafeInset(Screen* s, Int32 inset)
+static Void gfxSafeInset(Screen* s, Int32 inset)
 {
     const Int32 most = ((s->width < s->height) ? s->width : s->height) / 3;
     s->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
 }
 
-static inline Int32 gfxSafeLeft(const Screen* s)
+static Int32 gfxSafeLeft(const Screen* s)
 {
     return s->safeInset;
 }
 
-static inline Int32 gfxSafeTop(const Screen* s)
+static Int32 gfxSafeTop(const Screen* s)
 {
     return s->safeInset;
 }
 
-static inline Int32 gfxSafeRight(const Screen* s)
+static Int32 gfxSafeRight(const Screen* s)
 {
     return s->width - s->safeInset;
 }
 
-static inline Int32 gfxSafeBottom(const Screen* s)
+static Int32 gfxSafeBottom(const Screen* s)
 {
     return s->height - s->safeInset;
 }
 
-static inline Int32 gfxSafeWidth(const Screen* s)
+static Int32 gfxSafeWidth(const Screen* s)
 {
     return s->width - (2 * s->safeInset);
 }
 
-static inline Int32 gfxSafeHeight(const Screen* s)
+static Int32 gfxSafeHeight(const Screen* s)
 {
     return s->height - (2 * s->safeInset);
 }
 
 /* ---- clipping ------------------------------------------------------------ */
 
-static inline Void gfxClip(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+static Void gfxClip(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
 {
     if(x < 0)
     {
@@ -253,7 +253,7 @@ static inline Void gfxClip(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
     s->clipH = h;
 }
 
-static inline Void gfxClipReset(Screen* s)
+static Void gfxClipReset(Screen* s)
 {
     gfxClip(s, 0, 0, s->width, s->height);
 }
@@ -265,7 +265,7 @@ static inline Void gfxClipReset(Screen* s)
  * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
  * and drawn as spans it is thirty.
  */
-static inline Void gfxSpan(Screen* s, Int32 x, Int32 y, Int32 len, UInt16 colour)
+static Void gfxSpan(Screen* s, Int32 x, Int32 y, Int32 len, UInt16 colour)
 {
     if(len <= 0 || y < s->clipY || y >= s->clipY + s->clipH)
     {
@@ -324,8 +324,7 @@ static inline UInt16 gfxPeek(const Screen* s, Int32 x, Int32 y)
 }
 
 /* Alpha, which needs to read what is already there and so needs the buffer. */
-static inline Void gfxPixelBlend(Screen* s, Int32 x, Int32 y, UInt16 colour,
-                                 UInt8 alpha)
+static inline Void gfxPixelBlend(Screen* s, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
 {
     gfxPixel(s, x, y, gfxBlend(gfxPeek(s, x, y), colour, alpha));
 }
@@ -365,7 +364,7 @@ static inline Void gfxPresent(Screen* s)
     s->dirtyBot = -1;
 }
 
-static inline Void gfxClear(Screen* s, UInt16 colour)
+static Void gfxClear(Screen* s, UInt16 colour)
 {
     for(Int32 y = 0; y < s->height; ++y)
     {
@@ -375,8 +374,7 @@ static inline Void gfxClear(Screen* s, UInt16 colour)
 
 /* ---- rectangles ---------------------------------------------------------- */
 
-static inline Void gfxRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
-                               UInt16 colour)
+static Void gfxRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 {
     for(Int32 r = 0; r < h; ++r)
     {
@@ -384,8 +382,7 @@ static inline Void gfxRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
     }
 }
 
-static inline Void gfxRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
-                           UInt16 colour)
+static Void gfxRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -402,12 +399,12 @@ static inline Void gfxRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
 
 /* ---- lines --------------------------------------------------------------- */
 
-static inline Void gfxHLine(Screen* s, Int32 x, Int32 y, Int32 w, UInt16 colour)
+static Void gfxHLine(Screen* s, Int32 x, Int32 y, Int32 w, UInt16 colour)
 {
     gfxSpan(s, x, y, w, colour);
 }
 
-static inline Void gfxVLine(Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
+static Void gfxVLine(Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
 {
     for(Int32 i = 0; i < h; ++i)
     {
@@ -420,13 +417,12 @@ static inline Void gfxVLine(Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
  * which is why it has survived since 1962 and is still right on a
  * microcontroller.
  */
-static inline Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1,
-                           UInt16 colour)
+static Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
 {
-    const Int32 dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
-    const Int32 dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
-    const Int32 sx = (x0 < x1) ? 1 : -1;
-    const Int32 sy = (y0 < y1) ? 1 : -1;
+    const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    const Int32 sx = x0 < x1 ? 1 : -1;
+    const Int32 sy = y0 < y1 ? 1 : -1;
 
     /* The axis-aligned cases are common enough - borders, grids, axes - to be
      * worth the span path instead of stepping pixel by pixel. */
@@ -468,18 +464,15 @@ static inline Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1,
 
 /* ---- circles ------------------------------------------------------------- */
 
-static inline Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r,
-                             UInt16 colour)
+static Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
 {
     if(r < 0)
     {
         return;
     }
-
     Int32 x = 0;
     Int32 y = r;
     Int32 d = 1 - r;
-
     while(x <= y)
     {
         gfxPixel(s, cx + x, cy + y, colour);
@@ -490,7 +483,6 @@ static inline Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r,
         gfxPixel(s, cx - y, cy + x, colour);
         gfxPixel(s, cx + y, cy - x, colour);
         gfxPixel(s, cx - y, cy - x, colour);
-
         ++x;
         if(d < 0)
         {
@@ -504,25 +496,21 @@ static inline Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r,
     }
 }
 
-static inline Void gfxCircleFill(Screen* s, Int32 cx, Int32 cy, Int32 r,
-                                 UInt16 colour)
+static Void gfxCircleFill(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
 {
     if(r < 0)
     {
         return;
     }
-
     Int32 x = 0;
     Int32 y = r;
     Int32 d = 1 - r;
-
     while(x <= y)
     {
         gfxSpan(s, cx - x, cy + y, (2 * x) + 1, colour);
         gfxSpan(s, cx - x, cy - y, (2 * x) + 1, colour);
         gfxSpan(s, cx - y, cy + x, (2 * y) + 1, colour);
         gfxSpan(s, cx - y, cy - x, (2 * y) + 1, colour);
-
         ++x;
         if(d < 0)
         {
@@ -542,8 +530,7 @@ static inline Void gfxCircleFill(Screen* s, Int32 cx, Int32 cy, Int32 r,
  * from each edge cannot reach past it, so the overdraw is free of side effects
  * and the code stays short.
  */
-static inline Void gfxRoundRectFill(Screen* s, Int32 x, Int32 y, Int32 w,
-                                    Int32 h, Int32 r, UInt16 colour)
+static Void gfxRoundRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -570,8 +557,7 @@ static inline Void gfxRoundRectFill(Screen* s, Int32 x, Int32 y, Int32 w,
     gfxCircleFill(s, x + w - r - 1, y + h - r - 1, r, colour);
 }
 
-static inline Void gfxRoundRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
-                                Int32 r, UInt16 colour)
+static Void gfxRoundRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -623,8 +609,7 @@ static inline Void gfxRoundRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
 
 /* ---- triangles ----------------------------------------------------------- */
 
-static inline Void gfxTriangle(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1,
-                               Int32 x2, Int32 y2, UInt16 colour)
+static Void gfxTriangle(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
 {
     gfxLine(s, x0, y0, x1, y1, colour);
     gfxLine(s, x1, y1, x2, y2, colour);
@@ -635,8 +620,7 @@ static inline Void gfxTriangle(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1
  * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
  * that share the middle vertex, filling a span between the active edges.
  */
-static inline Void gfxTriangleFill(Screen* s, Int32 x0, Int32 y0, Int32 x1,
-                                   Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+static Void gfxTriangleFill(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
 {
     Int32 tx = 0;
     Int32 ty = 0;
@@ -820,8 +804,7 @@ typedef enum GfxAlign
 
 /* `x` is the left edge, the centre or the right edge depending on `align` -
  * which is what makes a value that changes width stay put. */
-static inline Void gfxTextAligned(Screen* s, Int32 x, Int32 y, const Utf8* str,
-                                  GfxAlign align)
+static inline Void gfxTextAligned(Screen* s, Int32 x, Int32 y, const Utf8* str, GfxAlign align)
 {
     const Int32 w  = gfxTextWidth(s, str);
     Int32       at = x;

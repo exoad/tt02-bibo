@@ -25,7 +25,7 @@ mkdir -p "$HERE/build"
 c++ -O2 -std=c++11 -pthread \
   -I "$ROOT/rplidar_sdk/sdk/include" \
   -I "$ROOT/rplidar_sdk/sdk/src" \
-  "$HERE/lidar_bridge.cpp" \
+  "$HERE/lidar_bridge.cxx" \
   "$LIB" \
   -o "$HERE/build/lidar_bridge"
 

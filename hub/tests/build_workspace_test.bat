@@ -4,7 +4,7 @@ REM
 REM   tests\build_editor_test.bat        - compile only
 REM   tests\build_editor_test.bat run    - compile then run
 REM
-REM workspace.cpp is ImGui-free by design, so the vim bindings, the auto-closing
+REM workspace.cxx is ImGui-free by design, so the vim bindings, the auto-closing
 REM includes imgui.h only for IM_COL32, hence the include path below.
 
 setlocal
@@ -23,8 +23,8 @@ cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\src" ^
   /I"%HERE%..\..\shared" ^
   /I"%HERE%..\third_party\imgui" ^
-  "%HERE%test_workspace.cpp" ^
-  "%HERE%..\src\workspace.cpp" ^
+  "%HERE%test_workspace.cxx" ^
+  "%HERE%..\src\workspace.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_workspace.exe" ^
   /link /SUBSYSTEM:CONSOLE

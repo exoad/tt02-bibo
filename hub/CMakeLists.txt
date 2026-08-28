@@ -91,7 +91,7 @@ target_compile_definitions(imgui PUBLIC _CRT_SECURE_NO_WARNINGS)
 # file - which is what build.bat's `src\*.cpp` does, and the property that
 # keeps the two from drifting every time a file is added.
 # ---------------------------------------------------------------------------
-file(GLOB APP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+file(GLOB APP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cxx")
 
 if(NOT APP_SOURCES)
     message(FATAL_ERROR "No sources found in hub/src - is this the right directory?")

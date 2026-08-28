@@ -47,11 +47,18 @@ DIRS = [
 # C cannot follow two of the C++ rules, so they are not applied to it:
 #
 #   - named casts. C has no static_cast; `(Int64) x` is the only spelling there
-#     is, and banning it would ban casting.
+#     is, and banning it would ban casting. NOT silently: the carve-out is
+#     counted and reported at the end, because firmware/ is expected to become
+#     C++ eventually and every one of those casts is work that move inherits.
+#     A waiver nobody can see is a waiver that grows.
 #   - the .hpp extension. docs/conventions.md carves this out explicitly - a
 #     header that must compile as C is a .h, and that is firmware/ and
 #     shared/shared.h.
-C_ONLY_WAIVES = {'c-style cast'}
+#   - static inline. In C that is the idiom for a header definition, not
+#     redundancy: without `static` each translation unit emits a copy and they
+#     collide, and without `inline` the compiler need not inline it. C++ gets
+#     internal linkage from `static` alone, which is why the rule applies there.
+C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 
 def strip_noise(text):
     """Blank out // comments, /* */ comments and "..." literals, keeping
@@ -91,14 +98,14 @@ RULES = [
 
     ('bare builtin type',
      r'(?<![A-Za-z_>:.])(?:unsigned\s+(?:int|char|short|long)|signed\s+char|\bint\b|\bfloat\b|\bdouble\b|\bbool\b|\bchar\b|\bsize_t\b|\bunsigned\b)(?![A-Za-z_0-9])',
-     'use the shared.hpp alias'),
+     'use the shared.hxx alias'),
 
     ('if with space',   r'\bif\s+\(',      'if(cond)'),
     ('for with space',  r'\bfor\s+\(',     'for(...)'),
     ('while with space',r'\bwhile\s+\(',   'while(...)'),
     ('switch with space',r'\bswitch\s+\(', 'switch(...)'),
 
-    # Found `static UINT DpiForWindow(HWND)` in main.cpp, three lines from the
+    # Found `static UINT DpiForWindow(HWND)` in main.cxx, three lines from the
     # Win32 GetDpiForWindow it wraps - which is exactly why it read as fine.
     ('PascalCase function',
      r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
@@ -106,7 +113,7 @@ RULES = [
      r'\s+[A-Z][A-Za-z0-9]*\s*\(',
      'functions are camelCase'),
 
-    # Found `static Void sleep_ms(Int32)` in test_pico_link.cpp, where it read
+    # Found `static Void sleep_ms(Int32)` in test_pico_link.cxx, where it read
     # as the Pico SDK call it is named after and is not.
     ('snake_case function',
      r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
@@ -119,7 +126,7 @@ RULES = [
     ('g_ global',           r'\bg_[A-Za-z0-9_]+',      'camelCase, no g_'),
     ('trailing underscore', r'\b[a-z][A-Za-z0-9]*_\b(?!\s*\()', 'camelCase, no trailing _'),
 
-    # The standard library is aliased in shared/shared.hpp for the same reason
+    # The standard library is aliased in shared/shared.hxx for the same reason
     # the builtins are: a file that says `Int32 count` on one line and
     # `std::vector<std::string>` on the next has two naming schemes in it.
     #
@@ -131,7 +138,7 @@ RULES = [
      r'tuple|string|string_view|optional|variant|function|unique_ptr|'
      r'shared_ptr|weak_ptr|mutex|recursive_mutex|lock_guard|unique_lock|'
      r'thread|atomic)\b',
-     'use the shared.hpp alias (Vec, Str, Map, Mutex, ...)'),
+     'use the shared.hxx alias (Vec, Str, Map, Mutex, ...)'),
 
     # Allman, everywhere. A body on the same line as its head is the one brace
     # style question this project has already answered, and it is the one that
@@ -141,6 +148,32 @@ RULES = [
     # is data, and expanding it would quadruple every table in the tree for no
     # gain. The pattern below requires a `)` or a control keyword before the
     # brace, which is what separates a body from a row.
+    # A parameter list that does not close on its own line.
+    #
+    # DEFINITIONS and DECLARATIONS only - a CALL may wrap, and often should,
+    # because a call site's arguments are expressions and an expression is
+    # allowed to be long. A signature is a contract, and a contract you have to
+    # scroll to finish reading is one people stop reading.
+    #
+    # Anchored on a leading return type, which is what separates a signature
+    # from a call: a call starts with an identifier.
+    ('wrapped parameter list',
+     r'^\s*(?:\[\[nodiscard\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+|const\s+)*'
+     r'(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|'
+     r'Float64|Size|Str|Char|Utf8|CharSeq|Pin)[\w:<>,\s\*&]*?\s[\w:~]+\s*\([^)]*$',
+     'put the whole parameter list on one line'),
+
+    # `static` already gives a free function internal linkage, and a static
+    # function is only ever emitted where it is used - so `inline` adds nothing
+    # a C++ compiler did not already know. CLion says so too.
+    #
+    # C is a different language here and is waived below: `static inline` in a
+    # C header is the standard idiom for a definition that must not collide
+    # across translation units, and removing it there would be wrong.
+    ('static inline',
+     r'\bstatic\s+inline\b',
+     'in C++, static already implies it - drop the inline'),
+
     ('one-lined body',
      r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{[^{}]*[^{}\s][^{}]*\}',
      'expand the braces onto their own lines'),
@@ -148,7 +181,7 @@ RULES = [
 
 # Lines that are legitimately exempt, with the reason.
 EXEMPT = [
-    # main.cpp resolves user32 entry points; the typedefs themselves are Win32
+    # main.cxx resolves user32 entry points; the typedefs themselves are Win32
     # signatures and `int` there is the OS ABI, not our code's choice.
     (r'typedef .*WINAPI', 'Win32 ABI signature'),
     (r'int APIENTRY|WinMain|int main\(', 'the platform entry point signature'),
@@ -160,7 +193,7 @@ EXEMPT = [
     # difference between `(T)x` and `sizeof(T) * x` without a real parser.
     (r'\bsizeof\s*\(', 'sizeof, not a cast'),
 
-    # shared.hpp is where the aliases are DEFINED. `using Float32 = float;` has
+    # shared.hxx is where the aliases are DEFINED. `using Float32 = float;` has
     # to name the builtin; that is the entire point of the file.
     (r'\busing\s+\w+\s*=\s*(float|double|bool|char|int|unsigned|std::)', 'the alias definition itself'),
 
@@ -181,13 +214,19 @@ def exempt(line):
     return None
 
 def is_c(path):
-    """A .c, or a .h that has to compile as C - firmware/ and shared/shared.h."""
-    if path.endswith('.c'):
-        return True
-    if not path.endswith('.h'):
-        return False
-    norm = path.replace('\\', '/')
-    return '/firmware/' in norm or norm.endswith('/shared/shared.h')
+    """A .c or a .h.
+
+    The extension IS the language now, with no carve-out list to keep in step:
+
+        .c  .h    C
+        .cxx .hxx C++
+
+    That is why the C++ half moved off .cpp/.hpp - .h was already doing double
+    duty as "a C header" and "a header somebody did not think about", and an
+    unowned .h is assumed to be C++ by most editors, which is how a C header
+    ends up flagged for using NULL instead of nullptr.
+    """
+    return path.endswith('.c') or path.endswith('.h')
 
 
 def audit(paths):
@@ -220,7 +259,7 @@ for d in DIRS:
     if not os.path.isdir(d):
         continue
     for f in sorted(os.listdir(d)):
-        if f.endswith(('.cpp', '.hpp', '.h', '.c')):
+        if f.endswith(('.cxx', '.hxx', '.h', '.c')):
             files.append(os.path.join(d, f))
 
 hits = audit(files)
@@ -337,12 +376,57 @@ if struct_bad == 0:
 # a rule about C++ headers.
 HEADER_EXEMPT = {'resource.h'}
 
+# ---------------------------------------------------------------------------
+# The C carve-out, counted.
+#
+# C has no static_cast, so `(Int64) x` is not a style failure there - it is the
+# only spelling C has. But docs/conventions.md says named casts EVERYWHERE that
+# the language allows them, and firmware/ is expected to move to C++.
+#
+# Silently skipping the rule would mean the size of that move is unknown until
+# somebody starts it. This prints the bill instead. It is not a violation and
+# does not fail the audit.
+# ---------------------------------------------------------------------------
+print('\n--- C-style casts in C files (legal in C, work if these become C++) ---')
+
+CAST_PAT = [r for name, r, _ in RULES if name == 'c-style cast'][0]
+c_casts = {}
+for path in files:
+    if not is_c(path):
+        continue
+    code = strip_noise(rd(path))
+    n = 0
+    for line in code.split('\n'):
+        if exempt(line) is not None:
+            continue
+        n += len(re.findall(CAST_PAT, line))
+    if n > 0:
+        c_casts[os.path.relpath(path, ROOT).replace('\\', '/')] = n
+
+if not c_casts:
+    print('  none')
+else:
+    for path in sorted(c_casts, key=lambda k: -c_casts[k]):
+        print('  %-40s %4d' % (path, c_casts[path]))
+    print('  %-40s %4d' % ('TOTAL', sum(c_casts.values())))
+
 print('\n--- header extensions ---')
 for path in files:
     f = os.path.basename(path)
-    # A C header is correctly a .h - that is the rule, not an exception to it.
-    if f.endswith('.h') and f not in HEADER_EXEMPT and not is_c(path):
-        print('  .h header (should be .hpp):', path)
+    norm = path.replace('\\', '/')
+
+    # A C header under firmware/ is correctly a .h. Anywhere else, a .h is a
+    # C++ header wearing the wrong extension.
+    if f.endswith('.h') and f not in HEADER_EXEMPT and '/firmware/' not in norm:
+        print('  .h outside firmware (C++ headers are .hxx):', path)
+        total += 1
+
+    # The old spellings, so a file copied in from elsewhere is caught.
+    if f.endswith('.hpp'):
+        print('  .hpp (C++ headers are .hxx):', path)
+        total += 1
+    if f.endswith('.cpp'):
+        print('  .cpp (C++ sources are .cxx):', path)
         total += 1
 
 print('\n--- includes of .h project headers ---')
@@ -357,7 +441,7 @@ for path in files:
             continue
         # C sources include C headers. shared.h and pico2w.h are .h because they
         # must be, so including them by that name is correct.
-        if is_c(path) or inc in ('shared.hpp', 'types.h'):
+        if is_c(path) or inc in ('shared.hxx', 'types.h'):
             continue
         print('  %s:%d  %s' % (os.path.basename(path), i + 1, l.strip()))
         total += 1
