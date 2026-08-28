@@ -49,6 +49,7 @@
 #include "hardware/i2c.h"
 #include "hardware/pwm.h"
 #include "hardware/spi.h"
+#include "pico/unique_id.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/cyw43_arch.h"
@@ -220,6 +221,81 @@ static inline Bool serialWaitForHost(UInt32 timeoutMs)
     return true;
 }
 
+/*
+ * Whether a host currently has the port open.
+ *
+ * Not the same question as serialWaitForHost(): this one does not block, and it
+ * is how a program notices a terminal ARRIVING or LEAVING mid-run rather than
+ * only at startup. A board that greeted the first listener and then went quiet
+ * forever looks dead to the second one.
+ */
+static inline Bool serialHostPresent(Void)
+{
+    return stdio_usb_connected();
+}
+
+/*
+ * One character, or SERIAL_NONE if none arrived within `timeoutUs`.
+ *
+ * A timeout rather than a block, because the caller almost always has something
+ * else to do - a blink to keep, an output to slew - and a read that parks the
+ * main loop turns every one of those into a stutter.
+ */
+/*
+ * DERIVED from the SDK, never written out as a number.
+ *
+ * It was -1 here for exactly one build, because -1 is what a sentinel looks
+ * like. The SDK says -2. Every timeout therefore failed this comparison and got
+ * stored as (Utf8)(-2) = 0xFE, so the command buffer filled with bytes nobody
+ * typed and every line came back "unknown command" preceded by a wall of
+ * rubbish. A constant that AGREES with another header is a constant that will
+ * disagree with it eventually.
+ */
+#define SERIAL_NONE PICO_ERROR_TIMEOUT
+
+static inline Int32 serialReadChar(UInt32 timeoutUs)
+{
+    return getchar_timeout_us(timeoutUs);
+}
+
+/* Flushes anything buffered out to the host. Worth doing before a reboot, or
+ * the last thing the program said is lost with it. */
+static inline Void serialFlush(Void)
+{
+    stdio_flush();
+}
+
+/* ---- board identity ------------------------------------------------------ */
+
+/*
+ * The chip's unique id as hex, into `out`.
+ *
+ * Every RP2350 has one burned in, which is what makes it useful: it identifies
+ * a BOARD across reflashes, so a log line can say which of two identical cars
+ * produced it. `out` wants at least 17 bytes.
+ */
+static inline Void boardId(Utf8* out, Size cap)
+{
+    pico_unique_board_id_t id;
+    pico_get_unique_board_id(&id);
+
+    Size at = 0;
+    for(Size i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES; ++i)
+    {
+        if(at + 2 >= cap)
+        {
+            break;
+        }
+        static const Utf8 HEX[] = "0123456789ABCDEF";
+        out[at++] = HEX[(id.id[i] >> 4) & 0x0F];
+        out[at++] = HEX[id.id[i] & 0x0F];
+    }
+    if(cap > 0)
+    {
+        out[(at < cap) ? at : (cap - 1)] = '\0';
+    }
+}
+
 /* ---- PWM ----------------------------------------------------------------- */
 
 /*
@@ -334,19 +410,40 @@ static inline Void servoRelease(Pin pin)
  * looking at your wiring instead.
  */
 
+/*
+ * Whether the chip came up, remembered here rather than by every caller.
+ *
+ * ledWrite() used to drive the CYW43439 whether or not it had initialised, so
+ * each program carried its own `cyw43Ok` guard and its own copy of the reason.
+ * A guard that every caller must remember is a guard, eventually, that one of
+ * them forgets.
+ */
+static Bool ledUp = false;
+
 static inline Bool ledOpen(Void)
 {
-    return cyw43_arch_init() == 0;
+    ledUp = (cyw43_arch_init() == 0);
+    return ledUp;
+}
+
+/* Whether the chip is up. For a program that wants to REPORT the failure
+ * rather than merely survive it. */
+static inline Bool ledPresent(Void)
+{
+    return ledUp;
 }
 
 static inline Void ledWrite(Bool on)
 {
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
+    if(ledUp)
+    {
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
+    }
 }
 
 static inline Bool ledRead(Void)
 {
-    return cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
+    return ledUp && cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
 }
 
 static inline Void ledToggle(Void)
@@ -815,6 +912,21 @@ static inline Bool i2cReadReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
  */
 static inline Void rebootToBootsel(Void)
 {
+    /*
+     * Flush and settle before going, or the last thing the program said dies
+     * with it.
+     *
+     * USB is not a wire: printf() lands in a buffer that a later poll walks out
+     * to the host, and reset_usb_boot() does not return, so anything still in
+     * that buffer is simply lost. The reboot then looks like a crash - the
+     * board vanishes mid-sentence and the one line that would have explained it
+     * is the line that went missing.
+     *
+     * The delay is for the host, not the buffer: it needs a moment to take
+     * delivery before the device it is talking to stops existing.
+     */
+    stdio_flush();
+    sleep_ms(50);
     reset_usb_boot(0, 0);
 }
 

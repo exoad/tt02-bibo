@@ -375,6 +375,7 @@ firmware/
     tt02.h            the ONE header an application includes
     hal.h             the board: gpio, pwm, i2c, spi, serial, led, time
     gfx.h             drawing into a Screen
+    status.h          the onboard LED as a readable signal
     drivers/
       display.h       ST7789 / ST7735 panel
       range.h         VL53L1X
@@ -394,7 +395,7 @@ firmware/
 
 | a file in | may include |
 |---|---|
-| `lib/` | `shared.h` |
+| `lib/` | `shared.h`, `hal.h` — hal is the floor everything stands on |
 | `lib/drivers/` | `hal.h` |
 | `lib/chassis/` | `hal.h`, `chassis/cal.h` |
 | `app/`, `scratch/` | `tt02.h` — and nothing else of ours |
@@ -412,6 +413,13 @@ a build failure and not a guideline.
 specific header still compiles and is still wrong: it makes every file's
 dependencies something you have to read the top of the file to know, and a
 header that moves then breaks callers that had no business naming it.
+
+**Wrap the SDK once, in `hal.h`.** If application code is reaching for
+`cyw43_arch_gpio_put`, `getchar_timeout_us` or `pico_get_unique_board_id`, the
+HAL has a gap — fill it there rather than at the call site. And **derive
+sentinels, never restate them**: `SERIAL_NONE` was written as `-1` because that
+is what a sentinel looks like, the SDK says `-2`, and the result was a command
+buffer filling with bytes nobody typed.
 
 **Every public symbol carries its module's prefix** — `gpio`, `pwm`, `i2c`,
 `spi`, `serial`, `led`, `tft`, `gfx`, `vl53`, `sd`, `drive` — so a call site

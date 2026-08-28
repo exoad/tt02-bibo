@@ -47,6 +47,7 @@
 
 #include "drivers/display.h"
 #include "gfx.h"
+#include "status.h"
 #include "drivers/range.h"
 #include "drivers/storage.h"
 
