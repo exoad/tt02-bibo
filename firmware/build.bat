@@ -1,6 +1,18 @@
 @echo off
 REM ===========================================================================
-REM  Builds the Pico 2 W firmware. Output: build\pico_debug.uf2
+REM  Builds the firmware for one of the two boards.
+REM
+REM    firmware\build.bat                 pico2_w  -> build\pico_debug.uf2
+REM    firmware\build.bat pico2           pico2    -> build-pico2\pico_debug.uf2
+REM    firmware\build.bat clean           wipe, then build pico2_w
+REM    firmware\build.bat clean pico2     wipe, then build pico2  (any order)
+REM
+REM  SEPARATE BUILD DIRECTORIES, on purpose. Changing PICO_BOARD in one tree
+REM  invalidates most of it, so sharing a directory would mean a full rebuild -
+REM  and on the W that is the cyw43 stack, ~190 translation units - every single
+REM  time you switched boards. Two trees cost disk, which is free, instead of
+REM  minutes, which are not. build\ stays the W's so every existing path,
+REM  note, .clangd and compile_commands.json keeps meaning what it meant.
 REM
 REM  Toolchain notes, learned the hard way on this machine:
 REM
@@ -17,13 +29,41 @@ REM     of msys64\usr\bin makes usr/bin binaries fail with 0xC0000139
 REM     (entrypoint not found), because the two runtimes shadow each other.
 REM     Only the ARM toolchain directory is added, and only for this build.
 REM
-REM  Usage:  firmware\build.bat  [clean]
 REM ===========================================================================
 
 setlocal EnableDelayedExpansion
 set "HERE=%~dp0"
 set "ROOT=%HERE%.."
-set "BUILD=%HERE%build"
+
+REM ---- arguments, order-independent ----------------------------------------
+REM Two flags in any order, because "clean pico2" and "pico2 clean" are the same
+REM intent and having one of them silently build the wrong board would be a
+REM genuinely expensive mistake - it produces a working image for the wrong
+REM chip, which flashes without complaint.
+set "BOARD=pico2_w"
+set "DOCLEAN="
+
+for %%A in (%*) do (
+    if /i "%%~A"=="clean" (
+        set "DOCLEAN=1"
+    ) else if /i "%%~A"=="pico2" (
+        set "BOARD=pico2"
+    ) else if /i "%%~A"=="pico2_w" (
+        set "BOARD=pico2_w"
+    ) else (
+        echo [error] unknown argument "%%~A"
+        echo         usage: build.bat [clean] [pico2^|pico2_w]
+        exit /b 1
+    )
+)
+
+REM The W keeps the plain build\ directory it has always had; anything else gets
+REM its own suffixed tree.
+if /i "%BOARD%"=="pico2_w" (
+    set "BUILD=%HERE%build"
+) else (
+    set "BUILD=%HERE%build-%BOARD%"
+)
 
 set "PICO_SDK_PATH=%ROOT%\vendor\pico-sdk"
 
@@ -57,12 +97,12 @@ REM running fine by hand. PICO_TOOLCHAIN_PATH tells the SDK where the ARM
 REM cross-compiler is without putting its directory in front of anything.
 set "PICO_TOOLCHAIN_PATH=C:/msys64/mingw64"
 
-if /i "%~1"=="clean" (
+if defined DOCLEAN (
     echo [clean] removing %BUILD%
     if exist "%BUILD%" rmdir /s /q "%BUILD%"
 )
 
-echo [conf ] cmake configure
+echo [conf ] cmake configure for %BOARD%
 REM picotool_DIR: use Raspberry Pi's OFFICIAL prebuilt picotool rather than the
 REM one the SDK builds from source here. The locally-built one crashes with an
 REM access violation (0xC0000005) in every subcommand that touches an ELF -
@@ -88,6 +128,7 @@ REM did not exist unless somebody had separately configured through the IDE.
 REM So the fallback that exists precisely for editors WITHOUT the project loaded
 REM only worked once the project was loaded. It is set in both places now.
 "%CMAKE%" -S "%HERE%." -B "%BUILD%" -G Ninja ^
+    -DPICO_BOARD=%BOARD% ^
     -DCMAKE_MAKE_PROGRAM="%NINJA%" ^
     -Dpicotool_DIR="%PICOTOOL_DIR%" ^
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ^
@@ -110,6 +151,6 @@ if not exist "%BUILD%\pico_debug.uf2" (
 )
 
 echo.
-echo [ok] %BUILD%\pico_debug.uf2
-if exist "%BUILD%\sketch.uf2" echo [ok] %BUILD%\sketch.uf2
-echo      Flash it with:  firmware\flash.bat
+echo [ok] %BUILD%\pico_debug.uf2   (%BOARD%)
+if exist "%BUILD%\sketch.uf2" echo [ok] %BUILD%\sketch.uf2   (%BOARD%)
+echo      Flash it with:  firmware\flash.bat "%BUILD%\pico_debug.uf2"

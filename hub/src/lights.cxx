@@ -69,4 +69,73 @@ Lamps solve(const Input& in, Float64 seconds) noexcept
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// detect: steering and throttle in, an Input out.
+//
+// The order matters. The indicator decision reads `steer` only and the brake
+// decision reads `throttleUs` only, so neither can affect the other - which is
+// what keeps the two rules independently testable and independently wrong.
+// ---------------------------------------------------------------------------
+Input detect(AutoState& st, const Drive& d, Float64 seconds, const AutoConfig& cfg) noexcept
+{
+    Input in;
+
+    // ---- indicators ------------------------------------------------------
+    const Float32 mag  = (d.steer < 0.0f) ? -d.steer : d.steer;
+    const Turn    want = (d.steer <= -cfg.turnOnAbs) ? Turn::TURN_LEFT
+                       : (d.steer >=  cfg.turnOnAbs) ? Turn::TURN_RIGHT
+                                                     : Turn::TURN_OFF;
+
+    if(want != Turn::TURN_OFF && want != st.turn)
+    {
+        // A genuine change of side takes effect at once, hold or no hold.
+        // Waiting out the old side's minimum flash would leave the car
+        // indicating LEFT while the wheels are already turning right, which is
+        // the one thing an indicator must never do.
+        st.turn      = want;
+        st.turnUntil = seconds + cfg.turnMinS;
+    }
+    else if(st.turn != Turn::TURN_OFF
+            && mag < cfg.turnOffAbs
+            && seconds >= st.turnUntil)
+    {
+        st.turn = Turn::TURN_OFF;
+    }
+    in.turn = st.turn;
+
+    // ---- brake -----------------------------------------------------------
+    //
+    // The FIRST sample only establishes a baseline. Without that, connecting to
+    // a board already holding throttle reads as a drop from zero and flashes
+    // the brakes on connect.
+    if(!st.haveThrottle)
+    {
+        st.lastThrottle = d.throttleUs;
+        st.haveThrottle = true;
+    }
+
+    // Not gated on `armed`. Disarming walks the ESC back to neutral, which IS
+    // the car slowing down, and the brake lamp should say so.
+    const Int32 drop = st.lastThrottle - d.throttleUs;
+    if(drop >= cfg.brakeDropUs)
+    {
+        st.brakeUntil = seconds + cfg.brakeHoldS;
+    }
+    st.lastThrottle = d.throttleUs;
+
+    in.brake = (seconds < st.brakeUntil);
+
+    // ---- the rest --------------------------------------------------------
+    in.head = (cfg.drlWhenArmed && d.armed) ? Head::HEAD_DRL : Head::HEAD_OFF;
+
+    // Never. chassis.h is forward-only - the throttle is clamped to
+    // [escMin, escMax] and the board refuses anything below 1500 - so there is
+    // no reverse for this to report. It stays in Input because the lamp exists
+    // on the car and the day the ESC gains a reverse sequence this is where the
+    // answer goes.
+    in.reverse = false;
+
+    return in;
+}
+
 } // namespace lights

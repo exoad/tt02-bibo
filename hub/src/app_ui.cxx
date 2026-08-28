@@ -37,7 +37,7 @@
 #include "lidar_source.hxx"
 #include "pico_flash.hxx"
 #include "pico_link.hxx"
-#include "board_view.hxx"
+#include "pinout.hxx"
 #include "radar.hxx"
 #include "icons.hxx"
 #include "lights.hxx"
@@ -50,7 +50,6 @@
 #include "reference.hxx"
 #include "devlink.hxx"
 #include "lint.hxx"
-#include "workspace.hxx"
 #include "settings.hxx"
 #include "theme.hxx"
 
@@ -185,9 +184,16 @@ Str   lastCmd;                  // last line we sent, trimmed
 // board runs one of them, so at most one of these two structs is ever live.
 struct DebugStatus
 {
-    board::Live::Tri  cyw43  = board::Live::Tri::TRI_UNKNOWN;
-    board::Live::Led  led    = board::Live::Led::LED_UNKNOWN;
-    Float32             ledHz = 0.0f;
+    // Which board is on the other end - "pico2_w" or "pico2" - straight from
+    // INFO id's board= field.
+    //
+    // This matters more than it looks. There are two RP2350 boards in this
+    // project now, the mule and the car's, and over USB they are indis-
+    // tinguishable: same VID, same chip, same bootloader, adjacent COM numbers
+    // that swap around on replug. The firmware is the only thing that knows,
+    // because it was COMPILED for one of them, so this is the one authoritative
+    // answer available and it belongs on screen rather than in a log line.
+    Str boardName;
 };
 
 DebugStatus debugStatus;
@@ -455,31 +461,14 @@ constexpr Float32 CODE_TREE_DEF_W = 240.0f;
 Float32 codeTreeLogicalW  = CODE_TREE_DEF_W;
 Bool    codeTreeCollapsed = false;
 
-// ---- the central region's layout ------------------------------------------
-// 0 = tabbed (one view, full width), 1 = floating (a board of panels you
-// arrange). Both render the SAME view bodies - see drawViewBody() - so a panel
-// and a tab are never two implementations of one picture.
-Int32       layoutFloating = 0;
-ws::Panel   wsPanels[ws::PANEL_COUNT];
-
 // The reference library's browsing state - which page, the drawer width, the
 // zoom. Held here rather than inside the module so the panel stays re-entrant.
 ref::State  refView;
-ws::Canvas  wsCanvas;
-Bool        wsInit = false;
 
-// Which panel the bottom control bar belongs to: the last one clicked. In the
-// tabbed layout that is just the open tab, and centralView carries it.
+// Which view the bottom control bar belongs to. The same thing as the open tab
+// now that tabs are the only layout, and kept as its own name because the bar
+// asks "which view am I configuring" rather than "which tab is open".
 Int32 wsFocused = 0;
-
-// Live drag state. -1 when nothing is being dragged.
-Int32   wsDragPanel = -1;
-
-// 0 = move. Otherwise a bitmask: 1 = width, 2 = height, 3 = both.
-Int32   wsDragEdge = 0;
-ImVec2  wsDragOrigin(0.0f, 0.0f);
-ws::Rect wsDragRect0;
-Bool    wsPanning = false;
 
 Bool  panelLayoutDirty = false;             // written out at the end of a frame
 
@@ -507,41 +496,6 @@ Void loadPanelLayout()
             if(v >= SIDEBAR_MIN_W && v <= 1600.0)
                 sidebarLogicalW = static_cast<Float32>(v);
         }
-        else if(line.size() > 2 && line[0] == 'L')
-        {
-            layoutFloating = (std::atoi(line.c_str() + 1) != 0) ? 1 : 0;
-        }
-        else if(line.size() > 2 && line[0] == 'C')
-        {
-            Float64 z = 1.0;
-            Float64 px = 0.0;
-            Float64 py = 0.0;
-            if(std::sscanf(line.c_str() + 1, "%lf %lf %lf", &z, &px, &py) == 3)
-            {
-                wsCanvas.zoom = ws::clampZoom(static_cast<Float32>(z));
-                wsCanvas.panX = static_cast<Float32>(px);
-                wsCanvas.panY = static_cast<Float32>(py);
-            }
-        }
-        else if(line.size() > 2 && line[0] == 'P')
-        {
-            Int32   idx = -1;
-            Float64 x = 0.0, y = 0.0, w = 0.0, h = 0.0;
-            Int32   op = 1, cl = 0, zz = 0;
-            if(std::sscanf(line.c_str() + 1, "%d %lf %lf %lf %lf %d %d %d",
-                           &idx, &x, &y, &w, &h, &op, &cl, &zz) == 8
-               && idx >= 0 && idx < ws::PANEL_COUNT)
-            {
-                ws::Panel& p = wsPanels[idx];
-                p.rect.x    = static_cast<Float32>(x);
-                p.rect.y    = static_cast<Float32>(y);
-                p.rect.w    = std::max(ws::PANEL_MIN_W, static_cast<Float32>(w));
-                p.rect.h    = std::max(ws::PANEL_MIN_H, static_cast<Float32>(h));
-                p.open      = (op != 0);
-                p.collapsed = (cl != 0);
-                p.z         = zz;
-            }
-        }
         else if(line.size() > 2 && line[0] == 't')
         {
             Float64 v = 0.0;
@@ -562,23 +516,6 @@ Void loadPanelLayout()
                 order[seen++] = id;
                 sectionFloating[id] = (fl != 0);
             }
-        }
-    }
-
-    // The panel z order has to be a dense permutation - hitTest resolves
-    // overlap with it. A hand-edited or truncated file could give duplicates, so
-    // it is normalised here rather than trusted.
-    {
-        Int32 idx[ws::PANEL_COUNT];
-        for(Int32 k = 0; k < ws::PANEL_COUNT; ++k)
-        {
-            idx[k] = k;
-        }
-        std::sort(idx, idx + ws::PANEL_COUNT,
-                  [](Int32 a, Int32 b) { return wsPanels[a].z < wsPanels[b].z; });
-        for(Int32 k = 0; k < ws::PANEL_COUNT; ++k)
-        {
-            wsPanels[idx[k]].z = k;
         }
     }
 
@@ -615,25 +552,6 @@ Void savePanelLayout()
                   codeTreeCollapsed ? 1 : 0);
     out += buf;
 
-    std::snprintf(buf, sizeof(buf), "L %d\n", layoutFloating);
-    out += buf;
-    std::snprintf(buf, sizeof(buf), "C %.4f %.1f %.1f\n",
-                  static_cast<Float64>(wsCanvas.zoom),
-                  static_cast<Float64>(wsCanvas.panX),
-                  static_cast<Float64>(wsCanvas.panY));
-    out += buf;
-    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
-    {
-        const ws::Panel& p = wsPanels[i];
-        std::snprintf(buf, sizeof(buf), "P %d %.1f %.1f %.1f %.1f %d %d %d\n",
-                      i,
-                      static_cast<Float64>(p.rect.x),
-                      static_cast<Float64>(p.rect.y),
-                      static_cast<Float64>(p.rect.w),
-                      static_cast<Float64>(p.rect.h),
-                      p.open ? 1 : 0, p.collapsed ? 1 : 0, p.z);
-        out += buf;
-    }
     for(Int32 k = 0; k < SECTION_COUNT; ++k)
     {
         std::snprintf(buf, sizeof(buf), "s %d %d\n",
@@ -770,6 +688,15 @@ Int32 centralView = 0;
 // asymmetry, which is the one that has to be seen to be believed - before there
 // is hardware to get it wrong on.
 lights::Input& lightInput = radarView.lighting;
+
+// Automatic lighting: the lamps worked out from what the car is doing rather
+// than from the buttons below them.
+//
+// Off by default, because the bench panel exists to exercise one lamp at a time
+// and an automatic mode that overwrites your choice every frame would make that
+// impossible. On, the buttons go read-only and show what was decided.
+Bool              autoLights = false;
+lights::AutoState autoLightState;
 
 // Rolling rotation-rate history for the sparkline.
 constexpr Int32 HISTORY = 240;
@@ -1024,41 +951,32 @@ Void observeLine(const PicoLine& ln)
     }
 
     // ---- pico_debug ------------------------------------------------------
-    // "INFO status up_ms=... led=on blink_hz=2.00 cyw43=up"
-    // "INFO id board=... cyw43=up"
+    // "INFO status up_ms=... led=on blink_hz=2.00 lamp=gpio25 lamp_up=yes"
+    // "INFO id board=pico2 sdk=... uid=... lamp=gpio25 lamp_up=yes"
+    //
+    // cyw43= is present ONLY on a board that has the chip, so its absence is
+    // not a failure to report - it is a plain Pico 2 correctly declining to
+    // mention a peripheral it does not have.
     // Scanned for the fields rather than parsed positionally: the two lines
     // carry an overlapping subset and the order is the firmware's business.
     if(t.compare(0, 5, "INFO ") == 0)
     {
         const Char* s = t.c_str();
 
-        if(const Char* q = std::strstr(s, "cyw43="))
+        // A bare word terminated by space or end of line.
+        const auto word = [](const Char* q) -> Str
         {
-            debugStatus.cyw43 = (std::strncmp(q + 6, "up", 2) == 0)
-                        ? board::Live::Tri::TRI_YES : board::Live::Tri::TRI_NO;
-        }
-
-        if(const Char* q = std::strstr(s, "led="))
-        {
-            debugStatus.led = (std::strncmp(q + 4, "on", 2) == 0)
-                      ? board::Live::Led::LED_ON : board::Live::Led::LED_OFF;
-        }
-
-        // blink_hz is authoritative over led= : the firmware reports the LED's
-        // instantaneous level AND its blink rate, so a non-zero rate means it is
-        // blinking whichever half of the cycle the sample happened to catch.
-        if(const Char* q = std::strstr(s, "blink_hz="))
-        {
-            const Float32 hz = static_cast<Float32>(std::atof(q + 9));
-            if(hz > 0.0f)
+            Size n = 0;
+            while(q[n] != '\0' && q[n] != ' ' && q[n] != '\r' && q[n] != '\n')
             {
-                debugStatus.led    = board::Live::Led::LED_BLINK;
-                debugStatus.ledHz = hz;
+                ++n;
             }
-            else
-            {
-                debugStatus.ledHz = 0.0f;
-            }
+            return Str(q, n);
+        };
+
+        if(const Char* q = std::strstr(s, "board="))
+        {
+            debugStatus.boardName = word(q + 6);
         }
 
         dbgUnsupported = false;
@@ -1217,26 +1135,16 @@ Void observeLine(const PicoLine& ln)
         return;
     }
 
-    // "OK led on" / "OK led off" / "OK led blink 2.00" - the acknowledgement,
-    // so a command the user typed takes effect on the drawing immediately
-    // rather than at the next poll.
+    // "OK led on" / "OK led off" / "OK led blink 2.00".
+    //
+    // Nothing displays the lamp's state any more - the board drawing that did
+    // is gone - so this stores nothing. It still has to RECOGNISE the line and
+    // return, though: dbgAwait is set while a STATUS is outstanding, and
+    // anything unrecognised arriving in that window is read as "this firmware
+    // has no STATUS command" and stops the polling permanently. An LED command
+    // sent by hand while a poll was in flight would do exactly that.
     if(t.compare(0, 7, "OK led ") == 0)
     {
-        const Char* a = t.c_str() + 7;
-        if(std::strncmp(a, "blink", 5) == 0)
-        {
-            const Float32 hz = static_cast<Float32>(std::atof(a + 5));
-            debugStatus.led    = (hz > 0.0f) ? board::Live::Led::LED_BLINK : board::Live::Led::LED_OFF;
-            debugStatus.ledHz = (hz > 0.0f) ? hz : 0.0f;
-        }
-        else if(std::strncmp(a, "on", 2) == 0)
-        {
-            debugStatus.led = board::Live::Led::LED_ON;  debugStatus.ledHz = 0.0f;
-        }
-        else if(std::strncmp(a, "off", 3) == 0)
-        {
-            debugStatus.led = board::Live::Led::LED_OFF; debugStatus.ledHz = 0.0f;
-        }
         return;
     }
 
@@ -1290,37 +1198,13 @@ Void pumpPico()
         picoLog.erase(picoLog.begin(), picoLog.begin() + (picoLog.size() - LOG_MAX));
 }
 
-// What the board view draws. Assembled here rather than in board_view.cxx so
-// that file stays a drawing and knows nothing about serial links or flash tools.
-board::Live boardLive()
-{
-    board::Live lv;
-
-    const BoardStatus brd = picoFlash.board();
-    lv.link       = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
-    lv.bootsel    = brd.bootsel;
-    lv.fwPresent = brd.present;
-
-    lv.cyw43  = debugStatus.cyw43;
-    lv.led    = debugStatus.led;
-    lv.ledHz = debugStatus.ledHz;
-
-    // Only claim the pins are being driven while the reports are still arriving.
-    // A stale S line from a board that has since been unplugged would otherwise
-    // leave two pads ringed green forever.
-    if(vehicleStatus.have && (ImGui::GetTime() - vehicleStatus.seenAt) < 3.0)
-    {
-        lv.havePwm = true;
-        lv.servoUs = vehicleStatus.servoUs;
-        lv.escUs   = vehicleStatus.escUs;
-    }
-
-    return lv;
-}
-
-// Asks the board what it is doing, at most every couple of seconds, and only
-// while the board view is actually on screen. Polling a debug link that nobody
-// is looking at would fill the console with traffic the user did not ask for.
+// Asks the board what it is doing, at most every couple of seconds.
+//
+// This used to run only while the board view was on screen, on the grounds that
+// polling a link nobody is looking at is traffic nobody asked for. That view is
+// gone, and the argument went with it: the System panel in the sidebar is
+// ALWAYS visible and shows what the reply carries - the board name, whether the
+// firmware is running - so there is now always somebody looking.
 Void pollBoardStatus()
 {
     if(dbgUnsupported) return;
@@ -2385,7 +2269,17 @@ Float32 drawZoomControl(Float32 cy, Float32 rightEdge)
     const Float32 need = btnW * 2.0f + pctW + gap * 2.0f;
 
     const Float32 x0 = rightEdge - need;
-    const Float32 bh = ImGui::GetFrameHeight();
+
+    // A SmallButton is NOT GetFrameHeight() tall.
+    //
+    // ImGui draws it with FramePadding.y forced to zero, so its height is the
+    // text line and nothing more. Centring it on GetFrameHeight() - which is
+    // the line PLUS two paddings - lifted both buttons above the centreline by
+    // one padding, while the percentage beside them was centred correctly and
+    // sat on it. Two things centred by two different rules, a few pixels apart,
+    // which is exactly the kind of misalignment that reads as sloppy without
+    // being obvious enough to chase.
+    const Float32 bh = ImGui::GetTextLineHeight();
 
     const Bool atMin = ui::userScale() <= ui::USER_SCALE_MIN + 0.001f;
     const Bool atMax = ui::userScale() >= ui::USER_SCALE_MAX - 0.001f;
@@ -2402,16 +2296,24 @@ Float32 drawZoomControl(Float32 cy, Float32 rightEdge)
         ImGui::SetTooltip("Smaller  (Ctrl -)");
 
     // The percentage is text, so it centres on the line directly.
-    const ImVec2 psz = ImGui::CalcTextSize(pct);
-    const Float32 px = x0 + btnW + gap;
+    //
+    // Centred inside its OWN slot as well, not left-aligned in it. The slot is
+    // sized for "000%" so the buttons either side never move as the number
+    // changes, and left-aligning inside it meant 90% and 110% sat at different
+    // distances from the button on their right.
+    const ImVec2   psz  = ImGui::CalcTextSize(pct);
+    const Float32  slot = x0 + btnW + gap;
+    const Float32  px   = slot + ((pctW - psz.x) * 0.5f);
     ImGui::GetWindowDrawList()->AddText(ImVec2(px, cy - psz.y * 0.5f),
                                         ImGui::GetColorU32(ImGuiCol_TextDisabled),
                                         pct);
 
     // An invisible hit box over it, so the click-to-reset and the tooltip still
     // work now that the text is drawn rather than submitted.
-    ImGui::SetCursorScreenPos(ImVec2(px, cy - psz.y * 0.5f));
-    ImGui::InvisibleButton("##zoompct", ImVec2(std::max(pctW, psz.x), psz.y));
+    // Over the whole SLOT rather than the glyphs, so the click target does not
+    // shrink when the number does.
+    ImGui::SetCursorScreenPos(ImVec2(slot, cy - psz.y * 0.5f));
+    ImGui::InvisibleButton("##zoompct", ImVec2(pctW, psz.y));
     if(ImGui::IsItemHovered())
         ImGui::SetTooltip("UI scale. Ctrl 0 resets it to 100%%.");
     if(ImGui::IsItemClicked())
@@ -2556,9 +2458,18 @@ Void drawSubsystems()
         subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::WARN, "BOOTSEL",
                      brd.drive.c_str());
     else if(brd.present)
+        // The board NAME in the right column once the firmware has answered
+        // ID, falling back to the chip until it does.
+        //
+        // "RP2350" is true of both boards in this project and so distinguishes
+        // neither. With the mule and the car's board both plugged in - which is
+        // the normal state now - the only thing that tells them apart is what
+        // the firmware was compiled for, and that is precisely what board= is.
         subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::GOOD,
                      brd.program.empty() ? "running" : brd.program.c_str(),
-                     brd.chip.c_str());
+                     debugStatus.boardName.empty()
+                         ? brd.chip.c_str()
+                         : debugStatus.boardName.c_str());
     else
         subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::MUTED, "absent", "", false);
 
@@ -2695,6 +2606,13 @@ Void drawQuickActions()
 
 Void sectionSystem()
 {
+    // The board's own report drives the rows below - the board name in
+    // particular - so the ask lives with the display. This section is always on
+    // screen, which is what makes polling from here reasonable rather than
+    // chatter; pollBoardStatus() rate-limits itself and gives up entirely on
+    // firmware that has no STATUS command.
+    pollBoardStatus();
+
     drawSubsystems();
     ImGui::Spacing();
     drawQuickActions();
@@ -4054,6 +3972,38 @@ Void drawCodeTree(Float32 w, Float32 h)
             fwInsert(fwInsert, root, n);
         }
 
+        // Folders first, then files, each group alphabetical, at every level.
+        //
+        // The insertion order was listFirmware()'s, which is the library's
+        // DEPENDENCY order - hal before drivers before chassis. That is the
+        // right order to read the library in and the wrong order to find a file
+        // in, and a tree is for finding. Anyone wanting the dependency order has
+        // docs/conventions.md, which states it as a rule rather than implying it
+        // through a listing.
+        //
+        // Case-insensitive, because "Makefile" sorting above "app" on ASCII is
+        // an artefact of the encoding and not something anybody means.
+        const auto fwSort = [](auto&& self, FwNode& node) -> Void
+        {
+            const auto byName = [](const Str& a, const Str& b)
+            {
+                return _stricmp(a.c_str(), b.c_str()) < 0;
+            };
+
+            std::sort(node.dirs.begin(), node.dirs.end(),
+                      [&byName](const FwNode& a, const FwNode& b)
+                      {
+                          return byName(a.name, b.name);
+                      });
+            std::sort(node.files.begin(), node.files.end(), byName);
+
+            for(FwNode& d : node.dirs)
+            {
+                self(self, d);
+            }
+        };
+        fwSort(fwSort, root);
+
         const Str dir = sketch::firmwareDir();
 
         // Recursive, so a folder added under lib/ appears without anyone
@@ -4479,12 +4429,14 @@ Void drawCentralControls(Int32 view)
 // same picture, and the only way to guarantee that is for there to be one
 // function that draws it.
 // ---------------------------------------------------------------------------
-// Views 0-3 are the fixed ones, then one per board, then the reference
-// library. Appended at the end so every index already in a saved layout keeps
-// meaning what it meant.
-constexpr Int32 BOARD_VIEW_0 = 4;
-constexpr Int32 REF_VIEW =
-    BOARD_VIEW_0 + static_cast<Int32>(board::Which::WHICH_COUNT);
+// Views 0-3 are the fixed ones, then the rest in tab order.
+//
+// There was a per-board view between Code and Reference until 2026-08-28,
+// which is why these are named constants rather than literals - the indices
+// have moved before and will again. A saved tab index from an older build can
+// therefore select the neighbouring view once, which is a preference and not
+// data; drawTabbedViews clamps anything out of range.
+constexpr Int32 REF_VIEW   = 4;
 constexpr Int32 RANGE_VIEW = REF_VIEW + 1;
 constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
 constexpr Int32 VIEW_COUNT = DRIVE_VIEW + 1;
@@ -4937,13 +4889,34 @@ Str steeringCalPath()
     return d.empty() ? Str() : (d + "\\lib\\chassis\\cal.h");
 }
 
-// Loaded from settings, not from the header. The header is generated output -
-// parsing back what we printed would make the two silently diverge the moment
-// somebody hand-edits it, and the file itself says not to do that.
+Bool readThrottleNumbers(const Str& text, Int32& lo, Int32& hi);
+
+// The STEERING is loaded from settings, not from the header. The header is
+// generated output - parsing back what we printed would make the two silently
+// diverge the moment somebody hand-edits it, and the file itself says not to.
 Void loadCalibration()
 {
     calLoaded = true;
     calWritten = sketch::load(steeringCalPath());
+
+    // The THROTTLE is different, and does come from the header.
+    //
+    // Not inconsistency: the steering has a working copy in settings and the
+    // throttle has none. driveEscMin/Max are otherwise set only by the board's
+    // DRIVE reply, so a hub that has not connected yet sits on the compile-time
+    // defaults - and "Write to firmware" from that state would put 1500 back
+    // over a measured idle of 1541 without anyone having touched a slider. The
+    // header is what the firmware would actually be built with, which makes it
+    // the right answer in the gap before a board has spoken.
+    Int32 tlo = 0;
+    Int32 thi = 0;
+    if(!calWritten.empty()
+       && readThrottleNumbers(calWritten, tlo, thi)
+       && tlo > 0 && thi > tlo)
+    {
+        driveEscMin = tlo;
+        driveEscMax = thi;
+    }
 
     const Str txt = settings::read("steering.txt");
     if(txt.empty())
@@ -5024,11 +4997,19 @@ Str steeringCalText()
         " * Still forward-only. The board refuses anything below 1500 whatever is written\n"
         " * here; reverse needs a brake-then-reverse sequence and is not something to\n"
         " * reach by editing a number.\n"
+        " * MIN is IDLE. Not the ESC's neutral and not a safety floor, but the pulse at\n"
+        " * which this motor sits still and the next microsecond starts it turning. That\n"
+        " * is a fact about this car's ESC and motor, found by winding it up until the\n"
+        " * wheels moved - which is why it is not the round number anybody would guess.\n"
+        " *\n"
+        " * It matters that this is the floor the sliders are built from: a range\n"
+        " * starting below idle spends its first stretch doing nothing at all, so the\n"
+        " * control feels dead at one end for no reason a driver could work out.\n"
         " */\n"
         "#define THROTTLE_CAL_MIN %d\n"
         "#define THROTTLE_CAL_MAX %d\n"
         "\n"
-        "/* When these were measured, and by whom, so a stale calibration can be spotted\n"
+        "/* When this car was last calibrated, so a stale set of numbers can be spotted\n"
         " * rather than trusted. \"defaults\" means nobody has calibrated this car yet. */\n"
         "#define STEER_CAL_STAMP \"measured %s\"\n",
         calLeft, calCenter, calRight, driveEscMin, driveEscMax, when);
@@ -6424,28 +6405,16 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
         pollTof(true);
         drawRangeBody(w, h);
     }
-    else if(view == REF_VIEW)
+    else
     {
+        // Reference is the terminal branch, so an index from a stale settings
+        // file lands on a real view rather than on nothing.
         ImGui::BeginChild("##ref", ImVec2(w, h), ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoScrollbar
                           | ImGuiWindowFlags_NoScrollWithMouse);
         const ImVec2 rp0 = ImGui::GetCursorScreenPos();
         ref::draw(refView, ImGui::GetContentRegionAvail());
         ui::screenInset(rp0, ImVec2(rp0.x + w, rp0.y + h));
-        ImGui::EndChild();
-    }
-    else
-    {
-        const board::Which which =
-            static_cast<board::Which>(std::max(0, view - BOARD_VIEW_0));
-
-        ImGui::BeginChild("##board", ImVec2(w, h), ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        // Polled inside the body so it only runs while the view is on screen.
-        pollBoardStatus();
-        const ImVec2 bp0 = ImGui::GetCursorScreenPos();
-        board::draw(which, ImGui::GetContentRegionAvail(), boardLive());
-        ui::screenInset(bp0, ImVec2(bp0.x + w, bp0.y + h));
         ImGui::EndChild();
     }
 
@@ -6476,7 +6445,7 @@ const Char* viewName(Int32 view)
     {
         return "Drive";
     }
-    return board::name(static_cast<board::Which>(std::max(0, view - BOARD_VIEW_0)));
+    return "Reference";
 }
 
 ui::Icon viewIcon(Int32 view)
@@ -6497,7 +6466,7 @@ ui::Icon viewIcon(Int32 view)
     {
         return ui::Icon::ICON_SERVO;
     }
-    return (view == REF_VIEW) ? ui::Icon::ICON_REFERENCE : ui::Icon::ICON_PROCESSOR;
+    return ui::Icon::ICON_REFERENCE;
 }
 
 // ===================================================== the tabbed layout
@@ -6536,577 +6505,7 @@ Void drawTabbedViews(Float32 mapW, Float32 viewH)
         }
     }
 
-    // Right-aligned, so switching layout is where the tabs end rather than in a
-    // second row of chrome above them.
-    if(ImGui::TabItemButton("  Float  ", ImGuiTabItemFlags_Trailing
-                                       | ImGuiTabItemFlags_NoTooltip))
-    {
-        layoutFloating   = 1;
-        panelLayoutDirty = true;
-    }
-    if(ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip("Arrange the views as floating panels instead");
-    }
-
     ImGui::EndTabBar();
-}
-
-// =================================================== the floating layout
-
-// Title-bar height in SCREEN space. Scales with zoom so a zoomed-out board
-// looks right, but never below a size you can actually aim at - a 4 px title
-// bar is a panel you cannot move.
-Float32 wsTitleHeight()
-{
-    const Float32 want = 26.0f * uiDpiScale * wsCanvas.zoom;
-    return std::max(16.0f * uiDpiScale, want);
-}
-
-Void drawFloatingWorkspace(Float32 mapW, Float32 viewH)
-{
-    ImGuiIO& io = ImGui::GetIO();
-
-    if(!wsInit)
-    {
-        wsInit = true;
-        // Only lay out afresh when nothing was restored, so a saved arrangement
-        // survives. defaultLayout leaves z dense, which hitTest relies on.
-        Bool any = false;
-        for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
-        {
-            if(wsPanels[i].rect.w > 1.0f)
-            {
-                any = true;
-            }
-        }
-        if(!any)
-        {
-            ws::defaultLayout(wsPanels, ws::PANEL_COUNT);
-            ws::fitAll(wsPanels, ws::PANEL_COUNT, wsCanvas, mapW, viewH);
-        }
-    }
-
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x16, 0x18, 0x1B, 0xFF));
-    ImGui::BeginChild("##canvas", ImVec2(mapW, viewH), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    // ---- the board itself, so panning has something to move against -------
-    {
-        const Float32 step = 48.0f * wsCanvas.zoom;
-        if(step > 6.0f)
-        {
-            const ImU32 dot = IM_COL32(0x2A, 0x2D, 0x31, 0xFF);
-            const Float32 ox = std::fmod(wsCanvas.panX, step);
-            const Float32 oy = std::fmod(wsCanvas.panY, step);
-            for(Float32 x = ox; x < mapW; x += step)
-            {
-                for(Float32 y = oy; y < viewH; y += step)
-                {
-                    if(x < 0.0f || y < 0.0f)
-                    {
-                        continue;
-                    }
-                    dl->AddRectFilled(ImVec2(origin.x + x, origin.y + y),
-                                      ImVec2(origin.x + x + 1.0f, origin.y + y + 1.0f),
-                                      dot);
-                }
-            }
-        }
-    }
-
-    // ---- canvas-level input -----------------------------------------------
-    //
-    // NO invisible button over the canvas, deliberately. One was tried and it
-    // broke panel dragging outright: a full-size button takes ImGui's ActiveId
-    // on press, and an item that owns ActiveId makes every later overlapping
-    // item non-hoverable - so the title bars submitted after it never saw their
-    // own click and every panel drag panned the board instead.
-    //
-    // IsWindowHovered() WITHOUT ChildWindows is the right test anyway: it is
-    // true over empty canvas and over title bars, and false over a panel's body.
-    // That is exactly the split we want, because a wheel over a map belongs to
-    // the map's own zoom, not to the board's.
-    // What the mouse is over, resolved OURSELVES rather than asked of ImGui.
-    //
-    // Now that a whole panel is one child window, IsWindowHovered() on the
-    // canvas is false over a panel's title bar as well as its body, so it can no
-    // longer tell "empty board" from "a panel's chrome". ws::hitTest can, and it
-    // is the same front-to-back resolution the panels are drawn with, so the two
-    // cannot disagree about what is under the cursor.
-    const Float32 titleHPre = wsTitleHeight();
-    Float32 hitH[ws::PANEL_COUNT];
-    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
-    {
-        const ws::Rect sr = ws::toScreen(wsPanels[i].rect, wsCanvas, origin.x, origin.y);
-        hitH[i] = wsPanels[i].collapsed
-                ? titleHPre
-                : titleHPre + std::max(0.0f, sr.h - titleHPre);
-    }
-    const Int32 under = ws::hitTest(wsPanels, ws::PANEL_COUNT, wsCanvas,
-                                    origin.x, origin.y, hitH,
-                                    io.MousePos.x, io.MousePos.y);
-
-    // Anywhere inside the canvas region, panels included.
-    const Bool inCanvas = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
-
-    // Over a panel's title bar rather than its body.
-    Bool onChrome = false;
-    if(under >= 0)
-    {
-        const ws::Rect sr = ws::toScreen(wsPanels[under].rect, wsCanvas,
-                                         origin.x, origin.y);
-        onChrome = (io.MousePos.y < sr.y + titleHPre);
-    }
-
-    // The wheel belongs to the BOARD over empty canvas and over a title bar, and
-    // to the PANEL over its body - a wheel on a map is the map's own zoom, and
-    // taking it away to move the board would be worse than useless.
-    if(inCanvas && (under < 0 || onChrome) && io.MouseWheel != 0.0f)
-    {
-        const Float32 f = (io.MouseWheel > 0.0f) ? ws::ZOOM_STEP : 1.0f / ws::ZOOM_STEP;
-        ws::zoomAt(wsCanvas, f, io.MousePos.x, io.MousePos.y, origin.x, origin.y);
-        panelLayoutDirty = true;
-    }
-
-    // Panning starts only when the press did NOT land on a panel.
-    //
-    // An invisible background button cannot answer that: it would take ImGui's
-    // ActiveId on press, and an item holding ActiveId makes every later
-    // overlapping item non-hoverable - so the panels submitted after it would
-    // never see their own clicks. That is exactly why dragging a panel used to
-    // pan the whole board.
-    if(inCanvas && under < 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-    {
-        wsPanning = true;
-    }
-    // Middle-drag pans from anywhere, panel or not - the usual escape hatch for
-    // a board where the empty space has run out.
-    if(inCanvas && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
-    {
-        wsPanning = true;
-    }
-    if(!ImGui::IsMouseDown(ImGuiMouseButton_Left)
-       && !ImGui::IsMouseDown(ImGuiMouseButton_Middle))
-    {
-        wsPanning = false;
-    }
-    if(wsPanning)
-    {
-        wsCanvas.panX += io.MouseDelta.x;
-        wsCanvas.panY += io.MouseDelta.y;
-        panelLayoutDirty = true;
-        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    }
-
-    // ---- the panels, back to front ----------------------------------------
-    // Submitting in z order means the front-most panel's widgets are submitted
-    // LAST, and ImGui gives the last submitted item at a position the hover -
-    // so overlap resolves the way it looks.
-    Int32 order[ws::PANEL_COUNT];
-    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
-    {
-        order[i] = i;
-    }
-    std::sort(order, order + ws::PANEL_COUNT,
-              [](Int32 a, Int32 b) { return wsPanels[a].z < wsPanels[b].z; });
-
-    const Float32 titleH = wsTitleHeight();
-    Int32 raise = -1;
-
-    for(Int32 oi = 0; oi < ws::PANEL_COUNT; ++oi)
-    {
-        const Int32 i = order[oi];
-        ws::Panel&  p = wsPanels[i];
-        if(!p.open)
-        {
-            continue;
-        }
-
-        const ws::Rect sr = ws::toScreen(p.rect, wsCanvas, origin.x, origin.y);
-        const Float32  bodyH = p.collapsed ? 0.0f : std::max(0.0f, sr.h - titleH);
-        const Float32  fullH = titleH + bodyH;
-
-        // Off screen entirely: skip the whole panel, content included. This is
-        // what keeps a large board cheap - an unseen map is not drawn.
-        if(sr.x + sr.w < origin.x - 4.0f || sr.x > origin.x + mapW + 4.0f
-           || sr.y + fullH < origin.y - 4.0f || sr.y > origin.y + viewH + 4.0f)
-        {
-            continue;
-        }
-
-        ImGui::PushID(i);
-
-        const Bool focused = (wsFocused == i);
-
-        // ---- ONE CHILD WINDOW PER PANEL, frame included --------------------
-        //
-        // This is what makes the stacking work, and the reason is not obvious.
-        //
-        // ImGui renders a parent window's whole draw list FIRST and every child
-        // window afterwards. With the frames drawn into the canvas list and only
-        // the bodies in children, a panel could never truly be "on top": its
-        // frame and title bar sat under every other panel's content, however
-        // recently it had been clicked. The order was right and the layering was
-        // not.
-        //
-        // Wrapping each panel - frame, title, handles and content - in its own
-        // child makes it a single unit. Children are sorted by
-        // BeginOrderWithinParent (see ChildWindowComparer in imgui.cpp), which
-        // IS the order they are submitted in, and they are submitted here in z
-        // order. So the panel stacks whole.
-        ImGui::SetCursorScreenPos(ImVec2(sr.x, sr.y));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::BeginChild("##panel",
-                          ImVec2(std::max(1.0f, sr.w), std::max(1.0f, fullH)),
-                          ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoScrollbar
-                          | ImGuiWindowFlags_NoScrollWithMouse
-                          | ImGuiWindowFlags_NoBackground);
-
-        // The panel's OWN draw list. Using the canvas list here would put the
-        // frame back under every other panel's body, which is the bug above.
-        ImDrawList* pdl = ImGui::GetWindowDrawList();
-
-        // Frame and title bar. The border is inset by a pixel so the child's
-        // clip rect does not shave it in half.
-        pdl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + fullH),
-                           IM_COL32(0x1E, 0x21, 0x25, 0xFF), 4.0f * uiDpiScale);
-        pdl->AddRectFilled(ImVec2(sr.x, sr.y), ImVec2(sr.x + sr.w, sr.y + titleH),
-                           focused ? IM_COL32(0x3A, 0x44, 0x50, 0xFF)
-                                   : IM_COL32(0x2A, 0x2E, 0x34, 0xFF),
-                           4.0f * uiDpiScale, ImDrawFlags_RoundCornersTop);
-        pdl->AddRect(ImVec2(sr.x + 1.0f, sr.y + 1.0f),
-                     ImVec2(sr.x + sr.w - 1.0f, sr.y + fullH - 1.0f),
-                     focused ? ui::accent::CYAN : IM_COL32(0x3A, 0x3F, 0x45, 0xFF),
-                     4.0f * uiDpiScale, 0, focused ? 2.0f : 1.0f);
-
-        // Clicking anywhere in the panel raises it - the title bar is not the
-        // only part of a window you expect to be able to bring forward.
-        if(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)
-           && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            raise = i;
-        }
-
-        // ---- title bar: drag to move, double-click to collapse ------------
-        //
-        // The drag area STOPS SHORT of the fold and close buttons. It used to
-        // span the whole bar, and that silently disabled both of them: an item
-        // that owns ImGui's ActiveId makes every later overlapping item
-        // non-hoverable, so the buttons submitted after it never saw a click.
-        // Two widgets cannot share a rectangle; the drag area gives way.
-        const Float32 btn = std::min(titleH - 4.0f * uiDpiScale, 16.0f * uiDpiScale);
-        const Float32 btnZone = (btn > 6.0f)
-                              ? (btn * 2.0f + 14.0f * uiDpiScale) : 0.0f;
-        const Float32 bx = sr.x + sr.w - btn * 2.0f - 10.0f * uiDpiScale;
-
-        ImGui::SetCursorScreenPos(ImVec2(sr.x, sr.y));
-        ImGui::InvisibleButton("##title",
-                               ImVec2(std::max(1.0f, sr.w - btnZone),
-                                      std::max(1.0f, titleH)));
-        const Bool titleHovered = ImGui::IsItemHovered();
-
-        if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
-        {
-            raise        = i;
-            wsDragPanel  = i;
-            wsDragEdge   = 0;
-            wsDragOrigin = io.MousePos;
-            wsDragRect0  = p.rect;
-        }
-        if(titleHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-        {
-            p.collapsed      = !p.collapsed;
-            panelLayoutDirty = true;
-        }
-
-        // Title text and icon, centred on the bar's own centreline - the same
-        // rule the status bar follows, and for the same reason.
-        {
-            const Float32 cy  = sr.y + titleH * 0.5f;
-            Float32       tx  = sr.x + 6.0f * uiDpiScale;
-
-            if(ui::iconsReady() && titleH >= ui::iconSize())
-            {
-                ui::iconAt(pdl, viewIcon(i), ImVec2(tx, cy - ui::iconSize() * 0.5f));
-                tx += ui::iconSize() + 4.0f * uiDpiScale;
-            }
-
-            const Char*  nm = viewName(i);
-            const ImVec2 ts = ImGui::CalcTextSize(nm);
-            if(ts.y <= titleH)
-            {
-                pdl->AddText(ImVec2(tx, cy - ts.y * 0.5f),
-                             focused ? IM_COL32_WHITE : IM_COL32(0xC0, 0xC6, 0xCC, 0xFF),
-                             nm);
-            }
-
-            // Collapse chevron and close, right-aligned on the same centreline.
-            if(btn > 6.0f)
-            {
-                ImGui::SetCursorScreenPos(ImVec2(bx, cy - btn * 0.5f));
-                if(ImGui::InvisibleButton("##fold", ImVec2(btn, btn)))
-                {
-                    p.collapsed      = !p.collapsed;
-                    panelLayoutDirty = true;
-                }
-                const ImU32 fc = ImGui::IsItemHovered() ? IM_COL32_WHITE
-                                                        : IM_COL32(0x9A, 0xA2, 0xAA, 0xFF);
-                pdl->AddText(ImVec2(bx, cy - ImGui::GetFontSize() * 0.5f), fc,
-                             p.collapsed ? "+" : "-");
-
-                ImGui::SetCursorScreenPos(ImVec2(bx + btn + 4.0f * uiDpiScale,
-                                                 cy - btn * 0.5f));
-                if(ImGui::InvisibleButton("##close", ImVec2(btn, btn)))
-                {
-                    p.open           = false;
-                    panelLayoutDirty = true;
-                }
-                const ImU32 cc = ImGui::IsItemHovered() ? ui::sem::BAD
-                                                        : IM_COL32(0x9A, 0xA2, 0xAA, 0xFF);
-                pdl->AddText(ImVec2(bx + btn + 4.0f * uiDpiScale,
-                                    cy - ImGui::GetFontSize() * 0.5f), cc, "x");
-            }
-        }
-
-        // ---- body ----------------------------------------------------------
-        if(!p.collapsed && bodyH > 8.0f && sr.w > 8.0f)
-        {
-            // ---- resize handles, in the panel's BORDER RING -----------------
-            //
-            // OUTSIDE the body child, and that is the whole point. A child
-            // window is a separate ImGui window drawn on top, so anything
-            // submitted underneath it is not hoverable - which is exactly why
-            // the old bottom-right grip, drawn over the child, never once
-            // fired.
-            //
-            // The ring is a fixed number of SCREEN pixels and is NOT scaled by
-            // zoom: a grab target that shrinks with the board becomes unusable
-            // at precisely the zoom where you most want to resize something.
-            const Float32 edge = 6.0f * uiDpiScale;
-            const Float32 innerW = std::max(1.0f, sr.w - edge * 2.0f);
-            const Float32 innerH = std::max(1.0f, bodyH - edge);
-
-            struct Handle
-            {
-                const Char*       id;
-                ImVec2            pos;
-                ImVec2            size;
-                Int32             mask;
-                ImGuiMouseCursor  cursor;
-            };
-            const Handle handles[3] = {
-                { "##edgeR", ImVec2(sr.x + sr.w - edge, sr.y + titleH),
-                  ImVec2(edge, std::max(1.0f, bodyH - edge)), 1,
-                  ImGuiMouseCursor_ResizeEW },
-                { "##edgeB", ImVec2(sr.x, sr.y + fullH - edge),
-                  ImVec2(std::max(1.0f, sr.w - edge), edge), 2,
-                  ImGuiMouseCursor_ResizeNS },
-                { "##corner", ImVec2(sr.x + sr.w - edge, sr.y + fullH - edge),
-                  ImVec2(edge, edge), 3, ImGuiMouseCursor_ResizeNWSE },
-            };
-
-            for(const Handle& hd : handles)
-            {
-                ImGui::SetCursorScreenPos(hd.pos);
-                ImGui::InvisibleButton(hd.id, hd.size);
-                if(ImGui::IsItemHovered()
-                   || (wsDragPanel == i && wsDragEdge == hd.mask))
-                {
-                    ImGui::SetMouseCursor(hd.cursor);
-                }
-                if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
-                {
-                    raise        = i;
-                    wsDragPanel  = i;
-                    wsDragEdge   = hd.mask;
-                    wsDragOrigin = io.MousePos;
-                    wsDragRect0  = p.rect;
-                }
-            }
-
-            // The corner's three diagonal ticks, so the handle is visible.
-            for(Int32 k = 1; k <= 3; ++k)
-            {
-                const Float32 o = static_cast<Float32>(k) * 3.0f * uiDpiScale;
-                pdl->AddLine(ImVec2(sr.x + sr.w - o, sr.y + fullH - 1.0f),
-                             ImVec2(sr.x + sr.w - 1.0f, sr.y + fullH - o),
-                             IM_COL32(0x70, 0x78, 0x80, 0xFF), 1.0f);
-            }
-
-            // ---- the content, OPTICALLY zoomed -----------------------------
-            //
-            // The panel is already zoom * canvas pixels wide. Drawing the
-            // content into it unchanged gives it MORE PIXELS, so it re-lays-out
-            // - more columns in the editor, a wider fit on the map. That is
-            // reflow, not zoom: zooming in should make the same thing bigger,
-            // not show more of it at the same size.
-            //
-            // So the geometry scale is raised by the same factor for the
-            // duration. Everything that derives from dpiScale() - padding,
-            // radii, line thicknesses, the editor's cell - grows with it, and
-            // fontScale() carries the text along.
-            //
-            // Saved and restored around the call rather than set globally,
-            // because the sidebar and the status bar are outside the canvas and
-            // must not move when the board zooms.
-            const Float32    dpiWas   = uiDpiScale;
-            const ImGuiStyle styleWas = ImGui::GetStyle();
-
-            uiDpiScale = dpiWas * wsCanvas.zoom;
-            ui::setDpiScale(uiDpiScale);
-            ImGui::GetStyle().ScaleAllSizes(wsCanvas.zoom);
-
-            // Un-pushed text scales too. PushFont with a null face keeps the
-            // current one and changes only its size, which is what the dynamic
-            // atlas in 1.92 is for.
-            ImGui::PushFont(nullptr, ImGui::GetFontSize() * wsCanvas.zoom);
-
-            ImGui::SetCursorScreenPos(ImVec2(sr.x + edge, sr.y + titleH));
-
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-            ImGui::BeginChild("##body", ImVec2(innerW, innerH),
-                              ImGuiChildFlags_None,
-                              ImGuiWindowFlags_NoScrollbar
-                              | ImGuiWindowFlags_NoScrollWithMouse);
-
-            drawViewBody(i, innerW, innerH);
-
-            ImGui::EndChild();
-            ImGui::PopStyleVar();
-
-            ImGui::PopFont();
-            ImGui::GetStyle() = styleWas;
-            uiDpiScale        = dpiWas;
-            ui::setDpiScale(dpiWas);
-        }
-
-        ImGui::EndChild();
-        ImGui::PopStyleVar();   // WindowPadding pushed for the panel child
-        ImGui::PopID();
-    }
-
-    // ---- apply the live drag ----------------------------------------------
-    // Applied once, after every panel is submitted, so a drag cannot be
-    // interrupted by another panel's widget stealing the mouse mid-frame.
-    if(wsDragPanel >= 0)
-    {
-        if(!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-        {
-            wsDragPanel = -1;
-        }
-        else
-        {
-            ws::Panel& p = wsPanels[wsDragPanel];
-            const Float32 z  = (wsCanvas.zoom > 0.0001f) ? wsCanvas.zoom : 0.0001f;
-            const Float32 dx = (io.MousePos.x - wsDragOrigin.x) / z;
-            const Float32 dy = (io.MousePos.y - wsDragOrigin.y) / z;
-
-            if(wsDragEdge != 0)
-            {
-                if((wsDragEdge & 1) != 0)
-                {
-                    p.rect.w = std::max(ws::PANEL_MIN_W, wsDragRect0.w + dx);
-                }
-                if((wsDragEdge & 2) != 0)
-                {
-                    p.rect.h = std::max(ws::PANEL_MIN_H, wsDragRect0.h + dy);
-                }
-            }
-            else
-            {
-                p.rect.x = wsDragRect0.x + dx;
-                p.rect.y = wsDragRect0.y + dy;
-            }
-            panelLayoutDirty = true;
-        }
-    }
-
-    if(raise >= 0)
-    {
-        ws::bringToFront(wsPanels, ws::PANEL_COUNT, raise);
-        wsFocused        = raise;
-        centralView      = raise;
-        panelLayoutDirty = true;
-    }
-
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-}
-
-// The floating layout's own header: back to tabs, the zoom, and which panels
-// are on the board.
-Void drawFloatingHeader(Float32 mapW)
-{
-    const ImGuiStyle& sty = ImGui::GetStyle();
-
-    if(ui::iconButton(ui::Icon::ICON_DIM_2D, "Tabs"))
-    {
-        layoutFloating   = 0;
-        panelLayoutDirty = true;
-    }
-    if(ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip("Back to one view at a time");
-    }
-
-    ImGui::SameLine();
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-
-    // Panel chips: each toggles one panel onto or off the board.
-    for(Int32 i = 0; i < ws::PANEL_COUNT; ++i)
-    {
-        if(i)
-        {
-            ImGui::SameLine(0.0f, sty.ItemInnerSpacing.x);
-        }
-        if(ui::segmentedIconButton(viewIcon(i), viewName(i), wsPanels[i].open))
-        {
-            wsPanels[i].open = !wsPanels[i].open;
-            if(wsPanels[i].open)
-            {
-                ws::bringToFront(wsPanels, ws::PANEL_COUNT, i);
-                wsFocused = i;
-            }
-            panelLayoutDirty = true;
-        }
-    }
-
-    // Zoom readout and fit, right-aligned.
-    Char z[32];
-    std::snprintf(z, sizeof(z), "%d%%",
-                  static_cast<Int32>(wsCanvas.zoom * 100.0f + 0.5f));
-
-    const Float32 fitW = ImGui::CalcTextSize("Fit").x + sty.FramePadding.x * 2.0f
-                       + (ui::iconsReady() ? ui::iconSize() + sty.ItemInnerSpacing.x
-                                           : 0.0f);
-    const Float32 zW   = ImGui::CalcTextSize("000%").x;
-    const Float32 need = fitW + zW + sty.ItemInnerSpacing.x * 2.0f;
-
-    const Float32 x = mapW - need;
-    if(x > ImGui::GetCursorPosX())
-    {
-        ImGui::SameLine(x, 0.0f);
-        ImGui::TextDisabled("%s", z);
-        ImGui::SameLine(0.0f, sty.ItemInnerSpacing.x);
-        if(ui::iconButton(ui::Icon::ICON_RESET_VIEW, "Fit"))
-        {
-            ws::fitAll(wsPanels, ws::PANEL_COUNT, wsCanvas,
-                       mapW, ImGui::GetContentRegionAvail().y);
-            panelLayoutDirty = true;
-        }
-        if(ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip("Frame every open panel  (wheel zooms, drag the "
-                              "background to pan)");
-        }
-    }
 }
 
 // The central region. The map is one view among several rather than the only
@@ -7116,15 +6515,7 @@ Void drawMapRegion(Float32 mapW, Float32 mapH, Float32 ctrlH)
     const Float32 headH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y;
     const Float32 viewH = mapH - headH;
 
-    if(layoutFloating != 0)
-    {
-        drawFloatingHeader(mapW);
-        drawFloatingWorkspace(mapW, viewH);
-    }
-    else
-    {
-        drawTabbedViews(mapW, viewH);
-    }
+    drawTabbedViews(mapW, viewH);
 
     // The bottom bar belongs to the VIEW above it, not to the central region.
     // Points/Rays/Density and Grid/Trail/Labels configure the map and nothing
@@ -7371,6 +6762,51 @@ Void drawLightingBench()
     ImGui::TextDisabled("Drives the 3D view only. Nothing is wired to the board.");
     ImGui::Spacing();
 
+    // ---- automatic --------------------------------------------------------
+    if(ui::checkbox("Automatic", &autoLights))
+    {
+        // Start from a clean slate rather than from whatever the lamps happened
+        // to be showing: a stale brake hold or a half-finished flash carried
+        // into automatic mode looks like the detector's first decision.
+        autoLightState = lights::AutoState{};
+        if(!autoLights)
+        {
+            lightInput = lights::Input{};
+        }
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Work the lamps out from what the car is doing.\n\n"
+            "Steering past %.0f%% of lock indicates that way and holds until it\n"
+            "unwinds past %.0f%%. Any drop in throttle lights the brakes for\n"
+            "%.0f ms. Armed turns the tail lights on.\n\n"
+            "Both are guesses from the outputs - there is no brake pedal and no\n"
+            "indicator stalk on this car, and no encoder yet, so \"braking\" means\n"
+            "the throttle was reduced rather than the car actually slowed.",
+            static_cast<Float64>(lights::AutoConfig{}.turnOnAbs * 100.0f),
+            static_cast<Float64>(lights::AutoConfig{}.turnOffAbs * 100.0f),
+            lights::AutoConfig{}.brakeHoldS * 1000.0);
+    }
+
+    if(autoLights)
+    {
+        ImGui::SameLine();
+        const Char* say = (lightInput.turn == lights::Turn::TURN_LEFT)  ? "indicating left"
+                        : (lightInput.turn == lights::Turn::TURN_RIGHT) ? "indicating right"
+                        : lightInput.brake                              ? "braking"
+                        : driveArmed                                    ? "running"
+                                                                        : "dark";
+        colored(lightInput.brake ? ui::sem::WARN : ui::sem::MUTED, "%s", say);
+    }
+
+    ImGui::Spacing();
+
+    // The controls below SHOW the decision while automatic is on. Left live,
+    // they would fight the detector - a press would last exactly one frame,
+    // which reads as a broken button rather than as a busy one.
+    ImGui::BeginDisabled(autoLights);
+
     const Float32 w = ImGui::GetContentRegionAvail().x;
     const Float32 third = (w - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
     const Float32 quarter = (w - ImGui::GetStyle().ItemSpacing.x * 3.0f) / 4.0f;
@@ -7449,6 +6885,8 @@ Void drawLightingBench()
     ImGui::Spacing();
     if(ui::iconButton(ui::Icon::ICON_CLEAR, "All off"))
         lightInput = lights::Input{};
+
+    ImGui::EndDisabled();
 }
 
 Void sectionVehicle()
@@ -7643,6 +7081,20 @@ Void drawFlashControls()
             {
                 colored(ui::sem::WARN, "%s",
                         e.buildable ? "not built yet" : "missing on disk");
+            }
+
+            // Which board the image is FOR.
+            //
+            // Stated here because it is stated nowhere else: a .uf2 carries no
+            // board, the RP2350 accepts either one without complaint, and a
+            // Pico 2 W image on the car's plain Pico 2 boots, runs, answers
+            // every command, and simply has a dead LED - because it spent its
+            // startup bringing up a wireless chip that is not in the package.
+            // That is a long evening to save with one word in a list.
+            if(!e.board.empty())
+            {
+                ImGui::SameLine();
+                colored(ui::sem::MUTED, "   %s", e.board.c_str());
             }
         }
 
@@ -8334,13 +7786,6 @@ Void app::init(Float32 dpiScale)
                 { forceView = 2; forceViewFrames = 4; }
             else if(_stricmp(v, "code") == 0 || _stricmp(v, "editor") == 0)
                 { forceView = 3; forceViewFrames = 4; }
-            else if(_stricmp(v, "pico") == 0 ||
-                     _stricmp(v, "pico2w") == 0 ||
-                     _stricmp(v, "board") == 0)
-                     {
-                         forceView = BOARD_VIEW_0;
-                         forceViewFrames = 4;
-                     }
             else if(_stricmp(v, "range") == 0 ||
                      _stricmp(v, "tof") == 0)
                      {
@@ -8358,16 +7803,6 @@ Void app::init(Float32 dpiScale)
             // Seed the live selection too, so the first frame reserves the
             // right bottom-bar height instead of the map's.
             if(forceView >= 0) centralView = forceView;
-            continue;
-        }
-
-        if(std::strcmp(__argv[i], "--layout") == 0 && i + 1 < __argc)
-        {
-            const Char* v = __argv[i + 1];
-            if(_stricmp(v, "floating") == 0 || _stricmp(v, "float") == 0)
-                layoutFloating = 1;
-            else if(_stricmp(v, "tabbed") == 0 || _stricmp(v, "tabs") == 0)
-                layoutFloating = 0;
             continue;
         }
 
@@ -8481,9 +7916,32 @@ Void app::setDpiScale(Float32 dpiScale)
     uiDpiScale = dpiScale > 0.0f ? dpiScale : 1.0f;
 }
 
+// Works the lamps out from the drive state, once a frame.
+//
+// The inputs are what the BOARD reports it is doing - driveSteer and driveEsc -
+// not what the sliders are asking for. The difference is the slew limiter: a
+// slider dragged to full lock arrives instantly, the servo takes a second to
+// get there, and it is the servo the indicator should follow. Reading the
+// targets would flash the indicator before the wheels had moved.
+Void updateAutoLights()
+{
+    if(!autoLights)
+    {
+        return;
+    }
+
+    lights::Drive d;
+    d.steer      = driveSteer;
+    d.throttleUs = driveEsc;
+    d.armed      = driveArmed;
+
+    lightInput = lights::detect(autoLightState, d, ImGui::GetTime());
+}
+
 Void app::frame()
 {
     pumpData();
+    updateAutoLights();
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);

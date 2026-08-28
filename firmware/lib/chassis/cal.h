@@ -37,8 +37,17 @@
  * Still forward-only. The board refuses anything below 1500 whatever is written
  * here; reverse needs a brake-then-reverse sequence and is not something to
  * reach by editing a number.
+ *
+ * MIN is IDLE. Not the ESC's neutral and not a safety floor, but the pulse at
+ * which this motor sits still and the next microsecond starts it turning. That
+ * is a fact about this car's ESC and motor, found by winding it up until the
+ * wheels moved - which is why it is not the round number anybody would guess.
+ *
+ * It matters that this is the floor the sliders are built from: a range
+ * starting below idle spends its first stretch doing nothing at all, so the
+ * control feels dead at one end for no reason a driver could work out.
  */
-#define THROTTLE_CAL_MIN 1500
+#define THROTTLE_CAL_MIN 1541
 #define THROTTLE_CAL_MAX 1600
 
 /* ---- tuning, not measurement ---------------------------------------------
@@ -58,6 +67,6 @@
  */
 #define SLEW_CAL_STEP 8
 
-/* When these were measured, and by whom, so a stale calibration can be spotted
+/* When this car was last calibrated, so a stale set of numbers can be spotted
  * rather than trusted. "defaults" means nobody has calibrated this car yet. */
-#define STEER_CAL_STAMP "measured 2026-08-27"
+#define STEER_CAL_STAMP "measured 2026-08-28"

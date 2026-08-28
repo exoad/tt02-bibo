@@ -378,43 +378,34 @@ the language, not the code being wrong — and it is the same misreading that
 makes `NULL` and `(UInt8)` look like mistakes in a C header. Attaching the
 firmware CMake project fixes all three at once; see [clion.md](clion.md).
 
-## The central region has two layouts
+## The central region is tabbed
 
-**Tabbed** — one view at a time, full width. The default, and what to use when
-you are looking at one thing.
+One view at a time, full width, selected from the tab bar. That is the only
+layout.
 
-**Floating** — every view is a panel on a pannable, zoomable board. Drag a title
-bar to move, the bottom-right grip to resize, double-click or the `-` to
-collapse, `x` to remove; the header chips put one back. Wheel zooms about the
-cursor, dragging empty space (or middle-dragging anywhere) pans.
+There used to be a second one - a "floating" mode where every view was a panel
+on a pannable, zoomable board, with drag-to-move, a resize grip, fold and close
+buttons and a z-order. It was removed on 2026-08-28, along with
+`hub/src/workspace.cxx`, its header and its test. It worked; it was simply a
+second way to look at the same pictures, and the cost of a second way is that
+every new view has to be designed, laid out and debugged in both. The view
+bodies were already shared through `drawViewBody()`, so removing the panels
+removed a layout, not a feature.
 
-Both render the **same** view bodies via `drawViewBody()`. A tab and a panel
-showing "2D" are one picture, not two implementations of it.
+What went with it: the `--layout` command-line switch, and the `L`, `C` and `P`
+records in `%LOCALAPPDATA%/tt02-auto/panels.txt`. Older files still parse -
+unknown record letters are skipped - so a settings file written by a build that
+had panels loads without complaint and simply forgets where they were.
 
-Zoom is **optical**: the same content, bigger or smaller, never reflowed. A
-zoomed panel raises `ui::dpiScale()` by the same factor for the duration of its
-draw, so padding, radii, line thicknesses and the editor's character cell all
-grow together, and `ui::fontScale()` carries the text along. The layout then
-occupies the same *proportion* of a panel that is itself larger.
+Note that the **sidebar's** section tear-off is a different thing and is still
+there: the `float` button on a section header pops that section out. It shares
+no code with the removed workspace.
 
-Doing nothing would have given reflow instead - a bigger panel is more pixels,
-so the editor would show more columns at the same size and the map would fit a
-wider range. That is showing more, not zooming.
-
-The scale is saved and restored **around each panel**, never set globally: the
-sidebar and the status bar live outside the canvas and must not move when the
-board zooms.
-
-Layout, canvas and every panel rect persist in `%LOCALAPPDATA%/tt02-auto/panels.txt`.
-`--layout floating` / `--layout tabbed` picks one at startup.
-
-**A panel is ONE child window, frame included.** ImGui renders a parent's whole
+**A view is ONE child window, frame included.** ImGui renders a parent's whole
 draw list first and every child window afterwards, so a frame drawn into the
-canvas list sits under *every* panel's content no matter how recently it was
-raised - the order is right and the layering is not. Wrapping each panel's
-frame, title, handles and content in its own child makes it a unit, and children
-are sorted by `BeginOrderWithinParent`, which is submission order. Submit in z
-order and the panel stacks whole.
+parent list sits under *every* child's content no matter how recently it was
+raised - the order is right and the layering is not. Wrapping a frame, title and
+content in its own child makes it a unit.
 
 **Two widgets cannot share a rectangle.** An ImGui item that owns `ActiveId`
 makes every later overlapping item non-hoverable, which is silent - the later
@@ -536,6 +527,21 @@ HAL has a gap — fill it there rather than at the call site. And **derive
 sentinels, never restate them**: `SERIAL_NONE` was written as `-1` because that
 is what a sentinel looks like, the SDK says `-2`, and the result was a command
 buffer filling with bytes nobody typed.
+
+**Ask the SDK which board this is; never hard-code one.** The firmware builds
+for two — `pico2_w` (the breadboard mule) and `pico2` (the car) — and the only
+place that difference is allowed to appear is behind the HAL. `hal.h` switches
+the LED on `CYW43_WL_GPIO_LED_PIN` versus `PICO_DEFAULT_LED_PIN`, both of which
+come from the SDK's board header; `CMakeLists.txt` links the wireless arch on
+`PICO_CYW43_SUPPORTED`, which the SDK lifts out of that same header. Matching on
+a trailing `_w` in the board name would have been shorter and would have been a
+rule this project invented about somebody else's naming.
+
+The corollary is a wiring rule: **GP23, GP24, GP25 and GP29 are off limits.**
+They are board functions on the Pico 2 and the wireless chip's own pins on the W,
+so anything that claims one works on one board and quietly drives a chip select
+on the other. Nothing here uses them, which is exactly what makes the two boards
+drop-in for each other — see [wiring.md](wiring.md).
 
 **Every public symbol carries its module's prefix** — `gpio`, `pwm`, `i2c`,
 `spi`, `serial`, `led`, `tft`, `gfx`, `vl53`, `sd`, `drive` — so a call site

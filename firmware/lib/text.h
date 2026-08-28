@@ -86,6 +86,47 @@ static CharSeq textAfter(CharSeq s, CharSeq prefix)
     return s + strlen(prefix);
 }
 
+/*
+ * Matches `word` as a WHOLE word at the start of `s`, and returns whatever
+ * follows it with the separating spaces skipped. NULL if it does not match.
+ *
+ * The difference from textStarts() is the whole word, and it is the difference
+ * between a command table that works and one that works by accident:
+ * textStarts("SERVOTRIM 1500", "SERVO") is TRUE, so a table matched with it
+ * answers SERVOTRIM with the SERVO handler unless SERVOTRIM happens to be
+ * listed first. Requiring a space or the end of the string after the word means
+ * the order of the rows carries no meaning at all, which is the property that
+ * makes a table safe to add to.
+ *
+ * A command with no argument returns a pointer to the empty string at the end
+ * of `s`, NOT NULL. "matched, nothing after it" and "did not match" are
+ * different answers and a dispatcher has to tell them apart.
+ */
+static CharSeq textWord(CharSeq s, CharSeq word)
+{
+    if(s == NULL || word == NULL)
+    {
+        return NULL;
+    }
+
+    const Size n = strlen(word);
+    if(strncmp(s, word, n) != 0)
+    {
+        return NULL;
+    }
+    if(s[n] != '\0' && s[n] != ' ')
+    {
+        return NULL;
+    }
+
+    CharSeq arg = s + n;
+    while(*arg == ' ')
+    {
+        ++arg;
+    }
+    return arg;
+}
+
 /* ---- editing in place ---------------------------------------------------- */
 
 /*

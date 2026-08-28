@@ -8,7 +8,7 @@
 #include "shared.hxx"
 #include "reference.hxx"
 
-#include "board_view.hxx"
+#include "pinout.hxx"
 #include "icons.hxx"
 #include "theme.hxx"
 

@@ -188,6 +188,50 @@ static Void testTwoInts(Void)
     check(!textTwoInts("banana boat", &lo, &hi), "two words are refused");
 }
 
+
+/*
+ * textWord - whole-word matching, which is what the command table stands on.
+ *
+ * The SERVO/SERVOTRIM pair is the case that matters: textStarts() answers TRUE
+ * for both, so a table matched with it would answer SERVOTRIM with the SERVO
+ * handler unless the rows happened to be in the right order. These checks are
+ * the reason the order of that table can be anything.
+ */
+static Void testWord(Void)
+{
+    printf("\n-- textWord --\n");
+
+    check(textWord("PING", "PING") != NULL, "a bare command matches");
+    check(textEq(textWord("PING", "PING"), ""), "and its argument is empty");
+
+    check(textEq(textWord("LED ON", "LED"), "ON"), "the argument follows");
+    check(textEq(textWord("LED   ON", "LED"), "ON"), "extra spaces are skipped");
+    check(textEq(textWord("SLEW 8", "SLEW"), "8"), "a number argument");
+
+    /* The whole point. */
+    check(textWord("SERVOTRIM 1500", "SERVO") == NULL,
+          "SERVO does not match SERVOTRIM");
+    check(textWord("SERVOLIMITS 1 2", "SERVO") == NULL,
+          "SERVO does not match SERVOLIMITS");
+    check(textEq(textWord("SERVOTRIM 1500", "SERVOTRIM"), "1500"),
+          "SERVOTRIM matches itself");
+    check(textEq(textWord("SERVO 1500", "SERVO"), "1500"),
+          "SERVO still matches SERVO");
+    check(textWord("ESCLIMITS 1 2", "ESC") == NULL,
+          "ESC does not match ESCLIMITS");
+
+    check(textWord("PIN", "PING") == NULL, "a truncated command does not match");
+    check(textWord("", "PING") == NULL, "empty matches nothing");
+    check(textWord("PINGING", "PING") == NULL, "a longer word does not match");
+
+    check(textWord(NULL, "PING") == NULL, "NULL input is refused");
+    check(textWord("PING", NULL) == NULL, "NULL word is refused");
+
+    /* TOF's subcommand goes through the same function a second time. */
+    check(textEq(textWord(textWord("TOF MODE LONG", "TOF"), "MODE"), "LONG"),
+          "a subcommand nests");
+}
+
 Int32 main(Void)
 {
     printf("=== lib/text.h ===\n");
@@ -197,6 +241,7 @@ Int32 main(Void)
     testInt();
     testFloat();
     testTwoInts();
+    testWord();
 
     printf("\n%d checks, %d failed\n", checks, failures);
     printf("%s\n", (failures == 0) ? "PASS" : "FAIL");

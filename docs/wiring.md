@@ -1,6 +1,67 @@
 # Wiring
 
-## Pico 2 W pin map
+## Two boards
+
+There are two RP2350 boards in this project and they are not interchangeable at
+the image level, only at the wiring level.
+
+| | Board | Role |
+|---|---|---|
+| **Workhorse** | Pico 2 **W** | The breadboard mule. Everything is developed and proven here first. |
+| **Car** | Pico **2** (no wireless) | The board that goes in the vehicle. |
+
+**The pin map below applies unchanged to both.** Every pin this project uses —
+GP0–GP1, GP4–GP5, GP9–GP13, GP15–GP22, GP26–GP28 — is a plain GPIO on both
+boards, so the harness, the ToF wiring, the SPI bus and the servo/ESC leads all
+carry straight over. Nothing has to be re-planned to move to the car.
+
+What differs is the four pins **neither board lets you use freely**, and they
+differ completely. From the SDK's own board headers:
+
+| Pin | Pico 2 | Pico 2 W |
+|---|---|---|
+| GP23 | SMPS mode control | `WL_REG_ON` — wireless power |
+| GP24 | VBUS sense | `WL_DATA` — wireless data |
+| GP25 | **User LED** | `WL_CS` — wireless chip select |
+| GP29 | VSYS sense (ADC3) | `WL_CLOCK` (also VSYS sense, shared) |
+
+On the W the LED, SMPS control and VBUS sense all move onto the CYW43439's own
+GPIO space (its pins 0, 1 and 2) — which is why the LED there cannot be reached
+with `gpio_put` at any pin number, and why `gpio_put(25, 1)` from a Pico 1
+example compiles, runs, and does nothing.
+
+**This project never uses GP23, GP24, GP25 or GP29**, which is what makes the
+two boards drop-in for each other. Keep it that way: a design that reaches for
+GP25 as "the LED" works on the car and silently drives the wireless chip's chip
+select on the mule.
+
+### Building and flashing for each
+
+```
+firmware\build.bat              ->  firmware\build\        (pico2_w, the mule)
+firmware\build.bat pico2        ->  firmware\build-pico2\  (pico2, the car)
+```
+
+Separate trees, because changing the board invalidates most of a build tree and
+sharing one would mean a full rebuild — on the W, the whole cyw43 stack — every
+time you switched. In the hub's Pico 2 W view, each catalog entry shows the
+board it was built for; the car's images are the ones marked `pico2`.
+
+**A wrong image does not announce itself.** The RP2350 accepts either UF2 and
+boots it. A W image on the car's plain Pico 2 runs, enumerates, and answers
+every serial command — with a dead LED, because it spent startup bringing up a
+wireless chip that is not in the package. Check the board tag before flashing,
+and check `ID`'s `board=` field after.
+
+The firmware asks the SDK which board it is compiled for rather than being told:
+`lib/hal.h` switches the LED implementation on `CYW43_WL_GPIO_LED_PIN` versus
+`PICO_DEFAULT_LED_PIN`, and `CMakeLists.txt` links `pico_cyw43_arch_none` only
+when `PICO_CYW43_SUPPORTED` is set. Nothing in this repo hard-codes a board name
+except the default.
+
+---
+
+## Pin map (both boards)
 
 | Pin | Function |
 |---|---|

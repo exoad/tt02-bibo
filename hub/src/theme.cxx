@@ -720,6 +720,25 @@ Bool checkbox(const Char* label, Bool* v)
 
     const ImVec2 p = ImGui::GetCursorScreenPos();
 
+    // Report a text baseline, the way ImGui's own checkbox does.
+    //
+    // An InvisibleButton reports NONE - it is a bare rectangle as far as layout
+    // is concerned. Stock Checkbox submits its item with a baseline of
+    // FramePadding.y, and SameLine hands that offset to whatever comes next, so
+    // a trailing label lands level with the widget's own text. Ours did not, so
+    //
+    //     checkbox("Nearest", ...); SameLine(); TextUnformatted("|");
+    //
+    // drew the separator at the TOP of the row while the four checkbox labels
+    // beside it sat centred a few pixels lower. Small, but it is the difference
+    // between a toolbar that looks machined and one that looks assembled.
+    //
+    // This is the only public way to set it. It is a max(), so on a row that
+    // already has a framed widget it changes nothing, and it does not move the
+    // checkbox: ItemSize only shifts an item that reports a baseline of its own,
+    // and the box is drawn from p, captured above.
+    ImGui::AlignTextToFramePadding();
+
     ImGui::PushID(label);
     const Bool pressed = ImGui::InvisibleButton("##cb", ImVec2(w, fh));
     ImGui::PopID();

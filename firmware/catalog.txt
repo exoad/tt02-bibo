@@ -1,16 +1,35 @@
 # Firmware catalog for the GUI's Flash tab.
 #
 # Format, pipe separated:
-#   id | name | uf2 path | buildable | description
+#   id | name | uf2 path | build | description
 #
-# The uf2 path is relative to the REPO ROOT. `buildable` is yes/no - yes means
-# firmware\build.bat produces it, so the GUI offers a Build button.
+# The uf2 path is relative to the REPO ROOT.
+#
+# `build` answers two questions in one token - can we build this, and for which
+# board:
+#
+#   no        not built here. Flashable if the .uf2 exists; no Build button.
+#   pico2_w   built by firmware\build.bat        -> firmware\build\
+#   pico2     built by firmware\build.bat pico2  -> firmware\build-pico2\
+#   yes       accepted as a synonym for pico2_w, which is what it meant before
+#             there was a second board.
+#
+# The board is part of the entry rather than a switch in the GUI because a UF2
+# is board-specific and nothing downstream can tell: the RP2350 accepts either
+# image without complaint, and a W image on a plain Pico 2 simply sits there
+# with a dead LED having quietly failed to bring up a chip that is not there.
+# Naming the board per image is what keeps that from being a five-minute
+# mystery.
 #
 # Lines starting with # and blank lines are ignored. Add your own entries here;
 # anything with a .uf2 on disk can be flashed, whether this repo built it or not.
 
-sketch       | Sketch (Code view) | firmware/build/sketch.uf2            | yes | Whatever is currently in the hub's Code view. Overwritten by every Build & Flash - this is scratch space for learning the hardware, not firmware. Source: firmware/scratch/sketch.c.
+sketch       | Sketch (Code view)   | firmware/build/sketch.uf2            | pico2_w | Whatever is currently in the hub's Code view. Overwritten by every Build & Flash - this is scratch space for learning the hardware, not firmware. Source: firmware/scratch/sketch.c.
 
-pico_debug   | Debug / Blink        | firmware/build/pico_debug.uf2        | yes | LED blink plus a serial command console (PING, ID, STATUS, LED, BOOTSEL). The bring-up image - flash this when you want to prove the board and the link.
+pico_debug   | Debug / Blink        | firmware/build/pico_debug.uf2        | pico2_w | LED blink plus a serial command console (PING, ID, STATUS, LED, BOOTSEL). The bring-up image - flash this when you want to prove the board and the link.
 
-tt02_control | tt02_control (backup)| vendor/tt02_control-backup.uf2       | no  | Read back off the board on 2026-08-24 before it was first reflashed here. Servo/ESC controller with a watchdog; answers `?` with a status line and holds 1500us neutral on both channels. Source lives on the MacBook, NOT in this repo - this .uf2 is the only copy on this machine.
+sketch_car   | Sketch (car board)   | firmware/build-pico2/sketch.uf2      | pico2   | The Code view's sketch, built for the plain Pico 2 that goes in the car. Same source as `sketch` - only the board differs, so the LED is GP25 and no wireless chip is linked.
+
+pico_debug_car | Debug / Blink (car board) | firmware/build-pico2/pico_debug.uf2 | pico2 | The bring-up image for the car's plain Pico 2. Flash this FIRST on a new board: it proves the USB link, the console and the LED before anything depends on them.
+
+tt02_control | tt02_control (backup)| vendor/tt02_control-backup.uf2       | no      | Read back off the board on 2026-08-24 before it was first reflashed here. Servo/ESC controller with a watchdog; answers `?` with a status line and holds 1500us neutral on both channels. Source lives on the MacBook, NOT in this repo - this .uf2 is the only copy on this machine.

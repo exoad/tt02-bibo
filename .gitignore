@@ -51,7 +51,9 @@ hub/third_party/
 # CLion / CMake. The presets and run configurations ARE committed - they carry
 # the toolchain knowledge and are the point of the setup. Everything below is
 # per-machine state that would only cause conflicts.
-firmware/build-debug/
+# Every per-board build tree: build/ is the Pico 2 W, build-pico2/ is the car's
+# board. build-debug/ predates both.
+firmware/build-*/
 cmake-build-*/
 /.idea/workspace.xml
 /.idea/httpRequests/
