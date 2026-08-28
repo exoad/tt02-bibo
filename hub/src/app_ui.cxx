@@ -252,6 +252,12 @@ Int32 driveServoC  = 1500;
 // 8 is 400 us/s, which walks this car's 440 us of travel in 1.1 seconds.
 Int32 driveSlew = 8;
 
+// What the slider shows, and whether it is under the thumb. Same split as the
+// steering: a reply arriving mid-drag must not yank the handle out from under
+// the person moving it.
+Int32 driveSlewWant = 8;
+Bool  driveSlewHeld = false;
+
 // Steering as a fraction of this car's travel, -1 to +1. What the board
 // reports, and what the slider shows.
 //
@@ -368,6 +374,8 @@ Void resetBoardStatus()
     driveServoOn   = false;
     driveServoC    = 1500;
     driveSlew      = 8;
+    driveSlewWant  = 8;
+    driveSlewHeld  = false;
     driveSteer     = 0.0f;
     driveSteerWant = 0.0f;
     driveSteerHeld = false;
@@ -1092,6 +1100,10 @@ Void observeLine(const PicoLine& ln)
 
         field("servo_c=", driveServoC);
         field("slew=", driveSlew);
+        if(!driveSlewHeld)
+        {
+            driveSlewWant = driveSlew;
+        }
 
         Int32 milli = 0;
         field("steer_m=", milli);
@@ -5567,56 +5579,58 @@ Void drawDriveBody(Float32 w, Float32 h)
 
     // ---- how fast anything is allowed to move ---------------------------
     //
-    // Presets rather than a number. "12 us per tick" is a quantity nobody has
-    // intuition about; "full travel in 370 ms" is the fact that decides whether
-    // the car can steer around something, and it is what these are labelled by.
+    // A slider rather than presets. Four named buttons tell you four points and
+    // hide the rest of the range; the useful rate for a given job is somewhere
+    // between them and the only way to find it is to move it and watch.
+    //
+    // LOGARITHMIC, because the interesting part is the bottom. 1 to 20 is where
+    // the difference between "creeps" and "moves" lives, and on a linear scale
+    // that entire question is the first tenth of the track.
     {
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "Response  -  how fast an output may move");
 
-        struct Rate { const Char* label; Int32 step; const Char* why; };
-        static const Rate RATES[] = {
-            { "Calibrate", 2,
-              "50 us/s. Slow enough to stop the moment something binds,\n"
-              "which is what you want while finding an end stop." },
-            { "Bench", 8,
-              "400 us/s - the default. A slider dragged end to end sweeps\n"
-              "rather than flinging the servo at a stop." },
-            { "Drive", 40,
-              "2000 us/s. Full lock to lock in about a fifth of a second,\n"
-              "which is quick enough to correct a line." },
-            { "Instant", 200,
-              "10000 us/s. Faster than the servo can physically follow, so\n"
-              "the limit stops being this software and starts being the\n"
-              "hardware. What the steering does when the rate is not the\n"
-              "thing you are testing." },
-        };
-
-        const Float32 bw = 96.0f * uiDpiScale;
-        for(Size i = 0; i < countOf(RATES); ++i)
+        ImGui::SetNextItemWidth(-260.0f * uiDpiScale);
+        if(ImGui::SliderInt("##slew", &driveSlewWant, 1, 200, "%d us/tick",
+                            ImGuiSliderFlags_Logarithmic))
         {
-            if(i > 0)
-            {
-                ImGui::SameLine(0.0f, 4.0f);
-            }
-            if(ui::segmentedButton(RATES[i].label, driveSlew == RATES[i].step,
-                                   ImVec2(bw, 0.0f)))
-            {
-                Char cmd[32];
-                std::snprintf(cmd, sizeof(cmd), "SLEW %d", RATES[i].step);
-                sendPico(cmd);
-            }
-            if(ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip("%s", RATES[i].why);
-            }
+            Char cmd[32];
+            std::snprintf(cmd, sizeof(cmd), "SLEW %d", driveSlewWant);
+            sendPico(cmd);
+        }
+        driveSlewHeld = ImGui::IsItemActive();
+
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Microseconds of pulse the board may move an output, per\n"
+                "20 ms tick. It governs the steering AND the throttle.\n"
+                "\n"
+                "The scale is logarithmic: the interesting range is the\n"
+                "bottom, where the difference between creeping and moving\n"
+                "lives, and a linear track would bury it in the first tenth.\n"
+                "\n"
+                "  ~2    creeps - slow enough to stop the moment a linkage\n"
+                "        binds, which is what finding an end stop wants\n"
+                "  8     the default. A slider dragged end to end sweeps\n"
+                "        rather than flinging the servo at a stop\n"
+                "  ~40   lock to lock in about a fifth of a second, quick\n"
+                "        enough to correct a line\n"
+                "  200   faster than the servo can physically follow, so the\n"
+                "        limit stops being this software and starts being\n"
+                "        the hardware\n"
+                "\n"
+                "Not saved to the board's calibration by itself - put the\n"
+                "value in SLEW_CAL_STEP in cal.h to keep it across a reflash.");
         }
 
-        // What the chosen rate actually means for THIS car's travel, which is
-        // the only form of it worth reading.
+        // What it means for THIS car, which is the only form worth reading.
+        // The us/tick in the slider is the unit the firmware thinks in; this is
+        // the unit a person decides with.
         const Int32 perSec = driveSlew * 50;
         const Int32 travel = driveServoMax - driveServoMin;
-        ImGui::SameLine(0.0f, 14.0f);
+
+        ImGui::SameLine();
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "%d us/s   lock to lock %.2f s",
                            perSec,
