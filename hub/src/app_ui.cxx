@@ -4376,8 +4376,16 @@ Void drawRangeBody(Float32 w, Float32 h)
         }
         else if(!sensorTof)
         {
-            what = "no VL53L1X found at 0x29";
-            col  = ui::sem::BAD;
+            // MUTED, not BAD. Nothing is broken - there is no ToF wired to this
+            // car yet, and the sidebar says exactly that in grey two panels
+            // away. Red here made an accurate report of an empty I2C bus look
+            // like a failure, and a colour that cries wolf about the ordinary
+            // case is a colour nobody reads on the day it matters.
+            //
+            // "no I2C bus" above stays BAD: that one IS a fault. The bus is on
+            // the board whether or not anything hangs off it.
+            what = "no VL53L1X wired - nothing at 0x29";
+            col  = ui::sem::MUTED;
         }
         else
         {
@@ -4469,8 +4477,16 @@ Void drawRangeBody(Float32 w, Float32 h)
             !live ? "Connect the Pico from the sidebar."
                   : "Flash pico_debug - it is the image that reports sensors.\n"
                     "Then check the wiring: VIN to 3V3, SDA to GP4, SCL to GP5.";
-        dl->AddText(ImVec2(p0.x + pad, top + 8.0f * uiDpiScale),
+        // Aligned with the LABEL above it rather than with the status lamp,
+        // so the block has one left edge. It was set to the panel padding,
+        // which put it a lamp's width left of the line it explains.
+        const Float32 textX = p0.x + pad + ui::iconSize() + 8.0f * uiDpiScale;
+        dl->AddText(ImVec2(textX, top + 8.0f * uiDpiScale),
                     ui::sem::MUTED, hint);
+
+        // The bezel, which this path used to skip - so the view lost its frame
+        // in precisely the states somebody spends the most time looking at.
+        ui::screenInset(p0, ImVec2(p0.x + w, p0.y + h));
         ImGui::EndChild();
         return;
     }
