@@ -22,8 +22,8 @@ if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\..\shared" /I"%HERE%..\src" ^
-  "%HERE%test_devlink.cpp" ^
-  "%HERE%..\src\devlink.cpp" ^
+  "%HERE%test_devlink.cxx" ^
+  "%HERE%..\src\devlink.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_devlink.exe" ^
   /link /SUBSYSTEM:CONSOLE

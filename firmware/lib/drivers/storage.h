@@ -125,7 +125,7 @@ static inline Void sdDeselect(const SdCard* c)
  * The card answers with 0xFF while it thinks. R1 is the first byte with the top
  * bit clear, and 0xFF back after eight tries means it never answered at all.
  */
-static inline UInt8 sdCommand(const SdCard* c, UInt8 cmd, UInt32 arg, UInt8 crc)
+static UInt8 sdCommand(const SdCard* c, UInt8 cmd, UInt32 arg, UInt8 crc)
 {
     (Void) sdXfer(c, (UInt8) (0x40 | cmd));
     (Void) sdXfer(c, (UInt8) (arg >> 24));

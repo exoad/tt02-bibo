@@ -110,10 +110,10 @@ if not exist "%OBJ%\imgui_impl_dx11.obj" (
 
 rem --- application sources ----------------------------------------------------
 rem  Wildcard on purpose: every .cpp dropped into src\ is picked up.
-echo [app] src\*.cpp
-cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%ROOT%src\*.cpp"
+echo [app] src\*.cxx
+cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%ROOT%src\*.cxx"
 if errorlevel 1 (
-    echo [error] compiling src\*.cpp
+    echo [error] compiling src\*.cxx
     exit /b 1
 )
 

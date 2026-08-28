@@ -617,8 +617,7 @@ static inline Bool spiOpen(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
  * check worth having: MISO on a pad that cannot carry it fails silently, the
  * card never appears to respond, and every symptom points at the card.
  */
-static inline Bool spiOpenFull(Pin sck, Pin mosi, Pin miso, Pin csPin,
-                               UInt32 hz)
+static inline Bool spiOpenFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz)
 {
     spi_inst_t* const bus  = spiForSck(sck);
     spi_inst_t* const rxBus = spiForMiso(miso);
@@ -812,8 +811,7 @@ static inline Bool i2cPresent(Pin sda, UInt8 addr)
 /* Writes `n` bytes. `hold` true leaves the bus claimed for a repeated start,
  * which is how a register read is done: write the register, then read without
  * letting go. Returns bytes written, or 0 on failure. */
-static inline Size i2cWrite(Pin sda, UInt8 addr, const UInt8* data, Size n,
-                            Bool hold)
+static inline Size i2cWrite(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
 {
     i2c_inst_t* const bus = i2cForSda(sda);
     if(bus == NULL || data == NULL || n == 0)
@@ -843,8 +841,7 @@ static inline Size i2cRead(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
  * bus: letting go between the two is what makes a sensor return the wrong
  * register, or nothing.
  */
-static inline Bool i2cReadReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data,
-                                Size n)
+static inline Bool i2cReadReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data, Size n)
 {
     UInt8 r[2];
     r[0] = (UInt8) (reg >> 8);
@@ -857,8 +854,7 @@ static inline Bool i2cReadReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data,
     return i2cRead(sda, addr, data, n, false) == n;
 }
 
-static inline Bool i2cWriteReg16(Pin sda, UInt8 addr, UInt16 reg,
-                                 const UInt8* data, Size n)
+static inline Bool i2cWriteReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* data, Size n)
 {
     /* Register index and payload must go out as ONE transaction, so they are
      * assembled into one buffer rather than written twice. */

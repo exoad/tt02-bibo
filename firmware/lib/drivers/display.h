@@ -227,8 +227,7 @@ static inline Void tftDeselect(const Screen* s)
 }
 
 /* A command and its parameters, as one transaction. `n` may be 0. */
-static inline Void tftWrite(const Screen* s, UInt8 cmd, const UInt8* params,
-                            Size n)
+static inline Void tftWrite(const Screen* s, UInt8 cmd, const UInt8* params, Size n)
 {
     tftSelect(s);
 
@@ -287,8 +286,7 @@ static inline Void tftWindow(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h
  * RAMWR is exactly the command whose data must not be separated from it, since
  * its "parameters" are the whole image.
  */
-static inline Void tftBeginPixels(const Screen* s, Int32 x, Int32 y, Int32 w,
-                                  Int32 h)
+static inline Void tftBeginPixels(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
 {
     tftWindow(s, x, y, w, h);
 
@@ -316,8 +314,7 @@ static inline Void tftEndPixels(const Screen* s)
  * Clipped rather than trusted: an off-screen rectangle draws nothing instead of
  * wrapping around and corrupting the far edge.
  */
-static inline Void tftRect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h,
-                           UInt16 colour)
+static inline Void tftRect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -457,8 +454,7 @@ static const UInt8 FONT5X7[59][5] = {
  * costs at most 1536 bytes of stack and turns a character into one address
  * setup and one burst.
  */
-static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg,
-                           UInt16 bg, Int32 scale)
+static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg, Int32 scale)
 {
     if(scale < 1)
     {
@@ -522,8 +518,7 @@ static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg
     tftEndPixels(s);
 }
 
-static inline Void tftText(const Screen* s, Int32 x, Int32 y, const Utf8* str,
-                           UInt16 fg, UInt16 bg, Int32 scale)
+static inline Void tftText(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
 {
     Int32 cx = x;
     while(str != NULL && *str != '\0')
@@ -543,8 +538,7 @@ static inline Void tftText(const Screen* s, Int32 x, Int32 y, const Utf8* str,
  * is write-only and cannot be checked, which is exactly why a first sketch
  * draws a test pattern rather than trusting a return code.
  */
-static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff,
-                             Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
+static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
 {
     if(s == NULL)
     {

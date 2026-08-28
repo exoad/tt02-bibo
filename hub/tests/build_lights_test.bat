@@ -4,7 +4,7 @@ REM
 REM   tests\build_geom_test.bat        - compile only
 REM   tests\build_geom_test.bat run    - compile then run
 REM
-REM No hardware and no ImGui: lights.cpp is a pure state machine, which
+REM No hardware and no ImGui: lights.cxx is a pure state machine, which
 REM is what makes the docs/conventions.md rules checkable before any LED exists.
 
 setlocal
@@ -21,8 +21,8 @@ if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\..\shared" ^
-  "%HERE%test_lights.cpp" ^
-  "%HERE%..\src\lights.cpp" ^
+  "%HERE%test_lights.cxx" ^
+  "%HERE%..\src\lights.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_lights.exe" ^
   /link /SUBSYSTEM:CONSOLE

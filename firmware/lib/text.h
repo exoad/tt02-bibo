@@ -36,12 +36,12 @@
 
 /* ---- inspecting ---------------------------------------------------------- */
 
-static inline Size textLen(CharSeq s)
+static Size textLen(CharSeq s)
 {
     return (s == NULL) ? 0 : strlen(s);
 }
 
-static inline Bool textEmpty(CharSeq s)
+static Bool textEmpty(CharSeq s)
 {
     return (s == NULL) || (s[0] == '\0');
 }
@@ -65,7 +65,7 @@ static inline Bool textEq(CharSeq a, CharSeq b)
  * silently stops matching the day the command is renamed, and the failure is a
  * command that quietly does nothing.
  */
-static inline Bool textStarts(CharSeq s, CharSeq prefix)
+static Bool textStarts(CharSeq s, CharSeq prefix)
 {
     if(s == NULL || prefix == NULL)
     {
@@ -77,7 +77,7 @@ static inline Bool textStarts(CharSeq s, CharSeq prefix)
 
 /* What follows `prefix`, or NULL if `s` does not start with it. Pairs with
  * textStarts so the offset is never written out by hand twice. */
-static inline CharSeq textAfter(CharSeq s, CharSeq prefix)
+static CharSeq textAfter(CharSeq s, CharSeq prefix)
 {
     if(!textStarts(s, prefix))
     {
@@ -95,7 +95,7 @@ static inline CharSeq textAfter(CharSeq s, CharSeq prefix)
  * it might choose are exactly these. Without this, "PING\r" is not "PING" and
  * the reply is "unknown command" for a command that was typed correctly.
  */
-static inline Size textTrimEnd(Utf8* s)
+static Size textTrimEnd(Utf8* s)
 {
     if(s == NULL)
     {
@@ -159,7 +159,7 @@ static inline Bool textInt(CharSeq s, Int32* out)
 }
 
 /* The same contract for a fraction. Accepts "1", "-0.5", ".25". */
-static inline Bool textFloat(CharSeq s, Float32* out)
+static Bool textFloat(CharSeq s, Float32* out)
 {
     if(textEmpty(s) || out == NULL)
     {
@@ -193,7 +193,7 @@ static inline Bool textFloat(CharSeq s, Float32* out)
  * "1 2 3 banana", because sscanf stops looking the moment it has what it was
  * asked for. Every argument being consumed is part of the contract.
  */
-static inline Bool textTwoInts(CharSeq s, Int32* a, Int32* b)
+static Bool textTwoInts(CharSeq s, Int32* a, Int32* b)
 {
     if(textEmpty(s) || a == NULL || b == NULL)
     {

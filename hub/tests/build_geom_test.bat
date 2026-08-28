@@ -5,7 +5,7 @@ REM   tests\build_geom_test.bat        - compile only
 REM   tests\build_geom_test.bat run    - compile then run
 REM
 REM No hardware and no ImGui: map_geometry is deliberately free of both, which
-REM is the whole reason it was split out of radar.cpp.
+REM is the whole reason it was split out of radar.cxx.
 
 setlocal
 set HERE=%~dp0
@@ -21,8 +21,8 @@ if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\..\shared" ^
-  "%HERE%test_map_geometry.cpp" ^
-  "%HERE%..\src\map_geometry.cpp" ^
+  "%HERE%test_map_geometry.cxx" ^
+  "%HERE%..\src\map_geometry.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_map_geometry.exe" ^
   /link /SUBSYSTEM:CONSOLE
