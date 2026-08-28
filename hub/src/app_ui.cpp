@@ -4834,7 +4834,8 @@ Void calRow(const Char* label, const Char* help, Int32* value)
 
     ImGui::SameLine();
     ImGui::BeginDisabled(!driveServoOn);
-    if(ui::button("Go", ImVec2(60.0f * uiDpiScale, 0.0f)))
+    if(ui::button(driveServoOn ? "Go" : "Go (off)",
+                  ImVec2(60.0f * uiDpiScale, 0.0f)))
     {
         driveSweep     = false;
         driveServoWant = *value;
@@ -5082,6 +5083,28 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::SameLine();
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "released  -  the servo is limp");
+
+        // Drawn as a band across the controls it applies to, because the thing
+        // being explained is that ALL of them are inert. A note beside the
+        // button would explain the button.
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        const Float32 bh = ImGui::GetTextLineHeight() * 2.6f;
+        const Float32 bw = ImGui::GetContentRegionAvail().x;
+        ImDrawList*   dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(a, ImVec2(a.x + bw, a.y + bh),
+                          IM_COL32(0x3A, 0x2E, 0x12, 0xFF), 3.0f);
+        dl->AddRect(a, ImVec2(a.x + bw, a.y + bh),
+                    ui::sem::WARN, 3.0f, 0, 1.0f);
+
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::Indent(10.0f);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                           "Nothing below will move the servo yet.");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "The slider and the steps set a target and the board "
+                           "remembers it. Engage to commit to it.");
+        ImGui::Unindent(10.0f);
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
     }
 
     ImGui::Spacing();
@@ -5142,6 +5165,11 @@ Void drawDriveBody(Float32 w, Float32 h)
         if(ui::button(SERVO_STEPS[i].label, ImVec2(bw, 0.0f)))
         {
             nudge(SERVO_STEPS[i].by);
+        }
+        if(!driveServoOn && ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Sets the target. The servo is released, so\n"
+                              "nothing moves until you engage it.");
         }
     }
 

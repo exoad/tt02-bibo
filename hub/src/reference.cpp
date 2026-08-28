@@ -410,13 +410,39 @@ Void drawBreadboard(const Canvas& c)
         }
     };
 
-    // Power rails: one long connection each, the length of the board.
-    c.line(bx0 + 10.0f, by0 + 16.0f, bx1 - 10.0f, by0 + 16.0f, C_POWER, 2.0f);
+    // Power rails: NOT one long connection. On most full-size boards each rail
+    // is two separate halves with a break in the middle, and the break is
+    // nearly invisible - the printed stripe usually runs straight through it.
+    //
+    // This used to be drawn as an unbroken line, which is a comfortable lie and
+    // an expensive one: two grounds on opposite halves of what looks like one
+    // rail are not connected, and a servo referenced to a ground the Pico does
+    // not share twitches, holds, and ignores commands. That reads as a broken
+    // servo for as long as you are willing to believe the drawing.
+    const Float32 railMid = (bx0 + bx1) * 0.5f;
+    const Float32 gap     = 11.0f;
+
+    const auto splitRail = [&](Float32 y, ImU32 col)
+    {
+        c.line(bx0 + 10.0f, y, railMid - gap, y, col, 2.0f);
+        c.line(railMid + gap, y, bx1 - 10.0f, y, col, 2.0f);
+
+        // The break, drawn as the thing it is rather than as an absence.
+        c.line(railMid - 5.0f, y - 5.0f, railMid + 5.0f, y + 5.0f, INK_DIM, 1.5f);
+        c.line(railMid - 5.0f, y + 5.0f, railMid + 5.0f, y - 5.0f, INK_DIM, 1.5f);
+    };
+
+    splitRail(by0 + 16.0f, C_POWER);
     holes(by0 + 26.0f, cols, IM_COL32(0x50, 0x3A, 0x3A, 0xFF));
-    c.line(bx0 + 10.0f, by0 + 46.0f, bx1 - 10.0f, by0 + 46.0f, C_SYS, 2.0f);
+    splitRail(by0 + 46.0f, C_SYS);
     holes(by0 + 36.0f, cols, IM_COL32(0x3A, 0x42, 0x50, 0xFF));
-    c.text(bx1 + 12.0f, by0 + 24.0f, C_POWER, "+ rail: joined end to end", 10.0f);
-    c.text(bx1 + 12.0f, by0 + 38.0f, C_SYS,   "- rail: joined end to end", 10.0f);
+
+    c.text(railMid, by0 + 4.0f, C_USED, "SPLIT HERE", 10.0f,
+           Canvas::Align::ALIGN_CENTRE);
+    c.text(bx1 + 12.0f, by0 + 24.0f, C_POWER, "+ rail: TWO halves", 10.0f);
+    c.text(bx1 + 12.0f, by0 + 38.0f, C_SYS,   "- rail: TWO halves", 10.0f);
+    c.text(bx1 + 12.0f, by0 + 54.0f, INK_FAINT, "bridge them, or the", 10.0f);
+    c.text(bx1 + 12.0f, by0 + 66.0f, INK_FAINT, "two ends are separate", 10.0f);
 
     // Main rows: five holes joined, and the centre channel splits left from
     // right. This is the fact the whole board is built around.
@@ -454,13 +480,20 @@ Void drawBreadboard(const Canvas& c)
     c.text(bx1 + 12.0f, chanY + 52.0f, INK_FAINT, "pins stay separate", 10.0f);
 
     const Char* const NOTES[] = {
+        "The power rails are SPLIT in the middle. Bridge them with a jumper.",
+        "The printed red and blue stripes usually run straight past the break, so the rail",
+        "looks continuous when it is two independent halves. Two grounds on opposite sides",
+        "of that gap are NOT connected - and a servo whose ground the Pico does not share",
+        "twitches on power-up, holds a position, and ignores every command you send it.",
+        "That looks exactly like a dead servo, and it is a 5 cent jumper.",
+        "",
         "Push components ALL the way in. They are meant to be stiff.",
         "The contacts are sprung metal and they grip hard on purpose - a board whose",
         "parts slid out under their own weight would be useless. A Pico needs real force,",
         "and a part resting on the surface with its legs barely in the hole reads exactly",
         "like a dead pin, a bad sketch or a broken board. Seat it, then debug.",
     };
-    note(c, 20.0f, by0 + bh + 16.0f, 620.0f, NOTES, 5);
+    note(c, 20.0f, by0 + bh + 16.0f, 620.0f, NOTES, 12);
 }
 
 // ========================================================== page: I2C ==
