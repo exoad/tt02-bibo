@@ -5,6 +5,111 @@ recording success** — the failures are what cost time and what gets forgotten.
 
 ---
 
+## 2026-08-28 - a second board, the lighting model, and four self-inflicted bugs
+
+A long day. The parts that cost time are the four things that were wrong,
+so those come first.
+
+### The generator that ate cal.h
+
+`steeringCalText()` builds the calibration header in a fixed `Char[2048]`,
+and the header grew past it. `snprintf` **truncates silently** and returns
+the length it *would* have written, which nothing was reading — so one click
+of "Write to firmware" put a `cal.h` on disk that stopped mid-comment, and
+the firmware then would not compile. The failure surfaced three steps away
+from the button that caused it, in a file nobody had edited.
+
+The buffer is bigger now, but that is not the fix: the return value is
+checked, and on truncation the generator returns nothing and the caller
+refuses to write. **No file at all beats half of one.** A fixed buffer
+holding generated source is always one edit away from this.
+
+Related, and found at the same time: the generator rewrites `cal.h` WHOLE,
+and it had never printed `SLEW_CAL_STEP` — which `chassis.h` uses. Anybody
+clicking that button since the slew step was added would have got a header
+that could not compile. **A macro added to `cal.h` has to be added to the
+generator in the same commit.**
+
+### The cursor after an item is at the WINDOW's left edge
+
+Twice. Repositioning a column and then drawing into it does not work: ImGui
+puts the cursor back at the window's left content edge after every item, not
+at wherever the caller moved it.
+
+First the console column — the central tab bar landed correctly at the new x
+and the view body underneath it drew 400 px to the left, on top of the
+console. Then the pinned stop — it drew at the sidebar's x and the whole
+scrolling column below it started at the far left of the app.
+
+The fix both times is a child window, which makes "the window's left edge"
+mean that column's left edge. **Reach for the child wrapper by default when
+moving a column.**
+
+### A ScopedFont that outlived its child
+
+Pushed inside `BeginChild`, popped at end of scope — after `EndChild`. ImGui
+compares the font and style stack sizes across Begin/End, and the unbalanced
+frame renders as a **blank white window**, not as an error anybody can read.
+
+### The throttle bar measured from 1500
+
+Three places computed how far into its range the throttle was, and two used
+a hardcoded 1500 rather than the calibrated idle. Correct until idle was
+measured at 1541; from then on the bar showed four of ten blocks lit with
+the motor standing still, and disagreed with the percentage printed directly
+above it. **A number computed in three places is wrong in two of them
+eventually, and the disagreement is the only symptom.**
+
+---
+
+### The car's own board
+
+A second RP2350 — a plain Pico 2, no wireless — is now a build target and is
+the board that goes in the vehicle. The Pico 2 W stays the breadboard mule.
+
+Only the LED genuinely differs: on the W it hangs off the CYW43439 and needs
+the chip up first, on the plain Pico 2 it is GP25. `hal.h` carries both
+behind one API, chosen by the SDK's own board header rather than by anything
+this repo has to remember to set. Every pin this project uses is identical on
+both, which is what makes the harness carry over — and that holds only while
+GP23/24/25/29 stay unused.
+
+`build.bat` takes a board and gives each its own tree. A wrong image does not
+announce itself: the RP2350 accepts either and a W image on the car's board
+runs perfectly with a dead lamp.
+
+### Lighting, as a library
+
+Ten lamps, the rules that decide what each does, and a **separate table**
+saying which GPIO shows which. The rules are permanent; the table is
+temporary and is the only thing that changes when a wire moves — proven when
+four LEDs went on and the change was four numbers.
+
+Two lamps are on borrowed pins. **GP15 is the wheel encoder** and gives it
+back the moment the Hall sensor is fitted; that is the one borrowing with a
+deadline.
+
+One rule was built and removed. On many cars the rear indicator and the brake
+share a bulb, so the indicator must interrupt the brake to be seen — and that
+interruption is what makes such a car read as a car. This car has separate
+LEDs, so applied here it made the brake light blink in antiphase to the
+signal beside it. **The test was inverted rather than deleted**, because a
+rule that is deliberately gone needs a test saying so.
+
+### Settings, properly
+
+The steering and throttle shared one response rate. Tuning the steering quick
+made the throttle violent; gentling the throttle made the steering vague. They
+are separate settings now — the steering has 440 µs of travel and the throttle
+59, so one number could never have suited both.
+
+[firmware-api.md](firmware-api.md) is new and records the shape a finished
+setting has: a setter that validates, a reading, a serial command, a hub
+control, and a `cal.h` macro. **Missing any of the five is a gap, not a
+style.**
+
+---
+
 ## 2026-08-26 - the recorder
 
 A fourth central tab, beside 2D / 3D / Pico 2 W: **Record**. Capture
@@ -1919,6 +2024,16 @@ stages rather than in one pass.
 - [ ] Cut the lidar hole in the shell — after the silver has fully cured
 - [x] Apply PS-12 Silver backing coat once the blue has cured — 2026-08-26
 - [ ] Solder the 6-pin header onto the MicroSD module
+- [ ] **Wire the wheel encoder to GP15 and give the pin back.** The Hall
+      sensor is in hand. GP15 currently drives a tail lamp - see the binding
+      table in `firmware/lib/lights.h` - and a pin cannot be an
+      interrupt-driven input and an LED at the same time.
+- [ ] Move the lamps to their permanent pins: GP2/GP3 indicators, GP6/GP7
+      tails, GP8 both heads. Two numbers per lamp in that same table.
+- [ ] The second pair of indicators, front and rear. Already in the model and
+      computed; only the rear pair has no pin.
+- [ ] Decide the right lock. `cal.h` says 1670 and the hub'''s stored
+      calibration says 1660, so the next "Write to firmware" will move it.
 - [ ] **Recover `tt02_control`'s source from the MacBook.** The board's original
       firmware now exists on this machine only as a read-back binary
       (`vendor/tt02_control-backup.uf2`, gitignored). Get the source into
@@ -1926,7 +2041,7 @@ stages rather than in one pass.
 - [x] **Phase 2: make the servo move under code** — 2026-08-27. Steering sweeps
       its full travel on command, and the ESC is verified. Calibrated on this
       car: left 1230, **centre 1484**, right 1670, in
-      `firmware/src/steering_cal.h`.
+      `firmware/lib/chassis/cal.h`.
 
       Centre is 1484, not 1500. The servo was binding at what the firmware
       called neutral, and that is why it kept stalling against the frame.

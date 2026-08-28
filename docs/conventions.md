@@ -20,18 +20,33 @@ installed, motor mounted and meshed, shell trimmed and painted.
 
 The RPLIDAR C1 is **working** — see `lidar/README.md`.
 
-The **Pico 2 W toolchain is working on this machine**: build, flash, and read
-back the board's flash, all from `firmware/`. `pico_debug` is flashed and
-answering over USB CDC, and the LED blinks under command (`cyw43=up`). The GUI
-in `hub/` is the command hub for all of it.
+The **toolchain works on this machine** for both boards: build, flash, and read
+back the flash, all from `firmware/`. There are two RP2350s now — a Pico 2 W
+that is the breadboard mule and a plain Pico 2 that goes in the car. One
+firmware builds for either; see [wiring.md](wiring.md).
 
-**The servo has still never moved under code — phase 2 is still the gate.**
-But one thing in the original record was wrong and is worth stating plainly:
-the board arrived carrying firmware called **`tt02_control`** which emits
-1500 µs neutral on two channels and answers a `?` status command. Control
-firmware exists and runs; what has never been demonstrated is a servo actually
-moving. Its source is on the MacBook, not in this repo — only a read-back
-binary at `vendor/tt02_control-backup.uf2` (gitignored). See `docs/log.md`.
+**Phase 2 is done.** The servo moves under code, sweeps its full travel on
+command, and is calibrated on this car: left 1230, **centre 1484**, right 1670.
+The ESC is verified and idle is measured at 1541. Centre is not 1500 and the
+throw is asymmetric, which is why every command above the calibration is a
+fraction rather than a microsecond count.
+
+Four LEDs are on the car — two tail lamps and one pair of indicators — driven
+by a lighting model in `firmware/lib/lights.h` that computes ten lamps whether
+or not an LED exists for each. Two of the four pins are borrowed, and **GP15 is
+the wheel encoder's**, so it goes back when the Hall sensor is fitted.
+
+Everything the library exposes is listed in
+[firmware-api.md](firmware-api.md).
+
+What is still missing is the **sensing**: no encoder, no IMU, nothing on the
+I²C bus, and the lidar is not mounted. Nothing closes a loop yet, which is why
+there is no PID.
+
+The board arrived carrying firmware called **`tt02_control`**, which emits
+1500 µs neutral on two channels and answers a `?` status command. Its source is
+on the MacBook, not in this repo — only a read-back binary at
+`vendor/tt02_control-backup.uf2` (gitignored). See `docs/log.md`.
 
 ---
 
@@ -167,7 +182,9 @@ translucent. **Lidar hole not yet cut.**
 - **MicroSD module** (SPI, headers unsoldered — needs a 6-pin header)
 - **RPLIDAR C1** — in hand and working, see `lidar/README.md`
 - **Orange Pi 4 Pro 6GB** — ordered
-- Planned: 2x VL53L1X ToF, magnetic wheel encoder, IMU
+- **Magnetic wheel encoder** - Hall sensor and magnets in hand, not yet fitted.
+  Its pin (GP15) is currently lent to a tail lamp.
+- Planned: 2x VL53L1X ToF, IMU
 - LED lighting: MIBIDAO pre-wired RC light pairs, 3-7V, resistors already inline.
   Plus a ULN2003 driver — the Pico's total GPIO current budget (~50 mA) can't
   drive ten LEDs directly even at 3.3V.
