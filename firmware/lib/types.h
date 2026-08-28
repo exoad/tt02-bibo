@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * From manbox (github.com/exoad/manbox), C_STYLE_GUIDE.md. This is the C
- * counterpart of shared/shared.hpp - the same vocabulary, spelled the way C
+ * counterpart of shared/shared.hpp, which the HUB uses. This one lives in
+ * firmware/lib because the firmware is its only caller. The two are kept in
+ * step by hand; they are the same vocabulary spelled the way C - the same vocabulary, spelled the way C
  * spells it, so a value that is an Int32 in the viewer is an Int32 in the
  * firmware too.
  *

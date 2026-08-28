@@ -9,13 +9,19 @@
 # parser falls back to searching only the file's own directory. The symptom is
 # every include underlined at once:
 #
-#     #include "shared.h"        Cannot find file 'shared.h' in search paths:
+#     #include "tt02.h"          Cannot find file 'tt02.h' in search paths:
 #                                C:\...\firmware\app.
 #     #include "hardware/adc.h"  Cannot find directory 'hardware' ...
 #
 # Nothing is wrong with the code or the build - the build has every one of those
 # paths. See firmware/build/compile_commands.json, which lists 200-odd
-# translation units with the full include set.
+# translation units with the full include set, including -Ifirmware/lib.
+#
+# THAT FILE DID NOT EXIST until 2026-08-27. CMakePresets.json set
+# CMAKE_EXPORT_COMPILE_COMMANDS and build.bat did not, and build.bat is the one
+# that actually runs - and deletes build\ on a clean. So this fallback, whose
+# entire purpose is to work for an editor that has NOT loaded the project, only
+# worked if somebody had loaded the project. Both set it now.
 #
 # CompilationDatabase points the parser at exactly that file, so headers like
 # lib/hal.h resolve by inheriting the flags of a .c that includes them - and so

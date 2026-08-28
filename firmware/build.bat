@@ -80,9 +80,17 @@ if not exist "%PICOTOOL_DIR%\picotool.exe" (
     exit /b 1
 )
 
+REM CMAKE_EXPORT_COMPILE_COMMANDS writes build\compile_commands.json, which is
+REM what firmware/.clangd points every editor at. CMakePresets.json has always
+REM set it and this script never did - and since this script is the one that
+REM actually runs, and it deletes and recreates build\ on a clean, the database
+REM did not exist unless somebody had separately configured through the IDE.
+REM So the fallback that exists precisely for editors WITHOUT the project loaded
+REM only worked once the project was loaded. It is set in both places now.
 "%CMAKE%" -S "%HERE%." -B "%BUILD%" -G Ninja ^
     -DCMAKE_MAKE_PROGRAM="%NINJA%" ^
     -Dpicotool_DIR="%PICOTOOL_DIR%" ^
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ^
     -DCMAKE_BUILD_TYPE=RelWithDebInfo
 if errorlevel 1 (
     echo [error] cmake configure failed

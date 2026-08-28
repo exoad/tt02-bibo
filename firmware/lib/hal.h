@@ -4,7 +4,7 @@
  * WHY. The SDK is snake_case C with its own vocabulary (`uint`, `gpio_put`,
  * `absolute_time_t`); the rest of this project is manbox
  * (github.com/exoad/manbox) - PascalCase types, camelCase functions,
- * SCREAMING_SNAKE macros, and the shared.h aliases. Mixing the two inside one
+ * SCREAMING_SNAKE macros, and the types.h aliases. Mixing the two inside one
  * function is how a style guide quietly dies. This header is the seam: below it
  * the SDK's spelling, above it ours, and exactly one place where they meet.
  *
@@ -25,23 +25,26 @@
  * blinks. Nothing here enforces that; the board cannot know what you soldered.
  */
 
-#ifndef PICO2W_H
-#define PICO2W_H
+#ifndef TT02_HAL_H
+#define TT02_HAL_H
 
 /*
- * Reached by an explicit relative path rather than by "shared.h" plus a
- * -I../shared on the command line.
+ * The vocabulary: Int32, UInt16, Bool, Void, Utf8, CharSeq.
  *
- * Both work for the COMPILER - the include directory is set for both firmware
- * targets and always has been. The difference is every other tool. A quoted
- * include is resolved relative to THIS file first, so an editor with no project
- * loaded still finds it; a bare "shared.h" needs the include path, and without
- * it the whole vocabulary - Int32, UInt16, Bool, Void, Utf8 - goes unresolved,
- * which paints a red squiggle under essentially every line of every sketch.
+ * A SIBLING of this file rather than a repo-level shared/ directory, and that
+ * move is the point. It was in shared/ because the name promised it was shared
+ * with the hub, and it never was - shared/shared.hpp is a separate C++ file that
+ * mirrors it by hand, and exactly one file in the tree ever included the C one:
+ * this header. A directory named for a relationship that does not exist is worse
+ * than no directory, because it survives every reorganisation on the strength of
+ * its name.
  *
- * That is a lot of noise to accept in exchange for a slightly prettier include.
+ * Sitting next to hal.h it also resolves for any tool that has not loaded the
+ * project - a quoted include is searched relative to THIS file first - which is
+ * what keeps a sketch from lighting up red in an editor that is merely not
+ * configured yet.
  */
-#include "shared.h"
+#include "types.h"
 
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
@@ -930,4 +933,4 @@ static inline Void rebootToBootsel(Void)
     reset_usb_boot(0, 0);
 }
 
-#endif
+#endif /* TT02_HAL_H */

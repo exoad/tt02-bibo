@@ -23,6 +23,7 @@ pico_sdk_init()
 # and they belong to this program.
 set(TT02_LIB
     lib/tt02.h
+    lib/types.h
     lib/hal.h
     lib/gfx.h
     lib/status.h
@@ -57,11 +58,12 @@ target_link_libraries(pico_debug
 pico_enable_stdio_usb(pico_debug 1)
 pico_enable_stdio_uart(pico_debug 0)
 
-# shared/ holds the project's C vocabulary (shared.h). One copy, used by the
-# firmware and mirrored by shared/shared.hpp for the hub.
+# firmware/lib is the whole library: an app's "tt02.h" and the library's own
+# "drivers/..." and "chassis/..." includes all resolve through this one entry.
+# shared/ is no longer on the path - the C vocabulary moved to lib/types.h,
+# because the firmware was its only caller.
 target_include_directories(pico_debug PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/lib"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
 )
 
 pico_add_extra_outputs(pico_debug)
@@ -111,7 +113,6 @@ pico_enable_stdio_uart(sketch 0)
 
 target_include_directories(sketch PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/lib"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
 )
 
 pico_add_extra_outputs(sketch)
