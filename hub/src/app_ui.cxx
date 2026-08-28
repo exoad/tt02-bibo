@@ -5430,6 +5430,63 @@ Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 
     dl->AddLine(t0, t1, edge, WIRE_W);
 }
 
+// ---------------------------------------------------------------------------
+// The Drive view's layout grid.
+//
+// ONE right-hand column, for the whole view. Every slider stops at the same x
+// and whatever sits beside it - a button, a reading - starts at the same x, so
+// the controls form a column instead of a staircase.
+//
+// They did not before: the two tuning sliders reserved 260 px for their
+// readings and the steering and throttle ones reserved 120 for their buttons,
+// so three different right edges ran down a panel that is one column wide. That
+// is most of what made this look like a pile rather than a page.
+// ---------------------------------------------------------------------------
+constexpr Float32 DRIVE_TAIL_W = 120.0f;
+
+// A section head: a rule, the name in the title face, and what it is for.
+//
+// Sections were MUTED body text, which is exactly what the captions under them
+// are - so a heading and a footnote were typographically the same thing and the
+// view read as one undifferentiated stack. The rule and the weight are the
+// whole fix; no colour changes.
+Void driveSection(const Char* name, const Char* what)
+{
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    {
+        ScopedFont sf(ui::fonts.title);
+        ImGui::TextUnformatted(name);
+    }
+
+    if(what != nullptr && what[0] != '\0')
+    {
+        ImGui::SameLine();
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), " -  %s", what);
+    }
+}
+
+// A reading pushed to the right-hand edge of the current line.
+//
+// Right-aligned rather than trailing the label, so a number that changes width
+// - "8 us/tick" against "200 us/tick" - does not shuffle everything after it.
+Void driveReading(ImU32 col, const Char* text)
+{
+    // One spacing in from the edge. Flush against it, the last glyph is clipped
+    // by the panel's own clip rect - "lock to lock 1.10 s" lost its s - and a
+    // reading that touches the frame reads as overflowing whether it is or not.
+    const Float32 pad = ImGui::GetStyle().ItemSpacing.x;
+    const Float32 w   = ImGui::CalcTextSize(text).x;
+    const Float32 x   = ImGui::GetCursorPosX()
+                      + ImGui::GetContentRegionAvail().x - w - pad;
+
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(x);
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(col), "%s", text);
+}
+
 // steerN is -1..+1 of THIS car's travel; powerN is 0..1 of its throttle range.
 //
 // A DRIVETRAIN, not a car. Two axle beams and the shaft between them - the "I"
@@ -5861,10 +5918,23 @@ Void drawDriveBody(Float32 w, Float32 h)
     // the difference between "creeps" and "moves" lives, and on a linear scale
     // that entire question is the first tenth of the track.
     {
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "Response  -  how fast an output may move");
+        driveSection("Response", "how fast an output may move");
 
-        ImGui::SetNextItemWidth(-260.0f * uiDpiScale);
+        // The reading goes on the HEAD's line rather than beside the slider,
+        // which is what lets the slider run to the shared right edge.
+        {
+            const Int32 perSec = driveSlew * 50;
+            const Int32 travel = driveServoMax - driveServoMin;
+
+            Char r[64];
+            std::snprintf(r, sizeof(r), "%d us/s   lock to lock %.2f s",
+                          perSec,
+                          (perSec > 0) ? (static_cast<Float64>(travel) / perSec)
+                                       : 0.0);
+            driveReading(ui::sem::MUTED, r);
+        }
+
+        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
         if(ImGui::SliderInt("##slew", &driveSlewWant, 1, 200, "%d us/tick",
                             ImGuiSliderFlags_Logarithmic))
         {
@@ -5898,19 +5968,6 @@ Void drawDriveBody(Float32 w, Float32 h)
                 "range, is what keeps it across a reflash.");
         }
 
-        // What it means for THIS car, which is the only form worth reading.
-        // The us/tick in the slider is the unit the firmware thinks in; this is
-        // the unit a person decides with.
-        const Int32 perSec = driveSlew * 50;
-        const Int32 travel = driveServoMax - driveServoMin;
-
-        ImGui::SameLine();
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "%d us/s   lock to lock %.2f s",
-                           perSec,
-                           (perSec > 0)
-                               ? (static_cast<Float64>(travel) / perSec)
-                               : 0.0);
     }
 
 
@@ -5921,10 +5978,15 @@ Void drawDriveBody(Float32 w, Float32 h)
     // it. Idle is the pulse at which the motor sits still; this is how far past
     // that counts as actually going somewhere.
     {
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "Tail lamps  -  how much throttle counts as moving");
+        driveSection("Tail lamps", "how much throttle counts as moving");
 
-        ImGui::SetNextItemWidth(-260.0f * uiDpiScale);
+        {
+            const Bool lit = (boardLamp[2] > 0) || (boardLamp[3] > 0);
+            driveReading(lit ? ui::sem::BAD : ui::sem::MUTED,
+                         lit ? "lit" : "dark");
+        }
+
+        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
         if(ImGui::SliderInt("##lightsoff", &lightsOffWant, 0, 60, "%d us past idle"))
         {
             Char cmd[40];
@@ -5955,22 +6017,11 @@ Void drawDriveBody(Float32 w, Float32 h)
                 driveEscMin, driveEscMax, driveEscMax - driveEscMin);
         }
 
-        ImGui::SameLine();
-        {
-            ScopedFont sf(ui::fonts.small);
-            const Bool lit = (boardLamp[2] > 0) || (boardLamp[3] > 0);
-            colored(lit ? ui::sem::BAD : ui::sem::MUTED,
-                    lit ? "tails lit" : "tails dark");
-        }
     }
 
     ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
     // ---- steering --------------------------------------------------------
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                       "Steering  -  GP0");
+    driveSection("Steering", "GP0");
 
     // Engaging is a deliberate act, the same shape as arming the ESC. The board
     // comes up released and stays that way until asked, because driving neutral
@@ -6024,30 +6075,40 @@ Void drawDriveBody(Float32 w, Float32 h)
         // Drawn as a band across the controls it applies to, because the thing
         // being explained is that ALL of them are inert. A note beside the
         // button would explain the button.
-        const ImVec2 a = ImGui::GetCursorScreenPos();
-        const Float32 bh = ImGui::GetTextLineHeight() * 2.6f;
-        const Float32 bw = ImGui::GetContentRegionAvail().x;
+        // ONE line, and a rule down the left rather than a box round it.
+        //
+        // It was a two-line placard with a full border, and it is on screen
+        // whenever the servo is released - which is most of the time. A notice
+        // that is always up and shouts stops being read; the same words at one
+        // line with a coloured edge still catch the eye and stop being the
+        // loudest thing in the panel. The detail moved to the tooltip on the
+        // control it is actually about.
+        const ImVec2  a  = ImGui::GetCursorScreenPos();
+        const Float32 bh = ImGui::GetTextLineHeight() + 6.0f * uiDpiScale;
         ImDrawList*   dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(a, ImVec2(a.x + bw, a.y + bh),
-                          IM_COL32(0x3A, 0x2E, 0x12, 0xFF), 3.0f);
-        dl->AddRect(a, ImVec2(a.x + bw, a.y + bh),
-                    ui::sem::WARN, 3.0f, 0, 1.0f);
+        dl->AddRectFilled(a, ImVec2(a.x + 3.0f * uiDpiScale, a.y + bh),
+                          ui::sem::WARN, 0.0f);
 
-        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::Dummy(ImVec2(0.0f, 3.0f * uiDpiScale));
         ImGui::Indent(10.0f);
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                           "Nothing below will move the servo yet.");
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "The slider and the steps set a target and the board "
-                           "remembers it. Engage to commit to it.");
+                           "Released - the controls below set a target only.");
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "The slider and the steps write a target that the board\n"
+                "remembers. Nothing reaches the servo until you engage it,\n"
+                "at which point it walks to that target at the Response\n"
+                "rate rather than jumping.");
+        }
         ImGui::Unindent(10.0f);
-        ImGui::Dummy(ImVec2(0.0f, 6.0f));
+        ImGui::Dummy(ImVec2(0.0f, 3.0f * uiDpiScale));
     }
 
     ImGui::Spacing();
 
     // ---- steering, as a fraction of THIS car's travel -------------------
-    ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
+    ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
     if(ImGui::SliderFloat("##steer", &driveSteerWant, -1.0f, 1.0f, "%+.2f"))
     {
         driveSweep = false;
@@ -6081,14 +6142,11 @@ Void drawDriveBody(Float32 w, Float32 h)
         sendPico("STEER 0");
     }
 
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                       "steering %+.2f   =  %d us", driveSteer, driveServoT);
-
     ImGui::Spacing();
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                        "Raw microseconds  -  for calibrating, not for driving");
 
-    ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
+    ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
     if(ImGui::SliderInt("##servo", &driveServoWant,
                         driveServoMin, driveServoMax, "%d us"))
     {
@@ -6180,16 +6238,24 @@ Void drawDriveBody(Float32 w, Float32 h)
     // slew runs. Showing both is what makes the ramp visible rather than
     // looking like lag. Directly under the buttons that move it: the limits
     // block below expands, and this must not be pushed away by that.
-    if(driveServoOn)
+    // ONE status line for the whole steering section.
+    //
+    // There were three, and between them 1484 appeared four times in five
+    // lines: the fraction, the raw slider, and this. A number repeated is a
+    // number you stop reading.
     {
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "output %d us   target %d us",
-                           driveServo, driveServoT);
-    }
-    else
-    {
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "no output   target %d us  (stored)", driveServoT);
+        Char st[96];
+        if(driveServoOn)
+        {
+            std::snprintf(st, sizeof(st), "%+.2f   %d us   target %d us",
+                          static_cast<Float64>(driveSteer), driveServo, driveServoT);
+        }
+        else
+        {
+            std::snprintf(st, sizeof(st), "%+.2f   target %d us   not driven",
+                          static_cast<Float64>(driveSteer), driveServoT);
+        }
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "%s", st);
     }
 
     // ---- the calibration -------------------------------------------------
@@ -6424,13 +6490,23 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
     // ---- throttle --------------------------------------------------------
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                       "Throttle  -  GP1  (ESC)");
+    driveSection("Throttle", "GP1  (ESC)");
+
+    // The percentage belongs up here with the other readings, not stranded
+    // under the power bar where it was the only thing on its line.
+    {
+        const Int32   span = driveEscMax - driveEscMin;
+        const Float32 frac = (span > 0)
+            ? (static_cast<Float32>(driveEsc - driveEscMin)
+               / static_cast<Float32>(span))
+            : 0.0f;
+
+        Char r[32];
+        std::snprintf(r, sizeof(r), "%.0f%%",
+                      static_cast<Float64>((driveArmed ? frac : 0.0f) * 100.0f));
+        driveReading(driveArmed ? ui::sem::WARN : ui::sem::MUTED, r);
+    }
 
     // Arming is a separate, deliberate act. The slider does nothing until it
     // happens, and the board refuses throttle commands regardless of what this
@@ -6454,7 +6530,7 @@ Void drawDriveBody(Float32 w, Float32 h)
     }
 
     ImGui::BeginDisabled(!driveArmed);
-    ImGui::SetNextItemWidth(-120.0f * uiDpiScale);
+    ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
     if(ImGui::SliderInt("##esc", &driveEscWant,
                         driveEscMin, driveEscMax, "%d us"))
     {
@@ -6532,11 +6608,6 @@ Void drawDriveBody(Float32 w, Float32 h)
         ui::screenInset(b0, ImVec2(b0.x + barW, b0.y + barH), 0.7f);
 
         ImGui::Dummy(ImVec2(barW, barH));
-        ImGui::SameLine();
-        ImGui::TextColored(
-            ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN
-                                                      : ui::sem::MUTED),
-            "%.0f%%", static_cast<Float64>((driveArmed ? frac : 0.0f) * 100.0f));
     }
 
     ImGui::BeginDisabled(!driveArmed);
