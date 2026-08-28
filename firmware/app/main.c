@@ -33,10 +33,9 @@
 /* stdio for printf/snprintf. It arrives transitively through pico/stdlib.h and
  * always has, which is exactly why it was missing here - a header you rely on
  * without naming is one that disappears the day the chain above it changes. */
+/* printf only. String handling, parsing and case folding all live in text.h
+ * now, so this is the last of libc that the console reaches for directly. */
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <ctype.h>
 
 /* The whole library. An application includes this and nothing else of ours -
  * see docs/conventions.md, and the style audit that enforces it. */
@@ -113,14 +112,6 @@ static Void printHelp(Void)
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
-static Void upperInPlace(Utf8* s)
-{
-    for(; *s != '\0'; ++s)
-    {
-        *s = (Utf8) toupper((UInt8) *s);
-    }
-}
-
 /* The " (cyw43 down, no effect)" tail on an LED reply. An OK that did nothing
  * has to say so, or a dead wireless chip looks like a dead command parser. */
 static CharSeq ledCaveat(Void)
@@ -130,7 +121,7 @@ static CharSeq ledCaveat(Void)
 
 static Void handleLed(Utf8* arg)
 {
-    if(strcmp(arg, "ON") == 0)
+    if(textEq(arg, "ON"))
     {
         statusBlink(0.0f);
         statusSolid(true);
@@ -138,7 +129,7 @@ static Void handleLed(Utf8* arg)
         return;
     }
 
-    if(strcmp(arg, "OFF") == 0)
+    if(textEq(arg, "OFF"))
     {
         statusBlink(0.0f);
         statusSolid(false);
@@ -146,9 +137,16 @@ static Void handleLed(Utf8* arg)
         return;
     }
 
-    if(strncmp(arg, "BLINK", 5) == 0)
+    if(textStarts(arg, "BLINK"))
     {
-        const Float32 hz = (Float32) atof(arg + 5);
+        /* textAfter rather than arg + 5: the offset and the word it skips are
+         * written once, so renaming the command cannot leave a stale count. */
+        Float32 hz = 0.0f;
+        if(!textFloat(textAfter(arg, "BLINK "), &hz))
+        {
+            printf("ERR blink wants a rate in hz\n");
+            return;
+        }
         if(hz < 0.0f || hz > BLINK_MAX_HZ)
         {
             printf("ERR blink rate out of range (0-%.0f hz)\n",
@@ -300,7 +298,7 @@ static Void handleTofMode(Utf8* arg)
      * measurement leaves the sensor half-configured for as long as that
      * measurement lasts, and what it does with the result is undefined.
      * ST's own driver brackets it this way and so does this. */
-    if(strcmp(arg, "SHORT") == 0)
+    if(textEq(arg, "SHORT"))
     {
         vl53StopRanging(&tofFront);
         vl53SetMode(&tofFront, VL53_MODE_SHORT);
@@ -308,7 +306,7 @@ static Void handleTofMode(Utf8* arg)
         printf("OK tof mode short\n");
         return;
     }
-    if(strcmp(arg, "LONG") == 0)
+    if(textEq(arg, "LONG"))
     {
         vl53StopRanging(&tofFront);
         vl53SetMode(&tofFront, VL53_MODE_LONG);
@@ -352,14 +350,21 @@ static Void handleSteer(Utf8* arg)
         return;
     }
 
-    driveSteer((Float32) atof(arg));
+    Float32 n = 0.0f;
+    if(!textFloat(arg, &n))
+    {
+        printf("ERR steer wants -1.0 to 1.0\n");
+        return;
+    }
+
+    driveSteer(n);
     printDrive();
 }
 
 static Void handleTrim(Utf8* arg)
 {
-    const Int32 us = atoi(arg);
-    if(us == 0)
+    Int32 us = 0;
+    if(!textInt(arg, &us))
     {
         const DriveState d = driveRead();
         printf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
@@ -375,7 +380,7 @@ static Void handleLimits(Utf8* arg)
 {
     Int32 lo = 0;
     Int32 hi = 0;
-    if(sscanf(arg, "%d %d", &lo, &hi) != 2)
+    if(!textTwoInts(arg, &lo, &hi))
     {
         printf("ERR limits wants <min> <max>\n");
         return;
@@ -392,7 +397,7 @@ static Void handleEscLimits(Utf8* arg)
 {
     Int32 lo = 0;
     Int32 hi = 0;
-    if(sscanf(arg, "%d %d", &lo, &hi) != 2)
+    if(!textTwoInts(arg, &lo, &hi))
     {
         printf("ERR esclimits wants <min> <max>\n");
         return;
@@ -412,7 +417,7 @@ static Void handleServo(Utf8* arg)
      * leaning on a frame does not need a better number, it needs to stop being
      * told to hold a position at all.
      */
-    if(strcmp(arg, "OFF") == 0)
+    if(textEq(arg, "OFF"))
     {
         driveEngage(false);
         printf("INFO servo released - no pulse, no holding torque\n");
@@ -420,7 +425,7 @@ static Void handleServo(Utf8* arg)
         return;
     }
 
-    if(strcmp(arg, "ON") == 0)
+    if(textEq(arg, "ON"))
     {
         driveEngage(true);
         printf("INFO servo engaged - holding %d us\n", driveRead().servoTargetUs);
@@ -428,15 +433,15 @@ static Void handleServo(Utf8* arg)
         return;
     }
 
-    if(strcmp(arg, "CENTER") == 0 || strcmp(arg, "CENTRE") == 0)
+    if(textEq(arg, "CENTER") || textEq(arg, "CENTRE"))
     {
         driveCenter();
         printDrive();
         return;
     }
 
-    const Int32 us = atoi(arg);
-    if(us == 0)
+    Int32 us = 0;
+    if(!textInt(arg, &us))
     {
         const DriveState d = driveRead();
         printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
@@ -457,29 +462,29 @@ static Void handleServo(Utf8* arg)
 
 static Void handleEsc(Utf8* arg)
 {
-    if(strcmp(arg, "ARM") == 0)
+    if(textEq(arg, "ARM"))
     {
         driveArm(true);
         printf("INFO esc armed - neutral held\n");
         printDrive();
         return;
     }
-    if(strcmp(arg, "DISARM") == 0)
+    if(textEq(arg, "DISARM"))
     {
         driveArm(false);
         printf("INFO esc disarmed\n");
         printDrive();
         return;
     }
-    if(strcmp(arg, "NEUTRAL") == 0)
+    if(textEq(arg, "NEUTRAL"))
     {
         driveThrottleNeutral();
         printDrive();
         return;
     }
 
-    const Int32 us = atoi(arg);
-    if(us == 0)
+    Int32 us = 0;
+    if(!textInt(arg, &us))
     {
         const DriveState d = driveRead();
         printf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
@@ -498,71 +503,66 @@ static Void handleEsc(Utf8* arg)
 
 static Void handleLine(Utf8* line)
 {
-    /* Trim trailing CR/space that a terminal may append. */
-    Size n = strlen(line);
-    while(n > 0
-          && (line[n - 1] == '\r' || line[n - 1] == ' ' || line[n - 1] == '\t'))
-    {
-        line[--n] = '\0';
-    }
-    if(n == 0)
+    /* A terminal decides for itself what to put at the end of a line. Without
+     * this, "PING\r" is not "PING" and a correctly typed command is refused. */
+    if(textTrimEnd(line) == 0)
     {
         return;
     }
 
-    upperInPlace(line);
+    textUpper(line);
 
-    if(strcmp(line, "PING") == 0)
+    if(textEq(line, "PING"))
     {
         printf("PONG\n");
         return;
     }
 
-    if(strcmp(line, "ID") == 0)
+    if(textEq(line, "ID"))
     {
         printId();
         return;
     }
 
-    if(strcmp(line, "STATUS") == 0)
+    if(textEq(line, "STATUS"))
     {
         printStatus();
         return;
     }
 
-    if(strcmp(line, "HELP") == 0 || strcmp(line, "?") == 0)
+    if(textEq(line, "HELP") || textEq(line, "?"))
     {
         printHelp();
         return;
     }
 
-    if(strcmp(line, "BOOTSEL") == 0)
+    if(textEq(line, "BOOTSEL"))
     {
         printf("INFO rebooting into bootloader\n");
         rebootToBootsel();          /* flushes, then does not return */
         return;
     }
 
-    if(strncmp(line, "LED ", 4) == 0)
+    if(textStarts(line, "LED "))
     {
         handleLed(line + 4);
         return;
     }
 
-    if(strcmp(line, "STOP") == 0)
+    if(textEq(line, "STOP"))
     {
         driveStop();
         printf("OK stop\n");
         return;
     }
 
-    if(strcmp(line, "DRIVE") == 0)
+    if(textEq(line, "DRIVE"))
     {
         printDrive();
         return;
     }
 
-    if(strncmp(line, "STEER ", 6) == 0)
+    if(textStarts(line, "STEER "))
     {
         handleSteer(line + 6);
         return;
@@ -571,61 +571,61 @@ static Void handleLine(Utf8* line)
     /* Bare STEER, so the "wants an argument" message is reachable. Without this
      * it falls through to "unknown command", which is true but unhelpful: the
      * command exists, the argument does not. */
-    if(strcmp(line, "STEER") == 0)
+    if(textEq(line, "STEER"))
     {
         handleSteer(line + 5);
         return;
     }
 
-    if(strncmp(line, "SERVOTRIM ", 10) == 0)
+    if(textStarts(line, "SERVOTRIM "))
     {
         handleTrim(line + 10);
         return;
     }
 
-    if(strncmp(line, "SERVOLIMITS ", 12) == 0)
+    if(textStarts(line, "SERVOLIMITS "))
     {
         handleLimits(line + 12);
         return;
     }
 
-    if(strncmp(line, "ESCLIMITS ", 10) == 0)
+    if(textStarts(line, "ESCLIMITS "))
     {
         handleEscLimits(line + 10);
         return;
     }
 
-    if(strncmp(line, "SERVO ", 6) == 0)
+    if(textStarts(line, "SERVO "))
     {
         handleServo(line + 6);
         return;
     }
 
-    if(strncmp(line, "ESC ", 4) == 0)
+    if(textStarts(line, "ESC "))
     {
         handleEsc(line + 4);
         return;
     }
 
-    if(strcmp(line, "SENSORS") == 0)
+    if(textEq(line, "SENSORS"))
     {
         printSensors();
         return;
     }
 
-    if(strcmp(line, "SCAN") == 0)
+    if(textEq(line, "SCAN"))
     {
         printScan();
         return;
     }
 
-    if(strcmp(line, "TOF") == 0)
+    if(textEq(line, "TOF"))
     {
         printTof();
         return;
     }
 
-    if(strncmp(line, "TOF MODE ", 9) == 0)
+    if(textStarts(line, "TOF MODE "))
     {
         handleTofMode(line + 9);
         return;

@@ -16,8 +16,11 @@
  *
  * ---- the layers ------------------------------------------------------------
  *
- *   tt02_hal.h       the board. GPIO, PWM, I2C, SPI, serial, the onboard LED,
+ *   types.h          the vocabulary: Int32, Bool, Void, Utf8, CharSeq.
+ *   hal.h            the board. GPIO, PWM, I2C, SPI, serial, the onboard LED,
  *                    sleeping. Nothing above knows which pins exist.
+ *   text.h           the string handling this project does. Stateless.
+ *   status.h         the onboard LED as something readable across a room.
  *
  *   tt02_display.h   an ST7789 / ST7735 panel over SPI. Owns a Screen.
  *   tt02_gfx.h       drawing INTO a Screen. Knows shapes, not panels.
@@ -44,6 +47,7 @@
 #pragma once
 
 #include "hal.h"
+#include "text.h"
 
 #include "drivers/display.h"
 #include "gfx.h"
