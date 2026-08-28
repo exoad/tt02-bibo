@@ -253,7 +253,7 @@ surrounding history.
 | `constexpr` constants, macros, non-type template params | `SCREAMING_SNAKE_CASE` — no `k` prefix |
 | Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS` |
 | Namespaces | lowercase — `ui`, `board`, `app` |
-| Headers | `.hpp`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.h` |
+| Headers | `.hpp`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.hpp`’s C twin, `firmware/lib/types.h` |
 | Vocabulary | one place: `shared/shared.hpp` for C++, `shared/shared.h` for C. Both are on the include path of every target |
 | Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
@@ -395,7 +395,7 @@ firmware/
 
 | a file in | may include |
 |---|---|
-| `lib/` | `shared.h`, `hal.h` — hal is the floor everything stands on |
+| `lib/` | `types.h`, `hal.h` — hal is the floor everything stands on |
 | `lib/drivers/` | `hal.h` |
 | `lib/chassis/` | `hal.h`, `chassis/cal.h` |
 | `app/`, `scratch/` | `tt02.h` — and nothing else of ours |

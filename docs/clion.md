@@ -20,7 +20,7 @@ once, and Ctrl-clicking `gpioOpen()` from a sketch lands in
 Symptom, in `hal.h` or any firmware source:
 
 ```
-#include "shared.h"        Cannot find file 'shared.h' in search paths: ...\firmware\src.
+#include "tt02.h"          Cannot find file 'tt02.h' in search paths: ...\firmware\app.
 #include "hardware/adc.h"  Cannot find directory 'hardware' in search paths: ...
 ```
 
@@ -50,16 +50,27 @@ problem wearing a different hat:
 | `Cannot resolve symbol 'printf'`, `'strcmp'`, `'atof'` | no C standard library include path either — the cross-compiler's, which only the project knows |
 | `C-style cast is used instead of a C++ cast` inside a `.h` | an unowned `.h` is assumed to be C++. The headers are now listed as sources on their targets, so this resolves with the project attached |
 
-The project types (`Int32`, `UInt16`, `Utf8`) come from `shared.h`, which
-`hal.h` includes. Both that and the library's own `drivers/…` and `chassis/…`
-includes resolve through `-I`: the targets put `firmware/lib` and `shared` on
-the include path, so an editor that has not attached the project will not find
-them. `firmware/.clangd` exists for exactly that gap. Everything below needs the
-toolchain as well, and the toolchain comes from the project.
+The project types (`Int32`, `UInt16`, `Utf8`) come from `firmware/lib/types.h`,
+which sits next to `hal.h` and is included by it. That one resolves even with no
+project loaded, because a quoted include is searched relative to the including
+file first — which is why it lives in the library rather than in a `shared/`
+directory it was never actually shared with.
+
+The library's own `"tt02.h"`, `"drivers/…"` and `"chassis/…"` includes are
+different: they need `-Ifirmware/lib`, which comes from the project or from the
+compile database. `firmware/.clangd` exists for exactly that gap. Everything
+below needs the cross-toolchain as well, and that only comes from the project.
 
 `firmware/.clangd` is a fallback for the same problem, pointing the parser at
 that compile database directly. It helps where the IDE falls back to clangd; it
 is not a substitute for attaching the project.
+
+The database is `firmware/build/compile_commands.json`, and **`firmware\build.bat`
+writes it**. If firmware includes are unresolved and attaching has not helped,
+check that file exists — a `build.bat clean` deletes `build\` and it is not
+recreated until the next configure. It carries `-Ifirmware/lib`, which is what
+resolves `"tt02.h"` and the library's own `"drivers/…"` and `"chassis/…"`
+includes.
 
 ## If every symbol is red
 

@@ -257,7 +257,7 @@ for name in [r[0] for r in RULES]:
 LAYERS = {
     # hal.h is the floor everything stands on, so lib root may name it. hal.h
     # itself only needs shared.h, and naming itself is not a thing a file does.
-    'firmware/lib':          {'shared.h', 'hal.h'},
+    'firmware/lib':          {'types.h', 'hal.h'},
     'firmware/lib/drivers':  {'hal.h', 'drivers/display.h'},
     'firmware/lib/chassis':  {'hal.h', 'chassis/cal.h'},
     'firmware/app':          {'tt02.h'},
@@ -344,7 +344,7 @@ for path in files:
             continue
         # C sources include C headers. shared.h and pico2w.h are .h because they
         # must be, so including them by that name is correct.
-        if is_c(path) or inc in ('shared.h', 'pico2w.h'):
+        if is_c(path) or inc in ('shared.hpp', 'types.h'):
             continue
         print('  %s:%d  %s' % (os.path.basename(path), i + 1, l.strip()))
         total += 1

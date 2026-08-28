@@ -16,7 +16,12 @@
 #   then pick the "Pico 2 W (RP2350, arm-none-eabi)" preset
 #
 # Both then index at once, and Ctrl-clicking gpioOpen() from a sketch lands in
-# firmware/src/pico2w.h the way it should.
+# firmware/lib/hal.h the way it should.
+#
+# WITHOUT attaching, firmware/.clangd is the fallback: it points the parser at
+# firmware/build/compile_commands.json, which firmware/build.bat now writes.
+# That file carries -Ifirmware/lib, which is what makes "tt02.h" and the
+# library's own "drivers/..." and "chassis/..." includes resolve.
 #
 # Neither of these replaces the .bat scripts. hub/build.bat and
 # firmware/build.bat are still the authoritative builds and still the thing to
