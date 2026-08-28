@@ -39,6 +39,21 @@ bugs. Check them first.
   between the two power domains; power never does. A missing common ground
   presents as erratic or absent servo response and is not a code bug.
 
+- **A breadboard's power rails are SPLIT in the middle.** Bridge each one with a
+  jumper before trusting it. The printed red and blue stripes run straight past
+  the break, so the rail looks continuous when it is two independent halves, and
+  a ground on one half is not the same node as a ground on the other.
+
+  This cost an entire evening on 2026-08-27. The servo twitched at power-up,
+  held a position when asked to hold, and ignored every command to move — which
+  is precisely what the invariant above predicts, and it was diagnosed instead
+  as a damaged servo, a dead feedback pot, a sagging BEC, and swapped signal
+  pins, in that order. The Pico's ground and the BEC's ground were four
+  centimetres apart on what looked like one rail.
+
+  If a servo behaves strangely, check this SECOND, straight after checking the
+  signal pin. Before the servo, before the supply, before the code.
+
 - **Never connect BEC 5V to the Pico while USB is attached.** During development
   the Pico is USB-powered from a power bank. Back-feeding the 5V rail from the
   BEC with USB also connected risks both.
