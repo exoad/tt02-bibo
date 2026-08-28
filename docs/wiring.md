@@ -35,6 +35,32 @@ two boards drop-in for each other. Keep it that way: a design that reaches for
 GP25 as "the LED" works on the car and silently drives the wireless chip's chip
 select on the mule.
 
+### Lighting, and the pins it is borrowing
+
+The lighting MODEL is permanent and lives in `firmware/lib/lights.h`: eight
+lamps - head, tail, indicator and reverse, left and right - and the rules that
+decide what each one does. All eight are computed whether or not an LED exists
+for them.
+
+What is temporary is the BINDING, a table at the top of that file saying which
+GPIO currently shows which lamp. Today:
+
+| Lamp | Pin | Note |
+|---|---|---|
+| tailL | GP15 | **borrowed from the wheel encoder** |
+| tailR | GP13 | borrowed from ToF #4 XSHUT |
+| everything else | — | computed, reported, not wired |
+
+GP15 goes back to the encoder the moment the Hall sensor is fitted. The
+permanent five-pin map is the one above: GP2/GP3 indicators, GP6/GP7 tails,
+GP8 both heads. Moving there is editing that table and nothing else.
+
+**The tail lamps mean "no throttle", not "braking".** There is no brake on this
+car and no way to measure whether it is slowing until the encoder is on, so the
+lamp reports the one throttle fact available. A car standing still with the ESC
+disarmed therefore has its tails lit, which is right by the rule and wrong for a
+real car.
+
 ### Building and flashing for each
 
 ```

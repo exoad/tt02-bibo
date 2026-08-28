@@ -550,45 +550,59 @@ static Void handleEsc(CharSeq arg)
  * screen at the same rate as the one on the bench is how you tell the rule is
  * running rather than the LED merely being on.
  * ------------------------------------------------------------------------- */
+/* The lamp names, in Lamp order, so the reply reads the way the model does. */
+static CharSeq LAMP_NAME[LAMP_COUNT] =
+{
+    "headL", "headR", "tailL", "tailR", "indL", "indR", "revL", "revR"
+};
+
+/*
+ * Every lamp in the model is reported, bound to a pin or not.
+ *
+ * A lamp with no LED on it still has a correct answer, and printing it is what
+ * makes wiring the next one a matter of checking a number that was already
+ * there rather than trusting that a rule nobody has ever seen run is right.
+ */
 static Void printLights(CharSeq arg)
 {
     (Void) arg;
 
+    const LampSet   s = lightsRead();
     const LightTurn t = lightsSide();
-    const LightTurn f = lightsForcedSide();
-    serialPrintf("OK lights on=%d side=%s lit=%d forced=%s left_pin=%d right_pin=%d\n",
+    const Int32     f = lightsForcedLamp();
+
+    /* ONE line, not one per lamp.
+     *
+     * The hub polls this every 120 ms to draw the lamps, and eight extra lines
+     * a poll is seventy-five lines a second of serial traffic to say what fits
+     * in one. levels[] and pins[] are in Lamp order, which is the order
+     * LAMP_NAME is in and the order the model declares them. */
+    serialPrintf("OK lights on=%d turn=%s forced=%s off_us=%d"
+                 " levels=%u,%u,%u,%u,%u,%u,%u,%u"
+                 " pins=%d,%d,%d,%d,%d,%d,%d,%d\n",
                  lightsEnabled() ? 1 : 0,
-                 (t == LIGHT_TURN_LEFT) ? "left"
-                     : (t == LIGHT_TURN_RIGHT) ? "right" : "off",
-                 lightsIsLit() ? 1 : 0,
-                 (f == LIGHT_TURN_LEFT) ? "left"
-                     : (f == LIGHT_TURN_RIGHT) ? "right" : "no",
-                 LIGHT_LEFT_PIN, LIGHT_RIGHT_PIN);
+                 (t == LIGHT_TURN_LEFT)  ? "left"
+                     : (t == LIGHT_TURN_RIGHT)  ? "right"
+                     : (t == LIGHT_TURN_HAZARD) ? "hazard" : "off",
+                 (f == LAMP_COUNT) ? "no" : LAMP_NAME[f],
+                 lightsOffThreshold(),
+                 (UInt32) s.level[0], (UInt32) s.level[1],
+                 (UInt32) s.level[2], (UInt32) s.level[3],
+                 (UInt32) s.level[4], (UInt32) s.level[5],
+                 (UInt32) s.level[6], (UInt32) s.level[7],
+                 lightPin[0], lightPin[1], lightPin[2], lightPin[3],
+                 lightPin[4], lightPin[5], lightPin[6], lightPin[7]);
 }
 
+/*
+ * LIGHTS [ON|OFF|AUTO|<lamp>]
+ *
+ * A lamp NAME forces that one lamp on and everything else off, so an LED and
+ * its wiring can be checked without touching the ESC or the steering. AUTO
+ * hands it back to the rules.
+ */
 static Void handleLights(CharSeq arg)
 {
-    /* LEFT and RIGHT hold that side blinking whatever the wheels are doing, so
-     * the LED and its wiring can be tested without touching the steering.
-     * AUTO hands it back to the rule. */
-    if(textEq(arg, "LEFT"))
-    {
-        lightsForce(LIGHT_TURN_LEFT);
-        printLights(arg);
-        return;
-    }
-    if(textEq(arg, "RIGHT"))
-    {
-        lightsForce(LIGHT_TURN_RIGHT);
-        printLights(arg);
-        return;
-    }
-    if(textEq(arg, "AUTO"))
-    {
-        lightsForce(LIGHT_TURN_OFF);
-        printLights(arg);
-        return;
-    }
     if(textEq(arg, "ON"))
     {
         lightsEnable(true);
@@ -601,12 +615,57 @@ static Void handleLights(CharSeq arg)
         printLights(arg);
         return;
     }
+    if(textEq(arg, "AUTO"))
+    {
+        lightsForceLamp(LAMP_COUNT);
+        printLights(arg);
+        return;
+    }
+
+    /* LIGHTS OFFAT <us> - how far past idle counts as being driven. */
+    if(textStarts(arg, "OFFAT"))
+    {
+        Int32 us = 0;
+        if(!textInt(textAfter(arg, "OFFAT "), &us)
+           || !lightsSetOffThreshold(us))
+        {
+            serialPrintf("ERR lights offat wants %d-%d us past idle\n",
+                         LIGHT_OFF_US_MIN, LIGHT_OFF_US_MAX);
+            return;
+        }
+        printLights(arg);
+        return;
+    }
     if(arg[0] == '\0')
     {
         printLights(arg);
         return;
     }
-    serialPrintf("ERR lights wants ON, OFF, LEFT, RIGHT, AUTO, or nothing\n");
+
+    /* Matched case-insensitively because handleLine has already uppercased the
+     * whole line, and the table above is spelled the way the model spells it. */
+    for(Int32 i = 0; i < LAMP_COUNT; ++i)
+    {
+        Utf8 up[12];
+        Size n = 0;
+        while(LAMP_NAME[i][n] != '\0' && n < sizeof(up) - 1)
+        {
+            up[n] = LAMP_NAME[i][n];
+            ++n;
+        }
+        up[n] = '\0';
+        textUpper(up);
+
+        if(textEq(arg, up))
+        {
+            lightsForceLamp(i);
+            printLights(arg);
+            return;
+        }
+    }
+
+    serialPrintf("ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name,"
+                 " or nothing\n");
 }
 
 /* ---- the command table ---------------------------------------------------
@@ -705,7 +764,7 @@ static const Command COMMANDS[] =
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
      * the wheel encoder. See lib/lights.h. */
-    { "LIGHTS",      " [ON|OFF|LEFT|RIGHT|AUTO]", "indicator lamps; LEFT/RIGHT force one",  handleLights },
+    { "LIGHTS",      " [ON|OFF|AUTO|OFFAT <us>|<lamp>]", "the lamps, and what each is doing", handleLights },
 };
 
 static const Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
@@ -782,6 +841,12 @@ Int32 main(Void)
      * fault and a servo pin that is secretly an output is not. */
     lightsOpen();
 
+    /* The threshold is a tuning that survives a reflash, so it lives in cal.h
+     * and is handed to the module here. lights.h cannot reach for cal.h - the
+     * layering forbids it, and rightly: the RULE is the same on any car and only
+     * the number is this one's. */
+    lightsSetOffThreshold(LIGHT_CAL_OFF_US);
+
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */
     statusHello(HELLO_FLASHES, HELLO_FLASH_MS);
@@ -800,11 +865,23 @@ Int32 main(Void)
          * rather than a step. */
         drivePump();
 
-        /* AFTER drivePump, and reading steerNowMilli rather than steerMilli, so
-         * the lamp follows where the wheels have actually got to. Reading the
-         * target would flash the indicator a full second before the car began
-         * to turn, which is the one thing that would make this look fake. */
-        lightsTick(driveRead().steerNowMilli);
+        /* AFTER drivePump, and reading the ACTUAL servo and ESC output rather
+         * than their targets. The slew limiter means the two differ for about a
+         * second after every command: reading targets would light a lamp before
+         * the car had done the thing the lamp is reporting. */
+        {
+            const DriveState d = driveRead();
+
+            LightInput li;
+            li.steerMilli = d.steerNowMilli;
+            li.throttleUs = d.escUs;
+            li.idleUs     = d.escMinUs;
+            li.neutralUs  = DRIVE_NEUTRAL_US;
+            li.armed      = d.escArmed;
+            li.headOn     = false;   /* nothing the car knows implies darkness */
+
+            lightsTick(&li);
+        }
 
         /* Anything written before the host opens the port is discarded, so the
          * banner waits for a connection rather than being lost. */
