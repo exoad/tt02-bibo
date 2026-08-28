@@ -390,8 +390,26 @@ static inline Bool driveSetSteerLimits(Int32 lo, Int32 hi)
     {
         return false;
     }
-    servoMin      = driveClamp(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
-    servoMax      = driveClamp(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
+
+    /*
+     * Checked AFTER clamping, not only before.
+     *
+     * `SERVOLIMITS 1 2` passes the ordering test - 1 is genuinely below 2 - and
+     * then both clamp to SERVO_HARD_MIN and the range is 1000 to 1000. The
+     * steering can no longer be commanded anywhere, driveSteerToUs divides a
+     * span of zero, and the reply reports a car that looks configured. Found on
+     * the board rather than by reading this, which is the only reason it is
+     * here: it needs two plausible numbers to reach.
+     */
+    const Int32 lo2 = driveClamp(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
+    const Int32 hi2 = driveClamp(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
+    if(lo2 >= hi2)
+    {
+        return false;
+    }
+
+    servoMin      = lo2;
+    servoMax      = hi2;
     servoTarget   = driveClamp(servoTarget, servoMin, servoMax);
     servoCenterUs = driveClamp(servoCenterUs, servoMin, servoMax);
     return true;
@@ -428,8 +446,18 @@ static inline Bool driveSetThrottleLimits(Int32 lo, Int32 hi)
     {
         return false;
     }
-    escMin    = driveClamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
-    escMax    = driveClamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
+
+    /* The same collapse as the steering, and worse here: the throttle's hard
+     * band is only 200 us wide, so any pair below 1500 lands on 1500/1500. */
+    const Int32 lo2 = driveClamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
+    const Int32 hi2 = driveClamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
+    if(lo2 >= hi2)
+    {
+        return false;
+    }
+
+    escMin    = lo2;
+    escMax    = hi2;
     escTarget = driveClamp(escTarget, escMin, escMax);
     return true;
 }

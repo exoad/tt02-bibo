@@ -4939,6 +4939,24 @@ Void calRow(const Char* label, const Char* help, Int32* value)
     ImGui::PopID();
 }
 
+// A state lamp with its label, the way every other indicator in this app is
+// drawn. ui::led throws a halo when lit, which is what makes it read as
+// emitting rather than as a coloured full stop - and it is the difference
+// between this view looking like the console it lives in and looking like a
+// form.
+Void driveLamp(Bool lit, ImU32 colour, const Char* label)
+{
+    const Float32 r  = 4.0f * uiDpiScale;
+    const ImVec2  at = ImGui::GetCursorScreenPos();
+    const Float32 mid = at.y + (ImGui::GetTextLineHeight() * 0.5f);
+
+    ui::led(ImGui::GetWindowDrawList(), ImVec2(at.x + r, mid), r, colour, lit);
+
+    ImGui::Dummy(ImVec2(r * 2.0f + (6.0f * uiDpiScale), ImGui::GetTextLineHeight()));
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(colour), "%s", label);
+}
+
 // ============================================== the drive view ==
 //
 // Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
@@ -4950,8 +4968,22 @@ Void calRow(const Char* label, const Char* help, Int32* value)
 // moment it disconnects - and the board keeps holding the wires either way.
 Void drawDriveBody(Float32 w, Float32 h)
 {
+    // Scrolls with the wheel, like anything else that is a list of controls.
+    //
+    // This carried ImGuiWindowFlags_NoScrollWithMouse, copied from the map
+    // views where it is correct because the wheel ZOOMS there and scrolling
+    // would fight it. Nothing here zooms, so the flag only meant the scrollbar
+    // had to be dragged - a panel that shows a scrollbar and then ignores the
+    // wheel reads as broken, and is.
     ImGui::BeginChild("##drive", ImVec2(w, h), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_NoScrollWithMouse);
+                      ImGuiWindowFlags_None);
+
+    // The cut-out this view sits in. Range, Reference and the board view are
+    // all recessed into the casing and this one was not - it was widgets lying
+    // on the panel, which is why it read as a different application. The bezel
+    // is drawn last, over the content, so it shadows the top edge the way a
+    // milled cut-out does.
+    const ImVec2 drivePanel0 = ImGui::GetCursorScreenPos();
 
     const Bool live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
 
@@ -4965,6 +4997,8 @@ Void drawDriveBody(Float32 w, Float32 h)
 
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                            "Pico not connected.");
+        ui::screenInset(drivePanel0,
+                        ImVec2(drivePanel0.x + w, drivePanel0.y + h));
 
         // A board that is PRESENT but will not talk is a different problem from
         // a board that is not there, and the fix for it is not "try again".
@@ -5037,6 +5071,8 @@ Void drawDriveBody(Float32 w, Float32 h)
 
         drawDriveFlashButton();
 
+        ui::screenInset(drivePanel0,
+                        ImVec2(drivePanel0.x + w, drivePanel0.y + h));
         ImGui::EndChild();
         return;
     }
@@ -5144,8 +5180,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
 
         ImGui::SameLine();
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                           "driving");
+        driveLamp(true, ui::sem::WARN, "driving");
     }
     else
     {
@@ -5165,8 +5200,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         }
 
         ImGui::SameLine();
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                           "released  -  the servo is limp");
+        driveLamp(false, ui::sem::MUTED, "released  -  the servo is limp");
 
         // Drawn as a band across the controls it applies to, because the thing
         // being explained is that ALL of them are inert. A note beside the
@@ -5646,10 +5680,12 @@ Void drawDriveBody(Float32 w, Float32 h)
     }
     ImGui::EndDisabled();
 
-    ImGui::TextColored(
-        ImGui::ColorConvertU32ToFloat4(driveArmed ? ui::sem::WARN : ui::sem::MUTED),
-        "output %d us   target %d us   %s",
-        driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
+    {
+        Char line[64];
+        std::snprintf(line, sizeof(line), "output %d us   target %d us   %s",
+                      driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
+        driveLamp(driveArmed, driveArmed ? ui::sem::BAD : ui::sem::MUTED, line);
+    }
 
     if(ImGui::TreeNode("Throttle range  -  widen once the car is on a stand"))
     {
@@ -5730,6 +5766,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
+    ui::screenInset(drivePanel0, ImVec2(drivePanel0.x + w, drivePanel0.y + h));
     ImGui::EndChild();
 }
 
