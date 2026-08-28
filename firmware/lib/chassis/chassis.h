@@ -116,8 +116,22 @@
  * probably to a value set at runtime rather than baked in here, since bench
  * work and driving want different answers and neither is a bug.
  */
-#define SLEW_STEP_US 8
+#define SLEW_STEP_US SLEW_CAL_STEP
 #define SLEW_TICK_MS 20
+
+/*
+ * The bounds on that rate.
+ *
+ * 1 us/tick is 50 us/s - a full traverse in nine seconds, which is slower than
+ * anyone wants but is a legitimate thing to ask for while watching a linkage.
+ *
+ * 200 us/tick is 10000 us/s: this car's whole travel in 44 ms, which is faster
+ * than the servo can physically follow. That is the right ceiling - the limit
+ * should stop being the software's before it stops being the hardware's, so
+ * that "as fast as it goes" means the servo and not this file.
+ */
+#define SLEW_MIN_STEP 1
+#define SLEW_MAX_STEP 200
 
 /* ---- what the caller can see -------------------------------------------- */
 
@@ -142,6 +156,7 @@ typedef struct
     Int32 servoMaxUs;
     Int32 escMinUs;
     Int32 escMaxUs;
+    Int32 slewStepUs;    /* us of pulse per 20 ms tick */
 } DriveState;
 
 /* ---- state --------------------------------------------------------------- */
@@ -175,6 +190,16 @@ static Int32 servoTarget = STEER_CAL_CENTER;
 static Int32 servoNow    = STEER_CAL_CENTER;
 static Int32 escTarget   = DRIVE_NEUTRAL_US;
 static Int32 escNow      = DRIVE_NEUTRAL_US;
+
+/*
+ * How fast an output may move, in microseconds per tick.
+ *
+ * Runtime, because the right answer changes with what you are doing: slow while
+ * finding an end stop with the horn off, fast while driving. Baking it in meant
+ * the steering crawled to wherever a slider was dragged, which reads as lag in
+ * the UI and is a real limit on the car.
+ */
+static Int32 slewStepUs = SLEW_STEP_US;
 
 static absolute_time_t nextSlew;
 
@@ -272,8 +297,8 @@ static inline Void drivePump(Void)
     if(servoLive && servoNow != servoTarget)
     {
         const Int32 d    = servoTarget - servoNow;
-        const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
-                         : ((d < -SLEW_STEP_US) ? -SLEW_STEP_US : d);
+        const Int32 step = (d > slewStepUs) ? slewStepUs
+                         : ((d < -slewStepUs) ? -slewStepUs : d);
         servoNow += step;
         servoWriteUs(PIN_SERVO, (UInt32) servoNow);
     }
@@ -284,8 +309,8 @@ static inline Void drivePump(Void)
     if(escNow != want)
     {
         const Int32 d    = want - escNow;
-        const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
-                         : ((d < -SLEW_STEP_US) ? -SLEW_STEP_US : d);
+        const Int32 step = (d > slewStepUs) ? slewStepUs
+                         : ((d < -slewStepUs) ? -slewStepUs : d);
         escNow += step;
         servoWriteUs(PIN_ESC, (UInt32) escNow);
     }
@@ -333,7 +358,25 @@ static inline DriveState driveRead(Void)
     s.servoMaxUs    = servoMax;
     s.escMinUs      = escMin;
     s.escMaxUs      = escMax;
+    s.slewStepUs    = slewStepUs;
     return s;
+}
+
+/*
+ * How fast the outputs may move, in microseconds of pulse per 20 ms tick.
+ *
+ * Clamped rather than refused, so a caller asking for "as fast as possible" by
+ * passing a large number gets the ceiling instead of an error. Returns false
+ * only for a value that is not a rate at all.
+ */
+static inline Bool driveSetSlew(Int32 usPerTick)
+{
+    if(usPerTick <= 0)
+    {
+        return false;
+    }
+    slewStepUs = driveClamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
+    return true;
 }
 
 /* ---- steering ------------------------------------------------------------ */

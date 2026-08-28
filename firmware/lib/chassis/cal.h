@@ -41,6 +41,23 @@
 #define THROTTLE_CAL_MIN 1500
 #define THROTTLE_CAL_MAX 1600
 
+/* ---- tuning, not measurement ---------------------------------------------
+ *
+ * Everything above is a fact about this car that was found by moving it. This
+ * is not: it is a choice about how fast the outputs are allowed to move, and a
+ * different answer is right for a bench than for driving.
+ *
+ * It lives here anyway for one reason - this is the file that survives a
+ * reflash. The throttle range was runtime-only until 2026-08-27 and was
+ * silently lost every time the board was rewritten, which is not a setting, it
+ * is a setting you have to remember to make again.
+ *
+ * Microseconds of pulse per 20 ms tick. 8 is 400 us/s, which walks this car's
+ * 440 us of steering travel in 1.1 seconds - deliberate on a bench and far too
+ * slow to steer around anything.
+ */
+#define SLEW_CAL_STEP 8
+
 /* When these were measured, and by whom, so a stale calibration can be spotted
  * rather than trusted. "defaults" means nobody has calibrated this car yet. */
 #define STEER_CAL_STAMP "measured 2026-08-27"

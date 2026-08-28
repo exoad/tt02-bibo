@@ -254,7 +254,7 @@ surrounding history.
 | Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS` |
 | Namespaces | lowercase — `ui`, `board`, `app` |
 | Headers | `.hxx`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.hxx`’s C twin, `firmware/lib/types.h` |
-| Vocabulary | one place: `shared/shared.hxx` for C++, `shared/shared.h` for C. Both are on the include path of every target |
+| Vocabulary | `shared/shared.hxx` for C++, `firmware/lib/types.h` for C. Two files kept in step by hand, not one file shared — nothing ever included both |
 | Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
 | Standard library | use the `shared/shared.hxx` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
