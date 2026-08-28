@@ -35,7 +35,11 @@ DIRS = [
     at('hub', 'tests'),
     at('hub', 'tests', 'board_preview'),
     at('lidar', 'bridge'),
-    at('firmware', 'src'),
+    at('firmware', 'lib'),
+    at('firmware', 'lib', 'drivers'),
+    at('firmware', 'lib', 'chassis'),
+    at('firmware', 'app'),
+    at('firmware', 'scratch'),
     at('shared'),
 ]
 
@@ -235,6 +239,84 @@ for name in [r[0] for r in RULES]:
     if len(v) > 24:
         print('  ... and %d more' % (len(v) - 24))
 
+# ===========================================================================
+# The structural pass: not what the code LOOKS like, but where it may reach.
+#
+# Formatting rules keep a file readable. These keep the ARCHITECTURE true - and
+# the architecture is the thing that decays silently, because every individual
+# violation is a reasonable-looking one-line include that solves somebody's
+# immediate problem.
+# ===========================================================================
+
+# Which layer a firmware file belongs to, and what that layer may include.
+#
+# Strictly downward. hal knows nothing; drivers and chassis know hal; an app
+# knows only the umbrella. A driver that needed another driver would be two
+# things wearing one name, and the moment that is allowed the folders stop
+# meaning anything.
+LAYERS = {
+    'firmware/lib':          {'shared.h'},
+    'firmware/lib/drivers':  {'hal.h', 'drivers/display.h'},
+    'firmware/lib/chassis':  {'hal.h', 'chassis/cal.h'},
+    'firmware/app':          {'tt02.h'},
+    'firmware/scratch':      {'tt02.h'},
+}
+
+# gfx draws INTO a Screen, so it is the one file at lib root that legitimately
+# reaches sideways into a driver. Written down rather than special-cased in
+# silence.
+LAYER_EXTRA = {
+    'firmware/lib/gfx.h':  {'drivers/display.h'},
+    'firmware/lib/tt02.h': {'hal.h', 'gfx.h', 'drivers/display.h',
+                            'drivers/range.h', 'drivers/storage.h',
+                            'chassis/cal.h', 'chassis/chassis.h'},
+}
+
+def layer_of(path):
+    p = path.replace('\\', '/')
+    for key in sorted(LAYERS, key=len, reverse=True):
+        if ('/' + key + '/') in ('/' + p):
+            return key
+    return None
+
+print('\n--- include direction ---')
+struct_bad = 0
+for path in files:
+    p = path.replace('\\', '/')
+    key = None
+    for k in sorted(LAYERS, key=len, reverse=True):
+        if k in p:
+            key = k
+            break
+    if key is None:
+        continue
+
+    allowed = set(LAYERS[key])
+    for extra_path, extra in LAYER_EXTRA.items():
+        if p.endswith(extra_path.split('firmware/')[-1]):
+            allowed |= extra
+
+    for i, line in enumerate(rd(path).split('\n')):
+        t = line.strip()
+        if not t.startswith('#include "'):
+            continue
+        what = t.split('"')[1]
+        # The Pico SDK is not ours and is not a layer. hal.h exists precisely to
+        # be the file that reaches into it, and an app naming pico/bootrom.h for
+        # a reboot is honest about a dependency it genuinely has. The rule this
+        # pass enforces is about the direction OUR headers point.
+        if what.startswith(('pico/', 'hardware/', 'boards/')):
+            continue
+        if what in allowed:
+            continue
+        struct_bad += 1
+        print('  %-28s %5d  includes %s' % (os.path.basename(path), i + 1, what))
+        print('  %-28s        %s may include: %s'
+              % ('', key, ', '.join(sorted(allowed)) or '(nothing)'))
+
+if struct_bad == 0:
+    print('  ok')
+
 # resource.h is included by app.rc, which rc.exe compiles - not a C++ compiler,
 # and not a C one either. Renaming it would break the resource build to satisfy
 # a rule about C++ headers.
@@ -264,6 +346,8 @@ for path in files:
             continue
         print('  %s:%d  %s' % (os.path.basename(path), i + 1, l.strip()))
         total += 1
+
+total += struct_bad
 
 print('\n%d file(s): %s' % (
     len(files),

@@ -11,13 +11,13 @@ A single CMake configure has exactly one toolchain, so the cross-compiled half
 cannot be a subdirectory of the native half. The root `CMakeLists.txt` therefore
 covers the hub, and the firmware is **attached** beside it. Both then index at
 once, and Ctrl-clicking `gpioOpen()` from a sketch lands in
-`firmware/src/pico2w.h`.
+`firmware/lib/hal.h`.
 
 ---
 
 ## If every INCLUDE in firmware/ is red
 
-Symptom, in `pico2w.h` or any firmware source:
+Symptom, in `hal.h` or any firmware source:
 
 ```
 #include "shared.h"        Cannot find file 'shared.h' in search paths: ...\firmware\src.
@@ -50,10 +50,12 @@ problem wearing a different hat:
 | `Cannot resolve symbol 'printf'`, `'strcmp'`, `'atof'` | no C standard library include path either — the cross-compiler's, which only the project knows |
 | `C-style cast is used instead of a C++ cast` inside a `.h` | an unowned `.h` is assumed to be C++. The headers are now listed as sources on their targets, so this resolves with the project attached |
 
-The project types (`Int32`, `UInt16`, `Utf8`) resolve **without** attaching:
-`pico2w.h` reaches `shared.h` by an explicit relative path rather than through
-`-I`, precisely so the vocabulary never depends on IDE configuration. Everything
-above needs the toolchain, and the toolchain comes from the project.
+The project types (`Int32`, `UInt16`, `Utf8`) come from `shared.h`, which
+`hal.h` includes. Both that and the library's own `drivers/…` and `chassis/…`
+includes resolve through `-I`: the targets put `firmware/lib` and `shared` on
+the include path, so an editor that has not attached the project will not find
+them. `firmware/.clangd` exists for exactly that gap. Everything below needs the
+toolchain as well, and the toolchain comes from the project.
 
 `firmware/.clangd` is a fallback for the same problem, pointing the parser at
 that compile database directly. It helps where the IDE falls back to clangd; it

@@ -57,7 +57,7 @@
 #ifndef TT02_GFX_H
 #define TT02_GFX_H
 
-#include "st77xx.h"
+#include "drivers/display.h"
 
 #include <stdarg.h>
 #include <stdio.h>

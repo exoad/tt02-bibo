@@ -9,7 +9,7 @@
 # Lines starting with # and blank lines are ignored. Add your own entries here;
 # anything with a .uf2 on disk can be flashed, whether this repo built it or not.
 
-sketch       | Sketch (Code view) | firmware/build/sketch.uf2            | yes | Whatever is currently in the hub's Code view. Overwritten by every Build & Flash - this is scratch space for learning the hardware, not firmware. Source: firmware/src/sketch.c.
+sketch       | Sketch (Code view) | firmware/build/sketch.uf2            | yes | Whatever is currently in the hub's Code view. Overwritten by every Build & Flash - this is scratch space for learning the hardware, not firmware. Source: firmware/scratch/sketch.c.
 
 pico_debug   | Debug / Blink        | firmware/build/pico_debug.uf2        | yes | LED blink plus a serial command console (PING, ID, STATUS, LED, BOOTSEL). The bring-up image - flash this when you want to prove the board and the link.
 

@@ -49,7 +49,7 @@
 #ifndef TT02_SDCARD_H
 #define TT02_SDCARD_H
 
-#include "pico2w.h"
+#include "hal.h"
 
 /* Default pins - the wiring above. sdOpenOn() takes them explicitly. */
 #define PIN_SD_SCK   26

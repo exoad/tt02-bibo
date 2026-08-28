@@ -117,9 +117,14 @@ board that is silent.
 
 ---
 
-## Headers: `shared.h` and `pico2w.h`
+## Headers: `shared.h` and `hal.h`
 
-Two headers sit under `src/` and are not firmware in themselves.
+Two headers are the foundation everything else stands on, and are not firmware
+in themselves. `shared.h` lives in `shared/`; `hal.h` is the base of
+`firmware/lib/`. Application code includes NEITHER directly - it includes
+`tt02.h`, which pulls in the whole library. See
+[../docs/conventions.md](../docs/conventions.md) for the layout and the rules
+the style audit enforces.
 
 **`shared.h`** is the manbox alias layer ([github.com/exoad/manbox](https://github.com/exoad/manbox),
 `C_STYLE_GUIDE.md`) — `Int32`, `Float32`, `Void`, `Bool`, `CharSeq`. It is the C
@@ -128,7 +133,7 @@ is an `Int32` in the firmware. Reproduced verbatim with its BSD-3 notice, plus
 two typedefs (`Utf16`, `Utf32`) that upstream's `CharSeq16`/`CharSeq32` macros
 reference without defining — marked as a local addition in the file.
 
-**`pico2w.h`** wraps the SDK in this project's naming: `gpioOpen`, `gpioWrite`,
+**`hal.h`** wraps the SDK in this project's naming: `gpioOpen`, `gpioWrite`,
 `sleepMs`, `servoWriteUs`, `adcReadVolts`. Everything is `static inline`, so it
 costs nothing at runtime and needs no library — include it and go.
 
@@ -136,7 +141,7 @@ The seam matters: below it the SDK's `snake_case` and `uint`, above it ours.
 Mixing the two inside one function is how a style guide quietly dies.
 
 ```c
-#include "pico2w.h"
+#include "tt02.h"
 
 Int32 main(Void)
 {
@@ -190,7 +195,7 @@ Not wrapped: I2C, SPI and UART. They are stateful and have real configuration,
 and a wrapper that hid that would teach the wrong thing. They get their own
 headers when the ToF sensors and the SD card go on.
 
-The hub's **Code** tab completes every name in `pico2w.h` and `shared.h` with its
+The hub's **Code** tab completes every name in `hal.h` and `shared.h` with its
 signature and a one-line doc — the table lives in `hub/src/complete.cpp` and is
 kept in step with this header by hand.
 

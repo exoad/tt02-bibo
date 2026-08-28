@@ -40,7 +40,7 @@
 
 /* Explicit relative path, so this resolves without an include path being set.
  * See the note in pico2w.h. */
-#include "../../shared/shared.h"
+#include "tt02.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -50,9 +50,6 @@
 /* The sensor drivers. pico_debug is the image the hub talks to, so it is the
  * one that has to be able to answer "what is attached and what does it say" -
  * a sketch cannot, because the hub does not know what sketch is on the board. */
-#include "pico2w.h"
-#include "steering_cal.h"
-#include "vl53l1x.h"
 
 /* Not LINE_MAX: POSIX reserves that name and <limits.h> defines it on some
  * newlib configurations, which would make this a redefinition rather than a
@@ -386,300 +383,56 @@ static Void handleTofMode(Utf8* arg)
 
 /* ================================================================== drive ==
  *
- * The steering servo on GP0 and the ESC on GP1.
+ * Console glue over lib/chassis. Everything about what is SAFE lives in the
+ * module; everything here is about what to SAY.
  *
- * These are the two outputs on this car that can break something. A servo
- * driven past where its linkage allows stalls and cooks its own motor; an ESC
- * handed a throttle figure spins a wheel that may be on the ground. So the
- * limits here are deliberately TIGHTER than the hardware's, and widening them
- * is a decision somebody makes on purpose rather than a default they inherit.
- *
- * ---------------------------------------------------------------------------
- * THE THREE RULES
- *
- * 1. NEUTRAL AT BOOT, ALWAYS. Both channels hold 1500 us from the moment the
- *    program starts. An ESC will not arm until it has seen neutral, and a
- *    servo that wakes at an extreme is a servo pushing against a stop.
- *
- * 2. THE ESC IS DISARMED UNTIL ASKED. Every throttle command is refused until
- *    `ESC ARM` is sent, and disarming snaps back to neutral. That is one
- *    deliberate act between a slider and a moving car.
- *
- * 3. NOTHING JUMPS. Commands set a TARGET; a timer walks the output toward it
- *    at a bounded rate. A slider dragged from one end to the other produces a
- *    sweep rather than a step, which is the difference between a servo turning
- *    and a servo being hit.
- *
- * ---------------------------------------------------------------------------
- * BEFORE THE ESC IS EVER ARMED, from docs/wiring.md:
- *
- *   - Common ground between the Pico and the ESC is REQUIRED. Signal and ground
- *     cross between two power domains; without the shared return the ESC sees
- *     noise, and that presents as erratic behaviour rather than as no behaviour.
- *   - NEVER connect the BEC 5 V to the Pico while USB is attached. Back-feeding
- *     the 5 V rail from two sources risks both.
- *   - Put the car on a stand. A wheel on the ground turns a test into a
- *     departure.
+ * That split is the point. A console, a sketch and an autonomy loop each
+ * carrying their own copy of "refuse throttle until armed" is three copies of a
+ * rule, and the day one of them forgets is the day it matters. The module
+ * refuses; this file reports the refusal.
  */
-
-#define PIN_SERVO 0
-#define PIN_ESC   1
-
-/*
- * Tighter than SERVO_MIN_US/MAX_US on purpose.
- *
- * A TT-02's steering has perhaps 30 degrees of useful travel and the linkage
- * binds before the servo's own limits. +/-200 us either side of neutral is a
- * visible sweep that reaches nothing hard. Widen it once the real end stops are
- * known - with the servo horn OFF, so a mistake costs nothing.
- */
-/*
- * Measured on this car, not guessed. steering_cal.h is written by the hub's
- * Drive view; if nobody has calibrated yet it carries the old 1300-1700 guess
- * and says so in its stamp.
- */
-#define SERVO_DEFAULT_MIN STEER_CAL_LEFT
-#define SERVO_DEFAULT_MAX STEER_CAL_RIGHT
-
-/*
- * The HARD bound. Nothing widens past this, whatever is asked - it is the
- * servo's own specification, and beyond it the pulse means nothing at all.
- */
-#define SERVO_HARD_MIN 1000
-#define SERVO_HARD_MAX 2000
-
-/*
- * Forward only, and barely. 1500 is neutral; 1600 is a crawl on a bench. The
- * reverse half is not offered at all - a Hobbywing QuicRun needs a
- * brake-then-reverse sequence and getting that wrong on a stand is how a
- * gearbox meets a workbench.
- */
-#define ESC_DEFAULT_MIN 1500
-#define ESC_DEFAULT_MAX 1600
-
-/* Reverse stays unreachable even by widening. Finding a steering end stop is
- * careful work; discovering reverse by accident is not the same kind of
- * experiment. */
-#define ESC_HARD_MIN 1500
-#define ESC_HARD_MAX 1700
-
-#define SERVO_NEUTRAL_US 1500
-
-/* Microseconds of pulse per tick of the slew timer. At 50 Hz a full 400 us
- * sweep then takes about half a second, which looks deliberate. */
-#define SLEW_STEP_US 8
-#define SLEW_TICK_MS 20
-
-static Bool  driveUp      = false;
-static Bool  escArmed     = false;
-
-/*
- * The working limits, widened only on purpose.
- *
- * They start narrow and are raised a little at a time while watching the
- * linkage, which is how an end stop is FOUND. Guessing them from a datasheet
- * gets you a number the linkage has never heard of.
- */
-static Int32 servoMin = SERVO_DEFAULT_MIN;
-static Int32 servoMax = SERVO_DEFAULT_MAX;
-static Int32 escMin   = ESC_DEFAULT_MIN;
-static Int32 escMax   = ESC_DEFAULT_MAX;
-
-/*
- * Whether the steering output is being driven at all.
- *
- * Starts FALSE, and that is the important part. Driving neutral the instant USB
- * power arrives assumes 1500 us is a safe place for the linkage to be, and on a
- * car whose horn is a tooth off its spline it is not - the servo picks up the
- * frame and leans on it before anyone has typed a command. Nothing moves here
- * until someone asks for it.
- */
-static Bool  servoLive    = false;
-
-/*
- * Where the wheels actually point straight.
- *
- * SERVO_NEUTRAL_US is the middle of the SERVO's range and has nothing to say
- * about the CAR's. The horn only fits its spline at whole-tooth intervals, so
- * straight-ahead lands wherever it lands - and treating 1500 as centre is how a
- * servo comes to lean on a frame at what everyone is calling neutral.
- */
-static Int32 servoCenterUs = STEER_CAL_CENTER;
-
-static Int32 servoTarget  = STEER_CAL_CENTER;
-static Int32 servoNow     = STEER_CAL_CENTER;
-static Int32 escTarget    = SERVO_NEUTRAL_US;
-static Int32 escNow       = SERVO_NEUTRAL_US;
-
-static absolute_time_t nextSlew;
-
-static Int32 clampInt(Int32 v, Int32 lo, Int32 hi)
-{
-    if(v < lo)
-    {
-        return lo;
-    }
-    if(v > hi)
-    {
-        return hi;
-    }
-    return v;
-}
-
-/*
- * Steering as a fraction of THIS car's travel: -1 is full lock one way, +1 is
- * full lock the other, 0 is wheels straight.
- *
- * The two sides are scaled separately, and that is the entire point. This car
- * throws 254 us one way from centre and 186 us the other - the linkage is not
- * symmetric and no linkage ever is. Code that adds microseconds to a midpoint
- * therefore steers further one way than the other, and a car that pulls left
- * every time it is asked for "half" is a bug that hides for a long time
- * because every individual command looks reasonable.
- *
- * Above this line nothing knows what a microsecond is. That is the deal: the
- * calibration is the only place the numbers live, and changing it changes every
- * caller at once.
- */
-static Int32 steerToUs(Float32 n)
-{
-    if(n < -1.0f)
-    {
-        n = -1.0f;
-    }
-    if(n > 1.0f)
-    {
-        n = 1.0f;
-    }
-
-    /* A centre sitting on top of an end is not a range to interpolate across.
-     * It happens while limits are being narrowed, and it must not divide. */
-    const Int32 lo = servoCenterUs - servoMin;
-    const Int32 hi = servoMax - servoCenterUs;
-
-    if(n < 0.0f)
-    {
-        return servoCenterUs + (Int32) (n * (Float32) ((lo > 0) ? lo : 0));
-    }
-    return servoCenterUs + (Int32) (n * (Float32) ((hi > 0) ? hi : 0));
-}
-
-/* The inverse, in THOUSANDTHS so it can be printed without a float formatter.
- * -1000 to +1000. */
-static Int32 steerFromUs(Int32 us)
-{
-    const Int32 d = us - servoCenterUs;
-    if(d == 0)
-    {
-        return 0;
-    }
-    if(d < 0)
-    {
-        const Int32 lo = servoCenterUs - servoMin;
-        return (lo > 0) ? ((d * 1000) / lo) : 0;
-    }
-    const Int32 hi = servoMax - servoCenterUs;
-    return (hi > 0) ? ((d * 1000) / hi) : 0;
-}
-
-static Void driveOpen(Void)
-{
-    servoOpen(PIN_SERVO);
-    servoOpen(PIN_ESC);
-
-    /* The steering stays released until asked for. See servoLive. */
-    servoRelease(PIN_SERVO);
-    servoLive = false;
-
-    /* The ESC does get neutral immediately: it is listening for exactly that
-     * to come up disarmed, and an ESC fed no pulse at all sits there beeping
-     * about a lost signal. Neutral is the quiet, safe thing to send it. */
-    servoWriteUs(PIN_ESC, SERVO_NEUTRAL_US);
-
-    nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
-    driveUp  = true;
-}
-
-/* Walks each output toward its target. Called from the main loop. */
-static Void drivePump(Void)
-{
-    if(!driveUp || !time_reached(nextSlew))
-    {
-        return;
-    }
-    nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
-
-    if(servoLive && servoNow != servoTarget)
-    {
-        const Int32 d = servoTarget - servoNow;
-        const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
-                         : ((d < -SLEW_STEP_US) ? -SLEW_STEP_US : d);
-        servoNow += step;
-        servoWriteUs(PIN_SERVO, (UInt32) servoNow);
-    }
-
-    /* A disarmed ESC is walked back to neutral rather than snapped there: a
-     * step to neutral from a moving throttle is itself a jolt. */
-    const Int32 want = escArmed ? escTarget : SERVO_NEUTRAL_US;
-    if(escNow != want)
-    {
-        const Int32 d = want - escNow;
-        const Int32 step = (d > SLEW_STEP_US) ? SLEW_STEP_US
-                         : ((d < -SLEW_STEP_US) ? -SLEW_STEP_US : d);
-        escNow += step;
-        servoWriteUs(PIN_ESC, (UInt32) escNow);
-    }
-}
 
 static Void printDrive(Void)
 {
+    const DriveState d = driveRead();
     printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
            "servo_on=%d servo_c=%d steer_m=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
-           servoNow, servoTarget, escNow, escTarget, escArmed ? 1 : 0,
-           servoLive ? 1 : 0, servoCenterUs, steerFromUs(servoTarget),
-           servoMin, servoMax, escMin, escMax);
+           d.servoUs, d.servoTargetUs, d.escUs, d.escTargetUs,
+           d.escArmed ? 1 : 0, d.servoLive ? 1 : 0, d.centerUs, d.steerMilli,
+           d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
 }
 
-/*
- * The ESC disarmed and neutral, and the steering RELEASED. The one command
- * worth being able to send without thinking.
- *
- * Released rather than centred, and that distinction is the whole point of
- * this command. Centre is only a safe place to put a servo if 1500 us happens
- * to be where the linkage wants to sit; if the horn is a tooth off its spline
- * it is not, and "stop" would then mean "keep pushing, just somewhere else".
- * Nothing to push with is the only stop that is a stop on every car.
- */
-static Void driveStop(Void)
+static Void handleSteer(Utf8* arg)
 {
-    escArmed    = false;
-    escTarget   = SERVO_NEUTRAL_US;
-    servoTarget = servoCenterUs;
-
-    /* Immediate, not slewed. A stop that eases in is not a stop. */
-    escNow   = SERVO_NEUTRAL_US;
-    servoNow = servoCenterUs;
-    servoLive = false;
-    if(driveUp)
+    /* Rejected rather than defaulted: "STEER" with nothing after it is far more
+     * likely to be a truncated command than a request to centre, and guessing
+     * that it means zero would turn a typo into a movement. */
+    if(arg[0] == '\0')
     {
-        servoWriteUs(PIN_ESC, SERVO_NEUTRAL_US);
-        servoRelease(PIN_SERVO);
+        printf("ERR steer wants -1.0 to 1.0\n");
+        return;
     }
-    printf("OK stop\n");
+
+    driveSteer((Float32) atof(arg));
+    printDrive();
 }
 
-/*
- * Widens or narrows the working range.
- *
- * Clamped to the HARD bound, and the target is pulled back inside the new range
- * so narrowing can never leave an output sitting outside its own limits.
- *
- * This is the calibration path: with the servo horn OFF, step the limit outward
- * until the servo reaches the angle the steering actually needs, then put the
- * horn back on. Doing it with the linkage attached is how a servo discovers a
- * stop by pushing against it.
- */
+static Void handleTrim(Utf8* arg)
+{
+    const Int32 us = atoi(arg);
+    if(us == 0)
+    {
+        const DriveState d = driveRead();
+        printf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
+        return;
+    }
+
+    driveTrim(us);
+    printf("INFO centre is now %d us\n", driveRead().centerUs);
+    printDrive();
+}
+
 static Void handleLimits(Utf8* arg)
 {
     Int32 lo = 0;
@@ -689,18 +442,11 @@ static Void handleLimits(Utf8* arg)
         printf("ERR limits wants <min> <max>\n");
         return;
     }
-
-    if(lo >= hi)
+    if(!driveSetSteerLimits(lo, hi))
     {
         printf("ERR limits min must be below max\n");
         return;
     }
-
-    servoMin = clampInt(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
-    servoMax = clampInt(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
-
-    servoTarget   = clampInt(servoTarget, servoMin, servoMax);
-    servoCenterUs = clampInt(servoCenterUs, servoMin, servoMax);
     printDrive();
 }
 
@@ -713,53 +459,11 @@ static Void handleEscLimits(Utf8* arg)
         printf("ERR esclimits wants <min> <max>\n");
         return;
     }
-    if(lo >= hi)
+    if(!driveSetThrottleLimits(lo, hi))
     {
         printf("ERR esclimits min must be below max\n");
         return;
     }
-
-    escMin = clampInt(lo, ESC_HARD_MIN, ESC_HARD_MAX);
-    escMax = clampInt(hi, ESC_HARD_MIN, ESC_HARD_MAX);
-
-    escTarget = clampInt(escTarget, escMin, escMax);
-    printDrive();
-}
-
-/*
- * Moves where "centre" is.
- *
- * Clamped into the working range, because a centre outside the limits is a
- * centre the servo can never be commanded to - SERVO CENTER would silently mean
- * something else, which is worse than refusing.
- */
-static Void handleSteer(Utf8* arg)
-{
-    /* Rejected rather than defaulted: "STEER" with nothing after it is far more
-     * likely to be a truncated command than a request to centre, and guessing
-     * that it means zero would turn a typo into a movement. */
-    if(arg[0] == '\0')
-    {
-        printf("ERR steer wants -1.0 to 1.0\n");
-        return;
-    }
-
-    const Float32 n = (Float32) atof(arg);
-    servoTarget = clampInt(steerToUs(n), servoMin, servoMax);
-    printDrive();
-}
-
-static Void handleTrim(Utf8* arg)
-{
-    const Int32 us = atoi(arg);
-    if(us == 0)
-    {
-        printf("ERR trim wants microseconds, %d-%d\n", servoMin, servoMax);
-        return;
-    }
-
-    servoCenterUs = clampInt(us, servoMin, servoMax);
-    printf("INFO centre is now %d us\n", servoCenterUs);
     printDrive();
 }
 
@@ -772,35 +476,23 @@ static Void handleServo(Utf8* arg)
      */
     if(strcmp(arg, "OFF") == 0)
     {
-        servoLive = false;
-        servoRelease(PIN_SERVO);
+        driveEngage(false);
         printf("INFO servo released - no pulse, no holding torque\n");
         printDrive();
         return;
     }
 
-    /*
-     * ON picks up from wherever the target already is, and slews there from
-     * neutral rather than jumping: the servo has been limp and its actual
-     * position is unknown, so the first command after engaging is the one most
-     * likely to be a surprise.
-     */
     if(strcmp(arg, "ON") == 0)
     {
-        if(!servoLive)
-        {
-            servoNow  = servoCenterUs;
-            servoLive = true;
-            servoWriteUs(PIN_SERVO, (UInt32) servoNow);
-        }
-        printf("INFO servo engaged - holding %d us\n", servoTarget);
+        driveEngage(true);
+        printf("INFO servo engaged - holding %d us\n", driveRead().servoTargetUs);
         printDrive();
         return;
     }
 
     if(strcmp(arg, "CENTER") == 0 || strcmp(arg, "CENTRE") == 0)
     {
-        servoTarget = clampInt(servoCenterUs, servoMin, servoMax);
+        driveCenter();
         printDrive();
         return;
     }
@@ -808,25 +500,20 @@ static Void handleServo(Utf8* arg)
     const Int32 us = atoi(arg);
     if(us == 0)
     {
+        const DriveState d = driveRead();
         printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
-               servoMin, servoMax);
+               d.servoMinUs, d.servoMaxUs);
         return;
     }
 
     /* A position asked for while released is remembered, not obeyed. Engaging
      * is a separate, deliberate act - the same shape as arming the ESC. */
-    if(!servoLive)
+    const Bool wasLive = driveRead().servoLive;
+    driveSteerUs(us);
+    if(!wasLive)
     {
-        servoTarget = clampInt(us, servoMin, servoMax);
         printf("INFO servo is released - target stored, send SERVO ON\n");
-        printDrive();
-        return;
     }
-
-    /* Clamped rather than rejected: a slider that stops moving at the limit is
-     * clearer than one that silently does nothing past it. The reply reports
-     * what was actually taken. */
-    servoTarget = clampInt(us, servoMin, servoMax);
     printDrive();
 }
 
@@ -834,44 +521,42 @@ static Void handleEsc(Utf8* arg)
 {
     if(strcmp(arg, "ARM") == 0)
     {
-        escArmed  = true;
-        escTarget = SERVO_NEUTRAL_US;
+        driveArm(true);
         printf("INFO esc armed - neutral held\n");
         printDrive();
         return;
     }
     if(strcmp(arg, "DISARM") == 0)
     {
-        escArmed  = false;
-        escTarget = SERVO_NEUTRAL_US;
+        driveArm(false);
         printf("INFO esc disarmed\n");
         printDrive();
         return;
     }
     if(strcmp(arg, "NEUTRAL") == 0)
     {
-        escTarget = SERVO_NEUTRAL_US;
+        driveThrottleNeutral();
         printDrive();
-        return;
-    }
-
-    if(!escArmed)
-    {
-        printf("ERR esc not armed - send ESC ARM first\n");
         return;
     }
 
     const Int32 us = atoi(arg);
     if(us == 0)
     {
-        printf("ERR esc wants microseconds, %d-%d\n",
-               escMin, escMax);
+        const DriveState d = driveRead();
+        printf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
         return;
     }
 
-    escTarget = clampInt(us, escMin, escMax);
+    /* The module owns the arming rule; this only reports it. */
+    if(!driveThrottleUs(us))
+    {
+        printf("ERR esc not armed - send ESC ARM first\n");
+        return;
+    }
     printDrive();
 }
+
 
 static Void handleLine(Utf8* line)
 {
@@ -931,6 +616,7 @@ static Void handleLine(Utf8* line)
     if(strcmp(line, "STOP") == 0)
     {
         driveStop();
+        printf("OK stop\n");
         return;
     }
 

@@ -10,7 +10,7 @@
 # every include underlined at once:
 #
 #     #include "shared.h"        Cannot find file 'shared.h' in search paths:
-#                                C:\...\firmware\src.
+#                                C:\...\firmware\app.
 #     #include "hardware/adc.h"  Cannot find directory 'hardware' ...
 #
 # Nothing is wrong with the code or the build - the build has every one of those
@@ -18,7 +18,9 @@
 # translation units with the full include set.
 #
 # CompilationDatabase points the parser at exactly that file, so headers like
-# pico2w.h resolve by inheriting the flags of a .c that includes them.
+# lib/hal.h resolve by inheriting the flags of a .c that includes them - and so
+# do the library's own "drivers/display.h" style includes, which need
+# firmware/lib on the include path and get it from the same database.
 #
 # THIS IS A FALLBACK, NOT THE FIX. Attaching the project is the fix, and it also
 # gets you building and flashing from the IDE:

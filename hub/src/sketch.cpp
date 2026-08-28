@@ -68,7 +68,7 @@ Str slotPath()
     const Str root = PicoFlash::repoRoot();
     if(root.empty())
         return Str();
-    return root + "\\firmware\\src\\sketch.c";
+    return root + "\\firmware\\scratch\\sketch.c";
 }
 
 Str firmwareDir()
@@ -76,34 +76,60 @@ Str firmwareDir()
     const Str root = PicoFlash::repoRoot();
     if(root.empty())
         return Str();
-    return root + "\\firmware\\src";
+    return root + "\\firmware";
 }
+
+// The library's folders, in dependency order rather than alphabetical: the
+// order a person should read them in, which is also the order they may include
+// each other in.
+//
+// A fixed list rather than a directory walk. The layout is the architecture -
+// if a folder appears that is not here, that is a decision somebody made and it
+// should be a decision somebody writes down, not something a scan quietly
+// absorbs.
+const Char* const FW_DIRS[] = {
+    "lib",
+    "lib\\drivers",
+    "lib\\chassis",
+    "app",
+    "scratch",
+};
 
 Vec<Str> listFirmware()
 {
     Vec<Str> out;
 
-    const Str d = firmwareDir();
-    if(d.empty())
+    const Str root = firmwareDir();
+    if(root.empty())
         return out;
 
-    const Char* const PATTERNS[] = { "\\*.c", "\\*.h" };
-    for(const Char* pat : PATTERNS)
+    for(const Char* sub : FW_DIRS)
     {
-        WIN32_FIND_DATAA fd = {};
-        HANDLE           h = ::FindFirstFileA((d + pat).c_str(), &fd);
-        if(h == INVALID_HANDLE_VALUE)
-            continue;
-        do
+        const Str d = root + "\\" + sub;
+
+        const Char* const PATTERNS[] = { "\\*.c", "\\*.h" };
+        for(const Char* pat : PATTERNS)
         {
-            if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
-                out.push_back(fd.cFileName);
+            WIN32_FIND_DATAA fd = {};
+            HANDLE           h = ::FindFirstFileA((d + pat).c_str(), &fd);
+            if(h == INVALID_HANDLE_VALUE)
+                continue;
+            do
+            {
+                if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+                {
+                    // Relative to the firmware root, so the caller's
+                    // firmwareDir() + "\\" + name still resolves - and so the
+                    // folder a file lives in is visible in the picker rather
+                    // than being something you have to already know.
+                    out.push_back(Str(sub) + "\\" + fd.cFileName);
+                }
+            }
+            while(::FindNextFileA(h, &fd) != 0);
+            ::FindClose(h);
         }
-        while(::FindNextFileA(h, &fd) != 0);
-        ::FindClose(h);
     }
 
-    std::sort(out.begin(), out.end());
     return out;
 }
 
@@ -123,9 +149,10 @@ Str targetFor(const Str& path)
        && _strnicmp(path.c_str(), lib.c_str(), lib.size()) == 0)
         return "sketch";
 
-    // Everything else under firmware/src belongs to the debug image. shared.h
-    // is compiled into both, and naming pico_debug for it is the safe answer:
-    // it is the target a person editing a header is almost certainly testing.
+    // Everything else under firmware/ belongs to the debug image. The library
+    // headers are compiled into BOTH images, and naming pico_debug for them is
+    // the safe answer: it is the target a person editing the chassis or the HAL
+    // is almost certainly testing.
     return "pico_debug";
 }
 

@@ -364,3 +364,66 @@ lidar/      RPLIDAR C1 viewer + notes
 docs/       wiring.md, calibration.md, log.md
 vendor/     upstream clones (gitignored) - rplidar_sdk lives here
 ```
+
+---
+
+## The firmware library
+
+```
+firmware/
+  lib/
+    tt02.h            the ONE header an application includes
+    hal.h             the board: gpio, pwm, i2c, spi, serial, led, time
+    gfx.h             drawing into a Screen
+    drivers/
+      display.h       ST7789 / ST7735 panel
+      range.h         VL53L1X
+      storage.h       SD over SPI
+    chassis/
+      chassis.h       steering + throttle, in fractions not microseconds
+      cal.h           GENERATED - this car's measured numbers
+  app/
+    main.c            the serial console
+  scratch/
+    sketch.c          the Code view's scratch slot
+```
+
+### Rules, enforced by `hub/tools/style_audit.py`
+
+**Includes point strictly downward.**
+
+| a file in | may include |
+|---|---|
+| `lib/` | `shared.h` |
+| `lib/drivers/` | `hal.h` |
+| `lib/chassis/` | `hal.h`, `chassis/cal.h` |
+| `app/`, `scratch/` | `tt02.h` — and nothing else of ours |
+
+`lib/gfx.h` is the one written-down exception: it draws into a `Screen`, so it
+reaches sideways into `drivers/display.h`. The Pico SDK (`pico/`, `hardware/`)
+is exempt everywhere — it is not ours and is not a layer, and `hal.h` exists
+precisely to be the file that reaches into it.
+
+A driver that needed another driver would be two things wearing one name. The
+moment that is allowed, the folders stop meaning anything — which is why this is
+a build failure and not a guideline.
+
+**Application code includes `tt02.h` and nothing else.** Reaching past it to a
+specific header still compiles and is still wrong: it makes every file's
+dependencies something you have to read the top of the file to know, and a
+header that moves then breaks callers that had no business naming it.
+
+**Every public symbol carries its module's prefix** — `gpio`, `pwm`, `i2c`,
+`spi`, `serial`, `led`, `tft`, `gfx`, `vl53`, `sd`, `drive` — so a call site
+says which layer it reaches into without anyone looking it up.
+
+**Safety lives in the module, not the caller.** `chassis.h` refuses throttle
+until armed and returns `Bool`; it never prints. A console, a sketch and an
+autonomy loop each carrying their own copy of that rule is three copies, and the
+day one of them forgets is the day it matters.
+
+**Header-only, `static inline`.** Deliberate on a microcontroller: the compiler
+sees through `gpioWrite()` and emits the single store it actually is. The cost
+is compile time rather than link time, which at this size is free. The state in
+`chassis.h` is file-scope, so each firmware image must stay a single translation
+unit — two would give you two chassis and one car.
