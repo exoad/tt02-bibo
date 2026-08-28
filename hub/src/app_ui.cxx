@@ -281,6 +281,25 @@ Bool  driveSlewHeld = false;
 // quick made the throttle violent and gentling the throttle made the steering
 // vague. Neither is a setting anybody would choose - it was the only shape
 // available.
+// ---- keyboard drive -------------------------------------------------------
+//
+// Hold-to-drive on WASD. Off by default and it stays off until asked, because
+// this turns a text-editing application into something that moves a vehicle.
+Bool  wasdOn = false;
+
+// The forward cap, in microseconds. Deliberately a crawl to begin with: six
+// microseconds above the measured idle, about a tenth of this car's 59 us band.
+// A slider, because the right number is found by driving and the first one
+// should be too slow rather than too fast.
+Int32 wasdCapUs = 1547;
+
+// What was last SENT, so a command only goes out when the answer changes. At
+// 60 fps the naive version is sixty commands a second per axis, which the link
+// carries and the console does not survive.
+Int32   wasdSentSteer = 0;      // -1, 0, +1
+Int32   wasdSentEsc   = 0;      // 0 = neutral, else the cap
+Float64 wasdFedAt     = 0.0;    // last keepalive, for the board's deadman
+
 Int32 driveEscSlew     = 8;
 Int32 driveEscSlewWant = 8;
 Bool  driveEscSlewHeld = false;
@@ -6743,6 +6762,93 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::TreePop();
     }
 
+    // ---- keyboard drive --------------------------------------------------
+    driveSection("Keyboard", "WASD, hold to drive");
+
+    {
+        const Bool ready = driveServoOn && driveArmed;
+
+        if(ui::checkbox("Drive with WASD", &wasdOn))
+        {
+            // Turning it OFF must put the car down, not just stop listening.
+            if(!wasdOn)
+            {
+                wasdSentSteer = 0;
+                wasdSentEsc   = 0;
+                sendPico("STEER 0");
+                sendPico("ESC NEUTRAL");
+            }
+        }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "A / D   steer to FULL LOCK while held\n"
+                "W       forward at the cap below\n"
+                "S       brake to neutral\n"
+                "\n"
+                "Hold to drive - releasing a key stops that axis. The keys do\n"
+                "nothing while you are typing in the console, the code editor,\n"
+                "or any text field, and nothing while the link is down.\n"
+                "\n"
+                "S is a BRAKE, not reverse. The drivetrain is forward-only and\n"
+                "the throttle clamp turns any number below idle INTO idle, so\n"
+                "there is no value that means backwards.\n"
+                "\n"
+                "The board stops itself if this window stops sending for 400 ms,\n"
+                "which is what covers the app being minimised, hung or closed.");
+        }
+
+        // What is missing, named. Enabling this does NOT arm the ESC or engage
+        // the servo - those stay deliberate acts - so it has to say why nothing
+        // happens rather than letting somebody hold W at a dead car.
+        // SameLine only when there IS something to put there. Calling it with
+        // nothing after leaves the NEXT thing on this line, which put "Forward
+        // cap" beside the checkbox the moment the car was ready.
+        if(!ready || wasdOn)
+        {
+            ImGui::SameLine();
+        }
+        if(!ready)
+        {
+            const Char* missing = (!driveServoOn && !driveArmed)
+                                      ? "servo released, ESC disarmed"
+                                  : (!driveServoOn) ? "servo released"
+                                                    : "ESC disarmed";
+            colored(ui::sem::WARN, "%s", missing);
+        }
+        else if(wasdOn)
+        {
+            colored(ui::sem::GOOD, "live");
+        }
+
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "Forward cap");
+
+        {
+            Char r[48];
+            std::snprintf(r, sizeof(r), "%d us above idle",
+                          clampInt(wasdCapUs, driveEscMin, driveEscMax) - driveEscMin);
+            driveReading(ui::sem::MUTED, r);
+        }
+
+        ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
+        ImGui::SliderInt("##wasdcap", &wasdCapUs, driveEscMin, driveEscMax, "%d us");
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "How much throttle W asks for.\n"
+                "\n"
+                "Starts at 1547 - six microseconds over the measured idle of\n"
+                "%d, about a tenth of this car's %d us band. That is a crawl,\n"
+                "which is the right place to find out whether the controls do\n"
+                "what you think before finding out how fast the car is.\n"
+                "\n"
+                "Bounded by the calibration, so it cannot ask for more than the\n"
+                "board would allow anyway.",
+                driveEscMin, driveEscMax - driveEscMin);
+        }
+    }
+
     // ---- lights ----------------------------------------------------------
     //
     // Its own section, at the end. The tail-lamp threshold used to sit second
@@ -8218,6 +8324,13 @@ Void drawEmergencyStop(Float32 width)
         driveSweep     = false;
         driveServoWant = 1500;
         driveEscWant   = 1500;
+
+        // Keyboard drive goes off, not just to neutral. A stop that leaves the
+        // thing that was driving still armed is a stop you have to press twice.
+        wasdOn        = false;
+        wasdSentSteer = 0;
+        wasdSentEsc   = 0;
+
         sendPico("STOP");
         LOG_WARN("drive", "emergency stop");
     }
@@ -8814,10 +8927,118 @@ Void updateAutoLights()
     lightInput = lights::detect(autoLightState, d, ImGui::GetTime());
 }
 
+// ---------------------------------------------------------------------------
+// WASD, polled once a frame.
+//
+// A/D steer to FULL LOCK on press and back to straight on release - digital,
+// the way a game does it, which is what was asked for. W is forward at the cap
+// below. S is a BRAKE, not reverse: chassis.h is forward-only, and the throttle
+// clamp turns any number below idle INTO idle, so there is no value that means
+// backwards and pretending otherwise would send the car forwards.
+//
+// ---- what stops this driving the car while somebody types ----------------
+//
+// Not io.WantCaptureKeyboard. That is true on essentially every frame in this
+// app - main.cxx sets ImGuiConfigFlags_NavEnableKeyboard, and once any window
+// holds nav focus ImGui raises the flag - so guarding on it would mean this
+// never fires at all.
+//
+// Not io.WantTextInput alone either. The code editor never sets it: it draws an
+// InvisibleButton and reads io.InputQueueCharacters directly, so while somebody
+// is typing "daw" in vim, WantTextInput is false and IsAnyItemActive() is false.
+// Those are literally three of these four keys.
+//
+// So all three, and the editor's own flag is the one that matters most.
+// ---------------------------------------------------------------------------
+Void updateKeyboardDrive()
+{
+    const ImGuiIO& io = ImGui::GetIO();
+
+    const Bool linkUp = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
+
+    // Typing, dragging, or the editor has the keyboard.
+    const Bool typing = io.WantTextInput
+                     || codeView.focused
+                     || ImGui::IsAnyItemActive();
+
+    // ImGui clears its key-down array when the window loses focus, so the keys
+    // read as released by themselves - but the app is not drawn at all while
+    // minimised (main.cxx sleeps instead of calling frame()), so nothing here
+    // runs to send the stop. That case is the board's deadman, not this.
+    const Bool live = wasdOn && linkUp && !typing && !io.AppFocusLost;
+
+    const Bool a = live && ImGui::IsKeyDown(ImGuiKey_A);
+    const Bool d = live && ImGui::IsKeyDown(ImGuiKey_D);
+    const Bool w = live && ImGui::IsKeyDown(ImGuiKey_W);
+    const Bool sK = live && ImGui::IsKeyDown(ImGuiKey_S);
+
+    // Both directions at once cancels rather than picking one.
+    const Int32 wantSteer = (a == d) ? 0 : (a ? -1 : 1);
+
+    // S wins over W. A brake that can be overridden by still holding the
+    // throttle is not a brake.
+    const Int32 wantEsc = (w && !sK) ? 1 : 0;
+
+    if(wantSteer != wasdSentSteer)
+    {
+        wasdSentSteer = wantSteer;
+        driveSteerWant = static_cast<Float32>(wantSteer);
+
+        Char cmd[32];
+        std::snprintf(cmd, sizeof(cmd), "STEER %d", wantSteer);
+        pollPico(cmd);
+    }
+
+    if(wantEsc != wasdSentEsc)
+    {
+        wasdSentEsc = wantEsc;
+
+        if(wantEsc == 0)
+        {
+            driveEscWant = 1500;
+            pollPico("ESC NEUTRAL");
+        }
+        else
+        {
+            const Int32 us = clampInt(wasdCapUs, driveEscMin, driveEscMax);
+            driveEscWant   = us;
+
+            Char cmd[32];
+            std::snprintf(cmd, sizeof(cmd), "ESC %d", us);
+            pollPico(cmd);
+        }
+        wasdFedAt = ImGui::GetTime();
+    }
+
+    // ---- the keepalive ---------------------------------------------------
+    //
+    // The board stops itself after DEADMAN_MS with nothing heard, and this
+    // sends on key CHANGES - so holding W steadily would go quiet and be
+    // stopped for it. Re-sending the same throttle is idempotent and is what
+    // proves the host is still here.
+    //
+    // Only while actually driving. A car sitting still does not need a
+    // heartbeat, and one sent anyway is traffic that hides real traffic.
+    if(live && wasdSentEsc != 0)
+    {
+        const Float64 now = ImGui::GetTime();
+        if(now - wasdFedAt > 0.2)
+        {
+            wasdFedAt = now;
+
+            const Int32 us = clampInt(wasdCapUs, driveEscMin, driveEscMax);
+            Char cmd[32];
+            std::snprintf(cmd, sizeof(cmd), "ESC %d", us);
+            pollPico(cmd);
+        }
+    }
+}
+
 Void app::frame()
 {
     pumpData();
     updateAutoLights();
+    updateKeyboardDrive();
 
     // Ctrl+` for the console, which is the shortcut every editor and terminal
     // already uses for exactly this. Checked before anything draws so the
