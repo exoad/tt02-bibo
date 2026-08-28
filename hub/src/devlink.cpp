@@ -242,6 +242,12 @@ const Char* portKindName(PortKind k)
     return "unknown";
 }
 
+Bool couldBeLidar(PortKind k)
+{
+    return k == PortKind::PORT_KIND_CP210X
+        || k == PortKind::PORT_KIND_UNKNOWN;
+}
+
 Loss classify(const Str& port, UInt32 win32Code)
 {
     // The code is the cheap signal and it is sufficient on its own when it

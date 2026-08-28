@@ -73,7 +73,7 @@
 #ifndef TT02_ST77XX_H
 #define TT02_ST77XX_H
 
-#include "hal.h"
+#include "../hal.h"
 
 /* ===== the one line to change ============================================= */
 #define PANEL_ST7789 1

@@ -326,9 +326,16 @@ than a raw `dist > 0` count would.
 
 Run it with the motor spinning for at least two minutes first.
 
-The scan core is **dToF** — it times picosecond-scale light return, and both the
-reference oscillator and the detector propagation delay drift with die
-temperature. Cold readings sit outside the calibrated point.
+The scan core is a **time-of-flight** ranger — the C1M1 datasheet rev 1.1 (p. 4)
+says "laser flight-of-time (TOF) ranging principle … combined with the
+high-speed laser acquisition and high-precision fusion algorithm". Timing
+references and detector chains drift with die temperature, so a cold reading
+sits outside whatever point the unit was calibrated at.
+
+This used to say "dToF … picosecond-scale". That was inferred from other
+RPLIDAR models, not read from the C1's datasheet. The two-minute figure below is
+measured from this unit and is unaffected; the explanation was the borrowed
+part.
 
 This matters for SLAM specifically: a drifting offset during the first minutes
 corrupts early map geometry *relative to* later geometry, which is exactly the

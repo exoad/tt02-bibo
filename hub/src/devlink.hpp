@@ -101,6 +101,21 @@ enum class PortKind
 // COM numbers with no way to tell which is which.
 [[nodiscard]] const Char* portKindName(PortKind k);
 
+// Could a port of this kind be the lidar.
+//
+// Takes the KIND rather than the port name on purpose: the rule is about
+// classification, not about this machine, so it can be exercised without a
+// CP210x plugged in. It lived in app_ui.cpp behind a port name, where the only
+// test that could reach it was one that needed the right hardware attached -
+// and the test that existed was a tautology that could not fail.
+//
+// This is the rule that stops the lidar grabbing COM10. A USB CDC device is a
+// Pico; a Bluetooth port is a dead end that answers with a timeout looking
+// exactly like a broken lidar. UNKNOWN is allowed through because an
+// unrecognised adapter is a real possibility and refusing it would be worse
+// than offering it.
+[[nodiscard]] Bool couldBeLidar(PortKind k);
+
 // The verdict. `win32Code` may be 0 when the caller has no code to offer, in
 // which case the enumeration decides on its own.
 [[nodiscard]] Loss classify(const Str& port, UInt32 win32Code);

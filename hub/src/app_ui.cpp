@@ -64,7 +64,7 @@ PicoFlash   picoFlash;
 Vec<Str> lidarPorts;
 Vec<const Char*> portItems;
 Int32   portIndex  = -1;
-Int32   baudIndex  = 2;     // 460800
+Int32   baudIndex  = 0;     // 460800, the only rate a C1 has
 Int32   rangeIndex = 0;     // Fit
 Float32 uiDpiScale         = 1.0f;
 
@@ -763,8 +763,31 @@ constexpr Int32 HISTORY = 240;
 Float32 hzHist[HISTORY] = {};
 Int32   hzCount = 0;
 
-const Int32   BAUDS[]      = { 115200, 256000, 460800 };
-const Char* BAUD_ITEMS[]  = { "115200", "256000", "460800" };
+// The C1M1 datasheet rev 1.1 lists exactly ONE rate: Figure 2-1 gives
+// "Communication Speed 460800" and Figure 2-8 gives 460800 with no minimum and
+// no maximum. There is no 115200 mode and no 256000 mode to fall back to.
+//
+// Those two were offered here for years, defaulted past, and could only ever
+// have produced a connection that opens and then returns nothing - which is
+// among the worst failures to hand somebody, because the port is open and the
+// device is silent and neither of those looks like a wrong setting.
+//
+// The others are kept, disabled, rather than deleted: somebody who has read
+// about an A1 at 115200 will come looking for it, and a greyed entry that says
+// why is a better answer than an empty list that looks like a missing feature.
+struct BaudOpt
+{
+    Int32       rate;
+    const Char* label;
+    Bool        supported;
+};
+
+const BaudOpt BAUDS[] = {
+    { 460800, "460800", true  },
+    { 115200, "115200", false },
+    { 256000, "256000", false },
+};
+constexpr Int32 BAUD_COUNT = static_cast<Int32>(sizeof(BAUDS) / sizeof(BAUDS[0]));
 
 struct RangeOpt { const Char* label; Float32 mm; };   // mm <= 0 means auto-fit
 const RangeOpt RANGES[] = {
@@ -892,9 +915,7 @@ Void refreshPorts()
 // explains itself.
 Bool portCouldBeLidar(const Str& port)
 {
-    const dev::PortKind k = dev::portKind(port);
-    return k == dev::PortKind::PORT_KIND_CP210X
-        || k == dev::PortKind::PORT_KIND_UNKNOWN;
+    return dev::couldBeLidar(dev::portKind(port));
 }
 
 Bool isBusy()
@@ -2047,13 +2068,13 @@ Void connect()
     LOG_INFO("lidar", "connect requested: port=%s baud=%d",
              (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
                  ? lidarPorts[portIndex].c_str() : "(none)",
-             BAUDS[baudIndex]);
+             BAUDS[baudIndex].rate);
     if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size())) return;
 
     radarView.clear();
     haveFrame = false;
     hzCount   = 0;
-    lidarSource.start(lidarPorts[portIndex], BAUDS[baudIndex]);
+    lidarSource.start(lidarPorts[portIndex], BAUDS[baudIndex].rate);
 }
 
 Void startBackup()
@@ -2096,7 +2117,7 @@ Void drawMapHud(const ImVec2& p0, const ImVec2& size)
     {
         Char conn[64];
         std::snprintf(conn, sizeof(conn), "%s  -  %d baud",
-                      lidarPorts[portIndex].c_str(), BAUDS[baudIndex]);
+                      lidarPorts[portIndex].c_str(), BAUDS[baudIndex].rate);
         dl->AddText(f, px, ImVec2(x, y), ui::plot::LABEL, conn);
     }
 
@@ -2679,8 +2700,37 @@ Void drawConnection()
     else
         ui::combo("##port", &portIndex, portItems.data(), static_cast<Int32>(portItems.size()));
 
+    // Drawn by hand rather than with ui::combo, because the point is that two
+    // of the three rows are NOT selectable and a combo cannot say that.
     ImGui::SetNextItemWidth(-FLT_MIN);
-    ui::combo("##baud", &baudIndex, BAUD_ITEMS, 3);
+    if(ImGui::BeginCombo("##baud", BAUDS[baudIndex].label))
+    {
+        for(Int32 i = 0; i < BAUD_COUNT; ++i)
+        {
+            ImGui::BeginDisabled(!BAUDS[i].supported);
+            if(ImGui::Selectable(BAUDS[i].label, i == baudIndex))
+            {
+                baudIndex = i;
+            }
+            ImGui::EndDisabled();
+
+            if(!BAUDS[i].supported
+               && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip(
+                    "Not a rate the C1 has.\n"
+                    "\n"
+                    "The C1M1 datasheet lists 460800 and nothing else - no\n"
+                    "minimum, no maximum, no alternative. Other RPLIDAR models\n"
+                    "do run at 115200, which is where the expectation comes\n"
+                    "from, and it is why this is greyed rather than absent.\n"
+                    "\n"
+                    "Selecting it would open the port and then receive nothing,\n"
+                    "which looks like a dead sensor rather than a wrong number.");
+            }
+        }
+        ImGui::EndCombo();
+    }
     ImGui::EndDisabled();
 
     const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
@@ -2811,6 +2861,21 @@ Void tabLive()
         ImGui::TableNextColumn(); statCell(hz,     "Hz");
         ImGui::TableNextColumn(); statCell(pts,    "pts/rev");
         ImGui::TableNextColumn(); statCell(valid,  "in-spec");
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Returns inside 0.05-12 m, as a share of the revolution.\n"
+                "\n"
+                "12 m is the WHITE figure. The C1M1 datasheet gives two ranges:\n"
+                "0.05-12 m against a 70%% reflective target and only 0.05-6 m\n"
+                "against a 10%% one. A dark surface at 8 m is outside what the\n"
+                "sensor is specified to see, and it is counted here as in-spec\n"
+                "regardless - nothing in the stream says how reflective the\n"
+                "thing it hit was.\n"
+                "\n"
+                "So on a dark scene this reads high. It is a coverage figure,\n"
+                "not a guarantee.");
+        }
 
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); statCell(nearS, "near (m)");
@@ -2939,8 +3004,10 @@ Void tabDevice()
         keyValue("Avg rate", st.uptimeS > 1.0 ? "%.2f Hz" : "--",
                  st.uptimeS > 1.0 ? static_cast<Float64>(st.frames) / st.uptimeS : 0.0);
 
-        // The dToF core drifts with die temperature, so ranges are not
-        // trustworthy for the first two minutes. That is a value, not a lecture.
+        // The time-of-flight core drifts with die temperature, so ranges are
+         // not trustworthy for the first two minutes. Measured on this unit -
+         // the datasheet states TOF and a fusion algorithm and goes no finer.
+         // That is a value, not a lecture.
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); ImGui::TextDisabled("Pre-heat");
         ImGui::TableNextColumn();
@@ -7786,8 +7853,13 @@ Void app::init(Float32 dpiScale)
         if(i + 2 < __argc && __argv[i + 2][0] != '-')
         {
             const Int32 b = std::atoi(__argv[i + 2]);
-            for(Int32 k = 0; k < 3; ++k)
-                if(BAUDS[k] == b) baudIndex = k;
+            for(Int32 k = 0; k < BAUD_COUNT; ++k)
+            {
+                if(BAUDS[k].rate == b)
+                {
+                    baudIndex = k;
+                }
+            }
         }
         break;
     }

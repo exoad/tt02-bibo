@@ -255,17 +255,24 @@ for name in [r[0] for r in RULES]:
 # knows only the umbrella. A driver that needed another driver would be two
 # things wearing one name, and the moment that is allowed the folders stop
 # meaning anything.
+#
+# The SPELLING is part of the rule, not incidental. "../hal.h" rather than
+# "hal.h" from lib/drivers/, because a quoted include is searched next to the
+# including file first and hal.h is not there - the bare form compiles only
+# because -Ifirmware/lib is set, and an editor without the project loaded then
+# underlines every include in the library at once. Allowing both spellings here
+# would let the unparseable one back in one file at a time.
 LAYERS = {
     # hal.h is the floor everything stands on, so lib root may name it. hal.h
     # itself only needs shared.h, and naming itself is not a thing a file does.
     'firmware/lib':          {'types.h', 'hal.h'},
-    'firmware/lib/drivers':  {'hal.h', 'drivers/display.h'},
-    'firmware/lib/chassis':  {'hal.h', 'chassis/cal.h'},
-    'firmware/app':          {'tt02.h'},
-    'firmware/scratch':      {'tt02.h'},
+    'firmware/lib/drivers':  {'../hal.h'},
+    'firmware/lib/chassis':  {'../hal.h', 'cal.h'},
+    'firmware/app':          {'../lib/tt02.h'},
+    'firmware/scratch':      {'../lib/tt02.h'},
     # A host test of ONE header includes that header, not the umbrella - the
     # umbrella drags in the SDK and these compile with MSVC.
-    'firmware/tests':        {'text.h', 'types.h'},
+    'firmware/tests':        {'../lib/text.h'},
 }
 
 # gfx draws INTO a Screen, so it is the one file at lib root that legitimately
@@ -273,6 +280,7 @@ LAYERS = {
 # silence.
 LAYER_EXTRA = {
     'firmware/lib/gfx.h':  {'drivers/display.h'},
+    'firmware/lib/status.h': {'hal.h'},
     'firmware/lib/tt02.h': {'hal.h', 'text.h', 'gfx.h', 'status.h',
                             'drivers/display.h',
                             'drivers/range.h', 'drivers/storage.h',

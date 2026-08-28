@@ -18,9 +18,17 @@ rev 18, health 0, serial `A11FE18AC1EA9ED2B29C92F522BB466C`.
 **Run the lidar with the motor spinning for at least 2 minutes before trusting
 any measurement.**
 
-The C1's scan core is dToF — it times picosecond-scale light return. Both the
-reference oscillator and the detector propagation delay drift with die
-temperature, and cold readings sit outside the calibrated point.
+The C1's scan core is a time-of-flight ranger — the datasheet (rev 1.1, p. 4)
+says "laser flight-of-time (TOF) ranging principle … combined with the
+high-speed laser acquisition and high-precision fusion algorithm", and the cover
+calls it Fusion Technology. Any timing reference and any detector chain drift
+with die temperature, and a cold reading sits outside whatever point the unit
+was calibrated at.
+
+**"dToF" and "picosecond-scale" used to be written here and are not from the
+datasheet** — they were inferred from how other RPLIDAR models work. The pre-heat
+advice below is a MEASURED result from this unit, and stands on its own; only
+the explanation for it was borrowed.
 
 This matters beyond bench accuracy: a drifting offset during the first minutes
 of a mapping run corrupts early map geometry *relative to* later geometry, which
