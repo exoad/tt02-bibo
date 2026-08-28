@@ -33,6 +33,16 @@ struct PicoLine
     Float64      tS      = 0.0;    // seconds since the link was opened
     Bool        outgoing = false;  // true = host -> Pico
     Str text;
+
+    // Traffic the HUB generated on its own schedule, rather than anything a
+    // person did: the STATUS, LIGHTS and sensor polls, and the replies to them.
+    //
+    // Worth a bit of its own because a console that shows it is unreadable. The
+    // indicator poll alone runs at 120 ms, so eight sends and eight replies a
+    // second bury everything you actually typed. Hidden by default and one
+    // checkbox away, rather than dropped - when the question is "is the link
+    // alive at all", this chatter is the answer.
+    Bool poll = false;
 };
 
 class PicoLink
@@ -55,7 +65,8 @@ public:
 
     // Queues a line for transmission. A trailing newline is added if absent.
     // Safe to call when disconnected (the line is dropped and counted).
-    Void send(const Str& line);
+    // `poll` marks a line the hub sent itself on a timer. See PicoLine::poll.
+    Void send(const Str& line, Bool poll = false);
 
     // Moves newly logged lines into `out` (appending). Returns how many were
     // appended. Call once per UI frame.

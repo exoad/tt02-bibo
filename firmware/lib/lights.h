@@ -94,6 +94,17 @@ typedef enum
 } LightTurn;
 
 /* ---- state, one copy - the same deal chassis.h makes -------------------- */
+/*
+ * A side held on by hand, ignoring the steering. LIGHT_TURN_OFF means "the rule
+ * decides", which is the normal state.
+ *
+ * This exists because "the indicator does not work" has three completely
+ * different causes - the rule never fired, the pin never moved, or the LED is
+ * wired wrong - and without a way to light a lamp on demand you cannot tell
+ * which. Forcing a side takes the first two out of the question in one command.
+ */
+static LightTurn lightsForced  = LIGHT_TURN_OFF;
+
 static Bool      lightsUp      = false;
 static Bool      lightsOn      = true;   /* the master switch, for testing   */
 static LightTurn lightsTurn    = LIGHT_TURN_OFF;
@@ -143,6 +154,17 @@ static inline LightTurn lightsSide(Void)
     return lightsTurn;
 }
 
+/* Hold a side lit, or LIGHT_TURN_OFF to hand it back to the steering. */
+static inline Void lightsForce(LightTurn side)
+{
+    lightsForced = side;
+}
+
+static inline LightTurn lightsForcedSide(Void)
+{
+    return lightsForced;
+}
+
 /* Whether a lamp is lit THIS INSTANT, for a program that reports itself. */
 static inline Bool lightsIsLit(Void)
 {
@@ -163,8 +185,30 @@ static inline Void lightsTick(Int32 steerMilli)
         return;
     }
 
-    const Int32  mag = (steerMilli < 0) ? -steerMilli : steerMilli;
     const UInt64 now = nowUs();
+
+    /* Forced: blink the named side and do not look at the steering at all. The
+     * blink still runs, because a lamp held solid tests the wiring but not the
+     * thing anybody is actually looking for. */
+    if(lightsForced != LIGHT_TURN_OFF)
+    {
+        if(lightsTurn != lightsForced)
+        {
+            lightsTurn   = lightsForced;
+            lightsLit    = true;
+            lightsNextUs = now + (UInt64) LIGHT_ON_MS * 1000u;
+        }
+        if(now >= lightsNextUs)
+        {
+            lightsLit    = !lightsLit;
+            lightsNextUs = now + (UInt64) (lightsLit ? LIGHT_ON_MS : LIGHT_OFF_MS) * 1000u;
+        }
+        lightsWrite(lightsTurn == LIGHT_TURN_LEFT  && lightsLit,
+                    lightsTurn == LIGHT_TURN_RIGHT && lightsLit);
+        return;
+    }
+
+    const Int32 mag = (steerMilli < 0) ? -steerMilli : steerMilli;
 
     const LightTurn want = (steerMilli <= -LIGHT_ON_MILLI) ? LIGHT_TURN_LEFT
                          : (steerMilli >=  LIGHT_ON_MILLI) ? LIGHT_TURN_RIGHT

@@ -377,12 +377,20 @@ Void applyStyle(Float32 dpiScale)
     // control reading as a rounded tile; containers are square outright. This is
     // the single change that does the most to move the app from "Material" to
     // "tool" - a 5px radius reads as a card no matter what colour it is.
-    style.FrameRounding     = 2.0f;
-    style.GrabRounding      = 2.0f;
-    style.TabRounding       = 2.0f;
+    // SHARP. Every corner in the program, at zero.
+    //
+    // Two pixels of radius was the tell that this was a modern UI wearing a
+    // skeuomorphic coat: rounded corners are a 2010s idiom, and the look this is
+    // after is the decade before that - hard edges, wireframes, and colours out
+    // of a sixteen-entry palette. Rounding is set in ONE place so there is no
+    // second answer anywhere; a widget that rounds itself would stand out
+    // immediately now, which is the point.
+    style.FrameRounding     = 0.0f;
+    style.GrabRounding      = 0.0f;
+    style.TabRounding       = 0.0f;
     style.ChildRounding     = 0.0f;
     style.WindowRounding    = 0.0f;
-    style.PopupRounding     = 2.0f;
+    style.PopupRounding     = 0.0f;
     style.ScrollbarRounding = 0.0f;
 
     // Widgets are outlined; containers are not. Both of these tools ring every

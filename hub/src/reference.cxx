@@ -26,19 +26,29 @@ namespace {
 // Deliberately the app's own colours rather than a datasheet's. A reference you
 // read twenty times a day should look like the tool it lives in, not like a PDF
 // pasted into it.
-constexpr ImU32 INK        = IM_COL32(0xE8, 0xE4, 0xDA, 0xFF);
-constexpr ImU32 INK_DIM    = IM_COL32(0x92, 0x8C, 0x82, 0xFF);
-constexpr ImU32 INK_FAINT  = IM_COL32(0x60, 0x5C, 0x56, 0xFF);
-constexpr ImU32 PAPER      = IM_COL32(0x14, 0x15, 0x18, 0xFF);
-constexpr ImU32 RULE       = IM_COL32(0x33, 0x34, 0x38, 0xFF);
+// ---------------------------------------------------------------------------
+// The reference library's palette, which is now the program's palette.
+//
+// This file used to draw on PAPER: warm off-white ink, a slightly brown rule, a
+// muted six-colour set for the pin roles. It was a printed datasheet, and it
+// looked like one - which was the intent and is no longer, because a printed
+// page next to a black terminal and a wireframe drivetrain is the odd one out.
+//
+// Same drawing, same six meanings, out of the sixteen.
+// ---------------------------------------------------------------------------
+constexpr ImU32 INK        = ui::ansi::BRWHITE;
+constexpr ImU32 INK_DIM    = ui::ansi::WHITE;
+constexpr ImU32 INK_FAINT  = ui::ansi::IDLE;
+constexpr ImU32 PAPER      = ui::ansi::BLACK;
+constexpr ImU32 RULE       = ui::ansi::GRID;
 
-constexpr ImU32 C_GPIO     = IM_COL32(0x6D, 0xA8, 0x5E, 0xFF);   // free to use
-constexpr ImU32 C_USED     = IM_COL32(0xD8, 0x9E, 0x3C, 0xFF);   // spoken for
-constexpr ImU32 C_GROUND   = IM_COL32(0x6A, 0x6A, 0x6A, 0xFF);
-constexpr ImU32 C_POWER    = IM_COL32(0xC0, 0x4B, 0x3F, 0xFF);
-constexpr ImU32 C_SYS      = IM_COL32(0x51, 0x7C, 0xA8, 0xFF);
-constexpr ImU32 C_WIRE     = IM_COL32(0x8A, 0x86, 0x7E, 0xFF);
-constexpr ImU32 C_NOTE     = IM_COL32(0xB5, 0x8F, 0x4A, 0xFF);
+constexpr ImU32 C_GPIO     = ui::ansi::GREEN;     // free to use
+constexpr ImU32 C_USED     = ui::ansi::BRCYAN;    // spoken for, by us
+constexpr ImU32 C_GROUND   = ui::ansi::GREY;
+constexpr ImU32 C_POWER    = ui::ansi::RED;
+constexpr ImU32 C_SYS      = ui::ansi::BLUE;
+constexpr ImU32 C_WIRE     = ui::ansi::GREY;
+constexpr ImU32 C_NOTE     = ui::ansi::YELLOW;
 
 inline Float32 minf(Float32 a, Float32 b)
 {
@@ -113,15 +123,47 @@ Float32 Canvas::textWidth(const Char* s, Float32 pt) const
     return (scale > 0.0f) ? (w / scale) : w;   // back into page units
 }
 
+// ---------------------------------------------------------------------------
+// SQUARE. The rounding argument is accepted and ignored.
+//
+// About twenty call sites in this file pass a radius, and they were all written
+// when the page was pretending to be printed paper with soft-cornered component
+// bodies. The look is hard-edged now, and the honest options were to edit every
+// call or to make the primitive square. Editing every call would leave the next
+// person free to pass a radius again and quietly reintroduce one rounded box in
+// the middle of a wireframe.
+//
+// The parameter stays rather than being deleted so the call sites still read as
+// what they are and the diff is one function rather than twenty lines of noise.
+// ---------------------------------------------------------------------------
 Void Canvas::rect(Float32 x0, Float32 y0, Float32 x1, Float32 y1, ImU32 col, Float32 rounding, Float32 thickness) const
 {
-    dl->AddRect(at(x0, y0), at(x1, y1), col, len(rounding), 0,
+    static_cast<Void>(rounding);
+    dl->AddRect(at(x0, y0), at(x1, y1), col, 0.0f, 0,
                 maxf(1.0f, len(thickness)));
 }
 
+// ---------------------------------------------------------------------------
+// NOT FILLED. This draws the outline, in the colour it was handed.
+//
+// A wireframe is made of lines. The name is kept because forty call sites read
+// "this is the body of a component" rather than "these are four lines", and
+// that is what they mean - but the body of a component in a wireframe drawing
+// is its outline and nothing else.
+//
+// The Pico's PCB was the obvious casualty of the old behaviour: a solid slate
+// rectangle with forty pads sitting on it, which is a picture of a board rather
+// than a drawing of one. Empty now, and the pads read as pads because they are
+// the only things inside it.
+//
+// Where a fill genuinely IS needed - to stop something behind showing through -
+// the caller draws it explicitly in the page colour. Nothing in this file
+// currently needs to.
+// ---------------------------------------------------------------------------
 Void Canvas::rectFilled(Float32 x0, Float32 y0, Float32 x1, Float32 y1, ImU32 col, Float32 rounding) const
 {
-    dl->AddRectFilled(at(x0, y0), at(x1, y1), col, len(rounding));
+    static_cast<Void>(rounding);
+    dl->AddRect(at(x0, y0), at(x1, y1), col, 0.0f, 0, maxf(1.0f, len(1.0f)));
 }
 
 Void Canvas::line(Float32 x0, Float32 y0, Float32 x1, Float32 y1, ImU32 col, Float32 thickness) const
@@ -131,14 +173,10 @@ Void Canvas::line(Float32 x0, Float32 y0, Float32 x1, Float32 y1, ImU32 col, Flo
 
 Void Canvas::circle(Float32 x, Float32 y, Float32 r, ImU32 col, Bool filled, Float32 thickness) const
 {
-    if(filled)
-    {
-        dl->AddCircleFilled(at(x, y), len(r), col, 0);
-    }
-    else
-    {
-        dl->AddCircle(at(x, y), len(r), col, 0, maxf(1.0f, len(thickness)));
-    }
+    // `filled` is accepted and ignored, for the same reason rectFilled no longer
+    // fills: a hole in a board and a pad on one are both rings in a wireframe.
+    static_cast<Void>(filled);
+    dl->AddCircle(at(x, y), len(r), col, 0, maxf(1.0f, len(thickness)));
 }
 
 namespace {
@@ -156,7 +194,7 @@ Float32 heading(const Canvas& c, Float32 x, Float32 y, Float32 w, const Char* s)
 Float32 note(const Canvas& c, Float32 x, Float32 y, Float32 w, const Char* const* lines, Int32 n)
 {
     const Float32 h = 12.0f + (static_cast<Float32>(n) * 15.0f);
-    c.rectFilled(x, y, x + w, y + h, IM_COL32(0x2A, 0x22, 0x12, 0xFF), 3.0f);
+    c.rectFilled(x, y, x + w, y + h, C_NOTE, 3.0f);
     c.line(x, y, x, y + h, C_NOTE, 2.0f);
     for(Int32 i = 0; i < n; ++i)
     {
@@ -191,19 +229,19 @@ Void drawPinout(const Canvas& c)
     const Float32 y0 = heading(c, 20.0f, 26.0f, 620.0f,
                                "Raspberry Pi Pico 2 W  -  pinout and this car's wiring");
     c.text(20.0f, y0 + 2.0f, INK_DIM,
-           "Green is free. Amber is already spoken for on this vehicle.", 11.0f);
+           "Green is free. Cyan is already spoken for on this vehicle.", 11.0f);
 
     const Float32 by1 = BOARD_Y0 + (PIN_ROWS * PIN_PITCH);
 
     // The board itself, with the USB end marked - which is the only thing that
     // tells you which way round you are holding it.
     c.rectFilled(BOARD_X0, BOARD_Y0 - 22.0f, BOARD_X1, by1 + 22.0f,
-                 IM_COL32(0x1E, 0x22, 0x2A, 0xFF), 6.0f);
+                 C_WIRE, 6.0f);
     c.rect(BOARD_X0, BOARD_Y0 - 22.0f, BOARD_X1, by1 + 22.0f, RULE, 6.0f, 1.0f);
 
     const Float32 midX = (BOARD_X0 + BOARD_X1) * 0.5f;
     c.rectFilled(midX - 17.0f, BOARD_Y0 - 30.0f, midX + 17.0f, BOARD_Y0 - 14.0f,
-                 IM_COL32(0x8A, 0x8A, 0x90, 0xFF), 2.0f);
+                 C_WIRE, 2.0f);
     c.text(midX, BOARD_Y0 - 38.0f, INK_DIM, "USB", 10.0f,
            Canvas::Align::ALIGN_CENTRE);
     c.text(midX, by1 + 34.0f, INK_FAINT, "Pico 2 W  /  RP2350", 10.0f,
@@ -289,7 +327,7 @@ Void drawLedCircuit(const Canvas& c)
 
     // Pico edge.
     c.rectFilled(30.0f, y0 + 20.0f, 108.0f, y0 + 172.0f,
-                 IM_COL32(0x1E, 0x22, 0x2A, 0xFF), 5.0f);
+                 C_WIRE, 5.0f);
     c.rect(30.0f, y0 + 20.0f, 108.0f, y0 + 172.0f, RULE, 5.0f, 1.0f);
     c.text(69.0f, y0 + 34.0f, INK_DIM, "Pico 2 W", 11.0f,
            Canvas::Align::ALIGN_CENTRE);
@@ -311,7 +349,11 @@ Void drawLedCircuit(const Canvas& c)
     // The resistor, drawn with its bands, because reading them off the part is
     // half the skill and the colours are on the sibling page.
     c.rectFilled(190.0f, midY - 13.0f, 268.0f, midY + 13.0f,
-                 IM_COL32(0x9C, 0x82, 0x5A, 0xFF), 4.0f);
+                 C_NOTE, 4.0f);
+    // NOT re-tinted to the sixteen, deliberately: these are the resistor colour
+    // CODE, a real-world standard, and a "brown" band that is not brown is
+    // simply wrong. The palette governs the interface, not the physics it
+    // depicts.
     const ImU32 BANDS[] = { IM_COL32(0xC0, 0x39, 0x2B, 0xFF),
                             IM_COL32(0xC0, 0x39, 0x2B, 0xFF),
                             IM_COL32(0x8B, 0x5A, 0x2B, 0xFF) };
@@ -331,10 +373,10 @@ Void drawLedCircuit(const Canvas& c)
     // The LED: triangle plus bar, with the legs drawn to LENGTH, because the
     // long leg is the entire orientation cue on a real part.
     const Float32 lx = 340.0f;
-    c.dl->AddTriangleFilled(c.at(lx, midY - 18.0f), c.at(lx, midY + 18.0f),
-                            c.at(lx + 32.0f, midY), IM_COL32(0xD8, 0x5A, 0x4A, 0xFF));
+    c.dl->AddTriangle(c.at(lx, midY - 18.0f), c.at(lx, midY + 18.0f),
+                            c.at(lx + 32.0f, midY), C_POWER);
     c.line(lx + 32.0f, midY - 18.0f, lx + 32.0f, midY + 18.0f,
-           IM_COL32(0xE8, 0x8A, 0x7A, 0xFF), 3.0f);
+           C_POWER, 3.0f);
 
     c.text(lx + 16.0f, midY - 30.0f, INK, "LED", 11.0f,
            Canvas::Align::ALIGN_CENTRE);
@@ -392,7 +434,7 @@ Void drawBreadboard(const Canvas& c)
     // by0 + 253, so anything under 267 puts holes outside the board.
     const Float32 bh = 286.0f;
 
-    c.rectFilled(bx0, by0, bx1, by0 + bh, IM_COL32(0x24, 0x24, 0x26, 0xFF), 4.0f);
+    c.rectFilled(bx0, by0, bx1, by0 + bh, C_WIRE, 4.0f);
     c.rect(bx0, by0, bx1, by0 + bh, RULE, 4.0f, 1.0f);
 
     const auto holes = [&](Float32 y, Int32 n, ImU32 col)
@@ -427,9 +469,9 @@ Void drawBreadboard(const Canvas& c)
     };
 
     splitRail(by0 + 16.0f, C_POWER);
-    holes(by0 + 26.0f, cols, IM_COL32(0x50, 0x3A, 0x3A, 0xFF));
+    holes(by0 + 26.0f, cols, C_POWER);
     splitRail(by0 + 46.0f, C_SYS);
-    holes(by0 + 36.0f, cols, IM_COL32(0x3A, 0x42, 0x50, 0xFF));
+    holes(by0 + 36.0f, cols, C_SYS);
 
     c.text(railMid, by0 + 4.0f, C_USED, "SPLIT HERE", 10.0f,
            Canvas::Align::ALIGN_CENTRE);
@@ -444,16 +486,16 @@ Void drawBreadboard(const Canvas& c)
     for(Int32 r = 0; r < 5; ++r)
     {
         holes(topRows + (static_cast<Float32>(r) * pitch), cols,
-              IM_COL32(0x44, 0x44, 0x48, 0xFF));
+              C_WIRE);
     }
     const Float32 chanY = topRows + (5.0f * pitch) + 6.0f;
     c.rectFilled(bx0 + 6.0f, chanY - 7.0f, bx1 - 6.0f, chanY + 7.0f,
-                 IM_COL32(0x18, 0x18, 0x1A, 0xFF), 2.0f);
+                 C_WIRE, 2.0f);
     const Float32 botRows = chanY + 20.0f;
     for(Int32 r = 0; r < 5; ++r)
     {
         holes(botRows + (static_cast<Float32>(r) * pitch), cols,
-              IM_COL32(0x44, 0x44, 0x48, 0xFF));
+              C_WIRE);
     }
 
     // Highlight one column of five, which is the unit of connection.
@@ -502,7 +544,7 @@ Void drawI2c(const Canvas& c)
 
     // Pico.
     c.rectFilled(30.0f, y0 + 74.0f, 118.0f, y0 + 186.0f,
-                 IM_COL32(0x1E, 0x22, 0x2A, 0xFF), 5.0f);
+                 C_WIRE, 5.0f);
     c.rect(30.0f, y0 + 74.0f, 118.0f, y0 + 186.0f, RULE, 5.0f, 1.0f);
     c.text(74.0f, y0 + 88.0f, INK_DIM, "Pico 2 W", 11.0f,
            Canvas::Align::ALIGN_CENTRE);
@@ -532,7 +574,7 @@ Void drawI2c(const Canvas& c)
         const Float32 to = (i == 0) ? sda : scl;
         c.line(x, y0 + 44.0f, x, y0 + 62.0f, C_WIRE, 1.5f);
         c.rectFilled(x - 6.0f, y0 + 62.0f, x + 6.0f, y0 + 92.0f,
-                     IM_COL32(0x9C, 0x82, 0x5A, 0xFF), 2.0f);
+                     C_NOTE, 2.0f);
         c.line(x, y0 + 92.0f, x, to, C_WIRE, 1.5f);
         c.circle(x, to, 3.4f,
                  (i == 0) ? IM_COL32(0xC9, 0xA2, 0x4E, 0xFF)
@@ -709,7 +751,8 @@ Void drawResistorCode(const Canvas& c)
     c.text(ex, y0 + 12.0f, INK, "reading one", 12.0f);
 
     c.rectFilled(ex, y0 + 40.0f, ex + 200.0f, y0 + 88.0f,
-                 IM_COL32(0x9C, 0x82, 0x5A, 0xFF), 5.0f);
+                 C_NOTE, 5.0f);
+    // The colour code again - see BANDS above for why these stay as they are.
     const ImU32 EX_BANDS[] = { IM_COL32(0xB0, 0x30, 0x26, 0xFF),
                                IM_COL32(0xB0, 0x30, 0x26, 0xFF),
                                IM_COL32(0x6B, 0x42, 0x22, 0xFF) };
@@ -784,7 +827,7 @@ Void drawLidarC1(const Canvas& c)
     const Float32 hy0 = y0 + 22.0f;
     const Float32 hy1 = y0 + 90.0f;
 
-    c.rectFilled(hx0, hy0, hx1, hy1, IM_COL32(0x1E, 0x22, 0x2A, 0xFF), 4.0f);
+    c.rectFilled(hx0, hy0, hx1, hy1, C_WIRE, 4.0f);
     c.rect(hx0, hy0, hx1, hy1, RULE, 4.0f, 1.0f);
 
     for(Int32 i = 0; i < 5; ++i)

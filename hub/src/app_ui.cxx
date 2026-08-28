@@ -131,6 +131,17 @@ Int32  picoIndex = -1;
 // is bounded and the oldest lines fall off the front.
 constexpr Size LOG_MAX = 4000;
 Vec<PicoLine> picoLog;
+
+// Console view state. The selection is by INDEX into picoLog, so it survives
+// the filter being retyped - selecting five lines, filtering, and clearing the
+// filter should give you back the same five.
+Set<Int32> logSel;
+Int32      logSelAnchor = -1;   // for shift-click runs. -1 = nothing anchored
+Bool       logShowPoll  = false;
+
+// Whether the most recent line SENT was one of the hub's own polls, so the
+// replies that follow it can be marked the same way. See pumpData().
+Bool lastSendWasPoll = false;
 Vec<Int32>      logShown;    // indices passing the filter, rebuilt per frame
 
 Char cmdBuf[192]   = {};
@@ -270,6 +281,17 @@ Bool  driveSlewHeld = false;
 // The board sends it in thousandths so no float has to survive a printf on a
 // microcontroller; it becomes a fraction here, where floats are free.
 Float32 driveSteer     = 0.0f;
+
+// Where the wheels ACTUALLY are, as against driveSteer which is where they were
+// told to go. The board reports both; the slew limiter is the difference.
+//
+// The drawing uses THIS one. It used to use the target, and that made the Drive
+// view tell two stories at once: with the servo released, dragging the slider
+// turned the wheels on screen while the indicator stayed dark - correctly, since
+// drivePump only moves servoNow while the servo is live - and the obvious
+// reading of that is "the light is broken" rather than "the wheels have not
+// moved". One number for both, and the picture cannot disagree with the lamp.
+Float32 driveSteerNow  = 0.0f;
 Float32 driveSteerWant = 0.0f;
 Bool    driveSteerHeld = false;
 
@@ -441,7 +463,6 @@ enum Section
     SECTION_SENSORS,
     SECTION_VEHICLE,
     SECTION_FIRMWARE,
-    SECTION_CONSOLE,
     SECTION_COUNT,
 };
 
@@ -454,13 +475,33 @@ enum Section
 // layout.ini - and what is kept here is only the fact that they ARE floating,
 // which ImGui has no way of knowing.
 // ---------------------------------------------------------------------------
+// The console is NOT here. It was, until it moved to its own column on the
+// left - see drawConsoleColumn(). A settings file written before that has five
+// records; the loader bounds-checks each id against SECTION_COUNT and only
+// accepts a complete permutation, so the stale fifth is dropped and the other
+// four load normally.
 Int32 sectionOrder[SECTION_COUNT] = { SECTION_SYSTEM, SECTION_SENSORS, SECTION_VEHICLE,
-                                  SECTION_FIRMWARE, SECTION_CONSOLE };
+                                  SECTION_FIRMWARE };
 Bool  sectionFloating[SECTION_COUNT] = {};
 
 // Logical (96-dpi) pixels, so the column keeps its apparent width across a DPI
 // change or a zoom rather than growing in one and not the other.
 Float32 sidebarLogicalW = 400.0f;
+
+// ---- the console column, on the LEFT ------------------------------------
+//
+// Its own column rather than a section in the right-hand sidebar, because it is
+// the one panel you read WHILE doing something else. Sharing the sidebar meant
+// it competed for height with System and Sensors and got about a fifth of a
+// screen, which is four lines of a log that produces hundreds.
+//
+// On the left because the sidebar is on the right and a console between the two
+// would put the thing you glance at in the middle of the thing you work in.
+Float32 consoleLogicalW = 380.0f;
+Bool    consoleOpen     = false;
+
+constexpr Float32 CONSOLE_MIN_W = 260.0f;
+constexpr Float32 CONSOLE_DEF_W = 380.0f;
 
 constexpr Float32 SIDEBAR_MIN_W = 260.0f;   // narrower than this and rows wrap
 
@@ -507,6 +548,17 @@ Void loadPanelLayout()
             const Float64 v = std::atof(line.c_str() + 1);
             if(v >= SIDEBAR_MIN_W && v <= 1600.0)
                 sidebarLogicalW = static_cast<Float32>(v);
+        }
+        else if(line.size() > 2 && line[0] == 'k')
+        {
+            Float64 v = 0.0;
+            Int32   o = 0;
+            if(std::sscanf(line.c_str() + 1, "%lf %d", &v, &o) == 2)
+            {
+                if(v >= CONSOLE_MIN_W && v <= 1600.0)
+                    consoleLogicalW = static_cast<Float32>(v);
+                consoleOpen = (o != 0);
+            }
         }
         else if(line.size() > 2 && line[0] == 't')
         {
@@ -562,6 +614,10 @@ Void savePanelLayout()
     std::snprintf(buf, sizeof(buf), "t %.0f %d\n",
                   static_cast<Float64>(codeTreeLogicalW),
                   codeTreeCollapsed ? 1 : 0);
+    out += buf;
+    std::snprintf(buf, sizeof(buf), "k %.0f %d\n",
+                  static_cast<Float64>(consoleLogicalW),
+                  consoleOpen ? 1 : 0);
     out += buf;
 
     for(Int32 k = 0; k < SECTION_COUNT; ++k)
@@ -934,6 +990,18 @@ Void sendPico(const Char* line)
     picoLink.send(line);            // the link logs it; drain() gives it back to us
 }
 
+// The same thing, for traffic the hub generates on a timer rather than because
+// somebody asked. Marked so the console can hide it - see PicoLine::poll.
+//
+// A separate function rather than a defaulted argument, so that every polling
+// call site READS as polling at the point of call. The distinction is easy to
+// forget and the cost of forgetting is a console nobody can use.
+Void pollPico(const Char* line)
+{
+    if(!line || !line[0]) return;
+    picoLink.send(line, true);
+}
+
 Str trimLine(const Str& s)
 {
     Size a = 0, b = s.size();
@@ -1038,6 +1106,13 @@ Void observeLine(const PicoLine& ln)
         Int32 milli = 0;
         field("steer_m=", milli);
         driveSteer = static_cast<Float32>(milli) / 1000.0f;
+
+        // Absent from a board running firmware older than this field; the
+        // default of 0 then means the drawing shows straight-ahead, which is
+        // the safe thing to show when nobody has said otherwise.
+        Int32 milliNow = 0;
+        field("steer_now=", milliNow);
+        driveSteerNow = static_cast<Float32>(milliNow) / 1000.0f;
         if(!driveSteerHeld)
         {
             driveSteerWant = driveSteer;
@@ -1225,6 +1300,26 @@ Void pumpPico()
 {
     const Size before = picoLog.size();
     picoLink.drain(picoLog);
+
+    // A reply inherits the flag from the request it answers.
+    //
+    // The link cannot know this - it sees bytes, not a protocol - and it is the
+    // whole difference between hiding the chatter and hiding half of it. The
+    // board answers in order, so the last thing SENT is what any arriving line
+    // is a reply to. That also means a STATUS somebody types by hand shows its
+    // answer normally, which a content match on "INFO status" could never do.
+    for(Size i = before; i < picoLog.size(); ++i)
+    {
+        if(picoLog[i].outgoing)
+        {
+            lastSendWasPoll = picoLog[i].poll;
+        }
+        else
+        {
+            picoLog[i].poll = lastSendWasPoll;
+        }
+    }
+
     for(Size i = before; i < picoLog.size(); ++i) observeLine(picoLog[i]);
 
     if(picoLog.size() > LOG_MAX)
@@ -1247,7 +1342,7 @@ Void pollBoardStatus()
     if(dbgLastPoll > 0.0 && (now - dbgLastPoll) < 2.0) return;
 
     dbgLastPoll = now;
-    sendPico("STATUS");
+    pollPico("STATUS");
 }
 
 // Asks the board what its indicator lamps are doing.
@@ -1266,7 +1361,7 @@ Void pollLights()
     if(lightsLastPoll > 0.0 && (now - lightsLastPoll) < 0.12) return;
 
     lightsLastPoll = now;
-    sendPico("LIGHTS");
+    pollPico("LIGHTS");
 }
 
 // Asks the board what is attached, once per connection.
@@ -1285,7 +1380,7 @@ Void pollSensorList()
     {
         return;
     }
-    sendPico("SENSORS");
+    pollPico("SENSORS");
 }
 
 // Asks for a range reading, at a rate the sensor can actually sustain.
@@ -1313,7 +1408,7 @@ Void pollTof(Bool wanted)
         return;
     }
     lastAsk = now;
-    sendPico("TOF");
+    pollPico("TOF");
 }
 
 const Char* picoStateText(PicoState s)
@@ -4511,7 +4606,7 @@ Void drawRangeBody(Float32 w, Float32 h)
     ImDrawList*  dl = ImGui::GetWindowDrawList();
 
     dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h),
-                      IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
+                      ui::ansi::BLACK);
 
     const Float32 pad  = 16.0f * uiDpiScale;
     const Bool    live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
@@ -4665,7 +4760,7 @@ Void drawRangeBody(Float32 w, Float32 h)
                          : ImGui::GetFontSize() * 3.0f;
 
         dl->AddText(f, fs, ImVec2(p0.x + pad, top),
-                    good ? IM_COL32(0xE8, 0xE4, 0xDA, 0xFF) : ui::sem::MUTED, buf);
+                    good ? ui::ansi::BRWHITE : ui::sem::MUTED, buf);
 
         const Float32 numW = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf).x;
         dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
@@ -5222,6 +5317,18 @@ Void driveLamp(Bool lit, ImU32 colour, const Char* label)
 // rather than a caster wheel spinning.
 constexpr Float32 CHASSIS_LOCK_DEG = 34.0f;
 
+// One stroke weight for the whole drivetrain.
+//
+// A wireframe is a drawing made entirely of lines, so the ONE thing that must
+// not vary is how heavy a line is - vary it and the eye reads the heavier parts
+// as nearer, which is a depth cue this drawing has no business making. Colour
+// carries the meaning here; weight carries none.
+constexpr Float32 WIRE_W = 1.0f;
+
+// The unfilled interior. Not quite the panel black, so a wheel crossing a beam
+// still occludes it.
+constexpr ImU32 WIRE_VOID = IM_COL32(0x08, 0x08, 0x08, 0xFF);
+
 // One wheel, rotated about its own centre.
 Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 deg, ImU32 fill, ImU32 edge)
 {
@@ -5240,14 +5347,20 @@ Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 
                       c.y + (corner[i].x * sn) + (corner[i].y * cs));
     }
 
+    // Outline over a near-black fill, not a solid.
+    //
+    // The fill is there only to stop the beam behind a wheel showing through it
+    // - a wireframe still needs to say which part is in front - and it is dark
+    // enough to read as unfilled. Everything that carries information is in the
+    // stroke.
     dl->AddQuadFilled(p[0], p[1], p[2], p[3], fill);
-    dl->AddQuad(p[0], p[1], p[2], p[3], edge, 1.0f);
+    dl->AddQuad(p[0], p[1], p[2], p[3], edge, WIRE_W);
 
     // A tread line down the middle, so a rotated wheel reads as rotated rather
     // than as a slightly different rectangle.
     const ImVec2 t0(c.x - (hh * 0.62f * -sn), c.y - (hh * 0.62f * cs));
     const ImVec2 t1(c.x + (hh * 0.62f * -sn), c.y + (hh * 0.62f * cs));
-    dl->AddLine(t0, t1, edge, 1.0f);
+    dl->AddLine(t0, t1, edge, WIRE_W);
 }
 
 // steerN is -1..+1 of THIS car's travel; powerN is 0..1 of its throttle range.
@@ -5261,8 +5374,9 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
 {
     const ImVec2 p1(p0.x + w, p0.y + h);
 
-    // The well the drivetrain sits in.
-    dl->AddRectFilled(p0, p1, IM_COL32(0x0E, 0x0F, 0x12, 0xFF), 4.0f);
+    // The well the drivetrain sits in. Black and square-cornered: this is a
+    // screen the drawing is on, not a moulded recess it sits in.
+    dl->AddRectFilled(p0, p1, ui::ansi::BLACK, 0.0f);
 
     const ImVec2 mid((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
 
@@ -5282,8 +5396,10 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     const Float32 beamT  = base * 0.045f;           // half-thickness of a beam
     const Float32 shaftT = base * 0.030f;
 
-    const ImU32 steel     = IM_COL32(0x4A, 0x50, 0x5A, 0xFF);
-    const ImU32 steelEdge = IM_COL32(0x7A, 0x82, 0x8E, 0xFF);
+    // Structure is one colour and one colour only. Anything that changes
+    // colour in this drawing is reporting something; the frame reports nothing,
+    // so it stays put.
+    const ImU32 frame = ui::ansi::CYAN;
 
     // ---- the shaft, drawn first so the axles sit on top ------------------
     //
@@ -5304,8 +5420,12 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
         const Float32 lampX = track + wheelW * 2.6f;
         const Float32 lampY = axleF - wheelH * 0.35f;
 
-        const ImU32 amber = IM_COL32(0xFF, 0xA5, 0x1E, 0xFF);
-        const ImU32 dark  = IM_COL32(0x3A, 0x2E, 0x1A, 0xFF);
+        // BRYELLOW rather than a true amber. A real indicator is amber and this
+        // is one shade off it, which is the price of having exactly sixteen
+        // colours; next to the rest of the drawing the consistency is worth more
+        // than the accuracy.
+        const ImU32 amber = ui::ansi::BRYELLOW;
+        const ImU32 dark  = IM_COL32(0x3A, 0x3A, 0x00, 0xFF);
 
         const Bool litL = (turnSide < 0) && turnLit;
         const Bool litR = (turnSide > 0) && turnLit;
@@ -5321,34 +5441,46 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     }
 
     const Float32 g = armed ? powerN : 0.0f;
-    const ImU32 shaftFill = IM_COL32(0x3A + static_cast<Int32>(0x80 * g),
-                                     0x40 + static_cast<Int32>(0x30 * g),
-                                     0x4A, 0xFF);
 
+    // The shaft: an outline, and a fill that grows from the bottom as a BAR.
+    //
+    // The old version tinted the whole shaft brighter with throttle, which
+    // reads as "warmer" and not as a quantity - you cannot tell 40% from 60% by
+    // hue. A column that fills is a number you can actually read off, and it
+    // fills from the rear axle forward because that is the end the motor drives.
     dl->AddRectFilled(ImVec2(mid.x - shaftT, axleF),
-                      ImVec2(mid.x + shaftT, axleR), shaftFill, shaftT);
+                      ImVec2(mid.x + shaftT, axleR), WIRE_VOID, 0.0f);
+
+    if(g > 0.0f)
+    {
+        const Float32 fillTop = axleR - ((axleR - axleF) * g);
+        dl->AddRectFilled(ImVec2(mid.x - shaftT, fillTop),
+                          ImVec2(mid.x + shaftT, axleR), ui::ansi::BRGREEN, 0.0f);
+    }
+
     dl->AddRect(ImVec2(mid.x - shaftT, axleF),
                 ImVec2(mid.x + shaftT, axleR),
-                armed ? IM_COL32(0xD8, 0x9E, 0x3C, 0xFF) : steelEdge,
-                shaftT, 0, 1.0f);
+                armed ? ui::ansi::BRGREEN : frame, 0.0f, 0, WIRE_W);
 
     // ---- the two axle beams ---------------------------------------------
     const auto beam = [&](Float32 y)
     {
         dl->AddRectFilled(ImVec2(mid.x - track, y - beamT),
-                          ImVec2(mid.x + track, y + beamT), steel, beamT);
+                          ImVec2(mid.x + track, y + beamT), WIRE_VOID, 0.0f);
         dl->AddRect(ImVec2(mid.x - track, y - beamT),
-                    ImVec2(mid.x + track, y + beamT), steelEdge, beamT, 0, 1.0f);
+                    ImVec2(mid.x + track, y + beamT), frame, 0.0f, 0, WIRE_W);
     };
     beam(axleF);
     beam(axleR);
 
     // A hub at each end, so a wheel reads as mounted on the beam rather than
     // floating beside it.
+    // Eight segments, not twelve: at this size the facets are visible, and a
+    // visibly faceted circle is what a wireframe from this era looked like.
     const auto hub = [&](Float32 x, Float32 y)
     {
-        dl->AddCircleFilled(ImVec2(x, y), beamT * 1.15f, steel, 12);
-        dl->AddCircle(ImVec2(x, y), beamT * 1.15f, steelEdge, 12, 1.0f);
+        dl->AddCircleFilled(ImVec2(x, y), beamT * 1.15f, WIRE_VOID, 8);
+        dl->AddCircle(ImVec2(x, y), beamT * 1.15f, frame, 8, WIRE_W);
     };
 
     // ---- wheels -----------------------------------------------------------
@@ -5357,10 +5489,11 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     // Front: dark when released, because a released servo holds nothing and the
     // wheels are wherever the ground last left them. Drawing them straight would
     // be the display inventing a fact.
-    const ImU32 frontFill = servoLive ? IM_COL32(0x3E, 0x44, 0x4E, 0xFF)
-                                      : IM_COL32(0x24, 0x26, 0x2A, 0xFF);
-    const ImU32 frontEdge = servoLive ? IM_COL32(0x9A, 0xA4, 0xB4, 0xFF)
-                                      : IM_COL32(0x4A, 0x4E, 0x55, 0xFF);
+    // Bright while the servo is holding them, grey while it is released - the
+    // steering is either being commanded or it is not, and that is a two-state
+    // fact rather than a gradient.
+    const ImU32 frontFill = WIRE_VOID;
+    const ImU32 frontEdge = servoLive ? ui::ansi::BRCYAN : ui::ansi::IDLE;
 
     drawWheel(dl, ImVec2(mid.x - track, axleF), wheelW, wheelH, deg, frontFill, frontEdge);
     drawWheel(dl, ImVec2(mid.x + track, axleF), wheelW, wheelH, deg, frontFill, frontEdge);
@@ -5370,11 +5503,8 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     // Rear: the driven pair. They warm rather than spin - nothing on this car
     // measures speed yet, so brightness is a COMMAND and not a reading, and
     // animating it would imply a measurement that does not exist.
-    const ImU32 rearFill = IM_COL32(0x24 + static_cast<Int32>(0x86 * g),
-                                    0x26 + static_cast<Int32>(0x30 * g),
-                                    0x2A, 0xFF);
-    const ImU32 rearEdge = armed ? IM_COL32(0xD8, 0x9E, 0x3C, 0xFF)
-                                 : IM_COL32(0x4A, 0x4E, 0x55, 0xFF);
+    const ImU32 rearFill = WIRE_VOID;
+    const ImU32 rearEdge = armed ? ui::ansi::BRGREEN : ui::ansi::IDLE;
 
     drawWheel(dl, ImVec2(mid.x - track, axleR), wheelW, wheelH, 0.0f, rearFill, rearEdge);
     drawWheel(dl, ImVec2(mid.x + track, axleR), wheelW, wheelH, 0.0f, rearFill, rearEdge);
@@ -5382,7 +5512,7 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     hub(mid.x + track, axleR);
 
     // ---- labels -----------------------------------------------------------
-    const ImU32 faint = IM_COL32(0x60, 0x5C, 0x56, 0xFF);
+    const ImU32 faint = ui::ansi::IDLE;
 
     const Char* const FRONT = "FRONT";
     const Char* const REAR  = "REAR";
@@ -5396,9 +5526,11 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
     Char deglabel[24];
     std::snprintf(deglabel, sizeof(deglabel), "%+.0f deg", static_cast<Float64>(deg));
     dl->AddText(ImVec2(mid.x + track + (wheelW * 2.6f), axleF - (7.0f * uiDpiScale)),
-                servoLive ? ui::sem::WARN : faint, deglabel);
+                servoLive ? ui::ansi::BRYELLOW : faint, deglabel);
 
-    ui::screenInset(p0, p1, 0.85f);
+    // A hard border rather than the bevelled inset the rest of the panel uses.
+    // The inset is a moulding, and this is a screen.
+    dl->AddRect(p0, p1, ui::ansi::GRID, 0.0f, 0, WIRE_W);
 }
 
 // ============================================== the drive view ==
@@ -5497,7 +5629,7 @@ Void drawDriveBody(Float32 w, Float32 h)
         if(nowAsk - driveAskedAt > 1.0)
         {
             driveAskedAt = nowAsk;
-            sendPico("DRIVE");
+            pollPico("DRIVE");
         }
 
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
@@ -5528,7 +5660,7 @@ Void drawDriveBody(Float32 w, Float32 h)
     if(nowPoll - driveAskedAt > 0.25)
     {
         driveAskedAt = nowPoll;
-        sendPico("DRIVE");
+        pollPico("DRIVE");
     }
 
     // The sweep runs here so it stops the moment the view is not drawn - a
@@ -5619,7 +5751,7 @@ Void drawDriveBody(Float32 w, Float32 h)
             : 0.0f;
 
         drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
-                    driveSteer, power, driveServoOn, driveArmed,
+                    driveSteerNow, power, driveServoOn, driveArmed,
                     boardTurn, boardTurnLit);
 
         ImGui::Dummy(ImVec2(full, cah));
@@ -6391,7 +6523,7 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
     // than inherited, because the map is the one panel whose background must
     // never pick up a tint or an alpha - it is the surface the point cloud is
     // read against.
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x0E, 0x0F, 0x12, 0xFF));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::ansi::BLACK);
     ImGui::PushID(view);
 
     if(view == 0 || view == 1)
@@ -6589,6 +6721,22 @@ Void drawTabbedViews(Float32 mapW, Float32 viewH)
             drawViewBody(v, mapW, viewH);
             ImGui::EndTabItem();
         }
+    }
+
+    // Right-aligned, so opening the console is where the tabs END rather than
+    // in a second row of chrome above them. The same place the old layout
+    // switch used to live, for the same reason.
+    if(ImGui::TabItemButton(consoleOpen ? "  Console  <  " : "  >  Console  ",
+                            ImGuiTabItemFlags_Trailing
+                            | ImGuiTabItemFlags_NoTooltip))
+    {
+        consoleOpen      = !consoleOpen;
+        panelLayoutDirty = true;
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("The serial and build logs, in a column on the left.\n"
+                          "Ctrl+` toggles it.");
     }
 
     ImGui::EndTabBar();
@@ -7313,32 +7461,138 @@ Void sectionFirmware()
 // cannot be used at all.
 constexpr Float32 LOG_PANE_H = 260.0f;   // logical px; multiplied by uiDpiScale at use
 
+// ---- the console's palette ------------------------------------------------
+//
+// A terminal, not a panel. Pure black rather than the skeuomorphic slate the
+// rest of the hub uses, because this is the one surface that is not a moulded
+// object - it is a screen, and a screen in 2010 was black with phosphor on it.
+// The bevels and plates elsewhere are pretending to be plastic; this is
+// pretending to be a CRT, and mixing the two is what made it look like a text
+// box rather than a terminal.
+//
+// The colours are the ANSI sixteen, which is the palette every serial monitor
+// has used for forty years, so a line reads the way it would in any of them.
+namespace ansi {
+
+constexpr ImU32 BLACK   = IM_COL32(0x0A, 0x0A, 0x0A, 0xFF);   // the ground
+constexpr ImU32 RED     = IM_COL32(0xCD, 0x32, 0x32, 0xFF);
+constexpr ImU32 GREEN   = IM_COL32(0x3F, 0xC0, 0x50, 0xFF);
+constexpr ImU32 YELLOW  = IM_COL32(0xCD, 0xAA, 0x2E, 0xFF);
+constexpr ImU32 BLUE    = IM_COL32(0x40, 0x80, 0xD0, 0xFF);
+constexpr ImU32 MAGENTA = IM_COL32(0xB0, 0x5C, 0xC0, 0xFF);
+constexpr ImU32 CYAN    = IM_COL32(0x35, 0xB5, 0xB5, 0xFF);
+constexpr ImU32 WHITE   = IM_COL32(0xC8, 0xC8, 0xC8, 0xFF);
+constexpr ImU32 GREY    = IM_COL32(0x66, 0x66, 0x66, 0xFF);
+constexpr ImU32 BRIGHT  = IM_COL32(0xEE, 0xEE, 0xEE, 0xFF);
+
+} // namespace ansi
+
+// What colour a line is, from what the board actually says.
+//
+// The firmware's vocabulary is four words wide - OK, ERR, INFO, and a bare
+// reply - and it is worth colouring because scanning a console for the one ERR
+// in three hundred lines is exactly what colour is for.
+ImU32 consoleColour(const PicoLine& ln)
+{
+    if(ln.poll)
+    {
+        // Chatter, when it is shown at all, is dim. It is context, not content.
+        return ansi::GREY;
+    }
+    if(ln.outgoing)
+    {
+        return ansi::CYAN;      // what WE said
+    }
+
+    const Char* t = ln.text.c_str();
+    if(std::strncmp(t, "ERR", 3) == 0)  return ansi::RED;
+    if(std::strncmp(t, "OK", 2) == 0)   return ansi::GREEN;
+    if(std::strncmp(t, "INFO", 4) == 0) return ansi::BLUE;
+    if(std::strncmp(t, "PONG", 4) == 0) return ansi::GREEN;
+    return ansi::WHITE;
+}
+
 Void drawSerialConsole(const ImVec2& size)
 {
     if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear")) picoLog.clear();
     ImGui::SameLine();
     ui::checkbox("Auto-scroll", &logAutoscroll);
+    ImGui::SameLine();
+
+    // Off by default. The hub polls DRIVE, LIGHTS, STATUS and TOF on their own
+    // timers - the indicator poll alone is eight sends and eight replies a
+    // second - and a console showing all of it buries everything you typed.
+    ui::checkbox("Polling", &logShowPoll);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Show the traffic the hub generates on its own:\n"
+                          "DRIVE, LIGHTS, STATUS and TOF polls, and their\n"
+                          "replies. Anything you send by hand always shows.");
+    }
+
+    ImGui::SameLine();
+    if(ui::iconButton(ui::Icon::ICON_SAVE, "Copy"))
+    {
+        Str all;
+        for(Int32 i : logShown)
+        {
+            const PicoLine& ln = picoLog[i];
+            all += ln.outgoing ? "> " : "< ";
+            all += ln.text;
+            all += "\n";
+        }
+        ImGui::SetClipboardText(all.c_str());
+        LOG_INFO("console", "copied %d lines", static_cast<Int32>(logShown.size()));
+    }
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Copy every line currently shown - what the filter\n"
+                          "left, in the order it is on screen.");
+    }
 
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##logfilter", "filter lines", filterBuf, sizeof(filterBuf));
 
     logShown.clear();
     for(Int32 i = 0; i < static_cast<Int32>(picoLog.size()); ++i)
+    {
+        if(!logShowPoll && picoLog[i].poll) continue;
         if(logMatches(picoLog[i])) logShown.push_back(i);
+    }
 
     {
         ScopedFont sf(ui::fonts.small);
-        if(filterBuf[0])
-            ImGui::TextDisabled("%d of %d lines   -   %llu sent / %llu received",
-                                static_cast<Int32>(logShown.size()), static_cast<Int32>(picoLog.size()),
+        const Int32 hidden = static_cast<Int32>(picoLog.size())
+                           - static_cast<Int32>(logShown.size());
+        if(hidden > 0)
+            ImGui::TextDisabled("%d of %d lines   -   %d hidden   -   %llu sent / %llu received",
+                                static_cast<Int32>(logShown.size()),
+                                static_cast<Int32>(picoLog.size()), hidden,
                                 picoLink.txLines(), picoLink.rxLines());
         else
             ImGui::TextDisabled("%d lines   -   %llu sent / %llu received",
-                                static_cast<Int32>(picoLog.size()), picoLink.txLines(), picoLink.rxLines());
+                                static_cast<Int32>(picoLog.size()),
+                                picoLink.txLines(), picoLink.rxLines());
     }
+
+    // ---- the screen -------------------------------------------------------
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ansi::BLACK);
+    ImGui::PushStyleColor(ImGuiCol_Header,        IM_COL32(0x2A, 0x44, 0x60, 0xFF));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(0x22, 0x36, 0x4E, 0xFF));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  IM_COL32(0x2A, 0x44, 0x60, 0xFF));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
     ImGui::BeginChild("##console", size, ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
+
+    // The font is pushed and popped INSIDE the child.
+    //
+    // A ScopedFont declared at function scope would pop after EndChild, and
+    // ImGui compares the style and font stack sizes at Begin against End - a
+    // push that straddles the boundary leaves the frame unbalanced, which
+    // renders as a blank window rather than as an error anybody can read.
+    {
+    ScopedFont mono(ui::fonts.mono);
 
     if(!logShown.empty())
     {
@@ -7348,57 +7602,137 @@ Void drawSerialConsole(const ImVec2& size)
         {
             for(Int32 r = clipper.DisplayStart; r < clipper.DisplayEnd; ++r)
             {
-                const PicoLine& ln = picoLog[logShown[r]];
+                const Int32     idx = logShown[r];
+                const PicoLine& ln  = picoLog[idx];
 
                 Char buf[512];
                 std::snprintf(buf, sizeof(buf), "%8.2f  %c  %s",
                               ln.tS, ln.outgoing ? '>' : '<', ln.text.c_str());
 
-                ImGui::PushStyleColor(ImGuiCol_Text,
-                                      ln.outgoing ? ui::plot::RAMP_NEAR : ui::plot::RAMP_FAR);
-                ImGui::TextUnformatted(buf);
+                // A Selectable rather than plain text, so lines can be
+                // highlighted and copied. Click one, shift-click another for a
+                // run, ctrl-click to add or remove one - the same three
+                // gestures every list in every program uses.
+                ImGui::PushStyleColor(ImGuiCol_Text, consoleColour(ln));
+                ImGui::PushID(idx);
+                const Bool wasSel = (logSel.count(idx) != 0);
+                if(ImGui::Selectable(buf, wasSel,
+                                     ImGuiSelectableFlags_AllowDoubleClick))
+                {
+                    const ImGuiIO& io = ImGui::GetIO();
+                    if(io.KeyShift && logSelAnchor >= 0)
+                    {
+                        // A run, in SCREEN order rather than log order: the
+                        // filter can hide lines between the two clicks and
+                        // selecting what is not visible would be a surprise.
+                        Int32 a = -1;
+                        Int32 b = -1;
+                        for(Int32 k = 0; k < static_cast<Int32>(logShown.size()); ++k)
+                        {
+                            if(logShown[k] == logSelAnchor) a = k;
+                            if(logShown[k] == idx)          b = k;
+                        }
+                        if(a >= 0 && b >= 0)
+                        {
+                            if(a > b)
+                            {
+                                const Int32 t = a;
+                                a = b;
+                                b = t;
+                            }
+                            logSel.clear();
+                            for(Int32 k = a; k <= b; ++k) logSel.insert(logShown[k]);
+                        }
+                    }
+                    else if(io.KeyCtrl)
+                    {
+                        if(wasSel) logSel.erase(idx);
+                        else       logSel.insert(idx);
+                        logSelAnchor = idx;
+                    }
+                    else
+                    {
+                        logSel.clear();
+                        logSel.insert(idx);
+                        logSelAnchor = idx;
+                    }
+                }
+                ImGui::PopID();
                 ImGui::PopStyleColor();
             }
         }
+    }
+
+    // Ctrl+C copies the selection, which is what the highlight is FOR. Scoped
+    // to this child being hovered or focused so it does not steal the shortcut
+    // from the editor.
+    if(!logSel.empty()
+       && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)
+       && ImGui::IsKeyPressed(ImGuiKey_C)
+       && ImGui::GetIO().KeyCtrl)
+    {
+        Str out;
+        for(Int32 i : logShown)
+        {
+            if(logSel.count(i) == 0) continue;
+            out += picoLog[i].outgoing ? "> " : "< ";
+            out += picoLog[i].text;
+            out += "\n";
+        }
+        ImGui::SetClipboardText(out.c_str());
+        LOG_INFO("console", "copied %d selected line(s)",
+                 static_cast<Int32>(logSel.size()));
     }
 
     // Sticks to the bottom only while the view already is at the bottom, so
     // scrolling up to read something does not yank you back.
     if(logAutoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
         ImGui::SetScrollHereY(1.0f);
+    }
 
     ImGui::EndChild();
+
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
 }
 
-// Two logs, one section. Side by side they would each get 190 px of a 400 px
-// column; stacked they would cost 600 px of scrolling to reach the second. Tabs
-// give whichever one you are watching the full width and a usable height.
-Void sectionConsole()
+// The console column: the two logs, filling their own column on the left.
+//
+// The same two tabs the sidebar section had, but given a whole column's height
+// instead of a fifth of one. That is the entire reason it moved: a log that
+// produces hundreds of lines and shows four is a log you scroll rather than
+// read.
+Void drawConsoleColumn(Float32 w, Float32 h)
 {
-    const ImVec2 pane(0.0f, LOG_PANE_H * uiDpiScale);
+    ImGui::BeginChild("##consolecol", ImVec2(w, h), ImGuiChildFlags_Borders);
 
-    if(ImGui::BeginTabBar("##consoletabs"))
+    if(ImGui::BeginTabBar("##concoltabs"))
     {
-        Char lb_ICON_CONSOLE[40];
-        const Bool t_ICON_CONSOLE = ImGui::BeginTabItem(
-            iconTabLabel(lb_ICON_CONSOLE, sizeof(lb_ICON_CONSOLE), "Pico serial"));
+        Char lbA[40];
+        const Bool tA = ImGui::BeginTabItem(
+            iconTabLabel(lbA, sizeof(lbA), "Pico serial"));
         tabIcon(ui::Icon::ICON_CONSOLE);
-        if(t_ICON_CONSOLE)
+        if(tA)
         {
-            drawSerialConsole(pane);
+            // Zero height means "the rest of this child", so the log grows with
+            // the window instead of being pinned to a constant.
+            drawSerialConsole(ImVec2(0.0f, 0.0f));
             ImGui::EndTabItem();
         }
-        Char lb_ICON_BUILD[40];
-        const Bool t_ICON_BUILD = ImGui::BeginTabItem(
-            iconTabLabel(lb_ICON_BUILD, sizeof(lb_ICON_BUILD), "Build / flash"));
+
+        Char lbB[40];
+        const Bool tB = ImGui::BeginTabItem(
+            iconTabLabel(lbB, sizeof(lbB), "Build / flash"));
         tabIcon(ui::Icon::ICON_BUILD);
-        if(t_ICON_BUILD)
+        if(tB)
         {
-            drawFlashOutput("##flashout_con", pane);
+            drawFlashOutput("##flashout_col", ImVec2(0.0f, 0.0f));
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
+
+    ImGui::EndChild();
 }
 
 // ===================================================================== modals
@@ -7477,7 +7811,6 @@ const SectionEntry SECTIONS[SECTION_COUNT] = {
     { "    Sensors",  "Sensors",  SECTION_SENSORS,  true,  ui::Icon::ICON_SENSORS,  &sectionSensors  },
     { "    Vehicle",  "Vehicle",  SECTION_VEHICLE,  false, ui::Icon::ICON_VEHICLE,  &sectionVehicle  },
     { "    Firmware", "Firmware", SECTION_FIRMWARE, false, ui::Icon::ICON_FIRMWARE, &sectionFirmware },
-    { "    Console",  "Console",  SECTION_CONSOLE,  false, ui::Icon::ICON_CONSOLE,  &sectionConsole  },
 };
 
 const SectionEntry& sectionById(Int32 id)
@@ -7687,6 +8020,55 @@ Void drawFloatingPanels()
 // The column's width for this frame, clamped to something usable. Pure: the
 // layout needs it before the handle can be drawn, and a widget cannot be asked
 // for its answer twice in one frame without colliding with its own ID.
+Float32 consoleWidth(Float32 availW)
+{
+    const Float32 lo = CONSOLE_MIN_W * uiDpiScale;
+    const Float32 hi = std::max(lo, availW * 0.50f);
+
+    Float32 w = consoleLogicalW * uiDpiScale;
+    if(w < lo) w = lo;
+    if(w > hi) w = hi;
+    return w;
+}
+
+// The handle on the console column's RIGHT edge.
+//
+// The sign is the opposite of the sidebar's for the same reason the code tree's
+// is: this panel is on the left, so dragging right widens it.
+Void consoleSplitter(const ImVec2& at, Float32 h, Float32 thickness)
+{
+    ImGui::SetCursorScreenPos(at);
+    ImGui::InvisibleButton("##console-split", ImVec2(thickness, h));
+
+    const Bool active = ImGui::IsItemActive();
+    if(active || ImGui::IsItemHovered())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+    if(active)
+    {
+        consoleLogicalW += ImGui::GetIO().MouseDelta.x / uiDpiScale;
+        consoleLogicalW  = std::max(CONSOLE_MIN_W, std::min(1600.0f, consoleLogicalW));
+        panelLayoutDirty = true;
+    }
+
+    if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+    {
+        consoleLogicalW  = CONSOLE_DEF_W;
+        panelLayoutDirty = true;
+    }
+
+    const ImU32 col = active   ? ui::accent::CYAN
+                    : ImGui::IsItemHovered() ? ui::accent::CYAN_HI
+                    : IM_COL32(0x50, 0x58, 0x60, 0xFF);
+    ImDrawList*   dl = ImGui::GetWindowDrawList();
+    const Float32 cx = at.x + thickness * 0.5f;
+    const Float32 cy = at.y + h * 0.5f;
+    const Float32 r  = 1.5f * uiDpiScale;
+    for(Int32 k = -1; k <= 1; ++k)
+        dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
+                            r, col, 8);
+}
+
 Float32 sidebarWidth(Float32 availW)
 {
     const Float32 lo = SIDEBAR_MIN_W * uiDpiScale;
@@ -7912,8 +8294,17 @@ Void app::init(Float32 dpiScale)
                 // views (--view), and one word must not select two different things.
                 { "vehicle",  SECTION_VEHICLE,  -1 },
                 { "firmware", SECTION_FIRMWARE, -1 }, { "flash",    SECTION_FIRMWARE, -1 },
-                { "console",  SECTION_CONSOLE,  -1 }, { "debug",    SECTION_CONSOLE,  -1 },
             };
+            // "console" and "debug" no longer name a SECTION - the logs have
+            // their own column now - so they open that instead of selecting
+            // something in the sidebar.
+            if(_stricmp(__argv[i + 1], "console") == 0
+               || _stricmp(__argv[i + 1], "debug") == 0)
+            {
+                consoleOpen = true;
+                continue;
+            }
+
             for(const TabName& t : TAB_NAMES)
                 if(_stricmp(__argv[i + 1], t.name) == 0)
                 {
@@ -8036,6 +8427,15 @@ Void app::frame()
     pumpData();
     updateAutoLights();
 
+    // Ctrl+` for the console, which is the shortcut every editor and terminal
+    // already uses for exactly this. Checked before anything draws so the
+    // layout below measures the state it is about to render.
+    if(ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_GraveAccent))
+    {
+        consoleOpen      = !consoleOpen;
+        panelLayoutDirty = true;
+    }
+
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
@@ -8071,20 +8471,57 @@ Void app::frame()
     const Float32 gap   = std::max(sty.ItemSpacing.x, 8.0f * uiDpiScale);
     const Float32 sideW = sidebarWidth(avail.x);
 
+    // The console column, when it is open, comes off the LEFT before anything
+    // else is measured - so the central view narrows and the sidebar does not
+    // move. A panel that shoved the sidebar around every time it opened would
+    // make the whole window feel unstable.
+    const Float32 consW = consoleOpen ? consoleWidth(avail.x) : 0.0f;
+    const Float32 consGap = consoleOpen ? gap : 0.0f;
+
     // Sized for the view that is on screen, which is why centralView is kept
     // across frames. A view with no controls costs no height at all - the
     // spacing goes too, or a board tab would sit above a blank strip.
-    const Float32 mapW  = avail.x - sideW - gap;
+    const Float32 mapW  = avail.x - sideW - gap - consW - consGap;
     const Float32 ctrlH = centralControlHeight(centralView, mapW);
     const Float32 mapH  = avail.y - ctrlH - (ctrlH > 0.0f ? sty.ItemSpacing.y : 0.0f);
 
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
+    if(consoleOpen)
+    {
+        drawConsoleColumn(consW, avail.y);
+        consoleSplitter(ImVec2(p0.x + consW, p0.y), avail.y, consGap);
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + consW + consGap, p0.y));
+    }
+
+    const Float32 midX = p0.x + consW + consGap;
+
     if(mapW > 80.0f * uiDpiScale && mapH > 80.0f * uiDpiScale)
     {
+        // The central region gets its own child window, and it has to.
+        //
+        // Everything inside it begins with a tab bar, and ImGui puts the cursor
+        // back at the WINDOW's left content edge after one - not at wherever the
+        // caller had moved it. With the console column open that edge is 400 px
+        // to the left of where the view should start, so the tab bar landed
+        // correctly and the body underneath it did not. A child makes "the
+        // window's left edge" mean this column's left edge, which is the only
+        // way to say it that a tab bar cannot undo.
+        //
+        // Zero padding on the child so mapW is exactly the width the view gets;
+        // popped immediately, so the widgets inside still get the normal one.
+        ImGui::SetCursorScreenPos(ImVec2(midX, p0.y));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::BeginChild("##centralcol", ImVec2(mapW, avail.y), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+
         drawMapRegion(mapW, mapH, ctrlH);
-        sidebarSplitter(ImVec2(p0.x + mapW, p0.y), avail.y, gap);
-        ImGui::SetCursorScreenPos(ImVec2(p0.x + mapW + gap, p0.y));
+
+        ImGui::EndChild();
+
+        sidebarSplitter(ImVec2(midX + mapW, p0.y), avail.y, gap);
+        ImGui::SetCursorScreenPos(ImVec2(midX + mapW + gap, p0.y));
     }
 
     drawSidebar(sideW, avail.y);

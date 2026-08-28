@@ -163,29 +163,38 @@ inline constexpr ImU32 IDLE  = GREY;
 
 namespace plot {
 
-// Distance ramp: warm near, green mid, cool far.
-inline constexpr ImU32 RAMP_NEAR = IM_COL32(0xFF, 0xA8, 0x3A, 0xFF);  // amber = close
-inline constexpr ImU32 RAMP_MID  = IM_COL32(0x8A, 0xE2, 0x34, 0xFF);  // green
-inline constexpr ImU32 RAMP_FAR  = IM_COL32(0x4F, 0xC3, 0xF7, 0xFF);  // cyan  = distant
+// ---------------------------------------------------------------------------
+// FORWARDS. Every one of these is now a name for an ansi:: colour.
+//
+// The names stay because call sites read better for them - plot::OK says what
+// it means where ansi::BRGREEN says only what it looks like - but there is one
+// palette in this program and it is the sixteen above. This namespace used to
+// hold a second, softer set: amber-to-cyan ramps and steel-blue furniture, from
+// when the viewport was trying to look like an instrument panel. Two palettes
+// meant a green LED in the sidebar and a green return on the map were different
+// greens, which is exactly the sort of thing nobody notices and everybody feels.
+// ---------------------------------------------------------------------------
 
-// Viewport furniture: graphite steel, a shade cooler than the chrome.
-inline constexpr ImU32 GRID       = IM_COL32(0x39, 0x45, 0x56, 0xFF);
-inline constexpr ImU32 GRID_MAJOR = IM_COL32(0x5C, 0x6B, 0x80, 0xFF);
-inline constexpr ImU32 AXIS       = IM_COL32(0x27, 0x30, 0x3E, 0xFF);
-inline constexpr ImU32 LABEL      = IM_COL32(0xB2, 0xC0, 0xD2, 0xFF);
-inline constexpr ImU32 HEADING    = IM_COL32(0x4F, 0xC3, 0xF7, 0xFF);
-inline constexpr ImU32 HUB        = IM_COL32(0x2A, 0x7A, 0xA8, 0xFF);
-inline constexpr ImU32 HUB_CORE   = IM_COL32(0xE8, 0xF7, 0xFF, 0xFF);
-inline constexpr ImU32 NEAREST    = IM_COL32(0xFF, 0x8A, 0x1F, 0xFF);
-inline constexpr ImU32 MEASURE    = IM_COL32(0xFF, 0xD5, 0x2E, 0xFF);
+inline constexpr ImU32 RAMP_NEAR = ansi::RAMP_NEAR;
+inline constexpr ImU32 RAMP_MID  = ansi::RAMP_MID;
+inline constexpr ImU32 RAMP_FAR  = ansi::RAMP_FAR;
 
-// Status LEDs, on the viewport.
-inline constexpr ImU32 OK      = IM_COL32(0x6D, 0xE0, 0x4C, 0xFF);   // green LED
-inline constexpr ImU32 WARN    = IM_COL32(0xFF, 0xB0, 0x2E, 0xFF);   // amber LED
-inline constexpr ImU32 BAD     = IM_COL32(0xFF, 0x45, 0x3B, 0xFF);   // red LED
-inline constexpr ImU32 IDLE    = IM_COL32(0x78, 0x82, 0x8C, 0xFF);   // unlit
+inline constexpr ImU32 GRID       = ansi::GRID;
+inline constexpr ImU32 GRID_MAJOR = ansi::GRID_MAJOR;
+inline constexpr ImU32 AXIS       = ansi::AXIS;
+inline constexpr ImU32 LABEL      = ansi::LABEL;
+inline constexpr ImU32 HEADING    = ansi::HEADING;
+inline constexpr ImU32 HUB        = ansi::BRCYAN;
+inline constexpr ImU32 HUB_CORE   = ansi::BRWHITE;
+inline constexpr ImU32 NEAREST    = ansi::NEAREST;
+inline constexpr ImU32 MEASURE    = ansi::MEASURE;
 
-inline constexpr ImU32 ACCENT  = IM_COL32(0x4F, 0xC3, 0xF7, 0xFF);
+inline constexpr ImU32 OK      = ansi::OK;
+inline constexpr ImU32 WARN    = ansi::WARN;
+inline constexpr ImU32 BAD     = ansi::BAD;
+inline constexpr ImU32 IDLE    = ansi::IDLE;
+
+inline constexpr ImU32 ACCENT  = ansi::BRCYAN;
 
 } // namespace plot
 
@@ -194,8 +203,8 @@ inline constexpr ImU32 ACCENT  = IM_COL32(0x4F, 0xC3, 0xF7, 0xFF);
 // status: a thing being selected and a thing being healthy are different claims.
 namespace accent {
 
-inline constexpr ImU32 CYAN      = IM_COL32(0x35, 0xB6, 0xEE, 0xFF);
-inline constexpr ImU32 CYAN_HI   = IM_COL32(0x7A, 0xDA, 0xFF, 0xFF);
+inline constexpr ImU32 CYAN      = ansi::CYAN;
+inline constexpr ImU32 CYAN_HI   = ansi::BRCYAN;
 
 } // namespace accent
 
@@ -212,9 +221,9 @@ inline constexpr ImU32 CYAN_HI   = IM_COL32(0x7A, 0xDA, 0xFF, 0xFF);
 // ---------------------------------------------------------------------------
 namespace pin {
 
-inline constexpr ImU32 ASSIGNED = IM_COL32(0x7A, 0xC8, 0xF0, 0xFF);   // ours: strongest
-inline constexpr ImU32 POWER    = IM_COL32(0x96, 0x9C, 0xA2, 0xFF);   // structural: quiet
-inline constexpr ImU32 FREE     = IM_COL32(0x5A, 0x60, 0x66, 0xFF);   // unused: quietest
+inline constexpr ImU32 ASSIGNED = ansi::BRCYAN;                       // ours: strongest
+inline constexpr ImU32 POWER    = ansi::GREY;                        // structural: quiet
+inline constexpr ImU32 FREE     = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);  // unused: quietest
 
 } // namespace pin
 

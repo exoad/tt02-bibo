@@ -346,10 +346,11 @@ static Void printDrive(Void)
 {
     const DriveState d = driveRead();
     serialPrintf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
-           "servo_on=%d servo_c=%d steer_m=%d slew=%d "
+           "servo_on=%d servo_c=%d steer_m=%d steer_now=%d slew=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
            d.servoUs, d.servoTargetUs, d.escUs, d.escTargetUs,
            d.escArmed ? 1 : 0, d.servoLive ? 1 : 0, d.centerUs, d.steerMilli,
+           d.steerNowMilli,
            d.slewStepUs,
            d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
 }
@@ -554,16 +555,40 @@ static Void printLights(CharSeq arg)
     (Void) arg;
 
     const LightTurn t = lightsSide();
-    serialPrintf("OK lights on=%d side=%s lit=%d left_pin=%d right_pin=%d\n",
+    const LightTurn f = lightsForcedSide();
+    serialPrintf("OK lights on=%d side=%s lit=%d forced=%s left_pin=%d right_pin=%d\n",
                  lightsEnabled() ? 1 : 0,
                  (t == LIGHT_TURN_LEFT) ? "left"
                      : (t == LIGHT_TURN_RIGHT) ? "right" : "off",
                  lightsIsLit() ? 1 : 0,
+                 (f == LIGHT_TURN_LEFT) ? "left"
+                     : (f == LIGHT_TURN_RIGHT) ? "right" : "no",
                  LIGHT_LEFT_PIN, LIGHT_RIGHT_PIN);
 }
 
 static Void handleLights(CharSeq arg)
 {
+    /* LEFT and RIGHT hold that side blinking whatever the wheels are doing, so
+     * the LED and its wiring can be tested without touching the steering.
+     * AUTO hands it back to the rule. */
+    if(textEq(arg, "LEFT"))
+    {
+        lightsForce(LIGHT_TURN_LEFT);
+        printLights(arg);
+        return;
+    }
+    if(textEq(arg, "RIGHT"))
+    {
+        lightsForce(LIGHT_TURN_RIGHT);
+        printLights(arg);
+        return;
+    }
+    if(textEq(arg, "AUTO"))
+    {
+        lightsForce(LIGHT_TURN_OFF);
+        printLights(arg);
+        return;
+    }
     if(textEq(arg, "ON"))
     {
         lightsEnable(true);
@@ -581,7 +606,7 @@ static Void handleLights(CharSeq arg)
         printLights(arg);
         return;
     }
-    serialPrintf("ERR lights wants ON, OFF, or nothing\n");
+    serialPrintf("ERR lights wants ON, OFF, LEFT, RIGHT, AUTO, or nothing\n");
 }
 
 /* ---- the command table ---------------------------------------------------
@@ -680,7 +705,7 @@ static const Command COMMANDS[] =
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
      * the wheel encoder. See lib/lights.h. */
-    { "LIGHTS",      " [ON|OFF]",               "indicator lamps, and which way",           handleLights },
+    { "LIGHTS",      " [ON|OFF|LEFT|RIGHT|AUTO]", "indicator lamps; LEFT/RIGHT force one",  handleLights },
 };
 
 static const Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
