@@ -95,8 +95,27 @@
 
 #define DRIVE_NEUTRAL_US 1500
 
-/* Microseconds of pulse per tick of the slew timer. At 50 Hz a full 400 us
- * sweep then takes about half a second, which looks deliberate. */
+/*
+ * How fast an output is allowed to move: microseconds of pulse per tick.
+ *
+ * 8 us every 20 ms is 400 us per second. This car's steering travel is 440 us
+ * (1230 to 1670), so lock to lock takes 1.1 SECONDS.
+ *
+ * The comment here used to say "about half a second", which was wrong by a
+ * factor of two and had been wrong since it was written - 400 us of travel at
+ * 400 us per second is one second, not half of one.
+ *
+ * That is roughly a TENTH of what the servo can do. A Power HD 1501MG is
+ * 0.14 s per 60 degrees, and 440 us is around 44 degrees of shaft, so the
+ * hardware would place it in about 0.1 s.
+ *
+ * The limit is deliberate and it is right for a bench: a slider dragged end to
+ * end should sweep rather than fling a servo into a stop, and rule 3 above says
+ * so. It is WRONG FOR DRIVING. A car that needs 1.1 s to go lock to lock cannot
+ * make an avoidance correction, and the reactive layer will need this raised -
+ * probably to a value set at runtime rather than baked in here, since bench
+ * work and driving want different answers and neither is a bug.
+ */
 #define SLEW_STEP_US 8
 #define SLEW_TICK_MS 20
 
