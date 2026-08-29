@@ -239,22 +239,109 @@ and returns. It is declared now because the alternative is discovering later
 that `CueStep` has no room for sound and revising every script that exists by
 then.
 
-### Two kinds of cue
+### One mechanism, three ways of playing
 
-**Continuous** — what the car is doing right now, recomputed every tick from
-the drivetrain. These are the rules that used to live in `lights.h` and they
-are unchanged.
+There is no separate "continuous" layer any more. There was — the indicators,
+the brake lamps and reverse were computed by hand in a `solve()` beside the
+cues — and that split looked reasonable and was not: it meant the car had two
+lighting systems, one you could name and trigger and one you could not, and the
+second one grew every time the car learned to say something. **Everything is a
+cue.**
 
-**One-shot** — an utterance with a beginning and an end: a short script of
-steps, each naming which channels are lit and for how long. Adding a cue is
-adding a row to `CUE_SCRIPT`, not writing another state machine.
+| mode | what it does | cues |
+|---|---|---|
+| `once` | runs through `repeats` times and stops | `flash`, `alert` |
+| `loop` | repeats until something lowers it | `left`, `right`, `hazard` |
+| `hold` | one state, held until lowered | `head`, `running`, `brake`, `reverse` |
 
-A one-shot cue **owns** every channel any of its steps mentions, for its whole
-duration, including the steps where that channel is dark. Without that a flash
-would be invisible whenever the headlights were already on — the cue's on-steps
-would agree with the continuous state and its off-steps would be overwritten by
+Adding a cue is adding a row to `SCRIPT`, not writing another state machine.
+
+### The flash rate
+
+FMVSS 108 does not state one. It incorporates **SAE J590** (turn signal
+flashers) and **SAE J945** (hazard warning flashers) by reference, and those
+carry the numbers:
+
+| flasher | rate |
+|---|---|
+| normally open (variable load) | 60–120 flashes/min |
+| normally closed (fixed load) | **90–120 flashes/min** |
+
+plus a percent-current-on-time *envelope* — J945 Figure 1 — rather than a single
+duty figure. Its practical form is that **on must not be shorter than off**.
+
+`CUE_BLINK_ON_MS` / `CUE_BLINK_OFF_MS` are **360 / 240** — 600 ms, **100.0
+flashes per minute**, 60% on. Inside both bands with margin at either end.
+
+They were 400 / 267, which is 667 ms and **89.96 fpm**: inside the normally-open
+band and 0.04 fpm *under* the normally-closed floor. The comment beside them
+called 1.5 Hz "the legal standard", and 1.5 Hz is 90 fpm exactly — a boundary
+quoted as a target and then missed by rounding.
+
+The band is a **`static_assert`**, not a comment, stated as periods so the
+arithmetic is exact integers with nothing to round:
+
+```
+rate >=  90 fpm  <=>  period <= 666 ms
+rate <= 120 fpm  <=>  period >= 500 ms
+```
+
+Measured on the board — the deadlines accumulate rather than restarting, so
+nominal and actual agree:
+
+```
+left     on 362.3 ms   off 237.3 ms   100.06 fpm   60.4% on
+hazard   on 359.8 ms   off 240.6 ms    99.93 fpm   59.9% on
+```
+
+This car is not road-legal and is never going on a road. The standard is used
+because it is a good one — it is what makes an indicator read as an indicator to
+anyone who has ever driven — not because anything requires it of a 1/10 model.
+
+### Priority is the enum order
+
+A later cue wins a channel an earlier one also wants. Read the enum downward
+and it is a sentence about what matters more than what: being lit at all, then
+which way the gearbox is, then which way the car is turning, then the two
+things the car says on purpose. `alert` is last because "something is wrong"
+outranks an indicator.
+
+`running` before `brake` is the whole reason a step carries a **level**. Both
+want the tails; `brake` is later, so braking shows `LAMP_FULL` over the
+`LAMP_DIM` the running lamps were holding. Neither rule knows about the other,
+and what used to be a nested conditional inside one rule is now the order of
+two.
+
+### Owning a channel
+
+A cue **owns** every channel any of its steps mentions, for its whole duration,
+including the steps where that channel is dark. Without that a flash would be
+invisible whenever the headlights were already on — the cue's on-steps would
+agree with whatever was underneath and its off-steps would be overwritten by
 it. Channels a cue does not mention are left alone, which is what lets the
 indicators go on blinking through a flash.
+
+That ownership is also what makes priority mean anything: a lower cue writes
+its channels, a higher one writes over them lit or dark, and the result is the
+higher cue's opinion in full rather than a blend of two.
+
+### The car raises cues too, and a person outranks it
+
+`cue::wants()` is how the car asks: steering past the threshold wants `left`,
+a throttle at idle wants `brake`, `headOn` wants `head`. `cue::emit()` is how a
+person asks, and it **latches** — the car's own rules will not lower it again.
+That is what makes "headlights on" a switch rather than a suggestion the next
+tick overrules. `cue::cancel()` unlatches and hands the cue back to the car.
+
+`left` and `right` cancel each other. A car cannot indicate both ways — that is
+what `hazard` is for — and two blinkers with independent step clocks drift
+apart into an alternating flash within seconds. Hazard is one cue driving both
+sides for exactly that reason: being in phase is structural rather than lucky.
+
+`running` follows the **headlights**, not the `headOn` input, and the order of
+the two `wants()` calls is load-bearing. Reading the input for both left
+`CUE HEAD` lighting the heads and not the tails — an operator's switch that
+worked on one of the two things a headlight switch does.
 
 `cueEmit` restarts a cue that is already running rather than queueing behind
 it. A cue is a statement about the car *right now*; "I have stopped myself" is
@@ -302,15 +389,43 @@ one pin - not in the rules.
 
 ```
 CUE                  where it stands
-CUE LIST             every cue this firmware knows, and what each one means
-CUE <name>           say it now
-CUE STOP             stop mid-sentence
+CUE LIST             every cue this firmware knows, its mode, and what it means
+CUE <name>           raise it
+CUE <name> OFF       lower it, and hand it back to the car's own rules
+CUE STOP             lower everything
 ```
 
-`CUE` reports the **utterance** — which one, how far through it is, and what it
-would be sounding if there were a buzzer. The lamps are reported by `LIGHTS`,
-because "the headlights blinked" and "the car said *after you*" are different
-facts and only one of them survives being read off a lamp level.
+`CUE LIST` carries the mode, because that is what a caller has to know to use
+the cue: `once` ends on its own, `loop` and `hold` stay up until lowered. A
+listing of names alone would leave every client guessing which of its buttons
+is a toggle.
+
+```
+INFO cue head [hold] - my headlights are on
+INFO cue left [loop] - I am turning left
+INFO cue flash [once] - I have seen you - after you
+```
+
+`CUE` reports `speaking=` — the most important thing being said, for anything
+that wants one word — **and** `active=`, which is the whole list, because the
+car says more than one thing at a time. Headlights on, braking, and indicating
+left is three cues at once and is an ordinary Tuesday.
+
+```
+OK cue speaking=left active=head*,running,brake,left* step=0 loop=3 ...
+```
+
+A `*` marks a cue a **person** raised. "The car is braking" and "somebody is
+holding the brake lamps on" look identical on the lamps and are completely
+different situations.
+
+`CUE STOP` lowers everything, and the car will raise its own again on the next
+tick — so `brake` reappears immediately if the car is not being driven. That is
+correct: `STOP` clears what people asked for, not what is true.
+
+The lamps are still reported by `LIGHTS`, because "the headlights blinked" and
+"the car said *after you*" are different facts and only one of them survives
+being read off a lamp level.
 
 `LIGHTS OFFAT <us>` still sets the motion threshold and `LIGHTS` still reports
 it as `off_us=`. The wire protocol did not move when the code did — the hub's
