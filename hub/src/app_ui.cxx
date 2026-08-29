@@ -8690,13 +8690,13 @@ Void drawSidebar(Float32 width, Float32 height)
         // section id: the drop target needs to know where the thing came from.
         if(ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover))
         {
-            ImGui::SetDragDropPayload("TT02_SECTION", &slot, sizeof(Int32));
+            ImGui::SetDragDropPayload("BIBO_SECTION", &slot, sizeof(Int32));
             ImGui::TextUnformatted(e.title);
             ImGui::EndDragDropSource();
         }
         if(ImGui::BeginDragDropTarget())
         {
-            if(const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("TT02_SECTION"))
+            if(const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("BIBO_SECTION"))
             {
                 dragFrom = *static_cast<const Int32*>(pl->Data);
                 dragTo   = slot;

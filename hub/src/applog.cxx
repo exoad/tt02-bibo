@@ -140,7 +140,7 @@ Void init()
         return;
     }
 
-    std::fprintf(file, "tt02-auto session log\n");
+    std::fprintf(file, "bibo session log\n");
     std::fprintf(file, "started %04d-%02d-%02d %02d:%02d:%02d local\n",
                  t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
     std::fprintf(file, "command line: %s\n",

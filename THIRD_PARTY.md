@@ -17,14 +17,14 @@ obligations below are live rather than theoretical.
 Two, and both are easy to satisfy and easy to forget.
 
 **Fugue Icons — CC BY 3.0.** Attribution is a *condition* of the licence. It has
-to be visible to anyone who receives a build of `tt02.exe`, not merely present
+to be visible to anyone who receives a build of `bibo.exe`, not merely present
 in the source tree. Today it lives in `hub/assets/ATTRIBUTION.md`,
 `hub/assets/icons/LICENSE.txt` and the README. **If the app grows an About box,
 it belongs there too** — that is the moment the current arrangement stops being
 sufficient.
 
 **Slamtec `rplidar_driver.lib` — BSD-2-Clause.** Statically linked into
-`tt02.exe`. Clause 2 requires binary redistributions to reproduce the copyright
+`bibo.exe`. Clause 2 requires binary redistributions to reproduce the copyright
 notice and the disclaimer "in the documentation and/or other materials provided
 with the distribution". Shipping the .exe alone would breach it; shipping it
 alongside this file, or a NOTICE containing the Slamtec text, satisfies it.
@@ -72,7 +72,7 @@ obliges.
 Full detail, including exactly what was changed and why the mesh is scaled
 non-uniformly, is in [hub/assets/ATTRIBUTION.md](hub/assets/ATTRIBUTION.md).
 
-**`hub/assets/tt02.ico` is not third-party.** It is generated from primitives by
+**`hub/assets/bibo.ico` is not third-party.** It is generated from primitives by
 `hub/assets/make_icon.ps1` in the app's own visual language.
 
 ## Source files under someone else's terms

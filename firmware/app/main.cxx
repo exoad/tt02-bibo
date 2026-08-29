@@ -35,7 +35,7 @@
  * without naming is one that disappears the day the chain above it changes. */
 /* The whole library. An application includes this and nothing else of ours -
  * see docs/conventions.md, and the style audit that enforces it. */
-#include "../lib/tt02.hxx"
+#include "../lib/bibo.hxx"
 
 
 /* The sensor drivers. pico_debug is the image the hub talks to, so it is the
@@ -62,7 +62,7 @@
  * How long the board will keep DRIVING with nothing heard from the host.
  *
  * There was no such limit until now, and the gap was not small: if the hub
- * crashed, hung, or was closed while the ESC was armed and moving, drive::pump()
+ * crashed, hung, or was closed while the ESC was armed and moving, bibo::drive::pump()
  * went on writing the last throttle to the pin forever. On USB power the cable
  * coming out takes the board with it, which hid the problem; on the BEC it will
  * not. docs/conventions.md has described a 200 ms rule since the beginning and
@@ -89,7 +89,7 @@
 /* Whether the lamp came up, whatever the lamp happens to BE on this board. */
 static CharSeq lampWord(Void)
 {
-    return led::present() ? "yes" : "no";
+    return bibo::led::present() ? "yes" : "no";
 }
 
 /*
@@ -104,7 +104,7 @@ static CharSeq lampWord(Void)
 static CharSeq cyw43Field(Void)
 {
 #if defined(CYW43_WL_GPIO_LED_PIN)
-    return led::present() ? " cyw43=up" : " cyw43=FAILED";
+    return bibo::led::present() ? " cyw43=up" : " cyw43=FAILED";
 #else
     return "";
 #endif
@@ -115,11 +115,11 @@ static Void printId(CharSeq arg)
     static_cast<Void>(arg);
 
     Utf8 uid[24];
-    board::id(uid, sizeof(uid));
+    bibo::board::id(uid, sizeof(uid));
 
-    serial::printf("INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
+    bibo::serial::printf("INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
            PICO_BOARD, PICO_SDK_VERSION_STRING, __DATE__, __TIME__,
-           uid, led::backend(), lampWord(), cyw43Field());
+           uid, bibo::led::backend(), lampWord(), cyw43Field());
 }
 
 static Void printStatus(CharSeq arg)
@@ -131,12 +131,12 @@ static Void printStatus(CharSeq arg)
      * ID only when a person clicks something - so a field that appears solely
      * on ID is a field the hub almost never has. There are two boards in this
      * project now and telling them apart is worth six characters a poll. */
-    serial::printf("INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
-           timing::nowMs(),
+    bibo::serial::printf("INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
+           bibo::timing::nowMs(),
            PICO_BOARD,
-           status::isLit() ? "on" : "off",
-           static_cast<Float64>(status::rate()),
-           led::backend(), lampWord(), cyw43Field());
+           bibo::status::isLit() ? "on" : "off",
+           static_cast<Float64>(bibo::status::rate()),
+           bibo::led::backend(), lampWord(), cyw43Field());
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
@@ -145,7 +145,7 @@ static Void printStatus(CharSeq arg)
  * the two boards fail this differently, so they say it differently. */
 static CharSeq ledCaveat(Void)
 {
-    if(led::present())
+    if(bibo::led::present())
     {
         return "";
     }
@@ -158,49 +158,49 @@ static CharSeq ledCaveat(Void)
 
 static Void handleLed(CharSeq arg)
 {
-    if(text::eq(arg, "ON"))
+    if(bibo::text::eq(arg, "ON"))
     {
-        status::blink(0.0f);
-        status::solid(true);
-        serial::printf("OK led on%s\n", ledCaveat());
+        bibo::status::blink(0.0f);
+        bibo::status::solid(true);
+        bibo::serial::printf("OK led on%s\n", ledCaveat());
         return;
     }
 
-    if(text::eq(arg, "OFF"))
+    if(bibo::text::eq(arg, "OFF"))
     {
-        status::blink(0.0f);
-        status::solid(false);
-        serial::printf("OK led off%s\n", ledCaveat());
+        bibo::status::blink(0.0f);
+        bibo::status::solid(false);
+        bibo::serial::printf("OK led off%s\n", ledCaveat());
         return;
     }
 
-    if(text::starts(arg, "BLINK"))
+    if(bibo::text::starts(arg, "BLINK"))
     {
-        /* text::after rather than arg + 5: the offset and the word it skips are
+        /* bibo::text::after rather than arg + 5: the offset and the word it skips are
          * written once, so renaming the command cannot leave a stale count. */
         Float32 hz = 0.0f;
-        if(!text::toFloat(text::after(arg, "BLINK "), &hz))
+        if(!bibo::text::toFloat(bibo::text::after(arg, "BLINK "), &hz))
         {
-            serial::printf("ERR blink wants a rate in hz\n");
+            bibo::serial::printf("ERR blink wants a rate in hz\n");
             return;
         }
         if(hz < 0.0f || hz > BLINK_MAX_HZ)
         {
-            serial::printf("ERR blink rate out of range (0-%.0f hz)\n",
+            bibo::serial::printf("ERR blink rate out of range (0-%.0f hz)\n",
                    static_cast<Float64>(BLINK_MAX_HZ));
             return;
         }
 
-        status::blink(hz);
+        bibo::status::blink(hz);
         if(hz == 0.0f)
         {
-            status::solid(false);
+            bibo::status::solid(false);
         }
-        serial::printf("OK led blink %.2f\n", static_cast<Float64>(hz));
+        bibo::serial::printf("OK led blink %.2f\n", static_cast<Float64>(hz));
         return;
     }
 
-    serial::printf("ERR bad LED argument: %s\n", arg);
+    bibo::serial::printf("ERR bad LED argument: %s\n", arg);
 }
 
 /* ================================================================ sensors ==
@@ -239,7 +239,7 @@ static Bool   deadmanTripped = false;
  * which reads as bad credentials, or bad range, or a bad radio, and never as
  * "the console changed what you typed".
  *
- * So the raw line is kept alongside. text::upper() rewrites in place and does not
+ * So the raw line is kept alongside. bibo::text::upper() rewrites in place and does not
  * change the LENGTH of anything, so an offset into the uppercased line is the
  * same offset into this one, and cmdRawArg is that pointer. Nothing but WIFI
  * needs it.
@@ -249,24 +249,24 @@ static CharSeq cmdRawArg = "";
 
 /* Which wireless state has already been announced, so a change is reported
  * once rather than every millisecond. */
-static net::State netReported = net::STATE_ABSENT;
+static bibo::net::State netReported = bibo::net::STATE_ABSENT;
 
 static Bool i2cUp   = false;
-static tof::Vl53 tofFront;
+static bibo::tof::Vl53 tofFront;
 static Bool tofUp   = false;
 
 static Void sensorsOpen(Void)
 {
-    i2cUp = i2c::open(SENSOR_SDA, SENSOR_SCL, SENSOR_HZ);
+    i2cUp = bibo::i2c::open(SENSOR_SDA, SENSOR_SCL, SENSOR_HZ);
     if(!i2cUp)
     {
         return;
     }
 
-    tofUp = tof::open(&tofFront, SENSOR_SDA, VL53_ADDR_DEFAULT);
+    tofUp = bibo::tof::open(&tofFront, SENSOR_SDA, VL53_ADDR_DEFAULT);
     if(tofUp)
     {
-        tof::startRanging(&tofFront);
+        bibo::tof::startRanging(&tofFront);
     }
 }
 
@@ -281,7 +281,7 @@ static Void printSensors(CharSeq arg)
 {
     static_cast<Void>(arg);
 
-    serial::printf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
+    bibo::serial::printf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
            i2cUp ? 1 : 0, tofUp ? 1 : 0, VL53_ADDR_DEFAULT);
 }
 
@@ -293,20 +293,20 @@ static Void printScan(CharSeq arg)
 
     if(!i2cUp)
     {
-        serial::printf("ERR scan i2c not up\n");
+        bibo::serial::printf("ERR scan i2c not up\n");
         return;
     }
 
     Int32 found = 0;
     for(Int32 a = ADDR_SCAN_FIRST; a <= ADDR_SCAN_LAST; ++a)
     {
-        if(i2c::present(SENSOR_SDA, static_cast<UInt8>(a)))
+        if(bibo::i2c::present(SENSOR_SDA, static_cast<UInt8>(a)))
         {
-            serial::printf("INFO scan 0x%02X\n", a);
+            bibo::serial::printf("INFO scan 0x%02X\n", a);
             ++found;
         }
     }
-    serial::printf("OK scan %d\n", found);
+    bibo::serial::printf("OK scan %d\n", found);
 }
 
 /*
@@ -320,14 +320,14 @@ static Void printTof(Void)
 {
     if(!tofUp)
     {
-        serial::printf("ERR tof absent\n");
+        bibo::serial::printf("ERR tof absent\n");
         return;
     }
 
-    if(tof::ready(&tofFront))
+    if(bibo::tof::ready(&tofFront))
     {
-        const UInt16 mm = tof::distance(&tofFront);
-        const UInt8  st = tof::status(&tofFront);
+        const UInt16 mm = bibo::tof::distance(&tofFront);
+        const UInt8  st = bibo::tof::status(&tofFront);
 
         /* The rates are read BEFORE the interrupt is cleared - they belong
          * to THIS measurement, and clearing first would hand back whatever
@@ -340,23 +340,23 @@ static Void printTof(Void)
          * infrared in the room. */
         UInt16 sig = 0;
         UInt16 amb = 0;
-        static_cast<Void>(tof::rates(&tofFront, &sig, &amb));
+        static_cast<Void>(bibo::tof::rates(&tofFront, &sig, &amb));
 
-        tof::clear(&tofFront);
-        serial::printf("OK tof %u %u %u %u\n", mm, st, sig, amb);
+        bibo::tof::clear(&tofFront);
+        bibo::serial::printf("OK tof %u %u %u %u\n", mm, st, sig, amb);
         return;
     }
 
     /* Not ready is not an error - the sensor takes tens of milliseconds per
      * measurement and the host is entitled to ask more often than that. */
-    serial::printf("OK tof busy\n");
+    bibo::serial::printf("OK tof busy\n");
 }
 
 static Void handleTofMode(CharSeq arg)
 {
     if(!tofUp)
     {
-        serial::printf("ERR tof absent\n");
+        bibo::serial::printf("ERR tof absent\n");
         return;
     }
 
@@ -366,23 +366,23 @@ static Void handleTofMode(CharSeq arg)
      * measurement leaves the sensor half-configured for as long as that
      * measurement lasts, and what it does with the result is undefined.
      * ST's own driver brackets it this way and so does this. */
-    if(text::eq(arg, "SHORT"))
+    if(bibo::text::eq(arg, "SHORT"))
     {
-        tof::stopRanging(&tofFront);
-        tof::setMode(&tofFront, tof::MODE_SHORT);
-        tof::clearInterruptAndStart(&tofFront);
-        serial::printf("OK tof mode short\n");
+        bibo::tof::stopRanging(&tofFront);
+        bibo::tof::setMode(&tofFront, bibo::tof::MODE_SHORT);
+        bibo::tof::clearInterruptAndStart(&tofFront);
+        bibo::serial::printf("OK tof mode short\n");
         return;
     }
-    if(text::eq(arg, "LONG"))
+    if(bibo::text::eq(arg, "LONG"))
     {
-        tof::stopRanging(&tofFront);
-        tof::setMode(&tofFront, tof::MODE_LONG);
-        tof::clearInterruptAndStart(&tofFront);
-        serial::printf("OK tof mode long\n");
+        bibo::tof::stopRanging(&tofFront);
+        bibo::tof::setMode(&tofFront, bibo::tof::MODE_LONG);
+        bibo::tof::clearInterruptAndStart(&tofFront);
+        bibo::serial::printf("OK tof mode long\n");
         return;
     }
-    serial::printf("ERR bad mode: %s\n", arg);
+    bibo::serial::printf("ERR bad mode: %s\n", arg);
 }
 
 /* ================================================================== drive ==
@@ -398,8 +398,8 @@ static Void handleTofMode(CharSeq arg)
 
 static Void printDrive(Void)
 {
-    const drive::State d = drive::read();
-    serial::printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
+    const bibo::drive::State d = bibo::drive::read();
+    bibo::serial::printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
            "servo_on=%d servo_c=%d steer_m=%d steer_now=%d "
            "slew=%d slew_esc=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
@@ -417,18 +417,18 @@ static Void handleSteer(CharSeq arg)
      * that it means zero would turn a typo into a movement. */
     if(arg[0] == '\0')
     {
-        serial::printf("ERR steer wants -1.0 to 1.0\n");
+        bibo::serial::printf("ERR steer wants -1.0 to 1.0\n");
         return;
     }
 
     Float32 n = 0.0f;
-    if(!text::toFloat(arg, &n))
+    if(!bibo::text::toFloat(arg, &n))
     {
-        serial::printf("ERR steer wants -1.0 to 1.0\n");
+        bibo::serial::printf("ERR steer wants -1.0 to 1.0\n");
         return;
     }
 
-    drive::steer(n);
+    bibo::drive::steer(n);
     printDrive();
 }
 
@@ -441,13 +441,13 @@ static Void handleSteer(CharSeq arg)
  */
 static Void handleSlew(CharSeq arg)
 {
-    CharSeq rest = text::word(arg, "STEER");
+    CharSeq rest = bibo::text::word(arg, "STEER");
     if(rest != NULL)
     {
         Int32 us = 0;
-        if(!text::toInt(rest, &us) || !drive::setSteerSlew(us))
+        if(!bibo::text::toInt(rest, &us) || !bibo::drive::setSteerSlew(us))
         {
-            serial::printf("ERR slew steer wants %d-%d us per tick\n",
+            bibo::serial::printf("ERR slew steer wants %d-%d us per tick\n",
                          SLEW_MIN_STEP, SLEW_MAX_STEP);
             return;
         }
@@ -455,13 +455,13 @@ static Void handleSlew(CharSeq arg)
         return;
     }
 
-    rest = text::word(arg, "THROTTLE");
+    rest = bibo::text::word(arg, "THROTTLE");
     if(rest != NULL)
     {
         Int32 us = 0;
-        if(!text::toInt(rest, &us) || !drive::setThrottleSlew(us))
+        if(!bibo::text::toInt(rest, &us) || !bibo::drive::setThrottleSlew(us))
         {
-            serial::printf("ERR slew throttle wants %d-%d us per tick\n",
+            bibo::serial::printf("ERR slew throttle wants %d-%d us per tick\n",
                          SLEW_MIN_STEP, SLEW_MAX_STEP);
             return;
         }
@@ -470,9 +470,9 @@ static Void handleSlew(CharSeq arg)
     }
 
     Int32 us = 0;
-    if(!text::toInt(arg, &us) || !drive::setSlew(us))
+    if(!bibo::text::toInt(arg, &us) || !bibo::drive::setSlew(us))
     {
-        serial::printf("ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
+        bibo::serial::printf("ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
                      SLEW_MIN_STEP, SLEW_MAX_STEP);
         return;
     }
@@ -483,15 +483,15 @@ static Void handleSlew(CharSeq arg)
      * full travel 1100 ms" is the fact that decides whether it is fast enough
      * to steer around something.
      */
-    const drive::State d = drive::read();
+    const bibo::drive::State d = bibo::drive::read();
     const Int32 perSec = d.steerSlewUs * (1000 / SLEW_TICK_MS);
-    serial::printf("INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
+    bibo::serial::printf("INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
                  d.steerSlewUs, perSec,
                  (perSec > 0) ? (((d.servoMaxUs - d.servoMinUs) * 1000) / perSec)
                               : 0);
 
     const Int32 escPerSec = d.throttleSlewUs * (1000 / SLEW_TICK_MS);
-    serial::printf("INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
+    bibo::serial::printf("INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
                  d.throttleSlewUs, escPerSec,
                  (escPerSec > 0) ? (((d.escMaxUs - d.escMinUs) * 1000) / escPerSec)
                                  : 0);
@@ -501,15 +501,15 @@ static Void handleSlew(CharSeq arg)
 static Void handleTrim(CharSeq arg)
 {
     Int32 us = 0;
-    if(!text::toInt(arg, &us))
+    if(!bibo::text::toInt(arg, &us))
     {
-        const drive::State d = drive::read();
-        serial::printf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
+        const bibo::drive::State d = bibo::drive::read();
+        bibo::serial::printf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
         return;
     }
 
-    drive::trim(us);
-    serial::printf("INFO centre is now %d us\n", drive::read().centerUs);
+    bibo::drive::trim(us);
+    bibo::serial::printf("INFO centre is now %d us\n", bibo::drive::read().centerUs);
     printDrive();
 }
 
@@ -518,21 +518,21 @@ static Void handleTrim(CharSeq arg)
  *
  * They were written out twice, identically apart from the word in the error
  * messages and the function called - and the two copies had already drifted
- * once, because the ordering bug fixed in drive::setSteerLimits had to be
+ * once, because the ordering bug fixed in bibo::drive::setSteerLimits had to be
  * remembered a second time for the throttle.
  */
 static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
 {
     Int32 lo = 0;
     Int32 hi = 0;
-    if(!text::twoInts(arg, &lo, &hi))
+    if(!bibo::text::twoInts(arg, &lo, &hi))
     {
-        serial::printf("ERR %s wants <min> <max>\n", name);
+        bibo::serial::printf("ERR %s wants <min> <max>\n", name);
         return;
     }
     if(!set(lo, hi))
     {
-        serial::printf("ERR %s min must be below max\n", name);
+        bibo::serial::printf("ERR %s min must be below max\n", name);
         return;
     }
     printDrive();
@@ -540,12 +540,12 @@ static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
 
 static Void handleLimits(CharSeq arg)
 {
-    limitsCommand(arg, "servolimits", drive::setSteerLimits);
+    limitsCommand(arg, "servolimits", bibo::drive::setSteerLimits);
 }
 
 static Void handleEscLimits(CharSeq arg)
 {
-    limitsCommand(arg, "esclimits", drive::setThrottleLimits);
+    limitsCommand(arg, "esclimits", bibo::drive::setThrottleLimits);
 }
 
 static Void handleServo(CharSeq arg)
@@ -555,84 +555,84 @@ static Void handleServo(CharSeq arg)
      * leaning on a frame does not need a better number, it needs to stop being
      * told to hold a position at all.
      */
-    if(text::eq(arg, "OFF"))
+    if(bibo::text::eq(arg, "OFF"))
     {
-        drive::engage(false);
-        serial::printf("INFO servo released - no pulse, no holding torque\n");
+        bibo::drive::engage(false);
+        bibo::serial::printf("INFO servo released - no pulse, no holding torque\n");
         printDrive();
         return;
     }
 
-    if(text::eq(arg, "ON"))
+    if(bibo::text::eq(arg, "ON"))
     {
-        drive::engage(true);
-        serial::printf("INFO servo engaged - holding %d us\n", drive::read().servoTargetUs);
+        bibo::drive::engage(true);
+        bibo::serial::printf("INFO servo engaged - holding %d us\n", bibo::drive::read().servoTargetUs);
         printDrive();
         return;
     }
 
-    if(text::eq(arg, "CENTER") || text::eq(arg, "CENTRE"))
+    if(bibo::text::eq(arg, "CENTER") || bibo::text::eq(arg, "CENTRE"))
     {
-        drive::center();
+        bibo::drive::center();
         printDrive();
         return;
     }
 
     Int32 us = 0;
-    if(!text::toInt(arg, &us))
+    if(!bibo::text::toInt(arg, &us))
     {
-        const drive::State d = drive::read();
-        serial::printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
+        const bibo::drive::State d = bibo::drive::read();
+        bibo::serial::printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
                d.servoMinUs, d.servoMaxUs);
         return;
     }
 
     /* A position asked for while released is remembered, not obeyed. Engaging
      * is a separate, deliberate act - the same shape as arming the ESC. */
-    const Bool wasLive = drive::read().servoLive;
-    drive::steerUs(us);
+    const Bool wasLive = bibo::drive::read().servoLive;
+    bibo::drive::steerUs(us);
     if(!wasLive)
     {
-        serial::printf("INFO servo is released - target stored, send SERVO ON\n");
+        bibo::serial::printf("INFO servo is released - target stored, send SERVO ON\n");
     }
     printDrive();
 }
 
 static Void handleEsc(CharSeq arg)
 {
-    if(text::eq(arg, "ARM"))
+    if(bibo::text::eq(arg, "ARM"))
     {
-        drive::arm(true);
-        serial::printf("INFO esc armed - neutral held\n");
+        bibo::drive::arm(true);
+        bibo::serial::printf("INFO esc armed - neutral held\n");
         printDrive();
         return;
     }
-    if(text::eq(arg, "DISARM"))
+    if(bibo::text::eq(arg, "DISARM"))
     {
-        drive::arm(false);
-        serial::printf("INFO esc disarmed\n");
+        bibo::drive::arm(false);
+        bibo::serial::printf("INFO esc disarmed\n");
         printDrive();
         return;
     }
-    if(text::eq(arg, "NEUTRAL"))
+    if(bibo::text::eq(arg, "NEUTRAL"))
     {
-        drive::throttleNeutral();
+        bibo::drive::throttleNeutral();
         printDrive();
         return;
     }
 
     Int32 us = 0;
-    if(!text::toInt(arg, &us))
+    if(!bibo::text::toInt(arg, &us))
     {
-        const drive::State d = drive::read();
-        serial::printf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
+        const bibo::drive::State d = bibo::drive::read();
+        bibo::serial::printf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
         return;
     }
 
     /* The module owns the arming rule; this only reports it. */
-    if(!drive::throttleUs(us))
+    if(!bibo::drive::throttleUs(us))
     {
-        serial::printf("ERR esc not armed - send ESC ARM first\n");
+        bibo::serial::printf("ERR esc not armed - send ESC ARM first\n");
         return;
     }
     printDrive();
@@ -649,7 +649,7 @@ static Void handleEsc(CharSeq arg)
  * running rather than the LED merely being on.
  * ------------------------------------------------------------------------- */
 /* The lamp names, in Lamp order, so the reply reads the way the model does. */
-static CharSeq LAMP_NAME[lights::COUNT] =
+static CharSeq LAMP_NAME[bibo::lights::COUNT] =
 {
     "headL", "headR", "tailL", "tailR",
     "indFL", "indFR", "indRL", "indRR",
@@ -667,9 +667,9 @@ static Void printLights(CharSeq arg)
 {
     static_cast<Void>(arg);
 
-    const lights::Set s = lights::read();
-    const cue::Turn t = cue::side();
-    const Int32   f = lights::forcedLamp();
+    const bibo::lights::Set s = bibo::lights::read();
+    const bibo::cue::Turn t = bibo::cue::side();
+    const Int32   f = bibo::lights::forcedLamp();
 
     /* ONE line, not one per lamp.
      *
@@ -677,23 +677,23 @@ static Void printLights(CharSeq arg)
      * a poll is seventy-five lines a second of serial traffic to say what fits
      * in one. levels[] and pins[] are in Lamp order, which is the order
      * LAMP_NAME is in and the order the model declares them. */
-    serial::printf("OK lights on=%d turn=%s forced=%s off_us=%d"
+    bibo::serial::printf("OK lights on=%d turn=%s forced=%s off_us=%d"
                  " levels=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u"
                  " pins=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-                 lights::enabled() ? 1 : 0,
-                 (t == cue::TURN_LEFT)  ? "left"
-                     : (t == cue::TURN_RIGHT)  ? "right"
-                     : (t == cue::TURN_HAZARD) ? "hazard" : "off",
-                 (f == lights::COUNT) ? "no" : LAMP_NAME[f],
-                 cue::motionUs(),
+                 bibo::lights::enabled() ? 1 : 0,
+                 (t == bibo::cue::TURN_LEFT)  ? "left"
+                     : (t == bibo::cue::TURN_RIGHT)  ? "right"
+                     : (t == bibo::cue::TURN_HAZARD) ? "hazard" : "off",
+                 (f == bibo::lights::COUNT) ? "no" : LAMP_NAME[f],
+                 bibo::cue::motionUs(),
                  static_cast<UInt32>(s.level[0]), static_cast<UInt32>(s.level[1]),
                  static_cast<UInt32>(s.level[2]), static_cast<UInt32>(s.level[3]),
                  static_cast<UInt32>(s.level[4]), static_cast<UInt32>(s.level[5]),
                  static_cast<UInt32>(s.level[6]), static_cast<UInt32>(s.level[7]),
                  static_cast<UInt32>(s.level[8]), static_cast<UInt32>(s.level[9]),
-                 lights::pin[0], lights::pin[1], lights::pin[2], lights::pin[3],
-                 lights::pin[4], lights::pin[5], lights::pin[6], lights::pin[7],
-                 lights::pin[8], lights::pin[9]);
+                 bibo::lights::pin[0], bibo::lights::pin[1], bibo::lights::pin[2], bibo::lights::pin[3],
+                 bibo::lights::pin[4], bibo::lights::pin[5], bibo::lights::pin[6], bibo::lights::pin[7],
+                 bibo::lights::pin[8], bibo::lights::pin[9]);
 }
 
 /*
@@ -705,33 +705,33 @@ static Void printLights(CharSeq arg)
  */
 static Void handleLights(CharSeq arg)
 {
-    if(text::eq(arg, "ON"))
+    if(bibo::text::eq(arg, "ON"))
     {
-        lights::enable(true);
+        bibo::lights::enable(true);
         printLights(arg);
         return;
     }
-    if(text::eq(arg, "OFF"))
+    if(bibo::text::eq(arg, "OFF"))
     {
-        lights::enable(false);
+        bibo::lights::enable(false);
         printLights(arg);
         return;
     }
-    if(text::eq(arg, "AUTO"))
+    if(bibo::text::eq(arg, "AUTO"))
     {
-        lights::forceLamp(lights::COUNT);
+        bibo::lights::forceLamp(bibo::lights::COUNT);
         printLights(arg);
         return;
     }
 
     /* LIGHTS OFFAT <us> - how far past idle counts as being driven. */
-    if(text::starts(arg, "OFFAT"))
+    if(bibo::text::starts(arg, "OFFAT"))
     {
         Int32 us = 0;
-        if(!text::toInt(text::after(arg, "OFFAT "), &us)
-           || !cue::setMotionUs(us))
+        if(!bibo::text::toInt(bibo::text::after(arg, "OFFAT "), &us)
+           || !bibo::cue::setMotionUs(us))
         {
-            serial::printf("ERR lights offat wants %d-%d us past idle\n",
+            bibo::serial::printf("ERR lights offat wants %d-%d us past idle\n",
                          CUE_MOTION_US_MIN, CUE_MOTION_US_MAX);
             return;
         }
@@ -746,7 +746,7 @@ static Void handleLights(CharSeq arg)
 
     /* Matched case-insensitively because handleLine has already uppercased the
      * whole line, and the table above is spelled the way the model spells it. */
-    for(Int32 i = 0; i < lights::COUNT; ++i)
+    for(Int32 i = 0; i < bibo::lights::COUNT; ++i)
     {
         Utf8 up[12];
         Size n = 0;
@@ -756,17 +756,17 @@ static Void handleLights(CharSeq arg)
             ++n;
         }
         up[n] = '\0';
-        text::upper(up);
+        bibo::text::upper(up);
 
-        if(text::eq(arg, up))
+        if(bibo::text::eq(arg, up))
         {
-            lights::forceLamp(i);
+            bibo::lights::forceLamp(i);
             printLights(arg);
             return;
         }
     }
 
-    serial::printf("ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name,"
+    bibo::serial::printf("ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name,"
                  " or nothing\n");
 }
 
@@ -774,7 +774,7 @@ static Void handleLights(CharSeq arg)
  *
  * One row per command; the dispatcher and HELP both read it.
  *
- * They used to be two lists. A chain of twenty if(text::starts(...)) blocks with
+ * They used to be two lists. A chain of twenty if(bibo::text::starts(...)) blocks with
  * the argument offset written out by hand - line + 10 for "SERVOTRIM ",
  * line + 12 for "SERVOLIMITS " - and a printHelp() that spelled the same
  * commands out again in prose. Two lists of the same thing drift: the offsets
@@ -783,7 +783,7 @@ static Void handleLights(CharSeq arg)
  *
  * Matching is by WHOLE WORD, so the order of the rows means nothing. The old
  * chain worked only because SERVOTRIM and SERVOLIMITS happened to be tested
- * before SERVO, which text::starts() would otherwise have matched first.
+ * before SERVO, which bibo::text::starts() would otherwise have matched first.
  *
  * `usage` is what may follow the name and `what` is one line about it; HELP
  * prints them and nothing else has to be kept in step.
@@ -806,7 +806,7 @@ static Void printHelp(CharSeq arg);
  * would hand the whole thing to TOF anyway. */
 static Void cmdTof(CharSeq arg)
 {
-    CharSeq mode = text::word(arg, "MODE");
+    CharSeq mode = bibo::text::word(arg, "MODE");
     if(mode != NULL)
     {
         handleTofMode(mode);
@@ -818,7 +818,7 @@ static Void cmdTof(CharSeq arg)
 static Void cmdPing(CharSeq arg)
 {
     static_cast<Void>(arg);
-    serial::printf("PONG\n");
+    bibo::serial::printf("PONG\n");
 }
 
 static Void cmdDrive(CharSeq arg)
@@ -847,14 +847,14 @@ static Void cmdStop(CharSeq arg)
 {
     static_cast<Void>(arg);
 
-    drive::stop();
-    lights::forceLamp(lights::COUNT);
+    bibo::drive::stop();
+    bibo::lights::forceLamp(bibo::lights::COUNT);
 
     /* Mid-sentence is still an output being commanded, and a stop that leaves
      * an output commanded is not a stop. */
-    cue::silence();
+    bibo::cue::silence();
 
-    serial::printf("OK stop\n");
+    bibo::serial::printf("OK stop\n");
 }
 
 /*
@@ -873,21 +873,21 @@ static Void cmdStop(CharSeq arg)
  */
 static Void cmdWifi(CharSeq arg)
 {
-    if(!net::present())
+    if(!bibo::net::present())
     {
-        serial::printf("ERR wifi no radio on this board (%s)\n", PICO_BOARD);
+        bibo::serial::printf("ERR wifi no radio on this board (%s)\n", PICO_BOARD);
         return;
     }
 
-    CharSeq rest = text::word(arg, "JOIN");
+    CharSeq rest = bibo::text::word(arg, "JOIN");
     if(rest == NULL)
     {
-        serial::printf("INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
-                     net::stateWord(net::status()),
-                     net::address(),
+        bibo::serial::printf("INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
+                     bibo::net::stateWord(bibo::net::status()),
+                     bibo::net::address(),
                      static_cast<Int32>(NET_PORT),
-                     net::peerKnown() ? "yes" : "no",
-                     net::droppedCount());
+                     bibo::net::peerKnown() ? "yes" : "no",
+                     bibo::net::droppedCount());
         return;
     }
 
@@ -905,14 +905,14 @@ static Void cmdWifi(CharSeq arg)
 
     if(n == 0)
     {
-        serial::printf("ERR wifi join wants <ssid> [password]\n");
+        bibo::serial::printf("ERR wifi join wants <ssid> [password]\n");
         return;
     }
     if(raw[n] != '\0' && raw[n] != ' ')
     {
         /* Ran out of buffer mid-name. Say so: a truncated SSID would fail to
          * join and look like the network was out of range. */
-        serial::printf("ERR wifi ssid longer than %u characters\n",
+        bibo::serial::printf("ERR wifi ssid longer than %u characters\n",
                      static_cast<UInt32>(sizeof(ssid) - 1));
         return;
     }
@@ -922,15 +922,15 @@ static Void cmdWifi(CharSeq arg)
         n++;
     }
 
-    if(!net::join(ssid, &raw[n]))
+    if(!bibo::net::join(ssid, &raw[n]))
     {
-        serial::printf("ERR wifi could not start joining %s\n", ssid);
+        bibo::serial::printf("ERR wifi could not start joining %s\n", ssid);
         return;
     }
 
     /* Deliberately does not say whether it WORKED - it has not finished trying.
      * The main loop reports the state when it changes. */
-    serial::printf("OK wifi joining %s\n", ssid);
+    bibo::serial::printf("OK wifi joining %s\n", ssid);
 }
 
 /* ---------------------------------------------------------------------------
@@ -948,15 +948,15 @@ static Void cmdWifi(CharSeq arg)
  * ------------------------------------------------------------------------- */
 static Void printCue(Void)
 {
-    const cue::Kind k = cue::speaking();
+    const bibo::cue::Kind k = bibo::cue::speaking();
 
-    serial::printf("OK cue speaking=%s step=%u loop=%u tone=%u kinds=%d off_us=%d\n",
-                 cue::name(k),
-                 static_cast<UInt32>(cue::step()),
-                 static_cast<UInt32>(cue::loop()),
-                 static_cast<UInt32>(cue::tone()),
-                 static_cast<Int32>(cue::KIND_COUNT - 1),
-                 cue::motionUs());
+    bibo::serial::printf("OK cue speaking=%s step=%u loop=%u tone=%u kinds=%d off_us=%d\n",
+                 bibo::cue::name(k),
+                 static_cast<UInt32>(bibo::cue::step()),
+                 static_cast<UInt32>(bibo::cue::loop()),
+                 static_cast<UInt32>(bibo::cue::tone()),
+                 static_cast<Int32>(bibo::cue::KIND_COUNT - 1),
+                 bibo::cue::motionUs());
 }
 
 static Void cmdCue(CharSeq arg)
@@ -967,30 +967,30 @@ static Void cmdCue(CharSeq arg)
         return;
     }
 
-    if(text::eq(arg, "LIST"))
+    if(bibo::text::eq(arg, "LIST"))
     {
         /* One line each, the way HELP does it, so nothing has to be kept in
          * step with a list written somewhere else. */
-        for(Int32 k = 1; k < cue::KIND_COUNT; ++k)
+        for(Int32 k = 1; k < bibo::cue::KIND_COUNT; ++k)
         {
-            serial::printf("INFO cue %s - %s\n",
-                         cue::SCRIPT[k].name, cue::SCRIPT[k].means);
+            bibo::serial::printf("INFO cue %s - %s\n",
+                         bibo::cue::SCRIPT[k].name, bibo::cue::SCRIPT[k].means);
         }
         printCue();
         return;
     }
 
-    if(text::eq(arg, "STOP"))
+    if(bibo::text::eq(arg, "STOP"))
     {
-        cue::silence();
+        bibo::cue::silence();
         printCue();
         return;
     }
 
-    const cue::Kind want = cue::find(arg);
-    if(want == cue::KIND_NONE || !cue::emit(want))
+    const bibo::cue::Kind want = bibo::cue::find(arg);
+    if(want == bibo::cue::KIND_NONE || !bibo::cue::emit(want))
     {
-        serial::printf("ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
+        bibo::serial::printf("ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
         return;
     }
 
@@ -1000,8 +1000,8 @@ static Void cmdCue(CharSeq arg)
 static Void cmdBootsel(CharSeq arg)
 {
     static_cast<Void>(arg);
-    serial::printf("INFO rebooting into bootloader\n");
-    board::rebootToBootsel();          /* flushes, then does not return */
+    bibo::serial::printf("INFO rebooting into bootloader\n");
+    bibo::board::rebootToBootsel();          /* flushes, then does not return */
 }
 
 static const Command COMMANDS[] =
@@ -1042,7 +1042,7 @@ static Void printHelp(CharSeq arg)
     static_cast<Void>(arg);
     for(Size i = 0; i < COMMAND_COUNT; ++i)
     {
-        serial::printf("INFO help %s%s - %s\n",
+        bibo::serial::printf("INFO help %s%s - %s\n",
                      COMMANDS[i].name, COMMANDS[i].usage, COMMANDS[i].what);
     }
 }
@@ -1051,25 +1051,25 @@ static Void handleLine(Utf8* line)
 {
     /* A terminal decides for itself what to put at the end of a line. Without
      * this, "PING\r" is not "PING" and a correctly typed command is refused. */
-    if(text::trimEnd(line) == 0)
+    if(bibo::text::trimEnd(line) == 0)
     {
         return;
     }
 
-    /* BEFORE text::upper, which rewrites in place. */
+    /* BEFORE bibo::text::upper, which rewrites in place. */
     snprintf(rawLine, sizeof(rawLine), "%s", line);
 
-    text::upper(line);
+    bibo::text::upper(line);
 
     /* ANY line from the host counts as liveness, including one that turns out
      * to be a bad command. The question this asks is "is somebody still there",
      * not "is somebody still there and getting it right". */
-    lastCmdMs      = timing::nowMs();
+    lastCmdMs      = bibo::timing::nowMs();
     deadmanTripped = false;
 
     /* "?" is HELP, and is not a row of its own: it would print as a command in
      * its own listing, which is one more thing than anybody wants to read. */
-    if(text::eq(line, "?"))
+    if(bibo::text::eq(line, "?"))
     {
         printHelp(line);
         return;
@@ -1077,7 +1077,7 @@ static Void handleLine(Utf8* line)
 
     for(Size i = 0; i < COMMAND_COUNT; ++i)
     {
-        CharSeq arg = text::word(line, COMMANDS[i].name);
+        CharSeq arg = bibo::text::word(line, COMMANDS[i].name);
         if(arg != NULL)
         {
             /* Same offset, other buffer - see rawLine above. */
@@ -1087,7 +1087,7 @@ static Void handleLine(Utf8* line)
         }
     }
 
-    serial::printf("ERR unknown command: %s\n", line);
+    bibo::serial::printf("ERR unknown command: %s\n", line);
 }
 
 /* ------------------------------------------------------------------ main -- */
@@ -1104,7 +1104,7 @@ static Void handleLine(Utf8* line)
  */
 int main(Void)
 {
-    serial::open();
+    bibo::serial::open();
 
     /* Sensors come up at boot so SENSORS and TOF can answer immediately. A
      * missing sensor is not a failure here - it is the answer. */
@@ -1112,7 +1112,7 @@ int main(Void)
 
     /* The ESC to neutral, the steering RELEASED. See chassis.h for why those
      * are different answers. */
-    drive::open();
+    bibo::drive::open();
 
     /* Brings up whatever this board's LED hangs off.
      *
@@ -1120,30 +1120,30 @@ int main(Void)
      * fail, so the result is REPORTED rather than assumed: a board that answers
      * PING but says cyw43=FAILED is a very different problem from a board that
      * is silent. On the plain Pico 2 it is GP25 and cannot fail. Either way
-     * status::open() remembers the outcome and every later call is a no-op
+     * bibo::status::open() remembers the outcome and every later call is a no-op
      * rather than a crash. */
-    status::open();
+    bibo::status::open();
 
     /* The indicator lamps. TEMPORARY scaffolding on borrowed pins - lib/lights.h
-     * says which and why. Opened AFTER drive::open() so that if the two ever
+     * says which and why. Opened AFTER bibo::drive::open() so that if the two ever
      * disagree about a pin, the drivetrain wins: a stray LED is a cosmetic
      * fault and a servo pin that is secretly an output is not. */
-    lights::open();
+    bibo::lights::open();
 
     /* What the car SAYS with those lamps. Opened after them, because a cue with
      * nowhere to come out of is a cue that fails silently. */
-    cue::open();
+    bibo::cue::open();
 
     /* The threshold is a tuning that survives a reflash, so it lives in cal.h
      * and is handed to the module here. cue.h cannot reach for cal.h - the
      * layering forbids it, and rightly: the RULE is the same on any car and only
      * the number is this one's. */
-    cue::setMotionUs(LIGHT_CAL_OFF_US);
+    bibo::cue::setMotionUs(LIGHT_CAL_OFF_US);
 
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */
-    status::hello(HELLO_FLASHES, HELLO_FLASH_MS);
-    status::blink(IDLE_BLINK_HZ);
+    bibo::status::hello(HELLO_FLASHES, HELLO_FLASH_MS);
+    bibo::status::blink(IDLE_BLINK_HZ);
 
     /* ---- the wireless link ---------------------------------------------
      *
@@ -1153,16 +1153,16 @@ int main(Void)
      *
      * Two connections, and they are the two halves of the same seam:
      *
-     *   net::setLineHandler  a line arriving in a datagram goes to the SAME
+     *   bibo::net::setLineHandler  a line arriving in a datagram goes to the SAME
      *                      handler a line arriving on the cable goes to. There
      *                      is one command language, not two.
-     *   serial::setMirror    everything this program prints goes to the wireless
+     *   bibo::serial::setMirror    everything this program prints goes to the wireless
      *                      peer as well as the cable, so a host that is only
      *                      listening wirelessly sees the replies to its own
      *                      commands - and to anybody else's.
      */
-    net::setLineHandler(handleLine);
-    serial::setMirror(net::sendLine);
+    bibo::net::setLineHandler(handleLine);
+    bibo::serial::setMirror(bibo::net::sendLine);
 
     Utf8 line[LINE_CAP];
     Size len      = 0;
@@ -1171,7 +1171,7 @@ int main(Void)
 
     for(;;)
     {
-        status::tick();
+        bibo::status::tick();
 
         /* ---- the wireless link ------------------------------------------
          *
@@ -1183,60 +1183,60 @@ int main(Void)
          * A command that arrived wirelessly is dispatched from in here, which
          * means it feeds the deadman exactly like one off the cable does.
          */
-        net::poll();
+        bibo::net::poll();
 
         {
-            const net::State ns = net::status();
+            const bibo::net::State ns = bibo::net::status();
             if(ns != netReported)
             {
                 netReported = ns;
-                serial::printf("INFO wifi state=%s ip=%s port=%d\n",
-                             net::stateWord(ns), net::address(), static_cast<Int32>(NET_PORT));
+                bibo::serial::printf("INFO wifi state=%s ip=%s port=%d\n",
+                             bibo::net::stateWord(ns), bibo::net::address(), static_cast<Int32>(NET_PORT));
             }
         }
 
         /* Walks the servo and ESC toward their targets, a few microseconds at a
          * time. Nothing jumps: a slider dragged end to end produces a sweep
          * rather than a step. */
-        drive::pump();
+        bibo::drive::pump();
 
         /* ---- the deadman ------------------------------------------------
          *
-         * drive::stop() FIRST, then the report. serial::printf blocks while the CDC
+         * bibo::drive::stop() FIRST, then the report. bibo::serial::printf blocks while the CDC
          * TX buffer is full, for up to half a second, and a host that has
          * stopped draining the port is one of the exact situations this exists
          * for - so the car is stopped before anything is printed, not after.
          */
         {
-            const drive::State dm      = drive::read();
+            const bibo::drive::State dm      = bibo::drive::read();
             const Bool       driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs);
 
-            if(driving && !deadmanTripped && (timing::nowMs() - lastCmdMs) > DEADMAN_MS)
+            if(driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
             {
-                drive::stop();
-                lights::forceLamp(lights::COUNT);
+                bibo::drive::stop();
+                bibo::lights::forceLamp(bibo::lights::COUNT);
 
                 /* And it SAYS so, on the car, where somebody standing next to
                  * it can see. By definition this fires when the host has
                  * stopped listening, so a line in a console nobody is reading
                  * is the one place the message must not only be. */
-                cue::emit(cue::KIND_ALERT);
+                bibo::cue::emit(bibo::cue::KIND_ALERT);
 
                 deadmanTripped = true;
 
-                serial::printf("ERR deadman - no command for %u ms, stopped\n",
+                bibo::serial::printf("ERR deadman - no command for %u ms, stopped\n",
                              static_cast<UInt32>(DEADMAN_MS));
             }
         }
 
-        /* AFTER drive::pump, and reading the ACTUAL servo and ESC output rather
+        /* AFTER bibo::drive::pump, and reading the ACTUAL servo and ESC output rather
          * than their targets. The slew limiter means the two differ for about a
          * second after every command: reading targets would light a lamp before
          * the car had done the thing the lamp is reporting. */
         {
-            const drive::State d = drive::read();
+            const bibo::drive::State d = bibo::drive::read();
 
-            cue::Input ci;
+            bibo::cue::Input ci;
             ci.steerMilli = d.steerNowMilli;
             ci.throttleUs = d.escUs;
             ci.idleUs     = d.escMinUs;
@@ -1244,15 +1244,15 @@ int main(Void)
             ci.armed      = d.escArmed;
             ci.headOn     = false;   /* nothing the car knows implies darkness */
 
-            cue::tick(&ci);
+            bibo::cue::tick(&ci);
         }
 
         /* Anything written before the host opens the port is discarded, so the
          * banner waits for a connection rather than being lost. */
-        const Bool host = serial::hostPresent();
+        const Bool host = bibo::serial::hostPresent();
         if(!announced && host)
         {
-            serial::printf("INFO ready %s sdk=%s - type HELP\n",
+            bibo::serial::printf("INFO ready %s sdk=%s - type HELP\n",
                    PICO_BOARD, PICO_SDK_VERSION_STRING);
             announced = true;
         }
@@ -1261,8 +1261,8 @@ int main(Void)
             announced = false;      /* re-announce on the next connection */
         }
 
-        const Int32 c = serial::readChar(POLL_TIMEOUT_US);
-        if(c == serial::NONE)
+        const Int32 c = bibo::serial::readChar(POLL_TIMEOUT_US);
+        if(c == bibo::serial::NONE)
         {
             continue;
         }
@@ -1302,7 +1302,7 @@ int main(Void)
              */
             len      = 0;
             overlong = true;
-            serial::printf("ERR line too long\n");
+            bibo::serial::printf("ERR line too long\n");
         }
     }
 }

@@ -1,4 +1,4 @@
-# tt02.exe - the operator hub. MSVC x64.
+# bibo.exe - the operator hub. MSVC x64.
 #
 # ---------------------------------------------------------------------------
 # build.bat REMAINS THE AUTHORITATIVE BUILD.
@@ -17,7 +17,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(tt02 CXX)
+project(bibo CXX)
 
 enable_language(RC)
 
@@ -97,22 +97,22 @@ if(NOT APP_SOURCES)
     message(FATAL_ERROR "No sources found in hub/src - is this the right directory?")
 endif()
 
-add_executable(tt02 WIN32
+add_executable(bibo WIN32
     ${APP_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app.rc"
 )
 
-target_include_directories(tt02 PRIVATE
+target_include_directories(bibo PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared"
     "${RPLIDAR_SDK}/sdk/include"
     "${RPLIDAR_SDK}/sdk/src"
 )
 
-target_compile_options(tt02 PRIVATE /W4)
-target_compile_definitions(tt02 PRIVATE _CRT_SECURE_NO_WARNINGS)
+target_compile_options(bibo PRIVATE /W4)
+target_compile_definitions(bibo PRIVATE _CRT_SECURE_NO_WARNINGS)
 
-target_link_libraries(tt02 PRIVATE
+target_link_libraries(bibo PRIVATE
     imgui
     "${RPLIDAR_LIB}"
     d3d11 dxgi d3dcompiler dwmapi ws2_32
@@ -122,17 +122,17 @@ target_link_libraries(tt02 PRIVATE
 
 # /LTCG: rplidar_driver.lib is compiled with /GL, so without it the linker
 # emits LNK4075 and restarts the whole link pass.
-target_link_options(tt02 PRIVATE /LTCG)
+target_link_options(bibo PRIVATE /LTCG)
 
 # build.bat pins the entry point explicitly. CMake's WIN32 flag already selects
 # /SUBSYSTEM:WINDOWS and MSVC then picks WinMainCRTStartup on its own, so this
 # is here to say that the omission is deliberate rather than forgotten.
 
 # The exe expects assets/ beside it, exactly as build.bat's layout does.
-add_custom_command(TARGET tt02 POST_BUILD
+add_custom_command(TARGET bibo POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets"
-            "$<TARGET_FILE_DIR:tt02>/assets"
+            "$<TARGET_FILE_DIR:bibo>/assets"
     COMMENT "Copying assets beside the executable"
 )
 

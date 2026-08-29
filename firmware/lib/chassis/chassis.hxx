@@ -59,6 +59,9 @@
 #include "../hal.hxx"
 #include "cal.hxx"
 
+namespace bibo
+{
+
 namespace drive
 {
 
@@ -590,3 +593,5 @@ static Bool setThrottleLimits(Int32 lo, Int32 hi)
 
 
 } // namespace drive
+
+} // namespace bibo

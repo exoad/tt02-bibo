@@ -110,7 +110,7 @@ Bool Recording::save(const Str& path, Str& err) const
         return false;
     }
 
-    Bool ok = std::fprintf(f, "# tt02rec 2\n") > 0;
+    Bool ok = std::fprintf(f, "# biborec 1\n") > 0;
     ok = ok && std::fprintf(f, "# RPLIDAR C1 scan recording\n") > 0;
     ok = ok && std::fprintf(f,
         "# angle = centidegree delta from the previous point (first from 0)\n") > 0;
@@ -196,10 +196,11 @@ Bool Recording::loadTextV2(const Str& path, Str& err)
 
     Char line[64] = {};
     if(std::fgets(line, sizeof(line), f) == nullptr
-       || std::strncmp(line, "# tt02rec", 9) != 0)
+       || (std::strncmp(line, "# biborec", 9) != 0
+           && std::strncmp(line, "# tt02rec", 9) != 0))
     {
         std::fclose(f);
-        err = "not a tt02rec recording";
+        err = "not a bibo recording";
         return false;
     }
 
@@ -363,7 +364,10 @@ Vec<Str> list()
         return out;
 
     WIN32_FIND_DATAA fd = {};
-    const Str pattern = d + "\\*.tt02rec";
+    // Both extensions. Every recording made before the car had a name is
+    // still on disk and still yours; listing only the new one would make them
+    // vanish from the view they were saved in.
+    const Str pattern = d + "\\*.*rec";
     HANDLE h = ::FindFirstFileA(pattern.c_str(), &fd);
     if(h == INVALID_HANDLE_VALUE)
         return out;
@@ -388,7 +392,7 @@ Str makeName()
     ::GetLocalTime(&t);
 
     Char buf[64];
-    std::snprintf(buf, sizeof(buf), "scan-%04d%02d%02d-%02d%02d%02d.tt02rec",
+    std::snprintf(buf, sizeof(buf), "scan-%04d%02d%02d-%02d%02d%02d.biborec",
                   t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
     return Str(buf);
 }

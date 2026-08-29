@@ -1,4 +1,4 @@
-# tt02-auto - the root CMake project, for the IDE.
+# bibo - the root CMake project, for the IDE.
 #
 # ---------------------------------------------------------------------------
 # WHY THIS IS ONLY THE HUB.
@@ -20,7 +20,7 @@
 #
 # WITHOUT attaching, firmware/.clangd is the fallback: it points the parser at
 # firmware/build/compile_commands.json, which firmware/build.bat now writes.
-# That file carries -Ifirmware/lib, which is what makes "tt02.h" and the
+# That file carries -Ifirmware/lib, which is what makes "bibo.hxx" and the
 # library's own "drivers/..." and "chassis/..." includes resolve.
 #
 # Neither of these replaces the .bat scripts. hub/build.bat and
@@ -30,7 +30,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(tt02_auto CXX)
+project(bibo CXX)
 
 # Must be here and not only in hub/: CTest writes its test list per directory,
 # and a subdirectory's tests are only registered with the root when the ROOT has

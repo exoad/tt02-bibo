@@ -40,7 +40,18 @@
  * by daylight. Start on LONG and switch if readings collapse near a window.
  */
 
-#include "../lib/tt02.hxx"
+#include "../lib/bibo.hxx"
+
+/*
+ * The whole library lives in namespace bibo, and this line opens it so a sketch
+ * can write gpio::write rather than bibo::gpio::write on every call.
+ *
+ * A `using` at file scope is a thing to be careful with in a big program, and
+ * this is not one: a sketch is one file, it links nothing else, and the names it
+ * pulls in are the ones it exists to use. main.cxx does NOT do this - the
+ * program that steers the car spells everything out.
+ */
+using namespace bibo;
 
 /* ---- the screen ---------------------------------------------------------- */
 #define SCREEN_W     240

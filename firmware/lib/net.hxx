@@ -44,7 +44,7 @@
  * implementation, because an #include inside a namespace drags every
  * declaration in that header into it - which for lwIP is several hundred names
  * that would end up as net::something. */
-#ifdef TT02_WIRELESS
+#ifdef BIBO_WIRELESS
 #include "pico/cyw43_arch.h"
 #include "lwip/udp.h"
 #include "lwip/pbuf.h"
@@ -53,6 +53,9 @@
 
 #include <string.h>
 #endif
+
+namespace bibo
+{
 
 namespace net
 {
@@ -89,7 +92,7 @@ typedef enum
 
 typedef Void (*LineHandler)(Utf8* line);
 
-#ifdef TT02_WIRELESS
+#ifdef BIBO_WIRELESS
 
 /*
  * OFF, not ABSENT: this half of the file only compiles on a board that HAS the
@@ -487,7 +490,7 @@ static Void poll(Void)
 {
 }
 
-#endif /* TT02_WIRELESS */
+#endif /* BIBO_WIRELESS */
 
 /* The word for a state, for anything that prints one. */
 static CharSeq stateWord(State s)
@@ -505,3 +508,5 @@ static CharSeq stateWord(State s)
 
 
 } // namespace net
+
+} // namespace bibo

@@ -19,7 +19,26 @@ Str dir()
     if(::GetEnvironmentVariableA("LOCALAPPDATA", buf, MAX_PATH) == 0)
         return cached;                  // no profile: run without persistence
 
-    cached = Str(buf) + "\\tt02-auto";
+    cached = Str(buf) + "\\bibo";
+
+    // ---- the car got a name, and the folder follows it -------------------
+    //
+    // MOVED, not abandoned. This folder holds the window layout, the car's
+    // saved address, the steering calibration and every recording ever made,
+    // and simply pointing at a new empty directory would look exactly like the
+    // program having lost all of it.
+    //
+    // Once, and only into a name that is not already taken: if \bibo exists
+    // this does nothing, so a second machine, a restored backup, or a person
+    // who moved it by hand is never overwritten.
+    {
+        const Str older = Str(buf) + "\\tt02-auto";
+        if(::GetFileAttributesA(cached.c_str()) == INVALID_FILE_ATTRIBUTES
+           && ::GetFileAttributesA(older.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            ::MoveFileA(older.c_str(), cached.c_str());
+        }
+    }
 
     // ERROR_ALREADY_EXISTS is the expected case on every run but the first.
     if(!::CreateDirectoryA(cached.c_str(), nullptr)
