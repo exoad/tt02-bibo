@@ -34,6 +34,12 @@
 #include <ctime>
 
 #include "imgui.h"
+
+// For SetKeyOwner only. Space has to be taken AWAY from ImGui's own keyboard
+// navigation, which activates whatever the nav cursor is sitting on - see
+// updateEmergencyKey().
+#include "imgui_internal.h"
+
 #include "lidar_source.hxx"
 #include "pico_flash.hxx"
 #include "pico_link.hxx"
@@ -292,6 +298,19 @@ Bool  wasdOn = false;
 // A slider, because the right number is found by driving and the first one
 // should be too slow rather than too fast.
 Int32 wasdCapUs = 1547;
+
+// The hard ceiling on that cap, in microseconds. Not a default somebody can
+// slide past - the slider itself stops here.
+//
+// Nine microseconds over the measured idle of 1541, about a sixth of this car's
+// 59 us band. The point of driving it from a keyboard is that the keyboard is
+// digital: W is either fully on or fully off, there is no feathering the way a
+// trigger lets you, so the only thing keeping it sane is the number it slams
+// to. A speed you can walk beside is that number.
+//
+// The ceiling itself is wasdCapCeil(), further down: it needs the calibration
+// and clampInt, both of which are declared after this.
+#define WASD_CAP_HARD 1550
 
 // What was last SENT, so a command only goes out when the answer changes. At
 // 60 fps the naive version is sixty commands a second per axis, which the link
@@ -5084,6 +5103,20 @@ Int32 clampInt(Int32 v, Int32 lo, Int32 hi)
     return v;
 }
 
+// The real ceiling on the WASD forward cap: the hard limit, but never outside
+// the calibration, and never inverted if a recalibration ever put the idle
+// above WASD_CAP_HARD.
+Int32 wasdCapCeil()
+{
+    return std::max(driveEscMin, std::min(driveEscMax, WASD_CAP_HARD));
+}
+
+// What W will actually ask for, wherever the slider happens to be sitting.
+Int32 wasdCapNow()
+{
+    return clampInt(wasdCapUs, driveEscMin, wasdCapCeil());
+}
+
 // Offers the image this view actually needs. Shared by both of the ways a
 // board can fail to answer - the port that will not open, and the port that
 // opens and then says nothing - because they have the same cause and the same
@@ -6827,25 +6860,30 @@ Void drawDriveBody(Float32 w, Float32 h)
         {
             Char r[48];
             std::snprintf(r, sizeof(r), "%d us above idle",
-                          clampInt(wasdCapUs, driveEscMin, driveEscMax) - driveEscMin);
+                          wasdCapNow() - driveEscMin);
             driveReading(ui::sem::MUTED, r);
         }
 
         ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-        ImGui::SliderInt("##wasdcap", &wasdCapUs, driveEscMin, driveEscMax, "%d us");
+        ImGui::SliderInt("##wasdcap", &wasdCapUs, driveEscMin, wasdCapCeil(),
+                         "%d us");
         if(ImGui::IsItemHovered())
         {
             ImGui::SetTooltip(
                 "How much throttle W asks for.\n"
                 "\n"
-                "Starts at 1547 - six microseconds over the measured idle of\n"
-                "%d, about a tenth of this car's %d us band. That is a crawl,\n"
-                "which is the right place to find out whether the controls do\n"
-                "what you think before finding out how fast the car is.\n"
+                "Runs from the measured idle of %d up to %d and STOPS there -\n"
+                "the ceiling is the slider's own end, not a default you can\n"
+                "slide past. Nine microseconds, about a sixth of this car's\n"
+                "%d us band.\n"
                 "\n"
-                "Bounded by the calibration, so it cannot ask for more than the\n"
-                "board would allow anyway.",
-                driveEscMin, driveEscMax - driveEscMin);
+                "It is low because the keyboard is digital: W is fully on or\n"
+                "fully off, with none of the feathering a trigger gives you, so\n"
+                "the only thing keeping it sane is the number it slams to.\n"
+                "\n"
+                "Raising the ceiling is a code change, on purpose. Nothing you\n"
+                "can do here while the car is moving raises it.",
+                driveEscMin, wasdCapCeil(), driveEscMax - driveEscMin);
         }
     }
 
@@ -8312,27 +8350,83 @@ Bool tearOffButton(Int32 id, Bool floating)
 // presses and does nothing: the second at least matches what a person expects
 // a red button to do, and the console says what happened.
 // ---------------------------------------------------------------------------
+// One body, two ways in: the button and the space bar. They have to be the
+// same code - a keyboard stop that did nine tenths of what the red button does
+// is a keyboard stop nobody can trust in the moment they need it.
+Void emergencyStop(const Char* how)
+{
+    // The hub's own idea of what it is asking for is reset too. Leaving the
+    // sliders where they were would have them fight the board back to the old
+    // target on the next poll, which is a stop that undoes itself.
+    driveSweep     = false;
+    driveServoWant = 1500;
+    driveEscWant   = 1500;
+
+    // Keyboard drive goes off, not just to neutral. A stop that leaves the
+    // thing that was driving still armed is a stop you have to press twice.
+    wasdOn        = false;
+    wasdSentSteer = 0;
+    wasdSentEsc   = 0;
+
+    sendPico("STOP");
+    LOG_WARN("drive", "emergency stop (%s)", how);
+}
+
+// ---------------------------------------------------------------------------
+// SPACE, anywhere in the program.
+//
+// ---- why the key has to be taken off ImGui -------------------------------
+//
+// Space is ImGui's own "activate the thing the nav cursor is on" key. Left
+// alone, a panicked space with the nav cursor parked on the ARM checkbox would
+// fire this stop AND tick that box in the same frame - and this runs at the top
+// of frame(), so the box wins: STOP goes out, then ESC ARM, and the one press
+// meant to kill it re-arms it instead.
+//
+// So the key is CLAIMED, every frame. ImGui's navigation asks for space with
+// ImGuiKeyOwner_NoOwner (imgui.cpp: activate_down / activate_pressed) and gets
+// nothing once somebody owns it. No lock flags: those would block this read of
+// it too. The claim has to be renewed every frame because ownership is released
+// the frame after the key comes up.
+//
+// ---- the one exception ---------------------------------------------------
+//
+// Text entry. Space is a character before it is anything else, and a stop that
+// fired on every word typed in the code editor would be switched off within a
+// minute - and a stop that is off is worth less than one with an exception in
+// it. Both flavours have to be named: the editor draws an InvisibleButton and
+// reads io.InputQueueCharacters directly, so it sets neither WantTextInput nor
+// an ActiveId.
+//
+// Dragging a slider is NOT an exception. That is exactly a moment somebody
+// might want to stop.
+// ---------------------------------------------------------------------------
+Void updateEmergencyKey()
+{
+    const ImGuiIO& io = ImGui::GetIO();
+
+    // Any stable non-zero id; it only has to differ from ImGuiKeyOwner_NoOwner.
+    ImGui::SetKeyOwner(ImGuiKey_Space, static_cast<ImGuiID>(0xE5709ABCu));
+
+    const Bool typing = io.WantTextInput || codeView.focused;
+
+    // Focus: ImGui clears its key state when the window loses it, so a space
+    // held while alt-tabbing away does not arrive here later. The test is
+    // belt-and-braces for the frame focus is actually lost on.
+    if(io.AppFocusLost || typing)
+        return;
+
+    if(ImGui::IsKeyPressed(ImGuiKey_Space, false))
+        emergencyStop("space");
+}
+
 Void drawEmergencyStop(Float32 width)
 {
     ui::pushTint(ui::Tint::TINT_BAD);
-    if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP",
+    if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP  [SPACE]",
                       ImVec2(width, ImGui::GetFrameHeight() * 2.0f)))
     {
-        // The hub's own idea of what it is asking for is reset too. Leaving the
-        // sliders where they were would have them fight the board back to the
-        // old target on the next poll, which is a stop that undoes itself.
-        driveSweep     = false;
-        driveServoWant = 1500;
-        driveEscWant   = 1500;
-
-        // Keyboard drive goes off, not just to neutral. A stop that leaves the
-        // thing that was driving still armed is a stop you have to press twice.
-        wasdOn        = false;
-        wasdSentSteer = 0;
-        wasdSentEsc   = 0;
-
-        sendPico("STOP");
-        LOG_WARN("drive", "emergency stop");
+        emergencyStop("button");
     }
     ui::popTint(ui::Tint::TINT_BAD);
 
@@ -8350,7 +8444,13 @@ Void drawEmergencyStop(Float32 width)
             "pushing somewhere else. Nothing to push with is the only stop\n"
             "that works on every car.\n"
             "\n"
-            "Not slewed. A stop that eases in is not a stop.");
+            "Not slewed. A stop that eases in is not a stop.\n"
+            "\n"
+            "SPACE does the same thing from anywhere in the program, as long\n"
+            "as this window has focus. The one place it does not is while you\n"
+            "are typing - in the console, a text field, or the code editor -\n"
+            "because there space is a character, and a stop that fired on\n"
+            "every word typed would be switched off by the end of the day.");
     }
 }
 
@@ -9000,7 +9100,7 @@ Void updateKeyboardDrive()
         }
         else
         {
-            const Int32 us = clampInt(wasdCapUs, driveEscMin, driveEscMax);
+            const Int32 us = wasdCapNow();
             driveEscWant   = us;
 
             Char cmd[32];
@@ -9026,7 +9126,7 @@ Void updateKeyboardDrive()
         {
             wasdFedAt = now;
 
-            const Int32 us = clampInt(wasdCapUs, driveEscMin, driveEscMax);
+            const Int32 us = wasdCapNow();
             Char cmd[32];
             std::snprintf(cmd, sizeof(cmd), "ESC %d", us);
             pollPico(cmd);
@@ -9038,6 +9138,10 @@ Void app::frame()
 {
     pumpData();
     updateAutoLights();
+
+    // BEFORE the keyboard drive, so a stop in this frame is not undone by a
+    // still-held W later in the same frame.
+    updateEmergencyKey();
     updateKeyboardDrive();
 
     // Ctrl+` for the console, which is the shortcut every editor and terminal
