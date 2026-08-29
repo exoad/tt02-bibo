@@ -510,7 +510,7 @@ firmware/
   app/
     main.c            the serial console
   scratch/
-    sketch.c          the Code view's scratch slot
+    sketch.cxx          the Code view's scratch slot
 ```
 
 ### Rules, enforced by `hub/tools/style_audit.py`

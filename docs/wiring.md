@@ -37,22 +37,33 @@ select on the mule.
 
 ### Lighting, and the pins it is borrowing
 
-The lighting MODEL is permanent and lives in `firmware/lib/lights.h`: eight
-lamps - head, tail, indicator and reverse, left and right - and the rules that
-decide what each one does. All eight are computed whether or not an LED exists
-for them.
+The lighting MODEL is permanent and lives in `firmware/lib/lights.h`: ten
+lamps - head, tail, indicator and reverse, left and right - and all ten are
+computed whether or not an LED exists for them. **What each lamp means** moved
+to `firmware/lib/cue.h` on 2026-08-28: `lights.h` is the output layer now and
+`cue.h` decides. See [firmware-api.md](firmware-api.md).
 
-What is temporary is the BINDING, a table at the top of that file saying which
+What is temporary is the BINDING, a table at the top of `lights.h` saying which
 GPIO currently shows which lamp. Today:
 
 | Lamp | Pin | Note |
 |---|---|---|
+| headL | GP11 | borrowed from ToF #2 XSHUT — added 2026-08-28 |
+| headR | GP10 | borrowed from ToF #1 XSHUT — added 2026-08-28 |
 | tailL | GP15 | **borrowed from the wheel encoder** |
 | tailR | GP14 | genuinely spare — the encoder B channel, unused on a forward-only car |
 | indFL | GP13 | borrowed from ToF #4 XSHUT |
 | indFR | GP12 | borrowed from ToF #3 XSHUT |
 | indRL, indRR | — | the second indicator pair, not wired yet |
-| headL/R, revL/R | — | computed, reported, not wired |
+| revL/R | — | computed, reported, not wired |
+
+**All four ToF XSHUT lines are now lamps.** GP10-GP13 were listed below as the
+bumper sensors' shutdown pins, and every one of them currently has an LED on
+it. They are free only because the I2C bus is empty - `SCAN` answers 0 - and
+they stop being free the moment a *single* ToF is fitted, not just the third
+and fourth. The hub's System panel still lists "ToF bumpers (GP10-13)" as a
+subsystem; that row describes where those sensors are going, not what is on
+those pins today.
 
 The car gets **two pairs of indicators**, front and rear. All four are in the
 model and computed; the rear pair simply has no pin. Front and rear on a side
@@ -61,8 +72,8 @@ the same corner blinking a frame apart is instantly wrong, and per-lamp timers
 drift.
 
 GP15 goes back to the encoder the moment the Hall sensor is fitted — that is the
-one borrowing with a deadline on it. GP12 and GP13 stop being free the moment a
-third or fourth ToF goes on the bus.
+one borrowing with a deadline on it. GP10 through GP13 stop being free the
+moment any ToF goes on the bus.
 
 The permanent five-pin map is the one above: GP2/GP3 indicators, GP6/GP7 tails,
 GP8 both heads. Moving there is editing that table and nothing else.
@@ -108,10 +119,10 @@ except the default.
 | GP4 | I2C SDA (ToF sensors, IMU, display) |
 | GP5 | I2C SCL |
 | GP9 | UART RX (lidar, if ever wired to the Pico) |
-| GP10 | ToF #1 XSHUT — front level |
-| GP11 | ToF #2 XSHUT — front angled ~20° down, curb detection |
-| GP12 | ToF #3 XSHUT |
-| GP13 | ToF #4 XSHUT |
+| GP10 | ToF #1 XSHUT — front level. **Currently the RIGHT headlight.** |
+| GP11 | ToF #2 XSHUT — front angled ~20° down, curb detection. **Currently the LEFT headlight.** |
+| GP12 | ToF #3 XSHUT. **Currently the right front indicator.** |
+| GP13 | ToF #4 XSHUT. **Currently the left front indicator.** |
 | GP15 | Encoder signal |
 | GP20 | TFT reset (RES) |
 | GP22 | MicroSD CS — CS can be any GPIO, which is why it lives here |

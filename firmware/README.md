@@ -201,7 +201,7 @@ kept in step with this header by hand.
 
 ## `sketch` — scratch space
 
-A second target, `src/sketch.c`, built alongside `pico_debug` and flashed as
+A second target, `scratch/sketch.cxx`, built alongside `pico_debug` and flashed as
 `build/sketch.uf2`. It is what the hub's Code tab edits, and it is **overwritten
 on every Build & Flash**. Anything worth keeping graduates to its own `.c` and
 its own target in `CMakeLists.txt`.

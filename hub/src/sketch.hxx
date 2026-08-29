@@ -13,7 +13,7 @@
 //                 Your saved programs. Survives `build.bat clean`, survives a
 //                 fresh clone, is not in git.
 //
-//   the SLOT      firmware/src/sketch.c
+//   the SLOT      firmware/scratch/sketch.cxx
 //                 What CMake actually compiles. Overwritten on every build.
 //
 // Build & Flash copies library -> slot and then runs the existing firmware
@@ -36,7 +36,7 @@ namespace sketch {
 // Absolute path of a library sketch by bare filename.
 [[nodiscard]] Str pathOf(const Str& name);
 
-// firmware/src/sketch.c - the file CMake compiles. Absolute.
+// firmware/scratch/sketch.cxx - the file CMake compiles. Absolute.
 [[nodiscard]] Str slotPath();
 
 // firmware/src - the real firmware sources, absolute. Empty if the repo root
@@ -88,7 +88,7 @@ Void reveal(const Str& path);
 // program you can change one number in.
 [[nodiscard]] Str starter();
 
-// A name that does not collide with an existing sketch: sketch.c, sketch-2.c...
+// A name that does not collide with an existing sketch: sketch.cxx, sketch-2.c...
 [[nodiscard]] Str makeName();
 
 } // namespace sketch

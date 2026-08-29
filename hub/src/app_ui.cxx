@@ -724,7 +724,7 @@ RadarView recView;
 rec::Recording recording;
 
 // ---- the Code view ---------------------------------------------------------
-// A sketch is edited here, written to firmware/scratch/sketch.c, and built and
+// A sketch is edited here, written to firmware/scratch/sketch.cxx, and built and
 // flashed by the SAME scripts the Firmware panel uses. There is one toolchain
 // path in this project and this is a front-end to it.
 ed::Editor   codeEditor;
@@ -1026,6 +1026,39 @@ Int32 deviceScanIdle = 0;
 // device reappearing should reconnect, EXCEPT when they deliberately let go of
 // it: an app that grabs the port straight back makes Disconnect useless.
 Bool picoUserDisconnected  = false;
+
+// ---- the car's address on the network -------------------------------------
+//
+// Typed once and remembered, because a router hands the same board the same
+// address for weeks and re-typing four numbers before every drive is the sort
+// of friction that makes a feature go unused.
+//
+// The ADDRESS only. The network password never reaches the hub at all - it goes
+// from the person to the board over the USB console and lives in the board's
+// RAM until it is reset. See firmware/lib/net.h.
+Char wifiHost[64]    = "";
+Bool wifiHostLoaded  = false;
+
+const Char* const WIFI_HOST_FILE = "car-address.txt";
+
+Void loadWifiHost()
+{
+    if(wifiHostLoaded)
+    {
+        return;
+    }
+    wifiHostLoaded = true;
+
+    const Str saved = settings::read(WIFI_HOST_FILE);
+    Size n = 0;
+    while(n < saved.size() && n + 1 < sizeof(wifiHost)
+          && saved[n] != '\n' && saved[n] != '\r')
+    {
+        wifiHost[n] = saved[n];
+        ++n;
+    }
+    wifiHost[n] = '\0';
+}
 Bool lidarUserDisconnected = false;
 
 Void refreshPicoPorts()
@@ -2730,13 +2763,134 @@ Void drawSubsystems()
     // Nothing below is connected, so nothing below reports a value.
     subsystemRow(ui::Icon::ICON_SERVO,   "Servo (GP0)",           ui::sem::MUTED, "not driven", "", false);
     subsystemRow(ui::Icon::ICON_SERVO,   "ESC (GP1)",             ui::sem::MUTED, "not driven", "", false);
-    subsystemRow(ui::Icon::ICON_TOF,     "ToF bumpers (GP10-13)", ui::sem::MUTED, "not wired",  "", false);
+    // "not wired" was a lie from 2026-08-28: all four of those XSHUT pins have
+    // an LED on them now - GP11/GP10 the headlights, GP13/GP12 the front
+    // indicators. The row still describes where the SENSORS are going, so it
+    // stays; what it says about the pins does not.
+    subsystemRow(ui::Icon::ICON_TOF,     "ToF bumpers (GP10-13)", ui::sem::WARN,  "lamps on those pins", "", false);
     subsystemRow(ui::Icon::ICON_ENCODER, "Wheel encoder (GP15)",  ui::sem::MUTED, "not wired",  "", false);
     subsystemRow(ui::Icon::ICON_IMU,     "IMU (I2C)",             ui::sem::MUTED, "not wired",  "", false);
     subsystemRow(ui::Icon::ICON_STORAGE, "MicroSD (SPI)",         ui::sem::MUTED, "no header",  "", false);
-    subsystemRow(ui::Icon::ICON_NETWORK, "UDP link",              ui::sem::MUTED, "not built",  "", false);
+    // Was "not built" for the whole of phase 2, and is now a real answer.
+    if(picoLink.wireless())
+    {
+        subsystemRow(ui::Icon::ICON_NETWORK, "UDP link", picoStateColor(ps),
+                     picoStateText(ps), picoLink.port().c_str(), true);
+    }
+    else
+    {
+        subsystemRow(ui::Icon::ICON_NETWORK, "UDP link", ui::sem::MUTED,
+                     "not in use",
+                     wifiHost[0] != '\0' ? wifiHost : "", false);
+    }
 
     ImGui::EndTable();
+}
+
+// ---------------------------------------------------------------------------
+// Linking to the car over Wi-Fi.
+//
+// Two steps, and they are deliberately in different places, because they are
+// two different kinds of secret:
+//
+//   1. On the USB console, once:  WIFI JOIN <ssid> <password>
+//      The board answers with its address. The password goes from a person to
+//      a board and is never stored anywhere.
+//   2. Here: that address, and a button.
+//
+// After that the wireless link IS the link. The console, the drive polls, the
+// keyboard controller and the emergency stop all run over it unchanged - they
+// are written against PicoLink::send(), which no longer cares whether it is
+// holding a serial port or a socket.
+// ---------------------------------------------------------------------------
+Void drawWifiLink(Float32 bh)
+{
+    loadWifiHost();
+
+    const PicoState ps   = picoLink.state();
+    const Bool      live = picoLink.wireless()
+                        && (ps == PicoState::PICO_STATE_CONNECTED
+                            || ps == PicoState::PICO_STATE_CONNECTING);
+
+    ImGui::SeparatorText("Wireless link");
+
+    ImGui::BeginDisabled(live);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if(ImGui::InputTextWithHint("##carip", "the car's address, e.g. 192.168.1.42",
+                                wifiHost, sizeof(wifiHost)))
+    {
+        settings::write(WIFI_HOST_FILE, Str(wifiHost));
+    }
+    ImGui::EndDisabled();
+
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Where the car is on the network.\n"
+            "\n"
+            "The board says it. Plug it in, and on the console:\n"
+            "\n"
+            "    WIFI JOIN <your network> <your password>\n"
+            "\n"
+            "It answers with its address once the router has given it one.\n"
+            "The password stays between you and the board - it is never sent\n"
+            "here, never written to disk, and a reset forgets it.");
+    }
+
+    if(live)
+    {
+        if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Drop the Wi-Fi link",
+                          ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+        {
+            LOG_INFO("pico", "wireless link dropped by user");
+            picoUserDisconnected = true;
+            picoLink.disconnect();
+        }
+    }
+    else
+    {
+        // Disabled with a REASON on the tooltip, never bare: a greyed control
+        // with no explanation reads as a broken one.
+        const Bool wired = (ps == PicoState::PICO_STATE_CONNECTED
+                            || ps == PicoState::PICO_STATE_CONNECTING);
+        const Bool ready = (wifiHost[0] != '\0') && !wired;
+
+        ImGui::BeginDisabled(!ready);
+        if(ui::iconButton(ui::Icon::ICON_NETWORK, "Link over Wi-Fi",
+                          ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+        {
+            LOG_INFO("pico", "linking to %s over UDP", wifiHost);
+            picoUserDisconnected = false;
+            picoLink.connectUdp(Str(wifiHost));
+        }
+        ImGui::EndDisabled();
+
+        if(ImGui::IsItemHovered())
+        {
+            if(wired)
+            {
+                ImGui::SetTooltip(
+                    "The cable link is open. Disconnect it first - one link at\n"
+                    "a time, or two consoles would be talking over each other.");
+            }
+            else if(wifiHost[0] == '\0')
+            {
+                ImGui::SetTooltip("Needs the car's address, above.");
+            }
+            else
+            {
+                ImGui::SetTooltip(
+                    "Sends the same commands to the same firmware, over UDP\n"
+                    "port 4242 instead of the cable.\n"
+                    "\n"
+                    "It stays amber until the board actually answers. UDP has\n"
+                    "no connection to make, so anything else would report a\n"
+                    "car that is switched off as present.\n"
+                    "\n"
+                    "Flashing still needs the cable.");
+            }
+        }
+    }
 }
 
 Void drawQuickActions()
@@ -2870,6 +3024,10 @@ Void sectionSystem()
     drawSubsystems();
     ImGui::Spacing();
     drawQuickActions();
+
+    // Under the quick actions rather than among them: this is a two-step thing
+    // with a text field in it, not a button you hit without looking.
+    drawWifiLink(ImGui::GetFrameHeight() * 1.2f);
 }
 
 // ==================================================================== sensors
@@ -3911,7 +4069,7 @@ Void drawRecorderControls()
 // ================================================================= code view
 
 // Last-write time of `path`, or 0 if it cannot be read.
-// Writes the buffer to the sketch library AND to firmware/scratch/sketch.c.
+// Writes the buffer to the sketch library AND to firmware/scratch/sketch.cxx.
 //
 // Both, always. The library copy is the one that survives; the slot is what
 // CMake compiles. Saving only the library would build stale code, and saving
@@ -3936,7 +4094,7 @@ Bool saveSketch()
 
     // A LIBRARY sketch is also mirrored into the slot, because the slot is what
     // CMake compiles. A firmware source is not: it already IS where the build
-    // reads it from, and copying main.c over sketch.c would silently replace one
+    // reads it from, and copying main.c over sketch.cxx would silently replace one
     // program with another.
     if(sketch::targetFor(codePath) == "sketch"
        && _stricmp(codePath.c_str(), sketch::slotPath().c_str()) != 0)
@@ -4429,7 +4587,7 @@ Void drawCodeControls()
     ImGui::TextUnformatted("|");
     ImGui::SameLine();
 
-    // The path, not just the name. Two files called sketch.c can exist - one in
+    // The path, not just the name. Two files called sketch.cxx can exist - one in
     // the library and one in the slot - and knowing which is open is the whole
     // difference between editing your program and editing its copy.
     ImGui::TextDisabled("%s", codePath.empty() ? "(unsaved)" : codePath.c_str());
@@ -4534,7 +4692,7 @@ Void drawCodeControls()
         ImGui::TextDisabled("Sketches");
 
         // Two lists of filenames in one popup, and a menu entry takes its ID
-        // from its label - so a sketch named sketch.c and firmware/scratch/sketch.c
+        // from its label - so a sketch named sketch.cxx and firmware/scratch/sketch.cxx
         // are literally the same widget to ImGui, which says so. The path is
         // unique by construction, so it is the ID.
         //
@@ -4577,7 +4735,7 @@ Void drawCodeControls()
             const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
             const Str  p   = fwd + "\\" + n;
 
-            // firmware/scratch/sketch.c is the scratch slot every library sketch is
+            // firmware/scratch/sketch.cxx is the scratch slot every library sketch is
             // copied into before a build, which is why it can share a name with
             // one - and why saying so here is worth a word.
             const Bool isSlot = !slot.empty()
@@ -8208,10 +8366,14 @@ Void drawGlobalModals()
 {
     const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
 
-    const Str bport = picoLink.port().empty()
+    // The SERIAL port, which over a wireless link is not what picoLink.port()
+    // says - that is "192.168.1.42:4242", and a 1200-baud touch on an IP address
+    // is not a thing. Rebooting into the bootloader needs the cable, always.
+    const Str linkPort = picoLink.wireless() ? Str() : picoLink.port();
+    const Str bport    = linkPort.empty()
         ? (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size())
                ? picoPorts[picoIndex] : Str())
-        : picoLink.port();
+        : linkPort;
 
     if(openBootsel)
     {

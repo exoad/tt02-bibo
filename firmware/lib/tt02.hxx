@@ -8,7 +8,7 @@
  * naming it. tools/style_audit.py fails the build on it.
  *
  * Everything here is header-only and `static inline`. That is deliberate on a
- * microcontroller: the compiler sees through a call to gpioWrite() and emits
+ * microcontroller: the compiler sees through a call to gpio::write() and emits
  * the single store it actually is, where a real function call would be a
  * branch, a register spill and a return for the sake of tidiness nobody can
  * measure. The cost is that including two library headers in one translation
@@ -21,9 +21,13 @@
  *                    sleeping. Nothing above knows which pins exist.
  *   text.h           the string handling this project does. Stateless.
  *   status.h         the onboard LED as something readable across a room.
+ *   lights.h         the lamps, and which pin each is on. Output only.
+ *   cue.h            what the car SAYS - indicating, braking, a headlight
+ *                    flash. Decides; lights.h emits.
+ *   net.h            the same command link, over Wi-Fi.
  *
- *   tt02_display.h   an ST7789 / ST7735 panel over SPI. Owns a Screen.
- *   tt02_gfx.h       drawing INTO a Screen. Knows shapes, not panels.
+ *   tt02_display.h   an ST7789 / ST7735 panel over SPI. Owns a tft::Screen.
+ *   tt02_gfx.h       drawing INTO a tft::Screen. Knows shapes, not panels.
  *   tt02_range.h     a VL53L1X time-of-flight sensor over I2C.
  *   tt02_storage.h   an SD card over SPI.
  *
@@ -60,15 +64,17 @@
  */
 #pragma once
 
-#include "hal.h"
-#include "text.h"
+#include "hal.hxx"
+#include "text.hxx"
 
-#include "drivers/display.h"
-#include "gfx.h"
-#include "status.h"
-#include "lights.h"
-#include "drivers/range.h"
-#include "drivers/storage.h"
+#include "drivers/display.hxx"
+#include "gfx.hxx"
+#include "status.hxx"
+#include "lights.hxx"
+#include "cue.hxx"
+#include "net.hxx"
+#include "drivers/range.hxx"
+#include "drivers/storage.hxx"
 
-#include "chassis/cal.h"
-#include "chassis/chassis.h"
+#include "chassis/cal.hxx"
+#include "chassis/chassis.hxx"

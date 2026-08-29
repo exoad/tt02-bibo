@@ -4,9 +4,16 @@
 // and keeps a bounded log of them. It knows nothing about what the lines mean —
 // the command vocabulary lives in firmware/ and in the UI that renders it.
 //
-// This is the debug/bring-up channel over USB CDC. The real control link is UDP
-// over the Pico's own AP (see docs/conventions.md); this one exists so a human can talk to
-// the board directly, and so phase 2 can be brought up before any of that works.
+// TWO TRANSPORTS, ONE CLASS. connect() opens a USB CDC serial port;
+// connectUdp() sends the same lines to the same firmware over Wi-Fi. Everything
+// above this - the console, the drive polls, the keyboard controller, the
+// emergency stop - is written against send() and drain() and does not know or
+// care which one is open. That is the whole reason the wireless link speaks the
+// existing text protocol instead of a binary one of its own.
+//
+// What is NOT the same: flashing. Rebooting into BOOTSEL is a 1200-baud touch
+// on a serial port, and a board reached only over Wi-Fi cannot be reflashed at
+// all. wireless() exists so the UI can say that rather than fail obscurely.
 #pragma once
 
 #include "shared.hxx"
@@ -57,7 +64,22 @@ public:
     // Non-blocking. Watch state() for the outcome.
     // The Pico's CDC ignores the baud rate; 115200 is convention, not protocol.
     Void connect(const Str& port, Int32 baud = 115200);
+
+    // The same link, over Wi-Fi. `host` is the address the board printed when
+    // it joined - WIFI on the USB console says it - and `port` is NET_PORT from
+    // firmware/lib/net.h.
+    //
+    // UDP has no connection to make, so "connected" here cannot mean what it
+    // means on a cable. It is EARNED: this sends a PING and stays CONNECTING
+    // until the board answers, because a link that reported itself up the
+    // instant somebody typed an address would report a switched-off car as
+    // present.
+    Void connectUdp(const Str& host, UInt16 port = 4242);
+
     Void disconnect();
+
+    // True while the open link is the wireless one. Flashing needs a cable.
+    Bool wireless() const;
 
     PicoState   state() const;
     Str error() const;      // last error, empty if none

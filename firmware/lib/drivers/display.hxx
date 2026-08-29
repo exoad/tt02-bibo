@@ -1,14 +1,14 @@
 /*
- * The ST7789 / ST7735 panel driver: pins, commands, and one Screen.
+ * The ST7789 / ST7735 panel driver: pins, commands, and one tft::Screen.
  *
  * ---------------------------------------------------------------------------
  * HOW THE TWO LAYERS FIT TOGETHER
  *
- * This file OWNS the hardware and hands back a Screen. gfx.h DRAWS into one.
+ * This file OWNS the hardware and hands back a tft::Screen. gfx.h DRAWS into one.
  *
- *     Screen screen;
- *     tftOpen(&screen, 240, 280, 0, 20);      the panel is now yours
- *     tftFill(&screen, TFT_YELLOW);
+ *     tft::Screen screen;
+ *     tft::open(&screen, 240, 280, 0, 20);      the panel is now yours
+ *     tft::fill(&screen, TFT_YELLOW);
  *
  * Every call takes the screen it acts on, so nothing is implicit and the
  * panel's size, pins and state live in one visible place rather than in file
@@ -16,12 +16,12 @@
  * connected, then what it is - instead of inheriting it from a header you have
  * to go and open.
  *
- * gfx.h layers on the SAME Screen rather than introducing a second type:
+ * gfx.h layers on the SAME tft::Screen rather than introducing a second type:
  *
- *     Screen screen;
- *     gfxOpen(&screen, 240, 280, 0, 20);      panel + back buffer + context
- *     gfxRectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
- *     gfxPresent(&screen);
+ *     tft::Screen screen;
+ *     gfx::open(&screen, 240, 280, 0, 20);      panel + back buffer + context
+ *     gfx::rectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
+ *     gfx::present(&screen);
  *
  * ---------------------------------------------------------------------------
  * WHICH PANEL HAVE I GOT?
@@ -43,7 +43,7 @@
  * The symptom table, because these are what actually happens:
  *
  *   backlight on, screen black      wrong controller, or DC and RES swapped
- *   only part of the screen painted wrong size passed to tftOpen
+ *   only part of the screen painted wrong size passed to tft::open
  *   image shifted, a band unpainted wrong offset
  *   colours inverted                wrong PANEL_INVERT
  *   blue where yellow should be     red and blue swapped - MADCTL 0x00 -> 0x08
@@ -73,7 +73,10 @@
 #ifndef TT02_ST77XX_H
 #define TT02_ST77XX_H
 
-#include "../hal.h"
+#include "../hal.hxx"
+
+namespace tft
+{
 
 /* ===== the one line to change ============================================= */
 #define PANEL_ST7789 1
@@ -96,7 +99,7 @@
 #define PANEL_MAX_W   240
 #define PANEL_MAX_H   320
 
-/* Default pins. tftOpenOn() takes them explicitly if a board differs. */
+/* Default pins. tft::openOn() takes them explicitly if a board differs. */
 #define PIN_TFT_SCK   18
 #define PIN_TFT_MOSI  19
 #define PIN_TFT_CS    17
@@ -114,7 +117,7 @@
 /* 16 bits per pixel, 5 red / 6 green / 5 blue, which is what COLMOD is set to
  * below. Green gets the spare bit because the eye resolves most detail there. */
 #define TFT_RGB(r, g, b) \
-    ((UInt16) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
+    (static_cast<UInt16>((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
 
 #define TFT_BLACK   TFT_RGB(0, 0, 0)
 #define TFT_WHITE   TFT_RGB(255, 255, 255)
@@ -127,7 +130,7 @@
 #define TFT_GREY    TFT_RGB(128, 128, 128)
 #define TFT_ORANGE  TFT_RGB(255, 140, 0)
 
-/* ---- the Screen -----------------------------------------------------------
+/* ---- the tft::Screen -----------------------------------------------------------
  *
  * Everything about one panel, in one place. Passed to every call in this file
  * and in gfx.h, which is what lets a sketch say what it has rather than inherit
@@ -136,7 +139,7 @@
  * The gfx fields live here rather than in gfx.h because they belong to the
  * SCREEN, not to the library: a clip rectangle and a text colour are as much
  * part of "the thing being drawn on" as its width is. They sit inert until
- * gfxOpen() claims them.
+ * gfx::open() claims them.
  */
 typedef struct Screen
 {
@@ -192,12 +195,12 @@ typedef struct Screen
     Int32  cursorY;
 } Screen;
 
-static inline Int32 tftWidth(const Screen* s)
+static Int32 width(const Screen* s)
 {
     return (s != NULL) ? s->width : 0;
 }
 
-static inline Int32 tftHeight(const Screen* s)
+static Int32 height(const Screen* s)
 {
     return (s != NULL) ? s->height : 0;
 }
@@ -216,41 +219,41 @@ static inline Int32 tftHeight(const Screen* s)
  * but COLMOD, MADCTL, CASET, RASET and RAMWR all lose their data and nothing is
  * ever drawn. A lit blank screen and a dead wire look identical.
  */
-static inline Void tftSelect(const Screen* s)
+static Void select(const Screen* s)
 {
-    gpioWrite(s->cs, false);
+    gpio::write(s->cs, false);
 }
 
-static inline Void tftDeselect(const Screen* s)
+static Void deselect(const Screen* s)
 {
-    gpioWrite(s->cs, true);
+    gpio::write(s->cs, true);
 }
 
 /* A command and its parameters, as one transaction. `n` may be 0. */
-static inline Void tftWrite(const Screen* s, UInt8 cmd, const UInt8* params, Size n)
+static Void write(const Screen* s, UInt8 cmd, const UInt8* params, Size n)
 {
-    tftSelect(s);
+    select(s);
 
-    gpioWrite(s->dc, false);              /* low = this byte is a command */
-    spiWriteByte(s->sck, cmd);
+    gpio::write(s->dc, false);              /* low = this byte is a command */
+    spi::writeByte(s->sck, cmd);
 
     if(params != NULL && n > 0)
     {
-        gpioWrite(s->dc, true);           /* high = these are its parameters */
-        spiWrite(s->sck, params, n);
+        gpio::write(s->dc, true);           /* high = these are its parameters */
+        spi::write(s->sck, params, n);
     }
 
-    tftDeselect(s);
+    deselect(s);
 }
 
-static inline Void tftCmd(const Screen* s, UInt8 c)
+static Void cmd(const Screen* s, UInt8 c)
 {
-    tftWrite(s, c, NULL, 0);
+    write(s, c, NULL, 0);
 }
 
-static inline Void tftCmd1(const Screen* s, UInt8 c, UInt8 p)
+static Void cmd1(const Screen* s, UInt8 c, UInt8 p)
 {
-    tftWrite(s, c, &p, 1);
+    write(s, c, &p, 1);
 }
 
 /*
@@ -258,7 +261,7 @@ static inline Void tftCmd1(const Screen* s, UInt8 c, UInt8 p)
  * into it", which is why there is no per-pixel addressing anywhere below - the
  * controller advances its own cursor and wraps at the right edge.
  */
-static inline Void tftWindow(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+static Void window(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
 {
     const Int32 x0 = x + s->xoff;
     const Int32 y0 = y + s->yoff;
@@ -267,39 +270,39 @@ static inline Void tftWindow(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h
 
     UInt8 buf[4];
 
-    buf[0] = (UInt8) (x0 >> 8);
-    buf[1] = (UInt8) (x0 & 0xFF);
-    buf[2] = (UInt8) (x1 >> 8);
-    buf[3] = (UInt8) (x1 & 0xFF);
-    tftWrite(s, 0x2A, buf, 4);            /* CASET - column address */
+    buf[0] = static_cast<UInt8>(x0 >> 8);
+    buf[1] = static_cast<UInt8>(x0 & 0xFF);
+    buf[2] = static_cast<UInt8>(x1 >> 8);
+    buf[3] = static_cast<UInt8>(x1 & 0xFF);
+    write(s, 0x2A, buf, 4);            /* CASET - column address */
 
-    buf[0] = (UInt8) (y0 >> 8);
-    buf[1] = (UInt8) (y0 & 0xFF);
-    buf[2] = (UInt8) (y1 >> 8);
-    buf[3] = (UInt8) (y1 & 0xFF);
-    tftWrite(s, 0x2B, buf, 4);            /* RASET - row address */
+    buf[0] = static_cast<UInt8>(y0 >> 8);
+    buf[1] = static_cast<UInt8>(y0 & 0xFF);
+    buf[2] = static_cast<UInt8>(y1 >> 8);
+    buf[3] = static_cast<UInt8>(y1 & 0xFF);
+    write(s, 0x2B, buf, 4);            /* RASET - row address */
 }
 
 /*
  * Opens a pixel write: sets the window, issues RAMWR, and LEAVES CS low with DC
- * high so pixels can follow in the same transaction. Close with tftEndPixels().
+ * high so pixels can follow in the same transaction. Close with tft::endPixels().
  * RAMWR is exactly the command whose data must not be separated from it, since
  * its "parameters" are the whole image.
  */
-static inline Void tftBeginPixels(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+static Void beginPixels(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
 {
-    tftWindow(s, x, y, w, h);
+    window(s, x, y, w, h);
 
-    tftSelect(s);
-    gpioWrite(s->dc, false);
-    spiWriteByte(s->sck, 0x2C);           /* RAMWR */
-    gpioWrite(s->dc, true);
+    select(s);
+    gpio::write(s->dc, false);
+    spi::writeByte(s->sck, 0x2C);           /* RAMWR */
+    gpio::write(s->dc, true);
     /* CS stays LOW; the caller streams pixels now. */
 }
 
-static inline Void tftEndPixels(const Screen* s)
+static Void endPixels(const Screen* s)
 {
-    tftDeselect(s);
+    deselect(s);
 }
 
 /* ---- drawing -------------------------------------------------------------
@@ -314,7 +317,7 @@ static inline Void tftEndPixels(const Screen* s)
  * Clipped rather than trusted: an off-screen rectangle draws nothing instead of
  * wrapping around and corrupting the far edge.
  */
-static inline Void tftRect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+static Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -344,30 +347,30 @@ static inline Void tftRect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, 
     }
 
     UInt8       line[PANEL_MAX_W * 2];
-    const UInt8 hi = (UInt8) (colour >> 8);
-    const UInt8 lo = (UInt8) (colour & 0xFF);
+    const UInt8 hi = static_cast<UInt8>(colour >> 8);
+    const UInt8 lo = static_cast<UInt8>(colour & 0xFF);
     for(Int32 i = 0; i < w; ++i)
     {
         line[i * 2]     = hi;
         line[i * 2 + 1] = lo;
     }
 
-    tftBeginPixels(s, x, y, w, h);
+    beginPixels(s, x, y, w, h);
     for(Int32 r = 0; r < h; ++r)
     {
-        spiWrite(s->sck, line, (Size) (w * 2));
+        spi::write(s->sck, line, static_cast<Size>(w * 2));
     }
-    tftEndPixels(s);
+    endPixels(s);
 }
 
-static inline Void tftFill(const Screen* s, UInt16 colour)
+static Void fill(const Screen* s, UInt16 colour)
 {
-    tftRect(s, 0, 0, s->width, s->height, colour);
+    rect(s, 0, 0, s->width, s->height, colour);
 }
 
-static inline Void tftPixel(const Screen* s, Int32 x, Int32 y, UInt16 colour)
+static Void pixel(const Screen* s, Int32 x, Int32 y, UInt16 colour)
 {
-    tftRect(s, x, y, 1, 1, colour);
+    rect(s, x, y, 1, 1, colour);
 }
 
 /* ---- text ----------------------------------------------------------------
@@ -448,13 +451,13 @@ static const UInt8 FONT5X7[59][5] = {
 /*
  * One character, streamed as a single window.
  *
- * The obvious implementation calls tftRect once per pixel block: 48 transfers a
+ * The obvious implementation calls tft::rect once per pixel block: 48 transfers a
  * character, each two commands, eight address bytes and a pair of GPIO toggles
  * to move as little as four bytes of colour. Building the glyph into a buffer
  * costs at most 1536 bytes of stack and turns a character into one address
  * setup and one burst.
  */
-static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg, Int32 scale)
+static Void drawChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg, Int32 scale)
 {
     if(scale < 1)
     {
@@ -490,10 +493,10 @@ static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg
 
     UInt8 cell[6 * TFT_MAX_SCALE * 8 * TFT_MAX_SCALE * 2];
 
-    const UInt8 fgHi = (UInt8) (fg >> 8);
-    const UInt8 fgLo = (UInt8) (fg & 0xFF);
-    const UInt8 bgHi = (UInt8) (bg >> 8);
-    const UInt8 bgLo = (UInt8) (bg & 0xFF);
+    const UInt8 fgHi = static_cast<UInt8>(fg >> 8);
+    const UInt8 fgLo = static_cast<UInt8>(fg & 0xFF);
+    const UInt8 bgHi = static_cast<UInt8>(bg >> 8);
+    const UInt8 bgLo = static_cast<UInt8>(bg & 0xFF);
 
     Size at = 0;
     for(Int32 row = 0; row < h; ++row)
@@ -513,17 +516,17 @@ static inline Void tftChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg
         }
     }
 
-    tftBeginPixels(s, x, y, w, h);
-    spiWrite(s->sck, cell, at);
-    tftEndPixels(s);
+    beginPixels(s, x, y, w, h);
+    spi::write(s->sck, cell, at);
+    endPixels(s);
 }
 
-static inline Void tftText(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
+static Void text(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
 {
     Int32 cx = x;
     while(str != NULL && *str != '\0')
     {
-        tftChar(s, cx, y, *str, fg, bg, scale);
+        drawChar(s, cx, y, *str, fg, bg, scale);
         cx += 6 * scale;
         ++str;
     }
@@ -538,7 +541,7 @@ static inline Void tftText(const Screen* s, Int32 x, Int32 y, const Utf8* str, U
  * is write-only and cannot be checked, which is exactly why a first sketch
  * draws a test pattern rather than trusting a return code.
  */
-static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
+static Bool openOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
 {
     if(s == NULL)
     {
@@ -558,7 +561,7 @@ static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff
     s->dc   = dc;
     s->res  = res;
 
-    /* gfx.h's fields, left inert until gfxOpen() claims them. A screen used
+    /* gfx.h's fields, left inert until gfx::open() claims them. A screen used
      * only through this file never allocates a back buffer. */
     s->buf       = NULL;
     s->dirtyTop  = s->height;
@@ -575,32 +578,32 @@ static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff
     s->cursorX   = 0;
     s->cursorY   = 0;
 
-    gpioOpen(s->dc, PIN_DIR_OUT);
-    gpioOpen(s->res, PIN_DIR_OUT);
+    gpio::open(s->dc, PIN_DIR_OUT);
+    gpio::open(s->res, PIN_DIR_OUT);
 
-    if(!spiOpen(s->sck, s->mosi, s->cs, PANEL_HZ))
+    if(!spi::open(s->sck, s->mosi, s->cs, PANEL_HZ))
     {
         return false;
     }
 
     /* Mode 3. spi_init leaves mode 0, and an ST7789 on the wrong mode reads
      * every byte shifted and behaves exactly as though nothing was sent. */
-    spiMode(s->sck, true, true);
+    spi::mode(s->sck, true, true);
 
     /* Hardware reset. The delays are from the datasheet and are not padding:
      * talking to the controller before it has finished resetting is the classic
      * way to get a panel that works only every other power-up. */
-    gpioWrite(s->res, true);
-    sleepMs(50);
-    gpioWrite(s->res, false);
-    sleepMs(50);
-    gpioWrite(s->res, true);
-    sleepMs(150);
+    gpio::write(s->res, true);
+    timing::ms(50);
+    gpio::write(s->res, false);
+    timing::ms(50);
+    gpio::write(s->res, true);
+    timing::ms(150);
 
-    tftCmd(s, 0x01);              /* SWRESET */
-    sleepMs(150);
-    tftCmd(s, 0x11);              /* SLPOUT - leave sleep */
-    sleepMs(255);
+    cmd(s, 0x01);              /* SWRESET */
+    timing::ms(150);
+    cmd(s, 0x11);              /* SLPOUT - leave sleep */
+    timing::ms(255);
 
 #if PANEL_ST7735
     {
@@ -609,70 +612,72 @@ static inline Bool tftOpenOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff
          * derivable. */
         UInt8 b[16];
 
-        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(s, 0xB1, b, 3);
-        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; tftWrite(s, 0xB2, b, 3);
+        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; write(s, 0xB1, b, 3);
+        b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; write(s, 0xB2, b, 3);
         b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D;
         b[3] = 0x01; b[4] = 0x2C; b[5] = 0x2D;
-        tftWrite(s, 0xB3, b, 6);
+        write(s, 0xB3, b, 6);
 
-        tftCmd1(s, 0xB4, 0x07);                                /* INVCTR   */
+        cmd1(s, 0xB4, 0x07);                                /* INVCTR   */
         b[0] = 0xA2; b[1] = 0x02; b[2] = 0x84;
-        tftWrite(s, 0xC0, b, 3);
-        tftCmd1(s, 0xC1, 0xC5);
-        b[0] = 0x0A; b[1] = 0x00; tftWrite(s, 0xC2, b, 2);
-        b[0] = 0x8A; b[1] = 0x2A; tftWrite(s, 0xC3, b, 2);
-        b[0] = 0x8A; b[1] = 0xEE; tftWrite(s, 0xC4, b, 2);
-        tftCmd1(s, 0xC5, 0x0E);                                /* VMCTR1   */
+        write(s, 0xC0, b, 3);
+        cmd1(s, 0xC1, 0xC5);
+        b[0] = 0x0A; b[1] = 0x00; write(s, 0xC2, b, 2);
+        b[0] = 0x8A; b[1] = 0x2A; write(s, 0xC3, b, 2);
+        b[0] = 0x8A; b[1] = 0xEE; write(s, 0xC4, b, 2);
+        cmd1(s, 0xC5, 0x0E);                                /* VMCTR1   */
     }
-    tftCmd1(s, 0x3A, 0x05);       /* COLMOD - 16 bit on ST7735 */
+    cmd1(s, 0x3A, 0x05);       /* COLMOD - 16 bit on ST7735 */
 #else
-    tftCmd1(s, 0x3A, 0x55);       /* COLMOD - 16 bit on ST7789 */
-    sleepMs(10);
+    cmd1(s, 0x3A, 0x55);       /* COLMOD - 16 bit on ST7789 */
+    timing::ms(10);
 
     /* The ST7789 power and porch settings. The datasheet defaults work on some
      * modules and not others; these are the values that work on all of them. */
     {
         UInt8 p[5];
         p[0] = 0x0C; p[1] = 0x0C; p[2] = 0x00; p[3] = 0x33; p[4] = 0x33;
-        tftWrite(s, 0xB2, p, 5);       /* PORCTRL  */
-        tftCmd1(s, 0xB7, 0x35);        /* GCTRL    */
-        tftCmd1(s, 0xBB, 0x19);        /* VCOMS    */
-        tftCmd1(s, 0xC0, 0x2C);        /* LCMCTRL  */
-        tftCmd1(s, 0xC2, 0x01);        /* VDVVRHEN */
-        tftCmd1(s, 0xC3, 0x12);        /* VRHS     */
-        tftCmd1(s, 0xC4, 0x20);        /* VDVS     */
-        tftCmd1(s, 0xC6, 0x0F);        /* FRCTRL2 - 60 Hz */
+        write(s, 0xB2, p, 5);       /* PORCTRL  */
+        cmd1(s, 0xB7, 0x35);        /* GCTRL    */
+        cmd1(s, 0xBB, 0x19);        /* VCOMS    */
+        cmd1(s, 0xC0, 0x2C);        /* LCMCTRL  */
+        cmd1(s, 0xC2, 0x01);        /* VDVVRHEN */
+        cmd1(s, 0xC3, 0x12);        /* VRHS     */
+        cmd1(s, 0xC4, 0x20);        /* VDVS     */
+        cmd1(s, 0xC6, 0x0F);        /* FRCTRL2 - 60 Hz */
         p[0] = 0xA4; p[1] = 0xA1;
-        tftWrite(s, 0xD0, p, 2);       /* PWCTRL1  */
+        write(s, 0xD0, p, 2);       /* PWCTRL1  */
     }
 #endif
 
     /* MADCTL: row/column order and RGB-versus-BGR. 0x00 is the identity, which
      * is right for the common modules. If red and blue come out swapped, this
      * is the byte to change - try 0x08. */
-    tftCmd1(s, 0x36, 0x00);
+    cmd1(s, 0x36, 0x00);
 
 #if PANEL_INVERT
-    tftCmd(s, 0x21);              /* INVON  */
+    cmd(s, 0x21);              /* INVON  */
 #else
-    tftCmd(s, 0x20);              /* INVOFF */
+    cmd(s, 0x20);              /* INVOFF */
 #endif
 
-    tftCmd(s, 0x13);              /* NORON - normal display */
-    sleepMs(10);
-    tftCmd(s, 0x29);              /* DISPON */
-    sleepMs(120);
+    cmd(s, 0x13);              /* NORON - normal display */
+    timing::ms(10);
+    cmd(s, 0x29);              /* DISPON */
+    timing::ms(120);
 
-    tftFill(s, TFT_BLACK);
+    fill(s, TFT_BLACK);
     return true;
 }
 
 /* The same, on this project's pins. What a sketch normally calls. */
-static inline Bool tftOpen(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+static Bool open(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 {
-    return tftOpenOn(s, w, h, xoff, yoff,
+    return openOn(s, w, h, xoff, yoff,
                      PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_CS,
                      PIN_TFT_DC, PIN_TFT_RES);
 }
 
+
+} // namespace tft
 #endif
