@@ -55,6 +55,9 @@
 
 #include "hal.hxx"
 
+namespace bibo
+{
+
 namespace lights
 {
 
@@ -239,3 +242,5 @@ static Int32 forcedLamp(Void)
 
 
 } // namespace lights
+
+} // namespace bibo

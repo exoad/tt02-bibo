@@ -7,7 +7,7 @@ This gets repeated on **macOS** and on the **Orange Pi**, so everything below is
 specific rather than approximate.
 
 The viewer is **not here** - it is the whole project's application and lives at
-`hub/`, which builds `tt02.exe`. This directory holds the sensor's own notes and
+`hub/`, which builds `bibo.exe`. This directory holds the sensor's own notes and
 a standalone CLI tool.
 
 ```
@@ -84,7 +84,7 @@ that ImGui multiplies by the global DPI factors. Code here depends on that.
 
 ```bat
 hub\build.bat
-hub\build\tt02.exe
+hub\build\bibo.exe
 ```
 
 `build.bat clean` wipes the build tree first. It builds the SDK driver library if
@@ -201,7 +201,7 @@ failure.
 
 ## The map
 
-One self-contained exe (`hub/build/tt02.exe`). Links `rplidar_driver.lib` and runs the scan loop on a
+One self-contained exe (`hub/build/bibo.exe`). Links `rplidar_driver.lib` and runs the scan loop on a
 worker thread — no helper process, no reimplemented serial protocol.
 
 ### Mouse

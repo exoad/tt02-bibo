@@ -122,7 +122,7 @@ board that is silent.
 Two headers are the foundation everything else stands on, and are not firmware
 in themselves. `types.h` lives beside it in `firmware/lib/`; `hal.h` is the base of
 `firmware/lib/`. Application code includes NEITHER directly - it includes
-`tt02.h`, which pulls in the whole library. See
+`bibo.hxx`, which pulls in the whole library. See
 [../docs/conventions.md](../docs/conventions.md) for the layout and the rules
 the style audit enforces.
 
@@ -141,7 +141,7 @@ The seam matters: below it the SDK's `snake_case` and `uint`, above it ours.
 Mixing the two inside one function is how a style guide quietly dies.
 
 ```c
-#include "tt02.h"
+#include "bibo.hxx"
 
 Int32 main(Void)
 {

@@ -33,6 +33,9 @@
 
 #include "hal.hxx"
 
+namespace bibo
+{
+
 namespace status
 {
 
@@ -139,3 +142,5 @@ static Void hello(Int32 flashes, UInt32 msEach)
 
 
 } // namespace status
+
+} // namespace bibo

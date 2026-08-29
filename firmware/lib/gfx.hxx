@@ -54,13 +54,16 @@
  * never corrupts the opposite side, which is what makes animation writable
  * without a bounds check at every call site.
  */
-#ifndef TT02_GFX_H
-#define TT02_GFX_H
+#ifndef BIBO_GFX_H
+#define BIBO_GFX_H
 
 #include "drivers/display.hxx"
 
 #include <stdarg.h>
 #include <stdio.h>
+
+namespace bibo
+{
 
 namespace gfx
 {
@@ -890,4 +893,6 @@ static Bool open(tft::Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 
 
 } // namespace gfx
+
+} // namespace bibo
 #endif

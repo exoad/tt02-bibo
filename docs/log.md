@@ -1218,7 +1218,7 @@ with a `static_assert` holding that invariant.
 
 ## 2026-08-25 — an application icon, generated
 
-`hub/assets/make_icon.ps1` renders `tt02.ico` at 16/20/24/32/48/64/128/256 —
+`hub/assets/make_icon.ps1` renders `bibo.ico` at 16/20/24/32/48/64/128/256 —
 graphite plate, top bevel, cyan radar rings with a sweep wedge, lit hub, and a
 green status LED at sizes where it can be seen. **Generated rather than drawn in
 an editor**, so the icon is made of the same parts as the UI and re-runs after a
@@ -1787,7 +1787,7 @@ trap. `--view` picks the centre, `--tab` picks the sidebar section.
 
 ## 2026-08-25 — the viewer becomes the application
 
-`lidar/viewer/` moved to `hub/` and now builds **`tt02.exe`**. The old path said
+`lidar/viewer/` moved to `hub/` and now builds **`bibo.exe`**. The old path said
 "a lidar accessory" while the thing had become the operator front end for the
 whole project: sensor map, Pico link and command set, firmware build/flash/
 backup, console. One executable, launched with no arguments, auto-connecting
@@ -1814,13 +1814,13 @@ changed nothing visible until those were found.
 
 ## 2026-08-24 — Windows becomes the primary dev machine
 
-Restructured the working directory into the `tt02-auto` layout. The RPLIDAR work
+Restructured the working directory into the `bibo` layout. The RPLIDAR work
 done here was absorbed rather than redone: the viewer moved to `lidar/viewer/`,
 the CLI bridge to `lidar/bridge/`, and the Slamtec SDK clone to
 `vendor/rplidar_sdk/` (gitignored). Build scripts were repointed at the new SDK
 path and the viewer was rebuilt from its new home to confirm nothing broke.
 
-The MacBook `tt02-auto` directory is superseded by this one.
+The MacBook `bibo` directory is superseded by this one.
 
 ### Pico 2 W bring-up — the board was never dead, and it was not empty
 

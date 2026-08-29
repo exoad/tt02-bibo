@@ -1,4 +1,4 @@
-# tt02-auto
+# bibo
 
 Self-driving 1/10 scale RC car on a Tamiya TT-02 chassis. Teach-and-repeat
 autonomy: map an environment once by driving it manually, then localize against
@@ -29,7 +29,7 @@ not in this repo — only a read-back binary in `vendor/`. See
 ## Layout
 
 ```
-hub/        THE APPLICATION. One executable, tt02.exe - the operator
+hub/        THE APPLICATION. One executable, bibo.exe - the operator
             front end for the whole project. Lidar map, Pico link and
             command set, firmware build/flash/backup, console.
 firmware/   Pico SDK C - runs on the car
@@ -77,7 +77,7 @@ that matters, and [firmware/README.md](firmware/README.md) for the Pico.
 
 ## The application
 
-`hub/` builds **one executable, `tt02.exe`**, and it is the front end for the
+`hub/` builds **one executable, `bibo.exe`**, and it is the front end for the
 whole project. Launch it and everything is reachable from that one window:
 
 - **Lidar** — live map with pan/zoom/measure, plus scan telemetry
@@ -112,7 +112,7 @@ carry their own terms, and two of them bind any distributed **binary**:
 
 - **Fugue Icons** (CC BY 3.0) - the app's icons. Attribution is a *condition*,
   and it has to stay visible to anyone who receives a build.
-- **Slamtec rplidar_driver** (BSD-2-Clause) - statically linked into `tt02.exe`,
+- **Slamtec rplidar_driver** (BSD-2-Clause) - statically linked into `bibo.exe`,
   so its copyright notice has to ship with the binary.
 
 Full inventory, and what each licence actually obliges:

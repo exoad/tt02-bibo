@@ -18,7 +18,7 @@ endif()
 
 include(pico_sdk_import.cmake)
 
-project(tt02_firmware C CXX ASM)
+project(bibo_firmware C CXX ASM)
 
 # C is still listed, and has to be: the SDK, TinyUSB, lwIP and the cyw43 driver
 # are all C and are compiled as part of these targets. What changed is that
@@ -39,31 +39,31 @@ pico_sdk_init()
 #
 # Two answers, because the two programs want different things from the chip.
 #
-#   TT02_LED_LIBS  pico_cyw43_arch_none - the chip is brought up so its GPIO
+#   BIBO_LED_LIBS  pico_cyw43_arch_none - the chip is brought up so its GPIO
 #                  (and so the LED) works, and no networking is linked. This is
 #                  what the sketch target gets: a first-hour program needs the
 #                  LED and does not need lwIP tripling its build.
 #
-#   TT02_NET_LIBS  pico_cyw43_arch_lwip_poll - the same chip plus the IP stack,
+#   BIBO_NET_LIBS  pico_cyw43_arch_lwip_poll - the same chip plus the IP stack,
 #                  polled from the main loop rather than run off an interrupt or
 #                  a second core. Poll mode is the right one here: this firmware
 #                  is already one loop where one thing happens at a time, so
 #                  there is nothing to make thread-safe and no callback can
 #                  arrive in the middle of a servo update.
 #
-# TT02_WIRELESS is what net.hxx and main.cxx test. It comes from the SAME board
+# BIBO_WIRELESS is what net.hxx and main.cxx test. It comes from the SAME board
 # question rather than from a hand-maintained list, so the plain Pico 2 compiles
 # the stub half of net.hxx without anybody having to remember to say so.
 if(PICO_CYW43_SUPPORTED)
-    set(TT02_LED_LIBS pico_cyw43_arch_none)
-    set(TT02_NET_LIBS pico_cyw43_arch_lwip_poll)
-    set(TT02_NET_DEFS TT02_WIRELESS=1)
-    message(STATUS "tt02: ${PICO_BOARD} - CYW43439 present, wireless link built")
+    set(BIBO_LED_LIBS pico_cyw43_arch_none)
+    set(BIBO_NET_LIBS pico_cyw43_arch_lwip_poll)
+    set(BIBO_NET_DEFS BIBO_WIRELESS=1)
+    message(STATUS "bibo: ${PICO_BOARD} - CYW43439 present, wireless link built")
 else()
-    set(TT02_LED_LIBS "")
-    set(TT02_NET_LIBS "")
-    set(TT02_NET_DEFS "")
-    message(STATUS "tt02: ${PICO_BOARD} - LED on a plain GPIO, no cyw43")
+    set(BIBO_LED_LIBS "")
+    set(BIBO_NET_LIBS "")
+    set(BIBO_NET_DEFS "")
+    message(STATUS "bibo: ${PICO_BOARD} - LED on a plain GPIO, no cyw43")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -80,8 +80,8 @@ endif()
 # show up as belonging to this target, and so a header-only library is visible
 # in a project tree at all.
 # ---------------------------------------------------------------------------
-set(TT02_LIB
-    lib/tt02.hxx
+set(BIBO_LIB
+    lib/bibo.hxx
     lib/types.hxx
     lib/text.hxx
     lib/hal.hxx
@@ -99,15 +99,15 @@ set(TT02_LIB
 
 add_executable(pico_debug
     app/main.cxx
-    ${TT02_LIB}
+    ${BIBO_LIB}
 )
 
 # The debug image is the one that carries the wireless command link, so it gets
-# TT02_NET_LIBS - the cyw43 arch WITH lwIP - rather than the LED-only variant.
+# BIBO_NET_LIBS - the cyw43 arch WITH lwIP - rather than the LED-only variant.
 # On the car's plain Pico 2 both are empty and net.hxx compiles to its stubs.
 target_link_libraries(pico_debug
     pico_stdlib
-    ${TT02_NET_LIBS}
+    ${BIBO_NET_LIBS}
     pico_unique_id
     hardware_pwm
     hardware_adc
@@ -121,9 +121,9 @@ target_link_libraries(pico_debug
 pico_enable_stdio_usb(pico_debug 1)
 pico_enable_stdio_uart(pico_debug 0)
 
-target_compile_definitions(pico_debug PRIVATE ${TT02_NET_DEFS})
+target_compile_definitions(pico_debug PRIVATE ${BIBO_NET_DEFS})
 
-# firmware/lib is the whole library: an app's "tt02.hxx" and the library's own
+# firmware/lib is the whole library: an app's "bibo.hxx" and the library's own
 # "drivers/..." and "chassis/..." includes all resolve through this one entry.
 # shared/ is no longer on the path - the vocabulary moved to lib/types.hxx,
 # because the firmware was its only caller.
@@ -153,23 +153,23 @@ pico_add_extra_outputs(pico_debug)
 # ---------------------------------------------------------------------------
 add_executable(sketch
     scratch/sketch.cxx
-    ${TT02_LIB}
+    ${BIBO_LIB}
 )
 
 # pico_stdlib does not carry PWM, ADC or the watchdog, and on the Pico 2 W the
 # LED hangs off the CYW43439 rather than a GPIO - so there the wireless arch has
 # to be linked just to blink it. Linking all of them here rather than making
-# each sketch ask keeps the promise tt02.hxx makes: include it and everything in
+# each sketch ask keeps the promise bibo.hxx makes: include it and everything in
 # it works.
 #
 # COST, stated honestly: on the W, cyw43_arch roughly doubles a CLEAN build of
 # this target (86 -> ~190 translation units). Incremental builds are unaffected
 # - editing sketch.cxx still recompiles one file - and a first-hour program that
 # cannot blink the LED everybody can see is the worse trade. The car's pico2
-# build does not pay it at all: TT02_LED_LIBS is empty there.
+# build does not pay it at all: BIBO_LED_LIBS is empty there.
 target_link_libraries(sketch
     pico_stdlib
-    ${TT02_LED_LIBS}
+    ${BIBO_LED_LIBS}
     hardware_pwm
     hardware_adc
     hardware_watchdog

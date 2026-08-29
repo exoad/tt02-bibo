@@ -25,8 +25,8 @@
  * blinks. Nothing here enforces that; the board cannot know what you soldered.
  */
 
-#ifndef TT02_HAL_H
-#define TT02_HAL_H
+#ifndef BIBO_HAL_H
+#define BIBO_HAL_H
 
 /*
  * The vocabulary: Int32, UInt16, Bool, Void, Utf8, CharSeq.
@@ -73,6 +73,9 @@
 #if defined(CYW43_WL_GPIO_LED_PIN)
 #include "pico/cyw43_arch.h"
 #endif
+
+namespace bibo
+{
 
 /* ---- types --------------------------------------------------------------- */
 
@@ -1262,4 +1265,6 @@ static Void rebootToBootsel(Void)
 
 
 } // namespace board
-#endif /* TT02_HAL_H */
+
+} // namespace bibo
+#endif /* BIBO_HAL_H */

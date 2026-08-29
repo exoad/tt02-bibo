@@ -66,6 +66,9 @@
 #include "hal.hxx"
 #include "lights.hxx"
 
+namespace bibo
+{
+
 namespace cue
 {
 
@@ -664,3 +667,5 @@ static UInt8 tone(Void)
 
 
 } // namespace cue
+
+} // namespace bibo

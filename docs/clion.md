@@ -20,7 +20,7 @@ once, and Ctrl-clicking `gpioOpen()` from a sketch lands in
 Symptom, in `hal.h` or any firmware source:
 
 ```
-#include "tt02.h"          Cannot find file 'tt02.h' in search paths: ...\firmware\app.
+#include "bibo.hxx"          Cannot find file 'bibo.hxx' in search paths: ...\firmware\app.
 #include "hardware/adc.h"  Cannot find directory 'hardware' in search paths: ...
 ```
 
@@ -56,7 +56,7 @@ project loaded, because a quoted include is searched relative to the including
 file first — which is why it lives in the library rather than in a `shared/`
 directory it was never actually shared with.
 
-The library's own `"tt02.h"`, `"drivers/…"` and `"chassis/…"` includes are
+The library's own `"bibo.hxx"`, `"drivers/…"` and `"chassis/…"` includes are
 different: they need `-Ifirmware/lib`, which comes from the project or from the
 compile database. `firmware/.clangd` exists for exactly that gap. Everything
 below needs the cross-toolchain as well, and that only comes from the project.
@@ -69,7 +69,7 @@ The database is `firmware/build/compile_commands.json`, and **`firmware\build.ba
 writes it**. If firmware includes are unresolved and attaching has not helped,
 check that file exists — a `build.bat clean` deletes `build\` and it is not
 recreated until the next configure. It carries `-Ifirmware/lib`, which is what
-resolves `"tt02.h"` and the library's own `"drivers/…"` and `"chassis/…"`
+resolves `"bibo.hxx"` and the library's own `"drivers/…"` and `"chassis/…"`
 includes.
 
 ## If every symbol is red
@@ -95,7 +95,7 @@ Open the repo root. CLion reads `CMakePresets.json` and offers one profile:
 It needs CLion's **Visual Studio** toolchain, not MinGW; `hub/CMakeLists.txt`
 stops with a clear error rather than half-configuring against anything else.
 
-Targets you get: `tt02`, plus `test_editor`, `test_map_geometry` and
+Targets you get: `bibo`, plus `test_editor`, `test_map_geometry` and
 `test_lights` with runnable gutter arrows. `ctest` runs all three.
 
 `hub/build.bat` is still the authoritative build. The CMake file uses the same

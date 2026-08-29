@@ -14,10 +14,14 @@
 // When the encoders are wired, the mapper reads these files.
 //
 // ---------------------------------------------------------------------------
-// FILE FORMAT - "tt02rec 2". PLAIN TEXT, and compact because of how it is
+// FILE FORMAT - "biborec 1", and "tt02rec 2" is still read. The version went
+// back to 1 with the name because it is a new name for the same layout, not a
+// new layout; the reader accepts either header and nothing else changed.
+//
+// PLAIN TEXT, and compact because of how it is
 // written rather than because a compressor was run over it.
 //
-//   # tt02rec 2
+//   # biborec 1
 //   # <comments, freely>
 //   R <t_ms> <hz_centi> <count>
 //   <angleDelta> <dist> <angleDelta> <dist> ...      (count pairs, wrapped)
@@ -121,7 +125,7 @@ private:
 // Existing recordings, newest first, bare filenames.
 [[nodiscard]] Vec<Str> list();
 
-// A timestamped name: scan-YYYYMMDD-HHMMSS.tt02rec
+// A timestamped name: scan-YYYYMMDD-HHMMSS.biborec
 [[nodiscard]] Str makeName();
 
 } // namespace rec

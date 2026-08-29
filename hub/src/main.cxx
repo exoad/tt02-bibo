@@ -620,7 +620,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     }
 
     HWND hwnd = ::CreateWindowExW(
-        0, wc.lpszClassName, L"tt02-auto", style,
+        0, wc.lpszClassName, L"bibo", style,
         winX, winY, winW, winH,
         nullptr, nullptr, hinstance, nullptr);
     if(!hwnd)
@@ -648,7 +648,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         cleanupDeviceD3D();
         ::DestroyWindow(hwnd);
         ::UnregisterClassW(wc.lpszClassName, hinstance);
-        ::MessageBoxW(nullptr, L"Failed to create a Direct3D 11 device.", L"tt02-auto", MB_ICONERROR | MB_OK);
+        ::MessageBoxW(nullptr, L"Failed to create a Direct3D 11 device.", L"bibo", MB_ICONERROR | MB_OK);
         return 1;
     }
 

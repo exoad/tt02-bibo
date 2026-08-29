@@ -3,10 +3,10 @@
 Everything the car can do, and the one include that gets you all of it.
 
 ```c
-#include "../lib/tt02.h"     /* and nothing else of ours */
+#include "../lib/bibo.hxx"     /* and nothing else of ours */
 ```
 
-`tt02.h` is the whole library. Reaching past it to a specific header compiles
+`bibo.hxx` is the whole library. Reaching past it to a specific header compiles
 and is still wrong — see [conventions.md](conventions.md), and the style audit
 that enforces it.
 
@@ -393,7 +393,7 @@ could not compile against.
 2. **What may it include?** lib root may name `types.h` and `hal.h`; a driver
    or chassis file may name `../hal.h`. Anything else is a build failure, not a
    guideline — see `LAYERS` in `hub/tools/style_audit.py`.
-3. **Add it to the umbrella.** `tt02.h`, and the audit's `LAYER_EXTRA`.
+3. **Add it to the umbrella.** `bibo.hxx`, and the audit's `LAYER_EXTRA`.
 4. **If it is a setting, give it all five**: setter, reading, serial command,
    hub control, `cal.h` macro.
 5. **Never restate a constant somebody else owns.** Derive it.

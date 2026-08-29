@@ -70,10 +70,13 @@
  * That is FINE and is the point of a bus - SCK and MOSI are shared and the two
  * devices are told apart by their separate CS lines.
  */
-#ifndef TT02_ST77XX_H
-#define TT02_ST77XX_H
+#ifndef BIBO_ST77XX_H
+#define BIBO_ST77XX_H
 
 #include "../hal.hxx"
+
+namespace bibo
+{
 
 namespace tft
 {
@@ -680,4 +683,6 @@ static Bool open(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 
 
 } // namespace tft
+
+} // namespace bibo
 #endif

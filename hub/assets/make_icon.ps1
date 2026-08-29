@@ -1,4 +1,4 @@
-# Generates hub/assets/tt02.ico — the application and window icon.
+# Generates hub/assets/bibo.ico — the application and window icon.
 #
 # Drawn rather than sourced, because the app icon has to be the app: the same
 # graphite plate, top bevel and cyan LED accents the UI is built from, with a
@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Drawing
 
 $sizes  = @(16, 20, 24, 32, 48, 64, 128, 256)
 $outDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$icoPath = Join-Path $outDir 'tt02.ico'
+$icoPath = Join-Path $outDir 'bibo.ico'
 
 function New-IconBitmap([int]$s) {
     $bmp = New-Object System.Drawing.Bitmap $s, $s,

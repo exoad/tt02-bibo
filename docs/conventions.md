@@ -1,4 +1,4 @@
-# tt02-auto — project context
+# bibo — project context
 
 Read this before working in this repo.
 
@@ -193,7 +193,7 @@ translucent. **Lidar hole not yet cut.**
 
 ## The application — `hub/`
 
-`hub/` builds **one executable, `tt02.exe`**, and it is the front end for the
+`hub/` builds **one executable, `bibo.exe`**, and it is the front end for the
 whole project: the fused sensor view, the Pico link and its command set, an
 on-demand firmware build/flash/backup suite, and a console.
 
@@ -372,7 +372,7 @@ where the SDK's spelling stops and this project's begins, and a console calling
 day the transport is not stdio (a UDP link, a log to the SD card, both at once)
 that is sixty-two call sites to find instead of one definition to change.
 
-`app/` and `scratch/` include **`../lib/tt02.h` and nothing else**, and name no
+`app/` and `scratch/` include **`../lib/bibo.hxx` and nothing else**, and name no
 libc function at all. The style audit checks this and names the replacement.
 
 **`lib/` is exempt, because it is where the wrapping happens.** `text.h` naming
@@ -410,7 +410,7 @@ bodies were already shared through `drawViewBody()`, so removing the panels
 removed a layout, not a feature.
 
 What went with it: the `--layout` command-line switch, and the `L`, `C` and `P`
-records in `%LOCALAPPDATA%/tt02-auto/panels.txt`. Older files still parse -
+records in `%LOCALAPPDATA%/bibo/panels.txt`. Older files still parse -
 unknown record letters are skipped - so a settings file written by a build that
 had panels loads without complaint and simply forgets where they were.
 
@@ -496,7 +496,7 @@ vendor/     upstream clones (gitignored) - rplidar_sdk lives here
 ```
 firmware/
   lib/
-    tt02.h            the ONE header an application includes
+    bibo.hxx            the ONE header an application includes
     hal.h             the board: gpio, pwm, i2c, spi, serial, led, time
     gfx.h             drawing into a Screen
     status.h          the onboard LED as a readable signal
@@ -522,7 +522,7 @@ firmware/
 | `lib/` | `types.h`, `hal.h` — hal is the floor everything stands on |
 | `lib/drivers/` | `hal.h` |
 | `lib/chassis/` | `hal.h`, `chassis/cal.h` |
-| `app/`, `scratch/` | `tt02.h` — and nothing else of ours |
+| `app/`, `scratch/` | `bibo.hxx` — and nothing else of ours |
 
 `lib/gfx.h` is the one written-down exception: it draws into a `Screen`, so it
 reaches sideways into `drivers/display.h`. The Pico SDK (`pico/`, `hardware/`)
@@ -537,7 +537,7 @@ Every public function, setting and type is listed in
 [firmware-api.md](firmware-api.md), including which of them persist across a
 reflash and what the five parts of a properly-finished setting are.
 
-**Application code includes `tt02.h` and nothing else.** Reaching past it to a
+**Application code includes `bibo.hxx` and nothing else.** Reaching past it to a
 specific header still compiles and is still wrong: it makes every file's
 dependencies something you have to read the top of the file to know, and a
 header that moves then breaks callers that had no business naming it.
