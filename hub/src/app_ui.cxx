@@ -459,6 +459,41 @@ Bool    tofHistoryWrapped = false;
 Int32 tofSeenMin = 0;
 Int32 tofSeenMax = 0;
 
+// ---- the cue board --------------------------------------------------------
+//
+// THE BOARD IS THE SOURCE OF TRUTH. This list is not written here and not kept
+// in step by hand: it comes from CUE LIST, once per connection, so a cue added
+// to firmware/lib/cue.hxx appears on this screen with nothing changed on this
+// side. A hardcoded grid would be a second list to forget to update, and the
+// failure mode is a button that does nothing or a cue nobody can reach.
+struct CueEntry
+{
+    Str  name;      // what CUE <name> takes
+    Str  means;     // the sentence the firmware gives it
+    Str  play;      // "once", "loop" or "hold" - see below
+    Bool on = false;      // the board says it is up
+    Bool latched = false; // ...and a person put it there, not the car
+};
+
+// WHY THE PLAY MODE MATTERS HERE and not only in the firmware: it is the
+// difference between a button and a switch. A "once" cue plays and ends, so
+// pressing it again just plays it again. A "hold" or "loop" cue stays up until
+// something lowers it, so its button has to be a TOGGLE - and a board that drew
+// them all the same would leave you pressing "left" twice and wondering why the
+// indicator would not stop.
+
+Vec<CueEntry> cueList;
+Bool          cueListAsked = false;
+
+// What the board says it is doing RIGHT NOW. A cue is a few hundred
+// milliseconds long, so this is worth watching rather than inferring from the
+// button that was pressed.
+Str     cueSpeaking  = "none";
+Int32   cueStepNow   = 0;
+Int32   cueLoopNow   = 0;
+Int32   cueKinds     = 0;
+Float64 cueLastPoll  = 0.0;
+
 Bool   dbgUnsupported = false;
 Bool   dbgAwait       = false;
 Float64 dbgLastPoll   = 0.0;
@@ -468,6 +503,13 @@ Void resetBoardStatus()
     debugStatus             = DebugStatus();
     dbgUnsupported = false;
     sensorsAsked   = false;
+
+    // Asked again on the next connection. The list belongs to the firmware
+    // that is running, and a reflash between connections is the ordinary case
+    // here, not an exotic one.
+    cueList.clear();
+    cueListAsked = false;
+    cueSpeaking  = "none";
     sensorI2c      = false;
     sensorTof      = false;
     tofMm          = 0;
@@ -1163,8 +1205,133 @@ Void observeLine(const PicoLine& ln)
             debugStatus.boardName = word(q + 6);
         }
 
+        // "INFO cue flash [once] - I have seen you - after you"
+        //
+        // Split at the FIRST " - " only: the meaning is allowed to contain the
+        // same separator, and this one does.
+        if(t.compare(0, 9, "INFO cue ") == 0)
+        {
+            const Str rest = t.substr(9);
+            const Size cut = rest.find(" - ");
+            if(cut != Str::npos)
+            {
+                CueEntry e;
+                e.name  = rest.substr(0, cut);
+                e.means = rest.substr(cut + 3);
+
+                // "name [mode]" -> the two of them. A firmware that predates
+                // the modes sends no bracket and lands on an empty play, which
+                // the board then draws as a plain button - the old behaviour,
+                // rather than a crash or a guess.
+                const Size br = e.name.find(" [");
+                if(br != Str::npos && e.name.back() == ']')
+                {
+                    e.play = e.name.substr(br + 2, e.name.size() - br - 3);
+                    e.name = e.name.substr(0, br);
+                }
+
+                Bool have = false;
+                for(const CueEntry& c : cueList)
+                {
+                    if(c.name == e.name)
+                    {
+                        have = true;
+                        break;
+                    }
+                }
+                if(!have)
+                {
+                    cueList.push_back(e);
+                }
+            }
+            return;
+        }
+
         dbgUnsupported = false;
         dbgAwait       = false;
+        return;
+    }
+
+    // "OK cue speaking=flash step=0 loop=0 tone=0 kinds=2 off_us=10"
+    if(t.compare(0, 7, "OK cue ") == 0)
+    {
+        const Char* p = t.c_str();
+
+        if(const Char* q = std::strstr(p, "speaking="))
+        {
+            q += 9;
+            Size n = 0;
+            while(q[n] != '\0' && q[n] != ' ')
+            {
+                ++n;
+            }
+            cueSpeaking = Str(q, n);
+        }
+
+        // "active=head*,brake,left*" - everything up, with a * on the ones a
+        // PERSON raised. Both facts matter: "the car is braking" and "somebody
+        // is holding the brake lamps on" look identical on the lamps and are
+        // completely different situations.
+        for(CueEntry& c : cueList)
+        {
+            c.on      = false;
+            c.latched = false;
+        }
+
+        if(const Char* q = std::strstr(p, "active="))
+        {
+            q += 7;
+
+            Str tok;
+            const auto flush = [&tok]()
+            {
+                if(tok.empty() || tok == "-")
+                {
+                    tok.clear();
+                    return;
+                }
+                Bool lat = false;
+                if(tok.back() == '*')
+                {
+                    lat = true;
+                    tok.pop_back();
+                }
+                for(CueEntry& c : cueList)
+                {
+                    if(c.name == tok)
+                    {
+                        c.on      = true;
+                        c.latched = lat;
+                    }
+                }
+                tok.clear();
+            };
+
+            while(*q != '\0' && *q != ' ')
+            {
+                if(*q == ',')
+                {
+                    flush();
+                }
+                else
+                {
+                    tok.push_back(*q);
+                }
+                ++q;
+            }
+            flush();
+        }
+
+        const auto num = [p](const Char* key, Int32& out)
+        {
+            if(const Char* q = std::strstr(p, key))
+            {
+                out = std::atoi(q + std::strlen(key));
+            }
+        };
+        num("step=",  cueStepNow);
+        num("loop=",  cueLoopNow);
+        num("kinds=", cueKinds);
         return;
     }
 
@@ -1502,6 +1669,43 @@ Void pollLights()
 
     lightsLastPoll = now;
     pollPico("LIGHTS");
+}
+
+// Asks the board WHICH CUES IT HAS, once per connection.
+//
+// Once, because the answer cannot change while the board is running - the table
+// is compiled in. A reflash gives a new connection, and resetBoardStatus()
+// clears the flag, so a cue added and flashed appears without anybody pressing
+// anything.
+Void pollCueList()
+{
+    if(dbgUnsupported || cueListAsked)
+    {
+        return;
+    }
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        return;
+    }
+    cueListAsked = true;
+    pollPico("CUE LIST");
+}
+
+// And what it is saying right now.
+//
+// Fast for the same reason the lamp poll is: a cue is a few hundred
+// milliseconds end to end, so a two-second poll would show a still frame of
+// something that has already finished. Only while the board is on screen.
+Void pollCueState()
+{
+    if(dbgUnsupported) return;
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED) return;
+
+    const Float64 now = ImGui::GetTime();
+    if(cueLastPoll > 0.0 && (now - cueLastPoll) < 0.12) return;
+
+    cueLastPoll = now;
+    pollPico("CUE");
 }
 
 // Asks the board what is attached, once per connection.
@@ -4851,7 +5055,245 @@ Void drawCentralControls(Int32 view)
 constexpr Int32 REF_VIEW   = 4;
 constexpr Int32 RANGE_VIEW = REF_VIEW + 1;
 constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
-constexpr Int32 VIEW_COUNT = DRIVE_VIEW + 1;
+constexpr Int32 CUE_VIEW   = DRIVE_VIEW + 1;
+constexpr Int32 VIEW_COUNT = CUE_VIEW + 1;
+
+// ================================================ the cue board ==
+//
+// A button per cue, laid out as a grid, and the grid comes FROM THE BOARD.
+//
+// CUE LIST is asked once per connection and every row it answers becomes a
+// button. Nothing about which cues exist is written on this side, which is the
+// whole point: a cue added to firmware/lib/cue.hxx and flashed appears here
+// with no hub change at all. The alternative - a list in this file kept in step
+// by hand - fails in one of two ways, a button that does nothing or a cue
+// nobody can reach, and both of them fail silently.
+//
+// This is a REMOTE CONTROL, not a status screen. Everything on it either sends
+// something or says why it cannot.
+// ---------------------------------------------------------------------------
+Void drawCueBody(Float32 w, Float32 h)
+{
+    ImGui::BeginChild("##cueboard", ImVec2(w, h), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_None);
+
+    const ImVec2 p0     = ImGui::GetCursorScreenPos();
+    const Bool   linkUp = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
+
+    // ---- what the car is saying right now --------------------------------
+    //
+    // At the top and always present, because a cue is a few hundred
+    // milliseconds long: press a button, look away, and the only evidence it
+    // did anything is a line in a console. This is that evidence.
+    const Bool speaking = linkUp && !cueSpeaking.empty()
+                       && cueSpeaking != "none" && cueSpeaking != "-";
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "Saying");
+    ImGui::SameLine();
+
+    if(!linkUp)
+    {
+        colored(ui::sem::MUTED, "nothing - the board is not connected");
+    }
+    else if(speaking)
+    {
+        colored(ui::sem::GOOD, "%s", cueSpeaking.c_str());
+        ImGui::SameLine();
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                           "step %d, pass %d", cueStepNow, cueLoopNow + 1);
+    }
+    else
+    {
+        colored(ui::sem::MUTED, "nothing");
+    }
+
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ---- the grid ---------------------------------------------------------
+    if(cueList.empty())
+    {
+        // Three different silences, and they are three different problems.
+        ImGui::Spacing();
+        if(!linkUp)
+        {
+            colored(ui::sem::MUTED,
+                    "The cues come from the board, so this fills in when it is\n"
+                    "connected. Nothing about them is stored on this side.");
+        }
+        else if(!cueListAsked)
+        {
+            colored(ui::sem::MUTED, "Asking the board...");
+        }
+        else
+        {
+            colored(ui::sem::WARN,
+                    "The board answered CUE LIST with nothing.\n"
+                    "\n"
+                    "Either the firmware on it predates the cue system, or it\n"
+                    "was built with no cues in the table. Reflash and it will\n"
+                    "fill in - the list is asked again on every connection.");
+        }
+
+        ui::screenInset(p0, ImVec2(p0.x + w, p0.y + h));
+        ImGui::EndChild();
+        return;
+    }
+
+    // Columns from the width, not a fixed count. A name and a sentence need
+    // room; two cramped columns are worse than one honest one.
+    const Float32 avail   = ImGui::GetContentRegionAvail().x;
+    const Float32 cellMin = 260.0f * uiDpiScale;
+    const Int32   cols    = std::max(1, static_cast<Int32>(avail / cellMin));
+
+    const Float32 btnH = ImGui::GetFrameHeight() * 1.9f;
+
+    ImGui::BeginDisabled(!linkUp);
+    if(ImGui::BeginTable("##cuegrid", cols, ImGuiTableFlags_SizingStretchSame))
+    {
+        for(Size i = 0; i < cueList.size(); ++i)
+        {
+            if((i % static_cast<Size>(cols)) == 0)
+            {
+                ImGui::TableNextRow();
+            }
+            ImGui::TableNextColumn();
+
+            const CueEntry& c = cueList[i];
+            ImGui::PushID(static_cast<Int32>(i));
+
+            // A cue that stays up is a TOGGLE; a one-shot is a button. The
+            // firmware says which, so this does not have to guess.
+            const Bool sticky = (c.play == "hold" || c.play == "loop");
+
+            // Tinted while it is up, so the board and the screen agree about
+            // what is happening without anybody reading a word.
+            //
+            // GREEN for a cue a person is holding, AMBER for one the car raised
+            // by itself. They are not the same claim: amber is the car telling
+            // you what it is doing and green is you telling the car.
+            const ui::Tint tint = !c.on          ? ui::Tint::TINT_NONE
+                                 : c.latched     ? ui::Tint::TINT_GOOD
+                                                 : ui::Tint::TINT_WARN;
+
+            Char label[64];
+            std::snprintf(label, sizeof(label), "%s", c.name.c_str());
+            for(Char* q = label; *q != '\0'; ++q)
+            {
+                *q = static_cast<Char>(std::toupper(static_cast<UInt8>(*q)));
+            }
+
+            if(ui::iconButton(ui::Icon::ICON_LAMP, label,
+                              ImVec2(-FLT_MIN, btnH), tint))
+            {
+                Char cmd[80];
+
+                // Pressing a sticky cue that a PERSON is holding lowers it.
+                // Pressing one the CAR raised takes it over rather than
+                // fighting it - the alternative is a button that appears to do
+                // nothing because the next tick puts it straight back.
+                if(sticky && c.on && c.latched)
+                {
+                    std::snprintf(cmd, sizeof(cmd), "CUE %s OFF", c.name.c_str());
+                }
+                else
+                {
+                    std::snprintf(cmd, sizeof(cmd), "CUE %s", c.name.c_str());
+                }
+
+                sendPico(cmd);
+                LOG_INFO("cue", "%s", cmd + 4);
+            }
+
+            if(ImGui::IsItemHovered())
+            {
+                const Char* what =
+                    (c.play == "hold") ? "Held until you press it again."
+                  : (c.play == "loop") ? "Repeats until you press it again."
+                  : (c.play == "once") ? "Plays once and ends on its own."
+                                       : "";
+
+                const Char* who =
+                    !c.on        ? ""
+                  : c.latched    ? "\n\nUP, because you raised it."
+                                 : "\n\nUP, because the car raised it. Pressing"
+                                   " takes it over.";
+
+                ImGui::SetTooltip("CUE %s\n\n%s\n\n%s%s",
+                                  c.name.c_str(), c.means.c_str(), what, who);
+            }
+
+            // The sentence the FIRMWARE gives it, not one written here. If it
+            // reads badly that is a prompt to fix cue.hxx, where it belongs.
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX()
+                                   + ImGui::GetContentRegionAvail().x);
+            ImGui::TextUnformatted(c.means.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+
+            if(!c.play.empty())
+            {
+                ImGui::TextColored(
+                    ImGui::ColorConvertU32ToFloat4(
+                        c.on ? (c.latched ? ui::sem::GOOD : ui::sem::WARN)
+                             : ui::sem::MUTED),
+                    "%s%s", c.play.c_str(),
+                    !c.on ? "" : (c.latched ? "  -  you" : "  -  the car"));
+            }
+
+            ImGui::Spacing();
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ---- stop -------------------------------------------------------------
+    //
+    // NOT disabled when the link is down, for the same reason the emergency
+    // stop is not: a stop you cannot press because the program decided it would
+    // not work is worse than one that presses and does nothing.
+    ui::pushTint(ui::Tint::TINT_WARN);
+    if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop the cue",
+                      ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.4f)))
+    {
+        sendPico("CUE STOP");
+        LOG_INFO("cue", "stopped");
+    }
+    ui::popTint(ui::Tint::TINT_WARN);
+
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Ends whatever cue is running and hands its channels back.\n"
+            "\n"
+            "A cue OWNS every channel its steps mention for its whole\n"
+            "duration, dark steps included - which is what makes a flash\n"
+            "visible when the headlights are already on. Stopping it gives\n"
+            "those channels back to the car, so the tails and indicators go\n"
+            "back to following what the car is doing.\n"
+            "\n"
+            "Not the emergency stop. This stops the car TALKING, not the car.");
+    }
+
+    ImGui::Spacing();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                       "%d cue%s, read from the board on connect."
+                       "  Green is yours, amber is the car's.",
+                       static_cast<Int32>(cueList.size()),
+                       cueList.size() == 1 ? "" : "s");
+
+    ui::screenInset(p0, ImVec2(p0.x + w, p0.y + h));
+    ImGui::EndChild();
+}
 
 // ============================================== the range view ==
 //
@@ -7238,6 +7680,14 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
         pollLights();
         drawDriveBody(w, h);
     }
+    else if(view == CUE_VIEW)
+    {
+        // Both polled inside the body, so the fast one only runs while
+        // somebody is watching. The list is a no-op after the first call.
+        pollCueList();
+        pollCueState();
+        drawCueBody(w, h);
+    }
     else if(view == RANGE_VIEW)
     {
         // Polled only while this view is drawn - which is to say, only while
@@ -7286,6 +7736,10 @@ const Char* viewName(Int32 view)
     {
         return "Drive";
     }
+    if(view == CUE_VIEW)
+    {
+        return "Cues";
+    }
     return "Reference";
 }
 
@@ -7306,6 +7760,10 @@ ui::Icon viewIcon(Int32 view)
     if(view == DRIVE_VIEW)
     {
         return ui::Icon::ICON_SERVO;
+    }
+    if(view == CUE_VIEW)
+    {
+        return ui::Icon::ICON_LAMP;
     }
     return ui::Icon::ICON_REFERENCE;
 }

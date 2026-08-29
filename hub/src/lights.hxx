@@ -22,11 +22,27 @@
 
 namespace lights {
 
-// 1.5 Hz, which is the legal standard and what reads as correct. 400 on, 267
+// 100 flashes per minute, which is inside the standard rather than on its
+// edge, and what reads as correct. 360 on, 240
 // off - deliberately not 50/50: a slightly longer on than off is what real
 // flasher cans do and what the eye expects.
-inline constexpr Float64 BLINK_ON_S     = 0.400;
-inline constexpr Float64 BLINK_OFF_S    = 0.267;
+inline constexpr Float64 BLINK_ON_S     = 0.360;
+inline constexpr Float64 BLINK_OFF_S    = 0.240;
+
+// 600 ms is 100.0 flashes per minute at 60% on. See firmware/lib/cue.hxx for
+// the standard and for why it is not the 667 ms it used to be: that was 89.96
+// fpm, which is under the 90 floor of the normally-closed band in SAE J945.
+//
+// These two numbers MIRROR the firmware's and have to keep doing so. The board
+// decides what the lamps do; this is the hub drawing the same blink so the
+// screen and the car agree. The firmware has a static_assert on the band. This
+// side has the check below, which is the same claim in the language available.
+static_assert(BLINK_ON_S + BLINK_OFF_S >= 0.500,
+              "flash rate over 120/min");
+static_assert(BLINK_ON_S + BLINK_OFF_S <= 0.666,
+              "flash rate under 90/min");
+static_assert(BLINK_ON_S >= BLINK_OFF_S,
+              "on-time shorter than off-time");
 inline constexpr Float64 BLINK_PERIOD_S = BLINK_ON_S + BLINK_OFF_S;
 
 // Tail and brake are the SAME red lamp. Brake is not a separate light on most

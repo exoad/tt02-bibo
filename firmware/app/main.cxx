@@ -938,8 +938,10 @@ static Void cmdWifi(CharSeq arg)
  *
  *   CUE               where it stands
  *   CUE LIST          every cue this firmware knows, and what each one means
- *   CUE <name>        say it now
- *   CUE STOP          stop mid-sentence
+ *   CUE <name>        raise it. A held or looping cue stays up until lowered;
+ *                     a one-shot plays and ends on its own.
+ *   CUE <name> OFF    lower it, and hand it back to the car's own rules
+ *   CUE STOP          lower everything
  *
  * The lamps are reported by LIGHTS, not here. This reports the UTTERANCE - which
  * one, how far through it is, and what it would be sounding if there were a
@@ -950,13 +952,53 @@ static Void printCue(Void)
 {
     const bibo::cue::Kind k = bibo::cue::speaking();
 
-    bibo::serial::printf("OK cue speaking=%s step=%u loop=%u tone=%u kinds=%d off_us=%d\n",
-                 bibo::cue::name(k),
-                 static_cast<UInt32>(bibo::cue::step()),
-                 static_cast<UInt32>(bibo::cue::loop()),
-                 static_cast<UInt32>(bibo::cue::tone()),
-                 static_cast<Int32>(bibo::cue::KIND_COUNT - 1),
-                 bibo::cue::motionUs());
+    /*
+     * ACTIVE IS A LIST, because the car says more than one thing at a time.
+     * Headlights on, braking, and indicating left is three cues at once and is
+     * an ordinary Tuesday.
+     *
+     * `speaking` is still here and still one name: the most important of them,
+     * for anything that wants a single word. Both are reported because a status
+     * line that made you parse a list to answer "what is it doing" would be a
+     * worse status line, and one that only gave the winner would hide the other
+     * two entirely.
+     *
+     * A cue a PERSON raised is marked with a *, so "the car is braking" and
+     * "somebody is holding the brake lamps on" are different answers on screen
+     * rather than the same one.
+     */
+    Utf8 list[128];
+    Size at = 0;
+    list[0] = '\0';
+
+    for(Int32 i = 1; i < bibo::cue::KIND_COUNT; ++i)
+    {
+        const bibo::cue::Kind c = static_cast<bibo::cue::Kind>(i);
+        if(!bibo::cue::on(c))
+        {
+            continue;
+        }
+
+        const Int32 n = snprintf(&list[at], sizeof(list) - at, "%s%s%s",
+                                 (at > 0) ? "," : "",
+                                 bibo::cue::name(c),
+                                 bibo::cue::held(c) ? "*" : "");
+        if(n <= 0 || static_cast<Size>(n) >= sizeof(list) - at)
+        {
+            break;   /* full: report what fits rather than a truncated name */
+        }
+        at += static_cast<Size>(n);
+    }
+
+    bibo::serial::printf(
+        "OK cue speaking=%s active=%s step=%u loop=%u tone=%u kinds=%d off_us=%d\n",
+        bibo::cue::name(k),
+        (list[0] == '\0') ? "-" : list,
+        static_cast<UInt32>(bibo::cue::step()),
+        static_cast<UInt32>(bibo::cue::loop()),
+        static_cast<UInt32>(bibo::cue::tone()),
+        static_cast<Int32>(bibo::cue::KIND_COUNT - 1),
+        bibo::cue::motionUs());
 }
 
 static Void cmdCue(CharSeq arg)
@@ -973,8 +1015,15 @@ static Void cmdCue(CharSeq arg)
          * step with a list written somewhere else. */
         for(Int32 k = 1; k < bibo::cue::KIND_COUNT; ++k)
         {
-            bibo::serial::printf("INFO cue %s - %s\n",
-                         bibo::cue::SCRIPT[k].name, bibo::cue::SCRIPT[k].means);
+            /* The PLAY MODE is in the line, because it is the thing a caller
+             * has to know to use the cue: `once` ends on its own, `loop` and
+             * `hold` stay up until something lowers them. A board that listed
+             * names alone would leave every client guessing which of its
+             * buttons is a toggle. */
+            bibo::serial::printf("INFO cue %s [%s] - %s\n",
+                         bibo::cue::SCRIPT[k].name,
+                         bibo::cue::playWord(bibo::cue::SCRIPT[k].play),
+                         bibo::cue::SCRIPT[k].means);
         }
         printCue();
         return;
@@ -987,10 +1036,47 @@ static Void cmdCue(CharSeq arg)
         return;
     }
 
-    const bibo::cue::Kind want = bibo::cue::find(arg);
-    if(want == bibo::cue::KIND_NONE || !bibo::cue::emit(want))
+    /* "CUE LEFT OFF" - the name, then the word. Split before the lookup so a
+     * cue is never named "LEFT OFF". */
+    Utf8    word[24];
+    Size    n   = 0;
+    CharSeq rest = arg;
+
+    while(*rest != '\0' && *rest != ' ' && n + 1 < sizeof(word))
     {
-        bibo::serial::printf("ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
+        word[n++] = *rest++;
+    }
+    word[n] = '\0';
+    while(*rest == ' ')
+    {
+        ++rest;
+    }
+
+    const bibo::cue::Kind want = bibo::cue::find(word);
+    if(want == bibo::cue::KIND_NONE)
+    {
+        bibo::serial::printf(
+            "ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
+        return;
+    }
+
+    const Bool off = bibo::text::eq(rest, "OFF");
+
+    if(*rest != '\0' && !off)
+    {
+        bibo::serial::printf("ERR cue %s takes OFF or nothing, not %s\n",
+                             bibo::cue::name(want), rest);
+        return;
+    }
+
+    if(off)
+    {
+        bibo::cue::cancel(want);
+    }
+    else if(!bibo::cue::emit(want))
+    {
+        bibo::serial::printf("ERR cue %s cannot be raised\n",
+                             bibo::cue::name(want));
         return;
     }
 
@@ -1028,7 +1114,7 @@ static const Command COMMANDS[] =
     { "ESCLIMITS",   " <min> <max>",            "widen the throttle range",                 handleEscLimits },
 
     { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
-    { "CUE",         " [LIST|STOP|<name>]",     "what the car says, and saying it",      cmdCue },
+    { "CUE",         " [LIST|STOP|<name> [OFF]]",     "what the car says, and saying it",      cmdCue },
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
      * the wheel encoder. See lib/lights.h. */

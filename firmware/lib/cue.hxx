@@ -115,11 +115,63 @@ typedef enum
 #define CUE_TURN_ON_MILLI  450
 #define CUE_TURN_OFF_MILLI 280
 
-/* 1.5 Hz. 400 on, 267 off - deliberately not 50/50, because a slightly longer
- * on than off is what a real flasher can does and what the eye expects. */
-#define CUE_BLINK_ON_MS     400u
-#define CUE_BLINK_OFF_MS    267u
+/* ---- the flash rate, and the standard it has to sit inside ---------------
+ *
+ * FMVSS 108 does not state a flash rate itself. It incorporates SAE J590 (turn
+ * signal flashers) and SAE J945 (vehicular hazard warning flashers) BY
+ * REFERENCE, and those carry the numbers:
+ *
+ *   60-120 flashes per minute   for a NORMALLY OPEN (variable load) flasher
+ *   90-120 flashes per minute   for a NORMALLY CLOSED (fixed load) flasher
+ *
+ * plus a percent-current-on-time envelope - J945 Figure 1 - rather than a
+ * single duty figure. The practical form of that envelope is that ON must not
+ * be shorter than OFF.
+ *
+ * A 2002 NHTSA interpretation extends this to non-uniform flashers: any three
+ * consecutive flashes have to fall inside the band, and the on-time rule always
+ * applies. Nothing here is non-uniform, but it is why the band is about the
+ * RATE ACHIEVED and not about the number written in a header.
+ *
+ * ---- what this was, and why it moved -----------------------------------
+ *
+ * 400 on / 267 off. That is 667 ms, which is 89.96 flashes per minute - inside
+ * the normally-open band and 0.04 fpm UNDER the floor of the normally-closed
+ * one. The comment beside it, here and in the hub, called 1.5 Hz "the legal
+ * standard", and 1.5 Hz is 90 fpm exactly: a boundary quoted as a target, then
+ * missed by rounding.
+ *
+ * 360 / 240 is 600 ms, 100.0 flashes per minute, 60% on. Inside BOTH bands with
+ * margin at either end, on longer than off, and round numbers that cannot round
+ * their way back out.
+ *
+ * This car is not road-legal and is never going on a road. The standard is used
+ * here because it is a good one - it is what makes an indicator read as an
+ * indicator to anybody who has ever driven - and not because anything requires
+ * it of a 1/10 scale model.
+ */
+#define CUE_BLINK_ON_MS     360u
+#define CUE_BLINK_OFF_MS    240u
 #define CUE_BLINK_PERIOD_MS (CUE_BLINK_ON_MS + CUE_BLINK_OFF_MS)
+
+/*
+ * THE STANDARD, ENFORCED BY THE BUILD rather than described in a comment above
+ * two numbers somebody can edit.
+ *
+ * Stated as periods rather than rates so it is exact integer arithmetic with no
+ * division and no rounding to argue about:
+ *
+ *     rate >=  90 fpm   <=>   60000 >=  90 * period   <=>   period <= 666 ms
+ *     rate <= 120 fpm   <=>   60000 <= 120 * period   <=>   period >= 500 ms
+ *
+ * The tighter of the two bands, so satisfying this satisfies both.
+ */
+static_assert(CUE_BLINK_PERIOD_MS >= 500u,
+              "flash rate over 120/min - faster than SAE J590/J945 allow");
+static_assert(CUE_BLINK_PERIOD_MS <= 666u,
+              "flash rate under 90/min - below the normally-closed band");
+static_assert(CUE_BLINK_ON_MS >= CUE_BLINK_OFF_MS,
+              "on-time shorter than off-time - outside the J945 Figure 1 envelope");
 
 typedef enum
 {
@@ -174,30 +226,66 @@ static Int32 motionUs(Void)
     return motionUsNow;
 }
 
-/* ---- one-shot cues ------------------------------------------------------- */
+/* ---- what a cue IS -------------------------------------------------------
+ *
+ * One mechanism, three ways of playing, and that is the whole API:
+ *
+ *   PLAY_ONCE   run the script through `repeats` times and stop. An utterance
+ *               with a beginning and an end - flash, alert.
+ *   PLAY_LOOP   run it round until something cancels it. A blink whose rhythm
+ *               is the script's own steps - the indicators.
+ *   PLAY_HOLD   one state, held until cancelled. Not really a script at all,
+ *               but expressed as one so there is nothing else to learn - the
+ *               headlights, the brake lamps, reverse.
+ *
+ * This started as one-shots only, with the continuous behaviour - indicators,
+ * brake, reverse - computed by hand in a solve() beside it. That split looked
+ * reasonable and was not: it meant the car had two lighting systems, one you
+ * could name and trigger and one you could not, and the second one grew every
+ * time the car learned to say something. Everything is a cue now.
+ */
+typedef enum
+{
+    PLAY_ONCE = 0,
+    PLAY_LOOP,
+    PLAY_HOLD
+} Play;
 
 /*
- * One step of an utterance: hold these channels for this long, with this tone.
+ * One step of an utterance: hold these channels, at this brightness, for this
+ * long, with this tone.
  *
  * A table rather than code, so adding a cue is adding data. The first thing
  * anyone will want to do with this module is invent a new noise for a new
  * situation, and that should not mean writing another state machine.
+ *
+ * `level` is what makes a running lamp and a brake lamp the SAME mechanism on
+ * the same bulb: one is LAMP_DIM and one is LAMP_FULL, and which of them you
+ * see is decided by priority rather than by an if inside a rule.
  */
 typedef struct
 {
     UInt16 ms;
     UInt8  lamps;   /* CUE_CH_* bitmask lit during this step */
+    UInt8  level;   /* LAMP_OFF..LAMP_FULL for the lamps above */
     UInt8  tone;    /* a Tone. Not driven yet - see above */
 } Step;
 
 typedef struct
 {
-    CharSeq        name;    /* what to type at the console                     */
-    CharSeq        means;   /* what the car is SAYING, in words                */
+    CharSeq     name;    /* what to type at the console                     */
+    CharSeq     means;   /* what the car is SAYING, in words                */
     const Step* step;
-    UInt8          steps;
-    UInt8          repeats; /* how many times the whole script runs            */
+    UInt8       steps;
+    UInt8       repeats; /* PLAY_ONCE only: how many times it runs          */
+    UInt8       play;    /* a Play                                          */
 } Script;
+
+/* ---- the scripts ---------------------------------------------------------
+ *
+ * HOLD scripts are one step with no duration. The ms is ignored - nothing
+ * advances a held cue - and writing 0 says so.
+ */
 
 /*
  * FLASH - the headlights, twice, quickly.
@@ -210,8 +298,8 @@ typedef struct
  */
 static const Step STEPS_FLASH[] =
 {
-    {  90u, CUE_CH_HEAD, TONE_NONE },
-    { 110u, 0u,          TONE_NONE }
+    {  90u, CUE_CH_HEAD, LAMP_FULL, TONE_NONE },
+    { 110u, 0u,          LAMP_OFF,  TONE_NONE }
 };
 
 /*
@@ -227,82 +315,143 @@ static const Step STEPS_FLASH[] =
  */
 static const Step STEPS_ALERT[] =
 {
-    { 160u, CUE_CH_IND_BOTH | CUE_CH_TAIL, TONE_LOW  },
-    { 160u, 0u,                            TONE_NONE }
+    { 160u, CUE_CH_IND_BOTH | CUE_CH_TAIL, LAMP_FULL, TONE_LOW  },
+    { 160u, 0u,                            LAMP_OFF,  TONE_NONE }
 };
 
+/*
+ * The indicators. 400 on, 267 off - not 50/50, because a slightly longer on
+ * than off is what a real flasher can does and what the eye expects.
+ *
+ * HAZARD IS ITS OWN CUE rather than left and right together, and that is not
+ * tidiness. Two cues have two step clocks, and two clocks started a
+ * millisecond apart drift - so "both sides" assembled out of the two single
+ * cues would come apart into an alternating flash, which is what a film prop
+ * does and is the single most common way to get this wrong. One cue driving
+ * both sides makes being in phase structural.
+ *
+ * Front and rear on a side share one flash for the same reason. The rear pair
+ * has no LED on it yet; it is computed and reported anyway, which is what makes
+ * wiring it later a change to the pin table and nothing else.
+ */
+static const Step STEPS_LEFT[] =
+{
+    { CUE_BLINK_ON_MS,  CUE_CH_IND_L, LAMP_FULL, TONE_NONE },
+    { CUE_BLINK_OFF_MS, 0u,           LAMP_OFF,  TONE_NONE }
+};
+
+static const Step STEPS_RIGHT[] =
+{
+    { CUE_BLINK_ON_MS,  CUE_CH_IND_R, LAMP_FULL, TONE_NONE },
+    { CUE_BLINK_OFF_MS, 0u,           LAMP_OFF,  TONE_NONE }
+};
+
+static const Step STEPS_HAZARD[] =
+{
+    { CUE_BLINK_ON_MS,  CUE_CH_IND_BOTH, LAMP_FULL, TONE_NONE },
+    { CUE_BLINK_OFF_MS, 0u,              LAMP_OFF,  TONE_NONE }
+};
+
+/* Held states. */
+static const Step STEPS_HEAD[]    = { { 0u, CUE_CH_HEAD, LAMP_FULL, TONE_NONE } };
+static const Step STEPS_RUNNING[] = { { 0u, CUE_CH_TAIL, LAMP_DIM,  TONE_NONE } };
+static const Step STEPS_BRAKE[]   = { { 0u, CUE_CH_TAIL, LAMP_FULL, TONE_NONE } };
+static const Step STEPS_REVERSE[] = { { 0u, CUE_CH_REV,  LAMP_FULL, TONE_NONE } };
+
+/*
+ * ORDER IS PRIORITY. A later cue wins a channel an earlier one also wants.
+ *
+ * Read down the list and it is a sentence about what matters more than what:
+ * being lit at all, then which way the gearbox is, then which way the car is
+ * turning, then the two things the car says on purpose. ALERT is last because
+ * "something is wrong" outranks everything, including an indicator.
+ *
+ * RUNNING before BRAKE is the whole reason `level` exists: both want the tails,
+ * BRAKE is later, so braking shows FULL over the DIM the running lamps were
+ * holding. No rule anywhere has to know about the other.
+ */
 typedef enum
 {
     KIND_NONE = 0,
+    KIND_HEAD,
+    KIND_RUNNING,
+    KIND_BRAKE,
+    KIND_REVERSE,
+    KIND_LEFT,
+    KIND_RIGHT,
+    KIND_HAZARD,
     KIND_FLASH,
     KIND_ALERT,
     KIND_COUNT
 } Kind;
 
-/* IN cue::Kind ORDER. The enum indexes this table directly, so a row added in the
- * wrong place silently renames two cues at once. */
+/* IN cue::Kind ORDER. The enum indexes this table directly, so a row added in
+ * the wrong place silently renames two cues at once. */
 static const Script SCRIPT[KIND_COUNT] =
 {
-    { "none",  "nothing",                     NULL,            0u, 0u },
-    { "flash", "I have seen you - after you", STEPS_FLASH, 2u, 2u },
-    { "alert", "I have stopped myself",       STEPS_ALERT, 2u, 3u }
+    { "none",    "nothing",                      NULL,          0u, 0u, PLAY_HOLD },
+    { "head",    "my headlights are on",         STEPS_HEAD,    1u, 0u, PLAY_HOLD },
+    { "running", "I am lit but not braking",     STEPS_RUNNING, 1u, 0u, PLAY_HOLD },
+    { "brake",   "I am not being driven",        STEPS_BRAKE,   1u, 0u, PLAY_HOLD },
+    { "reverse", "I am backing up",              STEPS_REVERSE, 1u, 0u, PLAY_HOLD },
+    { "left",    "I am turning left",            STEPS_LEFT,    2u, 0u, PLAY_LOOP },
+    { "right",   "I am turning right",           STEPS_RIGHT,   2u, 0u, PLAY_LOOP },
+    { "hazard",  "I am a hazard",                STEPS_HAZARD,  2u, 0u, PLAY_LOOP },
+    { "flash",   "I have seen you - after you",  STEPS_FLASH,   2u, 2u, PLAY_ONCE },
+    { "alert",   "I have stopped myself",        STEPS_ALERT,   2u, 3u, PLAY_ONCE }
 };
 
-/* ---- state, one copy - the same deal chassis.h makes -------------------- */
-static Bool    up        = false;
+/* ---- state, one copy - the same deal chassis.hxx makes ------------------
+ *
+ * PER KIND, because the car says more than one thing at a time. Headlights on,
+ * braking, and indicating left is three cues at once and is an ordinary
+ * Tuesday; the old single `kindNow` could hold exactly one of them.
+ */
+static Bool   up = false;
 
-static Turn turnNow   = TURN_OFF;
-static UInt64  holdUs    = 0;      /* earliest the turn may stop           */
-static Bool    blinkOn   = false;  /* which half of the blink we are in    */
-static UInt64  blinkAtUs = 0;
+static Bool   active[KIND_COUNT];
+static Bool   latched[KIND_COUNT];   /* raised by a person, not by the car */
+static UInt8  stepIx[KIND_COUNT];
+static UInt8  loopIx[KIND_COUNT];
+static UInt64 stepAtUs[KIND_COUNT];
 
-static Kind kindNow   = KIND_NONE;
-static UInt8   stepIx    = 0;
-static UInt8   loopIx    = 0;
-static UInt64  stepAtUs  = 0;      /* when the current step ends           */
-static UInt8   toneNow   = TONE_NONE;
+static UInt8  toneNow = TONE_NONE;
+
+/* The turn hysteresis, which decides what the CAR wants, not what is lit. */
+static Turn   turnWant = TURN_OFF;
+static UInt64 turnHoldUs = 0;
 
 static Void open(Void)
 {
-    up        = true;
-    turnNow   = TURN_OFF;
-    holdUs    = 0;
-    blinkOn   = false;
-    blinkAtUs = 0;
-    kindNow   = KIND_NONE;
-    stepIx    = 0;
-    loopIx    = 0;
-    stepAtUs  = 0;
-    toneNow   = TONE_NONE;
+    lights::open();
+
+    for(Int32 k = 0; k < KIND_COUNT; ++k)
+    {
+        active[k]   = false;
+        latched[k]  = false;
+        stepIx[k]   = 0;
+        loopIx[k]   = 0;
+        stepAtUs[k] = 0;
+    }
+    turnWant   = TURN_OFF;
+    turnHoldUs = 0;
+    toneNow    = TONE_NONE;
+    up         = true;
 }
 
-/* Which way the car reckons it is turning. */
-static Turn side(Void)
+static Bool valid(Int32 k)
 {
-    return turnNow;
+    return k > KIND_NONE && k < KIND_COUNT;
 }
 
-static Kind speaking(Void)
+static Bool on(Kind k)
 {
-    return kindNow;
+    return valid(k) && active[k];
 }
 
-static Bool busy(Void)
+static Bool held(Kind k)
 {
-    return kindNow != KIND_NONE;
-}
-
-/* How far through it is. For anything that REPORTS a cue - without these the
- * console would be reaching straight into this module's state, which is the
- * habit the whole layering here exists to stop. */
-static UInt8 step(Void)
-{
-    return stepIx;
-}
-
-static UInt8 loop(Void)
-{
-    return loopIx;
+    return valid(k) && latched[k];
 }
 
 static CharSeq name(Kind k)
@@ -315,199 +464,258 @@ static CharSeq means(Kind k)
     return (k >= 0 && k < KIND_COUNT) ? SCRIPT[k].means : "?";
 }
 
-/* The kind with this name, or cue::KIND_NONE. Case-insensitive, because every
- * line reaching the console has already been uppercased. */
-static Kind find(CharSeq name)
+static CharSeq playWord(UInt8 p)
 {
+    switch(p)
+    {
+        case PLAY_ONCE: return "once";
+        case PLAY_LOOP: return "loop";
+        case PLAY_HOLD: return "hold";
+        default:        return "?";
+    }
+}
+
+/* The kind with this name, or cue::KIND_NONE. Case-insensitive, because every
+ * other command word on this link is upper case by the time it arrives. */
+static Kind find(CharSeq want)
+{
+    if(want == NULL)
+    {
+        return KIND_NONE;
+    }
+
     for(Int32 k = 1; k < KIND_COUNT; ++k)
     {
         CharSeq a = SCRIPT[k].name;
-        Int32   i = 0;
+        CharSeq b = want;
+        Bool    same = true;
 
-        while(a[i] != '\0' && name[i] != '\0')
+        while(*a != '\0' && *b != '\0')
         {
-            const Utf8 x = (Utf8) ((a[i] >= 'a' && a[i] <= 'z') ? (a[i] - 32) : a[i]);
-            const Utf8 y = (Utf8) ((name[i] >= 'a' && name[i] <= 'z') ? (name[i] - 32) : name[i]);
-            if(x != y)
+            Utf8 ca = *a;
+            Utf8 cb = *b;
+            if(ca >= 'A' && ca <= 'Z')
             {
+                ca = static_cast<Utf8>(ca + 32);
+            }
+            if(cb >= 'A' && cb <= 'Z')
+            {
+                cb = static_cast<Utf8>(cb + 32);
+            }
+            if(ca != cb)
+            {
+                same = false;
                 break;
             }
-            ++i;
+            ++a;
+            ++b;
         }
-
-        if(a[i] == '\0' && name[i] == '\0')
+        if(same && *a == '\0' && *b == '\0')
         {
-            return (Kind) k;
+            return static_cast<Kind>(k);
         }
     }
     return KIND_NONE;
 }
 
+/* ---- raising and lowering ------------------------------------------------ */
+
+static Void start(Kind k, UInt64 now)
+{
+    active[k]   = true;
+    stepIx[k]   = 0;
+    loopIx[k]   = 0;
+    stepAtUs[k] = now + static_cast<UInt64>(SCRIPT[k].step[0].ms) * 1000u;
+}
+
 /*
- * Say something. Starts at once, from the beginning, even if a cue is already
- * running.
+ * Raised BY A PERSON, so it latches: the car's own rules will not lower it
+ * again. That is what makes "headlights on" a switch rather than a suggestion
+ * the next tick overrules.
  *
- * The newest utterance wins rather than being queued behind the old one. A cue
- * is a statement about the car RIGHT NOW - "I have stopped myself" is not worth
- * hearing four hundred milliseconds late, and a queue would mean the car
- * finishing a pleasantry before mentioning a fault.
+ * Left and right cancel each other. A car cannot indicate both ways - that is
+ * what hazard is - and two blinkers with independent step clocks would drift
+ * apart into an alternating flash within a few seconds.
  */
 static Bool emit(Kind k)
 {
-    if(!up || k <= KIND_NONE || k >= KIND_COUNT)
-    {
-        return false;
-    }
-    if(SCRIPT[k].steps == 0u || SCRIPT[k].step == NULL)
+    if(!up || !valid(k) || SCRIPT[k].step == NULL)
     {
         return false;
     }
 
-    kindNow  = k;
-    stepIx   = 0;
-    loopIx   = 0;
-    stepAtUs = timing::nowUs() + static_cast<UInt64>(SCRIPT[k].step[0].ms) * 1000u;
+    const UInt64 now = timing::nowUs();
+
+    if(k == KIND_LEFT || k == KIND_RIGHT || k == KIND_HAZARD)
+    {
+        const Kind others[3] = { KIND_LEFT, KIND_RIGHT, KIND_HAZARD };
+        for(Int32 i = 0; i < 3; ++i)
+        {
+            if(others[i] != k)
+            {
+                active[others[i]]  = false;
+                latched[others[i]] = false;
+            }
+        }
+    }
+
+    start(k, now);
+    latched[k] = true;
+    return true;
+}
+
+/* Lowered by a person: stops it AND hands it back to the car's own rules. */
+static Bool cancel(Kind k)
+{
+    if(!up || !valid(k))
+    {
+        return false;
+    }
+    active[k]  = false;
+    latched[k] = false;
     return true;
 }
 
 /* Stop mid-sentence and hand every borrowed channel back. */
 static Void silence(Void)
 {
-    kindNow = KIND_NONE;
-    stepIx  = 0;
-    loopIx  = 0;
+    for(Int32 k = 1; k < KIND_COUNT; ++k)
+    {
+        active[k]  = false;
+        latched[k] = false;
+    }
     toneNow = TONE_NONE;
 }
 
 /*
- * THE CONTINUOUS RULES. Pure: same input and same clock, same answer, no
- * hardware.
+ * What the CAR wants, which a latched cue overrules.
  *
- * Split out so it can be reasoned about - and eventually tested on the host,
- * the way lib/text.h is - without a Pico in the loop. The blink phase is passed
- * in for the same reason.
+ * The asymmetry is the point: a person switching the headlights on means it
+ * until they say otherwise, and the car noticing it is no longer braking must
+ * not put them out.
  */
-static Void solve(const Input* in, Turn turn, Bool blink, lights::Set* out)
+static Void wants(Kind k, Bool want, UInt64 now)
 {
-    lights::clear(out);
-
-    const Bool left  = (turn == TURN_LEFT)  || (turn == TURN_HAZARD);
-    const Bool right = (turn == TURN_RIGHT) || (turn == TURN_HAZARD);
-
-    /*
-     * Hazards are BOTH sides IN PHASE, not alternating. Alternating is what a
-     * film prop does and is the single most common way to get this wrong; both
-     * sides reading one `blink` makes being in phase structural.
-     *
-     * FRONT and REAR on a side share ONE flash for the same reason. Two
-     * indicators on the same corner of the same car blinking a frame apart is
-     * instantly, obviously wrong, and per-lamp timers drift.
-     *
-     * The rear pair has no LED on it yet. It is computed and reported anyway,
-     * which is what makes wiring it later a change to the pin table and nothing
-     * else.
-     */
-    const UInt8 amberL = (left  && blink) ? LAMP_FULL : LAMP_OFF;
-    const UInt8 amberR = (right && blink) ? LAMP_FULL : LAMP_OFF;
-
-    out->level[lights::IND_FL] = amberL;
-    out->level[lights::IND_RL] = amberL;
-    out->level[lights::IND_FR] = amberR;
-    out->level[lights::IND_RR] = amberR;
-
-    const UInt8 head = in->headOn ? LAMP_FULL : LAMP_OFF;
-    out->level[lights::HEAD_L] = head;
-    out->level[lights::HEAD_R] = head;
-
-    /*
-     * Is the car being DRIVEN - either way?
-     *
-     * Forward needs to clear idle by the threshold, because idle is the pulse
-     * at which nothing turns and the microsecond after it is a car that has not
-     * really pulled away. Reverse mirrors it about neutral. Between the two the
-     * motor is doing nothing worth calling motion, and the tails stay on.
-     *
-     * Symmetric on purpose. A rule that extinguished the lamps the instant the
-     * throttle left neutral in one direction and not the other would be a rule
-     * with a side, and there is nothing about this car that has one.
-     */
-    const Bool fwd    = (in->throttleUs > (in->idleUs + motionUsNow));
-    const Bool rev    = (in->throttleUs < (in->neutralUs - motionUsNow));
-    const Bool driven = fwd || rev;
-
-    /* One red lamp at two brightnesses. Braking wins over running: it is the
-     * more urgent claim. */
-    const UInt8 red = driven ? (in->headOn ? LAMP_DIM : LAMP_OFF) : LAMP_FULL;
-
-    out->level[lights::TAIL_L] = red;
-    out->level[lights::TAIL_R] = red;
-
-    /*
-     * NO OVERRIDE. The tails are not interrupted by anything.
-     *
-     * They were, until 2026-08-28, and the reason was a real convention applied
-     * to the wrong car. On many cars the REAR indicator and the brake light are
-     * one bulb, so the indicator has to interrupt the brake to be seen at all -
-     * and that interruption is what makes such a car read as a car.
-     *
-     * This car does not have that bulb. The tails and the indicators are
-     * separate LEDs on separate pins, and a second pair of indicators is going
-     * on the rear, so nothing here is ever competing for the same lamp. Applied
-     * anyway, it made the brake light blink in antiphase to the signal beside
-     * it, which is exactly what a brake light must not do.
-     *
-     * If a shared-bulb cluster is ever fitted, the override belongs in the
-     * BINDING - two lamps mapped to one pin - and not back in here.
-     */
-
-    /*
-     * Reverse lamps: lit while the car is being driven BACKWARDS.
-     *
-     * chassis.h is forward-only today - it clamps the throttle to [idle, max]
-     * and the board refuses anything below neutral - so `rev` is currently
-     * always false and these lamps never light. The rule is here anyway, and
-     * that is deliberate: reverse arrives as a brake-then-reverse sequence in
-     * the ESC, and when it does the lighting should already be right rather
-     * than being the thing somebody remembers afterwards.
-     *
-     * White, and NOT interrupted by an indicator: they report which way the
-     * gearbox is, which no other signal contradicts.
-     */
-    const UInt8 white = rev ? LAMP_FULL : LAMP_OFF;
-    out->level[lights::REV_L] = white;
-    out->level[lights::REV_R] = white;
+    if(latched[k])
+    {
+        return;
+    }
+    if(want && !active[k])
+    {
+        start(k, now);
+    }
+    else if(!want && active[k])
+    {
+        active[k] = false;
+    }
 }
 
-/* Which lamps a channel is, in one place. A cue names the channel; this is the
- * only thing that knows which bulbs that turns out to be. */
-static Void channelLamps(UInt8 ch, Bool lit, lights::Set* out)
-{
-    const UInt8 on = lit ? LAMP_FULL : LAMP_OFF;
+/* ---- reporting ----------------------------------------------------------- */
 
+/*
+ * The most important thing being said, for a one-line status.
+ *
+ * The LAST active kind, because the enum is in priority order - so this answers
+ * with what a person looking at the car would notice first, not with whichever
+ * happened to be raised earliest.
+ */
+static Kind speaking(Void)
+{
+    for(Int32 k = KIND_COUNT - 1; k > KIND_NONE; --k)
+    {
+        if(active[k])
+        {
+            return static_cast<Kind>(k);
+        }
+    }
+    return KIND_NONE;
+}
+
+static Bool busy(Void)
+{
+    return speaking() != KIND_NONE;
+}
+
+static UInt8 step(Void)
+{
+    const Kind k = speaking();
+    return (k == KIND_NONE) ? 0u : stepIx[k];
+}
+
+static UInt8 loop(Void)
+{
+    const Kind k = speaking();
+    return (k == KIND_NONE) ? 0u : loopIx[k];
+}
+
+/* Which way the car is indicating. Derived from the cues rather than kept
+ * beside them, so there is one answer and not two that can disagree. */
+static Turn side(Void)
+{
+    if(active[KIND_HAZARD])
+    {
+        return TURN_HAZARD;
+    }
+    if(active[KIND_LEFT])
+    {
+        return TURN_LEFT;
+    }
+    if(active[KIND_RIGHT])
+    {
+        return TURN_RIGHT;
+    }
+    return TURN_OFF;
+}
+
+/*
+ * Which lamps a channel is, in one place. A cue names the channel; this is the
+ * only thing that knows which bulbs that turns out to be.
+ *
+ * ---- WHY ALL FOUR INDICATORS CANNOT DRIFT -------------------------------
+ *
+ * A side is ONE channel and both its lamps are written from ONE step, in one
+ * assignment pair, so front-left and rear-left are the same value by
+ * construction rather than by two timers agreeing. There is no clock per lamp
+ * to drift, and there is no arrangement of the code in which they differ.
+ *
+ * The same argument covers hazards: CUE_CH_IND_BOTH is one channel mask read
+ * from one step of one cue, so all four are written together and are in phase
+ * structurally. That is why hazard is its own cue rather than left and right
+ * raised at once - two cues have two step clocks, and two clocks started a
+ * millisecond apart come apart into an alternating flash, which is what a film
+ * prop does.
+ *
+ * The rear pair has no pin bound yet. It is computed and REPORTED anyway, which
+ * is what let this be measured before the LEDs exist: LIGHTS shows all ten
+ * levels, and front and rear matched on every sample of both cues. Wiring them
+ * is a change to the pin table in lights.hxx and nothing else.
+ */
+static Void channelLamps(UInt8 ch, UInt8 level, lights::Set* out)
+{
     if(ch & CUE_CH_HEAD)
     {
-        out->level[lights::HEAD_L] = on;
-        out->level[lights::HEAD_R] = on;
+        out->level[lights::HEAD_L] = level;
+        out->level[lights::HEAD_R] = level;
     }
     if(ch & CUE_CH_TAIL)
     {
-        out->level[lights::TAIL_L] = on;
-        out->level[lights::TAIL_R] = on;
+        out->level[lights::TAIL_L] = level;
+        out->level[lights::TAIL_R] = level;
     }
     if(ch & CUE_CH_IND_L)
     {
-        out->level[lights::IND_FL] = on;
-        out->level[lights::IND_RL] = on;
+        out->level[lights::IND_FL] = level;
+        out->level[lights::IND_RL] = level;
     }
     if(ch & CUE_CH_IND_R)
     {
-        out->level[lights::IND_FR] = on;
-        out->level[lights::IND_RR] = on;
+        out->level[lights::IND_FR] = level;
+        out->level[lights::IND_RR] = level;
     }
     if(ch & CUE_CH_REV)
     {
-        out->level[lights::REV_L] = on;
-        out->level[lights::REV_R] = on;
+        out->level[lights::REV_L] = level;
+        out->level[lights::REV_R] = level;
     }
 }
 
@@ -516,9 +724,9 @@ static Void channelLamps(UInt8 ch, Bool lit, lights::Set* out)
  *
  * There is no buzzer on this car and no pin set aside for one. This records
  * what the running cue WOULD be sounding so CUE can report it, and drives
- * nothing. When a buzzer goes on, this function grows a pwmTone() call and no
- * script changes - which is the entire reason the tone is in cue::Step now rather
- * than being added to it later.
+ * nothing. When a buzzer goes on, this function grows a pwm tone call and no
+ * script changes - which is the entire reason the tone is in cue::Step now
+ * rather than being added to it later.
  */
 static Void soundWrite(UInt8 tone)
 {
@@ -526,64 +734,101 @@ static Void soundWrite(UInt8 tone)
 }
 
 /*
- * Plays the running one-shot cue over `out`, advancing it.
+ * Advance one cue's script, and stop it if it has finished.
  *
- * The cue OWNS every channel any of its steps mentions, for its whole duration,
- * including the steps where that channel is dark. Without that a flash would be
- * invisible whenever the headlights were already on - the cue's on-steps would
- * agree with the continuous state and its off-steps would be overwritten by it.
+ * A while, not an if, and the deadline ACCUMULATES rather than being restarted
+ * from `now`.
+ *
+ * Both halves of that matter and they are the same point. Restarting from `now`
+ * would add a whole pass of the main loop to every step, so a two-step cue
+ * repeated three times would run six loop-periods long - and it would make the
+ * while unreachable, because the new deadline would always be in the future.
+ * Accumulating keeps the cue the length the script says, and lets the loop
+ * catch up honestly if something upstream blocked: serial::printf can sit for
+ * half a second when the host stops draining the port, and a cue should have
+ * PLAYED during that, not be waiting to.
  */
-static Void overlay(UInt64 now, lights::Set* out)
+static Void advance(Int32 k, UInt64 now)
 {
-    if(kindNow == KIND_NONE)
+    const Script* sc = &SCRIPT[k];
+
+    if(sc->play == PLAY_HOLD)
     {
-        return;
+        return;   /* nothing to advance; it is one state until cancelled */
     }
 
-    const Script* sc = &SCRIPT[kindNow];
-
-    /*
-     * Advance. A while, not an if, and the deadline ACCUMULATES rather than
-     * being restarted from `now`.
-     *
-     * Both halves of that matter and they are the same point. Restarting from
-     * `now` would add a whole pass of the main loop to every step, so a
-     * two-step cue repeated three times would run six loop-periods long - and
-     * it would make the while unreachable, because the new deadline would
-     * always be in the future. Accumulating keeps the cue the length the script
-     * says, and lets the loop catch up honestly if something upstream blocked:
-     * serial::printf can sit for half a second when the host stops draining the
-     * port, and a cue should have PLAYED during that, not be waiting to.
-     */
-    while(kindNow != KIND_NONE && now >= stepAtUs)
+    while(active[k] && now >= stepAtUs[k])
     {
-        ++stepIx;
-        if(stepIx >= sc->steps)
+        ++stepIx[k];
+        if(stepIx[k] >= sc->steps)
         {
-            stepIx = 0;
-            ++loopIx;
-            if(loopIx >= sc->repeats)
+            stepIx[k] = 0;
+            ++loopIx[k];
+
+            if(sc->play == PLAY_ONCE && loopIx[k] >= sc->repeats)
             {
-                silence();
-                return;   /* channels handed back untouched this tick */
+                /* A one-shot that has finished is finished - it does not stay
+                 * latched waiting for somebody to lower it. */
+                active[k]  = false;
+                latched[k] = false;
+                return;
             }
         }
-        stepAtUs += static_cast<UInt64>(sc->step[stepIx].ms) * 1000u;
+        stepAtUs[k] += static_cast<UInt64>(sc->step[stepIx[k]].ms) * 1000u;
     }
+}
 
-    /* Everything this script ever touches, dark steps included. */
-    UInt8 owned = 0u;
-    for(UInt8 i = 0; i < sc->steps; ++i)
+/*
+ * Everything active, composited in priority order.
+ *
+ * A cue OWNS every channel any of its steps mentions, for its whole duration,
+ * including the steps where that channel is dark. Without that a flash would be
+ * invisible whenever the headlights were already on - the cue's on-steps would
+ * agree with whatever was underneath and its off-steps would be overwritten by
+ * it.
+ *
+ * That ownership is also what makes priority mean something. A lower cue writes
+ * its channels; a higher one writes over them, lit or dark, and the result is
+ * the higher cue's opinion in full rather than a blend of two.
+ */
+static Void compose(UInt64 now, lights::Set* out)
+{
+    lights::clear(out);
+    UInt8 tone = TONE_NONE;
+
+    for(Int32 k = 1; k < KIND_COUNT; ++k)
     {
-        owned = static_cast<UInt8>(owned | sc->step[i].lamps);
+        if(!active[k])
+        {
+            continue;
+        }
+
+        advance(k, now);
+        if(!active[k])
+        {
+            continue;   /* it ended on this tick */
+        }
+
+        const Script* sc = &SCRIPT[k];
+
+        UInt8 owned = 0u;
+        for(UInt8 i = 0; i < sc->steps; ++i)
+        {
+            owned = static_cast<UInt8>(owned | sc->step[i].lamps);
+        }
+
+        const Step* st = &sc->step[stepIx[k]];
+
+        channelLamps(static_cast<UInt8>(owned & ~st->lamps), LAMP_OFF, out);
+        channelLamps(st->lamps, st->level, out);
+
+        if(st->tone != TONE_NONE)
+        {
+            tone = st->tone;
+        }
     }
 
-    const UInt8 lit = sc->step[stepIx].lamps;
-
-    channelLamps(static_cast<UInt8>(owned & ~lit), false, out);
-    channelLamps(lit, true, out);
-
-    soundWrite(sc->step[stepIx].tone);
+    soundWrite(tone);
 }
 
 /* Call often. Cheap when there is nothing to do. */
@@ -601,9 +846,8 @@ static Void tick(const Input* in)
      * Three things here look right written down and are wrong on a car:
      *   1. TWO thresholds. Steering parked on a single one makes the lamp
      *      stutter at the servo's own jitter.
-     *   2. ONE COMPLETE FLASH minimum. The blink clock free-runs, so a turn
-     *      starting mid-cycle would otherwise show a sliver of an on-phase and
-     *      vanish.
+     *   2. ONE COMPLETE FLASH minimum, or a turn starting and ending inside one
+     *      blink period shows a sliver of an on-phase and vanishes.
      *   3. ...EXCEPT a change of side, which is immediate. Indicating left
      *      while the wheels go right is the one thing an indicator must never
      *      do.
@@ -614,47 +858,103 @@ static Void tick(const Input* in)
                        : (in->steerMilli >=  CUE_TURN_ON_MILLI) ? TURN_RIGHT
                                                                 : TURN_OFF;
 
-    if(want != TURN_OFF && want != turnNow)
+    if(want != TURN_OFF && want != turnWant)
     {
-        /* Rule 3. Restarting the blink here means the new side begins with a
-         * LIT phase rather than inheriting whatever half of the cycle was in
-         * progress. */
-        turnNow   = want;
-        holdUs    = now + static_cast<UInt64>(CUE_BLINK_PERIOD_MS) * 1000u;
-        blinkOn   = true;
-        blinkAtUs = now + static_cast<UInt64>(CUE_BLINK_ON_MS) * 1000u;
+        turnWant   = want;
+        turnHoldUs = now + static_cast<UInt64>(CUE_BLINK_PERIOD_MS) * 1000u;
     }
-    else if(turnNow != TURN_OFF
+    else if(turnWant != TURN_OFF
             && mag < CUE_TURN_OFF_MILLI
-            && now >= holdUs)
+            && now >= turnHoldUs)
     {
-        /* Rules 1 and 2 together: below the LOWER threshold, and only once the
-         * minimum flash has been served. */
-        turnNow = TURN_OFF;
-        blinkOn = false;
+        turnWant = TURN_OFF;
     }
 
-    /* Half-periods of different lengths, so this cannot be the usual
-     * toggle-on-a-fixed-interval. */
-    if(turnNow != TURN_OFF && now >= blinkAtUs)
-    {
-        blinkOn   = !blinkOn;
-        blinkAtUs = now
-                     + static_cast<UInt64>(blinkOn ? CUE_BLINK_ON_MS : CUE_BLINK_OFF_MS) * 1000u;
-    }
+    /* ---- what the car wants to say --------------------------------------
+     *
+     * Every one of these is a REQUEST, overruled by anything a person has
+     * latched. The car's opinion and the operator's are the same mechanism with
+     * different priority, which is what stops "headlights on" being a special
+     * case bolted to the side of the lighting rules.
+     */
+    wants(KIND_LEFT,  turnWant == TURN_LEFT  && !active[KIND_HAZARD], now);
+    wants(KIND_RIGHT, turnWant == TURN_RIGHT && !active[KIND_HAZARD], now);
 
     /*
-     * Solved and overlaid EVERY tick, even with the lamps switched off.
+     * Is the car being DRIVEN - either way?
      *
-     * The old lightsTick() returned early when the master switch was off, which
-     * froze the turn state machine with it - so LIGHTS went on reporting
-     * whichever way the car had been turning when somebody killed the lamps.
-     * Only the WRITE is gated now, in lights.h. What the car means is true
-     * whether or not anything is lit to say it.
+     * Forward needs to clear idle by the threshold, because idle is the pulse
+     * at which nothing turns and the microsecond after it is a car that has not
+     * really pulled away. Reverse mirrors it about neutral. Between the two the
+     * motor is doing nothing worth calling motion, and the tails stay on.
+     *
+     * Symmetric on purpose. A rule that extinguished the lamps the instant the
+     * throttle left neutral in one direction and not the other would be a rule
+     * with a side, and there is nothing about this car that has one.
+     */
+    const Bool fwd    = (in->throttleUs > (in->idleUs + motionUsNow));
+    const Bool rev    = (in->throttleUs < (in->neutralUs - motionUsNow));
+    const Bool driven = fwd || rev;
+
+    /*
+     * The tails, as two cues on one pair of lamps.
+     *
+     * RUNNING is the dim glow that goes with the headlights. BRAKE is full, and
+     * wins because it is later in the enum. Neither knows about the other, and
+     * the thing that used to be a nested conditional inside one rule is now the
+     * ORDER of two.
+     *
+     * NO OVERRIDE from the indicators. They were interrupted until 2026-08-28,
+     * and the reason was a real convention applied to the wrong car: on many
+     * cars the rear indicator and the brake light are one bulb, so the indicator
+     * has to interrupt the brake to be seen at all. This car has separate LEDs
+     * on separate pins and a second indicator pair going on the rear, so nothing
+     * is ever competing for one bulb. Applied anyway, it made the brake light
+     * blink in antiphase to the signal beside it, which is exactly what a brake
+     * light must not do. If a shared-bulb cluster is ever fitted, that belongs
+     * in the BINDING - two lamps on one pin - and not back in here.
+     */
+    wants(KIND_BRAKE, !driven, now);
+
+    /*
+     * Reverse lamps: lit while the car is being driven BACKWARDS.
+     *
+     * chassis.hxx is forward-only today - it clamps the throttle to [idle, max]
+     * and the board refuses anything below neutral - so `rev` is currently
+     * always false and these lamps never light. The rule is here anyway, and
+     * that is deliberate: reverse arrives as a brake-then-reverse sequence in
+     * the ESC, and when it does the lighting should already be right rather than
+     * being the thing somebody remembers afterwards.
+     */
+    wants(KIND_REVERSE, rev, now);
+
+    /* The headlights are the one thing the car cannot know for itself - nothing
+     * it measures implies darkness - so `headOn` is a person's answer arriving
+     * through the Input, and latching it with CUE HEAD is the other way to say
+     * the same thing.
+     *
+     * RESOLVED BEFORE RUNNING, and that order is load-bearing: the running
+     * lamps follow the HEADLIGHTS, not the Input. Reading in->headOn for both
+     * left CUE HEAD lighting the heads and not the tails - the operator's
+     * switch worked on one of the two things a headlight switch does, which is
+     * the sort of half-working that gets blamed on wiring. */
+    wants(KIND_HEAD, in->headOn, now);
+
+    /* Dim tails whenever the car is lit at all. See the note above the brake:
+     * this is the lower half of one pair of lamps and BRAKE is the upper. */
+    wants(KIND_RUNNING, active[KIND_HEAD], now);
+
+    /*
+     * Composed EVERY tick, even with the lamps switched off.
+     *
+     * The old tick returned early when the master switch was off, which froze
+     * the turn state machine with it - so LIGHTS went on reporting whichever way
+     * the car had been turning when somebody killed the lamps. Only the WRITE is
+     * gated now, in lights.hxx. What the car means is true whether or not
+     * anything is lit to say it.
      */
     lights::Set s;
-    solve(in, turnNow, blinkOn, &s);
-    overlay(now, &s);
+    compose(now, &s);
     lights::write(&s);
 }
 
@@ -664,7 +964,6 @@ static UInt8 tone(Void)
 {
     return toneNow;
 }
-
 
 } // namespace cue
 
