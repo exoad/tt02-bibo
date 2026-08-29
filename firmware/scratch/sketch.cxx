@@ -40,7 +40,7 @@
  * by daylight. Start on LONG and switch if readings collapse near a window.
  */
 
-#include "../lib/tt02.h"
+#include "../lib/tt02.hxx"
 
 /* ---- the screen ---------------------------------------------------------- */
 #define SCREEN_W     240
@@ -58,26 +58,36 @@
  * enough to be interesting, near enough that the bar moves when you do. */
 #define BAR_FULL_MM  2000
 
-Int32 main(Void)
+/*
+ * `int`, not Int32, and this is the one place in the program where that is
+ * right.
+ *
+ * C++ requires main to return literally `int`. Int32 is int32_t, and on this
+ * toolchain int32_t is `long` - the same size, the same representation, a
+ * different type as far as the language is concerned, and the compiler refuses
+ * it. main's signature is the C runtime's contract, not this project's
+ * vocabulary, so it is spelled the runtime's way.
+ */
+int main(Void)
 {
-    serialOpen();
+    serial::open();
 
-    Screen screen;
-    gfxOpen(&screen, SCREEN_W, SCREEN_H, SCREEN_XOFF, SCREEN_YOFF);
-    gfxSafeInset(&screen, SAFE_INSET);
+    tft::Screen screen;
+    gfx::open(&screen, SCREEN_W, SCREEN_H, SCREEN_XOFF, SCREEN_YOFF);
+    gfx::safeInset(&screen, SAFE_INSET);
 
-    const Int32 left  = gfxSafeLeft(&screen);
-    const Int32 right = gfxSafeRight(&screen);
-    const Int32 wide  = gfxSafeWidth(&screen);
+    const Int32 left  = gfx::safeLeft(&screen);
+    const Int32 right = gfx::safeRight(&screen);
+    const Int32 wide  = gfx::safeWidth(&screen);
 
-    const Bool haveBus = i2cOpen(PIN_SDA, PIN_SCL, I2C_HZ);
+    const Bool haveBus = i2c::open(PIN_SDA, PIN_SCL, I2C_HZ);
 
-    Vl53 tof;
-    const Bool haveTof = haveBus && vl53Open(&tof, PIN_SDA, VL53_ADDR_DEFAULT);
+    tof::Vl53 tof;
+    const Bool haveTof = haveBus && tof::open(&tof, PIN_SDA, VL53_ADDR_DEFAULT);
 
     if(haveTof)
     {
-        vl53StartRanging(&tof);
+        tof::startRanging(&tof);
     }
 
     UInt16 mm     = 0;
@@ -91,11 +101,11 @@ Int32 main(Void)
 
     while(true)
     {
-        if(haveTof && vl53Ready(&tof))
+        if(haveTof && tof::ready(&tof))
         {
-            mm     = vl53Distance(&tof);
-            status = vl53Status(&tof);
-            vl53Clear(&tof);
+            mm     = tof::distance(&tof);
+            status = tof::status(&tof);
+            tof::clear(&tof);
             ++reads;
 
             if(status == 0)
@@ -112,91 +122,91 @@ Int32 main(Void)
 
             if((reads % 20u) == 0u)
             {
-                serialPrintf("range %u mm status %u\n", mm, status);
+                serial::printf("range %u mm status %u\n", mm, status);
             }
         }
 
-        gfxClear(&screen, GFX_NAVY);
+        gfx::clear(&screen, GFX_NAVY);
 
-        Int32 y = gfxSafeTop(&screen);
+        Int32 y = gfx::safeTop(&screen);
 
-        gfxTextTransparent(&screen);
-        gfxTextColour(&screen, GFX_ORANGE);
-        gfxTextSize(&screen, 2);
-        gfxTextAt(&screen, left, y, "RANGE");
+        gfx::textTransparent(&screen);
+        gfx::textColour(&screen, GFX_ORANGE);
+        gfx::textSize(&screen, 2);
+        gfx::textAt(&screen, left, y, "RANGE");
         y += 26;
 
         if(!haveBus)
         {
-            gfxTextSize(&screen, 1);
-            gfxTextColour(&screen, GFX_RED);
-            gfxTextAt(&screen, left, y, "I2C PINS NOT A PAIR");
-            gfxPresent(&screen);
-            sleepMs(1000);
+            gfx::textSize(&screen, 1);
+            gfx::textColour(&screen, GFX_RED);
+            gfx::textAt(&screen, left, y, "I2C PINS NOT A PAIR");
+            gfx::present(&screen);
+            timing::ms(1000);
             continue;
         }
 
         if(!haveTof)
         {
-            gfxTextSize(&screen, 1);
-            gfxTextColour(&screen, GFX_RED);
-            gfxTextAt(&screen, left, y, "NO VL53L1X AT 0X29");
+            gfx::textSize(&screen, 1);
+            gfx::textColour(&screen, GFX_RED);
+            gfx::textAt(&screen, left, y, "NO VL53L1X AT 0X29");
             y += 20;
-            gfxTextColour(&screen, GFX_GREY);
-            gfxTextAt(&screen, left, y, "SDA GP4  SCL GP5");
+            gfx::textColour(&screen, GFX_GREY);
+            gfx::textAt(&screen, left, y, "SDA GP4  SCL GP5");
             y += 14;
-            gfxTextAt(&screen, left, y, "VIN TO 3V3, GND TO GND");
+            gfx::textAt(&screen, left, y, "VIN TO 3V3, GND TO GND");
             y += 14;
-            gfxTextAt(&screen, left, y, "RUN THE I2C SCAN FIRST");
-            gfxPresent(&screen);
-            sleepMs(1000);
+            gfx::textAt(&screen, left, y, "RUN THE I2C SCAN FIRST");
+            gfx::present(&screen);
+            timing::ms(1000);
             continue;
         }
 
         /* ---- the number -------------------------------------------------- */
         const Bool good = (status == 0);
 
-        gfxTextColour(&screen, good ? GFX_WHITE : GFX_DARKGREY);
-        gfxTextSize(&screen, 4);
-        gfxCursor(&screen, left, y);
+        gfx::textColour(&screen, good ? GFX_WHITE : GFX_DARKGREY);
+        gfx::textSize(&screen, 4);
+        gfx::cursor(&screen, left, y);
         if(good)
         {
-            gfxPrintf(&screen, "%u", mm);
+            gfx::printf(&screen, "%u", mm);
         }
         else
         {
-            gfxPrint(&screen, "----");
+            gfx::print(&screen, "----");
         }
         y += 36;
 
-        gfxTextSize(&screen, 1);
-        gfxTextColour(&screen, GFX_GREY);
-        gfxTextAt(&screen, left, y, "MM");
+        gfx::textSize(&screen, 1);
+        gfx::textColour(&screen, GFX_GREY);
+        gfx::textAt(&screen, left, y, "MM");
         y += 18;
 
-        gfxTextSize(&screen, 2);
-        gfxTextColour(&screen, good ? GFX_CYAN : GFX_DARKGREY);
-        gfxCursor(&screen, left, y);
+        gfx::textSize(&screen, 2);
+        gfx::textColour(&screen, good ? GFX_CYAN : GFX_DARKGREY);
+        gfx::cursor(&screen, left, y);
         if(good)
         {
             /* One decimal, done in integers - a float here would pull in the
              * whole soft-float formatting path for one number. */
-            gfxPrintf(&screen, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
+            gfx::printf(&screen, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
         }
         else
         {
-            gfxPrint(&screen, "--.-- M");
+            gfx::print(&screen, "--.-- M");
         }
         y += 30;
 
         /* ---- the bar ----------------------------------------------------- */
         const Int32 barH = 16;
-        gfxRect(&screen, left, y, wide, barH, GFX_DARKGREY);
+        gfx::rect(&screen, left, y, wide, barH, GFX_DARKGREY);
 
         if(good)
         {
-            Int32 fill = (Int32) (((UInt32) mm * (UInt32) (wide - 2))
-                                  / (UInt32) BAR_FULL_MM);
+            Int32 fill = static_cast<Int32>((static_cast<UInt32>(mm) * static_cast<UInt32>(wide - 2))
+                                  / static_cast<UInt32>(BAR_FULL_MM));
             if(fill > wide - 2)
             {
                 fill = wide - 2;
@@ -207,42 +217,42 @@ Int32 main(Void)
             const UInt16 c = (mm < 150) ? GFX_RED
                            : (mm < 400) ? GFX_ORANGE
                            : GFX_GREEN;
-            gfxRectFill(&screen, left + 1, y + 1, fill, barH - 2, c);
+            gfx::rectFill(&screen, left + 1, y + 1, fill, barH - 2, c);
         }
         y += barH + 6;
 
-        gfxTextSize(&screen, 1);
-        gfxTextColour(&screen, GFX_DARKGREY);
-        gfxTextAt(&screen, left, y, "0");
-        gfxTextAligned(&screen, right, y, "2 M", GFX_ALIGN_RIGHT);
+        gfx::textSize(&screen, 1);
+        gfx::textColour(&screen, GFX_DARKGREY);
+        gfx::textAt(&screen, left, y, "0");
+        gfx::textAligned(&screen, right, y, "2 M", gfx::ALIGN_RIGHT);
         y += 22;
 
         /* ---- status ------------------------------------------------------ */
-        gfxTextColour(&screen, good ? GFX_GREEN : GFX_YELLOW);
-        gfxTextAt(&screen, left, y, vl53StatusName(status));
+        gfx::textColour(&screen, good ? GFX_GREEN : GFX_YELLOW);
+        gfx::textAt(&screen, left, y, tof::statusName(status));
         y += 20;
 
         /* ---- what it has managed so far ---------------------------------- */
-        gfxTextColour(&screen, GFX_GREY);
-        gfxCursor(&screen, left, y);
+        gfx::textColour(&screen, GFX_GREY);
+        gfx::cursor(&screen, left, y);
         if(seenMax > 0)
         {
-            gfxPrintf(&screen, "SEEN %u - %u MM", seenMin, seenMax);
+            gfx::printf(&screen, "SEEN %u - %u MM", seenMin, seenMax);
         }
         else
         {
-            gfxPrint(&screen, "SEEN NOTHING YET");
+            gfx::print(&screen, "SEEN NOTHING YET");
         }
         y += 14;
 
-        gfxCursor(&screen, left, y);
-        gfxPrintf(&screen, "%u READS", reads);
+        gfx::cursor(&screen, left, y);
+        gfx::printf(&screen, "%u READS", reads);
 
-        gfxPresent(&screen);
+        gfx::present(&screen);
 
         /* ~20 fps. The sensor's own measurement takes longer than this, so
          * polling faster would only burn power to be told "not yet". */
-        sleepMs(50);
+        timing::ms(50);
     }
 
     return 0;

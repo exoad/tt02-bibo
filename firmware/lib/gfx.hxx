@@ -1,27 +1,27 @@
 /*
- * A 2D drawing API over a Screen: shapes, text, colour and clipping.
+ * A 2D drawing API over a tft::Screen: shapes, text, colour and clipping.
  *
  * st77xx.h is the DRIVER - chip selects, command bytes, address windows - and
- * it hands back a Screen. This is what you draw with, and every call takes the
+ * it hands back a tft::Screen. This is what you draw with, and every call takes the
  * screen it draws into:
  *
- *     Screen screen;
- *     gfxOpen(&screen, 240, 280, 0, 20);
+ *     tft::Screen screen;
+ *     gfx::open(&screen, 240, 280, 0, 20);
  *
  *     while(true)
  *     {
- *         gfxClear(&screen, GFX_NAVY);
- *         gfxRectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
- *         gfxCircleFill(&screen, 120, 120, 30, GFX_CYAN);
+ *         gfx::clear(&screen, GFX_NAVY);
+ *         gfx::rectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
+ *         gfx::circleFill(&screen, 120, 120, 30, GFX_CYAN);
  *
- *         gfxTextColour(&screen, GFX_WHITE);
- *         gfxTextSize(&screen, 2);
- *         gfxTextAt(&screen, 10, 60, "HELLO");
+ *         gfx::textColour(&screen, GFX_WHITE);
+ *         gfx::textSize(&screen, 2);
+ *         gfx::textAt(&screen, 10, 60, "HELLO");
  *
- *         gfxPresent(&screen);
+ *         gfx::present(&screen);
  *     }
  *
- * The colour, the text size and the clip rectangle live in the Screen, not in
+ * The colour, the text size and the clip rectangle live in the tft::Screen, not in
  * this file. They belong to the thing being drawn on - a clip rectangle is as
  * much a property of a screen as its width is - and keeping them there is what
  * makes two screens possible rather than one global canvas.
@@ -29,8 +29,8 @@
  * ---------------------------------------------------------------------------
  * THE BACK BUFFER, AND WHY IT IS WORTH THE RAM
  *
- * gfxOpen() attaches one. Every call above then draws into memory and
- * gfxPresent() sends it in one burst. 240x320 at 16bpp is 153,600 bytes - 29%
+ * gfx::open() attaches one. Every call above then draws into memory and
+ * gfx::present() sends it in one burst. 240x320 at 16bpp is 153,600 bytes - 29%
  * of the RP2350's 520 KB - and it buys three things:
  *
  *   NO FLICKER. Without a buffer you draw on the glass, so clearing and
@@ -40,10 +40,10 @@
  *   that. Straight to the panel each is a round trip with the half-finished
  *   states visible.
  *
- *   IT IS FAST. One address window and one burst, and gfxPresent only pushes
+ *   IT IS FAST. One address window and one burst, and gfx::present only pushes
  *   the ROWS THAT CHANGED - a ticking counter costs a fraction of a frame.
  *
- * A sketch that wants the RAM back uses tftOpen() and the tft* calls instead;
+ * A sketch that wants the RAM back uses tft::open() and the tft* calls instead;
  * those go straight to the panel and allocate nothing.
  *
  * ---------------------------------------------------------------------------
@@ -57,10 +57,13 @@
 #ifndef TT02_GFX_H
 #define TT02_GFX_H
 
-#include "drivers/display.h"
+#include "drivers/display.hxx"
 
 #include <stdarg.h>
 #include <stdio.h>
+
+namespace gfx
+{
 
 /* ---- colour --------------------------------------------------------------
  *
@@ -89,7 +92,7 @@
  * the channels would carry into each other and a half-way blend of red and blue
  * would come out an unrelated colour.
  */
-static inline UInt16 gfxBlend(UInt16 a, UInt16 b, UInt8 t)
+static UInt16 blend(UInt16 a, UInt16 b, UInt8 t)
 {
     const UInt32 ar = (a >> 11) & 0x1F;
     const UInt32 ag = (a >> 5)  & 0x3F;
@@ -99,38 +102,38 @@ static inline UInt16 gfxBlend(UInt16 a, UInt16 b, UInt8 t)
     const UInt32 bg = (b >> 5)  & 0x3F;
     const UInt32 bb = b & 0x1F;
 
-    const UInt32 it = 255u - (UInt32) t;
-    const UInt32 r  = ((ar * it) + (br * (UInt32) t)) / 255u;
-    const UInt32 g  = ((ag * it) + (bg * (UInt32) t)) / 255u;
-    const UInt32 bl = ((ab * it) + (bb * (UInt32) t)) / 255u;
+    const UInt32 it = 255u - static_cast<UInt32>(t);
+    const UInt32 r  = ((ar * it) + (br * static_cast<UInt32>(t))) / 255u;
+    const UInt32 g  = ((ag * it) + (bg * static_cast<UInt32>(t))) / 255u;
+    const UInt32 bl = ((ab * it) + (bb * static_cast<UInt32>(t))) / 255u;
 
-    return (UInt16) ((r << 11) | (g << 5) | bl);
+    return static_cast<UInt16>((r << 11) | (g << 5) | bl);
 }
 
-static UInt16 gfxDim(UInt16 c, UInt8 amount)
+static UInt16 dim(UInt16 c, UInt8 amount)
 {
-    return gfxBlend(c, GFX_BLACK, amount);
+    return blend(c, GFX_BLACK, amount);
 }
 
-static inline UInt16 gfxLighten(UInt16 c, UInt8 amount)
+static UInt16 lighten(UInt16 c, UInt8 amount)
 {
-    return gfxBlend(c, GFX_WHITE, amount);
+    return blend(c, GFX_WHITE, amount);
 }
 
 /*
  * Hue 0-359, saturation and value 0-255. Integer throughout - no float, no
  * table - so a rainbow sweep costs nothing on a chip that would rather not.
  */
-static UInt16 gfxHsv(Int32 hue, UInt8 sat, UInt8 val)
+static UInt16 hsv(Int32 hue, UInt8 sat, UInt8 val)
 {
     hue = ((hue % 360) + 360) % 360;
 
-    const UInt32 region = (UInt32) (hue / 60);
-    const UInt32 rem    = (UInt32) ((hue - (Int32) (region * 60u)) * 255 / 60);
+    const UInt32 region = static_cast<UInt32>(hue / 60);
+    const UInt32 rem    = static_cast<UInt32>((hue - static_cast<Int32>(region * 60u)) * 255 / 60);
 
-    const UInt32 p = ((UInt32) val * (255u - sat)) / 255u;
-    const UInt32 q = ((UInt32) val * (255u - ((sat * rem) / 255u))) / 255u;
-    const UInt32 t = ((UInt32) val * (255u - ((sat * (255u - rem)) / 255u))) / 255u;
+    const UInt32 p = (static_cast<UInt32>(val) * (255u - sat)) / 255u;
+    const UInt32 q = (static_cast<UInt32>(val) * (255u - ((sat * rem) / 255u))) / 255u;
+    const UInt32 t = (static_cast<UInt32>(val) * (255u - ((sat * (255u - rem)) / 255u))) / 255u;
 
     UInt32 r = 0;
     UInt32 g = 0;
@@ -144,25 +147,25 @@ static UInt16 gfxHsv(Int32 hue, UInt8 sat, UInt8 val)
     case 4:  r = t;   g = p;   b = val; break;
     default: r = val; g = p;   b = q;   break;
     }
-    return GFX_RGB((UInt8) r, (UInt8) g, (UInt8) b);
+    return GFX_RGB(static_cast<UInt8>(r), static_cast<UInt8>(g), static_cast<UInt8>(b));
 }
 
 /* ---- the back buffer -----------------------------------------------------
  *
  * ONE buffer, sized for the largest panel this controller drives, because a
  * static array has to be sized when the program is compiled and the panel is
- * not known until gfxOpen() runs.
+ * not known until gfx::open() runs.
  *
  * One buffer means one BUFFERED screen. A second screen can still be opened
- * with tftOpen() and drawn on directly; it simply does not get this. Saying so
+ * with tft::open() and drawn on directly; it simply does not get this. Saying so
  * plainly beats pretending otherwise and running off the end of it.
  *
  * The STRIDE is PANEL_MAX_W and not the screen's width, deliberately: the row a
  * pixel lives on has to be computed the same way every time, and rebasing the
  * stride on a resize would invalidate everything already drawn.
  */
-static UInt16 gfxBuf[PANEL_MAX_W * PANEL_MAX_H];
-static Bool   gfxBufTaken = false;
+static UInt16 buf[PANEL_MAX_W * PANEL_MAX_H];
+static Bool   bufTaken = false;
 
 /* ---- the safe area -------------------------------------------------------
  *
@@ -171,54 +174,54 @@ static Bool   gfxBufTaken = false;
  * an edge vanishes into the curve.
  *
  * Set the inset once and lay out against these instead of against 0 and
- * width/height. The full rectangle is still reachable - gfxClear() fills it,
+ * width/height. The full rectangle is still reachable - gfx::clear() fills it,
  * and a background should - but anything that has to be READ belongs inside.
  *
- *     gfxSafeInset(&screen, 12);
- *     gfxTextAt(&screen, gfxSafeLeft(&screen), gfxSafeTop(&screen), "HELLO");
+ *     gfx::safeInset(&screen, 12);
+ *     gfx::textAt(&screen, gfx::safeLeft(&screen), gfx::safeTop(&screen), "HELLO");
  *
- * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfxSafeOutline()
+ * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
  * for a frame to check against, then take it out.
  */
-static Void gfxSafeInset(Screen* s, Int32 inset)
+static Void safeInset(tft::Screen* s, Int32 inset)
 {
     const Int32 most = ((s->width < s->height) ? s->width : s->height) / 3;
     s->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
 }
 
-static Int32 gfxSafeLeft(const Screen* s)
+static Int32 safeLeft(const tft::Screen* s)
 {
     return s->safeInset;
 }
 
-static Int32 gfxSafeTop(const Screen* s)
+static Int32 safeTop(const tft::Screen* s)
 {
     return s->safeInset;
 }
 
-static Int32 gfxSafeRight(const Screen* s)
+static Int32 safeRight(const tft::Screen* s)
 {
     return s->width - s->safeInset;
 }
 
-static Int32 gfxSafeBottom(const Screen* s)
+static Int32 safeBottom(const tft::Screen* s)
 {
     return s->height - s->safeInset;
 }
 
-static Int32 gfxSafeWidth(const Screen* s)
+static Int32 safeWidth(const tft::Screen* s)
 {
     return s->width - (2 * s->safeInset);
 }
 
-static Int32 gfxSafeHeight(const Screen* s)
+static Int32 safeHeight(const tft::Screen* s)
 {
     return s->height - (2 * s->safeInset);
 }
 
 /* ---- clipping ------------------------------------------------------------ */
 
-static Void gfxClip(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+static Void clip(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
 {
     if(x < 0)
     {
@@ -253,9 +256,9 @@ static Void gfxClip(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
     s->clipH = h;
 }
 
-static Void gfxClipReset(Screen* s)
+static Void clipReset(tft::Screen* s)
 {
-    gfxClip(s, 0, 0, s->width, s->height);
+    clip(s, 0, 0, s->width, s->height);
 }
 
 /* ---- the two primitives everything is built from -------------------------
@@ -265,7 +268,7 @@ static Void gfxClipReset(Screen* s)
  * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
  * and drawn as spans it is thirty.
  */
-static Void gfxSpan(Screen* s, Int32 x, Int32 y, Int32 len, UInt16 colour)
+static Void span(tft::Screen* s, Int32 x, Int32 y, Int32 len, UInt16 colour)
 {
     if(len <= 0 || y < s->clipY || y >= s->clipY + s->clipH)
     {
@@ -303,18 +306,18 @@ static Void gfxSpan(Screen* s, Int32 x, Int32 y, Int32 len, UInt16 colour)
     }
     else
     {
-        tftRect(s, x, y, len, 1, colour);
+        tft::rect(s, x, y, len, 1, colour);
     }
 }
 
-static inline Void gfxPixel(Screen* s, Int32 x, Int32 y, UInt16 colour)
+static Void pixel(tft::Screen* s, Int32 x, Int32 y, UInt16 colour)
 {
-    gfxSpan(s, x, y, 1, colour);
+    span(s, x, y, 1, colour);
 }
 
 /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
  * be read - so this returns black without one rather than lying. */
-static inline UInt16 gfxPeek(const Screen* s, Int32 x, Int32 y)
+static UInt16 peek(const tft::Screen* s, Int32 x, Int32 y)
 {
     if(s->buf == NULL || x < 0 || y < 0 || x >= s->width || y >= s->height)
     {
@@ -324,14 +327,14 @@ static inline UInt16 gfxPeek(const Screen* s, Int32 x, Int32 y)
 }
 
 /* Alpha, which needs to read what is already there and so needs the buffer. */
-static inline Void gfxPixelBlend(Screen* s, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
+static Void pixelBlend(tft::Screen* s, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
 {
-    gfxPixel(s, x, y, gfxBlend(gfxPeek(s, x, y), colour, alpha));
+    pixel(s, x, y, blend(peek(s, x, y), colour, alpha));
 }
 
 /* ---- present ------------------------------------------------------------- */
 
-static inline Void gfxPresent(Screen* s)
+static Void present(tft::Screen* s)
 {
     if(s->buf == NULL || s->dirtyBot < s->dirtyTop)
     {
@@ -347,68 +350,68 @@ static inline Void gfxPresent(Screen* s)
      * through a swap. Still one address window and ONE transaction for the lot,
      * which is where nearly all of the win is. */
     UInt8 row[PANEL_MAX_W * 2];
-    tftBeginPixels(s, 0, y, w, h);
+    tft::beginPixels(s, 0, y, w, h);
     for(Int32 r = 0; r < h; ++r)
     {
         const UInt16* src = &s->buf[((y + r) * PANEL_MAX_W)];
         for(Int32 i = 0; i < w; ++i)
         {
-            row[i * 2]     = (UInt8) (src[i] >> 8);
-            row[i * 2 + 1] = (UInt8) (src[i] & 0xFF);
+            row[i * 2]     = static_cast<UInt8>(src[i] >> 8);
+            row[i * 2 + 1] = static_cast<UInt8>(src[i] & 0xFF);
         }
-        spiWrite(s->sck, row, (Size) (w * 2));
+        spi::write(s->sck, row, static_cast<Size>(w * 2));
     }
-    tftEndPixels(s);
+    tft::endPixels(s);
 
     s->dirtyTop = s->height;
     s->dirtyBot = -1;
 }
 
-static Void gfxClear(Screen* s, UInt16 colour)
+static Void clear(tft::Screen* s, UInt16 colour)
 {
     for(Int32 y = 0; y < s->height; ++y)
     {
-        gfxSpan(s, 0, y, s->width, colour);
+        span(s, 0, y, s->width, colour);
     }
 }
 
 /* ---- rectangles ---------------------------------------------------------- */
 
-static Void gfxRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+static Void rectFill(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 {
     for(Int32 r = 0; r < h; ++r)
     {
-        gfxSpan(s, x, y + r, w, colour);
+        span(s, x, y + r, w, colour);
     }
 }
 
-static Void gfxRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+static Void rect(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
         return;
     }
-    gfxSpan(s, x, y, w, colour);
-    gfxSpan(s, x, y + h - 1, w, colour);
+    span(s, x, y, w, colour);
+    span(s, x, y + h - 1, w, colour);
     for(Int32 r = 1; r < h - 1; ++r)
     {
-        gfxPixel(s, x, y + r, colour);
-        gfxPixel(s, x + w - 1, y + r, colour);
+        pixel(s, x, y + r, colour);
+        pixel(s, x + w - 1, y + r, colour);
     }
 }
 
 /* ---- lines --------------------------------------------------------------- */
 
-static Void gfxHLine(Screen* s, Int32 x, Int32 y, Int32 w, UInt16 colour)
+static Void hLine(tft::Screen* s, Int32 x, Int32 y, Int32 w, UInt16 colour)
 {
-    gfxSpan(s, x, y, w, colour);
+    span(s, x, y, w, colour);
 }
 
-static Void gfxVLine(Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
+static Void vLine(tft::Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
 {
     for(Int32 i = 0; i < h; ++i)
     {
-        gfxPixel(s, x, y + i, colour);
+        pixel(s, x, y + i, colour);
     }
 }
 
@@ -417,7 +420,7 @@ static Void gfxVLine(Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
  * which is why it has survived since 1962 and is still right on a
  * microcontroller.
  */
-static Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
+static Void line(tft::Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
 {
     const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
     const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
@@ -428,12 +431,12 @@ static Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 co
      * worth the span path instead of stepping pixel by pixel. */
     if(dy == 0)
     {
-        gfxSpan(s, (x0 < x1) ? x0 : x1, y0, dx + 1, colour);
+        span(s, (x0 < x1) ? x0 : x1, y0, dx + 1, colour);
         return;
     }
     if(dx == 0)
     {
-        gfxVLine(s, x0, (y0 < y1) ? y0 : y1, dy + 1, colour);
+        vLine(s, x0, (y0 < y1) ? y0 : y1, dy + 1, colour);
         return;
     }
 
@@ -443,7 +446,7 @@ static Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 co
 
     while(true)
     {
-        gfxPixel(s, x, y, colour);
+        pixel(s, x, y, colour);
         if(x == x1 && y == y1)
         {
             break;
@@ -464,7 +467,7 @@ static Void gfxLine(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 co
 
 /* ---- circles ------------------------------------------------------------- */
 
-static Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+static Void circle(tft::Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
 {
     if(r < 0)
     {
@@ -475,14 +478,14 @@ static Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
     Int32 d = 1 - r;
     while(x <= y)
     {
-        gfxPixel(s, cx + x, cy + y, colour);
-        gfxPixel(s, cx - x, cy + y, colour);
-        gfxPixel(s, cx + x, cy - y, colour);
-        gfxPixel(s, cx - x, cy - y, colour);
-        gfxPixel(s, cx + y, cy + x, colour);
-        gfxPixel(s, cx - y, cy + x, colour);
-        gfxPixel(s, cx + y, cy - x, colour);
-        gfxPixel(s, cx - y, cy - x, colour);
+        pixel(s, cx + x, cy + y, colour);
+        pixel(s, cx - x, cy + y, colour);
+        pixel(s, cx + x, cy - y, colour);
+        pixel(s, cx - x, cy - y, colour);
+        pixel(s, cx + y, cy + x, colour);
+        pixel(s, cx - y, cy + x, colour);
+        pixel(s, cx + y, cy - x, colour);
+        pixel(s, cx - y, cy - x, colour);
         ++x;
         if(d < 0)
         {
@@ -496,7 +499,7 @@ static Void gfxCircle(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
     }
 }
 
-static Void gfxCircleFill(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+static Void circleFill(tft::Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
 {
     if(r < 0)
     {
@@ -507,10 +510,10 @@ static Void gfxCircleFill(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
     Int32 d = 1 - r;
     while(x <= y)
     {
-        gfxSpan(s, cx - x, cy + y, (2 * x) + 1, colour);
-        gfxSpan(s, cx - x, cy - y, (2 * x) + 1, colour);
-        gfxSpan(s, cx - y, cy + x, (2 * y) + 1, colour);
-        gfxSpan(s, cx - y, cy - x, (2 * y) + 1, colour);
+        span(s, cx - x, cy + y, (2 * x) + 1, colour);
+        span(s, cx - x, cy - y, (2 * x) + 1, colour);
+        span(s, cx - y, cy + x, (2 * y) + 1, colour);
+        span(s, cx - y, cy - x, (2 * y) + 1, colour);
         ++x;
         if(d < 0)
         {
@@ -530,7 +533,7 @@ static Void gfxCircleFill(Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
  * from each edge cannot reach past it, so the overdraw is free of side effects
  * and the code stays short.
  */
-static Void gfxRoundRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+static Void roundRectFill(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -543,21 +546,21 @@ static Void gfxRoundRectFill(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int3
     }
     if(r <= 0)
     {
-        gfxRectFill(s, x, y, w, h, colour);
+        rectFill(s, x, y, w, h, colour);
         return;
     }
 
-    gfxRectFill(s, x + r, y, w - (2 * r), h, colour);
-    gfxRectFill(s, x, y + r, r, h - (2 * r), colour);
-    gfxRectFill(s, x + w - r, y + r, r, h - (2 * r), colour);
+    rectFill(s, x + r, y, w - (2 * r), h, colour);
+    rectFill(s, x, y + r, r, h - (2 * r), colour);
+    rectFill(s, x + w - r, y + r, r, h - (2 * r), colour);
 
-    gfxCircleFill(s, x + r,         y + r,         r, colour);
-    gfxCircleFill(s, x + w - r - 1, y + r,         r, colour);
-    gfxCircleFill(s, x + r,         y + h - r - 1, r, colour);
-    gfxCircleFill(s, x + w - r - 1, y + h - r - 1, r, colour);
+    circleFill(s, x + r,         y + r,         r, colour);
+    circleFill(s, x + w - r - 1, y + r,         r, colour);
+    circleFill(s, x + r,         y + h - r - 1, r, colour);
+    circleFill(s, x + w - r - 1, y + h - r - 1, r, colour);
 }
 
-static Void gfxRoundRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+static Void roundRect(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
 {
     if(w <= 0 || h <= 0)
     {
@@ -570,29 +573,29 @@ static Void gfxRoundRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r,
     }
     if(r <= 0)
     {
-        gfxRect(s, x, y, w, h, colour);
+        rect(s, x, y, w, h, colour);
         return;
     }
 
-    gfxSpan(s, x + r, y, w - (2 * r), colour);
-    gfxSpan(s, x + r, y + h - 1, w - (2 * r), colour);
-    gfxVLine(s, x, y + r, h - (2 * r), colour);
-    gfxVLine(s, x + w - 1, y + r, h - (2 * r), colour);
+    span(s, x + r, y, w - (2 * r), colour);
+    span(s, x + r, y + h - 1, w - (2 * r), colour);
+    vLine(s, x, y + r, h - (2 * r), colour);
+    vLine(s, x + w - 1, y + r, h - (2 * r), colour);
 
     Int32 cx = 0;
     Int32 cy = r;
     Int32 d  = 1 - r;
     while(cx <= cy)
     {
-        gfxPixel(s, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
-        gfxPixel(s, x + r - cx,         y + h - r - 1 + cy, colour);
-        gfxPixel(s, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
-        gfxPixel(s, x + r - cy,         y + h - r - 1 + cx, colour);
+        pixel(s, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
+        pixel(s, x + r - cx,         y + h - r - 1 + cy, colour);
+        pixel(s, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
+        pixel(s, x + r - cy,         y + h - r - 1 + cx, colour);
 
-        gfxPixel(s, x + w - r - 1 + cx, y + r - cy, colour);
-        gfxPixel(s, x + r - cx,         y + r - cy, colour);
-        gfxPixel(s, x + w - r - 1 + cy, y + r - cx, colour);
-        gfxPixel(s, x + r - cy,         y + r - cx, colour);
+        pixel(s, x + w - r - 1 + cx, y + r - cy, colour);
+        pixel(s, x + r - cx,         y + r - cy, colour);
+        pixel(s, x + w - r - 1 + cy, y + r - cx, colour);
+        pixel(s, x + r - cy,         y + r - cx, colour);
 
         ++cx;
         if(d < 0)
@@ -609,18 +612,18 @@ static Void gfxRoundRect(Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r,
 
 /* ---- triangles ----------------------------------------------------------- */
 
-static Void gfxTriangle(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+static Void triangle(tft::Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
 {
-    gfxLine(s, x0, y0, x1, y1, colour);
-    gfxLine(s, x1, y1, x2, y2, colour);
-    gfxLine(s, x2, y2, x0, y0, colour);
+    line(s, x0, y0, x1, y1, colour);
+    line(s, x1, y1, x2, y2, colour);
+    line(s, x2, y2, x0, y0, colour);
 }
 
 /*
  * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
  * that share the middle vertex, filling a span between the active edges.
  */
-static Void gfxTriangleFill(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+static Void triangleFill(tft::Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
 {
     Int32 tx = 0;
     Int32 ty = 0;
@@ -665,7 +668,7 @@ static Void gfxTriangleFill(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, I
         {
             hi = x2;
         }
-        gfxSpan(s, lo, y0, (hi - lo) + 1, colour);
+        span(s, lo, y0, (hi - lo) + 1, colour);
         return;
     }
 
@@ -692,68 +695,68 @@ static Void gfxTriangleFill(Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, I
 
         const Int32 lo = (ax < bx) ? ax : bx;
         const Int32 hi = (ax < bx) ? bx : ax;
-        gfxSpan(s, lo, y, (hi - lo) + 1, colour);
+        span(s, lo, y, (hi - lo) + 1, colour);
     }
 }
 
 /* ---- text ----------------------------------------------------------------
  *
  * Set the colour and size on the screen once, then draw. Two ways to place it:
- * gfxTextAt() for an absolute position, or a cursor with gfxPrint() for a
+ * gfx::textAt() for an absolute position, or a cursor with gfx::print() for a
  * readout that flows down the screen.
  */
 
-static inline Void gfxTextColour(Screen* s, UInt16 fg)
+static Void textColour(tft::Screen* s, UInt16 fg)
 {
     s->fg = fg;
 }
 
 /* An opaque background, which is what you want for a value that changes: the
  * new text erases the old as it draws, with no flicker and no clear step. */
-static inline Void gfxTextBackground(Screen* s, UInt16 bg)
+static Void textBackground(tft::Screen* s, UInt16 bg)
 {
     s->bg      = bg;
     s->bgSolid = true;
 }
 
 /* Leave whatever is behind the glyph alone - for text over a picture. */
-static inline Void gfxTextTransparent(Screen* s)
+static Void textTransparent(tft::Screen* s)
 {
     s->bgSolid = false;
 }
 
-static inline Void gfxTextSize(Screen* s, Int32 scale)
+static Void textSize(tft::Screen* s, Int32 scale)
 {
     s->textScale = (scale < 1) ? 1 : ((scale > 8) ? 8 : scale);
 }
 
-static inline Void gfxCursor(Screen* s, Int32 x, Int32 y)
+static Void cursor(tft::Screen* s, Int32 x, Int32 y)
 {
     s->cursorX = x;
     s->cursorY = y;
 }
 
-static inline Int32 gfxTextHeight(const Screen* s)
+static Int32 textHeight(const tft::Screen* s)
 {
     return 8 * s->textScale;
 }
 
-static inline Int32 gfxCharWidth(const Screen* s)
+static Int32 charWidth(const tft::Screen* s)
 {
     return 6 * s->textScale;
 }
 
-static inline Int32 gfxTextWidth(const Screen* s, const Utf8* str)
+static Int32 textWidth(const tft::Screen* s, const Utf8* str)
 {
     Int32 n = 0;
     while(str != NULL && str[n] != '\0')
     {
         ++n;
     }
-    return n * gfxCharWidth(s);
+    return n * charWidth(s);
 }
 
-static inline Void gfxCharAt(Screen* s, Int32 x, Int32 y, Utf8 ch)
+static Void charAt(tft::Screen* s, Int32 x, Int32 y, Utf8 ch)
 {
     Utf8 c = ch;
     if(c >= 'a' && c <= 'z')
@@ -765,7 +768,7 @@ static inline Void gfxCharAt(Screen* s, Int32 x, Int32 y, Utf8 ch)
         c = '?';
     }
 
-    const UInt8* const glyph = FONT5X7[c - 32];
+    const UInt8* const glyph = tft::FONT5X7[c - 32];
 
     for(Int32 col = 0; col < 6; ++col)
     {
@@ -778,70 +781,70 @@ static inline Void gfxCharAt(Screen* s, Int32 x, Int32 y, Utf8 ch)
             {
                 continue;                   /* see through to what is behind */
             }
-            gfxRectFill(s, x + (col * s->textScale), y + (row * s->textScale),
+            rectFill(s, x + (col * s->textScale), y + (row * s->textScale),
                         s->textScale, s->textScale, on ? s->fg : s->bg);
         }
     }
 }
 
-static inline Void gfxTextAt(Screen* s, Int32 x, Int32 y, const Utf8* str)
+static Void textAt(tft::Screen* s, Int32 x, Int32 y, const Utf8* str)
 {
     Int32 cx = x;
     while(str != NULL && *str != '\0')
     {
-        gfxCharAt(s, cx, y, *str);
-        cx += gfxCharWidth(s);
+        charAt(s, cx, y, *str);
+        cx += charWidth(s);
         ++str;
     }
 }
 
-typedef enum GfxAlign
+typedef enum Align
 {
-    GFX_ALIGN_LEFT = 0,
-    GFX_ALIGN_CENTRE,
-    GFX_ALIGN_RIGHT
-} GfxAlign;
+    ALIGN_LEFT = 0,
+    ALIGN_CENTRE,
+    ALIGN_RIGHT
+} Align;
 
 /* `x` is the left edge, the centre or the right edge depending on `align` -
  * which is what makes a value that changes width stay put. */
-static inline Void gfxTextAligned(Screen* s, Int32 x, Int32 y, const Utf8* str, GfxAlign align)
+static Void textAligned(tft::Screen* s, Int32 x, Int32 y, const Utf8* str, Align align)
 {
-    const Int32 w  = gfxTextWidth(s, str);
+    const Int32 w  = textWidth(s, str);
     Int32       at = x;
-    if(align == GFX_ALIGN_CENTRE)
+    if(align == ALIGN_CENTRE)
     {
         at = x - (w / 2);
     }
-    else if(align == GFX_ALIGN_RIGHT)
+    else if(align == ALIGN_RIGHT)
     {
         at = x - w;
     }
-    gfxTextAt(s, at, y, str);
+    textAt(s, at, y, str);
 }
 
 /* Draws at the cursor and advances it, so consecutive calls flow. */
-static inline Void gfxPrint(Screen* s, const Utf8* str)
+static Void print(tft::Screen* s, const Utf8* str)
 {
-    gfxTextAt(s, s->cursorX, s->cursorY, str);
-    s->cursorX += gfxTextWidth(s, str);
+    textAt(s, s->cursorX, s->cursorY, str);
+    s->cursorX += textWidth(s, str);
 }
 
-static inline Void gfxPrintLine(Screen* s, const Utf8* str)
+static Void printLine(tft::Screen* s, const Utf8* str)
 {
-    gfxTextAt(s, s->cursorX, s->cursorY, str);
-    s->cursorY += gfxTextHeight(s) + (2 * s->textScale);
+    textAt(s, s->cursorX, s->cursorY, str);
+    s->cursorY += textHeight(s) + (2 * s->textScale);
 }
 
 /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
  * screen and forty characters already overflow it at size 1. */
-static inline Void gfxPrintf(Screen* s, const Utf8* fmt, ...)
+static Void printf(tft::Screen* s, const Utf8* fmt, ...)
 {
     Utf8    buf[64];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    gfxPrint(s, buf);
+    print(s, buf);
 }
 
 /*
@@ -849,10 +852,10 @@ static inline Void gfxPrintf(Screen* s, const Utf8* fmt, ...)
  * look at the panel, and change the inset until the frame is fully visible with
  * a little to spare. Then take the call out.
  */
-static inline Void gfxSafeOutline(Screen* s, UInt16 colour)
+static Void safeOutline(tft::Screen* s, UInt16 colour)
 {
-    gfxRect(s, gfxSafeLeft(s), gfxSafeTop(s),
-            gfxSafeWidth(s), gfxSafeHeight(s), colour);
+    rect(s, safeLeft(s), safeTop(s),
+            safeWidth(s), safeHeight(s), colour);
 }
 
 /* ---- start --------------------------------------------------------------- */
@@ -860,12 +863,12 @@ static inline Void gfxSafeOutline(Screen* s, UInt16 colour)
 /*
  * Brings up the panel AND attaches the back buffer.
  *
- * Returns what tftOpen returns, which can only tell you the SPI pins were valid
+ * Returns what tft::open returns, which can only tell you the SPI pins were valid
  * - see the note in st77xx.h about the panel being write-only.
  */
-static inline Bool gfxOpen(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+static Bool open(tft::Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 {
-    if(!tftOpen(s, w, h, xoff, yoff))
+    if(!tft::open(s, w, h, xoff, yoff))
     {
         return false;
     }
@@ -873,16 +876,18 @@ static inline Bool gfxOpen(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
     /* One buffer, so the FIRST screen to ask gets it. A second screen still
      * works and simply draws straight at its panel - which is the honest
      * outcome, and better than two screens quietly sharing one buffer. */
-    if(!gfxBufTaken)
+    if(!bufTaken)
     {
-        gfxBufTaken = true;
-        s->buf      = gfxBuf;
+        bufTaken = true;
+        s->buf      = buf;
     }
 
-    gfxClipReset(s);
-    gfxClear(s, GFX_BLACK);
-    gfxPresent(s);
+    clipReset(s);
+    clear(s, GFX_BLACK);
+    present(s);
     return true;
 }
 
+
+} // namespace gfx
 #endif

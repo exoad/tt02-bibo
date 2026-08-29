@@ -10,7 +10,7 @@
 //
 // The compiler is already right there and already knows. arm-none-eabi-gcc emits
 //
-//     C:/path/sketch.c:42:15: error: 'foo' undeclared (first use in this function)
+//     C:/path/sketch.cxx:42:15: error: 'foo' undeclared (first use in this function)
 //
 // on every build, and that is the ground truth - the same diagnosis the build
 // failed on, not an approximation of it. This file turns those lines into marks
@@ -69,7 +69,7 @@ struct Item
 [[nodiscard]] Vec<Item> parseAll(const Vec<Str>& lines);
 
 // Those belonging to `path`, matched on the FILE NAME rather than the whole
-// path. The compiler sees firmware/src/sketch.c while the editor may be showing
+// path. The compiler sees firmware/scratch/sketch.cxx while the editor may be showing
 // the same bytes from the sketch library, and refusing to mark the file the user
 // is actually looking at would make the feature useless in the one workflow it
 // exists for.

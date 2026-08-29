@@ -15,6 +15,15 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "shared.hxx"
+
+// BEFORE windows.h, and that order is not stylistic. windows.h pulls in the
+// original winsock.h, and winsock2.h then redefines half of it - the failure is
+// a hundred lines of "redefinition of struct sockaddr_in" pointing at somebody
+// else's header. Included first, winsock2.h sets the guard that keeps the old
+// one out.
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 #include <windows.h>
 #include <setupapi.h>
 
@@ -183,6 +192,10 @@ struct LinkImplBody
     }
 
     Void run(Str port, Int32 baud, UInt32 myGen);
+    Void runUdp(Str host, UInt16 port, UInt32 myGen);
+
+    // Which transport the open link is. Read from the UI thread.
+    Atomic<Bool> udp{false};
 };
 
 // --- port helpers -----------------------------------------------------------
@@ -440,6 +453,287 @@ inline Bool printable(UInt8 c)
 Void LinkImpl_run_trampoline(LinkImplBody* self, Str port, Int32 baud, UInt32 myGen)
 {
     self->run(std::move(port), baud, myGen);
+}
+
+// ---------------------------------------------------------------------------
+//  the wireless worker
+// ---------------------------------------------------------------------------
+
+// How long a recvfrom() waits before going round again to look at the transmit
+// queue and the stop flag. The same 33 ms the serial reader uses, for the same
+// reason: a silent peer costs thirty cheap wakeups a second and nothing else.
+constexpr Int32 UDP_RECV_TIMEOUT_MS = 33;
+
+// How often to re-send the opening PING while still waiting for a first reply.
+constexpr Float64 UDP_HELLO_EVERY_S = 0.5;
+
+// How long a link that WAS answering may go silent before it is called lost.
+//
+// Only after a first reply, so a car that was never there is reported as never
+// there rather than as having disappeared. Three seconds is twelve of the hub's
+// own 250 ms drive polls: long enough that a burst of Wi-Fi retries is not a
+// disconnection, short enough to notice before wondering why the car ignores
+// you.
+constexpr Float64 UDP_SILENCE_LIMIT_S = 3.0;
+
+Void LinkImpl_runUdp_trampoline(LinkImplBody* self, Str host, UInt16 port, UInt32 myGen)
+{
+    self->runUdp(std::move(host), port, myGen);
+}
+
+Void LinkImplBody::runUdp(Str host, UInt16 port, UInt32 myGen)
+{
+    struct DoneFlag
+    {
+        LinkImplBody* p;
+        ~DoneFlag()
+        {
+            p->finished.store(true, std::memory_order_release);
+        }
+    } doneFlag{this};
+
+    // Winsock is reference counted, so starting it here and stopping it on the
+    // way out is correct even if something else in the process has it open too.
+    WSADATA wsa;
+    ZeroMemory(&wsa, sizeof(wsa));
+    if(WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        setErrorIf(myGen, "WSAStartup failed");
+        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+        return;
+    }
+
+    struct WsaGuard
+    {
+        ~WsaGuard()
+        {
+            WSACleanup();
+        }
+    } wsaGuard;
+
+    sockaddr_in peer;
+    ZeroMemory(&peer, sizeof(peer));
+    peer.sin_family = AF_INET;
+    peer.sin_port   = htons(port);
+    if(inet_pton(AF_INET, host.c_str(), &peer.sin_addr) != 1)
+    {
+        setErrorIf(myGen, "not an IPv4 address: " + host);
+        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+        return;
+    }
+
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if(s == INVALID_SOCKET)
+    {
+        setErrorIf(myGen,
+                   winErrText("socket failed",
+                              static_cast<DWORD>(WSAGetLastError())));
+        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+        return;
+    }
+
+    struct SockGuard
+    {
+        SOCKET h;
+        ~SockGuard()
+        {
+            closesocket(h);
+        }
+    } sockGuard{s};
+
+    // A timeout rather than a blocking read, so the transmit queue is looked at
+    // even when the board is saying nothing.
+    DWORD rcvTimeout = static_cast<DWORD>(UDP_RECV_TIMEOUT_MS);
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const Char*>(&rcvTimeout), sizeof(rcvTimeout));
+
+    // No bind: an unbound UDP socket picks an ephemeral local port on the first
+    // send, and the board replies to whatever it hears from. Binding a fixed
+    // port would only create a way for two copies of this program to collide.
+
+    {
+        LockGuard<Mutex> lk(mu);
+        portname = host + ":" + std::to_string(static_cast<Int32>(port));
+        err.clear();
+    }
+    setStateIf(myGen, PicoState::PICO_STATE_CONNECTING);
+
+    Str  accum;
+    Bool overlong = false;
+
+    auto emit = [&](Str text)
+    {
+        if(text.empty())
+            return;
+        rx.fetch_add(1, std::memory_order_relaxed);
+        lastRxS.store(elapsedS(), std::memory_order_relaxed);
+        pushLine(false, std::move(text));
+    };
+
+    auto feed = [&](const Char* data, Int32 n)
+    {
+        for(Int32 i = 0; i < n; ++i)
+        {
+            const Char c = data[i];
+
+            if(c == '\n' || c == '\r')
+            {
+                if(overlong)
+                {
+                    overlong = false;
+                    accum.clear();
+                    continue;
+                }
+                emit(std::move(accum));
+                accum.clear();
+                continue;
+            }
+            if(overlong)
+                continue;
+            if(!printable(static_cast<UInt8>(c)))
+                continue;
+
+            accum.push_back(c);
+            if(accum.size() >= MAX_LINE_LEN)
+            {
+                accum += " ...[truncated]";
+                emit(std::move(accum));
+                accum.clear();
+                overlong = true;
+            }
+        }
+
+        // A datagram is a MESSAGE, not a stream: what it holds is complete
+        // whether or not it ends in a newline. Waiting for one would silently
+        // swallow every sender that does not bother, which is most of them.
+        if(!accum.empty() && !overlong)
+        {
+            emit(std::move(accum));
+            accum.clear();
+        }
+    };
+
+    auto sendLine = [&](const Str& line) -> Bool
+    {
+        const Int32 n = static_cast<Int32>(line.size());
+        return sendto(s, line.data(), n, 0,
+                      reinterpret_cast<const sockaddr*>(&peer),
+                      static_cast<Int32>(sizeof(peer))) == n;
+    };
+
+    Float64 lastHelloS = -1.0;
+    Vec<Char> buf(2048);
+
+    while(!stop.load(std::memory_order_acquire))
+    {
+        // ---- the opening PING ----------------------------------------------
+        //
+        // Repeated, not sent once. This is UDP: the first datagram can simply
+        // vanish, and a link that gave up on one lost packet would look like a
+        // car that is switched off.
+        if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTING)
+        {
+            const Float64 now = elapsedS();
+            if(lastHelloS < 0.0 || (now - lastHelloS) > UDP_HELLO_EVERY_S)
+            {
+                lastHelloS = now;
+                sendLine("PING\n");
+            }
+        }
+
+        // ---- transmit anything the UI queued -------------------------------
+        Deque<TxItem> outbound;
+        {
+            LockGuard<Mutex> lk(mu);
+            outbound.swap(txq);
+        }
+        for(auto& item : outbound)
+        {
+            if(!sendLine(item.text))
+            {
+                // A failed sendto on UDP is a local problem - no route, no
+                // adapter - not the peer refusing. Worth reporting, not worth
+                // tearing the link down for: the next one may well go.
+                setErrorIf(myGen,
+                           winErrText("send failed",
+                                      static_cast<DWORD>(WSAGetLastError())));
+                continue;
+            }
+            tx.fetch_add(1, std::memory_order_relaxed);
+
+            Str echo = item.text;
+            while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
+                echo.pop_back();
+            pushLine(true, std::move(echo), item.poll);
+        }
+
+        // ---- receive --------------------------------------------------------
+        sockaddr_in from;
+        ZeroMemory(&from, sizeof(from));
+        Int32 fromLen = static_cast<Int32>(sizeof(from));
+
+        const Int32 got = recvfrom(s, buf.data(),
+                                   static_cast<Int32>(buf.size()), 0,
+                                   reinterpret_cast<sockaddr*>(&from), &fromLen);
+        if(got > 0)
+        {
+            // Anything that is not the board is ignored rather than logged. On
+            // an ordinary home network this port will occasionally be found by
+            // something scanning, and a console full of a stranger's probes is
+            // a console nobody reads.
+            if(from.sin_addr.s_addr == peer.sin_addr.s_addr)
+            {
+                if(state.load(std::memory_order_acquire)
+                   == PicoState::PICO_STATE_CONNECTING)
+                {
+                    setStateIf(myGen, PicoState::PICO_STATE_CONNECTED);
+                }
+                feed(buf.data(), got);
+            }
+        }
+        else
+        {
+            const Int32 code = WSAGetLastError();
+            if(code != WSAETIMEDOUT && code != WSAEWOULDBLOCK
+               && code != WSAECONNRESET)
+            {
+                // WSAECONNRESET on a UDP socket means an ICMP port-unreachable
+                // came back - the car is on the network but nothing is
+                // listening on that port. Which happens every time the board is
+                // reset, so it is a silence to wait through, not a fault.
+                setErrorIf(myGen,
+                           winErrText("receive failed",
+                                      static_cast<DWORD>(code)));
+                setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+                break;
+            }
+        }
+
+        // ---- has it gone quiet? ---------------------------------------------
+        if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTED)
+        {
+            const Float64 last = lastRxS.load(std::memory_order_relaxed);
+            if(last >= 0.0 && (elapsedS() - last) > UDP_SILENCE_LIMIT_S)
+            {
+                setErrorIf(myGen,
+                           "no reply from " + host + " for "
+                               + std::to_string(
+                                     static_cast<Int32>(UDP_SILENCE_LIMIT_S))
+                               + " s - out of range, powered down, or rebooted");
+                setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
+                break;
+            }
+        }
+    }
+
+    if(!accum.empty() && !overlong)
+        emit(std::move(accum));
+
+    PicoState expected = PicoState::PICO_STATE_CONNECTED;
+    state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+
+    expected = PicoState::PICO_STATE_CONNECTING;
+    state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
 }
 
 Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
@@ -739,6 +1033,12 @@ Void PicoLink::connect(const Str& port, Int32 baud)
 
     pimpl->stop.store(false, std::memory_order_release);
     pimpl->finished.store(false, std::memory_order_release);
+
+    // Back to the cable. Without this, a serial link opened after a wireless
+    // one would still report wireless() and the UI would go on refusing to
+    // flash a board that is sitting on the end of a USB cable.
+    pimpl->udp.store(false, std::memory_order_release);
+
     pimpl->t0Ns.store(nowNs(), std::memory_order_relaxed);
     pimpl->lastRxS.store(-1.0, std::memory_order_relaxed);
     pimpl->tx.store(0, std::memory_order_relaxed);
@@ -769,6 +1069,58 @@ Void PicoLink::connect(const Str& port, Int32 baud)
         pimpl->setError("could not start reader thread");
         pimpl->state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
     }
+}
+
+Void PicoLink::connectUdp(const Str& host, UInt16 port)
+{
+    if(!pimpl || host.empty())
+        return;
+
+    LockGuard<Mutex> life(pimpl->lifeMu);
+
+    if(pimpl->worker.joinable())
+    {
+        if(!pimpl->finished.load(std::memory_order_acquire))
+            return;                 // already connecting/connected: no-op
+        pimpl->worker.join();
+    }
+
+    pimpl->stop.store(false, std::memory_order_release);
+    pimpl->finished.store(false, std::memory_order_release);
+    pimpl->udp.store(true, std::memory_order_release);
+    pimpl->t0Ns.store(nowNs(), std::memory_order_relaxed);
+    pimpl->lastRxS.store(-1.0, std::memory_order_relaxed);
+    pimpl->tx.store(0, std::memory_order_relaxed);
+    pimpl->rx.store(0, std::memory_order_relaxed);
+    pimpl->drops.store(0, std::memory_order_relaxed);
+    {
+        LockGuard<Mutex> lk(pimpl->mu);
+        pimpl->err.clear();
+        pimpl->portname = host + ":" + std::to_string(static_cast<Int32>(port));
+        pimpl->txq.clear();
+    }
+    pimpl->state.store(PicoState::PICO_STATE_CONNECTING, std::memory_order_release);
+
+    const UInt32 myGen =
+        pimpl->gen.fetch_add(1, std::memory_order_acq_rel) + 1u;
+
+    LinkImplBody* raw = pimpl;
+    try
+    {
+        pimpl->worker = Thread(LinkImpl_runUdp_trampoline, raw, host, port,
+                               myGen);
+    }
+    catch(...)
+    {
+        pimpl->finished.store(true, std::memory_order_release);
+        pimpl->setError("could not start the wireless reader thread");
+        pimpl->state.store(PicoState::PICO_STATE_ERROR, std::memory_order_release);
+    }
+}
+
+Bool PicoLink::wireless() const
+{
+    return pimpl != nullptr && pimpl->udp.load(std::memory_order_acquire);
 }
 
 Void PicoLink::disconnect()

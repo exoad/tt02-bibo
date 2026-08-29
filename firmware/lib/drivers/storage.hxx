@@ -10,11 +10,11 @@
  * answers first; a filesystem on top of a card that does not respond is a lot
  * of code failing for a reason none of it can see.
  *
- *     SdCard sd;
- *     if(sdOpen(&sd))
+ *     sd::Card sd;
+ *     if(sd::open(&sd))
  *     {
  *         UInt8 block[512];
- *         sdReadBlock(&sd, 0, block);      // the boot sector
+ *         sd::readBlock(&sd, 0, block);      // the boot sector
  *     }
  *
  * ---------------------------------------------------------------------------
@@ -42,16 +42,19 @@
  * WHY THE CLOCK STARTS SLOW
  *
  * A card powers up in a legacy mode that is only specified up to 400 kHz, and
- * it is not in SPI mode at all until it has been told to be. So sdOpen() runs
+ * it is not in SPI mode at all until it has been told to be. So sd::open() runs
  * the whole handshake at 400 kHz and only then asks for a real speed. Starting
  * fast produces a card that never leaves idle, which reads as a dead card.
  */
 #ifndef TT02_SDCARD_H
 #define TT02_SDCARD_H
 
-#include "../hal.h"
+#include "../hal.hxx"
 
-/* Default pins - the wiring above. sdOpenOn() takes them explicitly. */
+namespace sd
+{
+
+/* Default pins - the wiring above. sd::openOn() takes them explicitly. */
 #define PIN_SD_SCK   26
 #define PIN_SD_MOSI  27
 #define PIN_SD_MISO  28
@@ -65,22 +68,22 @@
 
 #define SD_BLOCK_SIZE 512
 
-typedef enum SdKind
+typedef enum Kind
 {
-    SD_KIND_NONE = 0,
-    SD_KIND_V1,        /* SDSC, byte addressed */
-    SD_KIND_V2,        /* SDSC v2, byte addressed */
-    SD_KIND_HC         /* SDHC/SDXC, BLOCK addressed - the common case */
-} SdKind;
+    KIND_NONE = 0,
+    KIND_V1,        /* SDSC, byte addressed */
+    KIND_V2,        /* SDSC v2, byte addressed */
+    KIND_HC         /* SDHC/SDXC, BLOCK addressed - the common case */
+} Kind;
 
-typedef struct SdCard
+typedef struct Card
 {
     Pin sck;
     Pin mosi;
     Pin miso;
     Pin cs;
 
-    SdKind kind;
+    Kind kind;
 
     /* True when the card is addressed in BLOCKS rather than bytes. Getting this
      * backwards reads sector 0 for every request on a large card, or lands 512
@@ -88,30 +91,30 @@ typedef struct SdCard
     Bool blockAddressed;
 
     UInt32 blocks;      /* capacity in 512-byte blocks, 0 if unknown */
-} SdCard;
+} Card;
 
 /* ---- the wire ------------------------------------------------------------ */
 
-static inline UInt8 sdXfer(const SdCard* c, UInt8 out)
+static UInt8 xfer(const Card* c, UInt8 out)
 {
     UInt8 in = 0xFF;
-    spiTransfer(c->sck, &out, &in, 1);
+    spi::transfer(c->sck, &out, &in, 1);
     return in;
 }
 
-static inline Void sdSelect(const SdCard* c)
+static Void select(const Card* c)
 {
-    gpioWrite(c->cs, false);
+    gpio::write(c->cs, false);
 }
 
-static inline Void sdDeselect(const SdCard* c)
+static Void deselect(const Card* c)
 {
-    gpioWrite(c->cs, true);
+    gpio::write(c->cs, true);
 
     /* Eight extra clocks with CS high. The specification asks for them and
      * cards genuinely need them: they are what lets the card finish releasing
      * the bus before anyone else uses it. */
-    (Void) sdXfer(c, 0xFF);
+    static_cast<Void>(xfer(c, 0xFF));
 }
 
 /*
@@ -125,18 +128,18 @@ static inline Void sdDeselect(const SdCard* c)
  * The card answers with 0xFF while it thinks. R1 is the first byte with the top
  * bit clear, and 0xFF back after eight tries means it never answered at all.
  */
-static UInt8 sdCommand(const SdCard* c, UInt8 cmd, UInt32 arg, UInt8 crc)
+static UInt8 command(const Card* c, UInt8 cmd, UInt32 arg, UInt8 crc)
 {
-    (Void) sdXfer(c, (UInt8) (0x40 | cmd));
-    (Void) sdXfer(c, (UInt8) (arg >> 24));
-    (Void) sdXfer(c, (UInt8) (arg >> 16));
-    (Void) sdXfer(c, (UInt8) (arg >> 8));
-    (Void) sdXfer(c, (UInt8) (arg));
-    (Void) sdXfer(c, crc);
+    static_cast<Void>(xfer(c, static_cast<UInt8>(0x40 | cmd)));
+    static_cast<Void>(xfer(c, static_cast<UInt8>(arg >> 24)));
+    static_cast<Void>(xfer(c, static_cast<UInt8>(arg >> 16)));
+    static_cast<Void>(xfer(c, static_cast<UInt8>(arg >> 8)));
+    static_cast<Void>(xfer(c, static_cast<UInt8>(arg)));
+    static_cast<Void>(xfer(c, crc));
 
     for(Int32 i = 0; i < 10; ++i)
     {
-        const UInt8 r = sdXfer(c, 0xFF);
+        const UInt8 r = xfer(c, 0xFF);
         if((r & 0x80u) == 0u)
         {
             return r;
@@ -146,10 +149,10 @@ static UInt8 sdCommand(const SdCard* c, UInt8 cmd, UInt32 arg, UInt8 crc)
 }
 
 /* CMD55 then the command - which is what an "application" command is. */
-static inline UInt8 sdAppCommand(const SdCard* c, UInt8 cmd, UInt32 arg)
+static UInt8 appCommand(const Card* c, UInt8 cmd, UInt32 arg)
 {
-    (Void) sdCommand(c, 55, 0, 0x01);
-    return sdCommand(c, cmd, arg, 0x01);
+    static_cast<Void>(command(c, 55, 0, 0x01));
+    return command(c, cmd, arg, 0x01);
 }
 
 /* ---- bring-up ------------------------------------------------------------ */
@@ -159,10 +162,10 @@ static inline UInt8 sdAppCommand(const SdCard* c, UInt8 cmd, UInt32 arg)
  *
  * Returns false if the pins are wrong, if nothing answers, or if the card never
  * leaves idle. It does NOT distinguish those from each other, because from here
- * they are the same fact - `kind` stays SD_KIND_NONE and there is nothing to
+ * they are the same fact - `kind` stays sd::KIND_NONE and there is nothing to
  * talk to.
  */
-static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
+static Bool openOn(Card* c, Pin sck, Pin mosi, Pin miso, Pin cs)
 {
     if(c == NULL)
     {
@@ -173,13 +176,13 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
     c->mosi = mosi;
     c->miso = miso;
     c->cs   = cs;
-    c->kind = SD_KIND_NONE;
+    c->kind = KIND_NONE;
     c->blockAddressed = false;
     c->blocks = 0;
 
-    /* spiOpenFull refuses a MISO pin that cannot carry it, which is the whole
+    /* spi::openFull refuses a MISO pin that cannot carry it, which is the whole
      * reason it takes MISO at all. */
-    if(!spiOpenFull(sck, mosi, miso, cs, SD_INIT_HZ))
+    if(!spi::openFull(sck, mosi, miso, cs, SD_INIT_HZ))
     {
         return false;
     }
@@ -190,27 +193,27 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
      * one board and not another - some cards are more forgiving than others
      * about how many they have had.
      */
-    gpioWrite(cs, true);
+    gpio::write(cs, true);
     for(Int32 i = 0; i < 10; ++i)
     {
-        (Void) sdXfer(c, 0xFF);
+        static_cast<Void>(xfer(c, 0xFF));
     }
 
     /* ---- CMD0: go idle, and enter SPI mode ------------------------------- */
     Bool idle = false;
-    sdSelect(c);
+    select(c);
     for(Int32 i = 0; i < 20; ++i)
     {
-        if(sdCommand(c, 0, 0, 0x95) == 0x01)
+        if(command(c, 0, 0, 0x95) == 0x01)
         {
             idle = true;
             break;
         }
-        sleepMs(10);
+        timing::ms(10);
     }
     if(!idle)
     {
-        sdDeselect(c);
+        deselect(c);
         return false;
     }
 
@@ -221,12 +224,12 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
      * the two are told apart.
      */
     Bool v2 = false;
-    if((sdCommand(c, 8, 0x1AAu, 0x87) & 0x04u) == 0u)
+    if((command(c, 8, 0x1AAu, 0x87) & 0x04u) == 0u)
     {
         UInt8 r7[4];
         for(Int32 i = 0; i < 4; ++i)
         {
-            r7[i] = sdXfer(c, 0xFF);
+            r7[i] = xfer(c, 0xFF);
         }
         v2 = (r7[2] == 0x01 && r7[3] == 0xAA);
     }
@@ -241,16 +244,16 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
     Bool ready = false;
     for(Int32 i = 0; i < 2000; ++i)
     {
-        if(sdAppCommand(c, 41, hcs) == 0x00)
+        if(appCommand(c, 41, hcs) == 0x00)
         {
             ready = true;
             break;
         }
-        sleepMs(1);
+        timing::ms(1);
     }
     if(!ready)
     {
-        sdDeselect(c);
+        deselect(c);
         return false;
     }
 
@@ -260,17 +263,17 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
      * in BLOCKS. Every modern card is. Getting this wrong reads sector 0 for
      * every request, which looks like a card full of identical data.
      */
-    c->kind = v2 ? SD_KIND_V2 : SD_KIND_V1;
-    if(v2 && sdCommand(c, 58, 0, 0x01) == 0x00)
+    c->kind = v2 ? KIND_V2 : KIND_V1;
+    if(v2 && command(c, 58, 0, 0x01) == 0x00)
     {
         UInt8 ocr[4];
         for(Int32 i = 0; i < 4; ++i)
         {
-            ocr[i] = sdXfer(c, 0xFF);
+            ocr[i] = xfer(c, 0xFF);
         }
         if((ocr[0] & 0x40u) != 0u)
         {
-            c->kind = SD_KIND_HC;
+            c->kind = KIND_HC;
             c->blockAddressed = true;
         }
     }
@@ -278,16 +281,16 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
     /* ---- CMD16: 512-byte blocks --------------------------------------------
      * Only meaningful on a byte-addressed card; harmless on the others, and
      * sending it unconditionally means one less branch to get wrong. */
-    (Void) sdCommand(c, 16, SD_BLOCK_SIZE, 0x01);
+    static_cast<Void>(command(c, 16, SD_BLOCK_SIZE, 0x01));
 
     /* ---- CMD9: the CSD, for capacity ------------------------------------- */
-    if(sdCommand(c, 9, 0, 0x01) == 0x00)
+    if(command(c, 9, 0, 0x01) == 0x00)
     {
         /* Wait for the data token, then sixteen bytes and a two-byte CRC. */
         UInt8 tok = 0xFF;
         for(Int32 i = 0; i < 2000; ++i)
         {
-            tok = sdXfer(c, 0xFF);
+            tok = xfer(c, 0xFF);
             if(tok != 0xFF)
             {
                 break;
@@ -299,18 +302,18 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
             UInt8 csd[16];
             for(Int32 i = 0; i < 16; ++i)
             {
-                csd[i] = sdXfer(c, 0xFF);
+                csd[i] = xfer(c, 0xFF);
             }
-            (Void) sdXfer(c, 0xFF);
-            (Void) sdXfer(c, 0xFF);
+            static_cast<Void>(xfer(c, 0xFF));
+            static_cast<Void>(xfer(c, 0xFF));
 
             if((csd[0] >> 6) == 1)
             {
                 /* CSD version 2: C_SIZE is 22 bits and capacity is
                  * (C_SIZE + 1) * 512 KB, so blocks = (C_SIZE + 1) * 1024. */
-                const UInt32 cSize = (((UInt32) (csd[7] & 0x3F)) << 16)
-                                   | (((UInt32) csd[8]) << 8)
-                                   | ((UInt32) csd[9]);
+                const UInt32 cSize = ((static_cast<UInt32>(csd[7] & 0x3F)) << 16)
+                                   | ((static_cast<UInt32>(csd[8])) << 8)
+                                   | (static_cast<UInt32>(csd[9]));
                 c->blocks = (cSize + 1u) * 1024u;
             }
             else
@@ -318,12 +321,12 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
                 /* CSD version 1, on the small old cards. The size is spread
                  * across three fields and scaled by two exponents, which is
                  * exactly why version 2 replaced it. */
-                const UInt32 cSize = ((((UInt32) (csd[6] & 0x03)) << 10)
-                                      | (((UInt32) csd[7]) << 2)
-                                      | (((UInt32) csd[8]) >> 6));
-                const UInt32 mult  = (UInt32) (((csd[9] & 0x03) << 1)
+                const UInt32 cSize = (((static_cast<UInt32>(csd[6] & 0x03)) << 10)
+                                      | ((static_cast<UInt32>(csd[7])) << 2)
+                                      | ((static_cast<UInt32>(csd[8])) >> 6));
+                const UInt32 mult  = static_cast<UInt32>(((csd[9] & 0x03) << 1)
                                                | (csd[10] >> 7));
-                const UInt32 rdLen = (UInt32) (csd[5] & 0x0F);
+                const UInt32 rdLen = static_cast<UInt32>(csd[5] & 0x0F);
                 const UInt32 bytes = (cSize + 1u) * (1u << (mult + 2u))
                                    * (1u << rdLen);
                 c->blocks = bytes / SD_BLOCK_SIZE;
@@ -331,32 +334,32 @@ static inline Bool sdOpenOn(SdCard* c, Pin sck, Pin mosi, Pin miso, Pin cs)
         }
     }
 
-    sdDeselect(c);
+    deselect(c);
 
     /* The handshake is over, so the clock can go up. */
-    (Void) spiBaud(sck, SD_FAST_HZ);
+    static_cast<Void>(spi::baud(sck, SD_FAST_HZ));
     return true;
 }
 
-static inline Bool sdOpen(SdCard* c)
+static Bool open(Card* c)
 {
-    return sdOpenOn(c, PIN_SD_SCK, PIN_SD_MOSI, PIN_SD_MISO, PIN_SD_CS);
+    return openOn(c, PIN_SD_SCK, PIN_SD_MOSI, PIN_SD_MISO, PIN_SD_CS);
 }
 
 /* Capacity in megabytes, for showing a person. */
-static inline UInt32 sdMegabytes(const SdCard* c)
+static UInt32 megabytes(const Card* c)
 {
     return (c->blocks / 2048u);
 }
 
-static inline const Utf8* sdKindName(const SdCard* c)
+static const Utf8* kindName(const Card* c)
 {
     switch(c->kind)
     {
-    case SD_KIND_HC: return "SDHC/SDXC";
-    case SD_KIND_V2: return "SD v2";
-    case SD_KIND_V1: return "SD v1";
-    case SD_KIND_NONE:
+    case KIND_HC: return "SDHC/SDXC";
+    case KIND_V2: return "SD v2";
+    case KIND_V1: return "SD v1";
+    case KIND_NONE:
     default: return "none";
     }
 }
@@ -369,19 +372,19 @@ static inline const Utf8* sdKindName(const SdCard* c)
  * `block` is a BLOCK index, always - the byte-versus-block distinction is
  * handled here so no caller has to remember which kind of card it has.
  */
-static inline Bool sdReadBlock(const SdCard* c, UInt32 block, UInt8* out)
+static Bool readBlock(const Card* c, UInt32 block, UInt8* out)
 {
-    if(c->kind == SD_KIND_NONE || out == NULL)
+    if(c->kind == KIND_NONE || out == NULL)
     {
         return false;
     }
 
     const UInt32 addr = c->blockAddressed ? block : (block * SD_BLOCK_SIZE);
 
-    sdSelect(c);
-    if(sdCommand(c, 17, addr, 0x01) != 0x00)
+    select(c);
+    if(command(c, 17, addr, 0x01) != 0x00)
     {
-        sdDeselect(c);
+        deselect(c);
         return false;
     }
 
@@ -390,7 +393,7 @@ static inline Bool sdReadBlock(const SdCard* c, UInt32 block, UInt8* out)
     UInt8 tok = 0xFF;
     for(Int32 i = 0; i < 20000; ++i)
     {
-        tok = sdXfer(c, 0xFF);
+        tok = xfer(c, 0xFF);
         if(tok != 0xFF)
         {
             break;
@@ -398,18 +401,18 @@ static inline Bool sdReadBlock(const SdCard* c, UInt32 block, UInt8* out)
     }
     if(tok != 0xFE)
     {
-        sdDeselect(c);
+        deselect(c);
         return false;
     }
 
     for(Int32 i = 0; i < SD_BLOCK_SIZE; ++i)
     {
-        out[i] = sdXfer(c, 0xFF);
+        out[i] = xfer(c, 0xFF);
     }
-    (Void) sdXfer(c, 0xFF);           /* CRC, which SPI mode ignores */
-    (Void) sdXfer(c, 0xFF);
+    static_cast<Void>(xfer(c, 0xFF));           /* CRC, which SPI mode ignores */
+    static_cast<Void>(xfer(c, 0xFF));
 
-    sdDeselect(c);
+    deselect(c);
     return true;
 }
 
@@ -420,53 +423,55 @@ static inline Bool sdReadBlock(const SdCard* c, UInt32 block, UInt8* out)
  * for a surprisingly long time after a write, and returning early means the
  * next command lands while it is still busy and quietly fails.
  */
-static inline Bool sdWriteBlock(const SdCard* c, UInt32 block, const UInt8* data)
+static Bool writeBlock(const Card* c, UInt32 block, const UInt8* data)
 {
-    if(c->kind == SD_KIND_NONE || data == NULL)
+    if(c->kind == KIND_NONE || data == NULL)
     {
         return false;
     }
 
     const UInt32 addr = c->blockAddressed ? block : (block * SD_BLOCK_SIZE);
 
-    sdSelect(c);
-    if(sdCommand(c, 24, addr, 0x01) != 0x00)
+    select(c);
+    if(command(c, 24, addr, 0x01) != 0x00)
     {
-        sdDeselect(c);
+        deselect(c);
         return false;
     }
 
-    (Void) sdXfer(c, 0xFF);
-    (Void) sdXfer(c, 0xFE);           /* the start-of-data token */
+    static_cast<Void>(xfer(c, 0xFF));
+    static_cast<Void>(xfer(c, 0xFE));           /* the start-of-data token */
 
     for(Int32 i = 0; i < SD_BLOCK_SIZE; ++i)
     {
-        (Void) sdXfer(c, data[i]);
+        static_cast<Void>(xfer(c, data[i]));
     }
-    (Void) sdXfer(c, 0xFF);           /* CRC, ignored */
-    (Void) sdXfer(c, 0xFF);
+    static_cast<Void>(xfer(c, 0xFF));           /* CRC, ignored */
+    static_cast<Void>(xfer(c, 0xFF));
 
     /* The bottom five bits of the response say whether it was accepted; 0x05
      * means yes. */
-    const UInt8 resp = sdXfer(c, 0xFF);
+    const UInt8 resp = xfer(c, 0xFF);
     if((resp & 0x1Fu) != 0x05u)
     {
-        sdDeselect(c);
+        deselect(c);
         return false;
     }
 
     /* The card holds MISO low while it programs. Wait it out. */
     for(Int32 i = 0; i < 100000; ++i)
     {
-        if(sdXfer(c, 0xFF) != 0x00)
+        if(xfer(c, 0xFF) != 0x00)
         {
-            sdDeselect(c);
+            deselect(c);
             return true;
         }
     }
 
-    sdDeselect(c);
+    deselect(c);
     return false;
 }
 
+
+} // namespace sd
 #endif

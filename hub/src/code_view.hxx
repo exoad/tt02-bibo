@@ -63,7 +63,7 @@ struct CodeView
     Str     lastYank;
 
     // ---- transient status message ----------------------------------------
-    // "3 lines yanked", "saved sketch.c". Shown on the status line and faded
+    // "3 lines yanked", "saved sketch.cxx". Shown on the status line and faded
     // out, because a message that stays forever stops being noticed and a
     // message that vanishes instantly is never read.
     Str     note;

@@ -35,7 +35,10 @@ Vec<Str> list()
         return out;
 
     WIN32_FIND_DATAA fd = {};
-    const Str        pattern = d + "\\*.c";
+    // *.cxx AND *.c. The library is C++ now, but sketches written before that
+    // are still on disk and still the user's - listing only the new extension
+    // would make them vanish from a view they were saved in.
+    const Str        pattern = d + "\\*.c*";
     HANDLE           h = ::FindFirstFileA(pattern.c_str(), &fd);
     if(h == INVALID_HANDLE_VALUE)
         return out;
@@ -68,7 +71,7 @@ Str slotPath()
     const Str root = PicoFlash::repoRoot();
     if(root.empty())
         return Str();
-    return root + "\\firmware\\scratch\\sketch.c";
+    return root + "\\firmware\\scratch\\sketch.cxx";
 }
 
 Str firmwareDir()
@@ -107,7 +110,8 @@ Vec<Str> listFirmware()
     {
         const Str d = root + "\\" + sub;
 
-        const Char* const PATTERNS[] = { "\\*.c", "\\*.h" };
+        const Char* const PATTERNS[] = { "\\*.cxx", "\\*.hxx",
+                                         "\\*.c", "\\*.h" };
         for(const Char* pat : PATTERNS)
         {
             WIN32_FIND_DATAA fd = {};
@@ -252,13 +256,19 @@ Void reveal(const Str& path)
 
 Str starter()
 {
-    // Kept in step with firmware/src/sketch.c by hand, and deliberately so: that
-    // file has to compile from a clean clone with no hub involved, and this one
-    // has to exist when the repo is not where the exe expects it.
+    // Kept in step with firmware/scratch/sketch.cxx by hand, and deliberately
+    // so: that file has to compile from a clean clone with no hub involved, and
+    // this one has to exist when the repo is not where the exe expects it.
     //
-    // manbox C style throughout - shared.h aliases, Allman braces, `while(...)`
-    // with no space, SCREAMING_SNAKE macros. A starter program is the strongest
-    // style document a project has, because it is the one everybody copies.
+    // It was BROKEN before the C++ conversion and had been for a while - it
+    // included "pico2w.h", a name the library stopped using - so a new sketch
+    // from this template did not build. A starter program is the strongest
+    // style document a project has, because it is the one everybody copies, and
+    // that cuts both ways.
+    //
+    // manbox style throughout: the types.hxx aliases, Allman braces, `while(...)`
+    // with no space, SCREAMING_SNAKE macros, named casts, and the namespaces the
+    // library now has.
     return
         "/*\n"
         " * Blink an LED on a breadboard.\n"
@@ -272,47 +282,51 @@ Str starter()
         " * is a short across a 3.3 V pin and both are at risk.\n"
         " *\n"
         " * GP28 is free. Do not blink GP0/GP1 (servo, ESC), GP4/GP5 (I2C),\n"
-        " * GP10-13 (ToF), GP15 (encoder) or GP16-19 (SD) once the car is wired.\n"
+        " * GP10-13 (lights, and the ToF XSHUT lines they borrow), GP14/GP15\n"
+        " * (tail lamps, encoder) or GP16-19 (SD) once the car is wired.\n"
         " *\n"
-        " * pico2w.h is the SDK in this project's own naming. Everything it\n"
-        " * offers is in the completion list: type gpio, servo, adc or serial.\n"
+        " * tt02.hxx is the whole library. Every module is a namespace - type\n"
+        " * gpio::, serial::, led::, adc::, gfx:: and the completion list will\n"
+        " * tell you the rest.\n"
         " */\n"
         "\n"
-        "#include \"pico2w.h\"\n"
+        "#include \"tt02.hxx\"\n"
         "\n"
         "#define LED_PIN 28\n"
         "#define DELAY_MS 400\n"
         "\n"
-        "Int32 main(Void)\n"
+        "// `int`, not Int32: C++ requires main to return literally int, and on\n"
+        "// this toolchain Int32 is a different type with the same shape.\n"
+        "int main(Void)\n"
         "{\n"
         "    // FIRST, and in every sketch you write, even one that prints\n"
         "    // nothing. This starts the USB stack; without it the board runs\n"
         "    // fine and never enumerates, and the only way to flash it again is\n"
         "    // holding BOOTSEL while plugging the cable in.\n"
-        "    serialOpen();\n"
+        "    serial::open();\n"
         "\n"
-        "    gpioOpen(LED_PIN, PIN_DIR_OUT);\n"
+        "    gpio::open(LED_PIN, PIN_DIR_OUT);\n"
         "\n"
         "    // The onboard LED is on the wireless chip rather than a GPIO, so it\n"
         "    // has to be brought up first - and that can fail. If it does, the\n"
         "    // breadboard LED still blinks.\n"
-        "    const Bool haveOnboard = ledOpen();\n"
+        "    const Bool haveOnboard = led::open();\n"
         "\n"
         "    while(true)\n"
         "    {\n"
-        "        gpioWrite(LED_PIN, true);\n"
+        "        gpio::write(LED_PIN, true);\n"
         "        if(haveOnboard)\n"
         "        {\n"
-        "            ledWrite(false);\n"
+        "            led::write(false);\n"
         "        }\n"
-        "        sleepMs(DELAY_MS);\n"
+        "        timing::ms(DELAY_MS);\n"
         "\n"
-        "        gpioWrite(LED_PIN, false);\n"
+        "        gpio::write(LED_PIN, false);\n"
         "        if(haveOnboard)\n"
         "        {\n"
-        "            ledWrite(true);\n"
+        "            led::write(true);\n"
         "        }\n"
-        "        sleepMs(DELAY_MS);\n"
+        "        timing::ms(DELAY_MS);\n"
         "    }\n"
         "\n"
         "    return 0;\n"
@@ -331,17 +345,17 @@ Str makeName()
         return false;
     };
 
-    if(!taken("sketch.c"))
-        return "sketch.c";
+    if(!taken("sketch.cxx"))
+        return "sketch.cxx";
 
     for(Int32 i = 2; i < 1000; ++i)
     {
         Char buf[32];
-        std::snprintf(buf, sizeof(buf), "sketch-%d.c", i);
+        std::snprintf(buf, sizeof(buf), "sketch-%d.cxx", i);
         if(!taken(buf))
             return Str(buf);
     }
-    return "sketch.c";
+    return "sketch.cxx";
 }
 
 } // namespace sketch

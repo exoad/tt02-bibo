@@ -44,7 +44,11 @@
  * what keeps a sketch from lighting up red in an editor that is merely not
  * configured yet.
  */
-#include "types.h"
+#include "types.hxx"
+
+/* vsnprintf and va_list, named because this file uses them. */
+#include <stdarg.h>
+#include <stdio.h>
 
 /* pico/stdlib.h FIRST, and on its own line, because it is what drags in the
  * board header - and the board header is what decides, below, whether this
@@ -116,53 +120,61 @@ typedef enum PinPull
  * the second is the single most common first-hour mistake: gpio_put on a pin
  * that is still an input does nothing at all, silently.
  */
-static inline Void gpioOpen(Pin pin, PinDir dir)
+
+namespace gpio
+{
+static Void open(Pin pin, PinDir dir)
 {
     gpio_init((uint) pin);
     gpio_set_dir((uint) pin, dir == PIN_DIR_OUT);
 }
 
-static inline Void gpioWrite(Pin pin, Bool high)
+static Void write(Pin pin, Bool high)
 {
     gpio_put((uint) pin, high);
 }
 
-static inline Bool gpioRead(Pin pin)
+static Bool read(Pin pin)
 {
     return gpio_get((uint) pin);
 }
 
-static inline Void gpioToggle(Pin pin)
+static Void toggle(Pin pin)
 {
     gpio_xor_mask(1u << (uint) pin);
 }
 
-static inline Void gpioPull(Pin pin, PinPull pull)
+static Void pull(Pin pin, PinPull pull)
 {
     gpio_set_pulls((uint) pin, pull == PIN_PULL_UP, pull == PIN_PULL_DOWN);
 }
 
 /* ---- time ---------------------------------------------------------------- */
 
-static inline Void sleepMs(UInt32 ms)
+
+} // namespace gpio
+
+namespace timing
+{
+static Void ms(UInt32 ms)
 {
     sleep_ms(ms);
 }
 
-static inline Void sleepUs(UInt64 us)
+static Void us(UInt64 us)
 {
     sleep_us(us);
 }
 
 /* Milliseconds since boot. Wraps after about 49 days. */
-static inline UInt32 nowMs(Void)
+static UInt32 nowMs(Void)
 {
-    return (UInt32) (to_ms_since_boot(get_absolute_time()));
+    return static_cast<UInt32>(to_ms_since_boot(get_absolute_time()));
 }
 
-static inline UInt64 nowUs(Void)
+static UInt64 nowUs(Void)
 {
-    return (UInt64) (to_us_since_boot(get_absolute_time()));
+    return static_cast<UInt64>(to_us_since_boot(get_absolute_time()));
 }
 
 /* ---- serial over USB ----------------------------------------------------- */
@@ -188,19 +200,58 @@ static inline UInt64 nowUs(Void)
  *
  * It costs a few KB of flash. It is what keeps the board flashable.
  */
-static inline Void serialOpen(Void)
+
+} // namespace timing
+
+namespace serial
+{
+static Void open(Void)
 {
     stdio_init_all();
 }
 
-static inline Void serialPrint(CharSeq text)
+/* ---- the second listener -------------------------------------------------
+ *
+ * Output goes to the USB console and, if something has registered here, to a
+ * second place as well - which today means the wireless link in net.h.
+ *
+ * A hook rather than a call to net.h directly, because hal.h is the layer that
+ * knows about the BOARD and net.h is a layer above it. hal.h calling upward
+ * would invert the dependency the whole library is arranged around, and would
+ * drag lwIP into the build of every program that prints anything, including
+ * the sketch target that deliberately links none of it.
+ *
+ * The mirror is handed WHOLE LINES, already formatted and still carrying their
+ * newline. That is what makes one datagram equal one command reply.
+ */
+typedef Void (*Mirror)(CharSeq);
+
+static Mirror mirrorFn = NULL;
+
+static Void setMirror(Mirror fn)
 {
-    fputs(text, stdout);
+    mirrorFn = fn;
 }
 
-static inline Void serialPrintLine(CharSeq text)
+static Void emit(CharSeq text)
 {
-    puts(text);
+    fputs(text, stdout);
+
+    if(mirrorFn != NULL)
+    {
+        mirrorFn(text);
+    }
+}
+
+static Void print(CharSeq text)
+{
+    emit(text);
+}
+
+static Void printLine(CharSeq text)
+{
+    emit(text);
+    emit("\n");
 }
 
 /*
@@ -218,12 +269,54 @@ static inline Void serialPrintLine(CharSeq text)
  * both at once - there is one definition to change instead of sixty-two call
  * sites to find.
  */
-#define serialPrintf(...) printf(__VA_ARGS__)
+/*
+ * The one line's worth this formats into.
+ *
+ * Every line this program prints is a short one - the longest is a DRIVE
+ * report at about a hundred characters - so this is roughly double the worst
+ * real case. It is not a limit anybody should be near.
+ */
+static const Size LINE_CAP = 256;
+
+/*
+ * It formats into a buffer and hands the finished line to emit() rather
+ * than going straight to the C library, which is what lets the same line reach
+ * the wireless link as well as the cable. That is the whole reason this seam
+ * was built; it is now being used.
+ *
+ * On truncation the tail is replaced with "...\n" instead of being left as it
+ * fell. A cut line that keeps its newline is a line the host can still parse
+ * and visibly complain about; one that loses it silently glues itself to the
+ * next line and produces a command nobody sent. This project has been bitten by
+ * exactly that shape of bug twice - a truncated cal header, and an over-long
+ * serial line whose tail became a fresh command - and both times the damage
+ * came from the truncation being SILENT.
+ */
+static Void printf(CharSeq fmt, ...)
+{
+    Utf8 buf[LINE_CAP];
+
+    va_list ap;
+    va_start(ap, fmt);
+    const Int32 n = vsnprintf(buf, LINE_CAP, fmt, ap);
+    va_end(ap);
+
+    if(n >= static_cast<Int32>(LINE_CAP))
+    {
+        buf[LINE_CAP - 5] = '.';
+        buf[LINE_CAP - 4] = '.';
+        buf[LINE_CAP - 3] = '.';
+        buf[LINE_CAP - 2] = '\n';
+        buf[LINE_CAP - 1] = '\0';
+    }
+
+    emit(buf);
+}
 
 /*
  * Blocks until the host opens the USB serial port, or until `timeoutMs`.
  *
- * This is the fix for the complaint in serialOpen() above. USB enumeration
+ * This is the fix for the complaint in open() above. USB enumeration
  * takes a moment, and anything printed before the host is listening goes
  * nowhere - so the first few lines of a program appear to vanish and the
  * program looks broken when it is merely early.
@@ -234,7 +327,7 @@ static inline Void serialPrintLine(CharSeq text)
  *
  * Returns true if the host connected.
  */
-static inline Bool serialWaitForHost(UInt32 timeoutMs)
+static Bool waitForHost(UInt32 timeoutMs)
 {
     const UInt32 start = to_ms_since_boot(get_absolute_time());
 
@@ -253,18 +346,18 @@ static inline Bool serialWaitForHost(UInt32 timeoutMs)
 /*
  * Whether a host currently has the port open.
  *
- * Not the same question as serialWaitForHost(): this one does not block, and it
+ * Not the same question as waitForHost(): this one does not block, and it
  * is how a program notices a terminal ARRIVING or LEAVING mid-run rather than
  * only at startup. A board that greeted the first listener and then went quiet
  * forever looks dead to the second one.
  */
-static inline Bool serialHostPresent(Void)
+static Bool hostPresent(Void)
 {
     return stdio_usb_connected();
 }
 
 /*
- * One character, or SERIAL_NONE if none arrived within `timeoutUs`.
+ * One character, or NONE if none arrived within `timeoutUs`.
  *
  * A timeout rather than a block, because the caller almost always has something
  * else to do - a blink to keep, an output to slew - and a read that parks the
@@ -280,16 +373,16 @@ static inline Bool serialHostPresent(Void)
  * rubbish. A constant that AGREES with another header is a constant that will
  * disagree with it eventually.
  */
-#define SERIAL_NONE PICO_ERROR_TIMEOUT
+static const Int32 NONE = PICO_ERROR_TIMEOUT;
 
-static inline Int32 serialReadChar(UInt32 timeoutUs)
+static Int32 readChar(UInt32 timeoutUs)
 {
     return getchar_timeout_us(timeoutUs);
 }
 
 /* Flushes anything buffered out to the host. Worth doing before a reboot, or
  * the last thing the program said is lost with it. */
-static inline Void serialFlush(Void)
+static Void flush(Void)
 {
     stdio_flush();
 }
@@ -303,7 +396,12 @@ static inline Void serialFlush(Void)
  * a BOARD across reflashes, so a log line can say which of two identical cars
  * produced it. `out` wants at least 17 bytes.
  */
-static inline Void boardId(Utf8* out, Size cap)
+
+} // namespace serial
+
+namespace board
+{
+static Void id(Utf8* out, Size cap)
 {
     pico_unique_board_id_t id;
     pico_get_unique_board_id(&id);
@@ -335,12 +433,17 @@ static inline Void boardId(Utf8* out, Size cap)
  * a servo a 20% wrong pulse width on one of the two chips - which looks like a
  * badly centred servo rather than a bug.
  */
-static inline Void pwmOpen(Pin pin, UInt32 freqHz)
+
+} // namespace board
+
+namespace pwm
+{
+static Void open(Pin pin, UInt32 freqHz)
 {
     gpio_set_function((uint) pin, GPIO_FUNC_PWM);
 
-    const Float32 clk = (Float32) clock_get_hz(clk_sys);
-    Float32 div = clk / ((Float32) freqHz * (Float32) (PWM_WRAP + 1));
+    const Float32 clk = static_cast<Float32>(clock_get_hz(clk_sys));
+    Float32 div = clk / (static_cast<Float32>(freqHz) * static_cast<Float32>(PWM_WRAP + 1));
     if(div < 1.0f)
     {
         div = 1.0f;
@@ -353,7 +456,7 @@ static inline Void pwmOpen(Pin pin, UInt32 freqHz)
 }
 
 /* `duty` is 0.0 to 1.0 and is clamped. */
-static inline Void pwmWrite(Pin pin, Float32 duty)
+static Void write(Pin pin, Float32 duty)
 {
     if(duty < 0.0f)
     {
@@ -363,21 +466,26 @@ static inline Void pwmWrite(Pin pin, Float32 duty)
     {
         duty = 1.0f;
     }
-    pwm_set_gpio_level((uint) pin, (UInt16) (duty * (Float32) PWM_WRAP));
+    pwm_set_gpio_level((uint) pin, static_cast<UInt16>(duty * static_cast<Float32>(PWM_WRAP)));
 }
 
 /* ---- servo and ESC ------------------------------------------------------- */
 
 /*
  * Both the steering servo and the ESC speak the same 50 Hz pulse-width
- * protocol, so servoOpen() is what an ESC gets too.
+ * protocol, so servo::open() is what an ESC gets too.
  *
  * PUT THE CAR ON A STAND, WHEELS OFF THE GROUND, for every first run of new
  * code. docs/wiring.md says the same thing and means it.
  */
-static inline Void servoOpen(Pin pin)
+
+} // namespace pwm
+
+namespace servo
 {
-    pwmOpen(pin, SERVO_HZ);
+static Void open(Pin pin)
+{
+    pwm::open(pin, SERVO_HZ);
 }
 
 /*
@@ -385,7 +493,7 @@ static inline Void servoOpen(Pin pin)
  * driven past its travel stalls against its own end stop, draws locked-rotor
  * current and cooks itself, and it does it quietly.
  */
-static inline Void servoWriteUs(Pin pin, UInt32 us)
+static Void writeUs(Pin pin, UInt32 us)
 {
     if(us < SERVO_MIN_US)
     {
@@ -397,13 +505,13 @@ static inline Void servoWriteUs(Pin pin, UInt32 us)
     }
     pwm_set_gpio_level(
         (uint) pin,
-        (UInt16) (((UInt64) us * (UInt64) (PWM_WRAP + 1)) / SERVO_PERIOD_US));
+        static_cast<UInt16>((static_cast<UInt64>(us) * static_cast<UInt64>(PWM_WRAP + 1)) / SERVO_PERIOD_US));
 }
 
 /* Centre for a servo; neutral (no drive) for an ESC. */
-static inline Void servoCenter(Pin pin)
+static Void center(Pin pin)
 {
-    servoWriteUs(pin, SERVO_MID_US);
+    writeUs(pin, SERVO_MID_US);
 }
 
 /*
@@ -420,7 +528,7 @@ static inline Void servoCenter(Pin pin)
  * line is worse than no signal at all: noise on it reads as random pulse
  * widths, and the servo chases them into whatever it hits first.
  */
-static inline Void servoRelease(Pin pin)
+static Void release(Pin pin)
 {
     pwm_set_gpio_level((uint) pin, 0);
 }
@@ -431,7 +539,7 @@ static inline Void servoRelease(Pin pin)
  * the one part written twice.
  *
  *   Pico 2 W - the LED hangs off the CYW43439 wireless chip. It is NOT a GPIO
- *              and cannot be reached with gpioWrite() at any pin number: the
+ *              and cannot be reached with gpio::write() at any pin number: the
  *              chip has to be brought up first and then driven through its own
  *              GPIO space. This catches everybody once, because the classic
  *              `gpio_put(25, 1)` from a Pico 1 example compiles, runs, and
@@ -440,13 +548,13 @@ static inline Void servoRelease(Pin pin)
  *   Pico 2    - the LED is exactly what you expect: GP25, a plain output.
  *              Bringing it up cannot fail.
  *
- * The API above the split does not change, which is the whole point: statusOpen
+ * The API above the split does not change, which is the whole point: status::open
  * and every sketch that blinks are written once and run on either board. Only
  * the four functions below know which board they were compiled for, and they
  * are told by the SDK's own board header rather than by anything this project
  * has to remember to set.
  *
- * ledOpen() must be called before any other led* function, and on the W it can
+ * led::open() must be called before any other led* function, and on the W it can
  * FAIL - the chip is a real peripheral on a real bus. Check the return: if you
  * ignore it, every later call silently does nothing and you will spend the
  * evening looking at your wiring instead.
@@ -455,68 +563,137 @@ static inline Void servoRelease(Pin pin)
 /*
  * Whether the lamp came up, remembered here rather than by every caller.
  *
- * ledWrite() used to drive the CYW43439 whether or not it had initialised, so
+ * led::write() used to drive the CYW43439 whether or not it had initialised, so
  * each program carried its own `cyw43Ok` guard and its own copy of the reason.
  * A guard that every caller must remember is a guard, eventually, that one of
  * them forgets.
  */
-static Bool ledUp = false;
 
+} // namespace servo
+
+namespace led
+{
+static Bool up = false;
+
+
+} // namespace led
 #if defined(CYW43_WL_GPIO_LED_PIN)
 
-static inline Bool ledOpen(Void)
+/*
+ * The CYW43439 is brought up ONCE, here, and everything that needs it asks
+ * through this.
+ *
+ * Two things on this board want that chip: the LED, which hangs off its GPIO,
+ * and the wireless link in net.h. They arrived a year apart and each one
+ * calling cyw43_arch_init() for itself is a second initialisation of a
+ * half-initialised radio - which does not report an error, it just leaves the
+ * chip in a state where the next thing to touch it behaves oddly.
+ *
+ * So: idempotent, and the ANSWER is remembered rather than the attempt being
+ * repeated. Calling it twice is free; the second call returns what the first
+ * one found.
+ */
+
+namespace radio
 {
-    ledUp = (cyw43_arch_init() == 0);
-    return ledUp;
+static Bool tried = false;
+
+static Bool open(Void)
+{
+    if(!tried)
+    {
+        tried = true;
+        led::up      = (cyw43_arch_init() == 0);
+    }
+    return led::up;
 }
 
-static inline Void ledWrite(Bool on)
+static Bool up(Void)
 {
-    if(ledUp)
+    return led::up;
+}
+
+
+} // namespace radio
+
+namespace led
+{
+static Bool open(Void)
+{
+    return radio::open();
+}
+
+static Void write(Bool on)
+{
+    if(up)
     {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
     }
 }
 
-static inline Bool ledRead(Void)
+static Bool read(Void)
 {
-    return ledUp && cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
+    return up && cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
 }
 
 /* Where the lamp is, for a program that reports its own wiring. */
-static inline CharSeq ledBackend(Void)
+static CharSeq backend(Void)
 {
     return "cyw43";
 }
 
+
+} // namespace led
 #elif defined(PICO_DEFAULT_LED_PIN)
 
-static inline Bool ledOpen(Void)
+/* No wireless chip on this board. Named anyway so callers do not need an
+ * #ifdef to ask. */
+
+namespace radio
+{
+static Bool open(Void)
+{
+    return false;
+}
+
+static Bool up(Void)
+{
+    return false;
+}
+
+
+} // namespace radio
+
+namespace led
+{
+static Bool open(Void)
 {
     gpio_init((uint) PICO_DEFAULT_LED_PIN);
     gpio_set_dir((uint) PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    ledUp = true;
-    return ledUp;
+    up = true;
+    return up;
 }
 
-static inline Void ledWrite(Bool on)
+static Void write(Bool on)
 {
-    if(ledUp)
+    if(up)
     {
         gpio_put((uint) PICO_DEFAULT_LED_PIN, on);
     }
 }
 
-static inline Bool ledRead(Void)
+static Bool read(Void)
 {
-    return ledUp && gpio_get((uint) PICO_DEFAULT_LED_PIN);
+    return up && gpio_get((uint) PICO_DEFAULT_LED_PIN);
 }
 
-static inline CharSeq ledBackend(Void)
+static CharSeq backend(Void)
 {
     return "gpio" STRINGIFY(PICO_DEFAULT_LED_PIN);
 }
 
+
+} // namespace led
 #else
 
 /*
@@ -525,39 +702,62 @@ static inline CharSeq ledBackend(Void)
  * this way a program written for the car still compiles and runs on it - it
  * just cannot wave.
  */
-static inline Bool ledOpen(Void)
-{
-    ledUp = false;
-    return false;
-}
 
-static inline Void ledWrite(Bool on)
+namespace radio
 {
-    (Void) on;
-}
-
-static inline Bool ledRead(Void)
+static Bool open(Void)
 {
     return false;
 }
 
-static inline CharSeq ledBackend(Void)
+static Bool up(Void)
+{
+    return false;
+}
+
+
+} // namespace radio
+
+namespace led
+{
+static Bool open(Void)
+{
+    up = false;
+    return false;
+}
+
+static Void write(Bool on)
+{
+    static_cast<Void>(on);
+}
+
+static Bool read(Void)
+{
+    return false;
+}
+
+static CharSeq backend(Void)
 {
     return "none";
 }
 
+
+} // namespace led
 #endif
 
 /* Whether the lamp is up. For a program that wants to REPORT the failure
  * rather than merely survive it. */
-static inline Bool ledPresent(Void)
+
+namespace led
 {
-    return ledUp;
+static Bool present(Void)
+{
+    return up;
 }
 
-static inline Void ledToggle(Void)
+static Void toggle(Void)
 {
-    ledWrite(!ledRead());
+    write(!read());
 }
 
 /* ---- ADC ----------------------------------------------------------------- */
@@ -566,22 +766,27 @@ static inline Void ledToggle(Void)
  * Only GP26-GP29 are ADC-capable, as channels 0-3. Passing anything else is a
  * programming error the hardware cannot report.
  */
-static inline Void adcOpen(Pin pin)
+
+} // namespace led
+
+namespace adc
+{
+static Void open(Pin pin)
 {
     adc_init();
     adc_gpio_init((uint) pin);
 }
 
-static inline UInt16 adcRead(Pin pin)
+static UInt16 read(Pin pin)
 {
     adc_select_input((uint) (pin - 26));
     return adc_read();
 }
 
 /* 12-bit reading scaled to volts against the 3.3 V reference. */
-static inline Float32 adcReadVolts(Pin pin)
+static Float32 readVolts(Pin pin)
 {
-    return (Float32) adcRead(pin) * (3.3f / 4095.0f);
+    return static_cast<Float32>(read(pin)) * (3.3f / 4095.0f);
 }
 
 /*
@@ -592,32 +797,37 @@ static inline Float32 adcReadVolts(Pin pin)
  *
  * The conversion is the one from the RP2350 datasheet.
  */
-static inline Float32 tempC(Void)
+static Float32 tempC(Void)
 {
     adc_init();
     adc_set_temp_sensor_enabled(true);
     adc_select_input(4);
 
-    const Float32 volts = (Float32) adc_read() * (3.3f / 4095.0f);
+    const Float32 volts = static_cast<Float32>(adc_read()) * (3.3f / 4095.0f);
     return 27.0f - (volts - 0.706f) / 0.001721f;
 }
 
 /* ---- watchdog -------------------------------------------------------------
  *
- * The board resets if watchdogFeed() is not called within `ms`. On a vehicle
+ * The board resets if watchdog::feed() is not called within `ms`. On a vehicle
  * this is the difference between "the code hung" and "the code hung and the car
  * kept going at the last commanded throttle", so it is here from the start
  * rather than added after the first runaway.
  *
- * A sketch that enables it and then blocks in a long sleepMs() WILL reset. That
+ * A sketch that enables it and then blocks in a long timing::ms() WILL reset. That
  * is the watchdog working.
  */
-static inline Void watchdogStart(UInt32 ms)
+
+} // namespace adc
+
+namespace watchdog
+{
+static Void start(UInt32 ms)
 {
     watchdog_enable(ms, true);
 }
 
-static inline Void watchdogFeed(Void)
+static Void feed(Void)
 {
     watchdog_update();
 }
@@ -625,7 +835,7 @@ static inline Void watchdogFeed(Void)
 /* True when THIS boot was caused by the watchdog firing rather than by power or
  * the reset pin. Worth printing at startup: a board that is quietly resetting in
  * a loop looks exactly like a board that is slow to start. */
-static inline Bool watchdogCausedReboot(Void)
+static Bool causedReboot(Void)
 {
     return watchdog_caused_reboot();
 }
@@ -644,7 +854,7 @@ static inline Bool watchdogCausedReboot(Void)
  *   SPI0   SCK  GP2  GP6  GP18        MOSI GP3  GP7  GP19       MISO GP0 GP4 GP16
  *   SPI1   SCK  GP10 GP14 GP26        MOSI GP11 GP15 GP27       MISO GP8 GP12
  *
- * spiOpen() works out which controller the pins belong to, so a wrong pairing
+ * spi::open() works out which controller the pins belong to, so a wrong pairing
  * fails here with a false rather than silently producing a dead bus.
  *
  * CS is deliberately NOT handled by the hardware. The SDK's hardware CS drops
@@ -654,7 +864,12 @@ static inline Bool watchdogCausedReboot(Void)
  */
 
 /* Which controller a SCK pin belongs to, or NULL if it is not a SCK pin. */
-static inline spi_inst_t* spiForSck(Pin sck)
+
+} // namespace watchdog
+
+namespace spi
+{
+static spi_inst_t* forSck(Pin sck)
 {
     switch(sck)
     {
@@ -677,7 +892,7 @@ static inline spi_inst_t* spiForSck(Pin sck)
  *   SPI0 MISO   GP0  GP4  GP16  GP20
  *   SPI1 MISO   GP8  GP12 GP24  GP28
  */
-static inline spi_inst_t* spiForMiso(Pin miso)
+static spi_inst_t* forMiso(Pin miso)
 {
     switch(miso)
     {
@@ -693,11 +908,11 @@ static inline spi_inst_t* spiForMiso(Pin miso)
  *
  * Returns false if the pins do not belong to one controller, rather than
  * bringing up a bus that cannot work. Baud is a request: the hardware picks the
- * closest it can reach and spiBaud() reports what was actually set.
+ * closest it can reach and baud() reports what was actually set.
  */
-static inline Bool spiOpen(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
+static Bool open(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
 {
-    spi_inst_t* const bus = spiForSck(sck);
+    spi_inst_t* const bus = forSck(sck);
     if(bus == NULL)
     {
         return false;
@@ -709,24 +924,24 @@ static inline Bool spiOpen(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
 
     if(csPin >= 0)
     {
-        gpioOpen(csPin, PIN_DIR_OUT);
-        gpioWrite(csPin, true);        /* idle HIGH; low means "listen to me" */
+        gpio::open(csPin, PIN_DIR_OUT);
+        gpio::write(csPin, true);        /* idle HIGH; low means "listen to me" */
     }
     return true;
 }
 
 /*
  * The same, with MISO - for a device that ANSWERS. A display never does, which
- * is why spiOpen() above leaves it out; an SD card does nothing else.
+ * is why open() above leaves it out; an SD card does nothing else.
  *
  * Returns false if the four pins are not all the same controller, which is the
  * check worth having: MISO on a pad that cannot carry it fails silently, the
  * card never appears to respond, and every symptom points at the card.
  */
-static inline Bool spiOpenFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz)
+static Bool openFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz)
 {
-    spi_inst_t* const bus  = spiForSck(sck);
-    spi_inst_t* const rxBus = spiForMiso(miso);
+    spi_inst_t* const bus  = forSck(sck);
+    spi_inst_t* const rxBus = forMiso(miso);
 
     if(bus == NULL || rxBus == NULL || bus != rxBus)
     {
@@ -744,8 +959,8 @@ static inline Bool spiOpenFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz
 
     if(csPin >= 0)
     {
-        gpioOpen(csPin, PIN_DIR_OUT);
-        gpioWrite(csPin, true);
+        gpio::open(csPin, PIN_DIR_OUT);
+        gpio::write(csPin, true);
     }
     return true;
 }
@@ -762,9 +977,9 @@ static inline Bool spiOpenFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz
  * from a wiring fault and is why this is worth naming rather than leaving to a
  * default nobody remembers.
  */
-static inline Void spiMode(Pin sck, Bool cpol, Bool cpha)
+static Void mode(Pin sck, Bool cpol, Bool cpha)
 {
-    spi_inst_t* const bus = spiForSck(sck);
+    spi_inst_t* const bus = forSck(sck);
     if(bus == NULL)
     {
         return;
@@ -777,39 +992,39 @@ static inline Void spiMode(Pin sck, Bool cpol, Bool cpha)
 
 /* What the hardware actually settled on, which is rarely exactly what was asked
  * for - the divider is an integer. Worth printing during bring-up. */
-static inline UInt32 spiBaud(Pin sck, UInt32 hz)
+static UInt32 baud(Pin sck, UInt32 hz)
 {
-    spi_inst_t* const bus = spiForSck(sck);
-    return (bus == NULL) ? 0u : (UInt32) spi_set_baudrate(bus, hz);
+    spi_inst_t* const bus = forSck(sck);
+    return (bus == NULL) ? 0u : static_cast<UInt32>(spi_set_baudrate(bus, hz));
 }
 
 /* Blocking write. Returns the number of bytes sent, or 0 for a bad SCK pin. */
-static inline Size spiWrite(Pin sck, const UInt8* data, Size n)
+static Size write(Pin sck, const UInt8* data, Size n)
 {
-    spi_inst_t* const bus = spiForSck(sck);
+    spi_inst_t* const bus = forSck(sck);
     if(bus == NULL || data == NULL || n == 0)
     {
         return 0;
     }
-    const Int32 sent = (Int32) spi_write_blocking(bus, data, n);
-    return (sent < 0) ? 0u : (Size) sent;
+    const Int32 sent = static_cast<Int32>(spi_write_blocking(bus, data, n));
+    return (sent < 0) ? 0u : static_cast<Size>(sent);
 }
 
-static inline Size spiWriteByte(Pin sck, UInt8 b)
+static Size writeByte(Pin sck, UInt8 b)
 {
-    return spiWrite(sck, &b, 1);
+    return write(sck, &b, 1);
 }
 
 /* Full duplex: sends `tx` and captures the same number of bytes into `rx`. */
-static inline Size spiTransfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
+static Size transfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
 {
-    spi_inst_t* const bus = spiForSck(sck);
+    spi_inst_t* const bus = forSck(sck);
     if(bus == NULL || tx == NULL || rx == NULL || n == 0)
     {
         return 0;
     }
-    const Int32 moved = (Int32) spi_write_read_blocking(bus, tx, rx, n);
-    return (moved < 0) ? 0u : (Size) moved;
+    const Int32 moved = static_cast<Int32>(spi_write_read_blocking(bus, tx, rx, n));
+    return (moved < 0) ? 0u : static_cast<Size>(moved);
 }
 
 /* ---- I2C -------------------------------------------------------------------
@@ -854,10 +1069,15 @@ static inline Size spiTransfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
  * exchange at 400 kHz is under a millisecond - so a timeout means something is
  * genuinely wrong rather than merely slow.
  */
+
+} // namespace spi
 #define I2C_TIMEOUT_US 10000u
 
 /* Which controller an SDA pin belongs to, or NULL if it is not an SDA pin. */
-static inline i2c_inst_t* i2cForSda(Pin sda)
+
+namespace i2c
+{
+static i2c_inst_t* forSda(Pin sda)
 {
     switch(sda)
     {
@@ -879,9 +1099,9 @@ static inline i2c_inst_t* i2cForSda(Pin sda)
  * Returns false if the pins do not belong to one controller, rather than
  * bringing up a bus that cannot work.
  */
-static inline Bool i2cOpen(Pin sda, Pin scl, UInt32 hz)
+static Bool open(Pin sda, Pin scl, UInt32 hz)
 {
-    i2c_inst_t* const bus = i2cForSda(sda);
+    i2c_inst_t* const bus = forSda(sda);
     if(bus == NULL)
     {
         return false;
@@ -902,9 +1122,9 @@ static inline Bool i2cOpen(Pin sda, Pin scl, UInt32 hz)
  * or it does not. Nothing is transferred, so this is safe to do to an address
  * you know nothing about - which is what makes scanning the bus possible.
  */
-static inline Bool i2cPresent(Pin sda, UInt8 addr)
+static Bool present(Pin sda, UInt8 addr)
 {
-    i2c_inst_t* const bus = i2cForSda(sda);
+    i2c_inst_t* const bus = forSda(sda);
     if(bus == NULL)
     {
         return false;
@@ -917,28 +1137,28 @@ static inline Bool i2cPresent(Pin sda, UInt8 addr)
 /* Writes `n` bytes. `hold` true leaves the bus claimed for a repeated start,
  * which is how a register read is done: write the register, then read without
  * letting go. Returns bytes written, or 0 on failure. */
-static inline Size i2cWrite(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
+static Size write(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
 {
-    i2c_inst_t* const bus = i2cForSda(sda);
+    i2c_inst_t* const bus = forSda(sda);
     if(bus == NULL || data == NULL || n == 0)
     {
         return 0;
     }
     const Int32 sent =
-        (Int32) i2c_write_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US);
-    return (sent < 0) ? 0u : (Size) sent;
+        static_cast<Int32>(i2c_write_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US));
+    return (sent < 0) ? 0u : static_cast<Size>(sent);
 }
 
-static inline Size i2cRead(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
+static Size read(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
 {
-    i2c_inst_t* const bus = i2cForSda(sda);
+    i2c_inst_t* const bus = forSda(sda);
     if(bus == NULL || data == NULL || n == 0)
     {
         return 0;
     }
     const Int32 got =
-        (Int32) i2c_read_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US);
-    return (got < 0) ? 0u : (Size) got;
+        static_cast<Int32>(i2c_read_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US));
+    return (got < 0) ? 0u : static_cast<Size>(got);
 }
 
 /*
@@ -947,20 +1167,20 @@ static inline Size i2cRead(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
  * bus: letting go between the two is what makes a sensor return the wrong
  * register, or nothing.
  */
-static inline Bool i2cReadReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data, Size n)
+static Bool readReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data, Size n)
 {
     UInt8 r[2];
-    r[0] = (UInt8) (reg >> 8);
-    r[1] = (UInt8) (reg & 0xFF);
+    r[0] = static_cast<UInt8>(reg >> 8);
+    r[1] = static_cast<UInt8>(reg & 0xFF);
 
-    if(i2cWrite(sda, addr, r, 2, true) != 2)
+    if(write(sda, addr, r, 2, true) != 2)
     {
         return false;
     }
-    return i2cRead(sda, addr, data, n, false) == n;
+    return read(sda, addr, data, n, false) == n;
 }
 
-static inline Bool i2cWriteReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* data, Size n)
+static Bool writeReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* data, Size n)
 {
     /* Register index and payload must go out as ONE transaction, so they are
      * assembled into one buffer rather than written twice. */
@@ -969,41 +1189,41 @@ static inline Bool i2cWriteReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* d
     {
         return false;
     }
-    buf[0] = (UInt8) (reg >> 8);
-    buf[1] = (UInt8) (reg & 0xFF);
+    buf[0] = static_cast<UInt8>(reg >> 8);
+    buf[1] = static_cast<UInt8>(reg & 0xFF);
     for(Size i = 0; i < n; ++i)
     {
         buf[i + 2] = data[i];
     }
-    return i2cWrite(sda, addr, buf, n + 2, false) == (n + 2);
+    return write(sda, addr, buf, n + 2, false) == (n + 2);
 }
 
-static inline Bool i2cWriteReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8 v)
+static Bool writeReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8 v)
 {
-    return i2cWriteReg16(sda, addr, reg, &v, 1);
+    return writeReg16(sda, addr, reg, &v, 1);
 }
 
-static inline Bool i2cWriteReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16 v)
-{
-    UInt8 b[2];
-    b[0] = (UInt8) (v >> 8);
-    b[1] = (UInt8) (v & 0xFF);
-    return i2cWriteReg16(sda, addr, reg, b, 2);
-}
-
-static inline Bool i2cReadReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8* out)
-{
-    return i2cReadReg16(sda, addr, reg, out, 1);
-}
-
-static inline Bool i2cReadReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
+static Bool writeReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16 v)
 {
     UInt8 b[2];
-    if(!i2cReadReg16(sda, addr, reg, b, 2))
+    b[0] = static_cast<UInt8>(v >> 8);
+    b[1] = static_cast<UInt8>(v & 0xFF);
+    return writeReg16(sda, addr, reg, b, 2);
+}
+
+static Bool readReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8* out)
+{
+    return readReg16(sda, addr, reg, out, 1);
+}
+
+static Bool readReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
+{
+    UInt8 b[2];
+    if(!readReg16(sda, addr, reg, b, 2))
     {
         return false;
     }
-    *out = (UInt16) (((UInt16) b[0] << 8) | b[1]);
+    *out = static_cast<UInt16>((static_cast<UInt16>(b[0]) << 8) | b[1]);
     return true;
 }
 
@@ -1015,7 +1235,12 @@ static inline Bool i2cReadReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
  * over USB instead (1200 baud touch), but a sketch that has painted itself into
  * a corner can offer its own way out.
  */
-static inline Void rebootToBootsel(Void)
+
+} // namespace i2c
+
+namespace board
+{
+static Void rebootToBootsel(Void)
 {
     /*
      * Flush and settle before going, or the last thing the program said dies
@@ -1035,4 +1260,6 @@ static inline Void rebootToBootsel(Void)
     reset_usb_boot(0, 0);
 }
 
+
+} // namespace board
 #endif /* TT02_HAL_H */

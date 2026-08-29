@@ -9,7 +9,7 @@
  *
  * ---- what a caller gets ----------------------------------------------------
  *
- * Fractions, not microseconds. driveSteer(-1..+1) maps through the measured
+ * Fractions, not microseconds. drive::steer(-1..+1) maps through the measured
  * calibration in cal.h, with each side scaled separately, so nothing above this
  * file needs to know that this car throws 254 us one way from centre and 186
  * the other. The raw microsecond entry points exist for calibrating and are
@@ -29,13 +29,13 @@
  *    sits there beeping about a lost signal.
  *
  * 2. THE ESC IS DISARMED UNTIL ASKED. Every throttle command is refused until
- *    driveArm(true), and disarming walks back to neutral. One deliberate act
+ *    drive::arm(true), and disarming walks back to neutral. One deliberate act
  *    between a slider and a moving car.
  *
- * 3. NOTHING JUMPS. Calls set a TARGET; drivePump() walks the output toward it
+ * 3. NOTHING JUMPS. Calls set a TARGET; drive::pump() walks the output toward it
  *    at a bounded rate. A slider dragged end to end produces a sweep rather
  *    than a step, which is the difference between a servo turning and a servo
- *    being hit. driveStop() is the exception, on purpose.
+ *    being hit. drive::stop() is the exception, on purpose.
  *
  * ---- before the ESC is ever armed, from docs/wiring.md ---------------------
  *
@@ -56,8 +56,11 @@
  * ------------------------------------------------------------------------- */
 #pragma once
 
-#include "../hal.h"
-#include "cal.h"
+#include "../hal.hxx"
+#include "cal.hxx"
+
+namespace drive
+{
 
 /* ---- pins ---------------------------------------------------------------- */
 
@@ -184,11 +187,11 @@ typedef struct
     Int32 escMaxUs;
     Int32 steerSlewUs;    /* us of pulse per 20 ms tick, steering */
     Int32 throttleSlewUs; /* ...and throttle. They are separate settings.  */
-} DriveState;
+} State;
 
 /* ---- state --------------------------------------------------------------- */
 
-static Bool  driveUp    = false;
+static Bool  up    = false;
 static Bool  escArmed   = false;
 static Bool  servoLive  = false;
 
@@ -229,11 +232,14 @@ static Int32 escNow      = DRIVE_NEUTRAL_US;
 static Int32 steerSlewUs    = STEER_SLEW_US;
 static Int32 throttleSlewUs = THROTTLE_SLEW_US;
 
-static absolute_time_t nextSlew;
+/* When the slew limiter may next take a step. The only symbol in this module
+ * that carried no module prefix, which is exactly the kind of thing the
+ * prefix rule in tools/style_audit.py exists to stop drifting in. */
+static absolute_time_t slewNextAt;
 
 /* ---- helpers ------------------------------------------------------------- */
 
-static inline Int32 driveClamp(Int32 v, Int32 lo, Int32 hi)
+static Int32 clamp(Int32 v, Int32 lo, Int32 hi)
 {
     if(v < lo)
     {
@@ -256,7 +262,7 @@ static inline Int32 driveClamp(Int32 v, Int32 lo, Int32 hi)
  * pulls left every time it is asked for "half" is a bug that hides for a long
  * time because every individual command looks reasonable.
  */
-static inline Int32 driveSteerToUs(Float32 n)
+static Int32 steerToUs(Float32 n)
 {
     if(n < -1.0f)
     {
@@ -274,14 +280,14 @@ static inline Int32 driveSteerToUs(Float32 n)
 
     if(n < 0.0f)
     {
-        return servoCenterUs + (Int32) (n * (Float32) ((lo > 0) ? lo : 0));
+        return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>((lo > 0) ? lo : 0));
     }
-    return servoCenterUs + (Int32) (n * (Float32) ((hi > 0) ? hi : 0));
+    return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>((hi > 0) ? hi : 0));
 }
 
 /* The inverse, in THOUSANDTHS so it can be reported without a float formatter
  * having to survive on a microcontroller. -1000 to +1000. */
-static inline Int32 driveSteerFromUs(Int32 us)
+static Int32 steerFromUs(Int32 us)
 {
     const Int32 d = us - servoCenterUs;
     if(d == 0)
@@ -299,28 +305,28 @@ static inline Int32 driveSteerFromUs(Int32 us)
 
 /* ---- lifecycle ----------------------------------------------------------- */
 
-static inline Void driveOpen(Void)
+static Void open(Void)
 {
-    servoOpen(PIN_SERVO);
-    servoOpen(PIN_ESC);
+    servo::open(PIN_SERVO);
+    servo::open(PIN_ESC);
 
     /* Rule 1: released, not neutral. */
-    servoRelease(PIN_SERVO);
+    servo::release(PIN_SERVO);
     servoLive = false;
-    servoWriteUs(PIN_ESC, DRIVE_NEUTRAL_US);
+    servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
 
-    nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
-    driveUp  = true;
+    slewNextAt = make_timeout_time_ms(SLEW_TICK_MS);
+    up  = true;
 }
 
 /* Walks each output toward its target. Call from the main loop, often. */
-static inline Void drivePump(Void)
+static Void pump(Void)
 {
-    if(!driveUp || !time_reached(nextSlew))
+    if(!up || !time_reached(slewNextAt))
     {
         return;
     }
-    nextSlew = make_timeout_time_ms(SLEW_TICK_MS);
+    slewNextAt = make_timeout_time_ms(SLEW_TICK_MS);
 
     if(servoLive && servoNow != servoTarget)
     {
@@ -328,7 +334,7 @@ static inline Void drivePump(Void)
         const Int32 step = (d > steerSlewUs) ? steerSlewUs
                          : ((d < -steerSlewUs) ? -steerSlewUs : d);
         servoNow += step;
-        servoWriteUs(PIN_SERVO, (UInt32) servoNow);
+        servo::writeUs(PIN_SERVO, static_cast<UInt32>(servoNow));
     }
 
     /* A disarmed ESC is walked back to neutral rather than snapped there: a
@@ -340,7 +346,7 @@ static inline Void drivePump(Void)
         const Int32 step = (d > throttleSlewUs) ? throttleSlewUs
                          : ((d < -throttleSlewUs) ? -throttleSlewUs : d);
         escNow += step;
-        servoWriteUs(PIN_ESC, (UInt32) escNow);
+        servo::writeUs(PIN_ESC, static_cast<UInt32>(escNow));
     }
 }
 
@@ -355,7 +361,7 @@ static inline Void drivePump(Void)
  *
  * Immediate, not slewed. A stop that eases in is not a stop.
  */
-static inline Void driveStop(Void)
+static Void stop(Void)
 {
     escArmed    = false;
     escTarget   = DRIVE_NEUTRAL_US;
@@ -364,16 +370,16 @@ static inline Void driveStop(Void)
     servoNow    = servoCenterUs;
     servoLive   = false;
 
-    if(driveUp)
+    if(up)
     {
-        servoWriteUs(PIN_ESC, DRIVE_NEUTRAL_US);
-        servoRelease(PIN_SERVO);
+        servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
+        servo::release(PIN_SERVO);
     }
 }
 
-static inline DriveState driveRead(Void)
+static State read(Void)
 {
-    DriveState s;
+    State s;
     s.servoUs       = servoNow;
     s.servoTargetUs = servoTarget;
     s.escUs         = escNow;
@@ -381,8 +387,8 @@ static inline DriveState driveRead(Void)
     s.escArmed      = escArmed;
     s.servoLive     = servoLive;
     s.centerUs      = servoCenterUs;
-    s.steerMilli    = driveSteerFromUs(servoTarget);
-    s.steerNowMilli = driveSteerFromUs(servoNow);
+    s.steerMilli    = steerFromUs(servoTarget);
+    s.steerNowMilli = steerFromUs(servoNow);
     s.servoMinUs    = servoMin;
     s.servoMaxUs    = servoMax;
     s.escMinUs      = escMin;
@@ -399,13 +405,13 @@ static inline DriveState driveRead(Void)
  * passing a large number gets the ceiling instead of an error. Returns false
  * only for a value that is not a rate at all.
  */
-static inline Bool driveSetSteerSlew(Int32 usPerTick)
+static Bool setSteerSlew(Int32 usPerTick)
 {
     if(usPerTick <= 0)
     {
         return false;
     }
-    steerSlewUs = driveClamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
+    steerSlewUs = clamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
     return true;
 }
 
@@ -416,13 +422,13 @@ static inline Bool driveSetSteerSlew(Int32 usPerTick)
  * separate from the steering because the right answer is different: a servo
  * wants to arrive promptly and an ESC wants to be led there.
  */
-static inline Bool driveSetThrottleSlew(Int32 usPerTick)
+static Bool setThrottleSlew(Int32 usPerTick)
 {
     if(usPerTick <= 0)
     {
         return false;
     }
-    throttleSlewUs = driveClamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
+    throttleSlewUs = clamp(usPerTick, SLEW_MIN_STEP, SLEW_MAX_STEP);
     return true;
 }
 
@@ -432,9 +438,9 @@ static inline Bool driveSetThrottleSlew(Int32 usPerTick)
  * usually asking for everything to be slow while you watch something - and
  * because a caller that does not care should not have to make two calls.
  */
-static inline Bool driveSetSlew(Int32 usPerTick)
+static Bool setSlew(Int32 usPerTick)
 {
-    return driveSetSteerSlew(usPerTick) && driveSetThrottleSlew(usPerTick);
+    return setSteerSlew(usPerTick) && setThrottleSlew(usPerTick);
 }
 
 /* ---- steering ------------------------------------------------------------ */
@@ -447,32 +453,32 @@ static inline Bool driveSetSlew(Int32 usPerTick)
  * position is unknown, so the first command after engaging is the one most
  * likely to be a surprise.
  */
-static inline Void driveEngage(Bool on)
+static Void engage(Bool on)
 {
     if(on && !servoLive)
     {
         servoNow  = servoCenterUs;
         servoLive = true;
-        servoWriteUs(PIN_SERVO, (UInt32) servoNow);
+        servo::writeUs(PIN_SERVO, static_cast<UInt32>(servoNow));
         return;
     }
     if(!on && servoLive)
     {
         servoLive = false;
-        servoRelease(PIN_SERVO);
+        servo::release(PIN_SERVO);
     }
 }
 
 /* Steer as a fraction of this car's travel. THE entry point for driving. */
-static inline Void driveSteer(Float32 n)
+static Void steer(Float32 n)
 {
-    servoTarget = driveClamp(driveSteerToUs(n), servoMin, servoMax);
+    servoTarget = clamp(steerToUs(n), servoMin, servoMax);
 }
 
 /* Wheels straight, wherever that measures out to be. */
-static inline Void driveCenter(Void)
+static Void center(Void)
 {
-    servoTarget = driveClamp(servoCenterUs, servoMin, servoMax);
+    servoTarget = clamp(servoCenterUs, servoMin, servoMax);
 }
 
 /*
@@ -480,21 +486,21 @@ static inline Void driveCenter(Void)
  * actually are - not for driving. Clamped rather than refused: a slider that
  * stops moving at the limit is clearer than one that silently does nothing.
  */
-static inline Void driveSteerUs(Int32 us)
+static Void steerUs(Int32 us)
 {
-    servoTarget = driveClamp(us, servoMin, servoMax);
+    servoTarget = clamp(us, servoMin, servoMax);
 }
 
 /*
  * Moves where "centre" is.
  *
  * Clamped into the working range, because a centre outside the limits is one
- * the servo can never be commanded to - driveCenter() would silently mean
+ * the servo can never be commanded to - drive::center() would silently mean
  * something else, which is worse than refusing.
  */
-static inline Void driveTrim(Int32 us)
+static Void trim(Int32 us)
 {
-    servoCenterUs = driveClamp(us, servoMin, servoMax);
+    servoCenterUs = clamp(us, servoMin, servoMax);
 }
 
 /*
@@ -504,7 +510,7 @@ static inline Void driveTrim(Int32 us)
  * Clamped to the hard bound, and both the target and the centre are pulled back
  * inside so narrowing can never leave an output sitting outside its own limits.
  */
-static inline Bool driveSetSteerLimits(Int32 lo, Int32 hi)
+static Bool setSteerLimits(Int32 lo, Int32 hi)
 {
     if(lo >= hi)
     {
@@ -516,13 +522,13 @@ static inline Bool driveSetSteerLimits(Int32 lo, Int32 hi)
      *
      * `SERVOLIMITS 1 2` passes the ordering test - 1 is genuinely below 2 - and
      * then both clamp to SERVO_HARD_MIN and the range is 1000 to 1000. The
-     * steering can no longer be commanded anywhere, driveSteerToUs divides a
+     * steering can no longer be commanded anywhere, drive::steerToUs divides a
      * span of zero, and the reply reports a car that looks configured. Found on
      * the board rather than by reading this, which is the only reason it is
      * here: it needs two plausible numbers to reach.
      */
-    const Int32 lo2 = driveClamp(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
-    const Int32 hi2 = driveClamp(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
+    const Int32 lo2 = clamp(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
+    const Int32 hi2 = clamp(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
     if(lo2 >= hi2)
     {
         return false;
@@ -530,14 +536,14 @@ static inline Bool driveSetSteerLimits(Int32 lo, Int32 hi)
 
     servoMin      = lo2;
     servoMax      = hi2;
-    servoTarget   = driveClamp(servoTarget, servoMin, servoMax);
-    servoCenterUs = driveClamp(servoCenterUs, servoMin, servoMax);
+    servoTarget   = clamp(servoTarget, servoMin, servoMax);
+    servoCenterUs = clamp(servoCenterUs, servoMin, servoMax);
     return true;
 }
 
 /* ---- throttle ------------------------------------------------------------ */
 
-static inline Void driveArm(Bool on)
+static Void arm(Bool on)
 {
     escArmed  = on;
     escTarget = DRIVE_NEUTRAL_US;
@@ -545,22 +551,22 @@ static inline Void driveArm(Bool on)
 
 /* False when the ESC is not armed. Rule 2, and it lives here so no caller can
  * forget it. */
-static inline Bool driveThrottleUs(Int32 us)
+static Bool throttleUs(Int32 us)
 {
     if(!escArmed)
     {
         return false;
     }
-    escTarget = driveClamp(us, escMin, escMax);
+    escTarget = clamp(us, escMin, escMax);
     return true;
 }
 
-static inline Void driveThrottleNeutral(Void)
+static Void throttleNeutral(Void)
 {
     escTarget = DRIVE_NEUTRAL_US;
 }
 
-static inline Bool driveSetThrottleLimits(Int32 lo, Int32 hi)
+static Bool setThrottleLimits(Int32 lo, Int32 hi)
 {
     if(lo >= hi)
     {
@@ -569,8 +575,8 @@ static inline Bool driveSetThrottleLimits(Int32 lo, Int32 hi)
 
     /* The same collapse as the steering, and worse here: the throttle's hard
      * band is only 200 us wide, so any pair below 1500 lands on 1500/1500. */
-    const Int32 lo2 = driveClamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
-    const Int32 hi2 = driveClamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
+    const Int32 lo2 = clamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
+    const Int32 hi2 = clamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
     if(lo2 >= hi2)
     {
         return false;
@@ -578,6 +584,9 @@ static inline Bool driveSetThrottleLimits(Int32 lo, Int32 hi)
 
     escMin    = lo2;
     escMax    = hi2;
-    escTarget = driveClamp(escTarget, escMin, escMax);
+    escTarget = clamp(escTarget, escMin, escMax);
     return true;
 }
+
+
+} // namespace drive

@@ -6,7 +6,7 @@
  * it without a laptop, a terminal, or the port being open at all. On a car that
  * has driven itself under a table, that is sometimes the only channel left.
  *
- * ---- why this is not just ledWrite ----------------------------------------
+ * ---- why this is not just led::write ----------------------------------------
  *
  * A blink is a TIMER, and a timer somebody hand-rolls in main() is a timer that
  * gets copied into the next program with its bugs. The half-period arithmetic,
@@ -15,11 +15,11 @@
  *
  * ---- calling it -----------------------------------------------------------
  *
- *     statusOpen();                    once, at startup
- *     statusBlink(2.0f);               two full cycles a second
- *     while(true) { statusTick(); }    often, from the main loop
+ *     status::open();                    once, at startup
+ *     status::blink(2.0f);               two full cycles a second
+ *     while(true) { status::tick(); }    often, from the main loop
  *
- * statusTick() must be called regularly or the blink stalls mid-cycle - it does
+ * status::tick() must be called regularly or the blink stalls mid-cycle - it does
  * not run on an interrupt, on purpose. An interrupt handler that drives a
  * peripheral over a bus is a good way to find out what your bus does when it is
  * re-entered.
@@ -31,21 +31,24 @@
  * ------------------------------------------------------------------------- */
 #pragma once
 
-#include "hal.h"
+#include "hal.hxx"
 
-/* 0 means not blinking: solid at whatever statusSolid() last set. */
-static Float32 statusHzNow  = 0.0f;
-static Bool    statusLit    = false;
-static UInt64  statusNextUs = 0;
+namespace status
+{
+
+/* 0 means not blinking: solid at whatever status::solid() last set. */
+static Float32 hzNow  = 0.0f;
+static Bool    lit    = false;
+static UInt64  nextUs = 0;
 
 /*
  * Half a period per toggle, so `hz` counts full on-off cycles per second
- * rather than edges. One flash a second is statusBlink(1.0f), which is what
+ * rather than edges. One flash a second is status::blink(1.0f), which is what
  * anybody watching would call it.
  */
-static inline UInt64 statusHalfPeriodUs(Float32 hz)
+static UInt64 halfPeriodUs(Float32 hz)
 {
-    return (UInt64) (500000.0f / hz);
+    return static_cast<UInt64>(500000.0f / hz);
 }
 
 /*
@@ -53,66 +56,66 @@ static inline UInt64 statusHalfPeriodUs(Float32 hz)
  * worth reporting rather than swallowing: everything here keeps working, it
  * just cannot be seen, and a silent lamp reads as a stopped program.
  */
-static inline Bool statusOpen(Void)
+static Bool open(Void)
 {
-    const Bool ok = ledOpen();
-    statusHzNow  = 0.0f;
-    statusLit    = false;
-    statusNextUs = 0;
-    ledWrite(false);
+    const Bool ok = led::open();
+    hzNow  = 0.0f;
+    lit    = false;
+    nextUs = 0;
+    led::write(false);
     return ok;
 }
 
 /* Stops any blink and holds the lamp. */
-static inline Void statusSolid(Bool on)
+static Void solid(Bool on)
 {
-    statusHzNow = 0.0f;
-    statusLit   = on;
-    ledWrite(on);
+    hzNow = 0.0f;
+    lit   = on;
+    led::write(on);
 }
 
 /* Blinks at `hz` full cycles per second. Zero or less is solid off. */
-static inline Void statusBlink(Float32 hz)
+static Void blink(Float32 hz)
 {
     if(hz <= 0.0f)
     {
-        statusSolid(false);
+        solid(false);
         return;
     }
-    statusHzNow  = hz;
-    statusNextUs = nowUs() + statusHalfPeriodUs(hz);
+    hzNow  = hz;
+    nextUs = timing::nowUs() + halfPeriodUs(hz);
 }
 
 /* Call often. Cheap when there is nothing to do. */
-static inline Void statusTick(Void)
+static Void tick(Void)
 {
-    if(statusHzNow <= 0.0f)
+    if(hzNow <= 0.0f)
     {
         return;
     }
-    if(nowUs() < statusNextUs)
+    if(timing::nowUs() < nextUs)
     {
         return;
     }
 
-    statusLit = !statusLit;
-    ledWrite(statusLit);
-    statusNextUs = nowUs() + statusHalfPeriodUs(statusHzNow);
+    lit = !lit;
+    led::write(lit);
+    nextUs = timing::nowUs() + halfPeriodUs(hzNow);
 }
 
 /* What the lamp is doing this instant, for a program that reports its own
  * state. */
-static inline Bool statusIsLit(Void)
+static Bool isLit(Void)
 {
-    return statusLit;
+    return lit;
 }
 
-/* The blink rate, or 0 when solid. Authoritative over statusIsLit(): a
+/* The blink rate, or 0 when solid. Authoritative over status::isLit(): a
  * non-zero rate means blinking whichever half of the cycle you happened to
  * sample. */
-static inline Float32 statusRate(Void)
+static Float32 rate(Void)
 {
-    return statusHzNow;
+    return hzNow;
 }
 
 /*
@@ -122,14 +125,17 @@ static inline Float32 statusRate(Void)
  * moment a blocking flash costs nothing, and the one moment somebody genuinely
  * wants to know the program started.
  */
-static inline Void statusHello(Int32 flashes, UInt32 msEach)
+static Void hello(Int32 flashes, UInt32 msEach)
 {
     for(Int32 i = 0; i < flashes; ++i)
     {
-        ledWrite(true);
-        sleepMs(msEach);
-        ledWrite(false);
-        sleepMs(msEach);
+        led::write(true);
+        timing::ms(msEach);
+        led::write(false);
+        timing::ms(msEach);
     }
-    statusLit = false;
+    lit = false;
 }
+
+
+} // namespace status

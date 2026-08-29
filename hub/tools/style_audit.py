@@ -304,28 +304,33 @@ for name in [r[0] for r in RULES]:
 LAYERS = {
     # hal.h is the floor everything stands on, so lib root may name it. hal.h
     # itself only needs shared.h, and naming itself is not a thing a file does.
-    'firmware/lib':          {'types.h', 'hal.h'},
-    'firmware/lib/drivers':  {'../hal.h'},
-    'firmware/lib/chassis':  {'../hal.h', 'cal.h'},
-    'firmware/app':          {'../lib/tt02.h'},
-    'firmware/scratch':      {'../lib/tt02.h'},
+    'firmware/lib':          {'types.hxx', 'hal.hxx'},
+    'firmware/lib/drivers':  {'../hal.hxx'},
+    'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx'},
+    'firmware/app':          {'../lib/tt02.hxx'},
+    'firmware/scratch':      {'../lib/tt02.hxx'},
     # A host test of ONE header includes that header, not the umbrella - the
     # umbrella drags in the SDK and these compile with MSVC.
-    'firmware/tests':        {'../lib/text.h'},
+    'firmware/tests':        {'../lib/text.hxx'},
 }
 
 # gfx draws INTO a Screen, so it is the one file at lib root that legitimately
 # reaches sideways into a driver. Written down rather than special-cased in
 # silence.
 LAYER_EXTRA = {
-    'firmware/lib/gfx.h':  {'drivers/display.h'},
-    'firmware/lib/status.h': {'hal.h'},
-    'firmware/lib/lights.h': {'hal.h'},
-    'firmware/lib/tt02.h': {'hal.h', 'text.h', 'gfx.h', 'status.h',
-                            'drivers/display.h',
-                            'drivers/range.h', 'drivers/storage.h',
-                            'chassis/cal.h', 'chassis/chassis.h',
-                            'lights.h'},
+    'firmware/lib/gfx.hxx':  {'drivers/display.hxx'},
+    'firmware/lib/status.hxx': {'hal.hxx'},
+    'firmware/lib/lights.hxx': {'hal.hxx'},
+    'firmware/lib/net.hxx': {'hal.hxx'},
+    # cue.hxx DECIDES what the car expresses and lights.hxx emits it, so this is the
+    # same legitimate sideways reach gfx.hxx makes into a driver: one layer above
+    # naming the one below it, written down rather than special-cased in silence.
+    'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
+    'firmware/lib/tt02.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
+                            'drivers/display.hxx',
+                            'drivers/range.hxx', 'drivers/storage.hxx',
+                            'chassis/cal.hxx', 'chassis/chassis.hxx',
+                            'lights.hxx', 'cue.hxx', 'net.hxx'},
 }
 
 def layer_of(path):
@@ -361,7 +366,11 @@ for path in files:
         # be the file that reaches into it, and an app naming pico/bootrom.h for
         # a reboot is honest about a dependency it genuinely has. The rule this
         # pass enforces is about the direction OUR headers point.
-        if what.startswith(('pico/', 'hardware/', 'boards/')):
+        # lwIP joins the list for the same reason the SDK is on it: it is
+        # somebody else's stack, and net.h exists precisely to be the one file
+        # that reaches into it - the same job hal.h does for the SDK. The rule
+        # this pass enforces is about the direction OUR headers point.
+        if what.startswith(('pico/', 'hardware/', 'boards/', 'lwip/')):
             continue
         if what in allowed:
             continue
@@ -429,16 +438,16 @@ else:
 print('\n--- application code reaching past the library ---')
 
 LIBC_DIRECT = [
-    ('printf',   'serialPrintf'),
-    ('puts',     'serialPrintLine'),
-    ('fputs',    'serialPrint'),
-    ('strcmp',   'textEq'),
-    ('strncmp',  'textStarts'),
-    ('strlen',   'textLen'),
-    ('atoi',     'textInt'),
-    ('atof',     'textFloat'),
-    ('sscanf',   'textTwoInts'),
-    ('toupper',  'textUpper'),
+    ('printf',   'serial::printf'),
+    ('puts',     'serial::printLine'),
+    ('fputs',    'serial::print'),
+    ('strcmp',   'text::eq'),
+    ('strncmp',  'text::starts'),
+    ('strlen',   'text::len'),
+    ('atoi',     'text::toInt'),
+    ('atof',     'text::toFloat'),
+    ('sscanf',   'text::twoInts'),
+    ('toupper',  'text::upper'),
 ]
 
 libc_bad = 0
@@ -449,9 +458,14 @@ for path in files:
     code = strip_noise(rd(path))
     for i, line in enumerate(code.split('\n')):
         for name, instead in LIBC_DIRECT:
-            # Whole word followed by a paren, so snprintf does not match printf
-            # and textLen does not match strlen.
-            if re.search(r'(?<![A-Za-z0-9_])' + name + r'\s*\(', line):
+            # Whole word followed by a paren, so snprintf does not match
+            # printf and text::len does not match strlen.
+            #
+            # The ':' in that lookbehind is what the namespaces cost this rule.
+            # serial::printf CONTAINS printf, so without it every corrected
+            # call site reported itself as the thing it had just been corrected
+            # from - the rule accusing its own fix.
+            if re.search(r'(?<![A-Za-z0-9_:])' + name + r'\s*\(', line):
                 print('  %-22s %5d  %s( -> use %s('
                       % (os.path.basename(path), i + 1, name, instead))
                 libc_bad += 1
@@ -487,7 +501,13 @@ for path in files:
             continue
         inc = m.group(1)
         # Third-party headers keep whatever extension upstream gave them.
-        if inc in HEADER_EXEMPT or inc.startswith(('imgui', 'sl_lidar', 'stb_')):
+        # The Pico SDK, lwIP and the rest keep whatever extension upstream gave
+        # them. hal.hxx and net.hxx exist precisely to be the files that reach
+        # into somebody else's code, and a rule about OUR extensions that
+        # flagged them would be a rule nobody could satisfy.
+        if inc in HEADER_EXEMPT or inc.startswith(
+                ('imgui', 'sl_lidar', 'stb_',
+                 'pico/', 'hardware/', 'boards/', 'lwip/')):
             continue
         # C sources include C headers. shared.h and pico2w.h are .h because they
         # must be, so including them by that name is correct.
@@ -495,6 +515,79 @@ for path in files:
             continue
         print('  %s:%d  %s' % (os.path.basename(path), i + 1, l.strip()))
         total += 1
+
+
+# ===========================================================================
+#  namespaces
+# ===========================================================================
+#
+# This used to check module PREFIXES, because the library was C and C has no
+# namespaces - so every symbol carried its module in its name and a rule could
+# only look at spelling. The library is C++ now and the boundary is real: the
+# compiler knows what is in namespace gpio, and gpio::write cannot quietly
+# become something else's write.
+#
+# So what is left to check is the thing the compiler cannot: that each module
+# HAS its namespace, and that it is the one everybody else expects. A header
+# that quietly stops declaring one still compiles - its symbols simply move to
+# the global namespace, one file at a time, which is exactly how the prefixes
+# decayed before anything checked them.
+#
+# WHAT IS NOT LISTED, and why:
+#
+#   hal.hxx   deliberately MANY namespaces - gpio, pwm, spi, i2c, serial, led,
+#             radio, adc, watchdog, timing, board - because it is THE BOARD and
+#             one namespace for the lot would say nothing. They are checked
+#             below as a set.
+#   types.hxx the vocabulary itself. Int32 is not in a module, and putting it in
+#             one would mean writing the namespace on every declaration in the
+#             project.
+#   cal.hxx   generated by the hub, and macros besides - the preprocessor has
+#             finished before C++ has heard of a namespace.
+#   tt02.hxx  the umbrella. Declares nothing.
+MODULE_NAMESPACE = {
+    'lights.hxx':   'lights',
+    'cue.hxx':      'cue',
+    'net.hxx':      'net',
+    'status.hxx':   'status',
+    'gfx.hxx':      'gfx',
+    'text.hxx':     'text',
+    'chassis.hxx':  'drive',
+    'display.hxx':  'tft',
+    'range.hxx':    'tof',
+    'storage.hxx':  'sd',
+}
+
+# hal is the board, and these are the modules in it.
+HAL_NAMESPACES = {'gpio', 'timing', 'serial', 'board', 'pwm', 'servo', 'led',
+                  'radio', 'adc', 'watchdog', 'spi', 'i2c'}
+
+print('\n--- namespaces ---')
+ns_bad = 0
+for path in files:
+    # By PATH, not just by name. hub/src/lights.hxx is the hub's own model of
+    # the same lamps and is not in namespace lights - it reported itself missing
+    # a namespace it was never supposed to have.
+    if '/firmware/lib' not in path.replace('\\', '/'):
+        continue
+
+    base = os.path.basename(path)
+
+    if base == 'hal.hxx':
+        have = set(re.findall(r'^namespace (\w+)$', rd(path), re.M))
+        for want in sorted(HAL_NAMESPACES - have):
+            print('  %-14s declares no namespace %s' % (base, want))
+            ns_bad += 1
+        continue
+
+    want = MODULE_NAMESPACE.get(base)
+    if want is None:
+        continue
+    if not re.search(r'^namespace %s$' % re.escape(want), rd(path), re.M):
+        print('  %-14s declares no namespace %s' % (base, want))
+        ns_bad += 1
+
+total += ns_bad
 
 total += struct_bad
 

@@ -19,7 +19,7 @@
  *    caller in this tree therefore tested `if(us == 0)` and called that an
  *    error - which works only because no legitimate pulse width is zero. That
  *    is a bug wearing a disguise: the first command that legitimately accepts 0
- *    inherits a parser that rejects it. textInt() returns Bool and writes
+ *    inherits a parser that rejects it. text::toInt() returns Bool and writes
  *    through a pointer, so "0" and "not a number" are different answers.
  *
  * ---- one copy -------------------------------------------------------------
@@ -28,27 +28,30 @@
  * ------------------------------------------------------------------------- */
 #pragma once
 
-#include "types.h"
+#include "types.hxx"
 
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
+namespace text
+{
+
 /* ---- inspecting ---------------------------------------------------------- */
 
-static Size textLen(CharSeq s)
+static Size len(CharSeq s)
 {
     return (s == NULL) ? 0 : strlen(s);
 }
 
-static Bool textEmpty(CharSeq s)
+static Bool empty(CharSeq s)
 {
     return (s == NULL) || (s[0] == '\0');
 }
 
 /* Whole-string equality. The name says what it tests, unlike `strcmp(a,b)==0`
  * where the interesting part is the `== 0` and reads as an accident. */
-static inline Bool textEq(CharSeq a, CharSeq b)
+static Bool eq(CharSeq a, CharSeq b)
 {
     if(a == NULL || b == NULL)
     {
@@ -65,7 +68,7 @@ static inline Bool textEq(CharSeq a, CharSeq b)
  * silently stops matching the day the command is renamed, and the failure is a
  * command that quietly does nothing.
  */
-static Bool textStarts(CharSeq s, CharSeq prefix)
+static Bool starts(CharSeq s, CharSeq prefix)
 {
     if(s == NULL || prefix == NULL)
     {
@@ -76,10 +79,10 @@ static Bool textStarts(CharSeq s, CharSeq prefix)
 }
 
 /* What follows `prefix`, or NULL if `s` does not start with it. Pairs with
- * textStarts so the offset is never written out by hand twice. */
-static CharSeq textAfter(CharSeq s, CharSeq prefix)
+ * text::starts so the offset is never written out by hand twice. */
+static CharSeq after(CharSeq s, CharSeq prefix)
 {
-    if(!textStarts(s, prefix))
+    if(!starts(s, prefix))
     {
         return NULL;
     }
@@ -90,9 +93,9 @@ static CharSeq textAfter(CharSeq s, CharSeq prefix)
  * Matches `word` as a WHOLE word at the start of `s`, and returns whatever
  * follows it with the separating spaces skipped. NULL if it does not match.
  *
- * The difference from textStarts() is the whole word, and it is the difference
+ * The difference from text::starts() is the whole word, and it is the difference
  * between a command table that works and one that works by accident:
- * textStarts("SERVOTRIM 1500", "SERVO") is TRUE, so a table matched with it
+ * text::starts("SERVOTRIM 1500", "SERVO") is TRUE, so a table matched with it
  * answers SERVOTRIM with the SERVO handler unless SERVOTRIM happens to be
  * listed first. Requiring a space or the end of the string after the word means
  * the order of the rows carries no meaning at all, which is the property that
@@ -102,7 +105,7 @@ static CharSeq textAfter(CharSeq s, CharSeq prefix)
  * of `s`, NOT NULL. "matched, nothing after it" and "did not match" are
  * different answers and a dispatcher has to tell them apart.
  */
-static CharSeq textWord(CharSeq s, CharSeq word)
+static CharSeq word(CharSeq s, CharSeq word)
 {
     if(s == NULL || word == NULL)
     {
@@ -136,7 +139,7 @@ static CharSeq textWord(CharSeq s, CharSeq word)
  * it might choose are exactly these. Without this, "PING\r" is not "PING" and
  * the reply is "unknown command" for a command that was typed correctly.
  */
-static Size textTrimEnd(Utf8* s)
+static Size trimEnd(Utf8* s)
 {
     if(s == NULL)
     {
@@ -151,7 +154,7 @@ static Size textTrimEnd(Utf8* s)
     return n;
 }
 
-static inline Void textUpper(Utf8* s)
+static Void upper(Utf8* s)
 {
     if(s == NULL)
     {
@@ -159,7 +162,12 @@ static inline Void textUpper(Utf8* s)
     }
     for(Size i = 0; s[i] != '\0'; ++i)
     {
-        s[i] = (Utf8) toupper((Int32) (UInt8) s[i]);
+        // Through UInt8 first, deliberately: toupper takes an int whose value
+        // must be representable as unsigned char, and a plain char is SIGNED on
+        // this toolchain - so a byte over 0x7F would arrive negative and the
+        // behaviour would be undefined.
+        s[i] = static_cast<Utf8>(
+            toupper(static_cast<Int32>(static_cast<UInt8>(s[i]))));
     }
 }
 
@@ -172,9 +180,9 @@ static inline Void textUpper(Utf8* s)
  * refusal. atoi("12abc") is 12 and atoi("abc") is 0, and a console that accepts
  * "SERVO 12abc" as 12 is a console that will one day accept something worse.
  */
-static inline Bool textInt(CharSeq s, Int32* out)
+static Bool toInt(CharSeq s, Int32* out)
 {
-    if(textEmpty(s) || out == NULL)
+    if(empty(s) || out == NULL)
     {
         return false;
     }
@@ -195,14 +203,14 @@ static inline Bool textInt(CharSeq s, Int32* out)
         return false;          /* trailing rubbish */
     }
 
-    *out = (Int32) v;
+    *out = static_cast<Int32>(v);
     return true;
 }
 
 /* The same contract for a fraction. Accepts "1", "-0.5", ".25". */
-static Bool textFloat(CharSeq s, Float32* out)
+static Bool toFloat(CharSeq s, Float32* out)
 {
-    if(textEmpty(s) || out == NULL)
+    if(empty(s) || out == NULL)
     {
         return false;
     }
@@ -223,7 +231,7 @@ static Bool textFloat(CharSeq s, Float32* out)
         return false;
     }
 
-    *out = (Float32) v;
+    *out = static_cast<Float32>(v);
     return true;
 }
 
@@ -234,9 +242,9 @@ static Bool textFloat(CharSeq s, Float32* out)
  * "1 2 3 banana", because sscanf stops looking the moment it has what it was
  * asked for. Every argument being consumed is part of the contract.
  */
-static Bool textTwoInts(CharSeq s, Int32* a, Int32* b)
+static Bool twoInts(CharSeq s, Int32* a, Int32* b)
 {
-    if(textEmpty(s) || a == NULL || b == NULL)
+    if(empty(s) || a == NULL || b == NULL)
     {
         return false;
     }
@@ -259,12 +267,15 @@ static Bool textTwoInts(CharSeq s, Int32* a, Int32* b)
     }
 
     Int32 second = 0;
-    if(!textInt(rest, &second))
+    if(!toInt(rest, &second))
     {
         return false;
     }
 
-    *a = (Int32) first;
+    *a = static_cast<Int32>(first);
     *b = second;
     return true;
 }
+
+
+} // namespace text

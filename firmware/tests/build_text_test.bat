@@ -1,15 +1,15 @@
 @echo off
-REM Builds and (with "run") executes the lib/text.h parser tests.
+REM Builds and (with "run") executes the lib/text.hxx parser tests.
 REM
 REM   firmware\tests\build_text_test.bat        - compile only
 REM   firmware\tests\build_text_test.bat run    - compile then run
 REM
-REM Compiled for the HOST with MSVC, not for the board. text.h needs nothing
-REM from the Pico SDK - only lib/types.h - and that is a property worth keeping:
+REM Compiled for the HOST with MSVC, not for the board. text.hxx needs nothing
+REM from the Pico SDK - only lib/types.hxx - and that is a property worth keeping:
 REM a parser that can only be exercised by flashing a microcontroller is a
 REM parser nobody exercises.
 REM
-REM /TC forces C. These are .c files and MSVC decides the language from the
+REM forces C. These are .c files and MSVC decides the language from the
 REM extension, but saying so keeps a rename from silently compiling C as C++,
 REM where several things here mean something subtly different.
 
@@ -25,9 +25,9 @@ if errorlevel 1 (
 
 if not exist "%HERE%build" mkdir "%HERE%build"
 
-cl /nologo /TC /O2 /MT /W4 /D_CRT_SECURE_NO_WARNINGS ^
+cl /nologo /O2 /MT /W4 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\lib" ^
-  "%HERE%test_text.c" ^
+  "%HERE%test_text.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_text.exe" ^
   /link /SUBSYSTEM:CONSOLE

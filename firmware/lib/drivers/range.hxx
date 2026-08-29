@@ -14,14 +14,14 @@
  * is nearly a metre across, so "the distance" is really "the nearest thing in
  * a fairly wide view", which matters when using it to find a wall.
  *
- *     Vl53 tof;
- *     vl53Open(&tof, PIN_SDA, VL53_ADDR_DEFAULT);
- *     vl53StartRanging(&tof);
+ *     tof::Vl53 tof;
+ *     tof::open(&tof, PIN_SDA, VL53_ADDR_DEFAULT);
+ *     tof::startRanging(&tof);
  *
- *     if(vl53Ready(&tof))
+ *     if(tof::ready(&tof))
  *     {
- *         const UInt16 mm = vl53Distance(&tof);
- *         vl53Clear(&tof);              // arm the next measurement
+ *         const UInt16 mm = tof::distance(&tof);
+ *         tof::clear(&tof);              // arm the next measurement
  *     }
  *
  * ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@
  * the one that is awake. With a single sensor there is nothing to disambiguate.
  *
  * INT pulses when a measurement is ready, so a program can sleep instead of
- * asking. vl53Ready() asks, which costs one I2C read and needs no wire.
+ * asking. tof::ready() asks, which costs one I2C read and needs no wire.
  *
  * ---------------------------------------------------------------------------
  * THE CONFIGURATION BLOCK
@@ -59,7 +59,10 @@
 #ifndef TT02_VL53L1X_H
 #define TT02_VL53L1X_H
 
-#include "../hal.h"
+#include "../hal.hxx"
+
+namespace tof
+{
 
 #define VL53_ADDR_DEFAULT 0x29
 
@@ -97,20 +100,20 @@
  * The numbers below are ST's, from the ULD driver. They are pre-computed
  * macro-period timeouts rather than anything derivable from the milliseconds,
  * and they DIFFER BY DISTANCE MODE - which is why changing the mode has to
- * re-apply the budget, and why vl53SetMode() does.
+ * re-apply the budget, and why tof::setMode() does.
  */
-typedef enum Vl53Budget
+typedef enum Budget
 {
-    VL53_BUDGET_20MS = 0,
-    VL53_BUDGET_33MS,
-    VL53_BUDGET_50MS,
-    VL53_BUDGET_100MS,
-    VL53_BUDGET_200MS,
-    VL53_BUDGET_500MS
-} Vl53Budget;
+    BUDGET_20MS = 0,
+    BUDGET_33MS,
+    BUDGET_50MS,
+    BUDGET_100MS,
+    BUDGET_200MS,
+    BUDGET_500MS
+} Budget;
 
 /* Registers 0x005E and 0x0061, indexed [budget][0..1]. */
-static const UInt16 VL53_BUDGET_LONG[6][2] = {
+static const UInt16 BUDGET_LONG[6][2] = {
     { 0x001E, 0x0022 },   /*  20 ms */
     { 0x0060, 0x006E },   /*  33 ms */
     { 0x00AD, 0x00C6 },   /*  50 ms */
@@ -123,7 +126,7 @@ static const UInt16 VL53_BUDGET_LONG[6][2] = {
  * long-mode counterpart, so the two tables are not row-for-row the same budget
  * - this one starts at ST's 20 ms values, matching the enum, and the 15 ms
  * entry is simply not offered. */
-static const UInt16 VL53_BUDGET_SHORT[6][2] = {
+static const UInt16 BUDGET_SHORT[6][2] = {
     { 0x0051, 0x006E },   /*  20 ms */
     { 0x00D6, 0x006E },   /*  33 ms */
     { 0x01AE, 0x01E8 },   /*  50 ms */
@@ -132,16 +135,16 @@ static const UInt16 VL53_BUDGET_SHORT[6][2] = {
     { 0x0591, 0x05C1 }    /* 500 ms */
 };
 
-typedef enum Vl53Mode
+typedef enum Mode
 {
     /* Up to about 1.3 m, and much better in bright light. The right default for
      * a bumper: the ambient infrared in daylight is what limits this sensor,
      * not the laser. */
-    VL53_MODE_SHORT = 0,
+    MODE_SHORT = 0,
 
     /* Up to about 4 m indoors, and easily blinded outdoors. */
-    VL53_MODE_LONG
-} Vl53Mode;
+    MODE_LONG
+} Mode;
 
 typedef struct Vl53
 {
@@ -153,10 +156,10 @@ typedef struct Vl53
      * distance mode. Changing one without re-applying the other leaves the
      * sensor integrating for a length of time it was not configured for, which
      * shortens its reach without reporting anything wrong. */
-    Vl53Mode   mode;
-    Vl53Budget budget;
+    Mode   mode;
+    Budget budget;
 
-    /* The interrupt polarity the sensor was configured with. vl53Ready()
+    /* The interrupt polarity the sensor was configured with. tof::ready()
      * compares against it, and reading it back rather than assuming is what
      * makes the check work on a module wired either way round. */
     UInt8 intPolarity;
@@ -169,7 +172,7 @@ typedef struct Vl53
  * unmarked is "not user-modifiable" in ST's own words - undocumented
  * calibration that the sensor does not work without.
  */
-static const UInt8 VL53_DEFAULT_CONFIG[91] = {
+static const UInt8 DEFAULT_CONFIG[91] = {
     0x00,   /* 0x2D */
     0x00,   /* 0x2E  I2C pull-up level */
     0x00,   /* 0x2F  GPIO pull-up level */
@@ -214,9 +217,9 @@ static const UInt8 VL53_DEFAULT_CONFIG[91] = {
  */
 /* Forward declared: setting the mode re-applies the budget, and setting the
  * budget needs to know the mode. */
-static inline Bool vl53SetBudget(Vl53* v, Vl53Budget budget);
+static Bool setBudget(Vl53* v, Budget budget);
 
-static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
+static Bool setMode(Vl53* v, Mode mode)
 {
     if(!v->ok)
     {
@@ -225,13 +228,13 @@ static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
 
     v->mode = mode;
 
-    if(mode == VL53_MODE_SHORT)
+    if(mode == MODE_SHORT)
     {
         const Bool okShort =
-               i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x14)
-            && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x07)
-            && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x05)
-            && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
+               i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x14)
+            && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x07)
+            && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x05)
+            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
 
             /* The sigma-delta pair, and the reason short mode reported a
              * hardware fault when these were missing.
@@ -245,27 +248,27 @@ static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
              *
              * Long mode worked precisely BECAUSE it agreed with the block by
              * accident. That is why only one of the two modes was broken. */
-            && i2cWriteReg16U16(v->sda, v->addr, 0x0078, 0x0705)
-            && i2cWriteReg16U16(v->sda, v->addr, 0x007A, 0x0606);
+            && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
+            && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
 
-        return okShort && vl53SetBudget(v, v->budget);
+        return okShort && setBudget(v, v->budget);
     }
 
     const Bool okLong =
-           i2cWriteReg16U8(v->sda, v->addr, 0x004B, 0x0A)
-        && i2cWriteReg16U8(v->sda, v->addr, 0x0060, 0x0F)
-        && i2cWriteReg16U8(v->sda, v->addr, 0x0063, 0x0D)
-        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
+           i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x0A)
+        && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x0F)
+        && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
+        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
 
         /* Written explicitly even though the configuration block already
          * leaves these values. Relying on that meant long mode worked by
          * agreement rather than by instruction, and switching to short and
          * back would otherwise never restore them. */
-        && i2cWriteReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
-        && i2cWriteReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
+        && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
+        && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
 
     /* The budget's values are mode-specific, so it goes back in. */
-    return okLong && vl53SetBudget(v, v->budget);
+    return okLong && setBudget(v, v->budget);
 }
 
 /*
@@ -274,25 +277,25 @@ static inline Bool vl53SetMode(Vl53* v, Vl53Mode mode)
  * Must be set - the configuration block alone does not leave a usable budget,
  * and a sensor without one ranges happily and cannot see past about a metre.
  */
-static inline Bool vl53SetBudget(Vl53* v, Vl53Budget budget)
+static Bool setBudget(Vl53* v, Budget budget)
 {
     if(!v->ok)
     {
         return false;
     }
-    if((Int32) budget < 0 || (Int32) budget > (Int32) VL53_BUDGET_500MS)
+    if(static_cast<Int32>(budget) < 0 || static_cast<Int32>(budget) > static_cast<Int32>(BUDGET_500MS))
     {
         return false;
     }
 
     v->budget = budget;
 
-    const UInt16* row = (v->mode == VL53_MODE_SHORT)
-                      ? VL53_BUDGET_SHORT[(Int32) budget]
-                      : VL53_BUDGET_LONG[(Int32) budget];
+    const UInt16* row = (v->mode == MODE_SHORT)
+                      ? BUDGET_SHORT[static_cast<Int32>(budget)]
+                      : BUDGET_LONG[static_cast<Int32>(budget)];
 
-    return i2cWriteReg16U16(v->sda, v->addr, 0x005E, row[0])
-        && i2cWriteReg16U16(v->sda, v->addr, 0x0061, row[1]);
+    return i2c::writeReg16U16(v->sda, v->addr, 0x005E, row[0])
+        && i2c::writeReg16U16(v->sda, v->addr, 0x0061, row[1]);
 }
 
 /* ---- bring-up ------------------------------------------------------------ */
@@ -300,10 +303,10 @@ static inline Bool vl53SetBudget(Vl53* v, Vl53Budget budget)
 /*
  * Wakes the sensor, checks it is one, and writes the configuration.
  *
- * The bus must already be open - i2cOpen() - because several devices share it
+ * The bus must already be open - i2c::open() - because several devices share it
  * and it is not this driver's to configure.
  */
-static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
+static Bool open(Vl53* v, Pin sda, UInt8 addr)
 {
     if(v == NULL)
     {
@@ -314,19 +317,19 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
     v->addr        = addr;
     v->ok          = false;
     v->intPolarity = 1;
-    v->mode        = VL53_MODE_LONG;
-    v->budget      = VL53_BUDGET_50MS;
+    v->mode        = MODE_LONG;
+    v->budget      = BUDGET_50MS;
 
     /* Is anything there at all? A separate check from the ID below, because
      * "nothing answers" and "something answers and is not a VL53L1X" are
      * different problems with different fixes. */
-    if(!i2cPresent(sda, addr))
+    if(!i2c::present(sda, addr))
     {
         return false;
     }
 
     UInt16 model = 0;
-    if(!i2cReadReg16U16(sda, addr, VL53_REG_MODEL_ID, &model)
+    if(!i2c::readReg16U16(sda, addr, VL53_REG_MODEL_ID, &model)
        || model != VL53_MODEL_ID)
     {
         return false;
@@ -341,13 +344,13 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
     for(Int32 i = 0; i < 1000; ++i)
     {
         UInt8 st = 0;
-        if(i2cReadReg16U8(sda, addr, VL53_REG_FIRMWARE_STATUS, &st)
+        if(i2c::readReg16U8(sda, addr, VL53_REG_FIRMWARE_STATUS, &st)
            && (st & 0x01u) != 0u)
         {
             booted = true;
             break;
         }
-        sleepMs(2);
+        timing::ms(2);
     }
     if(!booted)
     {
@@ -358,8 +361,8 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
      * a burst would need a 93-byte buffer for a one-off - not worth it. */
     for(Int32 i = 0; i < 91; ++i)
     {
-        const UInt16 reg = (UInt16) (VL53_REG_CONFIG_START + i);
-        if(!i2cWriteReg16U8(sda, addr, reg, VL53_DEFAULT_CONFIG[i]))
+        const UInt16 reg = static_cast<UInt16>(VL53_REG_CONFIG_START + i);
+        if(!i2c::writeReg16U8(sda, addr, reg, DEFAULT_CONFIG[i]))
         {
             return false;
         }
@@ -373,40 +376,40 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
      * showing a wrong number is worse than starting it a hundred milliseconds
      * later.
      */
-    (Void) i2cWriteReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x40);
+    static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x40));
     for(Int32 i = 0; i < 500; ++i)
     {
         UInt8 st = 0;
-        if(i2cReadReg16U8(sda, addr, VL53_REG_GPIO_TIO_STATUS, &st))
+        if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_TIO_STATUS, &st))
         {
             if((st & 0x01u) == v->intPolarity)
             {
                 break;
             }
         }
-        sleepMs(2);
+        timing::ms(2);
     }
-    (Void) i2cWriteReg16U8(sda, addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
-    (Void) i2cWriteReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x00);
+    static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_INTERRUPT, 0x01));
+    static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x00));
 
     /* VHV config, which ST's driver writes after the first range. */
-    (Void) i2cWriteReg16U8(sda, addr, 0x0008, 0x09);
-    (Void) i2cWriteReg16U8(sda, addr, 0x000B, 0x00);
+    static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x0008, 0x09));
+    static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x000B, 0x00));
 
     /* Read back the polarity actually configured rather than assuming it. */
     {
         UInt8 mux = 0;
-        if(i2cReadReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
+        if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
         {
             v->intPolarity = ((mux & 0x10u) != 0u) ? 0u : 1u;
         }
     }
 
-    /* Mode first, then budget - and vl53SetMode re-applies the budget anyway,
+    /* Mode first, then budget - and tof::setMode re-applies the budget anyway,
      * because the two are not independent. 50 ms reaches about 2.5 m, which is
      * a useful indoor default; raise it for more reach at a lower rate. */
-    vl53SetMode(v, VL53_MODE_LONG);
-    vl53SetBudget(v, VL53_BUDGET_50MS);
+    setMode(v, MODE_LONG);
+    setBudget(v, BUDGET_50MS);
     return true;
 }
 
@@ -421,7 +424,7 @@ static inline Bool vl53Open(Vl53* v, Pin sda, UInt8 addr)
  * A high AMBIENT rate with a weak signal means the sensor is being blinded by
  * infrared in the room, which is what short mode exists to fix.
  */
-static inline Bool vl53Rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
+static Bool rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
 {
     if(!v->ok)
     {
@@ -442,8 +445,8 @@ static inline Bool vl53Rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOu
      * was nothing of the kind. Worth naming, because a plausible wrong answer
      * from a wrong register is the hardest kind to notice.
      */
-    if(!i2cReadReg16U16(v->sda, v->addr, 0x0098, &sig)
-       || !i2cReadReg16U16(v->sda, v->addr, 0x0090, &amb))
+    if(!i2c::readReg16U16(v->sda, v->addr, 0x0098, &sig)
+       || !i2c::readReg16U16(v->sda, v->addr, 0x0090, &amb))
     {
         return false;
     }
@@ -461,27 +464,27 @@ static inline Bool vl53Rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOu
 
 /* ---- ranging ------------------------------------------------------------- */
 
-static inline Bool vl53StartRanging(Vl53* v)
+static Bool startRanging(Vl53* v)
 {
     return v->ok
-        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
+        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
 }
 
-static inline Bool vl53StopRanging(Vl53* v)
+static Bool stopRanging(Vl53* v)
 {
     return v->ok
-        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
+        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
 }
 
 /* True when a new measurement is waiting. Costs one register read. */
-static inline Bool vl53Ready(const Vl53* v)
+static Bool ready(const Vl53* v)
 {
     if(!v->ok)
     {
         return false;
     }
     UInt8 st = 0;
-    if(!i2cReadReg16U8(v->sda, v->addr, VL53_REG_GPIO_TIO_STATUS, &st))
+    if(!i2c::readReg16U8(v->sda, v->addr, VL53_REG_GPIO_TIO_STATUS, &st))
     {
         return false;
     }
@@ -492,13 +495,13 @@ static inline Bool vl53Ready(const Vl53* v)
  * Arms the next measurement.
  *
  * Must be called after every reading. Without it the sensor holds the same
- * result forever and vl53Ready() stays true - which looks exactly like a
+ * result forever and tof::ready() stays true - which looks exactly like a
  * distance that has frozen, and sends you looking at the wrong thing.
  */
-static inline Bool vl53Clear(Vl53* v)
+static Bool clear(Vl53* v)
 {
     return v->ok
-        && i2cWriteReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
+        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
 }
 
 /*
@@ -509,20 +512,20 @@ static inline Bool vl53Clear(Vl53* v)
  * "reading" under the new ones, which is the one measurement guaranteed to be
  * wrong.
  */
-static inline Bool vl53ClearInterruptAndStart(Vl53* v)
+static Bool clearInterruptAndStart(Vl53* v)
 {
-    return vl53Clear(v) && vl53StartRanging(v);
+    return clear(v) && startRanging(v);
 }
 
-/* Millimetres to whatever is in front. Meaningless unless vl53Status() is 0. */
-static inline UInt16 vl53Distance(const Vl53* v)
+/* Millimetres to whatever is in front. Meaningless unless tof::status() is 0. */
+static UInt16 distance(const Vl53* v)
 {
     if(!v->ok)
     {
         return 0;
     }
     UInt16 mm = 0;
-    if(!i2cReadReg16U16(v->sda, v->addr, VL53_REG_RESULT_DISTANCE, &mm))
+    if(!i2c::readReg16U16(v->sda, v->addr, VL53_REG_RESULT_DISTANCE, &mm))
     {
         return 0;
     }
@@ -536,7 +539,7 @@ static inline UInt16 vl53Distance(const Vl53* v)
  * The raw codes are remapped by ST's driver into a friendlier set; this returns
  * the friendly one, because the raw values are not in a useful order.
  */
-static inline UInt8 vl53Status(const Vl53* v)
+static UInt8 status(const Vl53* v)
 {
     if(!v->ok)
     {
@@ -544,7 +547,7 @@ static inline UInt8 vl53Status(const Vl53* v)
     }
 
     UInt8 raw = 0;
-    if(!i2cReadReg16U8(v->sda, v->addr, VL53_REG_RESULT_STATUS, &raw))
+    if(!i2c::readReg16U8(v->sda, v->addr, VL53_REG_RESULT_STATUS, &raw))
     {
         return 255;
     }
@@ -564,7 +567,7 @@ static inline UInt8 vl53Status(const Vl53* v)
     }
 }
 
-static inline const Utf8* vl53StatusName(UInt8 status)
+static const Utf8* statusName(UInt8 status)
 {
     switch(status)
     {
@@ -580,4 +583,6 @@ static inline const Utf8* vl53StatusName(UInt8 status)
     }
 }
 
+
+} // namespace tof
 #endif

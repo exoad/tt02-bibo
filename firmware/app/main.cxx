@@ -35,7 +35,7 @@
  * without naming is one that disappears the day the chain above it changes. */
 /* The whole library. An application includes this and nothing else of ours -
  * see docs/conventions.md, and the style audit that enforces it. */
-#include "../lib/tt02.h"
+#include "../lib/tt02.hxx"
 
 
 /* The sensor drivers. pico_debug is the image the hub talks to, so it is the
@@ -62,7 +62,7 @@
  * How long the board will keep DRIVING with nothing heard from the host.
  *
  * There was no such limit until now, and the gap was not small: if the hub
- * crashed, hung, or was closed while the ESC was armed and moving, drivePump()
+ * crashed, hung, or was closed while the ESC was armed and moving, drive::pump()
  * went on writing the last throttle to the pin forever. On USB power the cable
  * coming out takes the board with it, which hid the problem; on the BEC it will
  * not. docs/conventions.md has described a 200 ms rule since the beginning and
@@ -89,7 +89,7 @@
 /* Whether the lamp came up, whatever the lamp happens to BE on this board. */
 static CharSeq lampWord(Void)
 {
-    return ledPresent() ? "yes" : "no";
+    return led::present() ? "yes" : "no";
 }
 
 /*
@@ -104,7 +104,7 @@ static CharSeq lampWord(Void)
 static CharSeq cyw43Field(Void)
 {
 #if defined(CYW43_WL_GPIO_LED_PIN)
-    return ledPresent() ? " cyw43=up" : " cyw43=FAILED";
+    return led::present() ? " cyw43=up" : " cyw43=FAILED";
 #else
     return "";
 #endif
@@ -112,31 +112,31 @@ static CharSeq cyw43Field(Void)
 
 static Void printId(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
 
     Utf8 uid[24];
-    boardId(uid, sizeof(uid));
+    board::id(uid, sizeof(uid));
 
-    serialPrintf("INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
+    serial::printf("INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
            PICO_BOARD, PICO_SDK_VERSION_STRING, __DATE__, __TIME__,
-           uid, ledBackend(), lampWord(), cyw43Field());
+           uid, led::backend(), lampWord(), cyw43Field());
 }
 
 static Void printStatus(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
 
     /* board= is on THIS line as well as on ID, because STATUS is the line
      * anything polls. The hub asks for it every couple of seconds and asks for
      * ID only when a person clicks something - so a field that appears solely
      * on ID is a field the hub almost never has. There are two boards in this
      * project now and telling them apart is worth six characters a poll. */
-    serialPrintf("INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
-           nowMs(),
+    serial::printf("INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
+           timing::nowMs(),
            PICO_BOARD,
-           statusIsLit() ? "on" : "off",
-           (Float64) statusRate(),
-           ledBackend(), lampWord(), cyw43Field());
+           status::isLit() ? "on" : "off",
+           static_cast<Float64>(status::rate()),
+           led::backend(), lampWord(), cyw43Field());
 }
 
 /* Uppercase in place, so commands are accepted in any case. */
@@ -145,7 +145,7 @@ static Void printStatus(CharSeq arg)
  * the two boards fail this differently, so they say it differently. */
 static CharSeq ledCaveat(Void)
 {
-    if(ledPresent())
+    if(led::present())
     {
         return "";
     }
@@ -158,49 +158,49 @@ static CharSeq ledCaveat(Void)
 
 static Void handleLed(CharSeq arg)
 {
-    if(textEq(arg, "ON"))
+    if(text::eq(arg, "ON"))
     {
-        statusBlink(0.0f);
-        statusSolid(true);
-        serialPrintf("OK led on%s\n", ledCaveat());
+        status::blink(0.0f);
+        status::solid(true);
+        serial::printf("OK led on%s\n", ledCaveat());
         return;
     }
 
-    if(textEq(arg, "OFF"))
+    if(text::eq(arg, "OFF"))
     {
-        statusBlink(0.0f);
-        statusSolid(false);
-        serialPrintf("OK led off%s\n", ledCaveat());
+        status::blink(0.0f);
+        status::solid(false);
+        serial::printf("OK led off%s\n", ledCaveat());
         return;
     }
 
-    if(textStarts(arg, "BLINK"))
+    if(text::starts(arg, "BLINK"))
     {
-        /* textAfter rather than arg + 5: the offset and the word it skips are
+        /* text::after rather than arg + 5: the offset and the word it skips are
          * written once, so renaming the command cannot leave a stale count. */
         Float32 hz = 0.0f;
-        if(!textFloat(textAfter(arg, "BLINK "), &hz))
+        if(!text::toFloat(text::after(arg, "BLINK "), &hz))
         {
-            serialPrintf("ERR blink wants a rate in hz\n");
+            serial::printf("ERR blink wants a rate in hz\n");
             return;
         }
         if(hz < 0.0f || hz > BLINK_MAX_HZ)
         {
-            serialPrintf("ERR blink rate out of range (0-%.0f hz)\n",
-                   (Float64) BLINK_MAX_HZ);
+            serial::printf("ERR blink rate out of range (0-%.0f hz)\n",
+                   static_cast<Float64>(BLINK_MAX_HZ));
             return;
         }
 
-        statusBlink(hz);
+        status::blink(hz);
         if(hz == 0.0f)
         {
-            statusSolid(false);
+            status::solid(false);
         }
-        serialPrintf("OK led blink %.2f\n", (Float64) hz);
+        serial::printf("OK led blink %.2f\n", static_cast<Float64>(hz));
         return;
     }
 
-    serialPrintf("ERR bad LED argument: %s\n", arg);
+    serial::printf("ERR bad LED argument: %s\n", arg);
 }
 
 /* ================================================================ sensors ==
@@ -229,22 +229,44 @@ static Void handleLed(CharSeq arg)
 static UInt32 lastCmdMs      = 0;
 static Bool   deadmanTripped = false;
 
+/* ---- the line, as it was actually typed -----------------------------------
+ *
+ * handleLine() uppercases what it is given, because every command word in this
+ * protocol is upper case and a person typing "ping" means PING.
+ *
+ * A Wi-Fi password does not work that way. Uppercasing it silently turns a
+ * correct password into a wrong one, and the board then reports a failed join -
+ * which reads as bad credentials, or bad range, or a bad radio, and never as
+ * "the console changed what you typed".
+ *
+ * So the raw line is kept alongside. text::upper() rewrites in place and does not
+ * change the LENGTH of anything, so an offset into the uppercased line is the
+ * same offset into this one, and cmdRawArg is that pointer. Nothing but WIFI
+ * needs it.
+ */
+static Utf8    rawLine[LINE_CAP];
+static CharSeq cmdRawArg = "";
+
+/* Which wireless state has already been announced, so a change is reported
+ * once rather than every millisecond. */
+static net::State netReported = net::STATE_ABSENT;
+
 static Bool i2cUp   = false;
-static Vl53 tofFront;
+static tof::Vl53 tofFront;
 static Bool tofUp   = false;
 
 static Void sensorsOpen(Void)
 {
-    i2cUp = i2cOpen(SENSOR_SDA, SENSOR_SCL, SENSOR_HZ);
+    i2cUp = i2c::open(SENSOR_SDA, SENSOR_SCL, SENSOR_HZ);
     if(!i2cUp)
     {
         return;
     }
 
-    tofUp = vl53Open(&tofFront, SENSOR_SDA, VL53_ADDR_DEFAULT);
+    tofUp = tof::open(&tofFront, SENSOR_SDA, VL53_ADDR_DEFAULT);
     if(tofUp)
     {
-        vl53StartRanging(&tofFront);
+        tof::startRanging(&tofFront);
     }
 }
 
@@ -257,9 +279,9 @@ static Void sensorsOpen(Void)
  */
 static Void printSensors(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
 
-    serialPrintf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
+    serial::printf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
            i2cUp ? 1 : 0, tofUp ? 1 : 0, VL53_ADDR_DEFAULT);
 }
 
@@ -267,24 +289,24 @@ static Void printSensors(CharSeq arg)
  * sketch, available over the link so the hub can offer it too. */
 static Void printScan(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
 
     if(!i2cUp)
     {
-        serialPrintf("ERR scan i2c not up\n");
+        serial::printf("ERR scan i2c not up\n");
         return;
     }
 
     Int32 found = 0;
     for(Int32 a = ADDR_SCAN_FIRST; a <= ADDR_SCAN_LAST; ++a)
     {
-        if(i2cPresent(SENSOR_SDA, (UInt8) a))
+        if(i2c::present(SENSOR_SDA, static_cast<UInt8>(a)))
         {
-            serialPrintf("INFO scan 0x%02X\n", a);
+            serial::printf("INFO scan 0x%02X\n", a);
             ++found;
         }
     }
-    serialPrintf("OK scan %d\n", found);
+    serial::printf("OK scan %d\n", found);
 }
 
 /*
@@ -298,14 +320,14 @@ static Void printTof(Void)
 {
     if(!tofUp)
     {
-        serialPrintf("ERR tof absent\n");
+        serial::printf("ERR tof absent\n");
         return;
     }
 
-    if(vl53Ready(&tofFront))
+    if(tof::ready(&tofFront))
     {
-        const UInt16 mm = vl53Distance(&tofFront);
-        const UInt8  st = vl53Status(&tofFront);
+        const UInt16 mm = tof::distance(&tofFront);
+        const UInt8  st = tof::status(&tofFront);
 
         /* The rates are read BEFORE the interrupt is cleared - they belong
          * to THIS measurement, and clearing first would hand back whatever
@@ -318,23 +340,23 @@ static Void printTof(Void)
          * infrared in the room. */
         UInt16 sig = 0;
         UInt16 amb = 0;
-        (Void) vl53Rates(&tofFront, &sig, &amb);
+        static_cast<Void>(tof::rates(&tofFront, &sig, &amb));
 
-        vl53Clear(&tofFront);
-        serialPrintf("OK tof %u %u %u %u\n", mm, st, sig, amb);
+        tof::clear(&tofFront);
+        serial::printf("OK tof %u %u %u %u\n", mm, st, sig, amb);
         return;
     }
 
     /* Not ready is not an error - the sensor takes tens of milliseconds per
      * measurement and the host is entitled to ask more often than that. */
-    serialPrintf("OK tof busy\n");
+    serial::printf("OK tof busy\n");
 }
 
 static Void handleTofMode(CharSeq arg)
 {
     if(!tofUp)
     {
-        serialPrintf("ERR tof absent\n");
+        serial::printf("ERR tof absent\n");
         return;
     }
 
@@ -344,23 +366,23 @@ static Void handleTofMode(CharSeq arg)
      * measurement leaves the sensor half-configured for as long as that
      * measurement lasts, and what it does with the result is undefined.
      * ST's own driver brackets it this way and so does this. */
-    if(textEq(arg, "SHORT"))
+    if(text::eq(arg, "SHORT"))
     {
-        vl53StopRanging(&tofFront);
-        vl53SetMode(&tofFront, VL53_MODE_SHORT);
-        vl53ClearInterruptAndStart(&tofFront);
-        serialPrintf("OK tof mode short\n");
+        tof::stopRanging(&tofFront);
+        tof::setMode(&tofFront, tof::MODE_SHORT);
+        tof::clearInterruptAndStart(&tofFront);
+        serial::printf("OK tof mode short\n");
         return;
     }
-    if(textEq(arg, "LONG"))
+    if(text::eq(arg, "LONG"))
     {
-        vl53StopRanging(&tofFront);
-        vl53SetMode(&tofFront, VL53_MODE_LONG);
-        vl53ClearInterruptAndStart(&tofFront);
-        serialPrintf("OK tof mode long\n");
+        tof::stopRanging(&tofFront);
+        tof::setMode(&tofFront, tof::MODE_LONG);
+        tof::clearInterruptAndStart(&tofFront);
+        serial::printf("OK tof mode long\n");
         return;
     }
-    serialPrintf("ERR bad mode: %s\n", arg);
+    serial::printf("ERR bad mode: %s\n", arg);
 }
 
 /* ================================================================== drive ==
@@ -376,8 +398,8 @@ static Void handleTofMode(CharSeq arg)
 
 static Void printDrive(Void)
 {
-    const DriveState d = driveRead();
-    serialPrintf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
+    const drive::State d = drive::read();
+    serial::printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
            "servo_on=%d servo_c=%d steer_m=%d steer_now=%d "
            "slew=%d slew_esc=%d "
            "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
@@ -395,18 +417,18 @@ static Void handleSteer(CharSeq arg)
      * that it means zero would turn a typo into a movement. */
     if(arg[0] == '\0')
     {
-        serialPrintf("ERR steer wants -1.0 to 1.0\n");
+        serial::printf("ERR steer wants -1.0 to 1.0\n");
         return;
     }
 
     Float32 n = 0.0f;
-    if(!textFloat(arg, &n))
+    if(!text::toFloat(arg, &n))
     {
-        serialPrintf("ERR steer wants -1.0 to 1.0\n");
+        serial::printf("ERR steer wants -1.0 to 1.0\n");
         return;
     }
 
-    driveSteer(n);
+    drive::steer(n);
     printDrive();
 }
 
@@ -419,13 +441,13 @@ static Void handleSteer(CharSeq arg)
  */
 static Void handleSlew(CharSeq arg)
 {
-    CharSeq rest = textWord(arg, "STEER");
+    CharSeq rest = text::word(arg, "STEER");
     if(rest != NULL)
     {
         Int32 us = 0;
-        if(!textInt(rest, &us) || !driveSetSteerSlew(us))
+        if(!text::toInt(rest, &us) || !drive::setSteerSlew(us))
         {
-            serialPrintf("ERR slew steer wants %d-%d us per tick\n",
+            serial::printf("ERR slew steer wants %d-%d us per tick\n",
                          SLEW_MIN_STEP, SLEW_MAX_STEP);
             return;
         }
@@ -433,13 +455,13 @@ static Void handleSlew(CharSeq arg)
         return;
     }
 
-    rest = textWord(arg, "THROTTLE");
+    rest = text::word(arg, "THROTTLE");
     if(rest != NULL)
     {
         Int32 us = 0;
-        if(!textInt(rest, &us) || !driveSetThrottleSlew(us))
+        if(!text::toInt(rest, &us) || !drive::setThrottleSlew(us))
         {
-            serialPrintf("ERR slew throttle wants %d-%d us per tick\n",
+            serial::printf("ERR slew throttle wants %d-%d us per tick\n",
                          SLEW_MIN_STEP, SLEW_MAX_STEP);
             return;
         }
@@ -448,9 +470,9 @@ static Void handleSlew(CharSeq arg)
     }
 
     Int32 us = 0;
-    if(!textInt(arg, &us) || !driveSetSlew(us))
+    if(!text::toInt(arg, &us) || !drive::setSlew(us))
     {
-        serialPrintf("ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
+        serial::printf("ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
                      SLEW_MIN_STEP, SLEW_MAX_STEP);
         return;
     }
@@ -461,15 +483,15 @@ static Void handleSlew(CharSeq arg)
      * full travel 1100 ms" is the fact that decides whether it is fast enough
      * to steer around something.
      */
-    const DriveState d = driveRead();
+    const drive::State d = drive::read();
     const Int32 perSec = d.steerSlewUs * (1000 / SLEW_TICK_MS);
-    serialPrintf("INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
+    serial::printf("INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
                  d.steerSlewUs, perSec,
                  (perSec > 0) ? (((d.servoMaxUs - d.servoMinUs) * 1000) / perSec)
                               : 0);
 
     const Int32 escPerSec = d.throttleSlewUs * (1000 / SLEW_TICK_MS);
-    serialPrintf("INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
+    serial::printf("INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
                  d.throttleSlewUs, escPerSec,
                  (escPerSec > 0) ? (((d.escMaxUs - d.escMinUs) * 1000) / escPerSec)
                                  : 0);
@@ -479,15 +501,15 @@ static Void handleSlew(CharSeq arg)
 static Void handleTrim(CharSeq arg)
 {
     Int32 us = 0;
-    if(!textInt(arg, &us))
+    if(!text::toInt(arg, &us))
     {
-        const DriveState d = driveRead();
-        serialPrintf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
+        const drive::State d = drive::read();
+        serial::printf("ERR trim wants microseconds, %d-%d\n", d.servoMinUs, d.servoMaxUs);
         return;
     }
 
-    driveTrim(us);
-    serialPrintf("INFO centre is now %d us\n", driveRead().centerUs);
+    drive::trim(us);
+    serial::printf("INFO centre is now %d us\n", drive::read().centerUs);
     printDrive();
 }
 
@@ -496,21 +518,21 @@ static Void handleTrim(CharSeq arg)
  *
  * They were written out twice, identically apart from the word in the error
  * messages and the function called - and the two copies had already drifted
- * once, because the ordering bug fixed in driveSetSteerLimits had to be
+ * once, because the ordering bug fixed in drive::setSteerLimits had to be
  * remembered a second time for the throttle.
  */
 static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
 {
     Int32 lo = 0;
     Int32 hi = 0;
-    if(!textTwoInts(arg, &lo, &hi))
+    if(!text::twoInts(arg, &lo, &hi))
     {
-        serialPrintf("ERR %s wants <min> <max>\n", name);
+        serial::printf("ERR %s wants <min> <max>\n", name);
         return;
     }
     if(!set(lo, hi))
     {
-        serialPrintf("ERR %s min must be below max\n", name);
+        serial::printf("ERR %s min must be below max\n", name);
         return;
     }
     printDrive();
@@ -518,12 +540,12 @@ static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
 
 static Void handleLimits(CharSeq arg)
 {
-    limitsCommand(arg, "servolimits", driveSetSteerLimits);
+    limitsCommand(arg, "servolimits", drive::setSteerLimits);
 }
 
 static Void handleEscLimits(CharSeq arg)
 {
-    limitsCommand(arg, "esclimits", driveSetThrottleLimits);
+    limitsCommand(arg, "esclimits", drive::setThrottleLimits);
 }
 
 static Void handleServo(CharSeq arg)
@@ -533,84 +555,84 @@ static Void handleServo(CharSeq arg)
      * leaning on a frame does not need a better number, it needs to stop being
      * told to hold a position at all.
      */
-    if(textEq(arg, "OFF"))
+    if(text::eq(arg, "OFF"))
     {
-        driveEngage(false);
-        serialPrintf("INFO servo released - no pulse, no holding torque\n");
+        drive::engage(false);
+        serial::printf("INFO servo released - no pulse, no holding torque\n");
         printDrive();
         return;
     }
 
-    if(textEq(arg, "ON"))
+    if(text::eq(arg, "ON"))
     {
-        driveEngage(true);
-        serialPrintf("INFO servo engaged - holding %d us\n", driveRead().servoTargetUs);
+        drive::engage(true);
+        serial::printf("INFO servo engaged - holding %d us\n", drive::read().servoTargetUs);
         printDrive();
         return;
     }
 
-    if(textEq(arg, "CENTER") || textEq(arg, "CENTRE"))
+    if(text::eq(arg, "CENTER") || text::eq(arg, "CENTRE"))
     {
-        driveCenter();
+        drive::center();
         printDrive();
         return;
     }
 
     Int32 us = 0;
-    if(!textInt(arg, &us))
+    if(!text::toInt(arg, &us))
     {
-        const DriveState d = driveRead();
-        serialPrintf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
+        const drive::State d = drive::read();
+        serial::printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
                d.servoMinUs, d.servoMaxUs);
         return;
     }
 
     /* A position asked for while released is remembered, not obeyed. Engaging
      * is a separate, deliberate act - the same shape as arming the ESC. */
-    const Bool wasLive = driveRead().servoLive;
-    driveSteerUs(us);
+    const Bool wasLive = drive::read().servoLive;
+    drive::steerUs(us);
     if(!wasLive)
     {
-        serialPrintf("INFO servo is released - target stored, send SERVO ON\n");
+        serial::printf("INFO servo is released - target stored, send SERVO ON\n");
     }
     printDrive();
 }
 
 static Void handleEsc(CharSeq arg)
 {
-    if(textEq(arg, "ARM"))
+    if(text::eq(arg, "ARM"))
     {
-        driveArm(true);
-        serialPrintf("INFO esc armed - neutral held\n");
+        drive::arm(true);
+        serial::printf("INFO esc armed - neutral held\n");
         printDrive();
         return;
     }
-    if(textEq(arg, "DISARM"))
+    if(text::eq(arg, "DISARM"))
     {
-        driveArm(false);
-        serialPrintf("INFO esc disarmed\n");
+        drive::arm(false);
+        serial::printf("INFO esc disarmed\n");
         printDrive();
         return;
     }
-    if(textEq(arg, "NEUTRAL"))
+    if(text::eq(arg, "NEUTRAL"))
     {
-        driveThrottleNeutral();
+        drive::throttleNeutral();
         printDrive();
         return;
     }
 
     Int32 us = 0;
-    if(!textInt(arg, &us))
+    if(!text::toInt(arg, &us))
     {
-        const DriveState d = driveRead();
-        serialPrintf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
+        const drive::State d = drive::read();
+        serial::printf("ERR esc wants microseconds, %d-%d\n", d.escMinUs, d.escMaxUs);
         return;
     }
 
     /* The module owns the arming rule; this only reports it. */
-    if(!driveThrottleUs(us))
+    if(!drive::throttleUs(us))
     {
-        serialPrintf("ERR esc not armed - send ESC ARM first\n");
+        serial::printf("ERR esc not armed - send ESC ARM first\n");
         return;
     }
     printDrive();
@@ -627,7 +649,7 @@ static Void handleEsc(CharSeq arg)
  * running rather than the LED merely being on.
  * ------------------------------------------------------------------------- */
 /* The lamp names, in Lamp order, so the reply reads the way the model does. */
-static CharSeq LAMP_NAME[LAMP_COUNT] =
+static CharSeq LAMP_NAME[lights::COUNT] =
 {
     "headL", "headR", "tailL", "tailR",
     "indFL", "indFR", "indRL", "indRR",
@@ -643,11 +665,11 @@ static CharSeq LAMP_NAME[LAMP_COUNT] =
  */
 static Void printLights(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
 
-    const LampSet   s = lightsRead();
-    const LightTurn t = lightsSide();
-    const Int32     f = lightsForcedLamp();
+    const lights::Set s = lights::read();
+    const cue::Turn t = cue::side();
+    const Int32   f = lights::forcedLamp();
 
     /* ONE line, not one per lamp.
      *
@@ -655,23 +677,23 @@ static Void printLights(CharSeq arg)
      * a poll is seventy-five lines a second of serial traffic to say what fits
      * in one. levels[] and pins[] are in Lamp order, which is the order
      * LAMP_NAME is in and the order the model declares them. */
-    serialPrintf("OK lights on=%d turn=%s forced=%s off_us=%d"
+    serial::printf("OK lights on=%d turn=%s forced=%s off_us=%d"
                  " levels=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u"
                  " pins=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-                 lightsEnabled() ? 1 : 0,
-                 (t == LIGHT_TURN_LEFT)  ? "left"
-                     : (t == LIGHT_TURN_RIGHT)  ? "right"
-                     : (t == LIGHT_TURN_HAZARD) ? "hazard" : "off",
-                 (f == LAMP_COUNT) ? "no" : LAMP_NAME[f],
-                 lightsOffThreshold(),
-                 (UInt32) s.level[0], (UInt32) s.level[1],
-                 (UInt32) s.level[2], (UInt32) s.level[3],
-                 (UInt32) s.level[4], (UInt32) s.level[5],
-                 (UInt32) s.level[6], (UInt32) s.level[7],
-                 (UInt32) s.level[8], (UInt32) s.level[9],
-                 lightPin[0], lightPin[1], lightPin[2], lightPin[3],
-                 lightPin[4], lightPin[5], lightPin[6], lightPin[7],
-                 lightPin[8], lightPin[9]);
+                 lights::enabled() ? 1 : 0,
+                 (t == cue::TURN_LEFT)  ? "left"
+                     : (t == cue::TURN_RIGHT)  ? "right"
+                     : (t == cue::TURN_HAZARD) ? "hazard" : "off",
+                 (f == lights::COUNT) ? "no" : LAMP_NAME[f],
+                 cue::motionUs(),
+                 static_cast<UInt32>(s.level[0]), static_cast<UInt32>(s.level[1]),
+                 static_cast<UInt32>(s.level[2]), static_cast<UInt32>(s.level[3]),
+                 static_cast<UInt32>(s.level[4]), static_cast<UInt32>(s.level[5]),
+                 static_cast<UInt32>(s.level[6]), static_cast<UInt32>(s.level[7]),
+                 static_cast<UInt32>(s.level[8]), static_cast<UInt32>(s.level[9]),
+                 lights::pin[0], lights::pin[1], lights::pin[2], lights::pin[3],
+                 lights::pin[4], lights::pin[5], lights::pin[6], lights::pin[7],
+                 lights::pin[8], lights::pin[9]);
 }
 
 /*
@@ -683,34 +705,34 @@ static Void printLights(CharSeq arg)
  */
 static Void handleLights(CharSeq arg)
 {
-    if(textEq(arg, "ON"))
+    if(text::eq(arg, "ON"))
     {
-        lightsEnable(true);
+        lights::enable(true);
         printLights(arg);
         return;
     }
-    if(textEq(arg, "OFF"))
+    if(text::eq(arg, "OFF"))
     {
-        lightsEnable(false);
+        lights::enable(false);
         printLights(arg);
         return;
     }
-    if(textEq(arg, "AUTO"))
+    if(text::eq(arg, "AUTO"))
     {
-        lightsForceLamp(LAMP_COUNT);
+        lights::forceLamp(lights::COUNT);
         printLights(arg);
         return;
     }
 
     /* LIGHTS OFFAT <us> - how far past idle counts as being driven. */
-    if(textStarts(arg, "OFFAT"))
+    if(text::starts(arg, "OFFAT"))
     {
         Int32 us = 0;
-        if(!textInt(textAfter(arg, "OFFAT "), &us)
-           || !lightsSetOffThreshold(us))
+        if(!text::toInt(text::after(arg, "OFFAT "), &us)
+           || !cue::setMotionUs(us))
         {
-            serialPrintf("ERR lights offat wants %d-%d us past idle\n",
-                         LIGHT_OFF_US_MIN, LIGHT_OFF_US_MAX);
+            serial::printf("ERR lights offat wants %d-%d us past idle\n",
+                         CUE_MOTION_US_MIN, CUE_MOTION_US_MAX);
             return;
         }
         printLights(arg);
@@ -724,7 +746,7 @@ static Void handleLights(CharSeq arg)
 
     /* Matched case-insensitively because handleLine has already uppercased the
      * whole line, and the table above is spelled the way the model spells it. */
-    for(Int32 i = 0; i < LAMP_COUNT; ++i)
+    for(Int32 i = 0; i < lights::COUNT; ++i)
     {
         Utf8 up[12];
         Size n = 0;
@@ -734,17 +756,17 @@ static Void handleLights(CharSeq arg)
             ++n;
         }
         up[n] = '\0';
-        textUpper(up);
+        text::upper(up);
 
-        if(textEq(arg, up))
+        if(text::eq(arg, up))
         {
-            lightsForceLamp(i);
+            lights::forceLamp(i);
             printLights(arg);
             return;
         }
     }
 
-    serialPrintf("ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name,"
+    serial::printf("ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name,"
                  " or nothing\n");
 }
 
@@ -752,7 +774,7 @@ static Void handleLights(CharSeq arg)
  *
  * One row per command; the dispatcher and HELP both read it.
  *
- * They used to be two lists. A chain of twenty if(textStarts(...)) blocks with
+ * They used to be two lists. A chain of twenty if(text::starts(...)) blocks with
  * the argument offset written out by hand - line + 10 for "SERVOTRIM ",
  * line + 12 for "SERVOLIMITS " - and a printHelp() that spelled the same
  * commands out again in prose. Two lists of the same thing drift: the offsets
@@ -761,7 +783,7 @@ static Void handleLights(CharSeq arg)
  *
  * Matching is by WHOLE WORD, so the order of the rows means nothing. The old
  * chain worked only because SERVOTRIM and SERVOLIMITS happened to be tested
- * before SERVO, which textStarts() would otherwise have matched first.
+ * before SERVO, which text::starts() would otherwise have matched first.
  *
  * `usage` is what may follow the name and `what` is one line about it; HELP
  * prints them and nothing else has to be kept in step.
@@ -784,7 +806,7 @@ static Void printHelp(CharSeq arg);
  * would hand the whole thing to TOF anyway. */
 static Void cmdTof(CharSeq arg)
 {
-    CharSeq mode = textWord(arg, "MODE");
+    CharSeq mode = text::word(arg, "MODE");
     if(mode != NULL)
     {
         handleTofMode(mode);
@@ -795,13 +817,13 @@ static Void cmdTof(CharSeq arg)
 
 static Void cmdPing(CharSeq arg)
 {
-    (Void) arg;
-    serialPrintf("PONG\n");
+    static_cast<Void>(arg);
+    serial::printf("PONG\n");
 }
 
 static Void cmdDrive(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
     printDrive();
 }
 
@@ -823,19 +845,163 @@ static Void cmdDrive(CharSeq arg)
  */
 static Void cmdStop(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
 
-    driveStop();
-    lightsForceLamp(LAMP_COUNT);
+    drive::stop();
+    lights::forceLamp(lights::COUNT);
 
-    serialPrintf("OK stop\n");
+    /* Mid-sentence is still an output being commanded, and a stop that leaves
+     * an output commanded is not a stop. */
+    cue::silence();
+
+    serial::printf("OK stop\n");
+}
+
+/*
+ * WIFI - the wireless command link.
+ *
+ *   WIFI                      where it stands
+ *   WIFI JOIN <ssid> <pass>   join a network; no password means an open one
+ *
+ * The credentials are taken from the RAW line, not the uppercased one, and
+ * they are never written to flash or to this repository - a reset loses them.
+ * That is a deliberate cost: this repository is pushed, and a password in a
+ * source file is a password in the history forever.
+ *
+ * An SSID containing a space cannot be expressed here. The password can - it is
+ * everything after the first space following the SSID, verbatim.
+ */
+static Void cmdWifi(CharSeq arg)
+{
+    if(!net::present())
+    {
+        serial::printf("ERR wifi no radio on this board (%s)\n", PICO_BOARD);
+        return;
+    }
+
+    CharSeq rest = text::word(arg, "JOIN");
+    if(rest == NULL)
+    {
+        serial::printf("INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
+                     net::stateWord(net::status()),
+                     net::address(),
+                     static_cast<Int32>(NET_PORT),
+                     net::peerKnown() ? "yes" : "no",
+                     net::droppedCount());
+        return;
+    }
+
+    /* The same offset into the line as it was typed. */
+    CharSeq raw = cmdRawArg + (rest - arg);
+
+    Utf8 ssid[40];
+    Size n = 0;
+    while(raw[n] != '\0' && raw[n] != ' ' && n + 1 < sizeof(ssid))
+    {
+        ssid[n] = raw[n];
+        n++;
+    }
+    ssid[n] = '\0';
+
+    if(n == 0)
+    {
+        serial::printf("ERR wifi join wants <ssid> [password]\n");
+        return;
+    }
+    if(raw[n] != '\0' && raw[n] != ' ')
+    {
+        /* Ran out of buffer mid-name. Say so: a truncated SSID would fail to
+         * join and look like the network was out of range. */
+        serial::printf("ERR wifi ssid longer than %u characters\n",
+                     static_cast<UInt32>(sizeof(ssid) - 1));
+        return;
+    }
+
+    while(raw[n] == ' ')
+    {
+        n++;
+    }
+
+    if(!net::join(ssid, &raw[n]))
+    {
+        serial::printf("ERR wifi could not start joining %s\n", ssid);
+        return;
+    }
+
+    /* Deliberately does not say whether it WORKED - it has not finished trying.
+     * The main loop reports the state when it changes. */
+    serial::printf("OK wifi joining %s\n", ssid);
+}
+
+/* ---------------------------------------------------------------------------
+ * CUE - what the car is saying, and telling it to say something.
+ *
+ *   CUE               where it stands
+ *   CUE LIST          every cue this firmware knows, and what each one means
+ *   CUE <name>        say it now
+ *   CUE STOP          stop mid-sentence
+ *
+ * The lamps are reported by LIGHTS, not here. This reports the UTTERANCE - which
+ * one, how far through it is, and what it would be sounding if there were a
+ * buzzer - because "the headlights blinked" and "the car said `after you`" are
+ * different facts and only one of them survives being read off a lamp level.
+ * ------------------------------------------------------------------------- */
+static Void printCue(Void)
+{
+    const cue::Kind k = cue::speaking();
+
+    serial::printf("OK cue speaking=%s step=%u loop=%u tone=%u kinds=%d off_us=%d\n",
+                 cue::name(k),
+                 static_cast<UInt32>(cue::step()),
+                 static_cast<UInt32>(cue::loop()),
+                 static_cast<UInt32>(cue::tone()),
+                 static_cast<Int32>(cue::KIND_COUNT - 1),
+                 cue::motionUs());
+}
+
+static Void cmdCue(CharSeq arg)
+{
+    if(arg[0] == '\0')
+    {
+        printCue();
+        return;
+    }
+
+    if(text::eq(arg, "LIST"))
+    {
+        /* One line each, the way HELP does it, so nothing has to be kept in
+         * step with a list written somewhere else. */
+        for(Int32 k = 1; k < cue::KIND_COUNT; ++k)
+        {
+            serial::printf("INFO cue %s - %s\n",
+                         cue::SCRIPT[k].name, cue::SCRIPT[k].means);
+        }
+        printCue();
+        return;
+    }
+
+    if(text::eq(arg, "STOP"))
+    {
+        cue::silence();
+        printCue();
+        return;
+    }
+
+    const cue::Kind want = cue::find(arg);
+    if(want == cue::KIND_NONE || !cue::emit(want))
+    {
+        serial::printf("ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
+        return;
+    }
+
+    printCue();
 }
 
 static Void cmdBootsel(CharSeq arg)
 {
-    (Void) arg;
-    serialPrintf("INFO rebooting into bootloader\n");
-    rebootToBootsel();          /* flushes, then does not return */
+    static_cast<Void>(arg);
+    serial::printf("INFO rebooting into bootloader\n");
+    board::rebootToBootsel();          /* flushes, then does not return */
 }
 
 static const Command COMMANDS[] =
@@ -861,6 +1027,9 @@ static const Command COMMANDS[] =
     { "ESC",         " ARM|DISARM|NEUTRAL|<us>", "throttle",                                handleEsc },
     { "ESCLIMITS",   " <min> <max>",            "widen the throttle range",                 handleEscLimits },
 
+    { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
+    { "CUE",         " [LIST|STOP|<name>]",     "what the car says, and saying it",      cmdCue },
+
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
      * the wheel encoder. See lib/lights.h. */
     { "LIGHTS",      " [ON|OFF|AUTO|OFFAT <us>|<lamp>]", "the lamps, and what each is doing", handleLights },
@@ -870,10 +1039,10 @@ static const Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
 
 static Void printHelp(CharSeq arg)
 {
-    (Void) arg;
+    static_cast<Void>(arg);
     for(Size i = 0; i < COMMAND_COUNT; ++i)
     {
-        serialPrintf("INFO help %s%s - %s\n",
+        serial::printf("INFO help %s%s - %s\n",
                      COMMANDS[i].name, COMMANDS[i].usage, COMMANDS[i].what);
     }
 }
@@ -882,22 +1051,25 @@ static Void handleLine(Utf8* line)
 {
     /* A terminal decides for itself what to put at the end of a line. Without
      * this, "PING\r" is not "PING" and a correctly typed command is refused. */
-    if(textTrimEnd(line) == 0)
+    if(text::trimEnd(line) == 0)
     {
         return;
     }
 
-    textUpper(line);
+    /* BEFORE text::upper, which rewrites in place. */
+    snprintf(rawLine, sizeof(rawLine), "%s", line);
+
+    text::upper(line);
 
     /* ANY line from the host counts as liveness, including one that turns out
      * to be a bad command. The question this asks is "is somebody still there",
      * not "is somebody still there and getting it right". */
-    lastCmdMs      = nowMs();
+    lastCmdMs      = timing::nowMs();
     deadmanTripped = false;
 
     /* "?" is HELP, and is not a row of its own: it would print as a command in
      * its own listing, which is one more thing than anybody wants to read. */
-    if(textEq(line, "?"))
+    if(text::eq(line, "?"))
     {
         printHelp(line);
         return;
@@ -905,22 +1077,34 @@ static Void handleLine(Utf8* line)
 
     for(Size i = 0; i < COMMAND_COUNT; ++i)
     {
-        CharSeq arg = textWord(line, COMMANDS[i].name);
+        CharSeq arg = text::word(line, COMMANDS[i].name);
         if(arg != NULL)
         {
+            /* Same offset, other buffer - see rawLine above. */
+            cmdRawArg = rawLine + (arg - (CharSeq) line);
             COMMANDS[i].run(arg);
             return;
         }
     }
 
-    serialPrintf("ERR unknown command: %s\n", line);
+    serial::printf("ERR unknown command: %s\n", line);
 }
 
 /* ------------------------------------------------------------------ main -- */
 
-Int32 main(Void)
+/*
+ * `int`, not Int32, and this is the one place in the program where that is
+ * right.
+ *
+ * C++ requires main to return literally `int`. Int32 is int32_t, and on this
+ * toolchain int32_t is `long` - the same size, the same representation, a
+ * different type as far as the language is concerned, and the compiler refuses
+ * it. main's signature is the C runtime's contract, not this project's
+ * vocabulary, so it is spelled the runtime's way.
+ */
+int main(Void)
 {
-    serialOpen();
+    serial::open();
 
     /* Sensors come up at boot so SENSORS and TOF can answer immediately. A
      * missing sensor is not a failure here - it is the answer. */
@@ -928,7 +1112,7 @@ Int32 main(Void)
 
     /* The ESC to neutral, the steering RELEASED. See chassis.h for why those
      * are different answers. */
-    driveOpen();
+    drive::open();
 
     /* Brings up whatever this board's LED hangs off.
      *
@@ -936,26 +1120,49 @@ Int32 main(Void)
      * fail, so the result is REPORTED rather than assumed: a board that answers
      * PING but says cyw43=FAILED is a very different problem from a board that
      * is silent. On the plain Pico 2 it is GP25 and cannot fail. Either way
-     * statusOpen() remembers the outcome and every later call is a no-op
+     * status::open() remembers the outcome and every later call is a no-op
      * rather than a crash. */
-    statusOpen();
+    status::open();
 
     /* The indicator lamps. TEMPORARY scaffolding on borrowed pins - lib/lights.h
-     * says which and why. Opened AFTER driveOpen() so that if the two ever
+     * says which and why. Opened AFTER drive::open() so that if the two ever
      * disagree about a pin, the drivetrain wins: a stray LED is a cosmetic
      * fault and a servo pin that is secretly an output is not. */
-    lightsOpen();
+    lights::open();
+
+    /* What the car SAYS with those lamps. Opened after them, because a cue with
+     * nowhere to come out of is a cue that fails silently. */
+    cue::open();
 
     /* The threshold is a tuning that survives a reflash, so it lives in cal.h
-     * and is handed to the module here. lights.h cannot reach for cal.h - the
+     * and is handed to the module here. cue.h cannot reach for cal.h - the
      * layering forbids it, and rightly: the RULE is the same on any car and only
      * the number is this one's. */
-    lightsSetOffThreshold(LIGHT_CAL_OFF_US);
+    cue::setMotionUs(LIGHT_CAL_OFF_US);
 
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */
-    statusHello(HELLO_FLASHES, HELLO_FLASH_MS);
-    statusBlink(IDLE_BLINK_HZ);
+    status::hello(HELLO_FLASHES, HELLO_FLASH_MS);
+    status::blink(IDLE_BLINK_HZ);
+
+    /* ---- the wireless link ---------------------------------------------
+     *
+     * Wired up, not switched on. Nothing here touches the radio until somebody
+     * sends WIFI JOIN, so the boards that will never use it - and the seconds
+     * before anybody asks - cost nothing.
+     *
+     * Two connections, and they are the two halves of the same seam:
+     *
+     *   net::setLineHandler  a line arriving in a datagram goes to the SAME
+     *                      handler a line arriving on the cable goes to. There
+     *                      is one command language, not two.
+     *   serial::setMirror    everything this program prints goes to the wireless
+     *                      peer as well as the cable, so a host that is only
+     *                      listening wirelessly sees the replies to its own
+     *                      commands - and to anybody else's.
+     */
+    net::setLineHandler(handleLine);
+    serial::setMirror(net::sendLine);
 
     Utf8 line[LINE_CAP];
     Size len      = 0;
@@ -964,59 +1171,88 @@ Int32 main(Void)
 
     for(;;)
     {
-        statusTick();
+        status::tick();
+
+        /* ---- the wireless link ------------------------------------------
+         *
+         * BEFORE the drivetrain, and before the serial read below that skips
+         * the rest of the loop on an idle millisecond.
+         *
+         * In NO_SYS mode nothing in lwIP happens on its own: no packet is
+         * received, no join completes, no timer fires except inside this call.
+         * A command that arrived wirelessly is dispatched from in here, which
+         * means it feeds the deadman exactly like one off the cable does.
+         */
+        net::poll();
+
+        {
+            const net::State ns = net::status();
+            if(ns != netReported)
+            {
+                netReported = ns;
+                serial::printf("INFO wifi state=%s ip=%s port=%d\n",
+                             net::stateWord(ns), net::address(), static_cast<Int32>(NET_PORT));
+            }
+        }
 
         /* Walks the servo and ESC toward their targets, a few microseconds at a
          * time. Nothing jumps: a slider dragged end to end produces a sweep
          * rather than a step. */
-        drivePump();
+        drive::pump();
 
         /* ---- the deadman ------------------------------------------------
          *
-         * driveStop() FIRST, then the report. serialPrintf blocks while the CDC
+         * drive::stop() FIRST, then the report. serial::printf blocks while the CDC
          * TX buffer is full, for up to half a second, and a host that has
          * stopped draining the port is one of the exact situations this exists
          * for - so the car is stopped before anything is printed, not after.
          */
         {
-            const DriveState dm      = driveRead();
+            const drive::State dm      = drive::read();
             const Bool       driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs);
 
-            if(driving && !deadmanTripped && (nowMs() - lastCmdMs) > DEADMAN_MS)
+            if(driving && !deadmanTripped && (timing::nowMs() - lastCmdMs) > DEADMAN_MS)
             {
-                driveStop();
-                lightsForceLamp(LAMP_COUNT);
+                drive::stop();
+                lights::forceLamp(lights::COUNT);
+
+                /* And it SAYS so, on the car, where somebody standing next to
+                 * it can see. By definition this fires when the host has
+                 * stopped listening, so a line in a console nobody is reading
+                 * is the one place the message must not only be. */
+                cue::emit(cue::KIND_ALERT);
+
                 deadmanTripped = true;
 
-                serialPrintf("ERR deadman - no command for %u ms, stopped\n",
-                             (UInt32) DEADMAN_MS);
+                serial::printf("ERR deadman - no command for %u ms, stopped\n",
+                             static_cast<UInt32>(DEADMAN_MS));
             }
         }
 
-        /* AFTER drivePump, and reading the ACTUAL servo and ESC output rather
+        /* AFTER drive::pump, and reading the ACTUAL servo and ESC output rather
          * than their targets. The slew limiter means the two differ for about a
          * second after every command: reading targets would light a lamp before
          * the car had done the thing the lamp is reporting. */
         {
-            const DriveState d = driveRead();
+            const drive::State d = drive::read();
 
-            LightInput li;
-            li.steerMilli = d.steerNowMilli;
-            li.throttleUs = d.escUs;
-            li.idleUs     = d.escMinUs;
-            li.neutralUs  = DRIVE_NEUTRAL_US;
-            li.armed      = d.escArmed;
-            li.headOn     = false;   /* nothing the car knows implies darkness */
+            cue::Input ci;
+            ci.steerMilli = d.steerNowMilli;
+            ci.throttleUs = d.escUs;
+            ci.idleUs     = d.escMinUs;
+            ci.neutralUs  = DRIVE_NEUTRAL_US;
+            ci.armed      = d.escArmed;
+            ci.headOn     = false;   /* nothing the car knows implies darkness */
 
-            lightsTick(&li);
+            cue::tick(&ci);
         }
 
         /* Anything written before the host opens the port is discarded, so the
          * banner waits for a connection rather than being lost. */
-        const Bool host = serialHostPresent();
+        const Bool host = serial::hostPresent();
         if(!announced && host)
         {
-            serialPrintf("INFO ready %s sdk=%s - type HELP\n",
+            serial::printf("INFO ready %s sdk=%s - type HELP\n",
                    PICO_BOARD, PICO_SDK_VERSION_STRING);
             announced = true;
         }
@@ -1025,8 +1261,8 @@ Int32 main(Void)
             announced = false;      /* re-announce on the next connection */
         }
 
-        const Int32 c = serialReadChar(POLL_TIMEOUT_US);
-        if(c == SERIAL_NONE)
+        const Int32 c = serial::readChar(POLL_TIMEOUT_US);
+        if(c == serial::NONE)
         {
             continue;
         }
@@ -1066,7 +1302,7 @@ Int32 main(Void)
              */
             len      = 0;
             overlong = true;
-            serialPrintf("ERR line too long\n");
+            serial::printf("ERR line too long\n");
         }
     }
 }
