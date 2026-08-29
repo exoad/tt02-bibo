@@ -46,6 +46,17 @@
  * It matters that this is the floor the sliders are built from: a range
  * starting below idle spends its first stretch doing nothing at all, so the
  * control feels dead at one end for no reason a driver could work out.
+ *
+ * A GEAR CHANGE INVALIDATES THIS. Idle is where the motor overcomes the
+ * drivetrain, so more reduction breaks static friction at a lower pulse and
+ * this number goes down. The 17T pinion went on after this was measured at 19T,
+ * and it has not been re-measured since - so 1541 is an upper bound on idle
+ * rather than idle.
+ *
+ * That is not cosmetic. driveThrottleUs clamps UPWARD to escMin, and the
+ * deadman calls the car driven when escTargetUs > escMinUs - so a car that
+ * creeps at what this file calls idle is a car the deadman does not think is
+ * moving.
  */
 #define THROTTLE_CAL_MIN 1541
 #define THROTTLE_CAL_MAX 1600

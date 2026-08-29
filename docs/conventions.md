@@ -132,10 +132,38 @@ domains; power never does.
 **Chassis:** Tamiya TT-02, ~440 x 190 x 130 mm with shell, ~1.35 kg stock.
 Chassis tub ~90-100 mm wide — that is the usable deck space.
 
-**Motor:** Tamiya 540 Torque Tuned (RS-540SH-7525). Uses a **19T pinion** per the
-motor's supplementary sheet, **not** the 22T in the main kit manual. The smaller
-pinion requires the closer motor mount position. Following the main manual leads
-to a mount position where the gears cannot mesh. This cost real debugging time.
+**Motor:** Tamiya 540 Torque Tuned (RS-540SH-7525).
+
+The motor's supplementary sheet calls for a **19T pinion**, **not** the 22T in
+the main kit manual, and the smaller pinion needs the closer motor mount
+position. Following the main manual leads to a mount position where the gears
+cannot mesh, which cost real debugging time.
+
+**Gearing: 17T pinion / 70T spur.** With the TT-02's 2.60:1 internal ratio that
+is a **10.71:1** final drive, down from 9.58:1 on the 19T — **+11.8% torque at
+the wheels, -10.5% top speed**.
+
+Nothing in the firmware or the hub knows the gear ratio, and nothing should: the
+ESC is commanded in microseconds and a gear change does not alter what a pulse
+width means to it. Two things downstream of it are affected and are written down
+here so they are not rediscovered:
+
+- **`THROTTLE_CAL_MIN` is a measurement that this invalidates.** It is idle - the
+  pulse at which the motor sits still and the next microsecond starts it turning
+  - and it was found by winding the throttle up until the wheels moved. More
+  reduction means the drivetrain breaks static friction at a *lower* pulse, so
+  the old 1541 is probably now above the real idle. Re-measure on a stand.
+
+  This is not cosmetic. `driveThrottleUs` clamps *upward* to `escMin`, and the
+  deadman decides the car is being driven by `escTargetUs > escMinUs` - so a car
+  that creeps at what the firmware calls idle is a car the deadman would not
+  consider to be moving.
+
+- **Where the encoder magnet goes.** On the wheel or axle, counts per wheel
+  revolution are a fact about the wheel and no gear change ever touches them. On
+  the spur or the motor, every ratio change silently invalidates the odometry
+  calibration. The axle is the answer; this is worth deciding before it is
+  glued, not after.
 
 **ESC:** Hobbywing QuicRun/THW 1060, 60 A, 5V/2A BEC. Deans male battery
 connector. Set battery type to **NiMH, not LiPo** — LiPo mode cuts off early on
