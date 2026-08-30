@@ -1,0 +1,1128 @@
+<Doc title="Pico 2 W pinout" subtitle="all forty pads" category="Boards" id="pico2wPinout">
+
+<!--
+  A PINOUT, and nothing else: the diagram.
+
+  No prose. What this car has wired to which pad belongs on a page that pulls
+  this in with
+
+      <Include file="pinouts/pico2w.bdoc"/>
+
+  A pinout you have to read is a pinout you cannot use with a connector already
+  in your other hand.
+-->
+
+<Draw width="1740" height="1010">
+# The board, and a row per pad. Generated - see scratchpad/picopin.py.
+
+setColor grey
+setWidth 2
+drawRect 720 66 1000 920
+
+# USB, the only thing on the board that says which way round you are holding it.
+setColor brWhite
+setWidth 1
+drawRect 820 40 900 66
+setColor grey
+setTextSize 12
+setTextAlign centre
+drawText 860 44 "USB"
+drawText 860 487 "Raspberry Pi Pico 2 W"
+setTextAlign left
+
+# ---- left
+setColor grey
+drawLine 706 113 720 113
+setColor white
+fillRect 672 96 706 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 106 "1"
+setTextAlign left
+setColor green
+fillRect 534 96 666 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 106 "GP0"
+setTextAlign left
+setColor magenta
+fillRect 396 96 528 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 106 "SPI0 RX"
+setTextAlign left
+setColor brCyan
+fillRect 258 96 390 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 106 "I2C0 SDA"
+setTextAlign left
+setColor brBlue
+fillRect 120 96 252 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 106 "UART0 TX"
+setTextAlign left
+setColor grey
+drawLine 706 153 720 153
+setColor white
+fillRect 672 136 706 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 146 "2"
+setTextAlign left
+setColor green
+fillRect 534 136 666 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 146 "GP1"
+setTextAlign left
+setColor magenta
+fillRect 396 136 528 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 146 "SPI0 CSn"
+setTextAlign left
+setColor brCyan
+fillRect 258 136 390 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 146 "I2C0 SCL"
+setTextAlign left
+setColor brBlue
+fillRect 120 136 252 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 146 "UART0 RX"
+setTextAlign left
+setColor grey
+drawLine 706 193 720 193
+setColor white
+fillRect 672 176 706 210
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 186 "3"
+setTextAlign left
+setColor grey
+fillRect 534 176 666 210
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 186 "GND"
+setTextAlign left
+setColor grey
+drawLine 706 233 720 233
+setColor white
+fillRect 672 216 706 250
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 226 "4"
+setTextAlign left
+setColor green
+fillRect 534 216 666 250
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 226 "GP2"
+setTextAlign left
+setColor magenta
+fillRect 396 216 528 250
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 226 "SPI0 SCK"
+setTextAlign left
+setColor brCyan
+fillRect 258 216 390 250
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 226 "I2C1 SDA"
+setTextAlign left
+setColor grey
+drawLine 706 273 720 273
+setColor white
+fillRect 672 256 706 290
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 266 "5"
+setTextAlign left
+setColor green
+fillRect 534 256 666 290
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 266 "GP3"
+setTextAlign left
+setColor magenta
+fillRect 396 256 528 290
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 266 "SPI0 TX"
+setTextAlign left
+setColor brCyan
+fillRect 258 256 390 290
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 266 "I2C1 SCL"
+setTextAlign left
+setColor grey
+drawLine 706 313 720 313
+setColor white
+fillRect 672 296 706 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 306 "6"
+setTextAlign left
+setColor green
+fillRect 534 296 666 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 306 "GP4"
+setTextAlign left
+setColor magenta
+fillRect 396 296 528 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 306 "SPI0 RX"
+setTextAlign left
+setColor brCyan
+fillRect 258 296 390 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 306 "I2C0 SDA"
+setTextAlign left
+setColor brBlue
+fillRect 120 296 252 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 306 "UART1 TX"
+setTextAlign left
+setColor grey
+drawLine 706 353 720 353
+setColor white
+fillRect 672 336 706 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 346 "7"
+setTextAlign left
+setColor green
+fillRect 534 336 666 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 346 "GP5"
+setTextAlign left
+setColor magenta
+fillRect 396 336 528 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 346 "SPI0 CSn"
+setTextAlign left
+setColor brCyan
+fillRect 258 336 390 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 346 "I2C0 SCL"
+setTextAlign left
+setColor brBlue
+fillRect 120 336 252 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 346 "UART1 RX"
+setTextAlign left
+setColor grey
+drawLine 706 393 720 393
+setColor white
+fillRect 672 376 706 410
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 386 "8"
+setTextAlign left
+setColor grey
+fillRect 534 376 666 410
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 386 "GND"
+setTextAlign left
+setColor grey
+drawLine 706 433 720 433
+setColor white
+fillRect 672 416 706 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 426 "9"
+setTextAlign left
+setColor green
+fillRect 534 416 666 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 426 "GP6"
+setTextAlign left
+setColor magenta
+fillRect 396 416 528 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 426 "SPI0 SCK"
+setTextAlign left
+setColor brCyan
+fillRect 258 416 390 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 426 "I2C1 SDA"
+setTextAlign left
+setColor grey
+drawLine 706 473 720 473
+setColor white
+fillRect 672 456 706 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 466 "10"
+setTextAlign left
+setColor green
+fillRect 534 456 666 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 466 "GP7"
+setTextAlign left
+setColor magenta
+fillRect 396 456 528 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 466 "SPI0 TX"
+setTextAlign left
+setColor brCyan
+fillRect 258 456 390 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 466 "I2C1 SCL"
+setTextAlign left
+setColor grey
+drawLine 706 513 720 513
+setColor white
+fillRect 672 496 706 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 506 "11"
+setTextAlign left
+setColor green
+fillRect 534 496 666 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 506 "GP8"
+setTextAlign left
+setColor magenta
+fillRect 396 496 528 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 506 "SPI1 RX"
+setTextAlign left
+setColor brCyan
+fillRect 258 496 390 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 506 "I2C0 SDA"
+setTextAlign left
+setColor brBlue
+fillRect 120 496 252 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 506 "UART1 TX"
+setTextAlign left
+setColor grey
+drawLine 706 553 720 553
+setColor white
+fillRect 672 536 706 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 546 "12"
+setTextAlign left
+setColor green
+fillRect 534 536 666 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 546 "GP9"
+setTextAlign left
+setColor magenta
+fillRect 396 536 528 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 546 "SPI1 CSn"
+setTextAlign left
+setColor brCyan
+fillRect 258 536 390 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 546 "I2C0 SCL"
+setTextAlign left
+setColor brBlue
+fillRect 120 536 252 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 546 "UART1 RX"
+setTextAlign left
+setColor grey
+drawLine 706 593 720 593
+setColor white
+fillRect 672 576 706 610
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 586 "13"
+setTextAlign left
+setColor grey
+fillRect 534 576 666 610
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 586 "GND"
+setTextAlign left
+setColor grey
+drawLine 706 633 720 633
+setColor white
+fillRect 672 616 706 650
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 626 "14"
+setTextAlign left
+setColor green
+fillRect 534 616 666 650
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 626 "GP10"
+setTextAlign left
+setColor magenta
+fillRect 396 616 528 650
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 626 "SPI1 SCK"
+setTextAlign left
+setColor brCyan
+fillRect 258 616 390 650
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 626 "I2C1 SDA"
+setTextAlign left
+setColor grey
+drawLine 706 673 720 673
+setColor white
+fillRect 672 656 706 690
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 666 "15"
+setTextAlign left
+setColor green
+fillRect 534 656 666 690
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 666 "GP11"
+setTextAlign left
+setColor magenta
+fillRect 396 656 528 690
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 666 "SPI1 TX"
+setTextAlign left
+setColor brCyan
+fillRect 258 656 390 690
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 666 "I2C1 SCL"
+setTextAlign left
+setColor grey
+drawLine 706 713 720 713
+setColor white
+fillRect 672 696 706 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 706 "16"
+setTextAlign left
+setColor green
+fillRect 534 696 666 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 706 "GP12"
+setTextAlign left
+setColor magenta
+fillRect 396 696 528 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 706 "SPI1 RX"
+setTextAlign left
+setColor brCyan
+fillRect 258 696 390 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 706 "I2C0 SDA"
+setTextAlign left
+setColor brBlue
+fillRect 120 696 252 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 706 "UART0 TX"
+setTextAlign left
+setColor grey
+drawLine 706 753 720 753
+setColor white
+fillRect 672 736 706 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 746 "17"
+setTextAlign left
+setColor green
+fillRect 534 736 666 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 746 "GP13"
+setTextAlign left
+setColor magenta
+fillRect 396 736 528 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 746 "SPI1 CSn"
+setTextAlign left
+setColor brCyan
+fillRect 258 736 390 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 746 "I2C0 SCL"
+setTextAlign left
+setColor brBlue
+fillRect 120 736 252 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 186 746 "UART0 RX"
+setTextAlign left
+setColor grey
+drawLine 706 793 720 793
+setColor white
+fillRect 672 776 706 810
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 786 "18"
+setTextAlign left
+setColor grey
+fillRect 534 776 666 810
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 786 "GND"
+setTextAlign left
+setColor grey
+drawLine 706 833 720 833
+setColor white
+fillRect 672 816 706 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 826 "19"
+setTextAlign left
+setColor green
+fillRect 534 816 666 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 826 "GP14"
+setTextAlign left
+setColor magenta
+fillRect 396 816 528 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 826 "SPI1 SCK"
+setTextAlign left
+setColor brCyan
+fillRect 258 816 390 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 826 "I2C1 SDA"
+setTextAlign left
+setColor grey
+drawLine 706 873 720 873
+setColor white
+fillRect 672 856 706 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 689 866 "20"
+setTextAlign left
+setColor green
+fillRect 534 856 666 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 600 866 "GP15"
+setTextAlign left
+setColor magenta
+fillRect 396 856 528 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 462 866 "SPI1 TX"
+setTextAlign left
+setColor brCyan
+fillRect 258 856 390 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 324 866 "I2C1 SCL"
+setTextAlign left
+
+# ---- right
+setColor grey
+drawLine 1000 113 1014 113
+setColor white
+fillRect 1014 96 1048 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 106 "40"
+setTextAlign left
+setColor red
+fillRect 1054 96 1186 130
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 106 "VBUS"
+setTextAlign left
+setColor grey
+drawLine 1000 153 1014 153
+setColor white
+fillRect 1014 136 1048 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 146 "39"
+setTextAlign left
+setColor red
+fillRect 1054 136 1186 170
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 146 "VSYS"
+setTextAlign left
+setColor grey
+drawLine 1000 193 1014 193
+setColor white
+fillRect 1014 176 1048 210
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 186 "38"
+setTextAlign left
+setColor grey
+fillRect 1054 176 1186 210
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 186 "GND"
+setTextAlign left
+setColor grey
+drawLine 1000 233 1014 233
+setColor white
+fillRect 1014 216 1048 250
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 226 "37"
+setTextAlign left
+setColor brRed
+fillRect 1054 216 1186 250
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 226 "3V3_EN"
+setTextAlign left
+setColor grey
+drawLine 1000 273 1014 273
+setColor white
+fillRect 1014 256 1048 290
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 266 "36"
+setTextAlign left
+setColor red
+fillRect 1054 256 1186 290
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 266 "3V3(OUT)"
+setTextAlign left
+setColor grey
+drawLine 1000 313 1014 313
+setColor white
+fillRect 1014 296 1048 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 306 "35"
+setTextAlign left
+setColor brGreen
+fillRect 1054 296 1186 330
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 306 "ADC_VREF"
+setTextAlign left
+setColor grey
+drawLine 1000 353 1014 353
+setColor white
+fillRect 1014 336 1048 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 346 "34"
+setTextAlign left
+setColor green
+fillRect 1054 336 1186 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 346 "GP28"
+setTextAlign left
+setColor brGreen
+fillRect 1192 336 1324 370
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 346 "ADC2"
+setTextAlign left
+setColor grey
+drawLine 1000 393 1014 393
+setColor white
+fillRect 1014 376 1048 410
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 386 "33"
+setTextAlign left
+setColor grey
+fillRect 1054 376 1186 410
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 386 "GND"
+setTextAlign left
+setColor grey
+fillRect 1192 376 1324 410
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 386 "AGND"
+setTextAlign left
+setColor grey
+drawLine 1000 433 1014 433
+setColor white
+fillRect 1014 416 1048 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 426 "32"
+setTextAlign left
+setColor green
+fillRect 1054 416 1186 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 426 "GP27"
+setTextAlign left
+setColor brGreen
+fillRect 1192 416 1324 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 426 "ADC1"
+setTextAlign left
+setColor brCyan
+fillRect 1330 416 1462 450
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1396 426 "I2C1 SCL"
+setTextAlign left
+setColor grey
+drawLine 1000 473 1014 473
+setColor white
+fillRect 1014 456 1048 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 466 "31"
+setTextAlign left
+setColor green
+fillRect 1054 456 1186 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 466 "GP26"
+setTextAlign left
+setColor brGreen
+fillRect 1192 456 1324 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 466 "ADC0"
+setTextAlign left
+setColor brCyan
+fillRect 1330 456 1462 490
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1396 466 "I2C1 SDA"
+setTextAlign left
+setColor grey
+drawLine 1000 513 1014 513
+setColor white
+fillRect 1014 496 1048 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 506 "30"
+setTextAlign left
+setColor brRed
+fillRect 1054 496 1186 530
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 506 "RUN"
+setTextAlign left
+setColor grey
+drawLine 1000 553 1014 553
+setColor white
+fillRect 1014 536 1048 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 546 "29"
+setTextAlign left
+setColor green
+fillRect 1054 536 1186 570
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 546 "GP22"
+setTextAlign left
+setColor grey
+drawLine 1000 593 1014 593
+setColor white
+fillRect 1014 576 1048 610
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 586 "28"
+setTextAlign left
+setColor grey
+fillRect 1054 576 1186 610
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 586 "GND"
+setTextAlign left
+setColor grey
+drawLine 1000 633 1014 633
+setColor white
+fillRect 1014 616 1048 650
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 626 "27"
+setTextAlign left
+setColor green
+fillRect 1054 616 1186 650
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 626 "GP21"
+setTextAlign left
+setColor grey
+drawLine 1000 673 1014 673
+setColor white
+fillRect 1014 656 1048 690
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 666 "26"
+setTextAlign left
+setColor green
+fillRect 1054 656 1186 690
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 666 "GP20"
+setTextAlign left
+setColor grey
+drawLine 1000 713 1014 713
+setColor white
+fillRect 1014 696 1048 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 706 "25"
+setTextAlign left
+setColor green
+fillRect 1054 696 1186 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 706 "GP19"
+setTextAlign left
+setColor magenta
+fillRect 1192 696 1324 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 706 "SPI0 TX"
+setTextAlign left
+setColor brCyan
+fillRect 1330 696 1462 730
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1396 706 "I2C1 SCL"
+setTextAlign left
+setColor grey
+drawLine 1000 753 1014 753
+setColor white
+fillRect 1014 736 1048 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 746 "24"
+setTextAlign left
+setColor green
+fillRect 1054 736 1186 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 746 "GP18"
+setTextAlign left
+setColor magenta
+fillRect 1192 736 1324 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 746 "SPI0 SCK"
+setTextAlign left
+setColor brCyan
+fillRect 1330 736 1462 770
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1396 746 "I2C1 SDA"
+setTextAlign left
+setColor grey
+drawLine 1000 793 1014 793
+setColor white
+fillRect 1014 776 1048 810
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 786 "23"
+setTextAlign left
+setColor grey
+fillRect 1054 776 1186 810
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 786 "GND"
+setTextAlign left
+setColor grey
+drawLine 1000 833 1014 833
+setColor white
+fillRect 1014 816 1048 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 826 "22"
+setTextAlign left
+setColor green
+fillRect 1054 816 1186 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 826 "GP17"
+setTextAlign left
+setColor magenta
+fillRect 1192 816 1324 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 826 "SPI0 CSn"
+setTextAlign left
+setColor brCyan
+fillRect 1330 816 1462 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1396 826 "I2C0 SCL"
+setTextAlign left
+setColor brBlue
+fillRect 1468 816 1600 850
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1534 826 "UART0 RX"
+setTextAlign left
+setColor grey
+drawLine 1000 873 1014 873
+setColor white
+fillRect 1014 856 1048 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1031 866 "21"
+setTextAlign left
+setColor green
+fillRect 1054 856 1186 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1120 866 "GP16"
+setTextAlign left
+setColor magenta
+fillRect 1192 856 1324 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1258 866 "SPI0 RX"
+setTextAlign left
+setColor brCyan
+fillRect 1330 856 1462 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1396 866 "I2C0 SDA"
+setTextAlign left
+setColor brBlue
+fillRect 1468 856 1600 890
+setColor black
+setTextSize 13
+setTextAlign centre
+drawText 1534 866 "UART0 TX"
+setTextAlign left
+
+# ---- legend
+setColor green
+fillRect 140 954 248 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 194 961 "GPIO"
+setTextAlign left
+setColor grey
+fillRect 256 954 364 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 310 961 "ground"
+setTextAlign left
+setColor red
+fillRect 372 954 480 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 426 961 "power"
+setTextAlign left
+setColor brRed
+fillRect 488 954 596 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 542 961 "system"
+setTextAlign left
+setColor magenta
+fillRect 604 954 712 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 658 961 "SPI"
+setTextAlign left
+setColor brCyan
+fillRect 720 954 828 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 774 961 "I2C"
+setTextAlign left
+setColor brBlue
+fillRect 836 954 944 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 890 961 "UART"
+setTextAlign left
+setColor brGreen
+fillRect 952 954 1060 980
+setColor black
+setTextSize 12
+setTextAlign centre
+drawText 1006 961 "ADC"
+setTextAlign left
+</Draw>
+
+</Doc>

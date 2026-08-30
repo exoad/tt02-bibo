@@ -1,0 +1,391 @@
+<Doc title="The breadboard" subtitle="what is connected to what" category="Circuits" id="breadboard">
+
+<Table>
+<Row head="yes"><Cell>group</Cell><Cell>what is joined</Cell></Row>
+<Row><Cell>main row</Cell><Cell>five holes are one node</Cell></Row>
+<Row><Cell>centre channel</Cell><Cell>splits left from right; a chip straddles it so its two rows of pins stay separate</Cell></Row>
+<Row><Cell class="power">+ rail</Cell><Cell>TWO halves, broken in the middle</Cell></Row>
+<Row><Cell class="ground">- rail</Cell><Cell>TWO halves, broken in the middle</Cell></Row>
+</Table>
+
+<Draw width="640" height="320">
+# 24 columns, not a realistic 30-odd. The width has to leave room for the
+# annotations at the right of the page, and a breadboard drawing that runs
+# under its own labels teaches nothing that a shorter one does not.
+#
+# Tall enough for both banks of five plus the rails: the last row sits at
+# by0 + 253, so anything under 267 puts holes outside the board.
+setColor grey
+setWidth 1
+drawRect 30 16 448 302
+
+# ---- the power rails. NOT one long connection.
+#
+# On most full-size boards each rail is two separate halves with a break in
+# the middle, and the break is nearly invisible - the printed stripe usually
+# runs straight through it. This used to be drawn as an unbroken line, which
+# is a comfortable lie and an expensive one.
+setColor red
+setWidth 2
+drawLine 40 32 228 32
+drawLine 250 32 438 32
+# The break itself, drawn as the thing it is rather than as an absence.
+setColor white
+setWidth 1.5
+drawLine 234 27 244 37
+drawLine 234 37 244 27
+setColor red
+setWidth 1
+drawCircle 44 42 3.2
+drawCircle 61 42 3.2
+drawCircle 78 42 3.2
+drawCircle 95 42 3.2
+drawCircle 112 42 3.2
+drawCircle 129 42 3.2
+drawCircle 146 42 3.2
+drawCircle 163 42 3.2
+drawCircle 180 42 3.2
+drawCircle 197 42 3.2
+drawCircle 214 42 3.2
+drawCircle 231 42 3.2
+drawCircle 248 42 3.2
+drawCircle 265 42 3.2
+drawCircle 282 42 3.2
+drawCircle 299 42 3.2
+drawCircle 316 42 3.2
+drawCircle 333 42 3.2
+drawCircle 350 42 3.2
+drawCircle 367 42 3.2
+drawCircle 384 42 3.2
+drawCircle 401 42 3.2
+drawCircle 418 42 3.2
+drawCircle 435 42 3.2
+
+setColor blue
+setWidth 2
+drawLine 40 62 228 62
+drawLine 250 62 438 62
+# The break itself, drawn as the thing it is rather than as an absence.
+setColor white
+setWidth 1.5
+drawLine 234 57 244 67
+drawLine 234 67 244 57
+setColor blue
+setWidth 1
+drawCircle 44 52 3.2
+drawCircle 61 52 3.2
+drawCircle 78 52 3.2
+drawCircle 95 52 3.2
+drawCircle 112 52 3.2
+drawCircle 129 52 3.2
+drawCircle 146 52 3.2
+drawCircle 163 52 3.2
+drawCircle 180 52 3.2
+drawCircle 197 52 3.2
+drawCircle 214 52 3.2
+drawCircle 231 52 3.2
+drawCircle 248 52 3.2
+drawCircle 265 52 3.2
+drawCircle 282 52 3.2
+drawCircle 299 52 3.2
+drawCircle 316 52 3.2
+drawCircle 333 52 3.2
+drawCircle 350 52 3.2
+drawCircle 367 52 3.2
+drawCircle 384 52 3.2
+drawCircle 401 52 3.2
+drawCircle 418 52 3.2
+drawCircle 435 52 3.2
+
+setColor brCyan
+setTextSize 10
+drawText 215 15 "SPLIT HERE"
+setColor red
+drawText 460 35 "+ rail: TWO halves"
+setColor blue
+drawText 460 49 "- rail: TWO halves"
+setColor grey
+drawText 460 65 "bridge them, or the"
+drawText 460 77 "two ends are separate"
+
+# ---- the main rows. Five holes joined, and the centre channel splits left
+# from right. This is the fact the whole board is built around.
+setColor grey
+drawCircle 44 90 3.2
+drawCircle 61 90 3.2
+drawCircle 78 90 3.2
+drawCircle 95 90 3.2
+drawCircle 112 90 3.2
+drawCircle 129 90 3.2
+drawCircle 146 90 3.2
+drawCircle 163 90 3.2
+drawCircle 180 90 3.2
+drawCircle 197 90 3.2
+drawCircle 214 90 3.2
+drawCircle 231 90 3.2
+drawCircle 248 90 3.2
+drawCircle 265 90 3.2
+drawCircle 282 90 3.2
+drawCircle 299 90 3.2
+drawCircle 316 90 3.2
+drawCircle 333 90 3.2
+drawCircle 350 90 3.2
+drawCircle 367 90 3.2
+drawCircle 384 90 3.2
+drawCircle 401 90 3.2
+drawCircle 418 90 3.2
+drawCircle 435 90 3.2
+drawCircle 44 107 3.2
+drawCircle 61 107 3.2
+drawCircle 78 107 3.2
+drawCircle 95 107 3.2
+drawCircle 112 107 3.2
+drawCircle 129 107 3.2
+drawCircle 146 107 3.2
+drawCircle 163 107 3.2
+drawCircle 180 107 3.2
+drawCircle 197 107 3.2
+drawCircle 214 107 3.2
+drawCircle 231 107 3.2
+drawCircle 248 107 3.2
+drawCircle 265 107 3.2
+drawCircle 282 107 3.2
+drawCircle 299 107 3.2
+drawCircle 316 107 3.2
+drawCircle 333 107 3.2
+drawCircle 350 107 3.2
+drawCircle 367 107 3.2
+drawCircle 384 107 3.2
+drawCircle 401 107 3.2
+drawCircle 418 107 3.2
+drawCircle 435 107 3.2
+drawCircle 44 124 3.2
+drawCircle 61 124 3.2
+drawCircle 78 124 3.2
+drawCircle 95 124 3.2
+drawCircle 112 124 3.2
+drawCircle 129 124 3.2
+drawCircle 146 124 3.2
+drawCircle 163 124 3.2
+drawCircle 180 124 3.2
+drawCircle 197 124 3.2
+drawCircle 214 124 3.2
+drawCircle 231 124 3.2
+drawCircle 248 124 3.2
+drawCircle 265 124 3.2
+drawCircle 282 124 3.2
+drawCircle 299 124 3.2
+drawCircle 316 124 3.2
+drawCircle 333 124 3.2
+drawCircle 350 124 3.2
+drawCircle 367 124 3.2
+drawCircle 384 124 3.2
+drawCircle 401 124 3.2
+drawCircle 418 124 3.2
+drawCircle 435 124 3.2
+drawCircle 44 141 3.2
+drawCircle 61 141 3.2
+drawCircle 78 141 3.2
+drawCircle 95 141 3.2
+drawCircle 112 141 3.2
+drawCircle 129 141 3.2
+drawCircle 146 141 3.2
+drawCircle 163 141 3.2
+drawCircle 180 141 3.2
+drawCircle 197 141 3.2
+drawCircle 214 141 3.2
+drawCircle 231 141 3.2
+drawCircle 248 141 3.2
+drawCircle 265 141 3.2
+drawCircle 282 141 3.2
+drawCircle 299 141 3.2
+drawCircle 316 141 3.2
+drawCircle 333 141 3.2
+drawCircle 350 141 3.2
+drawCircle 367 141 3.2
+drawCircle 384 141 3.2
+drawCircle 401 141 3.2
+drawCircle 418 141 3.2
+drawCircle 435 141 3.2
+drawCircle 44 158 3.2
+drawCircle 61 158 3.2
+drawCircle 78 158 3.2
+drawCircle 95 158 3.2
+drawCircle 112 158 3.2
+drawCircle 129 158 3.2
+drawCircle 146 158 3.2
+drawCircle 163 158 3.2
+drawCircle 180 158 3.2
+drawCircle 197 158 3.2
+drawCircle 214 158 3.2
+drawCircle 231 158 3.2
+drawCircle 248 158 3.2
+drawCircle 265 158 3.2
+drawCircle 282 158 3.2
+drawCircle 299 158 3.2
+drawCircle 316 158 3.2
+drawCircle 333 158 3.2
+drawCircle 350 158 3.2
+drawCircle 367 158 3.2
+drawCircle 384 158 3.2
+drawCircle 401 158 3.2
+drawCircle 418 158 3.2
+drawCircle 435 158 3.2
+
+# The centre channel.
+setWidth 1
+drawRect 36 174 442 188
+
+setColor grey
+drawCircle 44 201 3.2
+drawCircle 61 201 3.2
+drawCircle 78 201 3.2
+drawCircle 95 201 3.2
+drawCircle 112 201 3.2
+drawCircle 129 201 3.2
+drawCircle 146 201 3.2
+drawCircle 163 201 3.2
+drawCircle 180 201 3.2
+drawCircle 197 201 3.2
+drawCircle 214 201 3.2
+drawCircle 231 201 3.2
+drawCircle 248 201 3.2
+drawCircle 265 201 3.2
+drawCircle 282 201 3.2
+drawCircle 299 201 3.2
+drawCircle 316 201 3.2
+drawCircle 333 201 3.2
+drawCircle 350 201 3.2
+drawCircle 367 201 3.2
+drawCircle 384 201 3.2
+drawCircle 401 201 3.2
+drawCircle 418 201 3.2
+drawCircle 435 201 3.2
+drawCircle 44 218 3.2
+drawCircle 61 218 3.2
+drawCircle 78 218 3.2
+drawCircle 95 218 3.2
+drawCircle 112 218 3.2
+drawCircle 129 218 3.2
+drawCircle 146 218 3.2
+drawCircle 163 218 3.2
+drawCircle 180 218 3.2
+drawCircle 197 218 3.2
+drawCircle 214 218 3.2
+drawCircle 231 218 3.2
+drawCircle 248 218 3.2
+drawCircle 265 218 3.2
+drawCircle 282 218 3.2
+drawCircle 299 218 3.2
+drawCircle 316 218 3.2
+drawCircle 333 218 3.2
+drawCircle 350 218 3.2
+drawCircle 367 218 3.2
+drawCircle 384 218 3.2
+drawCircle 401 218 3.2
+drawCircle 418 218 3.2
+drawCircle 435 218 3.2
+drawCircle 44 235 3.2
+drawCircle 61 235 3.2
+drawCircle 78 235 3.2
+drawCircle 95 235 3.2
+drawCircle 112 235 3.2
+drawCircle 129 235 3.2
+drawCircle 146 235 3.2
+drawCircle 163 235 3.2
+drawCircle 180 235 3.2
+drawCircle 197 235 3.2
+drawCircle 214 235 3.2
+drawCircle 231 235 3.2
+drawCircle 248 235 3.2
+drawCircle 265 235 3.2
+drawCircle 282 235 3.2
+drawCircle 299 235 3.2
+drawCircle 316 235 3.2
+drawCircle 333 235 3.2
+drawCircle 350 235 3.2
+drawCircle 367 235 3.2
+drawCircle 384 235 3.2
+drawCircle 401 235 3.2
+drawCircle 418 235 3.2
+drawCircle 435 235 3.2
+drawCircle 44 252 3.2
+drawCircle 61 252 3.2
+drawCircle 78 252 3.2
+drawCircle 95 252 3.2
+drawCircle 112 252 3.2
+drawCircle 129 252 3.2
+drawCircle 146 252 3.2
+drawCircle 163 252 3.2
+drawCircle 180 252 3.2
+drawCircle 197 252 3.2
+drawCircle 214 252 3.2
+drawCircle 231 252 3.2
+drawCircle 248 252 3.2
+drawCircle 265 252 3.2
+drawCircle 282 252 3.2
+drawCircle 299 252 3.2
+drawCircle 316 252 3.2
+drawCircle 333 252 3.2
+drawCircle 350 252 3.2
+drawCircle 367 252 3.2
+drawCircle 384 252 3.2
+drawCircle 401 252 3.2
+drawCircle 418 252 3.2
+drawCircle 435 252 3.2
+drawCircle 44 269 3.2
+drawCircle 61 269 3.2
+drawCircle 78 269 3.2
+drawCircle 95 269 3.2
+drawCircle 112 269 3.2
+drawCircle 129 269 3.2
+drawCircle 146 269 3.2
+drawCircle 163 269 3.2
+drawCircle 180 269 3.2
+drawCircle 197 269 3.2
+drawCircle 214 269 3.2
+drawCircle 231 269 3.2
+drawCircle 248 269 3.2
+drawCircle 265 269 3.2
+drawCircle 282 269 3.2
+drawCircle 299 269 3.2
+drawCircle 316 269 3.2
+drawCircle 333 269 3.2
+drawCircle 350 269 3.2
+drawCircle 367 269 3.2
+drawCircle 384 269 3.2
+drawCircle 401 269 3.2
+drawCircle 418 269 3.2
+drawCircle 435 269 3.2
+
+# ---- one column of five highlighted, which is the unit of connection.
+setColor #2E442E
+fillRect 139 82 153 166
+setColor green
+drawCircle 146 90 3.2
+drawCircle 146 107 3.2
+drawCircle 146 124 3.2
+drawCircle 146 141 3.2
+drawCircle 146 158 3.2
+setTextSize 10
+drawText 91 67 "these five are one node"
+
+setColor white
+drawText 460 169 "the channel splits"
+drawText 460 183 "left from right"
+setColor grey
+drawText 460 202 "a chip straddles it"
+drawText 460 215 "so its two rows of"
+drawText 460 228 "pins stay separate"
+</Draw>
+
+<Warn><Bold>The power rails are SPLIT in the middle. Bridge them with a
+jumper.</Bold> The printed red and blue stripes run straight past the break, so
+the rail looks continuous when it is two independent halves. Two grounds on
+opposite sides of that gap are NOT connected.</Warn>
+
+<Note><Bold>Push components ALL the way in. They are meant to be stiff.</Bold> A
+Pico needs real force, and a part with its legs barely in the hole reads exactly
+like a dead pin.</Note>
+
+</Doc>

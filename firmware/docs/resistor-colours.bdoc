@@ -1,0 +1,168 @@
+<Doc title="Resistor colour code" subtitle="the bands, and a worked example" category="Parts" id="resistorColours">
+
+<Draw width="640" height="250">
+setColor white
+setTextSize 10
+drawText 20 7 "colour"
+drawText 150 7 "digit"
+drawText 230 7 "as multiplier"
+
+# The swatches are literal #RRGGBB. These are the resistor colour CODE, a
+# real-world standard: the palette governs the interface, not the physics it
+# depicts. Each swatch is outlined in the page rule so a dark band still reads
+# as a band.
+
+# ---- black
+setColor #181818
+fillRect 20 19 132 37
+setColor grid
+setWidth 1
+drawRect 20 19 132 37
+setColor brWhite
+setTextSize 11
+drawText 26 22 "black"
+drawText 150 22 "0"
+setColor white
+drawText 230 22 "x1"
+
+# ---- brown
+setColor #6B4222
+fillRect 20 41 132 59
+setColor grid
+drawRect 20 41 132 59
+setColor brWhite
+drawText 26 44 "brown"
+drawText 150 44 "1"
+setColor white
+drawText 230 44 "x10"
+
+# ---- red
+setColor #B03026
+fillRect 20 63 132 81
+setColor grid
+drawRect 20 63 132 81
+setColor brWhite
+drawText 26 66 "red"
+drawText 150 66 "2"
+setColor white
+drawText 230 66 "x100"
+
+# ---- orange
+setColor #D07020
+fillRect 20 85 132 103
+setColor grid
+drawRect 20 85 132 103
+setColor black
+drawText 26 88 "orange"
+setColor brWhite
+drawText 150 88 "3"
+setColor white
+drawText 230 88 "x1k"
+
+# ---- yellow
+setColor #D8C030
+fillRect 20 107 132 125
+setColor grid
+drawRect 20 107 132 125
+setColor black
+drawText 26 110 "yellow"
+setColor brWhite
+drawText 150 110 "4"
+setColor white
+drawText 230 110 "x10k"
+
+# ---- green
+setColor #3C8A40
+fillRect 20 129 132 147
+setColor grid
+drawRect 20 129 132 147
+setColor brWhite
+drawText 26 132 "green"
+drawText 150 132 "5"
+setColor white
+drawText 230 132 "x100k"
+
+# ---- blue
+setColor #335CA8
+fillRect 20 151 132 169
+setColor grid
+drawRect 20 151 132 169
+setColor brWhite
+drawText 26 154 "blue"
+drawText 150 154 "6"
+setColor white
+drawText 230 154 "x1M"
+
+# ---- violet
+setColor #7A46A0
+fillRect 20 173 132 191
+setColor grid
+drawRect 20 173 132 191
+setColor brWhite
+drawText 26 176 "violet"
+drawText 150 176 "7"
+setColor white
+drawText 230 176 "x10M"
+
+# ---- grey
+setColor #868686
+fillRect 20 195 132 213
+setColor grid
+drawRect 20 195 132 213
+setColor brWhite
+drawText 26 198 "grey"
+drawText 150 198 "8"
+setColor white
+drawText 230 198 "-"
+
+# ---- white
+setColor #DCDCDC
+fillRect 20 217 132 235
+setColor grid
+drawRect 20 217 132 235
+setColor black
+drawText 26 220 "white"
+setColor brWhite
+drawText 150 220 "9"
+setColor white
+drawText 230 220 "-"
+
+# ---- a worked example, since the table alone never quite lands.
+setColor brWhite
+setTextSize 12
+drawText 360 6 "reading one"
+
+setColor yellow
+setWidth 1
+drawRect 360 40 560 88
+
+# The colour code again - see the swatches above for why these stay as they are.
+setColor #B03026
+fillRect 384 40 398 88
+setColor #B03026
+fillRect 414 40 428 88
+setColor #6B4222
+fillRect 444 40 458 88
+
+# The gold band, set apart at the far end of the body.
+setColor #C0A050
+fillRect 528 40 540 88
+
+setColor white
+setTextSize 11
+drawText 360 99 "red  red  brown"
+setColor brWhite
+drawText 360 117 "2    2    x10   = 220 ohm"
+setColor grey
+setTextSize 10
+drawText 360 141 "The gold band on its own is tolerance,"
+drawText 360 155 "and it marks the END you read TOWARD."
+</Draw>
+
+<Note><Bold>The gold band on its own is tolerance, and it marks the END you read
+TOWARD.</Bold> It is what tells you which of the two ends is the first band.</Note>
+
+<Note><Bold>For an LED on 3.3 V, anything from 220 ohm to 1k is fine.</Bold>
+Higher means dimmer, lower means brighter and hotter.</Note>
+
+</Doc>

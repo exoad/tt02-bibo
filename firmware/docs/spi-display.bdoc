@@ -1,0 +1,26 @@
+<Doc title="SPI colour display" subtitle="ST7789 / ST7735" category="Buses" id="spiDisplay">
+
+<Table>
+<Row head="yes"><Cell>module</Cell><Cell>Pico</Cell><Cell>what it is</Cell></Row>
+<Row><Cell>GND</Cell><Cell class="ground">GND</Cell><Cell></Cell></Row>
+<Row><Cell>VCC</Cell><Cell class="power">3V3</Cell><Cell>3.3 V part</Cell></Row>
+<Row><Cell>SCL / SCK</Cell><Cell class="serial">GP18</Cell><Cell>SPI0 SCK, fixed by the silicon</Cell></Row>
+<Row><Cell>SDA / MOSI</Cell><Cell class="serial">GP19</Cell><Cell>SPI0 TX, fixed by the silicon</Cell></Row>
+<Row><Cell>RES</Cell><Cell class="digital">GP20</Cell><Cell>reset</Cell></Row>
+<Row><Cell>DC</Cell><Cell class="digital">GP21</Cell><Cell>low command, high pixel data</Cell></Row>
+<Row><Cell>CS</Cell><Cell class="digital">GP17</Cell><Cell>chip select</Cell></Row>
+<Row><Cell>BLK</Cell><Cell class="power">3V3</Cell><Cell>backlight; a GPIO gives PWM dimming</Cell></Row>
+</Table>
+
+<Warn><Bold>Do not feed it 5 V.</Bold></Warn>
+
+<Warn><Bold>There is no MISO. The panel is write-only.</Bold> Nothing reads
+back and no return code means "the display works" - which is why the first
+sketch draws colour bars. The picture is the test.</Warn>
+
+<Note><Bold>CS picks the device, not an address.</Bold> SCK and MOSI are
+shared, and whichever CS is LOW is listening - so the MicroSD card can join
+GP18/GP19 on its own CS. Forgetting to raise CS again is the classic way to
+make the NEXT device on the bus look broken.</Note>
+
+</Doc>

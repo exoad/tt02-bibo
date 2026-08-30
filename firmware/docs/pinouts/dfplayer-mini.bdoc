@@ -1,0 +1,166 @@
+<Doc title="DFPlayer Mini pinout" subtitle="the package and the pads" id="dfplayerMiniPinout">
+
+<!--
+  A PINOUT, and nothing else: the diagram and the pad table.
+
+  No prose. What a part is for, how it is wired to this car and
+  what to watch out for belong on the part's page, which pulls
+  this in with
+
+      <Include file="pinouts/dfplayer-mini.bdoc"/>
+
+  A pinout you have to read is a pinout you cannot use with a
+  connector already in your other hand.
+-->
+
+<Draw width="620" height="300">
+# The package, looking down on it. Pin 1 top left, numbering anticlockwise,
+# which is what a DIP does and what the note above describes.
+
+# The body is filled explicitly rather than left to whatever is behind it.
+# A drawing that only looks right on one background is a drawing that will
+# look wrong the first time the page is put on another one.
+setColor black
+fillRect 250 20 370 258
+setColor grey
+setWidth 1
+drawRect 250 20 370 258
+
+# The notch. This is the thing you orient the part by, so it is drawn
+# rather than described.
+setColor brWhite
+drawLine 294 20 294 28
+drawLine 294 28 326 28
+drawLine 326 28 326 20
+setColor grey
+setTextSize 11
+drawText 242 4 "microSD this end"
+
+# ---- pin 1 / pin 16
+setColor power
+fillRect 224 28 250 40
+setColor digital
+fillRect 370 28 396 40
+setColor grey
+setTextSize 11
+drawText 206 27 "1"
+drawText 402 27 "16"
+setColor power
+setTextSize 12
+drawText 176 27 "VCC"
+setColor digital
+drawText 420 27 "BUSY"
+
+# ---- pin 2 / pin 15
+setColor serial
+fillRect 224 58 250 70
+setColor usb
+fillRect 370 58 396 70
+setColor grey
+setTextSize 11
+drawText 206 57 "2"
+drawText 402 57 "15"
+setColor serial
+setTextSize 12
+drawText 184 57 "RX"
+setColor usb
+drawText 420 57 "USB-"
+
+# ---- pin 3 / pin 14
+setColor serial
+fillRect 224 88 250 100
+setColor usb
+fillRect 370 88 396 100
+setColor grey
+setTextSize 11
+drawText 206 87 "3"
+drawText 402 87 "14"
+setColor serial
+setTextSize 12
+drawText 184 87 "TX"
+setColor usb
+drawText 420 87 "USB+"
+
+# ---- pin 4 / pin 13
+setColor audio
+fillRect 224 118 250 130
+setColor analog
+fillRect 370 118 396 130
+setColor grey
+setTextSize 11
+drawText 206 117 "4"
+drawText 402 117 "13"
+setColor audio
+setTextSize 12
+drawText 160 117 "DAC_R"
+setColor analog
+drawText 420 117 "ADKEY2"
+
+# ---- pin 5 / pin 12
+setColor audio
+fillRect 224 148 250 160
+setColor analog
+fillRect 370 148 396 160
+setColor grey
+setTextSize 11
+drawText 206 147 "5"
+drawText 402 147 "12"
+setColor audio
+setTextSize 12
+drawText 160 147 "DAC_L"
+setColor analog
+drawText 420 147 "ADKEY1"
+
+# ---- pin 6 / pin 11
+setColor audio
+fillRect 224 178 250 190
+setColor digital
+fillRect 370 178 396 190
+setColor grey
+setTextSize 11
+drawText 206 177 "6"
+drawText 402 177 "11"
+setColor audio
+setTextSize 12
+drawText 168 177 "SPK2"
+setColor digital
+drawText 420 177 "IO2"
+
+# ---- pin 7 / pin 10
+setColor ground
+fillRect 224 208 250 220
+setColor ground
+fillRect 370 208 396 220
+setColor grey
+setTextSize 11
+drawText 206 207 "7"
+drawText 402 207 "10"
+setColor ground
+setTextSize 12
+drawText 176 207 "GND"
+setColor ground
+drawText 420 207 "GND"
+
+# ---- pin 8 / pin 9
+setColor audio
+fillRect 224 238 250 250
+setColor digital
+fillRect 370 238 396 250
+setColor grey
+setTextSize 11
+drawText 206 237 "8"
+drawText 402 237 "9"
+setColor audio
+setTextSize 12
+drawText 168 237 "SPK1"
+setColor digital
+drawText 420 237 "IO1"
+
+setColor grid
+setTextSize 11
+drawText 264 116 "DFPlayer Mini"
+</Draw>
+
+
+
+</Doc>
