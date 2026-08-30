@@ -165,9 +165,18 @@ Bool decodePng(IWICImagingFactory* wic, const Char* path, Vec<UInt8>& out, UInt3
                                         static_cast<UINT>(out.size()), out.data()));
     }
 
-    if(conv  != nullptr) conv->Release();
-    if(frame != nullptr) frame->Release();
-    if(dec   != nullptr) dec->Release();
+    if(conv  != nullptr)
+    {
+        conv->Release();
+    }
+    if(frame != nullptr)
+    {
+        frame->Release();
+    }
+    if(dec   != nullptr)
+    {
+        dec->Release();
+    }
     return ok;
 }
 
@@ -176,8 +185,14 @@ Bool decodePng(IWICImagingFactory* wic, const Char* path, Vec<UInt8>& out, UInt3
 Int32 scaleSteps() noexcept
 {
     const Float32 d = dpiScale();
-    if(d >= 2.75f) return 3;
-    if(d >= 1.85f) return 2;
+    if(d >= 2.75f)
+    {
+        return 3;
+    }
+    if(d >= 1.85f)
+    {
+        return 2;
+    }
     return 1;
 }
 
@@ -370,8 +385,20 @@ ImTextureID loadTexture(ID3D11Device* device, const Char* path)
 
 Void releaseIcons()
 {
-    for(ID3D11ShaderResourceView* e : extraSrv) if(e != nullptr) e->Release();
-    for(ID3D11Texture2D* t : extraTex)          if(t != nullptr) t->Release();
+    for(ID3D11ShaderResourceView* e : extraSrv)
+    {
+        if(e != nullptr)
+        {
+            e->Release();
+        }
+    }
+    for(ID3D11Texture2D* t : extraTex)
+    {
+        if(t != nullptr)
+        {
+            t->Release();
+        }
+    }
     extraSrv.clear();
     extraTex.clear();
 

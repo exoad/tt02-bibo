@@ -208,12 +208,30 @@ Void loadFonts(Float32 dpiScale)
 
     IM_ASSERT(any != nullptr && "No font could be loaded (default font compiled out?)");
 
-    if(fonts.small == nullptr) fonts.small = any;
-    if(fonts.body  == nullptr) fonts.body  = any;
-    if(fonts.title == nullptr) fonts.title = any;
-    if(fonts.stat  == nullptr) fonts.stat  = any;
-    if(fonts.big   == nullptr) fonts.big   = any;
-    if(fonts.mono  == nullptr) fonts.mono  = any;
+    if(fonts.small == nullptr)
+    {
+        fonts.small = any;
+    }
+    if(fonts.body  == nullptr)
+    {
+        fonts.body  = any;
+    }
+    if(fonts.title == nullptr)
+    {
+        fonts.title = any;
+    }
+    if(fonts.stat  == nullptr)
+    {
+        fonts.stat  = any;
+    }
+    if(fonts.big   == nullptr)
+    {
+        fonts.big   = any;
+    }
+    if(fonts.mono  == nullptr)
+    {
+        fonts.mono  = any;
+    }
 
     // Callers derive their PushFont() base size from LegacySize, and a
     // zero/negative there silently degrades to "keep the current size". The
@@ -751,7 +769,10 @@ Bool checkbox(const Char* label, Bool* v)
     const Bool pressed = ImGui::InvisibleButton("##cb", ImVec2(w, fh));
     ImGui::PopID();
 
-    if(pressed && v != nullptr) *v = !*v;
+    if(pressed && v != nullptr)
+    {
+        *v = !*v;
+    }
 
     const Bool on  = (v != nullptr) && *v;
     const Bool hov = ImGui::IsItemHovered();
@@ -796,7 +817,10 @@ Bool checkbox(const Char* label, Bool* v)
         // here includes that header. The rule it implements is one line anyway:
         // everything from the first "##" onward is an ID, not a label.
         const Char* end = std::strstr(label, "##");
-        if(end == nullptr) end = label + std::strlen(label);
+        if(end == nullptr)
+        {
+            end = label + std::strlen(label);
+        }
 
         dl->AddText(ImVec2(b1.x + st.ItemInnerSpacing.x, p.y + (fh - tsz.y) * 0.5f),
                     ImGui::GetColorU32(ImGuiCol_Text), label, end);
@@ -913,8 +937,14 @@ Void setUserScale(Float32 s)
 
     // Snapped before clamping so the ends of the range are reachable exactly.
     s = std::floor(s / USER_SCALE_STEP + 0.5f) * USER_SCALE_STEP;
-    if(s < USER_SCALE_MIN) s = USER_SCALE_MIN;
-    if(s > USER_SCALE_MAX) s = USER_SCALE_MAX;
+    if(s < USER_SCALE_MIN)
+    {
+        s = USER_SCALE_MIN;
+    }
+    if(s > USER_SCALE_MAX)
+    {
+        s = USER_SCALE_MAX;
+    }
 
     // Half a step, so float noise from the snap can never register as a change
     // and rebuild the style every frame.

@@ -70,8 +70,7 @@
  * That is FINE and is the point of a bus - SCK and MOSI are shared and the two
  * devices are told apart by their separate CS lines.
  */
-#ifndef BIBO_ST77XX_H
-#define BIBO_ST77XX_H
+#pragma once
 
 #include "../hal.hxx"
 
@@ -474,7 +473,7 @@ static Void drawChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt
     Utf8 c = ch;
     if(c >= 'a' && c <= 'z')
     {
-        c = (Utf8) (c - 'a' + 'A');
+        c = static_cast<Utf8>(c - 'a' + 'A');
     }
     if(c < 32 || c > 90)
     {
@@ -685,4 +684,3 @@ static Bool open(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 } // namespace tft
 
 } // namespace bibo
-#endif

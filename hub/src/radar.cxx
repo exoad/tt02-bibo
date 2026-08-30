@@ -285,8 +285,14 @@ struct Ramp
     ImU32 at(Float32 t) const
     {
         Int32 i = static_cast<Int32>((t * static_cast<Float32>((RAMP_N - 1)) + 0.5f));
-        if(i < 0) i = 0;
-        if(i >= RAMP_N) i = RAMP_N - 1;
+        if(i < 0)
+        {
+            i = 0;
+        }
+        if(i >= RAMP_N)
+        {
+            i = RAMP_N - 1;
+        }
         return c[i];
     }
 };
@@ -360,10 +366,22 @@ Float32 niceStep(Float32 raw)
     const Float32 m = raw / p;                    // 1 .. 10
 
     Float32 s;
-    if(m < 1.5f) s = 1.0f;
-    else if(m < 3.5f) s = 2.0f;
-    else if(m < 7.5f) s = 5.0f;
-    else               s = 10.0f;
+    if(m < 1.5f)
+    {
+        s = 1.0f;
+    }
+    else if(m < 3.5f)
+    {
+        s = 2.0f;
+    }
+    else if(m < 7.5f)
+    {
+        s = 5.0f;
+    }
+    else
+    {
+        s = 10.0f;
+    }
     return s * p;
 }
 
@@ -379,9 +397,18 @@ Float32 niceStepDown(Float32 raw)
     const Float32 m = raw / p;                    // 1 .. 10
 
     Float32 s;
-    if(m < 2.0f) s = 1.0f;
-    else if(m < 5.0f) s = 2.0f;
-    else               s = 5.0f;
+    if(m < 2.0f)
+    {
+        s = 1.0f;
+    }
+    else if(m < 5.0f)
+    {
+        s = 2.0f;
+    }
+    else
+    {
+        s = 5.0f;
+    }
     return s * p;
 }
 
@@ -655,7 +682,10 @@ struct MapState
         motActive.clear();
         occActive.reserve(4096);
         motActive.reserve(1024);
-        for(Int32 i = 0; i < DENS_WINDOW; ++i) ring[i].clear();
+        for(Int32 i = 0; i < DENS_WINDOW; ++i)
+        {
+            ring[i].clear();
+        }
         ringHead = 0;
         ready = true;
     }
@@ -672,7 +702,10 @@ struct MapState
         }
         occActive.clear();
         motActive.clear();
-        for(Int32 i = 0; i < DENS_WINDOW; ++i) ring[i].clear();
+        for(Int32 i = 0; i < DENS_WINDOW; ++i)
+        {
+            ring[i].clear();
+        }
         ringHead = 0;
         for(Int32 i = 0; i < CLR_BINS; ++i)
         {
@@ -742,8 +775,14 @@ Int32 motionRadiusCells(Float32 rangeMm)
 {
     const Float32 mm = 1.4f * rangeMm * MOT_ARC_RAD + MOT_SLACK_MM;
     Int32 n = static_cast<Int32>(std::ceil(mm / CELL_MM));
-    if(n < 1)               n = 1;
-    if(n > MOT_MAX_CELLS)   n = MOT_MAX_CELLS;
+    if(n < 1)
+    {
+        n = 1;
+    }
+    if(n > MOT_MAX_CELLS)
+    {
+        n = MOT_MAX_CELLS;
+    }
     return n;
 }
 
@@ -785,7 +824,10 @@ Void accumulateRevolution(MapState& st, const Vec<LidarPoint>& pts)
     // the ceiling so "no return in this bin" is distinguishable from "a return
     // at the ceiling", which the smoothing below treats differently.
     Float32 bin[CLR_BINS];
-    for(Int32 i = 0; i < CLR_BINS; ++i) bin[i] = FLT_MAX;
+    for(Int32 i = 0; i < CLR_BINS; ++i)
+    {
+        bin[i] = FLT_MAX;
+    }
 
     for(const LidarPoint& p : pts)
     {
@@ -797,9 +839,18 @@ Void accumulateRevolution(MapState& st, const Vec<LidarPoint>& pts)
             Float32 a = p.angleDeg;
             a -= std::floor(a / 360.0f) * 360.0f;          // into [0, 360)
             Int32   b = static_cast<Int32>((a / CLR_BIN_DEG));
-            if(b < 0) b = 0;
-            if(b >= CLR_BINS) b = CLR_BINS - 1;
-            if(p.distMm < bin[b]) bin[b] = p.distMm;
+            if(b < 0)
+            {
+                b = 0;
+            }
+            if(b >= CLR_BINS)
+            {
+                b = CLR_BINS - 1;
+            }
+            if(p.distMm < bin[b])
+            {
+                bin[b] = p.distMm;
+            }
         }
 
         Float32 wx, wy;
@@ -962,7 +1013,11 @@ Void gatherNearestCluster(const Vec<LidarPoint>& pts, Int32 bestI, const ImVec2&
     auto angleGap = [](Float32 fromDeg, Float32 toDeg)
     {
         Float32 d = std::fabs(toDeg - fromDeg);
-        if(d > 180.0f) d = 360.0f - d;         // the wrap at 0/360
+        // the wrap at 0/360
+        if(d > 180.0f)
+        {
+            d = 360.0f - d;
+        }
         return d;
     };
 
@@ -981,9 +1036,18 @@ Void gatherNearestCluster(const Vec<LidarPoint>& pts, Int32 bestI, const ImVec2&
             const LidarPoint& p = pts[static_cast<Size>(i)];
             const LidarPoint& q = pts[static_cast<Size>(prev)];
 
-            if(!inWindow(p)) break;
-            if(angleGap(q.angleDeg, p.angleDeg) > MAX_ANGLE_GAP_DEG) break;
-            if(!joins(q.distMm, p.distMm)) break;
+            if(!inWindow(p))
+            {
+                break;
+            }
+            if(angleGap(q.angleDeg, p.angleDeg) > MAX_ANGLE_GAP_DEG)
+            {
+                break;
+            }
+            if(!joins(q.distMm, p.distMm))
+            {
+                break;
+            }
 
             emit(i);
             prev = i;
@@ -1129,8 +1193,14 @@ Void strokeRing(ImDrawList* dl, const ImVec2& c, Float32 r, const ImVec2& p0, co
     for(Int32 i = 0; i < 4; ++i)
     {
         Float32 a = std::atan2(corner[i].y - c.y, corner[i].x - c.x) - ac;
-        while(a >  PI) a -= 2.0f * PI;
-        while(a < -PI) a += 2.0f * PI;
+        while(a >  PI)
+        {
+            a -= 2.0f * PI;
+        }
+        while(a < -PI)
+        {
+            a += 2.0f * PI;
+        }
         lo = std::min(lo, a);
         hi = std::max(hi, a);
     }
@@ -1292,14 +1362,23 @@ GridSpec computeGrid(const ImVec2& p0, const ImVec2& p1, const ImVec2& s0,
 
     g.i0 = static_cast<Int32>(std::floor(nearD / g.stepPx));
     g.i1 = static_cast<Int32>(std::ceil(farD / g.stepPx));
-    if(g.i0 < 1) g.i0 = 1;
-    if(g.i1 > g.i0 + 32) g.i1 = g.i0 + 32;
+    if(g.i0 < 1)
+    {
+        g.i0 = 1;
+    }
+    if(g.i1 > g.i0 + 32)
+    {
+        g.i1 = g.i0 + 32;
+    }
 
     // The outermost ring that still fits inside the fitted radius carries the
     // compass rose. Rounding to nearest instead would let it poke past the top
     // and bottom of the widget, taking its ticks and its 0 / 180 labels with it.
     g.compassI = static_cast<Int32>(std::floor(radiusPx / g.stepPx));
-    if(g.compassI < 1) g.compassI = 1;
+    if(g.compassI < 1)
+    {
+        g.compassI = 1;
+    }
     g.compassR = static_cast<Float32>(g.compassI) * g.stepPx;
 
     g.on = true;
@@ -1842,7 +1921,10 @@ Void drawMarksDensity(const MarkCtx& c, const MapState& st)
                 continue;
 
             Float32 t = static_cast<Float32>(n) / DENS_FULL;
-            if(t > 1.0f) t = 1.0f;
+            if(t > 1.0f)
+            {
+                t = 1.0f;
+            }
             t = std::sqrt(t);       // the low counts are where the detail is
 
             const UInt32 a8 =
@@ -1945,7 +2027,10 @@ Void drawMarksClearance(const MarkCtx& c, const MapState& st, const Deque<Vec<Li
     Bool   any = false;
     for(Int32 i = 0; i < CLR_BINS; ++i)
     {
-        if(st.clrSeen[i]) any = true;
+        if(st.clrSeen[i])
+        {
+            any = true;
+        }
 
         const Float32 d   = st.clrSeen[i] ? st.clr[i] : 0.0f;
         const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
@@ -2068,7 +2153,10 @@ Void drawMarksGaps(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
         Float32 nearestMm = st.clr[b];
         while(b < CLR_BINS && st.clrSeen[b] && st.clr[b] >= GAP_OPEN_MM)
         {
-            if(st.clr[b] < nearestMm) nearestMm = st.clr[b];
+            if(st.clr[b] < nearestMm)
+            {
+                nearestMm = st.clr[b];
+            }
             ++b;
         }
         const Int32 span = b - start;
@@ -2430,7 +2518,10 @@ Void drawMarksCorners(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
         {
             nearestMm  = k.rangeMm;
             nearestDeg = std::atan2(k.x, -k.y) * 180.0f / PI;
-            if(nearestDeg < 0.0f) nearestDeg += 360.0f;
+            if(nearestDeg < 0.0f)
+            {
+                nearestDeg += 360.0f;
+            }
         }
 
         const ImVec2 at(c.s0.x + k.x * c.ppm, c.s0.y + k.y * c.ppm);
@@ -2679,13 +2770,28 @@ Bool fitObstacle(const WorldPt* p, Int32 m, Obstacle& out)
         const Float32 dx = p[i].x - mx, dy = p[i].y - my;
         const Float32 t  =  dx * ux + dy * uy;
         const Float32 s  = -dx * uy + dy * ux;
-        if(t < tLo) tLo = t;
-        if(t > tHi) tHi = t;
-        if(s < sLo) sLo = s;
-        if(s > sHi) sHi = s;
+        if(t < tLo)
+        {
+            tLo = t;
+        }
+        if(t > tHi)
+        {
+            tHi = t;
+        }
+        if(s < sLo)
+        {
+            sLo = s;
+        }
+        if(s > sHi)
+        {
+            sHi = s;
+        }
 
         const Float32 d = std::sqrt(p[i].x * p[i].x + p[i].y * p[i].y);
-        if(d < nearMm) nearMm = d;
+        if(d < nearMm)
+        {
+            nearMm = d;
+        }
     }
 
     const Float32 halfL = (tHi - tLo) * 0.5f;
@@ -2817,15 +2923,24 @@ Float32 corridorFree(const Vec<LidarPoint>& pts, Float32 halfWidthMm)
         const Float32 ahead = -y;
         if(ahead <= nose)                   // inside the footprint
             continue;
-        if(ahead < best) best = ahead;
+        if(ahead < best)
+        {
+            best = ahead;
+        }
     }
     return best;
 }
 
 ImU32 clearanceColour(Float32 mm)
 {
-    if(mm >= CORRIDOR_WARN_MM) return ui::ansi::BRGREEN;
-    if(mm >= CORRIDOR_STOP_MM) return ui::ansi::BRYELLOW;
+    if(mm >= CORRIDOR_WARN_MM)
+    {
+        return ui::ansi::BRGREEN;
+    }
+    if(mm >= CORRIDOR_STOP_MM)
+    {
+        return ui::ansi::BRYELLOW;
+    }
     return ui::ansi::BRRED;
 }
 
@@ -3118,7 +3233,10 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
         // bounded on - exact for a rotated rectangle, unlike a bounding radius.
         const Float32 ex = std::fabs(o.ux) * o.halfL + std::fabs(o.uy) * o.halfW;
         o.inPath = (o.cy < 0.0f) && (std::fabs(o.cx) - ex <= halfWidth);
-        if(o.inPath) ++inPathCount;
+        if(o.inPath)
+        {
+            ++inPathCount;
+        }
     }
 
     // ---- free space, underneath everything -------------------------------
@@ -3128,7 +3246,10 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
         Bool any = false;
         for(Int32 i = 0; i < CLR_BINS; ++i)
         {
-            if(st.clrSeen[i]) any = true;
+            if(st.clrSeen[i])
+            {
+                any = true;
+            }
             const Float32 d   = st.clrSeen[i] ? st.clr[i] : 0.0f;
             const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
             const Float32 a   = deg * (PI / 180.0f);
@@ -3183,7 +3304,10 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
     std::sort(order.begin(), order.end(), [&](Int32 a2, Int32 b2) {
         const Obstacle& x = obstacles[static_cast<Size>(a2)];
         const Obstacle& y = obstacles[static_cast<Size>(b2)];
-        if(x.inPath != y.inPath) return x.inPath;
+        if(x.inPath != y.inPath)
+        {
+            return x.inPath;
+        }
         return x.nearMm < y.nearMm;
     });
 
@@ -3212,7 +3336,10 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
             Float32 nearestMm = st.clr[b];
             while(b < CLR_BINS && st.clrSeen[b] && st.clr[b] >= 1200.0f)
             {
-                if(st.clr[b] < nearestMm) nearestMm = st.clr[b];
+                if(st.clr[b] < nearestMm)
+                {
+                    nearestMm = st.clr[b];
+                }
                 ++b;
             }
             const Int32 span = b - start;
@@ -3267,11 +3394,20 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
         }
         ++inSpec;
         sumMm += static_cast<Float64>(p.distMm);
-        if(p.distMm < nearMm) nearMm = p.distMm;
-        if(p.distMm > maxMm)  maxMm  = p.distMm;
+        if(p.distMm < nearMm)
+        {
+            nearMm = p.distMm;
+        }
+        if(p.distMm > maxMm)
+        {
+            maxMm  = p.distMm;
+        }
     }
     const Int32 total = static_cast<Int32>(pts.size());
-    if(inSpec == 0) nearMm = 0.0f;
+    if(inSpec == 0)
+    {
+        nearMm = 0.0f;
+    }
 
     Float32 minClr = MAX_VALID_MM, minClrDeg = 0.0f;
     if(st.ready)
@@ -3287,7 +3423,10 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
     Int32 nr = 0;
 
     const auto addRow = [&](const Char* k, const Char* fmt, Float64 a) {
-        if(nr >= 10) return;
+        if(nr >= 10)
+        {
+            return;
+        }
         rows[nr].k = k;
         std::snprintf(rows[nr].v, sizeof(rows[nr].v), fmt, a);
         ++nr;
@@ -3378,7 +3517,10 @@ Void drawMarksMinimal(const MarkCtx& c, const MapState& st, const Deque<Vec<Lida
         Bool any = false;
         for(Int32 i = 0; i < CLR_BINS; ++i)
         {
-            if(st.clrSeen[i]) any = true;
+            if(st.clrSeen[i])
+            {
+                any = true;
+            }
             const Float32 d   = st.clrSeen[i] ? st.clr[i] : 0.0f;
             const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
             const Float32 a   = deg * (PI / 180.0f);
@@ -3460,10 +3602,16 @@ Float32 fitDistanceMm(const LidarFrame& frame)
         if(p.distMm >= MIN_VALID_MM && p.distMm <= MAX_VALID_MM)
             d.push_back(p.distMm);
 
-    if(d.empty()) return 0.0f;
+    if(d.empty())
+    {
+        return 0.0f;
+    }
 
     Size k = static_cast<Size>((d.size() * 0.95f));
-    if(k >= d.size()) k = d.size() - 1;
+    if(k >= d.size())
+    {
+        k = d.size() - 1;
+    }
 
     std::nth_element(d.begin(), d.begin() + k, d.end());
     return d[k];
@@ -3615,7 +3763,10 @@ Void RadarView::push(const LidarFrame& frame)
 
         const Int32 n = std::min(fitN, FIT_HISTORY);
         Float32 windowed = 0.0f;
-        for(Int32 i = 0; i < n; ++i) windowed = std::max(windowed, fitHist[i]);
+        for(Int32 i = 0; i < n; ++i)
+        {
+            windowed = std::max(windowed, fitHist[i]);
+        }
 
         const Float32 desired = std::min(std::max(windowed * 1.15f, 750.0f), 16000.0f);
 
@@ -3665,7 +3816,10 @@ Void RadarView::clear()
     // Otherwise a reconnect fits to the previous room for the next 2.4 s.
     fitStepMm = 0.0f;
     fitN = 0;
-    for(Int32 i = 0; i < FIT_HISTORY; ++i) fitHist[i] = 0.0f;
+    for(Int32 i = 0; i < FIT_HISTORY; ++i)
+    {
+        fitHist[i] = 0.0f;
+    }
 
     // Same reasoning, one step further: without this a reconnect in a different
     // room would draw the PREVIOUS room's walls, decaying, for a minute.
@@ -3793,8 +3947,14 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
                 // by a fraction of a bin; easing it costs a little lag and buys
                 // a world that does not shiver.
                 Float32 d = deg - mst.headingDeg;
-                while(d >  180.0f) d -= 360.0f;
-                while(d < -180.0f) d += 360.0f;
+                while(d >  180.0f)
+                {
+                    d -= 360.0f;
+                }
+                while(d < -180.0f)
+                {
+                    d += 360.0f;
+                }
                 mst.headingDeg += d * 0.25f;
 
                 mst.headingOk = score;
@@ -3921,8 +4081,14 @@ Void RadarView::draw(const ImVec2& size)
     decayOccupancy(map, io.DeltaTime);
 
     ImVec2 sz = size;
-    if(sz.x <= 0.0f) sz.x = ImGui::GetContentRegionAvail().x + sz.x;
-    if(sz.y <= 0.0f) sz.y = ImGui::GetContentRegionAvail().y + sz.y;
+    if(sz.x <= 0.0f)
+    {
+        sz.x = ImGui::GetContentRegionAvail().x + sz.x;
+    }
+    if(sz.y <= 0.0f)
+    {
+        sz.y = ImGui::GetContentRegionAvail().y + sz.y;
+    }
     sz.x = std::max(sz.x, 1.0f);
     sz.y = std::max(sz.y, 1.0f);
 
@@ -4084,8 +4250,14 @@ Void RadarView::draw(const ImVec2& size)
         }
     }
 
-    if(panning)                 ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    else if(measureActive)    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    if(panning)
+    {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+    }
+    else if(measureActive)
+    {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
 
     // ---- readouts ---------------------------------------------------------
     if(hovered || active)
@@ -4095,7 +4267,10 @@ Void RadarView::draw(const ImVec2& size)
         cursorRangeMm = std::sqrt(w.x * w.x + w.y * w.y);
 
         Float32 b = std::atan2(w.x, -w.y) * (180.0f / PI);   // 0 = up, clockwise
-        if(b < 0.0f) b += 360.0f;
+        if(b < 0.0f)
+        {
+            b += 360.0f;
+        }
         cursorBearingDeg = b;
     }
 
@@ -4220,7 +4395,10 @@ Void RadarView::draw(const ImVec2& size)
             nearestMm = best->distMm;
 
             Float32 b = std::fmod(best->angleDeg, 360.0f);
-            if(b < 0.0f) b += 360.0f;
+            if(b < 0.0f)
+            {
+                b += 360.0f;
+            }
             nearestBearingDeg = b;
 
             // Minimal overrides the checkboxes rather than reading them. The

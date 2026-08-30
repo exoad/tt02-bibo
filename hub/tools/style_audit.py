@@ -60,6 +60,14 @@ DIRS = [
 #     internal linkage from `static` alone, which is why the rule applies there.
 C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 
+# shared.hxx is WHERE the aliasing happens, so it is exempt from the rule that
+# everything else use the aliases - the same carve-out, and for the same
+# reason, that lets firmware/lib/text.hxx name strtol. `using Str = std::string`
+# and sleepMs's one-line body naming std::this_thread are the file doing its
+# job, not a file that forgot the vocabulary.
+VOCAB_FILES  = {'shared.hxx'}
+VOCAB_WAIVES = {'unaliased std type', 'bare builtin type'}
+
 def strip_noise(text):
     """Blank out // comments, /* */ comments and "..." literals, keeping
     offsets so line numbers stay right."""
@@ -90,10 +98,37 @@ def strip_noise(text):
             out.append(c); i += 1
     return ''.join(out)
 
+# A cast is SYNTAX, not a list of type names.
+#
+# This rule used to enumerate the types a cast could be TO - which meant it
+# only ever found casts to types somebody had remembered to add. It missed
+# `(MINMAXINFO*)lparam` and `(const RECT*)lparam` in main.cxx and `(sl_u32)baud`
+# in lidar_source.cxx for as long as they existed, because those three names
+# were not on the list, and no list is ever finished.
+#
+# What makes a cast recognisable instead is the SHAPE: an opening paren that
+# does not follow an identifier (which would make it a call), a TYPE, a closing
+# paren, and an operand. The type is the hard part, and the project's own
+# naming convention settles it - types are PascalCase here, so a capitalised
+# name in parens is a type while `(width) * 2` is arithmetic on a camelCase
+# local. Win32 shouts (HWND, RECT, LPARAM), the standard library uses _t, and
+# Slamtec uses sl_, so those three get named explicitly.
+CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
+             r'(?:[A-Z][A-Za-z0-9_]*(?:::[A-Za-z_]\w*)*'
+             r'|\w+_t'
+             r'|sl_\w+'
+             r'|(?:unsigned|signed|int|float|double|char|short|long|bool|void)\b'
+             r'(?:\s+(?:int|long|char))?'
+             r')\s*\**\s*')
+
 RULES = [
     # (name, regex, note)
+    #
+    # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out: that is
+    # a named cast whose RESULT is multiplied, not a cast of `(SRC)`. Without
+    # it every correctly-written cast followed by a `*` reported itself.
     ('c-style cast',
-     r'\((?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|Float64|Size|Char|MapMode|ImU32|ImWchar|board::Which|scene3d::SceneMode|LidarState|PicoState|FlashState|PFN_[A-Za-z]+|HWND|HMODULE|DpiAwarenessContext|LPARAM|WPARAM)\)\s*[A-Za-z_(&*]',
+     r'(?<![A-Za-z0-9_)\]>])\(\s*' + CAST_TYPE + r'\)\s*(?!&&|\|\|)[A-Za-z_(&*]',
      'use a named cast'),
 
     ('bare builtin type',
@@ -133,12 +168,25 @@ RULES = [
     # std::move, std::min, std::sort and the rest of the FUNCTIONS keep their
     # spelling - only the TYPES are aliased, so this names them explicitly
     # rather than banning the namespace.
+    # chrono and the file streams joined the list when they got aliases. They
+    # were the biggest hole in it: 31 raw std::chrono uses across the two
+    # files that own threaded I/O, invisible because nobody had added the
+    # name here and there was no alias to point at.
+    #
+    # `duration` but not `duration_cast`, and `this_thread::sleep_for` but not
+    # the namespace: only the TYPES are aliased, and a cast and a sleep are
+    # functions, which keep their spelling like std::move and std::sort do.
+    # The \b after `duration` is what separates the two - `duration_cast`
+    # continues with a word character, so it never matches.
     ('unaliased std type',
      r'\bstd::(?:vector|deque|array|map|set|unordered_map|unordered_set|pair|'
      r'tuple|string|string_view|optional|variant|function|unique_ptr|'
      r'shared_ptr|weak_ptr|mutex|recursive_mutex|lock_guard|unique_lock|'
-     r'thread|atomic)\b',
-     'use the shared.hxx alias (Vec, Str, Map, Mutex, ...)'),
+     r'thread|atomic|ifstream|ofstream|fstream'
+     r'|chrono::(?:steady_clock|system_clock|high_resolution_clock|time_point'
+     r'|milliseconds|microseconds|nanoseconds|seconds|duration)'
+     r'|this_thread::sleep_for)\b',
+     'use the shared.hxx alias (Vec, Str, Clock, TimePoint, sleepMs, ...)'),
 
     # Allman, everywhere. A body on the same line as its head is the one brace
     # style question this project has already answered, and it is the one that
@@ -177,6 +225,46 @@ RULES = [
     ('one-lined body',
      r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{[^{}]*[^{}\s][^{}]*\}',
      'expand the braces onto their own lines'),
+
+    # The brace on the HEAD's line, body closing somewhere far below.
+    #
+    # The rule above cannot see this: it needs the open and close brace on one
+    # physical line, and a cuddled `{` whose body closes twenty lines later
+    # never appears on one line at all. That blind spot hid 40 of these in
+    # lidar_source.cxx and its test - the Slamtec boundary files, which were
+    # carrying the SDK's brace style rather than this project's.
+    #
+    # A lambda is the written-down exception and is filtered in EXEMPT.
+    ('cuddled brace',
+     r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{\s*$',
+     'Allman - put the brace on its own line'),
+
+    # `if(x) return;` - a body with no braces, sharing its head's line.
+    #
+    # docs/conventions.md bans a body sharing a line with its head "however
+    # short", and a braceless statement is still a body. Nothing caught these
+    # because every other brace rule looks for a brace, and this is the shape
+    # that has none: 250 of them across the tree.
+    #
+    # A body on the NEXT line without braces is NOT this and is left alone -
+    # it does not share the head's line, which is what the rule is about.
+    ('braceless one-lined body',
+     r'^\s*(?:if|for|while)\s*\([^;]*\)\s*(?!$)[A-Za-z_][\w:.>()\[\]-]*\s*(?:\(|=|\+\+|--|;)',
+     'give the body its own braces on their own lines'),
+
+    # `Type *name` / `Type &name`.
+    #
+    # The declaration binds the * to the TYPE here - `Char* p`, not `Char *p` -
+    # because in this project a pointer to Char is a type in its own right and
+    # is spelled as one. The tree was already 604:0 and 747:0 this way when the
+    # rule was written; it is here so it stays that way, not to fix a mess.
+    ('pointer bound to the name',
+     r'\b[A-Z][A-Za-z0-9_]*\s+\*[a-z][A-Za-z0-9_]*',
+     'bind the * to the type: Type* name'),
+
+    ('reference bound to the name',
+     r'\b[A-Z][A-Za-z0-9_]*\s+&[a-z][A-Za-z0-9_]*',
+     'bind the & to the type: Type& name'),
 ]
 
 # Lines that are legitimately exempt, with the reason.
@@ -205,6 +293,12 @@ EXEMPT = [
     # expression - `[](const Str& a) { return a > b; }` as a sort predicate. The
     # rule targets function and control-flow bodies, not these.
     (r'\[[^\]]*\]\s*\([^)]*\)\s*(?:->\s*[A-Za-z_:<>]+\s*)?\{', 'a lambda, not a function body'),
+
+    # A lambda's brace cuddles by convention everywhere, including here - it is
+    # an expression being passed to something, not a function body standing on
+    # its own. `const auto flush = [&]() {` is the shape.
+    (r'\[[&=]?[^\]]*\]\s*(?:\([^)]*\)\s*)?(?:mutable\s*)?(?:->[^{]*)?\{\s*$',
+     'a lambda, not a function body'),
 ]
 
 def exempt(line):
@@ -236,6 +330,8 @@ def audit(paths):
         raw  = rd(path).split('\n')
         lines = code.split('\n')
         waived_here = C_ONLY_WAIVES if is_c(path) else set()
+        if os.path.basename(path) in VOCAB_FILES:
+            waived_here = waived_here | VOCAB_WAIVES
         for i, l in enumerate(lines):
             if not l.strip():
                 continue
@@ -308,7 +404,11 @@ LAYERS = {
     'firmware/lib/drivers':  {'../hal.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
-    'firmware/scratch':      {'../lib/bibo.hxx'},
+    # Renamed from scratch/ when a sketch became a file rather than a slot. The
+    # key is matched by substring against the path, so the stale name matched
+    # nothing and took BOTH this check and the libc one below off sketches
+    # entirely - silently, for as long as the rename went unnoticed here.
+    'firmware/sketches':     {'../lib/bibo.hxx'},
     # A host test of ONE header includes that header, not the umbrella - the
     # umbrella drags in the SDK and these compile with MSVC.
     'firmware/tests':        {'../lib/text.hxx'},
@@ -439,6 +539,11 @@ print('\n--- application code reaching past the library ---')
 
 LIBC_DIRECT = [
     ('printf',   'serial::printf'),
+    # snprintf was missing for as long as this check existed, and app/main.cxx
+    # called it twice. The negative lookbehind below is defeated by the leading
+    # `s`, so `printf` never matched it - the one libc call the rule was most
+    # sure it had covered was the one it could not see.
+    ('snprintf', 'text::format'),
     ('puts',     'serial::printLine'),
     ('fputs',    'serial::print'),
     ('strcmp',   'text::eq'),
@@ -453,7 +558,7 @@ LIBC_DIRECT = [
 libc_bad = 0
 for path in files:
     norm = path.replace('\\', '/')
-    if '/firmware/app/' not in norm and '/firmware/scratch/' not in norm:
+    if '/firmware/app/' not in norm and '/firmware/sketches/' not in norm:
         continue
     code = strip_noise(rd(path))
     for i, line in enumerate(code.split('\n')):
@@ -473,6 +578,27 @@ for path in files:
 if libc_bad == 0:
     print('  ok')
 total += libc_bad
+
+print('\n--- header guards ---')
+# `#pragma once`, not an #ifndef guard.
+#
+# Nothing checked this, and six firmware headers were still carrying C-era
+# guards named `_H` - hal.hxx saying `#ifndef BIBO_HAL_H` - left behind when
+# the C++ migration renamed them .h -> .hxx. A rename changed the extension
+# and not the contents, which is exactly the kind of drift a rename pass
+# leaves and nobody sees again.
+guard_bad = 0
+for path in files:
+    if not path.endswith(('.hxx', '.h')):
+        continue
+    if os.path.basename(path) in HEADER_EXEMPT:
+        continue
+    if '#pragma once' not in rd(path):
+        print('  %-30s no #pragma once' % os.path.basename(path))
+        guard_bad += 1
+if guard_bad == 0:
+    print('  ok')
+total += guard_bad
 
 print('\n--- header extensions ---')
 for path in files:

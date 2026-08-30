@@ -54,8 +54,7 @@
  * never corrupts the opposite side, which is what makes animation writable
  * without a bounds check at every call site.
  */
-#ifndef BIBO_GFX_H
-#define BIBO_GFX_H
+#pragma once
 
 #include "drivers/display.hxx"
 
@@ -764,7 +763,7 @@ static Void charAt(tft::Screen* s, Int32 x, Int32 y, Utf8 ch)
     Utf8 c = ch;
     if(c >= 'a' && c <= 'z')
     {
-        c = (Utf8) (c - 'a' + 'A');
+        c = static_cast<Utf8>(c - 'a' + 'A');
     }
     if(c < 32 || c > 90)
     {
@@ -895,4 +894,3 @@ static Bool open(tft::Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
 } // namespace gfx
 
 } // namespace bibo
-#endif

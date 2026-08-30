@@ -84,8 +84,14 @@ Size Recording::indexAt(Float64 tS) const
     while(lo + 1u < hi)
     {
         const Size mid = (lo + hi) / 2u;
-        if(revs[mid].tS <= tS) lo = mid;
-        else                   hi = mid;
+        if(revs[mid].tS <= tS)
+        {
+            lo = mid;
+        }
+        else
+        {
+            hi = mid;
+        }
     }
     return lo;
 }
@@ -137,8 +143,14 @@ Bool Recording::save(const Str& path, Str& err) const
             // rolls through 360. Folding it here keeps every written value
             // small and positive instead of emitting one -35900.
             Float32 d = p.angleDeg - prevDeg;
-            while(d <   0.0f) d += 360.0f;
-            while(d >= 360.0f) d -= 360.0f;
+            while(d <   0.0f)
+            {
+                d += 360.0f;
+            }
+            while(d >= 360.0f)
+            {
+                d -= 360.0f;
+            }
             prevDeg = p.angleDeg;
 
             ok = std::fprintf(f, "%d %d",
@@ -257,7 +269,10 @@ Bool Recording::loadTextV2(const Str& path, Str& err)
             break;
 
         runDeg += static_cast<Float32>(da) / 100.0f;
-        while(runDeg >= 360.0f) runDeg -= 360.0f;
+        while(runDeg >= 360.0f)
+        {
+            runDeg -= 360.0f;
+        }
 
         if(cur.points.size() < want)
         {

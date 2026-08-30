@@ -318,7 +318,10 @@ Void testArea()
     // pi * 1^2 = 3.1416 m^2. A 120-gon is very slightly under.
     checkNear(mapgeo::polarArea(r, BINS, STEP), 3.1416f, 0.01f, "unit circle area");
 
-    for(Int32 i = 0; i < BINS; ++i) r[i] = 0.0f;
+    for(Int32 i = 0; i < BINS; ++i)
+    {
+        r[i] = 0.0f;
+    }
     checkNear(mapgeo::polarArea(r, BINS, STEP), 0.0f, 1e-4f, "empty polygon");
 }
 

@@ -35,16 +35,20 @@
 // either a qualified spelling in every header or a `using namespace` in one, and
 // `using namespace` in a header is exactly what the style guide forbids.
 //
-// The C counterpart is shared/shared.h. The two are kept in step by hand and
-// deliberately do not share a file: C has no templates and no namespaces, and a
+// The counterpart is firmware/lib/types.hxx. The two are kept in step by hand
+// and deliberately do not share a file - not because one is C any more (the
+// firmware is C++ now too), but because the firmware is freestanding: no heap,
+// no exceptions, no STL. Every template below would be unusable there, and a
 // header that tried to serve both would be mostly #ifdef.
 // ---------------------------------------------------------------------------
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -168,7 +172,49 @@ using UniqueLock = std::unique_lock<T>;
 template<typename T>
 using Atomic = std::atomic<T>;
 
+// ---- time -----------------------------------------------------------------
+// STEADY, not system: every use here measures an interval, and the system
+// clock can step backwards when something adjusts it. A scan that appears to
+// finish before it started is a clock bug wearing a timing bug's clothes.
+using Clock     = std::chrono::steady_clock;
+using TimePoint = Clock::time_point;
+using Millis    = std::chrono::milliseconds;
+using Nanos     = std::chrono::nanoseconds;
+
+template<typename Rep, typename Period = std::ratio<1>>
+using Duration = std::chrono::duration<Rep, Period>;
+
+// ---- streams --------------------------------------------------------------
+// Most file reading here is C stdio, which needs no alias - these are for the
+// places already written against iostream, so the seam is not half-spelled.
+using InFile  = std::ifstream;
+using OutFile = std::ofstream;
+
 // ---- helpers --------------------------------------------------------------
+// These mirror firmware/lib/hal.hxx's timing:: namespace on purpose, so the
+// two halves of the project name the same idea the same way. `monoNow` rather
+// than `now` because these sit at global scope and `now` is a local variable
+// people actually write.
+[[nodiscard]] inline TimePoint monoNow()
+{
+    return Clock::now();
+}
+
+[[nodiscard]] inline Float64 elapsedMs(TimePoint since)
+{
+    return Duration<Float64, std::milli>(Clock::now() - since).count();
+}
+
+[[nodiscard]] inline Float64 elapsedS(TimePoint since)
+{
+    return Duration<Float64>(Clock::now() - since).count();
+}
+
+inline Void sleepMs(Int64 ms)
+{
+    std::this_thread::sleep_for(Millis(ms));
+}
+
 template<typename T, typename... Args>
 [[nodiscard]] inline UniqPtr<T> makeUniq(Args&&... args)
 {

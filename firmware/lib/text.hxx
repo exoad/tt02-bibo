@@ -31,6 +31,8 @@
 #include "types.hxx"
 
 #include <ctype.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -280,6 +282,30 @@ static Bool twoInts(CharSeq s, Int32* a, Int32* b)
     return true;
 }
 
+
+/*
+ * Bounded formatted write into the CALLER's buffer.
+ *
+ * The wrapper snprintf never had, and the reason app/ was still naming a libc
+ * function directly: serial::printf formats and SENDS, which is the wrong
+ * shape for a caller assembling a string it means to keep. There was nothing
+ * here to call instead, so two call sites reached past the library - and the
+ * audit could not see them, because its lookbehind is defeated by the leading
+ * `s` in snprintf.
+ *
+ * Deliberately a PASSTHROUGH: it returns exactly what snprintf returns - the
+ * length the output WANTED, which is how a caller detects truncation. A
+ * wrapper that improved on that return would be a second thing to learn, and
+ * the point of the seam is that it costs nothing to cross.
+ */
+static Int32 format(Utf8* buf, Size cap, CharSeq fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    const Int32 n = vsnprintf(buf, cap, fmt, ap);
+    va_end(ap);
+    return n;
+}
 
 } // namespace text
 

@@ -219,7 +219,7 @@ Int32 main(Int32 argc, const Char* argv[])
     }
 
     drv->stop();
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    sleepMs(200);
     drv->setMotorSpeed(0);
     delete drv;
     return 0;

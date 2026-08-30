@@ -1008,7 +1008,10 @@ Void refreshPorts()
     }
 
     portItems.clear();
-    for(const auto& s : lidarPorts) portItems.push_back(s.c_str());
+    for(const auto& s : lidarPorts)
+    {
+        portItems.push_back(s.c_str());
+    }
 
     if(lidarPorts.empty())
     {
@@ -1148,14 +1151,20 @@ Void refreshPicoPorts()
     picoPorts = PicoLink::listPicoPorts();
 
     picoItems.clear();
-    for(const auto& s : picoPorts) picoItems.push_back(s.c_str());
+    for(const auto& s : picoPorts)
+    {
+        picoItems.push_back(s.c_str());
+    }
 
     if(picoPorts.empty())
     {
         picoIndex = -1;
         return;
     }
-    if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size())) picoIndex = 0;
+    if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size()))
+    {
+        picoIndex = 0;
+    }
 }
 
 Void connectPico()
@@ -1165,14 +1174,20 @@ Void connectPico()
     LOG_INFO("pico", "connect requested: port=%s",
              (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size()))
                  ? picoPorts[picoIndex].c_str() : "(none)");
-    if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size())) return;
+    if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size()))
+    {
+        return;
+    }
     resetBoardStatus();
     picoLink.connect(picoPorts[picoIndex]);
 }
 
 Void sendPico(const Char* line)
 {
-    if(!line || !line[0]) return;
+    if(!line || !line[0])
+    {
+        return;
+    }
     picoLink.send(line);            // the link logs it; drain() gives it back to us
 }
 
@@ -1184,15 +1199,24 @@ Void sendPico(const Char* line)
 // forget and the cost of forgetting is a console nobody can use.
 Void pollPico(const Char* line)
 {
-    if(!line || !line[0]) return;
+    if(!line || !line[0])
+    {
+        return;
+    }
     picoLink.send(line, true);
 }
 
 Str trimLine(const Str& s)
 {
     Size a = 0, b = s.size();
-    while(a < b && static_cast<UInt8>(s[a]) <= ' ') ++a;
-    while(b > a && static_cast<UInt8>(s[b - 1]) <= ' ') --b;
+    while(a < b && static_cast<UInt8>(s[a]) <= ' ')
+    {
+        ++a;
+    }
+    while(b > a && static_cast<UInt8>(s[b - 1]) <= ' ')
+    {
+        --b;
+    }
     return s.substr(a, b - a);
 }
 
@@ -1206,13 +1230,22 @@ Str trimLine(const Str& s)
 Void observeLine(const PicoLine& ln)
 {
     const Str t = trimLine(ln.text);
-    if(t.empty()) return;
+    if(t.empty())
+    {
+        return;
+    }
 
     if(ln.outgoing)
     {
         lastCmd = t;
-        if(t == "?")      vehAwait = true;
-        if(t == "STATUS") dbgAwait = true;
+        if(t == "?")
+        {
+            vehAwait = true;
+        }
+        if(t == "STATUS")
+        {
+            dbgAwait = true;
+        }
         return;
     }
 
@@ -1470,12 +1503,18 @@ Void observeLine(const PicoLine& ln)
         // says less, and saying less should not read as "every lamp is dark".
         const auto commas = [](const Char* q, Int32* out, Int32 n)
         {
-            if(q == nullptr) return;
+            if(q == nullptr)
+            {
+                return;
+            }
             for(Int32 i = 0; i < n && *q != '\0' && *q != ' '; ++i)
             {
                 out[i] = std::atoi(q);
                 const Char* c = std::strchr(q, ',');
-                if(c == nullptr || *(c + 1) == '\0') break;
+                if(c == nullptr || *(c + 1) == '\0')
+                {
+                    break;
+                }
                 q = c + 1;
             }
         };
@@ -1667,7 +1706,10 @@ Void pumpPico()
         }
     }
 
-    for(Size i = before; i < picoLog.size(); ++i) observeLine(picoLog[i]);
+    for(Size i = before; i < picoLog.size(); ++i)
+    {
+        observeLine(picoLog[i]);
+    }
 
     if(picoLog.size() > LOG_MAX)
         picoLog.erase(picoLog.begin(), picoLog.begin() + (picoLog.size() - LOG_MAX));
@@ -1682,11 +1724,20 @@ Void pumpPico()
 // firmware is running - so there is now always somebody looking.
 Void pollBoardStatus()
 {
-    if(dbgUnsupported) return;
-    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED) return;
+    if(dbgUnsupported)
+    {
+        return;
+    }
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        return;
+    }
 
     const Float64 now = ImGui::GetTime();
-    if(dbgLastPoll > 0.0 && (now - dbgLastPoll) < 2.0) return;
+    if(dbgLastPoll > 0.0 && (now - dbgLastPoll) < 2.0)
+    {
+        return;
+    }
 
     dbgLastPoll = now;
     pollPico("STATUS");
@@ -1701,11 +1752,20 @@ Void pollBoardStatus()
 // TEMPORARY, with the rest of the indicator scaffolding.
 Void pollLights()
 {
-    if(dbgUnsupported) return;
-    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED) return;
+    if(dbgUnsupported)
+    {
+        return;
+    }
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        return;
+    }
 
     const Float64 now = ImGui::GetTime();
-    if(lightsLastPoll > 0.0 && (now - lightsLastPoll) < 0.12) return;
+    if(lightsLastPoll > 0.0 && (now - lightsLastPoll) < 0.12)
+    {
+        return;
+    }
 
     lightsLastPoll = now;
     pollPico("LIGHTS");
@@ -1738,11 +1798,20 @@ Void pollCueList()
 // something that has already finished. Only while the board is on screen.
 Void pollCueState()
 {
-    if(dbgUnsupported) return;
-    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED) return;
+    if(dbgUnsupported)
+    {
+        return;
+    }
+    if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        return;
+    }
 
     const Float64 now = ImGui::GetTime();
-    if(cueLastPoll > 0.0 && (now - cueLastPoll) < 0.12) return;
+    if(cueLastPoll > 0.0 && (now - cueLastPoll) < 0.12)
+    {
+        return;
+    }
 
     cueLastPoll = now;
     pollPico("CUE");
@@ -1879,14 +1948,26 @@ ImU32 lidarStateColorOnViewport()
 // readout.
 Void picoAgeText(Char* buf, Size n, Float64 ageS)
 {
-    if(ageS < 0.0)        std::snprintf(buf, n, "--");
-    else if(ageS < 600.0) std::snprintf(buf, n, "%.1f s ago", ageS);
-    else                    std::snprintf(buf, n, "%.0f min ago", ageS / 60.0);
+    if(ageS < 0.0)
+    {
+        std::snprintf(buf, n, "--");
+    }
+    else if(ageS < 600.0)
+    {
+        std::snprintf(buf, n, "%.1f s ago", ageS);
+    }
+    else
+    {
+        std::snprintf(buf, n, "%.0f min ago", ageS / 60.0);
+    }
 }
 
 Bool logMatches(const PicoLine& ln)
 {
-    if(filterBuf[0] == '\0') return true;
+    if(filterBuf[0] == '\0')
+    {
+        return true;
+    }
 
     const Char* hay = ln.text.c_str();
     for(; *hay; ++hay)
@@ -1899,7 +1980,10 @@ Bool logMatches(const PicoLine& ln)
                    ++h;
                    ++n;
                }
-        if(*n == '\0') return true;
+        if(*n == '\0')
+        {
+            return true;
+        }
     }
     return false;
 }
@@ -1909,8 +1993,14 @@ Void recomputeDerived()
     pointsPs = latestFrame.hz * static_cast<Float32>(latestFrame.points.size());
 
     Float32 sectorMm[SECTORS] = {};
-    for(Int32 i = 0; i < QUALITY_BUCKETS; ++i) qHist[i] = 0.0f;
-    for(Int32 i = 0; i < DIST_BUCKETS; ++i)    distHist[i] = 0.0f;
+    for(Int32 i = 0; i < QUALITY_BUCKETS; ++i)
+    {
+        qHist[i] = 0.0f;
+    }
+    for(Int32 i = 0; i < DIST_BUCKETS; ++i)
+    {
+        distHist[i] = 0.0f;
+    }
 
     static Bool binSeen[360];
     std::memset(binSeen, 0, sizeof(binSeen));
@@ -1943,11 +2033,20 @@ Void recomputeDerived()
 
         sum += p.distMm;
         ++n;
-        if(p.distMm > maxMm) maxMm = p.distMm;
+        if(p.distMm > maxMm)
+        {
+            maxMm = p.distMm;
+        }
 
         qSum += p.quality;
-        if(p.quality < qLo) qLo = p.quality;
-        if(p.quality > qHi) qHi = p.quality;
+        if(p.quality < qLo)
+        {
+            qLo = p.quality;
+        }
+        if(p.quality > qHi)
+        {
+            qHi = p.quality;
+        }
 
         Int32 qb = static_cast<Int32>(p.quality) * QUALITY_BUCKETS / 64;
         qb = std::min(std::max(qb, 0), QUALITY_BUCKETS - 1);
@@ -1958,7 +2057,10 @@ Void recomputeDerived()
         distHist[db] += 1.0f;
 
         Int32 ab = static_cast<Int32>(p.angleDeg);
-        if(ab >= 0 && ab < 360) binSeen[ab] = true;
+        if(ab >= 0 && ab < 360)
+        {
+            binSeen[ab] = true;
+        }
 
         Int32 s = static_cast<Int32>((p.angleDeg / (360.0f / SECTORS)));
         s = std::min(std::max(s, 0), SECTORS - 1);
@@ -1980,9 +2082,15 @@ Void recomputeDerived()
     coverageDeg = covered / 360.0f;
 
     qHistMax = 1.0f;
-    for(Int32 i = 0; i < QUALITY_BUCKETS; ++i) qHistMax = std::max(qHistMax, qHist[i]);
+    for(Int32 i = 0; i < QUALITY_BUCKETS; ++i)
+    {
+        qHistMax = std::max(qHistMax, qHist[i]);
+    }
     distHistMax = 1.0f;
-    for(Int32 i = 0; i < DIST_BUCKETS; ++i) distHistMax = std::max(distHistMax, distHist[i]);
+    for(Int32 i = 0; i < DIST_BUCKETS; ++i)
+    {
+        distHistMax = std::max(distHistMax, distHist[i]);
+    }
 
     // Capped, not scaled to the maximum: one open doorway at 8 m would
     // otherwise crush every near-field bar to invisibility.
@@ -2453,7 +2561,10 @@ Void pumpData()
     {
         // Telemetry keeps updating whether or not the layer is drawn: hiding a
         // layer is a map decision, not a "stop measuring" decision.
-        if(layerLidar) radarView.push(latestFrame);
+        if(layerLidar)
+        {
+            radarView.push(latestFrame);
+        }
         haveFrame = true;
         recomputeDerived();
 
@@ -2474,7 +2585,10 @@ Void pumpData()
     // the trail does not linger and the fit history does not spring back on return.
     if(layerLidar != layerLidarPrev)
     {
-        if(!layerLidar) radarView.clear();
+        if(!layerLidar)
+        {
+            radarView.clear();
+        }
         layerLidarPrev = layerLidar;
     }
 
@@ -2490,8 +2604,14 @@ Void pumpData()
 Void applyRange()
 {
     const Float32 mm = RANGES[rangeIndex].mm;
-    if(mm <= 0.0f) radarView.fit();
-    else            radarView.setRangeMm(mm);
+    if(mm <= 0.0f)
+    {
+        radarView.fit();
+    }
+    else
+    {
+        radarView.setRangeMm(mm);
+    }
 }
 
 Void connect()
@@ -2502,7 +2622,10 @@ Void connect()
              (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
                  ? lidarPorts[portIndex].c_str() : "(none)",
              BAUDS[baudIndex].rate);
-    if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size())) return;
+    if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size()))
+    {
+        return;
+    }
 
     radarView.clear();
     haveFrame = false;
@@ -2758,8 +2881,14 @@ const Char* iconTabLabel(Char* buf, Size cap, const Char* name)
     if(spaceW > 0.0f)
         n = static_cast<Int32>(std::ceil((ui::iconSize()
                                           + ImGui::GetStyle().ItemInnerSpacing.x) / spaceW));
-    if(n < 1)  n = 1;
-    if(n > 24) n = 24;
+    if(n < 1)
+    {
+        n = 1;
+    }
+    if(n > 24)
+    {
+        n = 24;
+    }
     std::snprintf(buf, cap, "%*s%s", n, "", name);
     return buf;
 }
@@ -2966,7 +3095,10 @@ Void subsystemRow(ui::Icon ic, const Char* name, ImU32 col, const Char* state, c
     colored(col, "%s", state);
 
     ImGui::TableNextColumn();
-    if(value && value[0]) ImGui::TextUnformatted(value);
+    if(value && value[0])
+    {
+        ImGui::TextUnformatted(value);
+    }
 }
 
 Void drawSubsystems()
@@ -3241,7 +3373,10 @@ Void drawQuickActions()
 
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
-        if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh))) startBackup();
+        if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
+        {
+            startBackup();
+        }
         ImGui::EndDisabled();
 
         ImGui::EndTable();
@@ -3503,7 +3638,10 @@ Void tabSignal()
             ImGui::PopStyleColor();
             ScopedFont sf(ui::fonts.small);
             ImGui::TextDisabled("%s", label);
-            if(total > 0) ImGui::TextDisabled("%.0f%%", 100.0 * n / total);
+            if(total > 0)
+            {
+                ImGui::TextDisabled("%.0f%%", 100.0 * n / total);
+            }
         };
 
         ImGui::TableNextRow();
@@ -3600,9 +3738,18 @@ Void tabDevice()
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); ImGui::TextDisabled("Pre-heat");
         ImGui::TableNextColumn();
-        if(st.uptimeS <= 0.0)       ImGui::TextUnformatted("--");
-        else if(st.uptimeS < 120.0) colored(ui::sem::WARN, "%.0f / 120 s", st.uptimeS);
-        else                          colored(ui::sem::GOOD, "done");
+        if(st.uptimeS <= 0.0)
+        {
+            ImGui::TextUnformatted("--");
+        }
+        else if(st.uptimeS < 120.0)
+        {
+            colored(ui::sem::WARN, "%.0f / 120 s", st.uptimeS);
+        }
+        else
+        {
+            colored(ui::sem::GOOD, "done");
+        }
 
         ImGui::EndTable();
     }
@@ -8071,7 +8218,10 @@ Void drawPicoLinkBlock()
     ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if(ui::iconButton(ui::Icon::ICON_REFRESH, "Refresh")) refreshPicoPorts();
+    if(ui::iconButton(ui::Icon::ICON_REFRESH, "Refresh"))
+    {
+        refreshPicoPorts();
+    }
 
     if(busy)
     {
@@ -8143,7 +8293,10 @@ Void drawPicoCommands()
         auto cmd = [](ui::Icon ic, const Char* label, const Char* line)
         {
             ImGui::TableNextColumn();
-            if(ui::iconButton(ic, label, ImVec2(-FLT_MIN, 0.0f))) sendPico(line);
+            if(ui::iconButton(ic, label, ImVec2(-FLT_MIN, 0.0f)))
+            {
+                sendPico(line);
+            }
         };
 
         // Two vocabularies, both real. pico_debug (flashed now) answers
@@ -8180,10 +8333,16 @@ Void drawPicoCommands()
     Bool fire = ImGui::InputTextWithHint("##picocmdline", "type a command",
                                          cmdBuf, sizeof(cmdBuf),
                                          ImGuiInputTextFlags_EnterReturnsTrue);
-    if(fire) ImGui::SetKeyboardFocusHere(-1);
+    if(fire)
+    {
+        ImGui::SetKeyboardFocusHere(-1);
+    }
 
     ImGui::SameLine();
-    if(ui::iconButton(ui::Icon::ICON_SEND, "Send")) fire = true;
+    if(ui::iconButton(ui::Icon::ICON_SEND, "Send"))
+    {
+        fire = true;
+    }
 
     if(fire)
     {
@@ -8235,9 +8394,18 @@ Void drawControllerState()
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); ImGui::TextDisabled("? reply");
         ImGui::TableNextColumn();
-        if(vehicleStatus.have)              colored(ui::sem::GOOD, "S line");
-        else if(vehUnsupported)  colored(ui::sem::WARN, "no S line");
-        else                         ImGui::TextUnformatted("--");
+        if(vehicleStatus.have)
+        {
+            colored(ui::sem::GOOD, "S line");
+        }
+        else if(vehUnsupported)
+        {
+            colored(ui::sem::WARN, "no S line");
+        }
+        else
+        {
+            ImGui::TextUnformatted("--");
+        }
 
         if(vehicleStatus.have)
         {
@@ -8331,7 +8499,10 @@ Void drawLightingBench()
     };
     for(Int32 i = 0; i < 3; ++i)
     {
-        if(i) ImGui::SameLine();
+        if(i)
+        {
+            ImGui::SameLine();
+        }
         if(ui::segmentedIconButton(HEAD_ICONS[i], HEADS[i].label,
                                    lightInput.head == HEADS[i].v,
                                    ImVec2(third, 0.0f)))
@@ -8349,7 +8520,10 @@ Void drawLightingBench()
     };
     for(Int32 i = 0; i < 4; ++i)
     {
-        if(i) ImGui::SameLine();
+        if(i)
+        {
+            ImGui::SameLine();
+        }
 
         // Hazards get the warning glyph and the amber the lamp itself uses;
         // Left and Right get neither, because the pack has no left/right arrow
@@ -8414,8 +8588,14 @@ Void sectionVehicle()
 
 Void sizeText(Char* buf, Size n, Int64 bytes)
 {
-    if(bytes >= 1024 * 1024) std::snprintf(buf, n, "%.1f MB", bytes / (1024.0 * 1024.0));
-    else                      std::snprintf(buf, n, "%lld KB", (bytes + 512) / 1024);
+    if(bytes >= 1024 * 1024)
+    {
+        std::snprintf(buf, n, "%.1f MB", bytes / (1024.0 * 1024.0));
+    }
+    else
+    {
+        std::snprintf(buf, n, "%lld KB", (bytes + 512) / 1024);
+    }
 }
 
 // The catalog's descriptions are paragraphs written for a human reading the
@@ -8423,7 +8603,10 @@ Void sizeText(Char* buf, Size n, Int64 bytes)
 // height and no prose sits permanently on screen.
 Void descriptionTooltip(const Str& text)
 {
-    if(text.empty() || !ImGui::IsItemHovered()) return;
+    if(text.empty() || !ImGui::IsItemHovered())
+    {
+        return;
+    }
 
     ImGui::BeginTooltip();
     ImGui::PushTextWrapPos(420.0f * uiDpiScale);
@@ -8631,7 +8814,10 @@ Void flashRuns(const Str& s, Vec<LogRun>& out)
 // them arrive, so this scrolls - it is a log.
 Void drawFlashOutput(const Char* id, const ImVec2& size)
 {
-    if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear")) flashLog.clear();
+    if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear"))
+    {
+        flashLog.clear();
+    }
     ImGui::SameLine();
     ui::checkbox("Auto-scroll", &flashAutoscroll);
     ImGui::SameLine();
@@ -8855,7 +9041,10 @@ Void drawFlashControls()
         ImGui::Separator();
     }
 
-    if(openConfirm) ImGui::OpenPopup("Flash this firmware?");
+    if(openConfirm)
+    {
+        ImGui::OpenPopup("Flash this firmware?");
+    }
 
     // ---- backup -----------------------------------------------------------
     ImGui::SeparatorText("Backup");
@@ -8865,7 +9054,10 @@ Void drawFlashControls()
                              backupBuf, sizeof(backupBuf));
 
     ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
-    if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh))) startBackup();
+    if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
+    {
+        startBackup();
+    }
     ImGui::EndDisabled();
 
     // ---- reboot -----------------------------------------------------------
@@ -9002,16 +9194,31 @@ ImU32 consoleColour(const PicoLine& ln)
     }
 
     const Char* t = ln.text.c_str();
-    if(std::strncmp(t, "ERR", 3) == 0)  return ansi::RED;
-    if(std::strncmp(t, "OK", 2) == 0)   return ansi::GREEN;
-    if(std::strncmp(t, "INFO", 4) == 0) return ansi::BLUE;
-    if(std::strncmp(t, "PONG", 4) == 0) return ansi::GREEN;
+    if(std::strncmp(t, "ERR", 3) == 0)
+    {
+        return ansi::RED;
+    }
+    if(std::strncmp(t, "OK", 2) == 0)
+    {
+        return ansi::GREEN;
+    }
+    if(std::strncmp(t, "INFO", 4) == 0)
+    {
+        return ansi::BLUE;
+    }
+    if(std::strncmp(t, "PONG", 4) == 0)
+    {
+        return ansi::GREEN;
+    }
     return ansi::WHITE;
 }
 
 Void drawSerialConsole(const ImVec2& size)
 {
-    if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear")) picoLog.clear();
+    if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear"))
+    {
+        picoLog.clear();
+    }
     ImGui::SameLine();
     ui::checkbox("Auto-scroll", &logAutoscroll);
     ImGui::SameLine();
@@ -9053,8 +9260,14 @@ Void drawSerialConsole(const ImVec2& size)
     logShown.clear();
     for(Int32 i = 0; i < static_cast<Int32>(picoLog.size()); ++i)
     {
-        if(!logShowPoll && picoLog[i].poll) continue;
-        if(logMatches(picoLog[i])) logShown.push_back(i);
+        if(!logShowPoll && picoLog[i].poll)
+        {
+            continue;
+        }
+        if(logMatches(picoLog[i]))
+        {
+            logShown.push_back(i);
+        }
     }
 
     {
@@ -9126,8 +9339,14 @@ Void drawSerialConsole(const ImVec2& size)
                         Int32 b = -1;
                         for(Int32 k = 0; k < static_cast<Int32>(logShown.size()); ++k)
                         {
-                            if(logShown[k] == logSelAnchor) a = k;
-                            if(logShown[k] == idx)          b = k;
+                            if(logShown[k] == logSelAnchor)
+                            {
+                                a = k;
+                            }
+                            if(logShown[k] == idx)
+                            {
+                                b = k;
+                            }
                         }
                         if(a >= 0 && b >= 0)
                         {
@@ -9138,13 +9357,22 @@ Void drawSerialConsole(const ImVec2& size)
                                 b = t;
                             }
                             logSel.clear();
-                            for(Int32 k = a; k <= b; ++k) logSel.insert(logShown[k]);
+                            for(Int32 k = a; k <= b; ++k)
+                            {
+                                logSel.insert(logShown[k]);
+                            }
                         }
                     }
                     else if(io.KeyCtrl)
                     {
-                        if(wasSel) logSel.erase(idx);
-                        else       logSel.insert(idx);
+                        if(wasSel)
+                        {
+                            logSel.erase(idx);
+                        }
+                        else
+                        {
+                            logSel.insert(idx);
+                        }
                         logSelAnchor = idx;
                     }
                     else
@@ -9171,7 +9399,10 @@ Void drawSerialConsole(const ImVec2& size)
         Str out;
         for(Int32 i : logShown)
         {
-            if(logSel.count(i) == 0) continue;
+            if(logSel.count(i) == 0)
+            {
+                continue;
+            }
             out += picoLog[i].outgoing ? "> " : "< ";
             out += picoLog[i].text;
             out += "\n";
@@ -9332,9 +9563,15 @@ Void moveSection(Int32 from, Int32 to)
 
     const Int32 moved = sectionOrder[from];
     if(from < to)
-        for(Int32 k = from; k < to; ++k) sectionOrder[k] = sectionOrder[k + 1];
+        for(Int32 k = from; k < to; ++k)
+        {
+            sectionOrder[k] = sectionOrder[k + 1];
+        }
     else
-        for(Int32 k = from; k > to; --k) sectionOrder[k] = sectionOrder[k - 1];
+        for(Int32 k = from; k > to; --k)
+        {
+            sectionOrder[k] = sectionOrder[k - 1];
+        }
 
     sectionOrder[to]   = moved;
     panelLayoutDirty   = true;
@@ -9550,7 +9787,10 @@ Void drawSidebar(Float32 width, Float32 height)
         }
 
         const Bool forced = (forceSection == e.id && forceTabFrames > 0);
-        if(forced) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+        if(forced)
+        {
+            ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+        }
 
         // So the tear-off button can sit on top of the header's own hit box.
         ImGui::SetNextItemAllowOverlap();
@@ -9595,7 +9835,10 @@ Void drawSidebar(Float32 width, Float32 height)
 
         // A named section is no use if it opened below the fold. Scrolling to
         // the header itself, not into its body, keeps the label on screen.
-        if(forced) ImGui::SetScrollHereY(0.0f);
+        if(forced)
+        {
+            ImGui::SetScrollHereY(0.0f);
+        }
 
         if(open)
         {
@@ -9667,8 +9910,14 @@ Float32 consoleWidth(Float32 availW)
     const Float32 hi = std::max(lo, availW * 0.50f);
 
     Float32 w = consoleLogicalW * uiDpiScale;
-    if(w < lo) w = lo;
-    if(w > hi) w = hi;
+    if(w < lo)
+    {
+        w = lo;
+    }
+    if(w > hi)
+    {
+        w = hi;
+    }
     return w;
 }
 
@@ -9716,8 +9965,14 @@ Float32 sidebarWidth(Float32 availW)
     const Float32 hi = std::max(lo, availW * 0.62f);
 
     Float32 w = sidebarLogicalW * uiDpiScale;
-    if(w < lo) w = lo;
-    if(w > hi) w = hi;
+    if(w < lo)
+    {
+        w = lo;
+    }
+    if(w > hi)
+    {
+        w = hi;
+    }
     return w;
 }
 
@@ -9824,7 +10079,10 @@ Void app::init(Float32 dpiScale)
     // every frame: it is a syscall for a list that changes when you ask.
     refreshRecordings();
 
-    for(Int32 i = 0; i < RANGE_COUNT; ++i) RANGE_ITEMS[i] = RANGES[i].label;
+    for(Int32 i = 0; i < RANGE_COUNT; ++i)
+    {
+        RANGE_ITEMS[i] = RANGES[i].label;
+    }
 
     refreshPorts();
     refreshPicoPorts();
@@ -9922,7 +10180,10 @@ Void app::init(Float32 dpiScale)
 
             // Seed the live selection too, so the first frame reserves the
             // right bottom-bar height instead of the map's.
-            if(forceView >= 0) centralView = forceView;
+            if(forceView >= 0)
+            {
+                centralView = forceView;
+            }
             continue;
         }
 
@@ -9971,7 +10232,10 @@ Void app::init(Float32 dpiScale)
             continue;
         }
 
-        if(std::strcmp(__argv[i], "--connect") != 0) continue;
+        if(std::strcmp(__argv[i], "--connect") != 0)
+        {
+            continue;
+        }
 
         if(i + 1 < __argc && __argv[i + 1][0] != '-')
         {
@@ -10029,7 +10293,10 @@ Void app::init(Float32 dpiScale)
     // lidar was ever wired up here. The board view made the omission obvious:
     // it has nothing live to show until the link is open, and every launch was
     // opening it closed. --no-connect suppresses both, as it always has.
-    if(!suppress) connectPico();
+    if(!suppress)
+    {
+        connectPico();
+    }
 }
 
 Void app::notifyDeviceChange()
@@ -10339,13 +10606,19 @@ Void app::frame()
         lf.points = r.points;
         lf.hz     = r.hz;
         for(const LidarPoint& p : lf.points)
-            if(p.distMm > 0.0f) ++lf.validCount;
+            if(p.distMm > 0.0f)
+            {
+                ++lf.validCount;
+            }
         recView.push(lf);
     }
 
     // The preselect has to persist a few frames: a tab bar only honours
     // SetSelected once it has laid its items out, which is not on frame one.
-    if(forceTabFrames > 0) --forceTabFrames;
+    if(forceTabFrames > 0)
+    {
+        --forceTabFrames;
+    }
 
     drawGlobalModals();
 

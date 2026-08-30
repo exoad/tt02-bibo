@@ -32,7 +32,8 @@ constexpr Int32   SPIN_UP_FRAMES = 15;
 
 const Char* stateName(LidarState s)
 {
-    switch(s) {
+    switch(s)
+    {
         case LidarState::LIDAR_STATE_IDLE:       return "Idle";
         case LidarState::LIDAR_STATE_CONNECTING: return "Connecting";
         case LidarState::LIDAR_STATE_SCANNING:   return "Scanning";
@@ -48,7 +49,10 @@ struct Check
     Void operator()(Bool ok, const Char* what, const Str& detail)
     {
         std::printf("  [%s] %-28s %s\n", ok ? "PASS" : "FAIL", what, detail.c_str());
-        if(!ok) ++failures;
+        if(!ok)
+        {
+            ++failures;
+        }
     }
 };
 
@@ -74,15 +78,24 @@ int main(int argc, char** argv)
     // ---- listPorts -------------------------------------------------------
     std::printf("-- listPorts --\n");
     Vec<Str> ports = LidarSource::listPorts();
-    if(ports.empty()) {
+    if(ports.empty())
+    {
         std::printf("  (none found)\n");
-    } else {
-        for(const Str& p : ports) std::printf("  %s\n", p.c_str());
+    }
+    else
+    {
+        for(const Str& p : ports)
+        {
+            std::printf("  %s\n", p.c_str());
+        }
     }
 
     Bool portListed = false;
     for(const Str& p : ports)
-        if(p == port) portListed = true;
+        if(p == port)
+        {
+            portListed = true;
+        }
     std::printf("\n");
 
     // ---- start ------------------------------------------------------------
@@ -110,23 +123,31 @@ int main(int argc, char** argv)
     Float32  warmHzMax   = 0.0f;
     LidarDeviceInfo di;
 
-    const auto t0 = std::chrono::steady_clock::now();
+    const TimePoint t0 = monoNow();
     LidarFrame frame;
 
     std::printf("\n-- frames --\n");
-    for(;;) {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now() - t0).count();
-        if(elapsed >= RUN_SECONDS * 1000) break;
+    for(;;)
+    {
+        const Float64 elapsed = elapsedMs(t0);
+        if(elapsed >= RUN_SECONDS * 1000)
+        {
+            break;
+        }
 
         LidarState st = src.state();
-        if(st == LidarState::LIDAR_STATE_SCANNING) sawScanning = true;
-        if(st == LidarState::LIDAR_STATE_ERROR) {
+        if(st == LidarState::LIDAR_STATE_SCANNING)
+        {
+            sawScanning = true;
+        }
+        if(st == LidarState::LIDAR_STATE_ERROR)
+        {
             std::printf("  ERROR state: %s\n", src.error().c_str());
             break;
         }
 
-        if(!infoShown && st == LidarState::LIDAR_STATE_SCANNING) {
+        if(!infoShown && st == LidarState::LIDAR_STATE_SCANNING)
+        {
             di = src.info();
             std::printf("  device: model=%d fw=%d.%02d hw=%d health=%d\n",
                         di.model, di.fwMajor, di.fwMinor, di.hwRev, di.health);
@@ -134,48 +155,66 @@ int main(int argc, char** argv)
             infoShown = true;
         }
 
-        if(src.poll(frame)) {
+        if(src.poll(frame))
+        {
             ++frames;
             Int32 n = static_cast<Int32>(frame.points.size());
             Float64 vp = n ? (100.0 * frame.validCount / n) : 0.0;
 
-            if(frames <= SPIN_UP_FRAMES) {
-                if(n < warmPtsMin) warmPtsMin = n;
-                if(n > warmPtsMax) warmPtsMax = n;
-                if(frame.hz > warmHzMax) warmHzMax = frame.hz;
-            } else {
+            if(frames <= SPIN_UP_FRAMES)
+            {
+                if(n < warmPtsMin)
+                {
+                    warmPtsMin = n;
+                }
+                if(n > warmPtsMax)
+                {
+                    warmPtsMax = n;
+                }
+                if(frame.hz > warmHzMax)
+                {
+                    warmHzMax = frame.hz;
+                }
+            }
+            else
+            {
                 ptsSum += n;
-                if(n < ptsMin) ptsMin = n;
-                if(n > ptsMax) ptsMax = n;
+                if(n < ptsMin)
+                {
+                    ptsMin = n;
+                }
+                if(n > ptsMax)
+                {
+                    ptsMax = n;
+                }
                 hzSum += frame.hz; ++hzN;
                 validPctSum += vp;
             }
 
             // Every frame would be 80+ lines of scroll; a sample is enough to
             // show the stream is live and the numbers are sane.
-            if(frames <= 5 || frames % 10 == 0) {
+            if(frames <= 5 || frames % 10 == 0)
+            {
                 std::printf("  frame %3d  pts=%4d  hz=%5.2f  valid=%5.1f%%  max=%7.1fmm\n",
                             frames, n, frame.hz, vp, frame.maxDistMm);
                 ++printed;
             }
-        } else {
+        }
+        else
+        {
             // Mirrors a 60fps UI: poll, find nothing new, go do something else.
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            sleepMs(16);
         }
     }
     static_cast<Void>(printed);
 
-    const Float64 secs = static_cast<Float64>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count()) / 1000.0;
+    const Float64 secs = elapsedS(t0);
 
     // ---- stop -------------------------------------------------------------
     std::printf("\n-- stop() --\n");
-    const auto ts = std::chrono::steady_clock::now();
+    const TimePoint ts = monoNow();
     src.stop();
-    const Float64 stopMs = static_cast<Float64>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - ts).count());
+    const Float64 stopMs = elapsedMs(ts);
     std::printf("  stop() took %.0f ms, state=%s\n", stopMs, stateName(src.state()));
 
     // stop() on an already-stopped source must be a no-op, not a crash.

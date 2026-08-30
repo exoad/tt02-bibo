@@ -61,9 +61,7 @@ constexpr Int32 BOOTSEL_BAUD = 1200;
 
 Int64 nowNs()
 {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
-        .count();
+    return std::chrono::duration_cast<Nanos>(monoNow().time_since_epoch()).count();
 }
 
 Str winErrText(const Str& what, DWORD code)
@@ -216,7 +214,10 @@ Bool configurePort(HANDLE h, Int32 baud, Bool assertDtr, Str* err)
     dcb.DCBlength = sizeof(dcb);
     if(!GetCommState(h, &dcb))
     {
-        if(err) *err = winErrText("GetCommState failed", GetLastError());
+        if(err)
+        {
+            *err = winErrText("GetCommState failed", GetLastError());
+        }
         return false;
     }
 
@@ -240,7 +241,10 @@ Bool configurePort(HANDLE h, Int32 baud, Bool assertDtr, Str* err)
 
     if(!SetCommState(h, &dcb))
     {
-        if(err) *err = winErrText("SetCommState failed", GetLastError());
+        if(err)
+        {
+            *err = winErrText("SetCommState failed", GetLastError());
+        }
         return false;
     }
     return true;

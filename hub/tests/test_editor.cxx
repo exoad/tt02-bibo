@@ -470,7 +470,10 @@ Void testCompletion()
     cmpl::suggest("servo", hits, 8);
     Bool sawWriteUs = false;
     for(const cmpl::Item* it : hits)
-        if(std::strcmp(it->name, "servoWriteUs") == 0) sawWriteUs = true;
+        if(std::strcmp(it->name, "servoWriteUs") == 0)
+        {
+            sawWriteUs = true;
+        }
     check(sawWriteUs, "servo offers servoWriteUs");
 
     // Matching folds case, but ranking does NOT: `Pin` and `PIN` are different

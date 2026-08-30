@@ -151,7 +151,7 @@ static Void push(const Set* s)
     {
         if(pin[i] != LIGHT_PIN_NONE)
         {
-            gpio::write((Pin) pin[i], s->level[i] > LAMP_OFF);
+            gpio::write(static_cast<Pin>(pin[i]), s->level[i] > LAMP_OFF);
         }
     }
     now = *s;
@@ -163,7 +163,7 @@ static Void open(Void)
     {
         if(pin[i] != LIGHT_PIN_NONE)
         {
-            gpio::open((Pin) pin[i], PIN_DIR_OUT);
+            gpio::open(static_cast<Pin>(pin[i]), PIN_DIR_OUT);
         }
     }
 
@@ -202,9 +202,13 @@ static Void write(const Set* s)
 
 /* The master switch. Off parks every lamp dark rather than leaving whichever
  * happened to be lit when it was turned off. */
-static Void enable(Bool on)
+static Void enable(Bool state)
 {
-    on = on;
+    /* Named `state`, not `on`: a parameter called `on` shadows the file-scope
+     * switch, and `on = on` then assigns the parameter to itself. The switch
+     * never latched, so an off parked the lamps once and the next cue lit them
+     * again - while enabled() went on reporting true. */
+    on = state;
     if(!on)
     {
         Set dark;

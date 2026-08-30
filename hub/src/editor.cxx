@@ -635,7 +635,10 @@ Bool Editor::motion(Char c, Int32 count, Cursor& out, Bool& linewise)
 
             if(p.col >= len)
             {
-                if(p.line + 1 >= lineCount()) break;
+                if(p.line + 1 >= lineCount())
+                {
+                    break;
+                }
                 ++p.line; p.col = 0;
                 continue;
             }
@@ -659,7 +662,10 @@ Bool Editor::motion(Char c, Int32 count, Cursor& out, Bool& linewise)
         {
             if(p.col == 0)
             {
-                if(p.line == 0) break;
+                if(p.line == 0)
+                {
+                    break;
+                }
                 --p.line;
                 p.col = static_cast<Int32>(line(p.line).size());
             }
@@ -2422,10 +2428,22 @@ Void Editor::applyVisualKey(const Key& k)
     const Char c = k.ch;
     if(c == 0)
     {
-        if(k.sp == Special::SPECIAL_LEFT)  --cur.col;
-        if(k.sp == Special::SPECIAL_RIGHT) ++cur.col;
-        if(k.sp == Special::SPECIAL_UP)    --cur.line;
-        if(k.sp == Special::SPECIAL_DOWN)  ++cur.line;
+        if(k.sp == Special::SPECIAL_LEFT)
+        {
+            --cur.col;
+        }
+        if(k.sp == Special::SPECIAL_RIGHT)
+        {
+            ++cur.col;
+        }
+        if(k.sp == Special::SPECIAL_UP)
+        {
+            --cur.line;
+        }
+        if(k.sp == Special::SPECIAL_DOWN)
+        {
+            ++cur.line;
+        }
         return;
     }
 

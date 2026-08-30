@@ -639,8 +639,14 @@ Bool carTexturePath(Char* out, Size cap)
 
 Int32 partForGroup(const Char* g)
 {
-    if(std::strstr(g, "wheel")   != nullptr) return CAR_PART_WHEEL;
-    if(std::strstr(g, "spoiler") != nullptr) return CAR_PART_SPOILER;
+    if(std::strstr(g, "wheel")   != nullptr)
+    {
+        return CAR_PART_WHEEL;
+    }
+    if(std::strstr(g, "spoiler") != nullptr)
+    {
+        return CAR_PART_SPOILER;
+    }
     return CAR_PART_BODY;
 }
 
@@ -706,7 +712,10 @@ Bool loadCarObj(CarModel& m)
             const Char* p = line + 2;
             while(got < 3)
             {
-                while(*p == ' ') ++p;
+                while(*p == ' ')
+                {
+                    ++p;
+                }
                 if(*p == 0 || *p == '\n' || *p == '\r')
                     break;
 
@@ -720,7 +729,10 @@ Bool loadCarObj(CarModel& m)
                     tex[got] = std::atoi(slash + 1);
 
                 ++got;
-                while(*p != 0 && *p != ' ' && *p != '\n' && *p != '\r') ++p;
+                while(*p != 0 && *p != ' ' && *p != '\n' && *p != '\r')
+                {
+                    ++p;
+                }
             }
             if(got == 3)
                 faces.push_back(Face{ idx[0], idx[1], idx[2],
@@ -748,8 +760,14 @@ Bool loadCarObj(CarModel& m)
         const Float32 c[3] = { v.x, v.y, v.z };
         for(Int32 k = 0; k < 3; ++k)
         {
-            if(c[k] < lo[k]) lo[k] = c[k];
-            if(c[k] > hi[k]) hi[k] = c[k];
+            if(c[k] < lo[k])
+            {
+                lo[k] = c[k];
+            }
+            if(c[k] > hi[k])
+            {
+                hi[k] = c[k];
+            }
         }
     }
 
@@ -786,8 +804,14 @@ Bool loadCarObj(CarModel& m)
         // OBJ indices are 1-based, and negative means "counting back from the
         // end". Both forms are resolved here; out-of-range drops the face.
         const auto resolve = [&](Int32 i) -> Int32 {
-            if(i > 0)  return i - 1;
-            if(i < 0)  return nRaw + i;
+            if(i > 0)
+            {
+                return i - 1;
+            }
+            if(i < 0)
+            {
+                return nRaw + i;
+            }
             return -1;
         };
 
@@ -903,7 +927,10 @@ Void drawCarModel(const View& v, const CarModel& m, Float32 dpi)
         const Float32 rim = 1.0f - std::fabs(dot(t.n, toEye));
 
         Float32 lit = 0.26f + 0.52f * key + 0.26f * sky + 0.22f * rim * rim;
-        if(lit > 1.35f) lit = 1.35f;
+        if(lit > 1.35f)
+        {
+            lit = 1.35f;
+        }
 
         // With the atlas bound, the vertex colour is a LIGHT level, not a
         // paint: white x lit, so the texture's own colours come through.
@@ -1236,8 +1263,14 @@ Void drawCarFallback(const View& v, Float32 dpi)
             // reason for lofting rather than extruding: those panels only exist
             // because the sections differ.
             ImU32 col = shell;
-            if(k == 2)                       col = upper;   // roof / bonnet top
-            if(k == 2 && (i == 3 || i == 5)) col = glass;   // screens
+            if(k == 2)                                      // roof / bonnet top
+            {
+                col = upper;
+            }
+            if(k == 2 && (i == 3 || i == 5))                // screens
+            {
+                col = glass;
+            }
 
             const Vec3 q[4] = { loop[i][k], loop[i][k2],
                                 loop[i + 1][k2], loop[i + 1][k] };
@@ -1439,8 +1472,14 @@ const Char* lockNote(const DrawArgs& a, Float32 yaw, Char* buf, Size cap)
     // Folded to (-180, 180] and snapped through zero, so a heading of -0.3 deg
     // prints as "0" rather than "-0" - which reads as a bug even though it is
     // just a sign bit on a rounded number.
-    while(yaw >  180.0f) yaw -= 360.0f;
-    while(yaw <= -180.0f) yaw += 360.0f;
+    while(yaw >  180.0f)
+    {
+        yaw -= 360.0f;
+    }
+    while(yaw <= -180.0f)
+    {
+        yaw += 360.0f;
+    }
     if(yaw > -0.5f && yaw < 0.5f)
         yaw = 0.0f;
 
@@ -1502,14 +1541,26 @@ const SceneModeInfo SCENE_INFO[static_cast<Size>(SceneMode::SCENE_MODE_COUNT)] =
 Void Camera::orbit(Float32 dYaw, Float32 dPitch)
 {
     yaw += dYaw;
-    while(yaw >  PI_F) yaw -= 2.0f * PI_F;
-    while(yaw < -PI_F) yaw += 2.0f * PI_F;
+    while(yaw >  PI_F)
+    {
+        yaw -= 2.0f * PI_F;
+    }
+    while(yaw < -PI_F)
+    {
+        yaw += 2.0f * PI_F;
+    }
 
     // Never past vertical either way: at the poles the up vector degenerates
     // and the ground plane flips over, and no drag should be able to do that.
     pitch += dPitch;
-    if(pitch <  0.02f) pitch = 0.02f;
-    if(pitch >  1.52f) pitch = 1.52f;
+    if(pitch <  0.02f)
+    {
+        pitch = 0.02f;
+    }
+    if(pitch >  1.52f)
+    {
+        pitch = 1.52f;
+    }
 }
 
 Void Camera::pan(Float32 dRight, Float32 dUp)
@@ -1527,8 +1578,14 @@ Void Camera::pan(Float32 dRight, Float32 dUp)
 Void Camera::zoom(Float32 factor)
 {
     dist *= factor;
-    if(dist <  400.0f)   dist = 400.0f;
-    if(dist > 26000.0f)  dist = 26000.0f;
+    if(dist <  400.0f)
+    {
+        dist = 400.0f;
+    }
+    if(dist > 26000.0f)
+    {
+        dist = 26000.0f;
+    }
 }
 
 const SceneModeInfo& sceneModeInfo(SceneMode m) noexcept
