@@ -81,13 +81,13 @@ Str winErrText(const Str& what, DWORD code)
             tail.pop_back();
     }
 
-    Char buf[64];
-    _snprintf_s(buf, sizeof(buf), _TRUNCATE, " (error %lu)", static_cast<unsigned long>(code));
+    Array<Char, 64> buf;
+    _snprintf_s(buf.data(), buf.size(), _TRUNCATE, " (error %lu)", static_cast<unsigned long>(code));
 
     Str out = what;
     if(!tail.empty())
         out += ": " + tail;
-    out += buf;
+    out += buf.data();
     return out;
 }
 
@@ -280,13 +280,13 @@ HashSet<Str> serialcommPorts()
 
     for(DWORD i = 0;; ++i)
     {
-        Char  name[512];
+        Array<Char, 512> name;
         BYTE  data[512];
-        DWORD nameLen = static_cast<DWORD>(sizeof(name));
+        DWORD nameLen = static_cast<DWORD>(name.size());
         DWORD dataLen = static_cast<DWORD>(sizeof(data));
         DWORD type     = 0;
 
-        LONG rc = RegEnumValueA(key, i, name, &nameLen, nullptr, &type, data, &dataLen);
+        LONG rc = RegEnumValueA(key, i, name.data(), &nameLen, nullptr, &type, data, &dataLen);
         if(rc == ERROR_NO_MORE_ITEMS)
             break;
         if(rc != ERROR_SUCCESS)
@@ -310,18 +310,18 @@ Bool readPortName(HKEY parent, const Char* subkey, Str* out)
     if(RegOpenKeyExA(parent, subkey, 0, KEY_READ, &k) != ERROR_SUCCESS)
         return false;
 
-    Char  buf[128];
-    DWORD len  = static_cast<DWORD>(sizeof(buf));
+    Array<Char, 128> buf;
+    DWORD len  = static_cast<DWORD>(buf.size());
     DWORD type = 0;
     LONG  rc   = RegQueryValueExA(k, "PortName", nullptr, &type,
-                                  reinterpret_cast<BYTE*>(buf), &len);
+                                  reinterpret_cast<BYTE*>(buf.data()), &len);
     RegCloseKey(k);
 
     if(rc != ERROR_SUCCESS || type != REG_SZ || len == 0)
         return false;
 
-    buf[(std::min)(static_cast<Size>(len), sizeof(buf) - 1)] = 0;
-    *out = buf;
+    buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
+    *out = buf.data();
     return !out->empty();
 }
 
@@ -337,27 +337,27 @@ Void enumViaRegistry(Vec<Str>& out)
 
     for(DWORD i = 0;; ++i)
     {
-        Char  dev[512];
-        DWORD devLen = static_cast<DWORD>(sizeof(dev));
-        LONG  rc = RegEnumKeyExA(usb, i, dev, &devLen, nullptr, nullptr, nullptr, nullptr);
+        Array<Char, 512> dev;
+        DWORD devLen = static_cast<DWORD>(dev.size());
+        LONG  rc = RegEnumKeyExA(usb, i, dev.data(), &devLen, nullptr, nullptr, nullptr, nullptr);
         if(rc != ERROR_SUCCESS)
             break;
-        if(_strnicmp(dev, "VID_2E8A", 8) != 0)
+        if(_strnicmp(dev.data(), "VID_2E8A", 8) != 0)
             continue;
 
         HKEY devk = nullptr;
-        if(RegOpenKeyExA(usb, dev, 0, KEY_READ, &devk) != ERROR_SUCCESS)
+        if(RegOpenKeyExA(usb, dev.data(), 0, KEY_READ, &devk) != ERROR_SUCCESS)
             continue;
 
         for(DWORD j = 0;; ++j)
         {
-            Char  inst[512];
-            DWORD instLen = static_cast<DWORD>(sizeof(inst));
-            if(RegEnumKeyExA(devk, j, inst, &instLen, nullptr, nullptr, nullptr, nullptr)
+            Array<Char, 512> inst;
+            DWORD instLen = static_cast<DWORD>(inst.size());
+            if(RegEnumKeyExA(devk, j, inst.data(), &instLen, nullptr, nullptr, nullptr, nullptr)
                 != ERROR_SUCCESS)
                 break;
 
-            Str sub = Str(inst) + "\\Device Parameters";
+            Str sub = Str(inst.data()) + "\\Device Parameters";
             Str port;
             if(readPortName(devk, sub.c_str(), &port))
                 out.push_back(port);
@@ -399,20 +399,20 @@ Void enumViaSetupapi(Vec<Str>& out)
 
     for(DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &info); ++i)
     {
-        Char  hwid[1024] = {0};
+        Array<Char, 1024> hwid= {0};
         DWORD hwidLen   = 0;
         if(!SetupDiGetDeviceRegistryPropertyA(set, &info, SPDRP_HARDWAREID, nullptr,
-                                               reinterpret_cast<BYTE*>(hwid),
-                                               sizeof(hwid) - 2, &hwidLen))
+                                               reinterpret_cast<BYTE*>(hwid.data()),
+                                               hwid.size() - 2, &hwidLen))
             continue;
 
         // REG_MULTI_SZ: scan every embedded string.
         Bool match = false;
         for(DWORD p = 0; p < hwidLen && hwid[p]; )
         {
-            if(containsCi(hwid + p, "VID_2E8A"))
+            if(containsCi(hwid.data() + p, "VID_2E8A"))
                 match = true;
-            p += static_cast<DWORD>(strlen(hwid + p)) + 1;
+            p += static_cast<DWORD>(strlen(hwid.data() + p)) + 1;
         }
         if(!match)
             continue;
@@ -421,16 +421,16 @@ Void enumViaSetupapi(Vec<Str>& out)
         if(k == INVALID_HANDLE_VALUE)
             continue;
 
-        Char  buf[128];
-        DWORD len  = static_cast<DWORD>(sizeof(buf));
+        Array<Char, 128> buf;
+        DWORD len  = static_cast<DWORD>(buf.size());
         DWORD type = 0;
-        if(RegQueryValueExA(k, "PortName", nullptr, &type, reinterpret_cast<BYTE*>(buf), &len)
+        if(RegQueryValueExA(k, "PortName", nullptr, &type, reinterpret_cast<BYTE*>(buf.data()), &len)
                 == ERROR_SUCCESS &&
             type == REG_SZ && len > 0)
         {
-            buf[(std::min)(static_cast<Size>(len), sizeof(buf) - 1)] = 0;
+            buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
             if(buf[0])
-                out.push_back(buf);
+                out.push_back(buf.data());
         }
         RegCloseKey(k);
     }

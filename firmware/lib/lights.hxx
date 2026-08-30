@@ -18,42 +18,44 @@
  * than writing a rule.
  *
  * ===========================================================================
- * THE BINDING BELOW IS TEMPORARY AND ON BORROWED PINS.
+ * THE PINS ARE NOT CHOSEN HERE. lib/pins.hxx holds the car's whole map and
+ * this file reads it. What follows is why the lamps sit where they do.
  *
- *     GP15 is the WHEEL ENCODER. docs/wiring.md, hal.h and the hub's System
- *          panel all say so, and the Hall sensor for it is here. The moment it
- *          goes on, this table gives GP15 back - a pin cannot be an
- *          interrupt-driven input and an LED at the same time.
- *
- *          That is the one borrowing here with a deadline on it.
- *
- *     GP10, GP11, GP12 and GP13 are ToF #1-#4 XSHUT. ALL FOUR are now lamps:
- *          GP13/GP12 the front indicators, and GP11/GP10 the headlights added
- *          on 2026-08-28. They are free only because the I2C bus is empty -
- *          SCAN answers 0 - and they stop being free the moment a single ToF is
- *          fitted, not just the third and fourth.
+ *     GP10-GP13 are ToF #1-#4 XSHUT, and all four are lamps: GP13/GP12 the
+ *          front indicators, GP11/GP10 the headlights. They are free only
+ *          because the I2C bus is empty - SCAN answers 0 - and they stop being
+ *          free the moment a single ToF is fitted, not just the third and
+ *          fourth.
  *
  *          Worth saying plainly because the hub's System panel still lists
- *          "ToF bumpers (GP10-13)" as a subsystem: that row is describing where
- *          those sensors are GOING, and every one of those pins currently has
- *          an LED on it.
+ *          "ToF bumpers (GP10-13)" as a subsystem: that row describes where
+ *          those sensors are GOING, and every one of those pins has an LED on
+ *          it today.
  *
- *     GP14 is the only one of the six that is genuinely spare. It is the
- *          neighbour set aside for the encoder's B channel if quadrature were
- *          ever wanted, and this car is forward-only, so it is not.
+ *     GP14 AND GP15 WERE THE TAIL LAMPS AND ARE NOW THE DFPLAYER. On RP2350
+ *          they are the only pads carrying UART0 that do not cost GP0/GP1 -
+ *          the servo and the ESC - or GP12/GP13, the front indicators. Sound
+ *          needed a UART and nothing else could give it one, so the tails are
+ *          pins::NONE and simply are not written.
+ *
+ *          GP15 had also been earmarked for the WHEEL ENCODER. It cannot be
+ *          all three; the encoder is now unassigned in pins.hxx and needs a
+ *          pad chosen before it goes on.
  *
  * The permanent map is in docs/wiring.md: GP2/GP3 indicators, GP6/GP7 tails,
- * GP8 both heads. Moving there is editing the table and nothing else.
+ * GP8 both heads. Moving there is editing pins.hxx and nothing else - which is
+ * the entire reason the numbers left this file.
  *
- * TWO PAIRS OF INDICATORS are coming - front and rear, four amber lamps. The
- * model already has all four and cue.h computes them; only the rear pair has no
- * pin. Wiring them is two numbers in the table below, which is the whole reason
- * the rules and the binding are separate things.
+ * FOUR LAMPS HAVE NO PIN AT ALL - both rear indicators and both reversing
+ * lamps - and now the two tails as well. cue::solve() computes all ten
+ * regardless and push() skips any lamp whose pin is NONE, so wiring one later
+ * is a line in pins.hxx rather than a rule anywhere.
  * ===========================================================================
  * ------------------------------------------------------------------------- */
 #pragma once
 
 #include "hal.hxx"
+#include "pins.hxx"
 
 namespace bibo
 {
@@ -99,20 +101,33 @@ typedef struct
 /* ===========================================================================
  * THE BINDING. Temporary - see the banner.
  * ======================================================================== */
-#define LIGHT_PIN_NONE (-1)
+/* One spelling of "no LED on this lamp", shared with the pin map so the two
+ * cannot disagree. */
+#define LIGHT_PIN_NONE pins::NONE
 
+/* THE NUMBERS ARE NOT HERE ANY MORE. This is the order of the Lamp enum
+ * mapped onto the car's pin map, and pins.hxx is where a GPIO is chosen.
+ *
+ * That move is what caught the collision it was written for: TAIL_L and TAIL_R
+ * were GP15 and GP14, and those are the only two pads on RP2350 that carry
+ * UART0 without taking GP0/GP1 from the servo and the ESC. The DFPlayer needed
+ * them. With the numbers in two files nothing would have said so until a lamp
+ * and a speaker fought on a breadboard; with one table it is a static_assert.
+ *
+ * Both tails read pins::NONE now and are simply not written - the same state
+ * the rear indicators have been in since they were added. */
 static Int32 pin[COUNT] =
 {
-    11,               /* HEAD_L - borrowed from ToF #2 XSHUT         */
-    10,               /* HEAD_R - borrowed from ToF #1 XSHUT         */
-    15,               /* TAIL_L - borrowed from the WHEEL ENCODER    */
-    14,               /* TAIL_R - genuinely spare today              */
-    13,               /* IND_FL - borrowed from ToF #4 XSHUT        */
-    12,               /* IND_FR - borrowed from ToF #3 XSHUT        */
-    LIGHT_PIN_NONE,   /* IND_RL - the second pair, not wired yet    */
-    LIGHT_PIN_NONE,   /* IND_RR                                     */
-    LIGHT_PIN_NONE,   /* REV_L                                      */
-    LIGHT_PIN_NONE    /* REV_R                                      */
+    pins::HEAD_L,
+    pins::HEAD_R,
+    pins::TAIL_L,
+    pins::TAIL_R,
+    pins::IND_FL,
+    pins::IND_FR,
+    pins::IND_RL,
+    pins::IND_RR,
+    pins::REV_L,
+    pins::REV_R
 };
 
 /* ---- state, one copy - the same deal chassis.h makes -------------------- */

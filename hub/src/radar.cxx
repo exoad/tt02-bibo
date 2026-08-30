@@ -654,9 +654,9 @@ struct MapState
     // Clearance: the smoothed nearest range per bearing bin, in mm. 0 means the
     // bin has never had a return; MAX_VALID_MM means "clear as far as the sensor
     // can see", and those are different facts, so they are drawn differently.
-    Float32 clr[CLR_BINS]  = {};
-    Bool  clrSeen[CLR_BINS] = {};
-    Int32   clrMiss[CLR_BINS] = {};   // consecutive revolutions with no return
+    Array<Float32, CLR_BINS> clr= {};
+    Array<Bool, CLR_BINS> clrSeen= {};
+    Array<Int32, CLR_BINS> clrMiss= {};   // consecutive revolutions with no return
 
     // Revolutions folded in. Motion needs it: on the first sweep nothing has
     // been seen before, so everything is legitimately new.
@@ -665,8 +665,8 @@ struct MapState
     // The world frame's reference profile - the room as it looked when the
     // frame was zeroed - plus the current estimate against it. See
     // mapgeo::estimateHeading.
-    Float32 refClr[CLR_BINS]  = {};
-    Bool    refSeen[CLR_BINS] = {};
+    Array<Float32, CLR_BINS> refClr= {};
+    Array<Bool, CLR_BINS> refSeen= {};
     Bool    refValid   = false;
     Float32 headingDeg = 0.0f;
     Float32 headingOk  = 0.0f;   // 0..1 confidence
@@ -823,7 +823,7 @@ Void accumulateRevolution(MapState& st, const Vec<LidarPoint>& pts)
     // Nearest in-spec return per bearing bin for THIS revolution. Seeded above
     // the ceiling so "no return in this bin" is distinguishable from "a return
     // at the ceiling", which the smoothing below treats differently.
-    Float32 bin[CLR_BINS];
+    Array<Float32, CLR_BINS> bin;
     for(Int32 i = 0; i < CLR_BINS; ++i)
     {
         bin[i] = FLT_MAX;
@@ -1454,12 +1454,12 @@ Void drawGridCartesianLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0
         if(x < p0.x + 8.0f * dpi || x > p1.x - 8.0f * dpi)
             continue;
 
-        Char buf[24];
-        formatRing(buf, sizeof(buf), std::fabs(static_cast<Float32>(i)) * g.stepMm);
-        const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf);
+        Array<Char, 24> buf;
+        formatRing(buf.data(), buf.size(), std::fabs(static_cast<Float32>(i)) * g.stepMm);
+        const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf.data());
 
         const Float32 y = clampf(s0.y, p0.y + 4.0f * dpi, p1.y - ts.y - 4.0f * dpi);
-        plateText(dl, ImVec2(x - ts.x * 0.5f, y + 3.0f * dpi), dpi, RING_TEXT_COL, buf);
+        plateText(dl, ImVec2(x - ts.x * 0.5f, y + 3.0f * dpi), dpi, RING_TEXT_COL, buf.data());
     }
 
     for(Int32 j = -40; j <= 40; ++j)
@@ -1470,12 +1470,12 @@ Void drawGridCartesianLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0
         if(y < p0.y + 8.0f * dpi || y > p1.y - 8.0f * dpi)
             continue;
 
-        Char buf[24];
-        formatRing(buf, sizeof(buf), std::fabs(static_cast<Float32>(j)) * g.stepMm);
-        const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf);
+        Array<Char, 24> buf;
+        formatRing(buf.data(), buf.size(), std::fabs(static_cast<Float32>(j)) * g.stepMm);
+        const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf.data());
 
         const Float32 x = clampf(s0.x, p0.x + 4.0f * dpi, p1.x - ts.x - 4.0f * dpi);
-        plateText(dl, ImVec2(x + 4.0f * dpi, y - ts.y * 0.5f), dpi, RING_TEXT_COL, buf);
+        plateText(dl, ImVec2(x + 4.0f * dpi, y - ts.y * 0.5f), dpi, RING_TEXT_COL, buf.data());
     }
 }
 
@@ -1590,8 +1590,8 @@ Void drawGridLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const I
             if(r < 10.0f * dpi)
                 continue;
 
-            Char buf[24];
-            formatRing(buf, sizeof(buf), static_cast<Float32>(i) * g.stepMm);
+            Array<Char, 24> buf;
+            formatRing(buf.data(), buf.size(), static_cast<Float32>(i) * g.stepMm);
 
             for(Int32 k = 0; k < 22; ++k)
             {
@@ -1600,7 +1600,7 @@ Void drawGridLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const I
                 const ImVec2 d = bearingDir(sign * (RING_LABEL_BEARING + sweep));
 
                 if(plateTextAt(dl, ImVec2(s0.x + d.x * r, s0.y + d.y * r),
-                                p0, p1, dpi, RING_TEXT_COL, buf))
+                                p0, p1, dpi, RING_TEXT_COL, buf.data()))
                     break;
             }
         }
@@ -1614,8 +1614,8 @@ Void drawGridLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const I
 
         for(Int32 b = 0; b < 360; b += 45)
         {
-            Char buf[8];
-            std::snprintf(buf, sizeof(buf), "%d", b);
+            Array<Char, 8> buf;
+            std::snprintf(buf.data(), buf.size(), "%d", b);
 
             const ImVec2 d = bearingDir(static_cast<Float32>(b));
             const ImU32  col = (b == 0)        ? HEADING_COL
@@ -1623,7 +1623,7 @@ Void drawGridLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const I
                                                : BEARING_COL;
 
             plateTextAt(dl, ImVec2(s0.x + d.x * rl, s0.y + d.y * rl),
-                        f0, f1, dpi, col, buf);
+                        f0, f1, dpi, col, buf.data());
         }
     }
 }
@@ -1756,12 +1756,12 @@ Void drawScaleBar(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, Float32 pp
     dl->AddLine(ImVec2(x0, y - cap * 1.6f), ImVec2(x0, y + cap * 1.6f), SCALE_COL, th);
     dl->AddLine(ImVec2(x1, y - cap * 1.6f), ImVec2(x1, y + cap * 1.6f), SCALE_COL, th);
 
-    Char buf[24];
-    formatRing(buf, sizeof(buf), lenMm);
+    Array<Char, 24> buf;
+    formatRing(buf.data(), buf.size(), lenMm);
 
     ImFont*      font = labelFont();
-    const ImVec2 ts   = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf);
-    plateText(dl, ImVec2(x0, y - cap * 1.8f - ts.y), dpi, SCALE_COL, buf);
+    const ImVec2 ts   = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf.data());
+    plateText(dl, ImVec2(x0, y - cap * 1.8f - ts.y), dpi, SCALE_COL, buf.data());
 }
 
 // Projects one revolution into screen space, dropping "no return" samples and
@@ -2200,14 +2200,14 @@ Void drawMarksGaps(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
                       2.2f * c.dpi);
 
         // Width, on the chord.
-        Char lab[32];
-        std::snprintf(lab, sizeof(lab), "%.2f m", static_cast<Float64>(width / 1000.0f));
+        Array<Char, 32> lab;
+        std::snprintf(lab.data(), lab.size(), "%.2f m", static_cast<Float64>(width / 1000.0f));
         ImFont* f = labelFont();
         const Float32 fs = labelPx();
-        const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab);
+        const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab.data());
         const ImVec2 mid((e0.x + e1.x) * 0.5f, (e0.y + e1.y) * 0.5f);
         plateText(c.dl, ImVec2(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f), c.dpi,
-                  GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), lab);
+                  GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), lab.data());
     }
 
     if(count > 0)
@@ -2440,18 +2440,18 @@ Void drawMarksWalls(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
 
         if(w.lenMm >= 700.0f)
         {
-            Char lab[24];
-            std::snprintf(lab, sizeof(lab), "%.2f m",
+            Array<Char, 24> lab;
+            std::snprintf(lab.data(), lab.size(), "%.2f m",
                           static_cast<Float64>(w.lenMm / 1000.0f));
             ImFont* f = labelFont();
             const Float32 fs = labelPx();
-            const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab);
+            const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab.data());
             plateText(c.dl,
                       ImVec2((sa.x + sb.x) * 0.5f - ts.x * 0.5f,
                              (sa.y + sb.y) * 0.5f - ts.y * 0.5f),
                       c.dpi,
                       WALL_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
-                      lab);
+                      lab.data());
         }
     }
 
@@ -2540,9 +2540,9 @@ Void drawMarksCorners(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
                         (col & 0x00FFFFFFu) | (static_cast<ImU32>(0x70u) << IM_COL32_A_SHIFT),
                         16, 1.2f * c.dpi);
 
-        Char lab[16];
-        std::snprintf(lab, sizeof(lab), "%.0f deg", static_cast<Float64>(k.angDeg));
-        plateTextAt(c.dl, ImVec2(at.x, at.y - 16.0f * c.dpi), c.p0, c.p1, c.dpi, col, lab);
+        Array<Char, 16> lab;
+        std::snprintf(lab.data(), lab.size(), "%.0f deg", static_cast<Float64>(k.angDeg));
+        plateTextAt(c.dl, ImVec2(at.x, at.y - 16.0f * c.dpi), c.p0, c.p1, c.dpi, col, lab.data());
     }
 
     const Int32 n = static_cast<Int32>(corners.size());
@@ -2600,16 +2600,16 @@ Void drawMarksFit(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPoi
 
     // Flattened out of MapState first: the geometry takes plain arrays so it can
     // be tested without one.
-    static Float32 free[CLR_BINS];
-    static Bool    seen0[CLR_BINS];
+    static Array<Float32, CLR_BINS> free;
+    static Array<Bool, CLR_BINS> seen0;
     for(Int32 i = 0; i < CLR_BINS; ++i)
     {
         free[i]  = st.clrSeen[i] ? st.clr[i] : 0.0f;
         seen0[i] = st.clrSeen[i];
     }
 
-    static Float32 reach[CLR_BINS];
-    mapgeo::computeReach(free, seen0, CLR_BINS, CLR_BIN_DEG, halfW, reach);
+    static Array<Float32, CLR_BINS> reach;
+    mapgeo::computeReach(free.data(), seen0.data(), CLR_BINS, CLR_BIN_DEG, halfW, reach.data());
 
     ImVec2 freePoly[CLR_BINS];
     ImVec2 fitPoly[CLR_BINS];
@@ -2671,8 +2671,8 @@ Void drawMarksFit(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPoi
                       IM_COL32(0xCD, 0x00, 0x00, 0xC0), 2.0f * c.dpi);
     }
 
-    const Float32 freeArea = mapgeo::polarArea(free, CLR_BINS, CLR_BIN_DEG);
-    const Float32 fitArea  = mapgeo::polarArea(reach, CLR_BINS, CLR_BIN_DEG);
+    const Float32 freeArea = mapgeo::polarArea(free.data(), CLR_BINS, CLR_BIN_DEG);
+    const Float32 fitArea  = mapgeo::polarArea(reach.data(), CLR_BINS, CLR_BIN_DEG);
 
     // Forward reach, on the bearing the car actually points.
     const Int32 fwd = 0;    // bin 0 is centred on bearing 0 + half a bin
@@ -3135,19 +3135,19 @@ Void drawObstacle(const MarkCtx& c, const Obstacle& o, Bool label, Vec<LabelRect
 
     // Range, and size for anything big enough that its size is a fact rather
     // than a quantisation artefact.
-    Char lab[40];
+    Array<Char, 40> lab;
     const Float32 across = o.halfW * 2.0f, along = o.halfL * 2.0f;
     if(std::max(across, along) >= 250.0f)
-        std::snprintf(lab, sizeof(lab), "%.2f m  %.0fx%.0f",
+        std::snprintf(lab.data(), lab.size(), "%.2f m  %.0fx%.0f",
                       static_cast<Float64>(o.nearMm / 1000.0f),
                       static_cast<Float64>(along), static_cast<Float64>(across));
     else
-        std::snprintf(lab, sizeof(lab), "%.2f m",
+        std::snprintf(lab.data(), lab.size(), "%.2f m",
                       static_cast<Float64>(o.nearMm / 1000.0f));
 
     ImFont*       f  = labelFont();
     const Float32 fs = labelPx();
-    const ImVec2  ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab);
+    const ImVec2  ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab.data());
 
     // Pushed OUTWARD along the bearing from the sensor, so labels on opposite
     // sides of the map lean away from each other instead of all piling toward
@@ -3163,7 +3163,7 @@ Void drawObstacle(const MarkCtx& c, const Obstacle& o, Bool label, Vec<LabelRect
     if(!claimLabel(taken, mid, ts, c.dpi))
         return;
 
-    plateTextAt(c.dl, mid, c.p0, c.p1, c.dpi, line, lab);
+    plateTextAt(c.dl, mid, c.p0, c.p1, c.dpi, line, lab.data());
 }
 
 // The corridor the car would drive into. A ribbon of the chassis' own width,
@@ -3190,25 +3190,25 @@ Void drawCorridor(const MarkCtx& c, Float32 halfWidthMm, Float32 freeMm, Vec<Lab
     // The stop line, and what it is.
     c.dl->AddLine(ImVec2(c.s0.x - hw, y1), ImVec2(c.s0.x + hw, y1), line, 2.2f * c.dpi);
 
-    Char lab[32];
+    Array<Char, 32> lab;
     if(freeMm >= CORRIDOR_MAX_MM)
-        std::snprintf(lab, sizeof(lab), "clear >%.0f m",
+        std::snprintf(lab.data(), lab.size(), "clear >%.0f m",
                       static_cast<Float64>(CORRIDOR_MAX_MM / 1000.0f));
     else
-        std::snprintf(lab, sizeof(lab), "ahead %.2f m",
+        std::snprintf(lab.data(), lab.size(), "ahead %.2f m",
                       static_cast<Float64>(freeMm / 1000.0f));
 
     // Claims its space FIRST, before any object label. It is the one number on
     // this display that is a driving decision rather than an observation, so if
     // something has to lose a label it is not this.
     ImFont*       lf = labelFont();
-    const ImVec2  ts = lf->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, lab);
+    const ImVec2  ts = lf->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, lab.data());
     const ImVec2  at(c.s0.x, y1 - 11.0f * c.dpi);
 
     if(claimLabel(taken, at, ts, c.dpi))
         plateTextAt(c.dl, at, c.p0, c.p1, c.dpi,
                     (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
-                    lab);
+                    lab.data());
 }
 
 // there may not be a sidebar in view.
@@ -3365,13 +3365,13 @@ Void drawMarksFull(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPo
                           GAP_RGB | (static_cast<ImU32>(0xC0u) << IM_COL32_A_SHIFT),
                           1.6f * c.dpi);
 
-            Char lab[40];
-            std::snprintf(lab, sizeof(lab), "widest gap %.2f m",
+            Array<Char, 40> lab;
+            std::snprintf(lab.data(), lab.size(), "widest gap %.2f m",
                           static_cast<Float64>(bestWidth / 1000.0f));
             ImFont* f = labelFont();
-            const ImVec2 ts = f->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, lab);
+            const ImVec2 ts = f->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, lab.data());
             plateText(c.dl, ImVec2(tip.x - ts.x * 0.5f, tip.y - ts.y * 0.5f), c.dpi,
-                      GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), lab);
+                      GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), lab.data());
         }
     }
 
@@ -3939,8 +3939,8 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
         else
         {
             Float32 deg = 0.0f, score = 0.0f;
-            if(mapgeo::estimateHeading(mst.refClr, mst.refSeen,
-                                       st.clr, st.clrSeen,
+            if(mapgeo::estimateHeading(mst.refClr.data(), mst.refSeen.data(),
+                                       st.clr.data(), st.clrSeen.data(),
                                        CLR_BINS, CLR_BIN_DEG, deg, score))
             {
                 // Eased, not snapped. The estimate is per-revolution and jitters
@@ -3972,9 +3972,9 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
 
     // ---- what this mode needs ---------------------------------------------
     static Vec<WallSeg> walls;
-    static Float32 reach[CLR_BINS];
-    static Float32 freeR[CLR_BINS];
-    static Bool    seenR[CLR_BINS];
+    static Array<Float32, CLR_BINS> reach;
+    static Array<Float32, CLR_BINS> freeR;
+    static Array<Bool, CLR_BINS> seenR;
 
     const Bool haveData = !rv.trailEmpty();
 
@@ -3993,8 +3993,8 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
             freeR[i] = st.clrSeen[i] ? st.clr[i] : 0.0f;
             seenR[i] = st.clrSeen[i];
         }
-        mapgeo::computeReach(freeR, seenR, CLR_BINS, CLR_BIN_DEG,
-                             EGO_WID_MM * 0.5f + 30.0f, reach);
+        mapgeo::computeReach(freeR.data(), seenR.data(), CLR_BINS, CLR_BIN_DEG,
+                             EGO_WID_MM * 0.5f + 30.0f, reach.data());
         haveReach = true;
     }
 
@@ -4055,11 +4055,11 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
                 : (haveReach ? reach[0] : 0.0f);
     a.points  = haveData ? &rv.lastRevolution() : nullptr;
     a.walls   = &walls;
-    a.reach   = haveReach ? reach : nullptr;
+    a.reach   = haveReach ? reach.data() : nullptr;
     a.reachN  = haveReach ? CLR_BINS : 0;
     a.reachBinDeg = CLR_BIN_DEG;
-    a.diag    = rv.diag;
-    a.diagCap = sizeof(rv.diag);
+    a.diag    = rv.diag.data();
+    a.diagCap = rv.diag.size();
 
     rv.diag[0] = 0;
     scene3d::draw(rv.cam, a);
@@ -4347,8 +4347,8 @@ Void RadarView::draw(const ImVec2& size)
         mc.dpi     = dpi;
         mc.dotR   = dotR;
         mc.ego     = ego;
-        mc.diag    = diag;
-        mc.diagCap = sizeof(diag);
+        mc.diag    = diag.data();
+        mc.diagCap = diag.size();
 
         // The ONLY place `mode` is consulted. Everything above it (geometry,
         // gestures, the whole view model) and everything below it (the nearest
@@ -4431,10 +4431,10 @@ Void RadarView::draw(const ImVec2& size)
 
                 if(showLabels)
                 {
-                    Char buf[24];
-                    formatDist(buf, sizeof(buf), best->distMm);
+                    Array<Char, 24> buf;
+                    formatDist(buf.data(), buf.size(), best->distMm);
                     plateText(dl, ImVec2(np.x + 14.0f * dpi, np.y - 6.0f * dpi),
-                              dpi, NEAREST_COL, buf);
+                              dpi, NEAREST_COL, buf.data());
                 }
             }
         }
@@ -4450,14 +4450,14 @@ Void RadarView::draw(const ImVec2& size)
         dl->AddCircleFilled(a, 3.5f * dpi, MEASURE_COL, 12);
         dl->AddCircleFilled(b, 3.5f * dpi, MEASURE_COL, 12);
 
-        Char buf[24];
-        formatDist(buf, sizeof(buf), measureMm);
+        Array<Char, 24> buf;
+        formatDist(buf.data(), buf.size(), measureMm);
 
         ImFont*      font = labelFont();
-        const ImVec2 ts   = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf);
+        const ImVec2 ts   = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf.data());
         plateText(dl, ImVec2((a.x + b.x) * 0.5f - ts.x * 0.5f,
                              (a.y + b.y) * 0.5f - ts.y - 6.0f * dpi),
-                  dpi, MEASURE_COL, buf);
+                  dpi, MEASURE_COL, buf.data());
     }
 
     drawHub(dl, s0, dpi);

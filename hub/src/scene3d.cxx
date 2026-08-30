@@ -96,7 +96,7 @@ struct View
     Float32 focal  = 1.0f;       // pixels per unit at unit depth
     Float32 nearMm = 40.0f;
     Float32 farMm  = 60000.0f;
-    Float32 mvp[16] = {};
+    Array<Float32, 16> mvp= {};
 
     [[nodiscard]] Float32 depthOf(const Vec3& p) const
     {
@@ -185,7 +185,7 @@ View makeView(const Camera& c, const ImVec2& p0, const ImVec2& p1,
          0.0f, 0.0f, 0.0f, 1.0f,
     };
 
-    Float32 mv[16] = {};
+    Array<Float32, 16> mv= {};
     for(Int32 r = 0; r < 4; ++r)
         for(Int32 col = 0; col < 4; ++col)
         {
@@ -655,11 +655,11 @@ Bool loadCarObj(CarModel& m)
     m.tris.clear();
     m.loaded = false;
 
-    Char path[MAX_PATH];
-    if(!carModelPath(path, sizeof(path)))
+    Array<Char, MAX_PATH> path;
+    if(!carModelPath(path.data(), path.size()))
         return false;
 
-    FILE* f = std::fopen(path, "rb");
+    FILE* f = std::fopen(path.data(), "rb");
     if(f == nullptr)
         return false;
 
@@ -674,16 +674,16 @@ Bool loadCarObj(CarModel& m)
     faces.reserve(2200);
 
     Int32 part = CAR_PART_BODY;
-    Char  line[512];
+    Array<Char, 512> line;
 
-    while(std::fgets(line, sizeof(line), f) != nullptr)
+    while(std::fgets(line.data(), line.size(), f) != nullptr)
     {
         if(line[0] == 'v' && line[1] == ' ')
         {
             // `v x y z [r g b]` - the kit writes vertex colours, all white, and
             // they are ignored.
             Float32 x = 0.0f, y = 0.0f, z = 0.0f;
-            if(std::sscanf(line + 2, "%f %f %f", &x, &y, &z) == 3)
+            if(std::sscanf(line.data() + 2, "%f %f %f", &x, &y, &z) == 3)
                 raw.push_back(Vec3{ x, y, z });
         }
         else if(line[0] == 'v' && line[1] == 't' && line[2] == ' ')
@@ -692,24 +692,24 @@ Bool loadCarObj(CarModel& m)
             // touches runs it down from the top, so it is flipped once here
             // rather than at every use.
             Float32 u = 0.0f, vv = 0.0f;
-            if(std::sscanf(line + 3, "%f %f", &u, &vv) == 2)
+            if(std::sscanf(line.data() + 3, "%f %f", &u, &vv) == 2)
                 uvs.push_back(ImVec2(u, 1.0f - vv));
         }
         else if(line[0] == 'g' && line[1] == ' ')
         {
-            Char name[128] = {};
-            if(std::sscanf(line + 2, "%127s", name) == 1)
-                part = partForGroup(name);
+            Array<Char, 128> name= {};
+            if(std::sscanf(line.data() + 2, "%127s", name.data()) == 1)
+                part = partForGroup(name.data());
         }
         else if(line[0] == 'f' && line[1] == ' ')
         {
             // `f a/ta/na b/tb/nb c/tc/nc`. Only the position index is wanted,
             // and only triangles appear in this file - a polygon would be
             // skipped rather than mis-triangulated.
-            Int32 idx[3] = { 0, 0, 0 };
-            Int32 tex[3] = { 0, 0, 0 };
+            Array<Int32, 3> idx= { 0, 0, 0 };
+            Array<Int32, 3> tex= { 0, 0, 0 };
             Int32 got = 0;
-            const Char* p = line + 2;
+            const Char* p = line.data() + 2;
             while(got < 3)
             {
                 while(*p == ' ')
@@ -753,11 +753,11 @@ Bool loadCarObj(CarModel& m)
     // the car ~15% wider than the corridor drawn alongside it, and a picture
     // that disagrees with the measurement beside it is worse than a picture with
     // a slightly wrong roofline.
-    Float32 lo[3] = {  1e9f,  1e9f,  1e9f };
-    Float32 hi[3] = { -1e9f, -1e9f, -1e9f };
+    Array<Float32, 3> lo= {  1e9f,  1e9f,  1e9f };
+    Array<Float32, 3> hi= { -1e9f, -1e9f, -1e9f };
     for(const Vec3& v : raw)
     {
-        const Float32 c[3] = { v.x, v.y, v.z };
+        const Array<Float32, 3> c= { v.x, v.y, v.z };
         for(Int32 k = 0; k < 3; ++k)
         {
             if(c[k] < lo[k])
@@ -857,9 +857,9 @@ const CarModel& carModel()
     // is non-zero this costs one comparison.
     if(m.loaded && m.tex == 0)
     {
-        Char tp[MAX_PATH];
-        if(carTexturePath(tp, sizeof(tp)))
-            m.tex = ui::loadTexture(ui::device(), tp);
+        Array<Char, MAX_PATH> tp;
+        if(carTexturePath(tp.data(), tp.size()))
+            m.tex = ui::loadTexture(ui::device(), tp.data());
     }
     return m;
 }
@@ -1636,14 +1636,14 @@ Void draw(const Camera& cam, const DrawArgs& a)
 
     Int32 n = 0;
     Int32 hidden = 0;
-    Char  lockBuf[64] = {};
+    Array<Char, 64> lockBuf= {};
     switch(a.mode)
     {
     case SceneMode::SCENE_MODE_BLOCKS:
         n = drawReturns(v, a, true, &hidden);
         say(a, "%d returns as columns%s  |  %s, orbit %.0f deg, %.1f m out",
             n, "",
-            lockNote(a, a.worldYawDeg, lockBuf, sizeof(lockBuf)),
+            lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
             static_cast<Float64>(cam.yaw * 180.0f / PI_F),
             static_cast<Float64>(cam.dist / 1000.0f));
         break;
@@ -1653,7 +1653,7 @@ Void draw(const Camera& cam, const DrawArgs& a)
         drawReturns(v, a, false, &hidden);
         say(a, "%d wall%s as panels%s  |  %s, orbit %.0f deg, %.1f m out",
             n, n == 1 ? "" : "s", "",
-            lockNote(a, a.worldYawDeg, lockBuf, sizeof(lockBuf)),
+            lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
             static_cast<Float64>(cam.yaw * 180.0f / PI_F),
             static_cast<Float64>(cam.dist / 1000.0f));
         break;
@@ -1662,7 +1662,7 @@ Void draw(const Camera& cam, const DrawArgs& a)
         drawFitFloor(v, a);
         n = drawReturns(v, a, false, &hidden);
         say(a, "drivable floor from %d returns  |  %s, orbit %.0f deg, %.1f m out",
-            n, lockNote(a, a.worldYawDeg, lockBuf, sizeof(lockBuf)),
+            n, lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
             static_cast<Float64>(cam.yaw * 180.0f / PI_F),
             static_cast<Float64>(cam.dist / 1000.0f));
         break;
@@ -1685,7 +1685,7 @@ Void draw(const Camera& cam, const DrawArgs& a)
         n = drawReturns(v, a, false, &hidden);
         say(a, "%d returns%s  |  %s, orbit %.0f deg, %.1f m out",
             n, "",
-            lockNote(a, a.worldYawDeg, lockBuf, sizeof(lockBuf)),
+            lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
             static_cast<Float64>(cam.yaw * 180.0f / PI_F),
             static_cast<Float64>(cam.dist / 1000.0f));
         break;
@@ -1720,7 +1720,7 @@ Void draw(const Camera& cam, const DrawArgs& a)
         drawLamps(v, a.lamps);
     }
 
-    const ImTextureID img = scenegpu::end(v.mvp);
+    const ImTextureID img = scenegpu::end(v.mvp.data());
     if(img != 0)
         a.dl->AddImage(img, a.p0, a.p1);
     else

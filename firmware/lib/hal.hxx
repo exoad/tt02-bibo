@@ -14,15 +14,27 @@
  * header gets it. That also means a sketch can use it without touching
  * CMakeLists.txt, which is the whole point of a scratch program.
  *
- * WHAT IS NOT HERE. I2C, SPI and UART. They are stateful, they have real
+ * WHAT IS NOT HERE. I2C and SPI. They are stateful, they have real
  * configuration, and a wrapper that hid that would teach the wrong thing. When
  * the ToF sensors and the SD card go on, they get their own headers with their
  * own state, not one more function in this one.
  *
- * PIN SAFETY. GP0/GP1 are the servo and ESC signals, GP4/GP5 are I2C, GP10-GP13
- * are the ToF XSHUT lines, GP15 is the wheel encoder and GP16-GP19 are SPI for
- * the SD card - see docs/wiring.md. GP28 is free and is what the starter sketch
- * blinks. Nothing here enforces that; the board cannot know what you soldered.
+ * UART WAS IN THAT LIST AND IS NOT ANY MORE, and the reason is worth reading
+ * before you assume the rule was just abandoned: on RP2350 the GPIO function
+ * that carries UART data is not the same number on every pad, and picking the
+ * obvious one on GP14/GP15 transmits onto a flow-control line in perfect
+ * silence. That is not configuration a caller should be left to discover - it
+ * is exactly the kind of one-place-to-be-right this header exists for. See the
+ * uart namespace below.
+ *
+ * PIN SAFETY. lib/pins.hxx is the car's map and the place to look before
+ * borrowing a pad: GP0/GP1 servo and ESC, GP4/GP5 I2C, GP10-GP13 lamps on the
+ * ToF XSHUT lines, GP14/GP15 the DFPlayer's UART, GP16-GP19 SPI for the SD
+ * card. GP28 is free and is what the starter sketch blinks.
+ *
+ * Nothing HERE enforces any of that - the board cannot know what you soldered -
+ * but pins.hxx does static_assert that no two subsystems claim one pad, which
+ * is the half a compiler can check.
  */
 
 #pragma once
@@ -60,6 +72,7 @@
 #include "hardware/i2c.h"
 #include "hardware/pwm.h"
 #include "hardware/spi.h"
+#include "hardware/uart.h"
 #include "pico/unique_id.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
@@ -155,6 +168,123 @@ static Void pull(Pin pin, PinPull pull)
 
 
 } // namespace gpio
+
+/* ===========================================================================
+ * uart - a serial port to another chip.
+ *
+ * NOT the console. serial:: below is USB CDC and talks to the laptop; this is
+ * a wire to a part on the breadboard. The two have nothing to do with each
+ * other and CMakeLists keeps UART stdio switched off precisely so this one is
+ * free to be used for something.
+ *
+ * ---------------------------------------------------------------------------
+ * THE FUNCSEL TRAP, which cost an evening to find and is the reason this
+ * wrapper exists at all rather than every caller writing three SDK lines.
+ *
+ * gpio_set_function(pin, GPIO_FUNC_UART) is the call every example uses and it
+ * is WRONG on some pins. GPIO_FUNC_UART is funcsel 2, and on RP2350 funcsel 2
+ * means different things on different pads:
+ *
+ *     GP0, GP1, GP12, GP13, GP16, GP17  funcsel 2 IS UART data. Fine.
+ *     GP14, GP15                        funcsel 2 is UART0 CTS and RTS -
+ *                                       FLOW CONTROL, not data.
+ *
+ * On GP14/GP15 the data lines are funcsel 0x0b, which the SDK calls
+ * GPIO_FUNC_UART_AUX. Use the wrong one and the port opens, the baud rate is
+ * set, writes return normally and nothing is ever transmitted - the bytes go
+ * out on a handshake line the other end is not listening to. Nothing errors.
+ *
+ * So open() picks the funcsel from the pin rather than trusting the caller to
+ * know, and there is exactly one place in this firmware that has to be right
+ * about it.
+ * ======================================================================== */
+namespace uart
+{
+
+/* Which funcsel carries UART DATA on this pad.
+ *
+ * The AUX pads are the ones whose UART function sits at 0x0b instead of 2. On
+ * RP2350 that is the GP14/GP15 pair; every other UART-capable pad uses 2. A
+ * pad that carries no UART at all returns the normal value and simply will not
+ * work, which is what a wiring mistake should look like - the pin table in
+ * pins.hxx is where that is prevented, not here. */
+static gpio_function_t dataFunc(Pin pin)
+{
+    return (pin == 14 || pin == 15) ? GPIO_FUNC_UART_AUX : GPIO_FUNC_UART;
+}
+
+/* Brings up `port` at `baud` on the given pins.
+ *
+ * Either pin may be pins::NONE. A TX-only link is a real configuration and not
+ * a broken one: the DFPlayer is perfectly usable without reading its replies,
+ * and refusing to open would turn a working half-duplex setup into an error.
+ *
+ * Returns the baud rate the hardware actually achieved, which is not always
+ * the one asked for - the divider is integer and the peripheral clock is
+ * whatever it is. At 9600 the error is negligible; the value is returned
+ * because a caller that cares should be able to see it rather than assume. */
+static UInt32 open(uart_inst_t* port, UInt32 baud, Pin tx, Pin rx)
+{
+    const UInt32 got = uart_init(port, baud);
+
+    if(tx != -1)
+    {
+        gpio_set_function(static_cast<UInt32>(tx), dataFunc(tx));
+    }
+    if(rx != -1)
+    {
+        gpio_set_function(static_cast<UInt32>(rx), dataFunc(rx));
+    }
+
+    /* 8N1 and no flow control - what every module in this drawer expects, and
+     * what the DFPlayer's datasheet specifies. */
+    uart_set_format(port, 8, 1, UART_PARITY_NONE);
+    uart_set_hw_flow(port, false, false);
+
+    /* FIFOs on. Without them a byte that arrives while the main loop is
+     * elsewhere is dropped, and this firmware's loop does a lot between
+     * polls. */
+    uart_set_fifo_enabled(port, true);
+
+    return got;
+}
+
+static Void write(uart_inst_t* port, const UInt8* data, Size len)
+{
+    uart_write_blocking(port, data, len);
+}
+
+/* True if at least one byte is waiting. */
+static Bool readable(uart_inst_t* port)
+{
+    return uart_is_readable(port);
+}
+
+/* One byte, or -1 if none arrived within the timeout. Int32 rather than UInt8
+ * so "nothing" and "the byte 0xFF" are different answers. */
+static Int32 readByte(uart_inst_t* port, UInt32 timeoutUs)
+{
+    if(!uart_is_readable_within_us(port, timeoutUs))
+    {
+        return -1;
+    }
+    return static_cast<Int32>(uart_getc(port));
+}
+
+/* Drops whatever is sitting in the receive FIFO.
+ *
+ * Worth having before a command: a module that was mid-reply when the Pico
+ * reset has left bytes in there, and reading them as the answer to the NEXT
+ * question is the kind of bug that looks like corruption. */
+static Void drain(uart_inst_t* port)
+{
+    while(uart_is_readable(port))
+    {
+        static_cast<Void>(uart_getc(port));
+    }
+}
+
+} // namespace uart
 
 namespace timing
 {

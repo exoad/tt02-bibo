@@ -153,7 +153,7 @@ public:
     // This is where a mode reports the number it exists to produce - the widest
     // gap, the tightest sector, how much of the revolution came back unusable.
     // Without it a mode is a picture; with it the picture has a reading.
-    Char diag[128] = {};
+    Array<Char, 128> diag = {};
 
     // ---- data -----------------------------------------------------------
     Void push(const LidarFrame& frame);
@@ -216,7 +216,7 @@ private:
     // has genuinely stayed small - a single sparse revolution cannot pull it in
     // and then let it spring back.
     static constexpr Int32 FIT_HISTORY = 24;   // ~2.4 s at 10 Hz
-    Float32 fitHist[FIT_HISTORY] = {};
+    Array<Float32, FIT_HISTORY> fitHist = {};
     Int32   fitN = 0;
 
     // The auto-fit radius the view is committed to, snapped to a 1/2/5 x 10^n

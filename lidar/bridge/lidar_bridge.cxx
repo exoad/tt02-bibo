@@ -75,8 +75,8 @@ Void onSigint(Int32)
 // which means the bridge dies with its parent instead of leaving the motor on.
 Void stdinWatch()
 {
-    Char line[64];
-    while(std::fgets(line, sizeof(line), stdin) != nullptr)
+    Array<Char, 64> line;
+    while(std::fgets(line.data(), line.size(), stdin) != nullptr)
     {
         if(line[0] == 'q' || line[0] == 'Q')
         {
@@ -105,8 +105,8 @@ Int32 main(Int32 argc, const Char* argv[])
     CharSeq     port = argv[1];
     const sl_u32 baud = static_cast<sl_u32>(std::strtoul(argv[2], nullptr, 10));
 
-    static Char outBuf[OUT_BUF];
-    std::setvbuf(stdout, outBuf, _IOFBF, sizeof(outBuf));
+    static Array<Char, OUT_BUF> outBuf;
+    std::setvbuf(stdout, outBuf.data(), _IOFBF, outBuf.size());
 
     std::signal(SIGINT, onSigint);
 

@@ -103,10 +103,10 @@ Str openFailText(const Str& friendly, DWORD err)
         case ERROR_SHARING_VIOLATION:
             return "cannot open " + friendly + " (in use by another program)";
         default: {
-            Char buf[64];
-            std::snprintf(buf, sizeof(buf), " (win32 error %lu)",
+            Array<Char, 64> buf;
+            std::snprintf(buf.data(), buf.size(), " (win32 error %lu)",
                           static_cast<unsigned long>(err));
-            return "cannot open " + friendly + buf;
+            return "cannot open " + friendly + buf.data();
         }
     }
 }
@@ -264,10 +264,10 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         di.fwMinor = rawInfo.firmware_version & 0xFF;
         di.hwRev   = static_cast<Int32>(rawInfo.hardware_version);
 
-        Char hex[33];
+        Array<Char, 33> hex;
         for(Int32 i = 0; i < 16; ++i)
-            std::snprintf(hex + i * 2, 3, "%02X", static_cast<unsigned>(rawInfo.serialnum[i]));
-        di.serial = hex;
+            std::snprintf(hex.data() + i * 2, 3, "%02X", static_cast<unsigned>(rawInfo.serialnum[i]));
+        di.serial = hex.data();
 
         sl_lidar_response_device_health_t health;
         if(SL_IS_OK(drv->getHealth(health)))
@@ -318,10 +318,10 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 
             // scan_mode is a fixed 64-byte field, zero-padded but not
             // guaranteed terminated.
-            Char name[sizeof(mode.scan_mode) + 1];
-            std::memcpy(name, mode.scan_mode, sizeof(mode.scan_mode));
+            Array<Char, sizeof(mode.scan_mode) + 1> name;
+            std::memcpy(name.data(), mode.scan_mode, sizeof(mode.scan_mode));
             name[sizeof(mode.scan_mode)] = '\0';
-            si.mode = name;
+            si.mode = name.data();
 
             LockGuard<Mutex> lock(mtx);
             scanInfo = si;
@@ -628,13 +628,13 @@ Str LidarSource::preferredPort()
 
     for(DWORD i = 0; ; ++i)
     {
-        Char  name[512];
+        Array<Char, 512> name;
         BYTE  data[512];
-        DWORD nlen = static_cast<DWORD>(sizeof(name));
+        DWORD nlen = static_cast<DWORD>(name.size());
         DWORD dlen = static_cast<DWORD>(sizeof(data));
         DWORD type = 0;
 
-        const LONG r = RegEnumValueA(key, i, name, &nlen, nullptr, &type, data, &dlen);
+        const LONG r = RegEnumValueA(key, i, name.data(), &nlen, nullptr, &type, data, &dlen);
         if(r != ERROR_SUCCESS)
             break;
         if(type != REG_SZ || dlen == 0)
@@ -647,7 +647,7 @@ Str LidarSource::preferredPort()
         }
         data[dlen] = 0;
 
-        Str dev(name, nlen);
+        Str dev(name.data(), nlen);
         for(Char& c : dev)
         {
             c = static_cast<Char>(std::tolower(static_cast<UInt8>(c)));

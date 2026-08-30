@@ -92,6 +92,12 @@
 #include "hal.hxx"
 #include "text.hxx"
 
+/* The car's pin map. Included before anything that binds a pin, so a subsystem
+ * can name pins::HEAD_L rather than 11 - and so the conflict static_asserts in
+ * it fire on every build rather than only when somebody happens to include it. */
+#include "pins.hxx"
+
+#include "drivers/dfplayer.hxx"
 #include "drivers/display.hxx"
 #include "gfx.hxx"
 #include "status.hxx"

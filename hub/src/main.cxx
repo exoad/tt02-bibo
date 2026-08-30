@@ -52,7 +52,7 @@ static const LONG FLOOR_HEIGHT  = 240;
 // Fallback only - the frame normally clears to ImGuiCol_WindowBg. It still has
 // to match the theme: anything the UI does not cover (the sliver during a
 // resize, the moment before the first frame) shows this.
-static const Float32 CLEAR_COLOR[4] = { 0.139f, 0.144f, 0.154f, 1.0f };
+static const Array<Float32, 4> CLEAR_COLOR= { 0.139f, 0.144f, 0.154f, 1.0f };
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -85,9 +85,9 @@ static Void loadUiScale()
 
 static Void saveUiScale()
 {
-    Char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.2f\n", static_cast<Float64>(ui::userScale()));
-    settings::write("ui-scale.txt", Str(buf));
+    Array<Char, 32> buf;
+    std::snprintf(buf.data(), buf.size(), "%.2f\n", static_cast<Float64>(ui::userScale()));
+    settings::write("ui-scale.txt", Str(buf.data()));
 }
 
 // ---------------------------------------------------------------------------
@@ -792,10 +792,10 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         // Track ImGui's own window background, so restyling the UI can never
         // leave the backbuffer showing a different colour behind it.
         const ImVec4 bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
-        const Float32 clear[4] = { bg.x, bg.y, bg.z, 1.0f };
+        const Array<Float32, 4> clear= { bg.x, bg.y, bg.z, 1.0f };
 
         d3dContext->OMSetRenderTargets(1, &rtv, nullptr);
-        d3dContext->ClearRenderTargetView(rtv, bg.w > 0.0f ? clear : CLEAR_COLOR);
+        d3dContext->ClearRenderTargetView(rtv, bg.w > 0.0f ? clear.data() : CLEAR_COLOR.data());
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
         HRESULT hr = swapchain->Present(1, 0);    // vsync

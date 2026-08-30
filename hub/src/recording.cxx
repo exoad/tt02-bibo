@@ -16,7 +16,7 @@ namespace {
 
 // The original binary format's magic. Still recognised on load, never
 // written - see loadBinaryV1.
-const Char MAGIC_V1[8] = { 'T', 'T', '0', '2', 'R', 'E', 'C', '1' };
+const Array<Char, 8> MAGIC_V1= { 'T', 'T', '0', '2', 'R', 'E', 'C', '1' };
 
 // A revolution with more points than this is not a revolution, it is a corrupt
 // length field. The C1 produces ~500; ten thousand is far past any plausible
@@ -187,11 +187,11 @@ Bool Recording::load(const Str& path, Str& err)
         return false;
     }
 
-    Char head[8] = {};
-    const Size got = std::fread(head, 1, sizeof(head), f);
+    Array<Char, 8> head= {};
+    const Size got = std::fread(head.data(), 1, head.size(), f);
     std::fclose(f);
 
-    if(got == sizeof(head) && std::memcmp(head, MAGIC_V1, sizeof(MAGIC_V1)) == 0)
+    if(got == head.size() && std::memcmp(head.data(), MAGIC_V1.data(), MAGIC_V1.size()) == 0)
         return loadBinaryV1(path, err);
 
     return loadTextV2(path, err);
@@ -206,10 +206,10 @@ Bool Recording::loadTextV2(const Str& path, Str& err)
         return false;
     }
 
-    Char line[64] = {};
-    if(std::fgets(line, sizeof(line), f) == nullptr
-       || (std::strncmp(line, "# biborec", 9) != 0
-           && std::strncmp(line, "# tt02rec", 9) != 0))
+    Array<Char, 64> line= {};
+    if(std::fgets(line.data(), line.size(), f) == nullptr
+       || (std::strncmp(line.data(), "# biborec", 9) != 0
+           && std::strncmp(line.data(), "# tt02rec", 9) != 0))
     {
         std::fclose(f);
         err = "not a bibo recording";
@@ -223,8 +223,8 @@ Bool Recording::loadTextV2(const Str& path, Str& err)
     Size    want   = 0;
     Float32 runDeg = 0.0f;
 
-    Char tok[64];
-    while(std::fscanf(f, "%63s", tok) == 1)
+    Array<Char, 64> tok;
+    while(std::fscanf(f, "%63s", tok.data()) == 1)
     {
         if(tok[0] == '#')
         {
@@ -263,7 +263,7 @@ Bool Recording::loadTextV2(const Str& path, Str& err)
             continue;
 
         // A pair; its first token is already in `tok`.
-        const Int32 da = std::atoi(tok);
+        const Int32 da = std::atoi(tok.data());
         Int32 dist = 0;
         if(std::fscanf(f, "%d", &dist) != 1)
             break;
@@ -307,8 +307,8 @@ Bool Recording::loadBinaryV1(const Str& path, Str& err)
         return false;
     }
 
-    Char magic[8] = {};
-    if(std::fread(magic, 1, sizeof(magic), f) != sizeof(magic))
+    Array<Char, 8> magic= {};
+    if(std::fread(magic.data(), 1, magic.size(), f) != magic.size())
     {
         std::fclose(f);
         err = "file ends in its header";
@@ -406,10 +406,10 @@ Str makeName()
     SYSTEMTIME t = {};
     ::GetLocalTime(&t);
 
-    Char buf[64];
-    std::snprintf(buf, sizeof(buf), "scan-%04d%02d%02d-%02d%02d%02d.biborec",
+    Array<Char, 64> buf;
+    std::snprintf(buf.data(), buf.size(), "scan-%04d%02d%02d-%02d%02d%02d.biborec",
                   t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-    return Str(buf);
+    return Str(buf.data());
 }
 
 } // namespace rec
