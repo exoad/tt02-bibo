@@ -1,99 +1,36 @@
 <Doc title="DFPlayer Mini" subtitle="serial MP3 player, DIP-16" id="dfplayerMini">
 
-<Section title="What it is">
-<Text>A self-contained MP3 player on a 20 mm square board. It holds its own
-microSD card, decodes on the module, and drives a small speaker directly - so
-the host says <Code>play track 3</Code> over a UART and nothing else.</Text>
+<Include file="pinouts/dfplayer-mini.bdoc"/>
 
-<Text>For <Bold>bibo</Bold> this is the thing that fills the hole in the cue
-system. <Code>cue::soundWrite()</Code> has recorded a tone and driven nothing
-since the day it was written, because there was no buzzer and no pin set aside
-for one. A DFPlayer is better than a buzzer: a cue can say a <Bold>word</Bold>
-rather than a beep.</Text>
-</Section>
+<Table>
+<Row head="yes"><Cell>signal</Cell><Cell>wiring</Cell></Row>
+<Row><Cell class="power">VCC</Cell><Cell>3.2 - 5.0 V off the ESC's BEC, not the Pico, 100 uF across it</Cell></Row>
+<Row><Cell class="serial">RX</Cell><Cell>1 kOhm in series - needed from 5 V logic, not from the 3.3 V Pico</Cell></Row>
+<Row><Cell class="serial">TX</Cell><Cell>direct; drives 3.3 V</Cell></Row>
+<Row><Cell class="digital">BUSY</Cell><Cell>one GPIO, tells the firmware whether a cue is still being spoken</Cell></Row>
+</Table>
 
-<Pinout title="Pinout" package="DIP-16" pitch="2.54 mm">
-<Note>Pin 1 is the corner nearest the microSD slot, marked with a dot. The left
-column runs 1 to 8 downward and the right column runs 16 down to 9, which is
-how a DIP is numbered and how this board reads on the bench.</Note>
-
-<Column side="left" from="1" to="8">
-<Pin n="1" name="VCC"   class="power">3.2 - 5.0 V. 100 uF across the supply.</Pin>
-<Pin n="2" name="RX"    class="serial">UART in. 9600 baud, 10-byte frames.</Pin>
-<Pin n="3" name="TX"    class="serial">UART out.</Pin>
-<Pin n="4" name="DAC_R" class="audio">Line out, right. About 0.6 V RMS.</Pin>
-<Pin n="5" name="DAC_L" class="audio">Line out, left. Silkscreen may read DAC_I.</Pin>
-<Pin n="6" name="SPK2"  class="audio" check="yes">Speaker, one side.</Pin>
-<Pin n="7" name="GND"   class="ground">Power ground.</Pin>
-<Pin n="8" name="SPK1"  class="audio" check="yes">Speaker, other side.</Pin>
-</Column>
-
-<Column side="right" from="16" to="9">
-<Pin n="16" name="BUSY"   class="digital">LOW while playing, HIGH when idle.</Pin>
-<Pin n="15" name="USB-"   class="usb">USB DM. Exposes the card to a PC.</Pin>
-<Pin n="14" name="USB+"   class="usb">USB DP.</Pin>
-<Pin n="13" name="ADKEY2" class="analog">Resistor-ladder keys. Plays track 5.</Pin>
-<Pin n="12" name="ADKEY1" class="analog">Resistor-ladder keys. Plays track 1.</Pin>
-<Pin n="11" name="IO2"    class="digital">Active low. Tap next, hold volume up.</Pin>
-<Pin n="10" name="GND"    class="ground">Power ground.</Pin>
-<Pin n="9"  name="IO1"    class="digital">Active low. Tap previous, hold volume down.</Pin>
-</Column>
-</Pinout>
-
-<Section title="Two cells to check against your own board">
-<Warn>The right column above matches the DFRobot pin table exactly, in the same
-16-down-to-9 order it was read off the board - which is good evidence the board
-is being read correctly. The left column has one disagreement.</Warn>
-
-<Text>Pins 6 and 8 were read as <Code>SPK_1</Code> then <Code>SPK_2</Code>
-downward. The DFRobot table has <Code>SPK2</Code> on 6 and <Code>SPK1</Code> on
-8. Clone boards do vary, so the silkscreen wins over any table - including this
-one.</Text>
-
-<Text>It is worth knowing that this particular disagreement is
-<Bold>harmless</Bold>. The speaker output is differential: the cone hangs
-between SPK1 and SPK2 and neither is ground, so swapping them inverts the phase
-and does nothing else. Nothing is at risk either way, which is exactly why it is
-worth writing down rather than worrying about.</Text>
-
-<Text>Pin 5 read as <Code>DAC_I</Code> is almost certainly <Code>DAC_L</Code> -
-an uppercase L in the silkscreen font. It is the left channel.</Text>
-</Section>
-
-<Section title="Wiring it to bibo">
-<List>
-<Item><Bold>Power.</Bold> The module wants 3.2 - 5.0 V and takes current in
-gulps when the amplifier is driven. Off the ESC's BEC rather than off the Pico,
-with 100 uF across it - a supply that sags takes the Pico down with it.</Item>
-
-<Item><Bold>RX needs a resistor from 5 V logic, and not from the Pico.</Bold>
-The usual 1 kOhm in series exists because the module's RX is not 5 V tolerant.
-The Pico is a 3.3 V part, so it is already the right level - the resistor is
-cheap insurance against a wiring mistake, not a requirement here.</Item>
-
-<Item><Bold>TX needs nothing.</Bold> The module drives 3.3 V, which the Pico
-reads as high.</Item>
-
-<Item><Bold>BUSY is worth wiring.</Bold> One GPIO tells the firmware whether a
-cue is still being spoken, without asking over the UART. That is the same
-question <Code>cue::busy()</Code> already answers for lamps.</Item>
-</List>
-
-<Warn>Do not connect the speaker outputs and the line outputs at the same time.
+<Warn><Bold>Never drive SPK1/SPK2 and DAC_L/DAC_R at the same time.</Bold>
 SPK1/SPK2 is a bridged amplifier and DAC_L/DAC_R is a line level tap; driving
 both is a fight the amplifier wins and the module loses.</Warn>
-</Section>
 
-<Section title="Pins bibo does not have spare">
-<Text>A UART is two pins and BUSY is a third, and the board is currently full.
-GP0 and GP1 are the servo and the ESC. GP4 and GP5 are I2C. GP10 through GP15
-are lamps, on borrowed ToF and encoder pins. GP16 through GP19 are the SD
-header.</Text>
+<Warn><Bold>The silkscreen wins over this or any table.</Bold> Pins 6 and 8 read
+<Code>SPK_1</Code> then <Code>SPK_2</Code> downward; the DFRobot table has
+<Code>SPK2</Code> on 6 and <Code>SPK1</Code> on 8. Harmless either way - the
+output is differential, so a swap only inverts phase. Pin 5 read as
+<Code>DAC_I</Code> is <Code>DAC_L</Code>, the left channel.</Warn>
 
-<Text>The permanent lamp move - <Code>GP2/GP3</Code> indicators,
-<Code>GP6/GP7</Code> tails, <Code>GP8</Code> heads - frees GP10 through GP15 and
-is what makes room for this. UART0 on GP12/GP13 or UART1 on GP8/GP9 both work
-once the lamps have moved.</Text>
-</Section>
+<Table>
+<Row head="yes"><Cell>Pico pins</Cell><Cell>already taken</Cell></Row>
+<Row><Cell class="digital">GP0/GP1</Cell><Cell>servo, ESC</Cell></Row>
+<Row><Cell class="serial">GP4/GP5</Cell><Cell>I2C</Cell></Row>
+<Row><Cell class="digital">GP10-GP15</Cell><Cell>lamps, on borrowed ToF and encoder pins</Cell></Row>
+<Row><Cell class="serial">GP16-GP19</Cell><Cell>SD header</Cell></Row>
+</Table>
+
+<Note>The permanent lamp move - <Code>GP2/GP3</Code> indicators,
+<Code>GP6/GP7</Code> tails, <Code>GP8</Code> heads - frees GP10 through GP15.
+UART0 on <Code>GP12/GP13</Code> or UART1 on <Code>GP8/GP9</Code> both work once
+the lamps have moved.</Note>
 
 </Doc>

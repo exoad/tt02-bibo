@@ -1,102 +1,85 @@
-<Doc title="The .bdoc format" subtitle="what these files are, and the rules" id="theFormat">
+<Doc title="The .bdoc format" subtitle="the rules" category="Reference" id="theFormat">
 
-<Section title="Why a format at all">
-<Text>The pinouts used to be C++ arrays in <Code>hub/src/pinout.cxx</Code>,
-drawn by code written for them. That works exactly once. The second component
-needs either a second drawing routine or a generalisation of the first, and by
-the fourth the hub is carrying a small documentation system that nobody planned
-and nobody can add to without rebuilding.</Text>
+<Text>A very small subset of XML: elements, attributes, text, comments. No
+namespaces, no DTD, no CDATA. Adding a component is adding a file.</Text>
 
-<Text>These are <Bold>files</Bold>. Adding a component is adding one, and the
-hub does not change. Nothing is compiled in, so a wiring note can be fixed
-without a build - which matters, because a wiring note is usually being fixed
-while the wires are in your hands.</Text>
+<Table>
+<Row head="yes"><Cell>kind</Cell><Cell>case</Cell><Cell>example</Cell></Row>
+<Row><Cell>element</Cell><Cell class="serial">PascalCase</Cell><Cell>Doc Section Pinout Pin Bold</Cell></Row>
+<Row><Cell>attribute</Cell><Cell class="digital">camelCase</Cell><Cell>title subtitle class from</Cell></Row>
+<Row><Cell>class value</Cell><Cell class="digital">camelCase</Cell><Cell>power ground serial audio</Cell></Row>
+</Table>
+
+<Note>An element and an attribute are different kinds of thing, and reading one
+as the other is the commonest mistake in a hand-written format. Making them
+visibly different makes the mistake visible too. The parser does not enforce
+the casing - it cannot refuse a document over a style rule - so it is reported
+instead, on the toolbar.</Note>
+
+<Section title="Blocks">
+<Table>
+<Row head="yes"><Cell>element</Cell><Cell>what it is</Cell></Row>
+<Row><Cell>Section</Cell><Cell>a heading and what follows it</Cell></Row>
+<Row><Cell>Text</Cell><Cell>a paragraph</Cell></Row>
+<Row><Cell>List / Item</Cell><Cell>bullets</Cell></Row>
+<Row><Cell>Table / Row / Cell</Cell><Cell>a grid. Row head="yes" for the header</Cell></Row>
+<Row><Cell>Note / Warn</Cell><Cell>an aside, and the one that matters</Cell></Row>
+<Row><Cell>Code</Cell><Cell>verbatim, newlines kept</Cell></Row>
+<Row><Cell>Draw</Cell><Cell>a canvas - see below</Cell></Row>
+<Row><Cell>Pinout / Column / Pin</Cell><Cell>a pad table</Cell></Row>
+<Row><Cell>Include</Cell><Cell>another document, spliced in</Cell></Row>
+</Table>
+
+<Text>Inline, anywhere: <Code>Bold</Code>, <Code>Dim</Code>, <Code>Code</Code>.
+That is the whole markup vocabulary, and it is short on purpose.</Text>
 </Section>
 
-<Section title="A very small subset of XML">
-<Text>Deliberately small. Elements, attributes, text, and comments - that is the
-whole language. No namespaces, no DTD, no processing instructions, no CDATA, no
-entities beyond the four that make the four reserved characters writable.</Text>
+<Section title="Include">
+<Code><Include file="pinouts/pico2w.bdoc"/></Code>
 
-<List>
-<Item>Elements are <Bold>PascalCase</Bold>: <Code>Doc</Code>,
-<Code>Section</Code>, <Code>Pinout</Code>, <Code>Pin</Code>.</Item>
-<Item>Attributes are <Bold>camelCase</Bold>: <Code>title</Code>,
-<Code>subtitle</Code>, <Code>class</Code>, <Code>from</Code>.</Item>
-<Item>Class values are <Bold>camelCase</Bold> too: <Code>power</Code>,
-<Code>ground</Code>, <Code>serial</Code>, <Code>audio</Code>.</Item>
-<Item>Attribute values are always in double quotes.</Item>
-<Item><Code>&lt;Name/&gt;</Code> closes itself. Anything else needs
-<Code>&lt;/Name&gt;</Code>.</Item>
-</List>
+<Text>C's #include, resolved relative to the file writing it and spliced in at
+parse time. There is no second file type: a pinout is a document, and what
+makes it a pinout is what is in it.</Text>
 
-<Text>The case rules are not decoration. An element and an attribute are
-different kinds of thing and reading one as the other is the commonest mistake
-in a hand-written format; making them visibly different means the mistake is
-visible too.</Text>
+<Note>A failed include is drawn where the content would have been - the missing
+file, or the parse error inside it with its own line number. Nesting caps at
+eight, which catches self-inclusion and every longer loop with one integer.</Note>
 </Section>
 
-<Section title="Structure">
-<Text>One <Code>Doc</Code> at the root. Inside it, <Code>Section</Code> and
-<Code>Pinout</Code> in whatever order the component wants to be explained
-in.</Text>
+<Section title="Draw">
+<Code><Draw width="620" height="300">
+  setColor power
+  fillRect 224 28 250 40
+  setTextAlign centre
+  drawText 176 27 "VCC"
+</Draw></Code>
 
-<Code block="yes">&lt;Doc title="..." subtitle="..." id="camelCase"&gt;
-  &lt;Section title="..."&gt;
-    &lt;Text&gt;a paragraph&lt;/Text&gt;
-    &lt;List&gt;&lt;Item&gt;a bullet&lt;/Item&gt;&lt;/List&gt;
-    &lt;Note&gt;quieter aside&lt;/Note&gt;
-    &lt;Warn&gt;the one that matters&lt;/Warn&gt;
-  &lt;/Section&gt;
+<Table>
+<Row head="yes"><Cell>command</Cell><Cell>arguments</Cell></Row>
+<Row><Cell>setColor</Cell><Cell>a palette name, a pin class, or #RRGGBB</Cell></Row>
+<Row><Cell>setWidth</Cell><Cell>n</Cell></Row>
+<Row><Cell>setTextSize</Cell><Cell>n</Cell></Row>
+<Row><Cell>setTextAlign</Cell><Cell>left, centre, right</Cell></Row>
+<Row><Cell>drawLine</Cell><Cell>x1 y1 x2 y2</Cell></Row>
+<Row><Cell>drawRect / fillRect</Cell><Cell>x1 y1 x2 y2</Cell></Row>
+<Row><Cell>drawCircle / fillCircle</Cell><Cell>x y r</Cell></Row>
+<Row><Cell>drawTriangle / fillTriangle</Cell><Cell>x1 y1 x2 y2 x3 y3</Cell></Row>
+<Row><Cell>drawText</Cell><Cell>x y "words"</Cell></Row>
+</Table>
 
-  &lt;Pinout title="..." package="DIP-16"&gt;
-    &lt;Column side="left" from="1" to="8"&gt;
-      &lt;Pin n="1" name="VCC" class="power"&gt;what it is&lt;/Pin&gt;
-    &lt;/Column&gt;
-  &lt;/Pinout&gt;
-&lt;/Doc&gt;</Code>
+<Text>A line starting # is a comment. Coordinates are the document's own -
+Draw declares its natural size and the renderer scales it, so nothing here
+ever deals in pixels.</Text>
+
+<Note>An unknown command is reported under the drawing rather than ignored. A
+picture quietly missing a wire is worse than one that says which line it could
+not read.</Note>
 </Section>
 
-<Section title="Inline">
-<Text>Inside any text you may write <Code>&lt;Bold&gt;</Code>,
-<Code>&lt;Dim&gt;</Code> and <Code>&lt;Code&gt;</Code>. That is the entire
-markup vocabulary, and it is short on purpose: a documentation format that grows
-italics and underline and colour grows a stylesheet, and then the question stops
-being what a component does and starts being how it looks.</Text>
-
-<Text>So: <Bold>bold for the thing you must not miss</Bold>,
-<Dim>dim for the aside you may skip</Dim>, and <Code>Code for a literal you
-would type or read on a silkscreen</Code>.</Text>
-</Section>
-
-<Section title="Pin classes and what they colour">
-<Text>A <Code>Pin</Code> carries a <Code>class</Code>, and the class picks the
-colour. The palette is the same sixteen ANSI colours the rest of the app draws
-in, so a pinout on this screen and a plot on the next one mean the same thing by
-the same colour.</Text>
-
-<List>
-<Item><Code>power</Code> and <Code>ground</Code> - structural, and quiet. They
-are on every component and carry no information about this one.</Item>
-<Item><Code>serial</Code>, <Code>digital</Code>, <Code>analog</Code>,
-<Code>usb</Code>, <Code>audio</Code> - what the pin is for.</Item>
-<Item><Code>unused</Code> - present on the package, not used here.</Item>
-</List>
-
-<Text>A pin may also carry <Code>check="yes"</Code>, which marks it as something
-to verify against the silkscreen rather than trust. That is not styling: it is a
-claim about confidence, and the DFPlayer's speaker pins are exactly why it
-exists.</Text>
-</Section>
-
-<Section title="Rendered, or read">
-<Text>Both. These open in the Code view like any other file, and the toggle
-above the editor swaps between the rendered page and the source that produced
-it.</Text>
-
-<Text>That is the point of a format over a binary: the thing on screen and the
-thing in the file are the same object, and when the render looks wrong you can
-see immediately whether the document is wrong or the renderer is.</Text>
+<Section title="On screen">
+<Text>The wheel zooms and dragging pans, and both act on the whole page - text
+and drawings scale by the same number. The toggle above the editor swaps
+between the page and the source that made it.</Text>
 </Section>
 
 </Doc>

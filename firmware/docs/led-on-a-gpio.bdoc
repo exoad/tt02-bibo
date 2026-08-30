@@ -1,0 +1,113 @@
+<Doc title="An LED on a GPIO" subtitle="resistor, polarity, and why backwards looks like broken" category="Circuits" id="ledOnAGpio">
+
+<Table>
+<Row head="yes"><Cell>part</Cell><Cell>Pico</Cell><Cell>what it is</Cell></Row>
+<Row><Cell>long leg, anode (+)</Cell><Cell class="digital">GP3</Cell><Cell>physical pin 5, through the resistor</Cell></Row>
+<Row><Cell>short leg, cathode (-)</Cell><Cell class="ground">GND</Cell><Cell>physical pin 3</Cell></Row>
+<Row><Cell>resistor</Cell><Cell></Cell><Cell>220 ohm - 1k; red red brown = 220</Cell></Row>
+</Table>
+
+<Draw width="640" height="190">
+# The Pico's edge. A body is drawn as its outline and nothing else: this page
+# is a wireframe, and a solid slate rectangle is a picture of a board rather
+# than a drawing of one.
+setColor grey
+setWidth 1
+drawRect 30 20 108 172
+setColor white
+setTextSize 11
+drawText 48 29 "Pico 2 W"
+
+# ---- GP3, physical pin 5. Green is a free GPIO.
+setColor green
+fillRect 100 88 118 104
+setColor brWhite
+setTextSize 12
+drawText 77 90 "GP3"
+setColor grey
+setTextSize 10
+drawText 70 106 "pin 5"
+
+# ---- GND, physical pin 3.
+setColor grey
+fillRect 100 144 118 160
+setColor brWhite
+setTextSize 12
+drawText 77 146 "GND"
+setColor grey
+setTextSize 10
+drawText 70 162 "pin 3"
+
+# ---- GPIO out to the resistor.
+setColor grey
+setWidth 2
+drawLine 118 96 190 96
+
+# The resistor, drawn WITH its bands, because reading them off the part is half
+# the skill and the colours are on the sibling page.
+setColor yellow
+setWidth 1
+drawRect 190 83 268 109
+
+# The three bands are NOT taken from the sixteen, deliberately. These are the
+# resistor colour CODE, a real-world standard, and a brown band that is not
+# brown is simply wrong. The palette governs the interface, not the physics it
+# depicts.
+setColor #C0392B
+fillRect 204 83 211 109
+setColor #C0392B
+fillRect 219 83 226 109
+setColor #8B5A2B
+fillRect 234 83 241 109
+
+setColor brWhite
+setTextSize 11
+drawText 205 64 "220R - 1k"
+setColor grey
+setTextSize 10
+drawText 183 119 "red red brown = 220"
+
+# ---- resistor out to the LED.
+setColor grey
+setWidth 2
+drawLine 268 96 340 96
+
+# The LED: a triangle plus a bar, with the legs drawn to LENGTH, because the
+# long leg is the entire orientation cue on a real part.
+setColor red
+setWidth 1
+drawTriangle 340 78 340 114 372 96
+setWidth 3
+drawLine 372 78 372 114
+
+setColor brWhite
+setTextSize 11
+drawText 348 60 "LED"
+setColor green
+setTextSize 10
+drawText 290 125 "long leg (anode, +)"
+setColor white
+drawText 361 125 "short leg (cathode, -)"
+
+# ---- cathode back down to ground.
+setColor grey
+setWidth 2
+drawLine 372 96 470 96
+drawLine 470 96 470 152
+drawLine 470 152 118 152
+
+# Current direction, so the drawing says which way round it all goes.
+setColor grey
+setTextSize 10
+drawText 529 91 "current flows"
+drawText 536 105 "GP3 -> GND"
+</Draw>
+
+<Warn><Bold>Backwards is not broken - it is dark, which looks exactly like a
+dead pin.</Bold> An LED only conducts one way, and fitted the wrong way round it
+is undamaged and simply never lights.</Warn>
+
+<Note><Bold>The resistor may sit on either side of the LED.</Bold> Without one
+the LED is close to a short across a 3.3 V pin, which risks both parts.</Note>
+
+</Doc>

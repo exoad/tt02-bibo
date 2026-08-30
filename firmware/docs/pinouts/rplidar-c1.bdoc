@@ -1,0 +1,93 @@
+<Doc title="RPLIDAR C1" subtitle="connector, limits and key numbers" category="Sensors" id="rplidarC1">
+
+<!--
+  A PINOUT, and nothing else: the diagram and the pad table.
+
+  No prose. What a part is for, how it is wired to this car and
+  what to watch out for belong on the part's page, which pulls
+  this in with
+
+      <Include file="pinouts/rplidar-c1.bdoc"/>
+
+  A pinout you have to read is a pinout you cannot use with a
+  connector already in your other hand.
+-->
+
+<Draw width="280" height="140">
+# The XH2.54-5P as it sits in your hand: four wires, and a fifth position with
+# nothing in it.
+#
+# The palette's own colours stand in for the wire colours, which is why the
+# colour NAME is printed under every swatch and repeated in the table below: a
+# reader must be able to pick the wire out of a loom without trusting a
+# screen's idea of yellow.
+
+setColor black
+fillRect 30 14 246 82
+setColor grid
+setWidth 1
+drawRect 30 14 246 82
+
+# ---- position 1: red, VCC
+setColor red
+fillRect 37 24 67 72
+setColor black
+setTextSize 11
+drawText 43 42 "VCC"
+setColor red
+setWidth 3
+drawLine 52 82 52 104
+setColor brWhite
+drawText 43 110 "red"
+
+# ---- position 2: yellow, TX
+setColor yellow
+setWidth 1
+fillRect 79 24 109 72
+setColor black
+drawText 88 42 "TX"
+setColor yellow
+setWidth 3
+drawLine 94 82 94 104
+setColor brWhite
+drawText 76 110 "yellow"
+
+# ---- position 3: green, RX
+setColor green
+setWidth 1
+fillRect 121 24 151 72
+setColor black
+drawText 130 42 "RX"
+setColor green
+setWidth 3
+drawLine 136 82 136 104
+setColor brWhite
+drawText 121 110 "green"
+
+# ---- position 4: black, GND
+setColor grey
+setWidth 1
+fillRect 163 24 193 72
+setColor black
+drawText 169 42 "GND"
+setColor grey
+setWidth 3
+drawLine 178 82 178 104
+setColor brWhite
+drawText 163 110 "black"
+
+# ---- position 5: nothing.
+# Drawn as an empty slot rather than left off the picture, because a gap in a
+# five-way housing reads as a wire that fell out every single time it is not
+# shown to be deliberate.
+setColor grid
+setWidth 1
+drawRect 205 24 235 72
+setColor grey
+setTextSize 10
+drawText 206 43 "empty"
+</Draw>
+
+
+
+</Doc>

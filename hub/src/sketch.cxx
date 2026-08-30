@@ -97,6 +97,7 @@ const Char* const FW_DIRS[] = {
     "app",
     "scratch",
     "docs",
+    "docs\\pinouts",
 };
 
 Vec<Str> listFirmware()

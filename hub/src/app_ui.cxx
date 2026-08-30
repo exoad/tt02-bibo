@@ -43,7 +43,6 @@
 #include "lidar_source.hxx"
 #include "pico_flash.hxx"
 #include "pico_link.hxx"
-#include "pinout.hxx"
 #include "radar.hxx"
 #include "icons.hxx"
 #include "lights.hxx"
@@ -53,7 +52,6 @@
 #include "editor.hxx"
 #include "recording.hxx"
 #include "sketch.hxx"
-#include "reference.hxx"
 #include "refdoc.hxx"
 #include "devlink.hxx"
 #include "lint.hxx"
@@ -630,7 +628,16 @@ Bool    codeTreeCollapsed = false;
 
 // The reference library's browsing state - which page, the drawer width, the
 // zoom. Held here rather than inside the module so the panel stays re-entrant.
-ref::State  refView;
+// ---- the Reference view is gone ------------------------------------------
+//
+// It was seven pages of hardcoded C++: a drawing function each, a page table,
+// and a drawer with its own filter, zoom and pan. Every one of those pages is
+// now a .bdoc in firmware/docs, opened from the Code tree like any other file.
+//
+// That is a straight win and not only a tidy-up. A page was a rebuild; a
+// document is a file. The pinouts and the wiring notes are the things most
+// likely to be corrected with the wires actually in your hands, and they were
+// the things that needed a compiler.
 
 // Which view the bottom control bar belongs to. The same thing as the open tab
 // now that tabs are the only layout, and kept as its own name because the bar
@@ -779,6 +786,10 @@ rec::Recording recording;
 // is what somebody opening a pinout wants to see.
 Str  docModeFor;        // the path the flag below is about
 Bool docModeSource = false;
+
+// How far the page is zoomed. One value for the view rather than one per file:
+// it is a property of how you are reading right now, not of the document.
+Float32 docZoom = 1.0f;
 
 // The parsed document, cached against the text it came from.
 //
@@ -5127,8 +5138,7 @@ Void drawCentralControls(Int32 view)
 // have moved before and will again. A saved tab index from an older build can
 // therefore select the neighbouring view once, which is a preference and not
 // data; drawTabbedViews clamps anything out of range.
-constexpr Int32 REF_VIEW   = 4;
-constexpr Int32 RANGE_VIEW = REF_VIEW + 1;
+constexpr Int32 RANGE_VIEW = 4;
 constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
 constexpr Int32 CUE_VIEW   = DRIVE_VIEW + 1;
 constexpr Int32 VIEW_COUNT = CUE_VIEW + 1;
@@ -7708,7 +7718,20 @@ Void drawDocPane(Float32 w, Float32 h)
     if(docParsedFrom != codeEditor.text())
     {
         docParsedFrom = codeEditor.text();
-        docParsed     = refdoc::parse(docParsedFrom);
+
+        // The document's OWN folder, so <Include file="..."/> resolves the way
+        // a person writing the path would expect: relative to the file they
+        // are writing it in, exactly like a C include.
+        // Both separators, and the backslash has to be escaped. Written as
+        // "\/" this was the single character '/' - a non-standard escape MSVC
+        // accepts - so on a Windows path it found nothing, every include
+        // reported "no folder to resolve against", and the bug looked like it
+        // was in the includer.
+        Str base = codePath;
+        const Size cut = base.find_last_of("\\/");
+        base = (cut == Str::npos) ? Str() : base.substr(0, cut);
+
+        docParsed = refdoc::parse(docParsedFrom, base);
     }
 
     ImGui::SameLine();
@@ -7756,25 +7779,11 @@ Void drawDocPane(Float32 w, Float32 h)
     }
     else
     {
-        ImGui::BeginChild("##docpage", ImVec2(w, std::max(60.0f, rest)),
-                          ImGuiChildFlags_None, ImGuiWindowFlags_None);
-
-        // A reading measure, not the panel width. Text set across 1400 pixels
-        // is text nobody finishes a paragraph of, and this is a document.
-        const Float32 avail = ImGui::GetContentRegionAvail().x;
-        const Float32 measure = std::min(avail - 24.0f, 780.0f * uiDpiScale);
-        const Float32 pad = std::max(0.0f, (avail - measure) * 0.5f);
-        if(pad > 1.0f)
-        {
-            ImGui::Indent(pad);
-        }
-        refdoc::draw(docParsed, measure);
-        if(pad > 1.0f)
-        {
-            ImGui::Unindent(pad);
-        }
-
-        ImGui::EndChild();
+        // One renderer, shared. The page's frame - scrolling, Ctrl+wheel
+        // zoom, drag to pan, the reading measure - lives in refdoc so that a
+        // document behaves identically wherever it is opened from.
+        refdoc::drawPage(docParsed, ImVec2(w, std::max(60.0f, rest)),
+                         docZoom, uiDpiScale);
     }
 
     ImGui::EndChild();
@@ -7897,26 +7906,19 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
         pollCueState();
         drawCueBody(w, h);
     }
-    else if(view == RANGE_VIEW)
+    else
     {
+        // Range is the terminal branch, so an index from a stale settings file
+        // lands on a real view rather than on nothing. It used to be Reference,
+        // which no longer exists.
+        //
         // Polled only while this view is drawn - which is to say, only while
         // somebody is looking at it. See pollTof().
         pollSensorList();
         pollTof(true);
         drawRangeBody(w, h);
     }
-    else
-    {
-        // Reference is the terminal branch, so an index from a stale settings
-        // file lands on a real view rather than on nothing.
-        ImGui::BeginChild("##ref", ImVec2(w, h), ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoScrollbar
-                          | ImGuiWindowFlags_NoScrollWithMouse);
-        const ImVec2 rp0 = ImGui::GetCursorScreenPos();
-        ref::draw(refView, ImGui::GetContentRegionAvail());
-        ui::screenInset(rp0, ImVec2(rp0.x + w, rp0.y + h));
-        ImGui::EndChild();
-    }
+
 
     ImGui::PopID();
     ImGui::PopStyleColor();
@@ -7933,10 +7935,6 @@ const Char* viewName(Int32 view)
     case 3:  return "Code";
     default: break;
     }
-    if(view == REF_VIEW)
-    {
-        return "Reference";
-    }
     if(view == RANGE_VIEW)
     {
         return "Range";
@@ -7949,7 +7947,7 @@ const Char* viewName(Int32 view)
     {
         return "Cues";
     }
-    return "Reference";
+    return "Range";
 }
 
 ui::Icon viewIcon(Int32 view)
@@ -7974,7 +7972,7 @@ ui::Icon viewIcon(Int32 view)
     {
         return ui::Icon::ICON_LAMP;
     }
-    return ui::Icon::ICON_REFERENCE;
+    return ui::Icon::ICON_TOF;
 }
 
 // ===================================================== the tabbed layout
@@ -9701,11 +9699,15 @@ Void app::init(Float32 dpiScale)
                          forceView = DRIVE_VIEW;
                          forceViewFrames = 4;
                      }
+            // The documents live in the Code tree now, so every word that used
+            // to mean "the Reference view" means the Code view. Kept rather
+            // than removed: somebody's shortcut or note still says --view ref,
+            // and landing on the documents is what they wanted either way.
             else if(_stricmp(v, "reference") == 0 ||
                      _stricmp(v, "ref") == 0 ||
                      _stricmp(v, "docs") == 0)
                      {
-                         forceView = REF_VIEW;
+                         forceView = 3;
                          forceViewFrames = 4;
                      }
 

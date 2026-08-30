@@ -1,0 +1,155 @@
+<Doc title="I2C" subtitle="five devices, two wires" category="Buses" id="i2c">
+
+<Table>
+<Row head="yes"><Cell>line</Cell><Cell>Pico</Cell></Row>
+<Row><Cell class="serial">SDA</Cell><Cell class="serial">GP4</Cell></Row>
+<Row><Cell class="serial">SCL</Cell><Cell class="serial">GP5</Cell></Row>
+<Row><Cell class="power">pull-ups</Cell><Cell class="power">~4.7k to 3V3, both lines</Cell></Row>
+</Table>
+
+<Table>
+<Row head="yes"><Cell>device</Cell><Cell>address</Cell></Row>
+<Row><Cell>display</Cell><Cell>0x3C</Cell></Row>
+<Row><Cell>ToF</Cell><Cell>0x29</Cell></Row>
+<Row><Cell>IMU</Cell><Cell>0x68</Cell></Row>
+</Table>
+
+<Draw width="660" height="250">
+# I2C on GP4/GP5: two wires the length of the page, three devices on both of
+# them, and 4.7k pull-ups to 3V3 at the controller end.
+#
+# SDA is warm and SCL is cool, and they keep those two colours everywhere -
+# on the trunk, on the drops, and on the junction dots.
+
+# ---- the controller
+setColor black
+fillRect 30 66 118 178
+setColor grey
+setWidth 1
+drawRect 30 66 118 178
+setColor white
+setTextSize 11
+drawText 50 74 "Pico 2 W"
+setColor grey
+setTextSize 10
+drawText 46 89 "controller"
+
+# The two pads, straddling the board edge the way a real header does.
+setColor brCyan
+fillRect 110 103 126 117
+fillRect 110 127 126 141
+setColor brWhite
+setTextSize 11
+drawText 86 104 "GP4"
+drawText 86 128 "GP5"
+
+# ---- the two wires, the length of the page
+setColor brYellow
+setWidth 2
+drawLine 126 110 610 110
+setTextSize 11
+drawText 614 104 "SDA"
+setColor brBlue
+drawLine 126 134 610 134
+drawText 614 128 "SCL"
+setColor grey
+setTextSize 10
+drawText 140 91 "data"
+drawText 140 143 "clock"
+
+# ---- pull-ups to 3V3
+setColor power
+setWidth 2
+drawLine 176 36 236 36
+setTextSize 11
+drawText 240 31 "3V3"
+
+setColor grey
+setWidth 1
+drawLine 176 36 176 54
+drawLine 176 84 176 110
+setColor yellow
+drawRect 170 54 182 84
+setColor brYellow
+fillCircle 176 110 3
+
+setColor grey
+drawLine 206 36 206 54
+# This drop crosses SDA at y=110 on its way to SCL and does NOT join it.
+drawLine 206 84 206 134
+setColor yellow
+drawRect 200 54 212 84
+setColor brBlue
+fillCircle 206 134 3
+
+setColor white
+setTextSize 10
+drawText 165 17 "pull-ups, ~4.7k"
+setColor grey
+drawText 340 17 "a dot is a join - wires that merely cross do not connect"
+
+# ---- the devices, all three on the same pair
+# display 0x3C
+setColor black
+fillRect 266 174 334 226
+setColor grid
+drawRect 266 174 334 226
+setColor brWhite
+setTextSize 11
+drawText 279 186 "display"
+setColor green
+drawText 288 204 "0x3C"
+setColor brYellow
+setWidth 1
+drawLine 288 110 288 174
+fillCircle 288 110 3
+setColor brBlue
+drawLine 312 134 312 174
+fillCircle 312 134 3
+
+# ToF 0x29
+setColor black
+fillRect 366 174 434 226
+setColor grid
+drawRect 366 174 434 226
+setColor brWhite
+setTextSize 11
+drawText 391 186 "ToF"
+setColor green
+drawText 388 204 "0x29"
+setColor brYellow
+drawLine 388 110 388 174
+fillCircle 388 110 3
+setColor brBlue
+drawLine 412 134 412 174
+fillCircle 412 134 3
+
+# IMU 0x68
+setColor black
+fillRect 466 174 534 226
+setColor grid
+drawRect 466 174 534 226
+setColor brWhite
+setTextSize 11
+drawText 491 186 "IMU"
+setColor green
+drawText 488 204 "0x68"
+setColor brYellow
+drawLine 488 110 488 174
+fillCircle 488 110 3
+setColor brBlue
+drawLine 512 134 512 174
+fillCircle 512 134 3
+</Draw>
+
+<Note><Bold>Write a scanner first.</Bold> Walk <Code>0x08</Code> to
+<Code>0x77</Code>, ping each address, print the ones that answer. It needs no
+driver for any particular chip and turns "is my wiring right" into a yes or
+no.</Note>
+
+<Warn><Bold>Two devices at the same address cannot share a bus.</Bold> The four
+ToF sensors all ship at <Code>0x29</Code>, so XSHUT on
+<Code>GP10</Code>-<Code>GP13</Code> holds three in reset while the fourth is
+re-addressed.</Warn>
+
+</Doc>

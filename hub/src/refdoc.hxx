@@ -88,7 +88,10 @@ struct Doc
     }
 };
 
-[[nodiscard]] Doc parse(const Str& text);
+// `baseDir` is the folder the text came from, and is what <Include file="..."/>
+// resolves against. Pass it empty and an include reports that it cannot be
+// resolved rather than guessing at a working directory.
+[[nodiscard]] Doc parse(const Str& text, const Str& baseDir = Str());
 
 // Style complaints - casing, unknown elements, a Pin with no name. Separate
 // from parse() because these are things a document should not do, not things
@@ -98,5 +101,16 @@ struct Doc
 // Draws the whole document into the current window, wrapping to `width`.
 // Scrolling is the caller's child window, not ours.
 Void draw(const Doc& d, Float32 width);
+
+// The whole page, with its own frame: scrolling, Ctrl+wheel zoom, drag to pan,
+// and a reading measure that stays a sensible number of words wide.
+//
+// Here rather than at each call site because there are two - the Code view and
+// the Reference - and a document that scrolled differently depending on which
+// screen you opened it from would be two documents.
+//
+// `zoom` is the caller's, so each surface keeps its own and neither resets the
+// other.
+Void drawPage(const Doc& d, const ImVec2& size, Float32& zoom, Float32 dpiScale);
 
 } // namespace refdoc
