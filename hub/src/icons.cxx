@@ -72,6 +72,7 @@ constexpr Entry FILES[] = {
     { Icon::ICON_HELP,            "information" },
     { Icon::ICON_REFERENCE,       "blue-document" },
     { Icon::ICON_CODE,            "document" },
+    { Icon::ICON_DOC,             "ruler" },
 
     { Icon::ICON_STATUS_OK,       "status" },
     { Icon::ICON_STATUS_WARN,     "status-away" },

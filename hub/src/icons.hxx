@@ -62,6 +62,12 @@ enum class Icon
     ICON_HELP,
     ICON_CODE,
 
+    // A .bdoc. NOT another document glyph: ICON_REFERENCE is "blue-document"
+    // and ICON_CODE is "document", which are the same page in two shades and
+    // are indistinguishable in a tree at sixteen pixels. A ruler is a different
+    // SHAPE, which is the only thing that reads at that size.
+    ICON_DOC,
+
     // ---- status LEDs ----
     ICON_STATUS_OK,
     ICON_STATUS_WARN,
