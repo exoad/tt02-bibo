@@ -92,6 +92,7 @@ set(BIBO_LIB
     lib/cue.hxx
     lib/net.hxx
     lib/drivers/dfplayer.hxx
+    lib/drivers/dfplayer_proto.hxx
     lib/drivers/display.hxx
     lib/drivers/range.hxx
     lib/drivers/storage.hxx
