@@ -13,18 +13,19 @@
 
 #include "shared.hxx"
 
-namespace settings {
+namespace settings
+{
 
-// The directory, created on first use. Empty if there is no user profile.
-[[nodiscard]] Str dir();
+  // The directory, created on first use. Empty if there is no user profile.
+  [[nodiscard]] Str dir();
 
-// A file inside it. Empty if dir() is.
-[[nodiscard]] Str path(const Char* name);
+  // A file inside it. Empty if dir() is.
+  [[nodiscard]] Str path(const Char* name);
 
-// Whole-file text read/write, for the handful of tiny files this app keeps.
-// read() returns an empty string for a missing file, which is the same thing as
-// an empty one as far as every caller is concerned.
-[[nodiscard]] Str read(const Char* name);
-Void write(const Char* name, const Str& text);
+  // Whole-file text read/write, for the handful of tiny files this app keeps.
+  // read() returns an empty string for a missing file, which is the same thing as
+  // an empty one as far as every caller is concerned.
+  [[nodiscard]] Str read(const Char* name);
+  Void write(const Char* name, const Str& text);
 
 } // namespace settings

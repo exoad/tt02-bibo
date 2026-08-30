@@ -36,80 +36,81 @@
 #include "sl_lidar.h"
 #include "sl_lidar_driver.h"
 
-namespace {
-
-// One revolution never comes close to this, but grabScanDataHq() wants an upper
-// bound and the SDK's own samples use the same figure.
-constexpr Size MAX_NODES = 8192;
-
-// Distinguishes "the scan died" from "this one revolution timed out", which is
-// routine and must not be treated as fatal.
-constexpr sl_u32 GRAB_TIMEOUT_MS = 2000;
-
-// At a 2s grab timeout this gives the device ~10s of silence before the worker
-// gives up. Long enough to ride out a hiccup, short enough to notice a unplug.
-constexpr Int32 MAX_CONSECUTIVE_TIMEOUTS = 5;
-
-// Checks that the port can actually be opened, returning a specific complaint
-// or an empty string if all is well.
-//
-// This exists because the SDK cannot be trusted to report an unopenable port.
-// In sl_async_transceiver.cpp, openChannelAndBind() declares `u_result ans` and
-// then shadows it inside the do-block with `Result<nullptr_t> ans`; the
-// channel->open() failure is written to the shadowed copy, so the outer value
-// stays RESULT_OK and connect() returns success for a port that was never
-// opened. The symptom is that a missing COM port gets misdiagnosed further
-// down as "no response from device (wrong baud?)", pointing at the wrong cause.
-// Probing here restores the distinction the caller needs.
-//
-// The handle is closed again immediately so the SDK can take the port. That
-// leaves a small window in which another process could claim it in between, in
-// which case the driver's own failure path still reports a problem - just less
-// precisely. Worth it for a correct message in the overwhelmingly common case.
-// Opens and immediately closes the port, to find out whether it CAN be opened
-// before the driver touches it - the driver's own report of this failure is
-// unreliable, which is the whole reason this exists.
-//
-// Returns the Win32 code, or 0 on success. It deliberately does NOT decide what
-// the code MEANS: it used to, with its own copy of the removal list, and that
-// copy drifted from the one the mid-scan path used. An unplugged lidar was a
-// quiet disconnection when the cable came out mid-scan and a red error when you
-// pressed Connect afterwards, which is the same event described two ways.
-// One rule, in devlink.hxx, and this reports into it.
-DWORD probePort(const Str& devPath)
+namespace
 {
-    HANDLE h = CreateFileA(devPath.c_str(),
-                           GENERIC_READ | GENERIC_WRITE,
-                           0,               // serial ports are exclusive
-                           nullptr,
-                           OPEN_EXISTING,
-                           0,
-                           nullptr);
-    if(h != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(h);
-        return 0;
-    }
-    return GetLastError();
-}
 
-// The fault-side wording, for codes that are NOT a removal. Only reached when
-// the port is genuinely there and still would not open.
-Str openFailText(const Str& friendly, DWORD err)
-{
-    switch(err)
-    {
-        case ERROR_ACCESS_DENIED:
-        case ERROR_SHARING_VIOLATION:
-            return "cannot open " + friendly + " (in use by another program)";
-        default: {
-            Array<Char, 64> buf;
-            std::snprintf(buf.data(), buf.size(), " (win32 error %lu)",
-                          static_cast<unsigned long>(err));
-            return "cannot open " + friendly + buf.data();
-        }
-    }
-}
+  // One revolution never comes close to this, but grabScanDataHq() wants an upper
+  // bound and the SDK's own samples use the same figure.
+  constexpr Size MAX_NODES = 8192;
+
+  // Distinguishes "the scan died" from "this one revolution timed out", which is
+  // routine and must not be treated as fatal.
+  constexpr sl_u32 GRAB_TIMEOUT_MS = 2000;
+
+  // At a 2s grab timeout this gives the device ~10s of silence before the worker
+  // gives up. Long enough to ride out a hiccup, short enough to notice a unplug.
+  constexpr Int32 MAX_CONSECUTIVE_TIMEOUTS = 5;
+
+  // Checks that the port can actually be opened, returning a specific complaint
+  // or an empty string if all is well.
+  //
+  // This exists because the SDK cannot be trusted to report an unopenable port.
+  // In sl_async_transceiver.cpp, openChannelAndBind() declares `u_result ans` and
+  // then shadows it inside the do-block with `Result<nullptr_t> ans`; the
+  // channel->open() failure is written to the shadowed copy, so the outer value
+  // stays RESULT_OK and connect() returns success for a port that was never
+  // opened. The symptom is that a missing COM port gets misdiagnosed further
+  // down as "no response from device (wrong baud?)", pointing at the wrong cause.
+  // Probing here restores the distinction the caller needs.
+  //
+  // The handle is closed again immediately so the SDK can take the port. That
+  // leaves a small window in which another process could claim it in between, in
+  // which case the driver's own failure path still reports a problem - just less
+  // precisely. Worth it for a correct message in the overwhelmingly common case.
+  // Opens and immediately closes the port, to find out whether it CAN be opened
+  // before the driver touches it - the driver's own report of this failure is
+  // unreliable, which is the whole reason this exists.
+  //
+  // Returns the Win32 code, or 0 on success. It deliberately does NOT decide what
+  // the code MEANS: it used to, with its own copy of the removal list, and that
+  // copy drifted from the one the mid-scan path used. An unplugged lidar was a
+  // quiet disconnection when the cable came out mid-scan and a red error when you
+  // pressed Connect afterwards, which is the same event described two ways.
+  // One rule, in devlink.hxx, and this reports into it.
+  DWORD probePort(const Str& devPath)
+  {
+      HANDLE h = CreateFileA(devPath.c_str(),
+                             GENERIC_READ | GENERIC_WRITE,
+                             0,               // serial ports are exclusive
+                             nullptr,
+                             OPEN_EXISTING,
+                             0,
+                             nullptr);
+      if(h != INVALID_HANDLE_VALUE)
+      {
+          CloseHandle(h);
+          return 0;
+      }
+      return GetLastError();
+  }
+
+  // The fault-side wording, for codes that are NOT a removal. Only reached when
+  // the port is genuinely there and still would not open.
+  Str openFailText(const Str& friendly, DWORD err)
+  {
+      switch(err)
+      {
+          case ERROR_ACCESS_DENIED:
+          case ERROR_SHARING_VIOLATION:
+              return "cannot open " + friendly + " (in use by another program)";
+          default: {
+              Array<Char, 64> buf;
+              std::snprintf(buf.data(), buf.size(), " (win32 error %lu)",
+                            static_cast<unsigned long>(err));
+              return "cannot open " + friendly + buf.data();
+          }
+      }
+  }
 
 } // namespace
 

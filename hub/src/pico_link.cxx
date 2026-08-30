@@ -44,399 +44,399 @@
 namespace
 {
 
-// --- tunables ---------------------------------------------------------------
+  // --- tunables ---------------------------------------------------------------
 
-constexpr Size MAX_LOG_LINES = 4000;   // bounded backlog; oldest dropped
-constexpr Size MAX_TX_QUEUE  = 1024;   // bounded send queue
-constexpr Size MAX_LINE_LEN  = 2048;   // longer input lines are truncated
-constexpr DWORD  READ_CHUNK   = 4096;
-constexpr DWORD  READ_TIMEOUT_MS = 30;   // read wakeup period == send latency
-constexpr Int32    DEFAULT_BAUD = 115200;
+  constexpr Size MAX_LOG_LINES = 4000;   // bounded backlog; oldest dropped
+  constexpr Size MAX_TX_QUEUE  = 1024;   // bounded send queue
+  constexpr Size MAX_LINE_LEN  = 2048;   // longer input lines are truncated
+  constexpr DWORD  READ_CHUNK   = 4096;
+  constexpr DWORD  READ_TIMEOUT_MS = 30;   // read wakeup period == send latency
+  constexpr Int32    DEFAULT_BAUD = 115200;
 
-// Opening a Pico CDC port at 1200 baud and closing it reboots the board into
-// BOOTSEL (see bootselTouch). Normal traffic must never do that by accident.
-constexpr Int32 BOOTSEL_BAUD = 1200;
+  // Opening a Pico CDC port at 1200 baud and closing it reboots the board into
+  // BOOTSEL (see bootselTouch). Normal traffic must never do that by accident.
+  constexpr Int32 BOOTSEL_BAUD = 1200;
 
-// --- time -------------------------------------------------------------------
+  // --- time -------------------------------------------------------------------
 
-Int64 nowNs()
-{
-    return std::chrono::duration_cast<Nanos>(monoNow().time_since_epoch()).count();
-}
+  Int64 nowNs()
+  {
+      return std::chrono::duration_cast<Nanos>(monoNow().time_since_epoch()).count();
+  }
 
-Str winErrText(const Str& what, DWORD code)
-{
-    Char* msg = nullptr;
-    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-                       FORMAT_MESSAGE_IGNORE_INSERTS,
-                   nullptr, code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                   reinterpret_cast<Char*>(&msg), 0, nullptr);
+  Str winErrText(const Str& what, DWORD code)
+  {
+      Char* msg = nullptr;
+      FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+                         FORMAT_MESSAGE_IGNORE_INSERTS,
+                     nullptr, code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                     reinterpret_cast<Char*>(&msg), 0, nullptr);
 
-    Str tail;
-    if(msg)
-    {
-        tail = msg;
-        LocalFree(msg);
-        while(!tail.empty() && (tail.back() == '\n' || tail.back() == '\r' || tail.back() == ' '))
-            tail.pop_back();
-    }
+      Str tail;
+      if(msg)
+      {
+          tail = msg;
+          LocalFree(msg);
+          while(!tail.empty() && (tail.back() == '\n' || tail.back() == '\r' || tail.back() == ' '))
+              tail.pop_back();
+      }
 
-    Array<Char, 64> buf;
-    _snprintf_s(buf.data(), buf.size(), _TRUNCATE, " (error %lu)", static_cast<unsigned long>(code));
+      Array<Char, 64> buf;
+      _snprintf_s(buf.data(), buf.size(), _TRUNCATE, " (error %lu)", static_cast<unsigned long>(code));
 
-    Str out = what;
-    if(!tail.empty())
-        out += ": " + tail;
-    out += buf.data();
-    return out;
-}
+      Str out = what;
+      if(!tail.empty())
+          out += ": " + tail;
+      out += buf.data();
+      return out;
+  }
 
-// --- per-object state -------------------------------------------------------
+  // --- per-object state -------------------------------------------------------
 
-struct LinkImplBody
-{
-    // Lifecycle (connect/disconnect/join). Never held while `mu` is held.
-    Mutex              lifeMu;
-    Thread             worker;
-    Atomic<Bool>       stop{false};
-    Atomic<Bool>       finished{false};
+  struct LinkImplBody
+  {
+      // Lifecycle (connect/disconnect/join). Never held while `mu` is held.
+      Mutex              lifeMu;
+      Thread             worker;
+      Atomic<Bool>       stop{false};
+      Atomic<Bool>       finished{false};
 
-    // Data shared with the UI thread.
-    mutable Mutex      mu;
-    Deque<PicoLine>    log;
-    // What is waiting to go out. The flag rides WITH the payload: the echo
-    // into the log happens on the worker thread, long after send() returned,
-    // and a parallel deque of flags would be one mispop away from labelling the
-    // wrong line.
-    struct TxItem
-    {
-        Str  text;
-        Bool poll = false;
-    };
-    Deque<TxItem> txq;
-    Str             err;
-    Str             portname;
+      // Data shared with the UI thread.
+      mutable Mutex      mu;
+      Deque<PicoLine>    log;
+      // What is waiting to go out. The flag rides WITH the payload: the echo
+      // into the log happens on the worker thread, long after send() returned,
+      // and a parallel deque of flags would be one mispop away from labelling the
+      // wrong line.
+      struct TxItem
+      {
+          Str  text;
+          Bool poll = false;
+      };
+      Deque<TxItem> txq;
+      Str             err;
+      Str             portname;
 
-    Atomic<PicoState>          state{PicoState::PICO_STATE_DISCONNECTED};
-    Atomic<UInt64> tx{0};
-    Atomic<UInt64> rx{0};
-    Atomic<UInt64> drops{0};
-    Atomic<Int64>          t0Ns{0};
-    Atomic<Float64>             lastRxS{-1.0};   // <0 == nothing ever received
+      Atomic<PicoState>          state{PicoState::PICO_STATE_DISCONNECTED};
+      Atomic<UInt64> tx{0};
+      Atomic<UInt64> rx{0};
+      Atomic<UInt64> drops{0};
+      Atomic<Int64>          t0Ns{0};
+      Atomic<Float64>             lastRxS{-1.0};   // <0 == nothing ever received
 
-    Float64 elapsedS() const
-    {
-        return static_cast<Float64>(nowNs() - t0Ns.load(std::memory_order_relaxed)) * 1e-9;
-    }
+      Float64 elapsedS() const
+      {
+          return static_cast<Float64>(nowNs() - t0Ns.load(std::memory_order_relaxed)) * 1e-9;
+      }
 
-    Void setError(Str e)
-    {
-        LockGuard<Mutex> lk(mu);
-        err = std::move(e);
-    }
+      Void setError(Str e)
+      {
+          LockGuard<Mutex> lk(mu);
+          err = std::move(e);
+      }
 
-    // ---- generations ------------------------------------------------------
-    //
-    // disconnect() may DETACH a worker rather than wait for it, when it is
-    // wedged in a driver call that will not return for two minutes. That
-    // worker is still alive and still holds a pointer to this object, so it
-    // must not be allowed to write state belonging to a connection that
-    // started after it was abandoned - a stale "cannot open COM10" landing on
-    // a link that connected fine ten seconds later is a bug that would be
-    // almost impossible to reproduce deliberately.
-    //
-    // Every connect and every disconnect bumps this. A worker keeps the value
-    // it started with and goes quiet the moment it stops matching.
-    Atomic<UInt32> gen{0};
+      // ---- generations ------------------------------------------------------
+      //
+      // disconnect() may DETACH a worker rather than wait for it, when it is
+      // wedged in a driver call that will not return for two minutes. That
+      // worker is still alive and still holds a pointer to this object, so it
+      // must not be allowed to write state belonging to a connection that
+      // started after it was abandoned - a stale "cannot open COM10" landing on
+      // a link that connected fine ten seconds later is a bug that would be
+      // almost impossible to reproduce deliberately.
+      //
+      // Every connect and every disconnect bumps this. A worker keeps the value
+      // it started with and goes quiet the moment it stops matching.
+      Atomic<UInt32> gen{0};
 
-    // Set when disconnect() gave up waiting and detached a worker. That worker
-    // still holds a pointer to this object, so this object can never be freed
-    // afterwards - see the destructor.
-    Atomic<Bool> abandoned{false};
+      // Set when disconnect() gave up waiting and detached a worker. That worker
+      // still holds a pointer to this object, so this object can never be freed
+      // afterwards - see the destructor.
+      Atomic<Bool> abandoned{false};
 
-    [[nodiscard]] Bool current(UInt32 mine) const
-    {
-        return gen.load(std::memory_order_acquire) == mine;
-    }
+      [[nodiscard]] Bool current(UInt32 mine) const
+      {
+          return gen.load(std::memory_order_acquire) == mine;
+      }
 
-    Void setStateIf(UInt32 mine, PicoState st)
-    {
-        if(current(mine))
-        {
-            state.store(st, std::memory_order_release);
-        }
-    }
+      Void setStateIf(UInt32 mine, PicoState st)
+      {
+          if(current(mine))
+          {
+              state.store(st, std::memory_order_release);
+          }
+      }
 
-    Void setErrorIf(UInt32 mine, Str e)
-    {
-        if(current(mine))
-        {
-            setError(std::move(e));
-        }
-    }
+      Void setErrorIf(UInt32 mine, Str e)
+      {
+          if(current(mine))
+          {
+              setError(std::move(e));
+          }
+      }
 
-    Void pushLine(Bool outgoing, Str text, Bool poll = false)
-    {
-        PicoLine ln;
-        ln.tS      = elapsedS();
-        ln.outgoing = outgoing;
-        ln.text     = std::move(text);
-        ln.poll     = poll;
+      Void pushLine(Bool outgoing, Str text, Bool poll = false)
+      {
+          PicoLine ln;
+          ln.tS      = elapsedS();
+          ln.outgoing = outgoing;
+          ln.text     = std::move(text);
+          ln.poll     = poll;
 
-        LockGuard<Mutex> lk(mu);
-        log.push_back(std::move(ln));
-        while(log.size() > MAX_LOG_LINES)
-            log.pop_front();   // a chatty board loses history, never memory
-    }
+          LockGuard<Mutex> lk(mu);
+          log.push_back(std::move(ln));
+          while(log.size() > MAX_LOG_LINES)
+              log.pop_front();   // a chatty board loses history, never memory
+      }
 
-    Void run(Str port, Int32 baud, UInt32 myGen);
-    Void runUdp(Str host, UInt16 port, UInt32 myGen);
+      Void run(Str port, Int32 baud, UInt32 myGen);
+      Void runUdp(Str host, UInt16 port, UInt32 myGen);
 
-    // Which transport the open link is. Read from the UI thread.
-    Atomic<Bool> udp{false};
-};
+      // Which transport the open link is. Read from the UI thread.
+      Atomic<Bool> udp{false};
+  };
 
-// --- port helpers -----------------------------------------------------------
+  // --- port helpers -----------------------------------------------------------
 
-// COM10 and above are only reachable through the "\\.\" device namespace; a
-// bare "COM10" resolves to a legacy DOS device name and fails to open.
-Str devicePath(const Str& port)
-{
-    if(port.size() >= 4 && port.compare(0, 4, "\\\\.\\") == 0)
-        return port;
-    return "\\\\.\\" + port;
-}
+  // COM10 and above are only reachable through the "\\.\" device namespace; a
+  // bare "COM10" resolves to a legacy DOS device name and fails to open.
+  Str devicePath(const Str& port)
+  {
+      if(port.size() >= 4 && port.compare(0, 4, "\\\\.\\") == 0)
+          return port;
+      return "\\\\.\\" + port;
+  }
 
-Bool configurePort(HANDLE h, Int32 baud, Bool assertDtr, Str* err)
-{
-    DCB dcb;
-    ZeroMemory(&dcb, sizeof(dcb));
-    dcb.DCBlength = sizeof(dcb);
-    if(!GetCommState(h, &dcb))
-    {
-        if(err)
-        {
-            *err = winErrText("GetCommState failed", GetLastError());
-        }
-        return false;
-    }
+  Bool configurePort(HANDLE h, Int32 baud, Bool assertDtr, Str* err)
+  {
+      DCB dcb;
+      ZeroMemory(&dcb, sizeof(dcb));
+      dcb.DCBlength = sizeof(dcb);
+      if(!GetCommState(h, &dcb))
+      {
+          if(err)
+          {
+              *err = winErrText("GetCommState failed", GetLastError());
+          }
+          return false;
+      }
 
-    dcb.BaudRate         = static_cast<DWORD>(baud);
-    dcb.ByteSize         = 8;
-    dcb.Parity           = NOPARITY;
-    dcb.StopBits         = ONESTOPBIT;
-    dcb.fBinary          = TRUE;
-    dcb.fParity          = FALSE;
-    dcb.fOutxCtsFlow     = FALSE;
-    dcb.fOutxDsrFlow     = FALSE;
-    dcb.fDsrSensitivity  = FALSE;
-    dcb.fTXContinueOnXoff= TRUE;
-    dcb.fOutX            = FALSE;
-    dcb.fInX             = FALSE;
-    dcb.fErrorChar       = FALSE;
-    dcb.fNull            = FALSE;
-    dcb.fAbortOnError    = FALSE;
-    dcb.fDtrControl      = assertDtr ? DTR_CONTROL_ENABLE : DTR_CONTROL_DISABLE;
-    dcb.fRtsControl      = assertDtr ? RTS_CONTROL_ENABLE : RTS_CONTROL_DISABLE;
+      dcb.BaudRate         = static_cast<DWORD>(baud);
+      dcb.ByteSize         = 8;
+      dcb.Parity           = NOPARITY;
+      dcb.StopBits         = ONESTOPBIT;
+      dcb.fBinary          = TRUE;
+      dcb.fParity          = FALSE;
+      dcb.fOutxCtsFlow     = FALSE;
+      dcb.fOutxDsrFlow     = FALSE;
+      dcb.fDsrSensitivity  = FALSE;
+      dcb.fTXContinueOnXoff= TRUE;
+      dcb.fOutX            = FALSE;
+      dcb.fInX             = FALSE;
+      dcb.fErrorChar       = FALSE;
+      dcb.fNull            = FALSE;
+      dcb.fAbortOnError    = FALSE;
+      dcb.fDtrControl      = assertDtr ? DTR_CONTROL_ENABLE : DTR_CONTROL_DISABLE;
+      dcb.fRtsControl      = assertDtr ? RTS_CONTROL_ENABLE : RTS_CONTROL_DISABLE;
 
-    if(!SetCommState(h, &dcb))
-    {
-        if(err)
-        {
-            *err = winErrText("SetCommState failed", GetLastError());
-        }
-        return false;
-    }
-    return true;
-}
+      if(!SetCommState(h, &dcb))
+      {
+          if(err)
+          {
+              *err = winErrText("SetCommState failed", GetLastError());
+          }
+          return false;
+      }
+      return true;
+  }
 
-// --- registry / SetupAPI enumeration ---------------------------------------
+  // --- registry / SetupAPI enumeration ---------------------------------------
 
-Int32 comNumber(const Str& s)
-{
-    Size i = 0;
-    while(i < s.size() && (s[i] < '0' || s[i] > '9'))
-        ++i;
-    Int32 n = 0;
-    Bool any = false;
-    for(; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i)
-    {
-        n = n * 10 + (s[i] - '0');
-        any = true;
-    }
-    return any ? n : 0;
-}
+  Int32 comNumber(const Str& s)
+  {
+      Size i = 0;
+      while(i < s.size() && (s[i] < '0' || s[i] > '9'))
+          ++i;
+      Int32 n = 0;
+      Bool any = false;
+      for(; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i)
+      {
+          n = n * 10 + (s[i] - '0');
+          any = true;
+      }
+      return any ? n : 0;
+  }
 
-// Every COM name Windows currently has mapped. Used to filter out stale
-// registry entries for Picos that are no longer plugged in.
-HashSet<Str> serialcommPorts()
-{
-    HashSet<Str> out;
+  // Every COM name Windows currently has mapped. Used to filter out stale
+  // registry entries for Picos that are no longer plugged in.
+  HashSet<Str> serialcommPorts()
+  {
+      HashSet<Str> out;
 
-    HKEY key = nullptr;
-    if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0,
-                      KEY_READ, &key) != ERROR_SUCCESS)
-        return out;
+      HKEY key = nullptr;
+      if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0,
+                        KEY_READ, &key) != ERROR_SUCCESS)
+          return out;
 
-    for(DWORD i = 0;; ++i)
-    {
-        Array<Char, 512> name;
-        BYTE  data[512];
-        DWORD nameLen = static_cast<DWORD>(name.size());
-        DWORD dataLen = static_cast<DWORD>(sizeof(data));
-        DWORD type     = 0;
+      for(DWORD i = 0;; ++i)
+      {
+          Array<Char, 512> name;
+          BYTE  data[512];
+          DWORD nameLen = static_cast<DWORD>(name.size());
+          DWORD dataLen = static_cast<DWORD>(sizeof(data));
+          DWORD type     = 0;
 
-        LONG rc = RegEnumValueA(key, i, name.data(), &nameLen, nullptr, &type, data, &dataLen);
-        if(rc == ERROR_NO_MORE_ITEMS)
-            break;
-        if(rc != ERROR_SUCCESS)
-            break;
-        if(type != REG_SZ || dataLen == 0)
-            continue;
+          LONG rc = RegEnumValueA(key, i, name.data(), &nameLen, nullptr, &type, data, &dataLen);
+          if(rc == ERROR_NO_MORE_ITEMS)
+              break;
+          if(rc != ERROR_SUCCESS)
+              break;
+          if(type != REG_SZ || dataLen == 0)
+              continue;
 
-        data[(std::min)(static_cast<Size>(dataLen), sizeof(data) - 1)] = 0;
-        Str port(reinterpret_cast<Char*>(data));
-        if(!port.empty())
-            out.insert(port);
-    }
+          data[(std::min)(static_cast<Size>(dataLen), sizeof(data) - 1)] = 0;
+          Str port(reinterpret_cast<Char*>(data));
+          if(!port.empty())
+              out.insert(port);
+      }
 
-    RegCloseKey(key);
-    return out;
-}
+      RegCloseKey(key);
+      return out;
+  }
 
-Bool readPortName(HKEY parent, const Char* subkey, Str* out)
-{
-    HKEY k = nullptr;
-    if(RegOpenKeyExA(parent, subkey, 0, KEY_READ, &k) != ERROR_SUCCESS)
-        return false;
+  Bool readPortName(HKEY parent, const Char* subkey, Str* out)
+  {
+      HKEY k = nullptr;
+      if(RegOpenKeyExA(parent, subkey, 0, KEY_READ, &k) != ERROR_SUCCESS)
+          return false;
 
-    Array<Char, 128> buf;
-    DWORD len  = static_cast<DWORD>(buf.size());
-    DWORD type = 0;
-    LONG  rc   = RegQueryValueExA(k, "PortName", nullptr, &type,
-                                  reinterpret_cast<BYTE*>(buf.data()), &len);
-    RegCloseKey(k);
+      Array<Char, 128> buf;
+      DWORD len  = static_cast<DWORD>(buf.size());
+      DWORD type = 0;
+      LONG  rc   = RegQueryValueExA(k, "PortName", nullptr, &type,
+                                    reinterpret_cast<BYTE*>(buf.data()), &len);
+      RegCloseKey(k);
 
-    if(rc != ERROR_SUCCESS || type != REG_SZ || len == 0)
-        return false;
+      if(rc != ERROR_SUCCESS || type != REG_SZ || len == 0)
+          return false;
 
-    buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
-    *out = buf.data();
-    return !out->empty();
-}
+      buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
+      *out = buf.data();
+      return !out->empty();
+  }
 
-// Preferred route: walk HKLM\SYSTEM\CurrentControlSet\Enum\USB looking for
-// VID_2E8A*, then read each instance's Device Parameters\PortName. No extra
-// libraries, and it copes with composite devices (VID_2E8A&PID_0009&MI_00).
-Void enumViaRegistry(Vec<Str>& out)
-{
-    HKEY usb = nullptr;
-    if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Enum\\USB", 0,
-                      KEY_READ, &usb) != ERROR_SUCCESS)
-        return;
+  // Preferred route: walk HKLM\SYSTEM\CurrentControlSet\Enum\USB looking for
+  // VID_2E8A*, then read each instance's Device Parameters\PortName. No extra
+  // libraries, and it copes with composite devices (VID_2E8A&PID_0009&MI_00).
+  Void enumViaRegistry(Vec<Str>& out)
+  {
+      HKEY usb = nullptr;
+      if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Enum\\USB", 0,
+                        KEY_READ, &usb) != ERROR_SUCCESS)
+          return;
 
-    for(DWORD i = 0;; ++i)
-    {
-        Array<Char, 512> dev;
-        DWORD devLen = static_cast<DWORD>(dev.size());
-        LONG  rc = RegEnumKeyExA(usb, i, dev.data(), &devLen, nullptr, nullptr, nullptr, nullptr);
-        if(rc != ERROR_SUCCESS)
-            break;
-        if(_strnicmp(dev.data(), "VID_2E8A", 8) != 0)
-            continue;
+      for(DWORD i = 0;; ++i)
+      {
+          Array<Char, 512> dev;
+          DWORD devLen = static_cast<DWORD>(dev.size());
+          LONG  rc = RegEnumKeyExA(usb, i, dev.data(), &devLen, nullptr, nullptr, nullptr, nullptr);
+          if(rc != ERROR_SUCCESS)
+              break;
+          if(_strnicmp(dev.data(), "VID_2E8A", 8) != 0)
+              continue;
 
-        HKEY devk = nullptr;
-        if(RegOpenKeyExA(usb, dev.data(), 0, KEY_READ, &devk) != ERROR_SUCCESS)
-            continue;
+          HKEY devk = nullptr;
+          if(RegOpenKeyExA(usb, dev.data(), 0, KEY_READ, &devk) != ERROR_SUCCESS)
+              continue;
 
-        for(DWORD j = 0;; ++j)
-        {
-            Array<Char, 512> inst;
-            DWORD instLen = static_cast<DWORD>(inst.size());
-            if(RegEnumKeyExA(devk, j, inst.data(), &instLen, nullptr, nullptr, nullptr, nullptr)
-                != ERROR_SUCCESS)
-                break;
+          for(DWORD j = 0;; ++j)
+          {
+              Array<Char, 512> inst;
+              DWORD instLen = static_cast<DWORD>(inst.size());
+              if(RegEnumKeyExA(devk, j, inst.data(), &instLen, nullptr, nullptr, nullptr, nullptr)
+                  != ERROR_SUCCESS)
+                  break;
 
-            Str sub = Str(inst.data()) + "\\Device Parameters";
-            Str port;
-            if(readPortName(devk, sub.c_str(), &port))
-                out.push_back(port);
-        }
+              Str sub = Str(inst.data()) + "\\Device Parameters";
+              Str port;
+              if(readPortName(devk, sub.c_str(), &port))
+                  out.push_back(port);
+          }
 
-        RegCloseKey(devk);
-    }
+          RegCloseKey(devk);
+      }
 
-    RegCloseKey(usb);
-}
+      RegCloseKey(usb);
+  }
 
-// Case-insensitive substring test, ASCII only (no locale surprises).
-Bool containsCi(const Char* hay, const Char* needle)
-{
-    const Size nlen = strlen(needle);
-    if(nlen == 0)
-        return true;
-    for(const Char* p = hay; *p; ++p)
-        if(_strnicmp(p, needle, nlen) == 0)
-            return true;
-    return false;
-}
+  // Case-insensitive substring test, ASCII only (no locale surprises).
+  Bool containsCi(const Char* hay, const Char* needle)
+  {
+      const Size nlen = strlen(needle);
+      if(nlen == 0)
+          return true;
+      for(const Char* p = hay; *p; ++p)
+          if(_strnicmp(p, needle, nlen) == 0)
+              return true;
+      return false;
+  }
 
-// Fallback if the Enum\USB hive is unreadable: class-enumerate present COM
-// ports and match VID_2E8A in the hardware ID. GUID_DEVCLASS_PORTS is spelled
-// out here so we need not link uuid.lib.
-Void enumViaSetupapi(Vec<Str>& out)
-{
-    static const GUID PORTS_CLASS = {
-        0x4D36E978, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
+  // Fallback if the Enum\USB hive is unreadable: class-enumerate present COM
+  // ports and match VID_2E8A in the hardware ID. GUID_DEVCLASS_PORTS is spelled
+  // out here so we need not link uuid.lib.
+  Void enumViaSetupapi(Vec<Str>& out)
+  {
+      static const GUID PORTS_CLASS = {
+          0x4D36E978, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
 
-    HDEVINFO set = SetupDiGetClassDevsA(&PORTS_CLASS, nullptr, nullptr, DIGCF_PRESENT);
-    if(set == INVALID_HANDLE_VALUE)
-        return;
+      HDEVINFO set = SetupDiGetClassDevsA(&PORTS_CLASS, nullptr, nullptr, DIGCF_PRESENT);
+      if(set == INVALID_HANDLE_VALUE)
+          return;
 
-    SP_DEVINFO_DATA info;
-    ZeroMemory(&info, sizeof(info));
-    info.cbSize = sizeof(info);
+      SP_DEVINFO_DATA info;
+      ZeroMemory(&info, sizeof(info));
+      info.cbSize = sizeof(info);
 
-    for(DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &info); ++i)
-    {
-        Array<Char, 1024> hwid= {0};
-        DWORD hwidLen   = 0;
-        if(!SetupDiGetDeviceRegistryPropertyA(set, &info, SPDRP_HARDWAREID, nullptr,
-                                               reinterpret_cast<BYTE*>(hwid.data()),
-                                               hwid.size() - 2, &hwidLen))
-            continue;
+      for(DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &info); ++i)
+      {
+          Array<Char, 1024> hwid= {0};
+          DWORD hwidLen   = 0;
+          if(!SetupDiGetDeviceRegistryPropertyA(set, &info, SPDRP_HARDWAREID, nullptr,
+                                                 reinterpret_cast<BYTE*>(hwid.data()),
+                                                 hwid.size() - 2, &hwidLen))
+              continue;
 
-        // REG_MULTI_SZ: scan every embedded string.
-        Bool match = false;
-        for(DWORD p = 0; p < hwidLen && hwid[p]; )
-        {
-            if(containsCi(hwid.data() + p, "VID_2E8A"))
-                match = true;
-            p += static_cast<DWORD>(strlen(hwid.data() + p)) + 1;
-        }
-        if(!match)
-            continue;
+          // REG_MULTI_SZ: scan every embedded string.
+          Bool match = false;
+          for(DWORD p = 0; p < hwidLen && hwid[p]; )
+          {
+              if(containsCi(hwid.data() + p, "VID_2E8A"))
+                  match = true;
+              p += static_cast<DWORD>(strlen(hwid.data() + p)) + 1;
+          }
+          if(!match)
+              continue;
 
-        HKEY k = SetupDiOpenDevRegKey(set, &info, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
-        if(k == INVALID_HANDLE_VALUE)
-            continue;
+          HKEY k = SetupDiOpenDevRegKey(set, &info, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+          if(k == INVALID_HANDLE_VALUE)
+              continue;
 
-        Array<Char, 128> buf;
-        DWORD len  = static_cast<DWORD>(buf.size());
-        DWORD type = 0;
-        if(RegQueryValueExA(k, "PortName", nullptr, &type, reinterpret_cast<BYTE*>(buf.data()), &len)
-                == ERROR_SUCCESS &&
-            type == REG_SZ && len > 0)
-        {
-            buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
-            if(buf[0])
-                out.push_back(buf.data());
-        }
-        RegCloseKey(k);
-    }
+          Array<Char, 128> buf;
+          DWORD len  = static_cast<DWORD>(buf.size());
+          DWORD type = 0;
+          if(RegQueryValueExA(k, "PortName", nullptr, &type, reinterpret_cast<BYTE*>(buf.data()), &len)
+                  == ERROR_SUCCESS &&
+              type == REG_SZ && len > 0)
+          {
+              buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
+              if(buf[0])
+                  out.push_back(buf.data());
+          }
+          RegCloseKey(k);
+      }
 
-    SetupDiDestroyDeviceInfoList(set);
-}
+      SetupDiDestroyDeviceInfoList(set);
+  }
 
 }  // namespace
 
@@ -447,530 +447,530 @@ Void enumViaSetupapi(Vec<Str>& out)
 namespace
 {
 
-// Keeps only text that is safe to hand to an ImGui text widget. Bytes >= 0x80
-// pass through so UTF-8 from the board survives.
-inline Bool printable(UInt8 c)
-{
-    return c >= 0x20 && c != 0x7F;
-}
+  // Keeps only text that is safe to hand to an ImGui text widget. Bytes >= 0x80
+  // pass through so UTF-8 from the board survives.
+  inline Bool printable(UInt8 c)
+  {
+      return c >= 0x20 && c != 0x7F;
+  }
 
-Void LinkImpl_run_trampoline(LinkImplBody* self, Str port, Int32 baud, UInt32 myGen)
-{
-    self->run(std::move(port), baud, myGen);
-}
+  Void LinkImpl_run_trampoline(LinkImplBody* self, Str port, Int32 baud, UInt32 myGen)
+  {
+      self->run(std::move(port), baud, myGen);
+  }
 
-// ---------------------------------------------------------------------------
-//  the wireless worker
-// ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  //  the wireless worker
+  // ---------------------------------------------------------------------------
 
-// How long a recvfrom() waits before going round again to look at the transmit
-// queue and the stop flag. The same 33 ms the serial reader uses, for the same
-// reason: a silent peer costs thirty cheap wakeups a second and nothing else.
-constexpr Int32 UDP_RECV_TIMEOUT_MS = 33;
+  // How long a recvfrom() waits before going round again to look at the transmit
+  // queue and the stop flag. The same 33 ms the serial reader uses, for the same
+  // reason: a silent peer costs thirty cheap wakeups a second and nothing else.
+  constexpr Int32 UDP_RECV_TIMEOUT_MS = 33;
 
-// How often to re-send the opening PING while still waiting for a first reply.
-constexpr Float64 UDP_HELLO_EVERY_S = 0.5;
+  // How often to re-send the opening PING while still waiting for a first reply.
+  constexpr Float64 UDP_HELLO_EVERY_S = 0.5;
 
-// How long a link that WAS answering may go silent before it is called lost.
-//
-// Only after a first reply, so a car that was never there is reported as never
-// there rather than as having disappeared. Three seconds is twelve of the hub's
-// own 250 ms drive polls: long enough that a burst of Wi-Fi retries is not a
-// disconnection, short enough to notice before wondering why the car ignores
-// you.
-constexpr Float64 UDP_SILENCE_LIMIT_S = 3.0;
+  // How long a link that WAS answering may go silent before it is called lost.
+  //
+  // Only after a first reply, so a car that was never there is reported as never
+  // there rather than as having disappeared. Three seconds is twelve of the hub's
+  // own 250 ms drive polls: long enough that a burst of Wi-Fi retries is not a
+  // disconnection, short enough to notice before wondering why the car ignores
+  // you.
+  constexpr Float64 UDP_SILENCE_LIMIT_S = 3.0;
 
-Void LinkImpl_runUdp_trampoline(LinkImplBody* self, Str host, UInt16 port, UInt32 myGen)
-{
-    self->runUdp(std::move(host), port, myGen);
-}
+  Void LinkImpl_runUdp_trampoline(LinkImplBody* self, Str host, UInt16 port, UInt32 myGen)
+  {
+      self->runUdp(std::move(host), port, myGen);
+  }
 
-Void LinkImplBody::runUdp(Str host, UInt16 port, UInt32 myGen)
-{
-    struct DoneFlag
-    {
-        LinkImplBody* p;
-        ~DoneFlag()
-        {
-            p->finished.store(true, std::memory_order_release);
-        }
-    } doneFlag{this};
+  Void LinkImplBody::runUdp(Str host, UInt16 port, UInt32 myGen)
+  {
+      struct DoneFlag
+      {
+          LinkImplBody* p;
+          ~DoneFlag()
+          {
+              p->finished.store(true, std::memory_order_release);
+          }
+      } doneFlag{this};
 
-    // Winsock is reference counted, so starting it here and stopping it on the
-    // way out is correct even if something else in the process has it open too.
-    WSADATA wsa;
-    ZeroMemory(&wsa, sizeof(wsa));
-    if(WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-    {
-        setErrorIf(myGen, "WSAStartup failed");
-        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-        return;
-    }
+      // Winsock is reference counted, so starting it here and stopping it on the
+      // way out is correct even if something else in the process has it open too.
+      WSADATA wsa;
+      ZeroMemory(&wsa, sizeof(wsa));
+      if(WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+      {
+          setErrorIf(myGen, "WSAStartup failed");
+          setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+          return;
+      }
 
-    struct WsaGuard
-    {
-        ~WsaGuard()
-        {
-            WSACleanup();
-        }
-    } wsaGuard;
+      struct WsaGuard
+      {
+          ~WsaGuard()
+          {
+              WSACleanup();
+          }
+      } wsaGuard;
 
-    sockaddr_in peer;
-    ZeroMemory(&peer, sizeof(peer));
-    peer.sin_family = AF_INET;
-    peer.sin_port   = htons(port);
-    if(inet_pton(AF_INET, host.c_str(), &peer.sin_addr) != 1)
-    {
-        setErrorIf(myGen, "not an IPv4 address: " + host);
-        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-        return;
-    }
+      sockaddr_in peer;
+      ZeroMemory(&peer, sizeof(peer));
+      peer.sin_family = AF_INET;
+      peer.sin_port   = htons(port);
+      if(inet_pton(AF_INET, host.c_str(), &peer.sin_addr) != 1)
+      {
+          setErrorIf(myGen, "not an IPv4 address: " + host);
+          setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+          return;
+      }
 
-    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if(s == INVALID_SOCKET)
-    {
-        setErrorIf(myGen,
-                   winErrText("socket failed",
-                              static_cast<DWORD>(WSAGetLastError())));
-        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-        return;
-    }
+      SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+      if(s == INVALID_SOCKET)
+      {
+          setErrorIf(myGen,
+                     winErrText("socket failed",
+                                static_cast<DWORD>(WSAGetLastError())));
+          setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+          return;
+      }
 
-    struct SockGuard
-    {
-        SOCKET h;
-        ~SockGuard()
-        {
-            closesocket(h);
-        }
-    } sockGuard{s};
+      struct SockGuard
+      {
+          SOCKET h;
+          ~SockGuard()
+          {
+              closesocket(h);
+          }
+      } sockGuard{s};
 
-    // A timeout rather than a blocking read, so the transmit queue is looked at
-    // even when the board is saying nothing.
-    DWORD rcvTimeout = static_cast<DWORD>(UDP_RECV_TIMEOUT_MS);
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
-               reinterpret_cast<const Char*>(&rcvTimeout), sizeof(rcvTimeout));
+      // A timeout rather than a blocking read, so the transmit queue is looked at
+      // even when the board is saying nothing.
+      DWORD rcvTimeout = static_cast<DWORD>(UDP_RECV_TIMEOUT_MS);
+      setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
+                 reinterpret_cast<const Char*>(&rcvTimeout), sizeof(rcvTimeout));
 
-    // No bind: an unbound UDP socket picks an ephemeral local port on the first
-    // send, and the board replies to whatever it hears from. Binding a fixed
-    // port would only create a way for two copies of this program to collide.
+      // No bind: an unbound UDP socket picks an ephemeral local port on the first
+      // send, and the board replies to whatever it hears from. Binding a fixed
+      // port would only create a way for two copies of this program to collide.
 
-    {
-        LockGuard<Mutex> lk(mu);
-        portname = host + ":" + std::to_string(static_cast<Int32>(port));
-        err.clear();
-    }
-    setStateIf(myGen, PicoState::PICO_STATE_CONNECTING);
+      {
+          LockGuard<Mutex> lk(mu);
+          portname = host + ":" + std::to_string(static_cast<Int32>(port));
+          err.clear();
+      }
+      setStateIf(myGen, PicoState::PICO_STATE_CONNECTING);
 
-    Str  accum;
-    Bool overlong = false;
+      Str  accum;
+      Bool overlong = false;
 
-    auto emit = [&](Str text)
-    {
-        if(text.empty())
-            return;
-        rx.fetch_add(1, std::memory_order_relaxed);
-        lastRxS.store(elapsedS(), std::memory_order_relaxed);
-        pushLine(false, std::move(text));
-    };
+      auto emit = [&](Str text)
+      {
+          if(text.empty())
+              return;
+          rx.fetch_add(1, std::memory_order_relaxed);
+          lastRxS.store(elapsedS(), std::memory_order_relaxed);
+          pushLine(false, std::move(text));
+      };
 
-    auto feed = [&](const Char* data, Int32 n)
-    {
-        for(Int32 i = 0; i < n; ++i)
-        {
-            const Char c = data[i];
+      auto feed = [&](const Char* data, Int32 n)
+      {
+          for(Int32 i = 0; i < n; ++i)
+          {
+              const Char c = data[i];
 
-            if(c == '\n' || c == '\r')
-            {
-                if(overlong)
-                {
-                    overlong = false;
-                    accum.clear();
-                    continue;
-                }
-                emit(std::move(accum));
-                accum.clear();
-                continue;
-            }
-            if(overlong)
-                continue;
-            if(!printable(static_cast<UInt8>(c)))
-                continue;
+              if(c == '\n' || c == '\r')
+              {
+                  if(overlong)
+                  {
+                      overlong = false;
+                      accum.clear();
+                      continue;
+                  }
+                  emit(std::move(accum));
+                  accum.clear();
+                  continue;
+              }
+              if(overlong)
+                  continue;
+              if(!printable(static_cast<UInt8>(c)))
+                  continue;
 
-            accum.push_back(c);
-            if(accum.size() >= MAX_LINE_LEN)
-            {
-                accum += " ...[truncated]";
-                emit(std::move(accum));
-                accum.clear();
-                overlong = true;
-            }
-        }
+              accum.push_back(c);
+              if(accum.size() >= MAX_LINE_LEN)
+              {
+                  accum += " ...[truncated]";
+                  emit(std::move(accum));
+                  accum.clear();
+                  overlong = true;
+              }
+          }
 
-        // A datagram is a MESSAGE, not a stream: what it holds is complete
-        // whether or not it ends in a newline. Waiting for one would silently
-        // swallow every sender that does not bother, which is most of them.
-        if(!accum.empty() && !overlong)
-        {
-            emit(std::move(accum));
-            accum.clear();
-        }
-    };
+          // A datagram is a MESSAGE, not a stream: what it holds is complete
+          // whether or not it ends in a newline. Waiting for one would silently
+          // swallow every sender that does not bother, which is most of them.
+          if(!accum.empty() && !overlong)
+          {
+              emit(std::move(accum));
+              accum.clear();
+          }
+      };
 
-    auto sendLine = [&](const Str& line) -> Bool
-    {
-        const Int32 n = static_cast<Int32>(line.size());
-        return sendto(s, line.data(), n, 0,
-                      reinterpret_cast<const sockaddr*>(&peer),
-                      static_cast<Int32>(sizeof(peer))) == n;
-    };
+      auto sendLine = [&](const Str& line) -> Bool
+      {
+          const Int32 n = static_cast<Int32>(line.size());
+          return sendto(s, line.data(), n, 0,
+                        reinterpret_cast<const sockaddr*>(&peer),
+                        static_cast<Int32>(sizeof(peer))) == n;
+      };
 
-    Float64 lastHelloS = -1.0;
-    Vec<Char> buf(2048);
+      Float64 lastHelloS = -1.0;
+      Vec<Char> buf(2048);
 
-    while(!stop.load(std::memory_order_acquire))
-    {
-        // ---- the opening PING ----------------------------------------------
-        //
-        // Repeated, not sent once. This is UDP: the first datagram can simply
-        // vanish, and a link that gave up on one lost packet would look like a
-        // car that is switched off.
-        if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTING)
-        {
-            const Float64 now = elapsedS();
-            if(lastHelloS < 0.0 || (now - lastHelloS) > UDP_HELLO_EVERY_S)
-            {
-                lastHelloS = now;
-                sendLine("PING\n");
-            }
-        }
+      while(!stop.load(std::memory_order_acquire))
+      {
+          // ---- the opening PING ----------------------------------------------
+          //
+          // Repeated, not sent once. This is UDP: the first datagram can simply
+          // vanish, and a link that gave up on one lost packet would look like a
+          // car that is switched off.
+          if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTING)
+          {
+              const Float64 now = elapsedS();
+              if(lastHelloS < 0.0 || (now - lastHelloS) > UDP_HELLO_EVERY_S)
+              {
+                  lastHelloS = now;
+                  sendLine("PING\n");
+              }
+          }
 
-        // ---- transmit anything the UI queued -------------------------------
-        Deque<TxItem> outbound;
-        {
-            LockGuard<Mutex> lk(mu);
-            outbound.swap(txq);
-        }
-        for(auto& item : outbound)
-        {
-            if(!sendLine(item.text))
-            {
-                // A failed sendto on UDP is a local problem - no route, no
-                // adapter - not the peer refusing. Worth reporting, not worth
-                // tearing the link down for: the next one may well go.
-                setErrorIf(myGen,
-                           winErrText("send failed",
-                                      static_cast<DWORD>(WSAGetLastError())));
-                continue;
-            }
-            tx.fetch_add(1, std::memory_order_relaxed);
+          // ---- transmit anything the UI queued -------------------------------
+          Deque<TxItem> outbound;
+          {
+              LockGuard<Mutex> lk(mu);
+              outbound.swap(txq);
+          }
+          for(auto& item : outbound)
+          {
+              if(!sendLine(item.text))
+              {
+                  // A failed sendto on UDP is a local problem - no route, no
+                  // adapter - not the peer refusing. Worth reporting, not worth
+                  // tearing the link down for: the next one may well go.
+                  setErrorIf(myGen,
+                             winErrText("send failed",
+                                        static_cast<DWORD>(WSAGetLastError())));
+                  continue;
+              }
+              tx.fetch_add(1, std::memory_order_relaxed);
 
-            Str echo = item.text;
-            while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
-                echo.pop_back();
-            pushLine(true, std::move(echo), item.poll);
-        }
+              Str echo = item.text;
+              while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
+                  echo.pop_back();
+              pushLine(true, std::move(echo), item.poll);
+          }
 
-        // ---- receive --------------------------------------------------------
-        sockaddr_in from;
-        ZeroMemory(&from, sizeof(from));
-        Int32 fromLen = static_cast<Int32>(sizeof(from));
+          // ---- receive --------------------------------------------------------
+          sockaddr_in from;
+          ZeroMemory(&from, sizeof(from));
+          Int32 fromLen = static_cast<Int32>(sizeof(from));
 
-        const Int32 got = recvfrom(s, buf.data(),
-                                   static_cast<Int32>(buf.size()), 0,
-                                   reinterpret_cast<sockaddr*>(&from), &fromLen);
-        if(got > 0)
-        {
-            // Anything that is not the board is ignored rather than logged. On
-            // an ordinary home network this port will occasionally be found by
-            // something scanning, and a console full of a stranger's probes is
-            // a console nobody reads.
-            if(from.sin_addr.s_addr == peer.sin_addr.s_addr)
-            {
-                if(state.load(std::memory_order_acquire)
-                   == PicoState::PICO_STATE_CONNECTING)
-                {
-                    setStateIf(myGen, PicoState::PICO_STATE_CONNECTED);
-                }
-                feed(buf.data(), got);
-            }
-        }
-        else
-        {
-            const Int32 code = WSAGetLastError();
-            if(code != WSAETIMEDOUT && code != WSAEWOULDBLOCK
-               && code != WSAECONNRESET)
-            {
-                // WSAECONNRESET on a UDP socket means an ICMP port-unreachable
-                // came back - the car is on the network but nothing is
-                // listening on that port. Which happens every time the board is
-                // reset, so it is a silence to wait through, not a fault.
-                setErrorIf(myGen,
-                           winErrText("receive failed",
-                                      static_cast<DWORD>(code)));
-                setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-                break;
-            }
-        }
+          const Int32 got = recvfrom(s, buf.data(),
+                                     static_cast<Int32>(buf.size()), 0,
+                                     reinterpret_cast<sockaddr*>(&from), &fromLen);
+          if(got > 0)
+          {
+              // Anything that is not the board is ignored rather than logged. On
+              // an ordinary home network this port will occasionally be found by
+              // something scanning, and a console full of a stranger's probes is
+              // a console nobody reads.
+              if(from.sin_addr.s_addr == peer.sin_addr.s_addr)
+              {
+                  if(state.load(std::memory_order_acquire)
+                     == PicoState::PICO_STATE_CONNECTING)
+                  {
+                      setStateIf(myGen, PicoState::PICO_STATE_CONNECTED);
+                  }
+                  feed(buf.data(), got);
+              }
+          }
+          else
+          {
+              const Int32 code = WSAGetLastError();
+              if(code != WSAETIMEDOUT && code != WSAEWOULDBLOCK
+                 && code != WSAECONNRESET)
+              {
+                  // WSAECONNRESET on a UDP socket means an ICMP port-unreachable
+                  // came back - the car is on the network but nothing is
+                  // listening on that port. Which happens every time the board is
+                  // reset, so it is a silence to wait through, not a fault.
+                  setErrorIf(myGen,
+                             winErrText("receive failed",
+                                        static_cast<DWORD>(code)));
+                  setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+                  break;
+              }
+          }
 
-        // ---- has it gone quiet? ---------------------------------------------
-        if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTED)
-        {
-            const Float64 last = lastRxS.load(std::memory_order_relaxed);
-            if(last >= 0.0 && (elapsedS() - last) > UDP_SILENCE_LIMIT_S)
-            {
-                setErrorIf(myGen,
-                           "no reply from " + host + " for "
-                               + std::to_string(
-                                     static_cast<Int32>(UDP_SILENCE_LIMIT_S))
-                               + " s - out of range, powered down, or rebooted");
-                setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
-                break;
-            }
-        }
-    }
+          // ---- has it gone quiet? ---------------------------------------------
+          if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTED)
+          {
+              const Float64 last = lastRxS.load(std::memory_order_relaxed);
+              if(last >= 0.0 && (elapsedS() - last) > UDP_SILENCE_LIMIT_S)
+              {
+                  setErrorIf(myGen,
+                             "no reply from " + host + " for "
+                                 + std::to_string(
+                                       static_cast<Int32>(UDP_SILENCE_LIMIT_S))
+                                 + " s - out of range, powered down, or rebooted");
+                  setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
+                  break;
+              }
+          }
+      }
 
-    if(!accum.empty() && !overlong)
-        emit(std::move(accum));
+      if(!accum.empty() && !overlong)
+          emit(std::move(accum));
 
-    PicoState expected = PicoState::PICO_STATE_CONNECTED;
-    state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+      PicoState expected = PicoState::PICO_STATE_CONNECTED;
+      state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
 
-    expected = PicoState::PICO_STATE_CONNECTING;
-    state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
-}
+      expected = PicoState::PICO_STATE_CONNECTING;
+      state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+  }
 
-Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
-{
-    struct DoneFlag
-    {
-        LinkImplBody* p;
-        ~DoneFlag()
-        {
-            p->finished.store(true, std::memory_order_release);
-        }
-    } doneFlag{this};
+  Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
+  {
+      struct DoneFlag
+      {
+          LinkImplBody* p;
+          ~DoneFlag()
+          {
+              p->finished.store(true, std::memory_order_release);
+          }
+      } doneFlag{this};
 
-    const Str path = devicePath(port);
+      const Str path = devicePath(port);
 
-    HANDLE h = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE,
-                           0,            // serial ports are exclusive
-                           nullptr, OPEN_EXISTING,
-                           0,            // synchronous; this thread may block
-                           nullptr);
-    if(h == INVALID_HANDLE_VALUE)
-    {
-        // Asked to stop while the open was in flight - which is what
-        // CancelSynchronousIo does to a CreateFile that is taking its time.
-        // Not a failure, and reporting one would put a red banner on screen
-        // for a button the user pressed on purpose.
-        if(stop.load(std::memory_order_acquire))
-        {
-            setStateIf(myGen, PicoState::PICO_STATE_DISCONNECTED);
-            return;
-        }
+      HANDLE h = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                             0,            // serial ports are exclusive
+                             nullptr, OPEN_EXISTING,
+                             0,            // synchronous; this thread may block
+                             nullptr);
+      if(h == INVALID_HANDLE_VALUE)
+      {
+          // Asked to stop while the open was in flight - which is what
+          // CancelSynchronousIo does to a CreateFile that is taking its time.
+          // Not a failure, and reporting one would put a red banner on screen
+          // for a button the user pressed on purpose.
+          if(stop.load(std::memory_order_acquire))
+          {
+              setStateIf(myGen, PicoState::PICO_STATE_DISCONNECTED);
+              return;
+          }
 
-        {
-            const DWORD     code = ::GetLastError();
-            const dev::Loss why  = dev::classify(port, code);
-            if(why == dev::Loss::LOSS_UNPLUGGED)
-            {
-                setErrorIf(myGen, dev::describe(why, "Pico", port));
-                setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
-            }
-            else
-            {
-                setErrorIf(myGen, winErrText("cannot open " + path, code));
-                setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-            }
-        }
-        return;
-    }
+          {
+              const DWORD     code = ::GetLastError();
+              const dev::Loss why  = dev::classify(port, code);
+              if(why == dev::Loss::LOSS_UNPLUGGED)
+              {
+                  setErrorIf(myGen, dev::describe(why, "Pico", port));
+                  setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
+              }
+              else
+              {
+                  setErrorIf(myGen, winErrText("cannot open " + path, code));
+                  setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+              }
+          }
+          return;
+      }
 
-    Str cfgErr;
-    if(!configurePort(h, baud, /*assertDtr=*/true, &cfgErr))
-    {
-        setErrorIf(myGen, std::move(cfgErr));
-        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-        CloseHandle(h);
-        return;
-    }
+      Str cfgErr;
+      if(!configurePort(h, baud, /*assertDtr=*/true, &cfgErr))
+      {
+          setErrorIf(myGen, std::move(cfgErr));
+          setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+          CloseHandle(h);
+          return;
+      }
 
-    // MAXDWORD interval + MAXDWORD multiplier + a constant is the documented
-    // "return as soon as anything is there, else give up after N ms" recipe.
-    // A silent board therefore costs ~33 cheap wakeups a second and nothing else.
-    COMMTIMEOUTS to;
-    ZeroMemory(&to, sizeof(to));
-    to.ReadIntervalTimeout         = MAXDWORD;
-    to.ReadTotalTimeoutMultiplier  = MAXDWORD;
-    to.ReadTotalTimeoutConstant    = READ_TIMEOUT_MS;
-    to.WriteTotalTimeoutMultiplier = 0;
-    to.WriteTotalTimeoutConstant   = 1000;
-    if(!SetCommTimeouts(h, &to))
-    {
-        setErrorIf(myGen, winErrText("SetCommTimeouts failed", GetLastError()));
-        setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-        CloseHandle(h);
-        return;
-    }
+      // MAXDWORD interval + MAXDWORD multiplier + a constant is the documented
+      // "return as soon as anything is there, else give up after N ms" recipe.
+      // A silent board therefore costs ~33 cheap wakeups a second and nothing else.
+      COMMTIMEOUTS to;
+      ZeroMemory(&to, sizeof(to));
+      to.ReadIntervalTimeout         = MAXDWORD;
+      to.ReadTotalTimeoutMultiplier  = MAXDWORD;
+      to.ReadTotalTimeoutConstant    = READ_TIMEOUT_MS;
+      to.WriteTotalTimeoutMultiplier = 0;
+      to.WriteTotalTimeoutConstant   = 1000;
+      if(!SetCommTimeouts(h, &to))
+      {
+          setErrorIf(myGen, winErrText("SetCommTimeouts failed", GetLastError()));
+          setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+          CloseHandle(h);
+          return;
+      }
 
-    SetupComm(h, 8192, 8192);
-    PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_TXABORT);
-    EscapeCommFunction(h, SETDTR);   // some firmware waits for host DTR
-    EscapeCommFunction(h, SETRTS);
+      SetupComm(h, 8192, 8192);
+      PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_TXABORT);
+      EscapeCommFunction(h, SETDTR);   // some firmware waits for host DTR
+      EscapeCommFunction(h, SETRTS);
 
-    {
-        LockGuard<Mutex> lk(mu);
-        portname = port;
-        err.clear();
-    }
-    setStateIf(myGen, PicoState::PICO_STATE_CONNECTED);
+      {
+          LockGuard<Mutex> lk(mu);
+          portname = port;
+          err.clear();
+      }
+      setStateIf(myGen, PicoState::PICO_STATE_CONNECTED);
 
-    Str accum;          // partial line carried across reads
-    Bool        pendingCr = false;
-    Bool        overlong   = false;
-    Vec<Char> buf(READ_CHUNK);
+      Str accum;          // partial line carried across reads
+      Bool        pendingCr = false;
+      Bool        overlong   = false;
+      Vec<Char> buf(READ_CHUNK);
 
-    auto emit = [&](Str text)
-    {
-        if(text.empty())
-            return;   // blank lines are noise from \r\n\r\n padding
-        rx.fetch_add(1, std::memory_order_relaxed);
-        lastRxS.store(elapsedS(), std::memory_order_relaxed);
-        pushLine(false, std::move(text));
-    };
+      auto emit = [&](Str text)
+      {
+          if(text.empty())
+              return;   // blank lines are noise from \r\n\r\n padding
+          rx.fetch_add(1, std::memory_order_relaxed);
+          lastRxS.store(elapsedS(), std::memory_order_relaxed);
+          pushLine(false, std::move(text));
+      };
 
-    while(!stop.load(std::memory_order_acquire))
-    {
-        // ---- transmit anything the UI queued -------------------------------
-        Deque<TxItem> outbound;
-        {
-            LockGuard<Mutex> lk(mu);
-            outbound.swap(txq);
-        }
-        Bool writeFailed = false;
-        for(auto& item : outbound)
-        {
-            Str&        line    = item.text;
-            DWORD       written = 0;
-            const DWORD n       = static_cast<DWORD>(line.size());
-            if(!WriteFile(h, line.data(), n, &written, nullptr) || written != n)
-            {
-                setErrorIf(myGen, winErrText("write failed", GetLastError()));
-                writeFailed = true;
-                break;
-            }
-            tx.fetch_add(1, std::memory_order_relaxed);
+      while(!stop.load(std::memory_order_acquire))
+      {
+          // ---- transmit anything the UI queued -------------------------------
+          Deque<TxItem> outbound;
+          {
+              LockGuard<Mutex> lk(mu);
+              outbound.swap(txq);
+          }
+          Bool writeFailed = false;
+          for(auto& item : outbound)
+          {
+              Str&        line    = item.text;
+              DWORD       written = 0;
+              const DWORD n       = static_cast<DWORD>(line.size());
+              if(!WriteFile(h, line.data(), n, &written, nullptr) || written != n)
+              {
+                  setErrorIf(myGen, winErrText("write failed", GetLastError()));
+                  writeFailed = true;
+                  break;
+              }
+              tx.fetch_add(1, std::memory_order_relaxed);
 
-            Str echo = line;
-            while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
-                echo.pop_back();
-            pushLine(true, std::move(echo), item.poll);
-        }
-        if(writeFailed)
-        {
-            setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-            break;
-        }
+              Str echo = line;
+              while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
+                  echo.pop_back();
+              pushLine(true, std::move(echo), item.poll);
+          }
+          if(writeFailed)
+          {
+              setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+              break;
+          }
 
-        // ---- receive --------------------------------------------------------
-        DWORD got = 0;
-        if(!ReadFile(h, buf.data(), READ_CHUNK, &got, nullptr))
-        {
-            const DWORD code = GetLastError();
-            DWORD commErr = 0;
-            COMSTAT st;
-            ZeroMemory(&st, sizeof(st));
-            ClearCommError(h, &commErr, &st);
+          // ---- receive --------------------------------------------------------
+          DWORD got = 0;
+          if(!ReadFile(h, buf.data(), READ_CHUNK, &got, nullptr))
+          {
+              const DWORD code = GetLastError();
+              DWORD commErr = 0;
+              COMSTAT st;
+              ZeroMemory(&st, sizeof(st));
+              ClearCommError(h, &commErr, &st);
 
-            if(code == ERROR_OPERATION_ABORTED)
-                continue;   // recoverable: purge/abort raced with the read
+              if(code == ERROR_OPERATION_ABORTED)
+                  continue;   // recoverable: purge/abort raced with the read
 
-            // A Pico that has been unplugged - or told to reboot into
-            // BOOTSEL, which drops the CDC port on purpose - is not a fault.
-            // Reporting it as one made every deliberate reflash look like a
-            // failure, which is precisely how a warning stops being read.
-            const dev::Loss why = dev::classify(port, code);
-            if(why == dev::Loss::LOSS_UNPLUGGED)
-            {
-                setErrorIf(myGen, dev::describe(why, "Pico", port));
-                setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
-            }
-            else
-            {
-                setErrorIf(myGen, winErrText("read failed", code));
-                setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-            }
-            break;
-        }
+              // A Pico that has been unplugged - or told to reboot into
+              // BOOTSEL, which drops the CDC port on purpose - is not a fault.
+              // Reporting it as one made every deliberate reflash look like a
+              // failure, which is precisely how a warning stops being read.
+              const dev::Loss why = dev::classify(port, code);
+              if(why == dev::Loss::LOSS_UNPLUGGED)
+              {
+                  setErrorIf(myGen, dev::describe(why, "Pico", port));
+                  setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
+              }
+              else
+              {
+                  setErrorIf(myGen, winErrText("read failed", code));
+                  setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+              }
+              break;
+          }
 
-        // got == 0 simply means the board said nothing this interval. That is
-        // the expected steady state for a silent peer, not an error.
-        for(DWORD i = 0; i < got; ++i)
-        {
-            const Char c = buf[i];
+          // got == 0 simply means the board said nothing this interval. That is
+          // the expected steady state for a silent peer, not an error.
+          for(DWORD i = 0; i < got; ++i)
+          {
+              const Char c = buf[i];
 
-            if(c == '\n')
-            {
-                if(pendingCr)   // second half of a CRLF that we already ended
-                {
-                    pendingCr = false;
-                    continue;
-                }
-                if(overlong)
-                {
-                    overlong = false;
-                    accum.clear();
-                    continue;
-                }
-                emit(std::move(accum));
-                accum.clear();
-                continue;
-            }
-            if(c == '\r')
-            {
-                pendingCr = true;
-                if(overlong)
-                {
-                    overlong = false;
-                    accum.clear();
-                    continue;
-                }
-                emit(std::move(accum));
-                accum.clear();
-                continue;
-            }
+              if(c == '\n')
+              {
+                  if(pendingCr)   // second half of a CRLF that we already ended
+                  {
+                      pendingCr = false;
+                      continue;
+                  }
+                  if(overlong)
+                  {
+                      overlong = false;
+                      accum.clear();
+                      continue;
+                  }
+                  emit(std::move(accum));
+                  accum.clear();
+                  continue;
+              }
+              if(c == '\r')
+              {
+                  pendingCr = true;
+                  if(overlong)
+                  {
+                      overlong = false;
+                      accum.clear();
+                      continue;
+                  }
+                  emit(std::move(accum));
+                  accum.clear();
+                  continue;
+              }
 
-            pendingCr = false;
-            if(overlong)
-                continue;                       // swallow until the next newline
-            if(!printable(static_cast<UInt8>(c)))
-                continue;                       // drop NULs and stray control bytes
+              pendingCr = false;
+              if(overlong)
+                  continue;                       // swallow until the next newline
+              if(!printable(static_cast<UInt8>(c)))
+                  continue;                       // drop NULs and stray control bytes
 
-            accum.push_back(c);
-            if(accum.size() >= MAX_LINE_LEN)
-            {
-                accum += " ...[truncated]";
-                emit(std::move(accum));
-                accum.clear();
-                overlong = true;                // bound the damage, never grow
-            }
-        }
-    }
+              accum.push_back(c);
+              if(accum.size() >= MAX_LINE_LEN)
+              {
+                  accum += " ...[truncated]";
+                  emit(std::move(accum));
+                  accum.clear();
+                  overlong = true;                // bound the damage, never grow
+              }
+          }
+      }
 
-    // A partial line that never got its newline is still worth showing.
-    if(!accum.empty() && !overlong)
-        emit(std::move(accum));
+      // A partial line that never got its newline is still worth showing.
+      if(!accum.empty() && !overlong)
+          emit(std::move(accum));
 
-    EscapeCommFunction(h, CLRDTR);
-    EscapeCommFunction(h, CLRRTS);
-    CloseHandle(h);
+      EscapeCommFunction(h, CLRDTR);
+      EscapeCommFunction(h, CLRRTS);
+      CloseHandle(h);
 
-    // Only a clean stop resets the state; an Error set above is left standing
-    // so the UI can read it before disconnect() clears it.
-    PicoState expected = PicoState::PICO_STATE_CONNECTED;
-    state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
-}
+      // Only a clean stop resets the state; an Error set above is left standing
+      // so the UI can read it before disconnect() clears it.
+      PicoState expected = PicoState::PICO_STATE_CONNECTED;
+      state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+  }
 
 }  // namespace
 

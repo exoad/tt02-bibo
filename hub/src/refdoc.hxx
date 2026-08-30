@@ -31,86 +31,87 @@
 
 #include "imgui.h"
 
-namespace refdoc {
-
-// The extension, in one place. Anything that has to recognise one of these -
-// the tree, the icon, the toggle, the linter's exemption - asks here.
-inline constexpr const Char* EXT = ".bdoc";
-
-[[nodiscard]] Bool isDocPath(const Str& path);
-
-struct Attr
+namespace refdoc
 {
-    Str name;
-    Str value;
-};
 
-// One element, or one run of text.
-//
-// A text run is a node with an EMPTY name, which is what lets a paragraph hold
-// a mixture of prose and <Bold> without two container types. Walking children
-// in order and asking isText() reproduces the source exactly.
-struct Node
-{
-    Str       name;    // empty => this is a text run
-    Str       text;    // set only for text runs
-    Vec<Attr> attrs;
-    Vec<Node> kids;
-    Int32     line = 0;   // where it opened, for error messages
+  // The extension, in one place. Anything that has to recognise one of these -
+  // the tree, the icon, the toggle, the linter's exemption - asks here.
+  inline constexpr const Char* EXT = ".bdoc";
 
-    [[nodiscard]] Bool isText() const
-    {
-        return name.empty();
-    }
+  [[nodiscard]] Bool isDocPath(const Str& path);
 
-    // The attribute's value, or `fallback` if it is absent. Never null, so a
-    // call site can print it without a guard.
-    [[nodiscard]] const Char* attr(const Char* want, const Char* fallback = "") const;
+  struct Attr
+  {
+      Str name;
+      Str value;
+  };
 
-    [[nodiscard]] Bool hasAttr(const Char* want) const;
-};
+  // One element, or one run of text.
+  //
+  // A text run is a node with an EMPTY name, which is what lets a paragraph hold
+  // a mixture of prose and <Bold> without two container types. Walking children
+  // in order and asking isText() reproduces the source exactly.
+  struct Node
+  {
+      Str       name;    // empty => this is a text run
+      Str       text;    // set only for text runs
+      Vec<Attr> attrs;
+      Vec<Node> kids;
+      Int32     line = 0;   // where it opened, for error messages
 
-// A parsed document, or the reason it is not one.
-//
-// A failed parse is a VALUE, not an exception and not an empty document. The
-// renderer draws the error where the page would have been, with the line
-// number, because the alternative is a blank panel and no way to tell a broken
-// document from an empty one.
-struct Doc
-{
-    Node  root;
-    Str   error;          // empty when it parsed
-    Int32 errorLine = 0;
+      [[nodiscard]] Bool isText() const
+      {
+          return name.empty();
+      }
 
-    [[nodiscard]] Bool ok() const
-    {
-        return error.empty();
-    }
-};
+      // The attribute's value, or `fallback` if it is absent. Never null, so a
+      // call site can print it without a guard.
+      [[nodiscard]] const Char* attr(const Char* want, const Char* fallback = "") const;
 
-// `baseDir` is the folder the text came from, and is what <Include file="..."/>
-// resolves against. Pass it empty and an include reports that it cannot be
-// resolved rather than guessing at a working directory.
-[[nodiscard]] Doc parse(const Str& text, const Str& baseDir = Str());
+      [[nodiscard]] Bool hasAttr(const Char* want) const;
+  };
 
-// Style complaints - casing, unknown elements, a Pin with no name. Separate
-// from parse() because these are things a document should not do, not things
-// that stop it being a document.
-[[nodiscard]] Vec<Str> check(const Doc& d);
+  // A parsed document, or the reason it is not one.
+  //
+  // A failed parse is a VALUE, not an exception and not an empty document. The
+  // renderer draws the error where the page would have been, with the line
+  // number, because the alternative is a blank panel and no way to tell a broken
+  // document from an empty one.
+  struct Doc
+  {
+      Node  root;
+      Str   error;          // empty when it parsed
+      Int32 errorLine = 0;
 
-// Draws the whole document into the current window, wrapping to `width`.
-// Scrolling is the caller's child window, not ours.
-Void draw(const Doc& d, Float32 width);
+      [[nodiscard]] Bool ok() const
+      {
+          return error.empty();
+      }
+  };
 
-// The whole page, with its own frame: scrolling, Ctrl+wheel zoom, drag to pan,
-// and a reading measure that stays a sensible number of words wide.
-//
-// Here rather than at each call site because there are two - the Code view and
-// the Reference - and a document that scrolled differently depending on which
-// screen you opened it from would be two documents.
-//
-// `zoom` is the caller's, so each surface keeps its own and neither resets the
-// other.
-Void drawPage(const Doc& d, const ImVec2& size, Float32& zoom, Float32 dpiScale);
+  // `baseDir` is the folder the text came from, and is what <Include file="..."/>
+  // resolves against. Pass it empty and an include reports that it cannot be
+  // resolved rather than guessing at a working directory.
+  [[nodiscard]] Doc parse(const Str& text, const Str& baseDir = Str());
+
+  // Style complaints - casing, unknown elements, a Pin with no name. Separate
+  // from parse() because these are things a document should not do, not things
+  // that stop it being a document.
+  [[nodiscard]] Vec<Str> check(const Doc& d);
+
+  // Draws the whole document into the current window, wrapping to `width`.
+  // Scrolling is the caller's child window, not ours.
+  Void draw(const Doc& d, Float32 width);
+
+  // The whole page, with its own frame: scrolling, Ctrl+wheel zoom, drag to pan,
+  // and a reading measure that stays a sensible number of words wide.
+  //
+  // Here rather than at each call site because there are two - the Code view and
+  // the Reference - and a document that scrolled differently depending on which
+  // screen you opened it from would be two documents.
+  //
+  // `zoom` is the caller's, so each surface keeps its own and neither resets the
+  // other.
+  Void drawPage(const Doc& d, const ImVec2& size, Float32& zoom, Float32 dpiScale);
 
 } // namespace refdoc

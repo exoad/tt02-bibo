@@ -45,52 +45,53 @@
 
 using namespace sl;
 
-namespace {
-
-// Exit codes, so a caller can tell "wrong port" from "wrong baud" without
-// parsing the ERR line.
-constexpr Int32 EXIT_USAGE      = 2;
-constexpr Int32 EXIT_NO_MEMORY  = 3;
-constexpr Int32 EXIT_NO_PORT    = 4;
-constexpr Int32 EXIT_NO_ANSWER  = 5;
-constexpr Int32 EXIT_UNHEALTHY  = 6;
-constexpr Int32 EXIT_NO_SCAN    = 7;
-
-// One revolution of a C1 is ~500 points; 8192 is headroom for a faster device
-// without making this a heap allocation.
-constexpr Size MAX_NODES = 8192;
-
-// Big buffer, explicitly flushed once per frame: avoids a syscall per point
-// while still delivering each revolution to the consumer promptly.
-constexpr Size OUT_BUF = 1u << 18;
-
-volatile Bool stopRequested = false;
-
-Void onSigint(Int32)
+namespace
 {
-    stopRequested = true;
-}
 
-// Watches stdin so the consumer can ask for a clean shutdown. EOF stops us too,
-// which means the bridge dies with its parent instead of leaving the motor on.
-Void stdinWatch()
-{
-    Array<Char, 64> line;
-    while(std::fgets(line.data(), line.size(), stdin) != nullptr)
-    {
-        if(line[0] == 'q' || line[0] == 'Q')
-        {
-            break;
-        }
-    }
-    stopRequested = true;
-}
+  // Exit codes, so a caller can tell "wrong port" from "wrong baud" without
+  // parsing the ERR line.
+  constexpr Int32 EXIT_USAGE      = 2;
+  constexpr Int32 EXIT_NO_MEMORY  = 3;
+  constexpr Int32 EXIT_NO_PORT    = 4;
+  constexpr Int32 EXIT_NO_ANSWER  = 5;
+  constexpr Int32 EXIT_UNHEALTHY  = 6;
+  constexpr Int32 EXIT_NO_SCAN    = 7;
 
-Void fail(CharSeq message)
-{
-    std::printf("ERR %s\n", message);
-    std::fflush(stdout);
-}
+  // One revolution of a C1 is ~500 points; 8192 is headroom for a faster device
+  // without making this a heap allocation.
+  constexpr Size MAX_NODES = 8192;
+
+  // Big buffer, explicitly flushed once per frame: avoids a syscall per point
+  // while still delivering each revolution to the consumer promptly.
+  constexpr Size OUT_BUF = 1u << 18;
+
+  volatile Bool stopRequested = false;
+
+  Void onSigint(Int32)
+  {
+      stopRequested = true;
+  }
+
+  // Watches stdin so the consumer can ask for a clean shutdown. EOF stops us too,
+  // which means the bridge dies with its parent instead of leaving the motor on.
+  Void stdinWatch()
+  {
+      Array<Char, 64> line;
+      while(std::fgets(line.data(), line.size(), stdin) != nullptr)
+      {
+          if(line[0] == 'q' || line[0] == 'Q')
+          {
+              break;
+          }
+      }
+      stopRequested = true;
+  }
+
+  Void fail(CharSeq message)
+  {
+      std::printf("ERR %s\n", message);
+      std::fflush(stdout);
+  }
 
 } // namespace
 

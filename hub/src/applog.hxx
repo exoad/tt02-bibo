@@ -33,33 +33,34 @@
 
 #include "shared.hxx"
 
-namespace applog {
-
-enum class Level
+namespace applog
 {
-    LEVEL_DEBUG = 0,   // detail; kept out of the way but written
-    LEVEL_INFO,        // something happened that a person would care about
-    LEVEL_WARN,        // degraded, recoverable, worth noticing
-    LEVEL_ERROR,       // an operation failed
-};
 
-// Opens logs/session-YYYYMMDD-HHMMSS.log and writes the header. Safe to call
-// twice; the second is a no-op. If the file cannot be opened the app runs
-// exactly as before and every write below becomes a no-op - losing a log must
-// never cost a session.
-Void init();
+  enum class Level
+  {
+      LEVEL_DEBUG = 0,   // detail; kept out of the way but written
+      LEVEL_INFO,        // something happened that a person would care about
+      LEVEL_WARN,        // degraded, recoverable, worth noticing
+      LEVEL_ERROR,       // an operation failed
+  };
 
-// Flushes and closes. Called from app::shutdown().
-Void shutdown();
+  // Opens logs/session-YYYYMMDD-HHMMSS.log and writes the header. Safe to call
+  // twice; the second is a no-op. If the file cannot be opened the app runs
+  // exactly as before and every write below becomes a no-op - losing a log must
+  // never cost a session.
+  Void init();
 
-// printf-style. Prefer the macros below so the call site carries its own tag.
-Void writef(Level level, const Char* tag, const Char* fmt, ...);
+  // Flushes and closes. Called from app::shutdown().
+  Void shutdown();
 
-// The file being written, for showing in the UI. Empty when logging is off.
-[[nodiscard]] Str path();
+  // printf-style. Prefer the macros below so the call site carries its own tag.
+  Void writef(Level level, const Char* tag, const Char* fmt, ...);
 
-// The directory, created on demand.
-[[nodiscard]] Str dir();
+  // The file being written, for showing in the UI. Empty when logging is off.
+  [[nodiscard]] Str path();
+
+  // The directory, created on demand.
+  [[nodiscard]] Str dir();
 
 } // namespace applog
 

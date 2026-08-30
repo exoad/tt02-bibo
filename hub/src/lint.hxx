@@ -36,23 +36,24 @@
 
 #include "diagnostics.hxx"
 
-namespace lint {
-
-// Which language the rules should be read as. Chosen from the file extension by
-// the caller, because the buffer alone cannot tell.
-enum class Lang
+namespace lint
 {
-    LANG_CPP = 0,
-    LANG_C
-};
 
-[[nodiscard]] Lang langOf(const Str& path);
+  // Which language the rules should be read as. Chosen from the file extension by
+  // the caller, because the buffer alone cannot tell.
+  enum class Lang
+  {
+      LANG_CPP = 0,
+      LANG_C
+  };
 
-// Every violation in `text`, as diagnostics the gutter already knows how to
-// draw. Line and column are 1-based, matching the compiler's convention and
-// diagnostics.hxx's.
-//
-// Pure: no file access, no globals, no ImGui. Tested in tests/test_lint.cxx.
-[[nodiscard]] Vec<diag::Item> check(const Str& text, Lang lang);
+  [[nodiscard]] Lang langOf(const Str& path);
+
+  // Every violation in `text`, as diagnostics the gutter already knows how to
+  // draw. Line and column are 1-based, matching the compiler's convention and
+  // diagnostics.hxx's.
+  //
+  // Pure: no file access, no globals, no ImGui. Tested in tests/test_lint.cxx.
+  [[nodiscard]] Vec<diag::Item> check(const Str& text, Lang lang);
 
 } // namespace lint

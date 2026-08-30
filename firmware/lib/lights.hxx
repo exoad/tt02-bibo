@@ -60,206 +60,206 @@
 namespace bibo
 {
 
-namespace lights
-{
+  namespace lights
+  {
 
-/* ---- the lamps a car has ------------------------------------------------ */
-typedef enum
-{
-    HEAD_L = 0,
-    HEAD_R,
-    TAIL_L,
-    TAIL_R,
-    IND_FL,
-    IND_FR,
-    IND_RL,
-    IND_RR,
-    REV_L,
-    REV_R,
-    COUNT
-} Lamp;
+    /* ---- the lamps a car has ------------------------------------------------ */
+    typedef enum
+    {
+        HEAD_L = 0,
+        HEAD_R,
+        TAIL_L,
+        TAIL_R,
+        IND_FL,
+        IND_FR,
+        IND_RL,
+        IND_RR,
+        REV_L,
+        REV_R,
+        COUNT
+    } Lamp;
 
-/*
- * Brightness, 0 dark to 255 full.
- *
- * A level rather than a Bool because the tails are ONE lamp at two brightnesses
- * - dim for running, full for braking - which is how a real car does it and
- * cannot be said with an on/off flag. Nothing drives PWM yet, so a bound pin is
- * written as (level > 0); the day the tails move to a PWM-capable pin, that one
- * line changes and no rule does.
- */
+    /*
+     * Brightness, 0 dark to 255 full.
+     *
+     * A level rather than a Bool because the tails are ONE lamp at two brightnesses
+     * - dim for running, full for braking - which is how a real car does it and
+     * cannot be said with an on/off flag. Nothing drives PWM yet, so a bound pin is
+     * written as (level > 0); the day the tails move to a PWM-capable pin, that one
+     * line changes and no rule does.
+     */
 #define LAMP_OFF   0u
 #define LAMP_DIM   76u    /* 30%: tail */
 #define LAMP_DRL   115u   /* 45%: daytime running */
 #define LAMP_FULL  255u
 
-typedef struct
-{
-    UInt8 level[COUNT];
-} Set;
+    typedef struct
+    {
+        UInt8 level[COUNT];
+    } Set;
 
-/* ===========================================================================
- * THE BINDING. Temporary - see the banner.
- * ======================================================================== */
-/* One spelling of "no LED on this lamp", shared with the pin map so the two
- * cannot disagree. */
+    /* ===========================================================================
+     * THE BINDING. Temporary - see the banner.
+     * ======================================================================== */
+    /* One spelling of "no LED on this lamp", shared with the pin map so the two
+     * cannot disagree. */
 #define LIGHT_PIN_NONE pins::NONE
 
-/* THE NUMBERS ARE NOT HERE ANY MORE. This is the order of the Lamp enum
- * mapped onto the car's pin map, and pins.hxx is where a GPIO is chosen.
- *
- * That move is what caught the collision it was written for: TAIL_L and TAIL_R
- * were GP15 and GP14, and those are the only two pads on RP2350 that carry
- * UART0 without taking GP0/GP1 from the servo and the ESC. The DFPlayer needed
- * them. With the numbers in two files nothing would have said so until a lamp
- * and a speaker fought on a breadboard; with one table it is a static_assert.
- *
- * Both tails read pins::NONE now and are simply not written - the same state
- * the rear indicators have been in since they were added. */
-static Int32 pin[COUNT] =
-{
-    pins::HEAD_L,
-    pins::HEAD_R,
-    pins::TAIL_L,
-    pins::TAIL_R,
-    pins::IND_FL,
-    pins::IND_FR,
-    pins::IND_RL,
-    pins::IND_RR,
-    pins::REV_L,
-    pins::REV_R
-};
-
-/* ---- state, one copy - the same deal chassis.h makes -------------------- */
-static Bool    up = false;
-static Bool    on = true;    /* the master switch, for testing         */
-static Set now;          /* what was last written                  */
-
-/*
- * A lamp held on by hand, ignoring every rule and every cue. lights::COUNT means
- * "no override", which is the normal state.
- *
- * This exists because "the lamp does not work" has three unrelated causes - the
- * rule never fired, the pin never moved, or the LED is wired backwards - and
- * without a way to light one on demand there is no telling them apart.
- *
- * It lives HERE rather than in cue.h on purpose. It is a claim about the
- * hardware, not about what the car means, and putting it at the output means a
- * forced lamp survives whatever the cue layer is doing - including a one-shot
- * cue that would otherwise take the channel back off you mid-test.
- */
-static Int32 forced = COUNT;
-
-static Void clear(Set* s)
-{
-    for(Int32 i = 0; i < COUNT; ++i)
+    /* THE NUMBERS ARE NOT HERE ANY MORE. This is the order of the Lamp enum
+     * mapped onto the car's pin map, and pins.hxx is where a GPIO is chosen.
+     *
+     * That move is what caught the collision it was written for: TAIL_L and TAIL_R
+     * were GP15 and GP14, and those are the only two pads on RP2350 that carry
+     * UART0 without taking GP0/GP1 from the servo and the ESC. The DFPlayer needed
+     * them. With the numbers in two files nothing would have said so until a lamp
+     * and a speaker fought on a breadboard; with one table it is a static_assert.
+     *
+     * Both tails read pins::NONE now and are simply not written - the same state
+     * the rear indicators have been in since they were added. */
+    static Int32 pin[COUNT] =
     {
-        s->level[i] = LAMP_OFF;
-    }
-}
+        pins::HEAD_L,
+        pins::HEAD_R,
+        pins::TAIL_L,
+        pins::TAIL_R,
+        pins::IND_FL,
+        pins::IND_FR,
+        pins::IND_RL,
+        pins::IND_RR,
+        pins::REV_L,
+        pins::REV_R
+    };
 
-/* Straight at the pins, no gates. Everything below goes through this so there
- * is exactly one place that touches a GPIO. */
-static Void push(const Set* s)
-{
-    for(Int32 i = 0; i < COUNT; ++i)
+    /* ---- state, one copy - the same deal chassis.h makes -------------------- */
+    static Bool    up = false;
+    static Bool    on = true;    /* the master switch, for testing         */
+    static Set now;          /* what was last written                  */
+
+    /*
+     * A lamp held on by hand, ignoring every rule and every cue. lights::COUNT means
+     * "no override", which is the normal state.
+     *
+     * This exists because "the lamp does not work" has three unrelated causes - the
+     * rule never fired, the pin never moved, or the LED is wired backwards - and
+     * without a way to light one on demand there is no telling them apart.
+     *
+     * It lives HERE rather than in cue.h on purpose. It is a claim about the
+     * hardware, not about what the car means, and putting it at the output means a
+     * forced lamp survives whatever the cue layer is doing - including a one-shot
+     * cue that would otherwise take the channel back off you mid-test.
+     */
+    static Int32 forced = COUNT;
+
+    static Void clear(Set* s)
     {
-        if(pin[i] != LIGHT_PIN_NONE)
+        for(Int32 i = 0; i < COUNT; ++i)
         {
-            gpio::write(static_cast<Pin>(pin[i]), s->level[i] > LAMP_OFF);
-        }
-    }
-    now = *s;
-}
-
-static Void open(Void)
-{
-    for(Int32 i = 0; i < COUNT; ++i)
-    {
-        if(pin[i] != LIGHT_PIN_NONE)
-        {
-            gpio::open(static_cast<Pin>(pin[i]), PIN_DIR_OUT);
+            s->level[i] = LAMP_OFF;
         }
     }
 
-    up     = true;
-    forced = COUNT;
-
-    clear(&now);
-    push(&now);
-}
-
-/*
- * Show this set of lamps.
- *
- * The two overrides live here rather than in the caller: a master switch that
- * only worked when the cue layer remembered to ask is a master switch, one day,
- * that does not.
- */
-static Void write(const Set* s)
-{
-    if(!up || !on || s == NULL)
+    /* Straight at the pins, no gates. Everything below goes through this so there
+     * is exactly one place that touches a GPIO. */
+    static Void push(const Set* s)
     {
-        return;
+        for(Int32 i = 0; i < COUNT; ++i)
+        {
+            if(pin[i] != LIGHT_PIN_NONE)
+            {
+                gpio::write(static_cast<Pin>(pin[i]), s->level[i] > LAMP_OFF);
+            }
+        }
+        now = *s;
     }
 
-    if(forced != COUNT)
+    static Void open(Void)
     {
-        Set one;
-        clear(&one);
-        one.level[forced] = LAMP_FULL;
-        push(&one);
-        return;
+        for(Int32 i = 0; i < COUNT; ++i)
+        {
+            if(pin[i] != LIGHT_PIN_NONE)
+            {
+                gpio::open(static_cast<Pin>(pin[i]), PIN_DIR_OUT);
+            }
+        }
+
+        up     = true;
+        forced = COUNT;
+
+        clear(&now);
+        push(&now);
     }
 
-    push(s);
-}
-
-/* The master switch. Off parks every lamp dark rather than leaving whichever
- * happened to be lit when it was turned off. */
-static Void enable(Bool state)
-{
-    /* Named `state`, not `on`: a parameter called `on` shadows the file-scope
-     * switch, and `on = on` then assigns the parameter to itself. The switch
-     * never latched, so an off parked the lamps once and the next cue lit them
-     * again - while enabled() went on reporting true. */
-    on = state;
-    if(!on)
+    /*
+     * Show this set of lamps.
+     *
+     * The two overrides live here rather than in the caller: a master switch that
+     * only worked when the cue layer remembered to ask is a master switch, one day,
+     * that does not.
+     */
+    static Void write(const Set* s)
     {
-        Set dark;
-        clear(&dark);
-        push(&dark);
+        if(!up || !on || s == NULL)
+        {
+            return;
+        }
+
+        if(forced != COUNT)
+        {
+            Set one;
+            clear(&one);
+            one.level[forced] = LAMP_FULL;
+            push(&one);
+            return;
+        }
+
+        push(s);
     }
-}
 
-static Bool enabled(Void)
-{
-    return on;
-}
+    /* The master switch. Off parks every lamp dark rather than leaving whichever
+     * happened to be lit when it was turned off. */
+    static Void enable(Bool state)
+    {
+        /* Named `state`, not `on`: a parameter called `on` shadows the file-scope
+         * switch, and `on = on` then assigns the parameter to itself. The switch
+         * never latched, so an off parked the lamps once and the next cue lit them
+         * again - while enabled() went on reporting true. */
+        on = state;
+        if(!on)
+        {
+            Set dark;
+            clear(&dark);
+            push(&dark);
+        }
+    }
 
-/* What each lamp is doing this instant. */
-static Set read(Void)
-{
-    return now;
-}
+    static Bool enabled(Void)
+    {
+        return on;
+    }
 
-static Bool lit(Lamp l)
-{
-    return now.level[l] > LAMP_OFF;
-}
+    /* What each lamp is doing this instant. */
+    static Set read(Void)
+    {
+        return now;
+    }
 
-/* Hold ONE lamp lit, or lights::COUNT to hand it back to the cue layer. */
-static Void forceLamp(Int32 lamp)
-{
-    forced = lamp;
-}
+    static Bool lit(Lamp l)
+    {
+        return now.level[l] > LAMP_OFF;
+    }
 
-static Int32 forcedLamp(Void)
-{
-    return forced;
-}
+    /* Hold ONE lamp lit, or lights::COUNT to hand it back to the cue layer. */
+    static Void forceLamp(Int32 lamp)
+    {
+        forced = lamp;
+    }
+
+    static Int32 forcedLamp(Void)
+    {
+        return forced;
+    }
 
 
-} // namespace lights
+  } // namespace lights
 
 } // namespace bibo

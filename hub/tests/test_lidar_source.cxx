@@ -13,55 +13,56 @@
 #include <cstdlib>
 #include <thread>
 
-namespace {
-
-// Bounds taken from the verified behaviour of this device.
-constexpr Int32   RUN_SECONDS   = 8;
-constexpr Int32   MIN_FRAMES    = 30;
-constexpr Float32 MIN_HZ        = 9.0f;
-constexpr Float32 MAX_HZ        = 13.0f;
-constexpr Int32   MIN_POINTS    = 350;
-constexpr Int32   MAX_POINTS    = 550;
-
-// The motor spins up over the first couple of seconds: it starts fast and
-// sparse (~355 points at ~14Hz) and settles to ~510 points at ~9.8Hz. That
-// transient is the device's normal behaviour, not a fault, but it sits outside
-// the steady-state bounds above - so the pass/fail statistics are gathered
-// after it, while the spin-up is reported separately rather than hidden.
-constexpr Int32   SPIN_UP_FRAMES = 15;
-
-const Char* stateName(LidarState s)
+namespace
 {
-    switch(s)
-    {
-        case LidarState::LIDAR_STATE_IDLE:       return "Idle";
-        case LidarState::LIDAR_STATE_CONNECTING: return "Connecting";
-        case LidarState::LIDAR_STATE_SCANNING:   return "Scanning";
-        case LidarState::LIDAR_STATE_ERROR:      return "Error";
-    }
-    return "?";
-}
 
-struct Check
-{
-    Int32 failures = 0;
+  // Bounds taken from the verified behaviour of this device.
+  constexpr Int32   RUN_SECONDS   = 8;
+  constexpr Int32   MIN_FRAMES    = 30;
+  constexpr Float32 MIN_HZ        = 9.0f;
+  constexpr Float32 MAX_HZ        = 13.0f;
+  constexpr Int32   MIN_POINTS    = 350;
+  constexpr Int32   MAX_POINTS    = 550;
 
-    Void operator()(Bool ok, const Char* what, const Str& detail)
-    {
-        std::printf("  [%s] %-28s %s\n", ok ? "PASS" : "FAIL", what, detail.c_str());
-        if(!ok)
-        {
-            ++failures;
-        }
-    }
-};
+  // The motor spins up over the first couple of seconds: it starts fast and
+  // sparse (~355 points at ~14Hz) and settles to ~510 points at ~9.8Hz. That
+  // transient is the device's normal behaviour, not a fault, but it sits outside
+  // the steady-state bounds above - so the pass/fail statistics are gathered
+  // after it, while the spin-up is reported separately rather than hidden.
+  constexpr Int32   SPIN_UP_FRAMES = 15;
 
-Str fmtValue(const Char* fmt, Float64 v)
-{
-    Array<Char, 64> b;
-    std::snprintf(b.data(), b.size(), fmt, v);
-    return b.data();
-}
+  const Char* stateName(LidarState s)
+  {
+      switch(s)
+      {
+          case LidarState::LIDAR_STATE_IDLE:       return "Idle";
+          case LidarState::LIDAR_STATE_CONNECTING: return "Connecting";
+          case LidarState::LIDAR_STATE_SCANNING:   return "Scanning";
+          case LidarState::LIDAR_STATE_ERROR:      return "Error";
+      }
+      return "?";
+  }
+
+  struct Check
+  {
+      Int32 failures = 0;
+
+      Void operator()(Bool ok, const Char* what, const Str& detail)
+      {
+          std::printf("  [%s] %-28s %s\n", ok ? "PASS" : "FAIL", what, detail.c_str());
+          if(!ok)
+          {
+              ++failures;
+          }
+      }
+  };
+
+  Str fmtValue(const Char* fmt, Float64 v)
+  {
+      Array<Char, 64> b;
+      std::snprintf(b.data(), b.size(), fmt, v);
+      return b.data();
+  }
 
 } // namespace
 
