@@ -488,6 +488,22 @@ Array<Float32, TOF_HISTORY> tofHistory= {};
   // What the board says it is doing RIGHT NOW. A cue is a few hundred
   // milliseconds long, so this is worth watching rather than inferring from the
   // button that was pressed.
+  // ---- the Sound view. TEMPORARY -----------------------------------------
+  //
+  // Scaffolding for bringing the DFPlayer up on a breadboard, and it says so on
+  // the tab. Sound BELONGS in the cue system - a car that says "reversing"
+  // should not care whether that comes out as a lamp or a chime, and cue.hxx
+  // already carries a `tone` field waiting for it. This view is a person
+  // pressing buttons, which is a different thing and a temporary one.
+  Bool    soundReady    = false;
+  Int32   soundVol      = 8;
+  Int32   soundVolMax   = 30;
+  Int32   soundTrack    = 1;
+  Str     soundBusy     = "unwired";
+  Int32   soundTx       = -1;
+  Int32   soundRx       = -1;
+  Float64 soundLastPoll = 0.0;
+
   Str     cueSpeaking  = "none";
   Int32   cueStepNow   = 0;
   Int32   cueLoopNow   = 0;
@@ -1326,6 +1342,56 @@ Array<Char, 64> wifiHost{};
           return;
       }
 
+      // "OK sound ready=yes vol=8 max=30 track=1 busy=no tx=14 rx=15"
+      if(t.compare(0, 9, "OK sound ") == 0)
+      {
+          const Char* p = t.c_str();
+
+          // Read into a local first and only then commit. A slider that is
+          // being dragged must not be yanked back by a reply that was in
+          // flight when the drag started - the value fights the mouse and the
+          // control feels broken rather than merely laggy.
+          const auto num = [p](const Char* key, Int32 fallback)
+          {
+              const Char* q = std::strstr(p, key);
+              if(q == nullptr)
+              {
+                  return fallback;
+              }
+              return std::atoi(q + std::strlen(key));
+          };
+          const auto word = [p](const Char* key, const Char* fallback)
+          {
+              const Char* q = std::strstr(p, key);
+              if(q == nullptr)
+              {
+                  return Str(fallback);
+              }
+              q += std::strlen(key);
+              Size n = 0;
+              while(q[n] != '\0' && q[n] != ' ')
+              {
+                  ++n;
+              }
+              return Str(q, n);
+          };
+
+          soundReady  = (word("ready=", "no") == "yes");
+          soundVolMax = num("max=", 30);
+          soundTrack  = num("track=", soundTrack);
+          soundBusy   = word("busy=", "unwired");
+          soundTx     = num("tx=", -1);
+          soundRx     = num("rx=", -1);
+
+          // The volume follows the board EXCEPT while the slider is held. See
+          // above: the reply is older than the drag.
+          if(!ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
+          {
+              soundVol = num("vol=", soundVol);
+          }
+          return;
+      }
+
       // "OK cue speaking=flash step=0 loop=0 tone=0 kinds=2 off_us=10"
       if(t.compare(0, 7, "OK cue ") == 0)
       {
@@ -1816,6 +1882,30 @@ Array<Char, 64> wifiHost{};
 
       cueLastPoll = now;
       pollPico("CUE");
+  }
+
+  // Slower than the cue poll on purpose: nothing here changes on its own
+  // except BUSY, and the board answers a full status line to every command
+  // anyway, so a fast poll would be traffic for its own sake.
+  Void pollSoundState()
+  {
+      if(dbgUnsupported)
+      {
+          return;
+      }
+      if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+      {
+          return;
+      }
+
+      const Float64 now = ImGui::GetTime();
+      if(soundLastPoll > 0.0 && (now - soundLastPoll) < 0.5)
+      {
+          return;
+      }
+
+      soundLastPoll = now;
+      pollPico("SOUND");
   }
 
   // Asks the board what is attached, once per connection.
@@ -3975,7 +4065,7 @@ Array<Char, 64> wifiHost{};
 
   // The permanent left region: the map, with the control bar under it. Both are
   // sized by the caller, which owns the split between map and sidebar.
-  // --view <map|3d|record|code|pico|reference> preselects a central tab at startup. Held for a few frames
+  // --view <map|3d|record|code|range|drive|sound|reference> preselects a central tab at startup. Held for a few frames
   // because a tab bar only honours SetSelected once it has laid its items out,
 
   // which is not on frame one.
@@ -5277,7 +5367,13 @@ Array<Char, 64> wifiHost{};
   constexpr Int32 RANGE_VIEW = 4;
   constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
   constexpr Int32 CUE_VIEW   = DRIVE_VIEW + 1;
-  constexpr Int32 VIEW_COUNT = CUE_VIEW + 1;
+
+  // TEMPORARY. Goes when sound moves into the cue system, and it is last in the
+  // order so that removing it cannot renumber anything else - a settings file
+  // holding a view index would otherwise open on a different tab the day this
+  // one leaves.
+  constexpr Int32 SOUND_VIEW = CUE_VIEW + 1;
+  constexpr Int32 VIEW_COUNT = SOUND_VIEW + 1;
 
   // ================================================ the cue board ==
   //
@@ -5293,6 +5389,212 @@ Array<Char, 64> wifiHost{};
   // This is a REMOTE CONTROL, not a status screen. Everything on it either sends
   // something or says why it cannot.
   // ---------------------------------------------------------------------------
+  // =========================================================== the Sound view
+  //
+  // TEMPORARY, and the tab says so. Everything here is a person pressing a
+  // button - nothing reacts to the car. When sound moves into the cue system
+  // this view goes and the Cues board grows a column.
+  Void drawSoundBody(Float32 w, Float32 h)
+  {
+      static_cast<Void>(w);
+      static_cast<Void>(h);
+
+      const Bool linkUp =
+          (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
+
+      ImGui::BeginDisabled(!linkUp);
+
+      // ---- what is wired, said out loud -------------------------------------
+      //
+      // The pins are read back FROM THE BOARD rather than printed from a
+      // constant here. The whole failure mode this view exists to debug is a
+      // wire on the wrong pad, and a hub that confidently displayed its own
+      // idea of the pinout would be the least useful thing on the screen.
+      ImGui::SeparatorText("Link");
+      if(soundTx >= 0)
+      {
+          colored(ui::ansi::GREY, "TX GP%d", soundTx);
+          ImGui::SameLine(0.0f, 16.0f);
+          colored(ui::ansi::GREY, "-> module RX (through 1k)");
+          ImGui::SameLine(0.0f, 24.0f);
+          colored(ui::ansi::GREY, "RX GP%d", soundRx);
+          ImGui::SameLine(0.0f, 16.0f);
+          colored(ui::ansi::GREY, "<- module TX");
+      }
+      else
+      {
+          ImGui::TextDisabled("the board has not answered SOUND yet");
+      }
+
+      // ---- the card ---------------------------------------------------------
+      //
+      // FIRST, and prominent, because it is the one step whose absence is
+      // silent: the SD card takes 1.5-3 s to mount and a play sent before that
+      // is discarded with no error and no sound. Every other failure on this
+      // screen looks the same, so the one that can be ruled out with a button
+      // gets the button.
+      ImGui::SeparatorText("Card");
+
+      if(soundReady)
+      {
+          colored(ui::sem::GOOD, "mounted");
+      }
+      else
+      {
+          colored(ui::sem::WARN, "not mounted - nothing will play");
+      }
+      ImGui::SameLine(0.0f, 16.0f);
+
+      if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reset / mount card",
+                        ImVec2(220.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND RESET");
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip("Resets the module and waits ~2 s for the card.\n"
+                            "Needed once after the module is powered up.\n"
+                            "The console goes quiet while it waits.");
+      }
+
+      // ---- volume -----------------------------------------------------------
+      ImGui::SeparatorText("Volume");
+
+      // Sent on RELEASE, not every frame. A slider dragged across its range at
+      // 60 fps would put a hundred frames on a 9600 baud link, and the module
+      // needs 20-40 ms between commands - so most of them would be dropped and
+      // the last one, the one that matters, would be among them.
+      ImGui::SetNextItemWidth(320.0f * uiDpiScale);
+      ImGui::SliderInt("##soundvol", &soundVol, 0, soundVolMax, "%d");
+      if(ImGui::IsItemDeactivatedAfterEdit())
+      {
+          Char cmd[48];
+          std::snprintf(cmd, sizeof(cmd), "SOUND VOL %d", soundVol);
+          sendPico(cmd);
+      }
+
+      ImGui::SameLine(0.0f, 12.0f);
+      colored(soundVol > (soundVolMax / 2) ? ui::sem::WARN : ui::ansi::GREY,
+                  "%d / %d", soundVol, soundVolMax);
+
+      // Named steps rather than a bare number, because "8" means nothing until
+      // you have already been deafened once. These modules are reported as
+      // painful well below half.
+      const auto vol = [](const Char* label, Int32 level, const Char* why)
+      {
+          if(ui::iconButton(ui::Icon::ICON_SIGNAL, label,
+                            ImVec2(96.0f * uiDpiScale, 0.0f)))
+          {
+              Char cmd[48];
+              std::snprintf(cmd, sizeof(cmd), "SOUND VOL %d", level);
+              sendPico(cmd);
+          }
+          if(ImGui::IsItemHovered())
+          {
+              ImGui::SetTooltip("%s", why);
+          }
+      };
+
+      vol("Quiet", 4,  "4 of 30. Start here with the speaker near your head.");
+      ImGui::SameLine();
+      vol("Low", 8,    "8 of 30. What the speaker sketch uses.");
+      ImGui::SameLine();
+      vol("Half", 15,  "15 of 30. Loud in a room.");
+      ImGui::SameLine();
+      vol("Max", 30,   "30 of 30. Do not press this to find out.");
+
+      // ---- the track --------------------------------------------------------
+      ImGui::SeparatorText("Track");
+
+      ImGui::SetNextItemWidth(120.0f * uiDpiScale);
+      ImGui::InputInt("##soundtrack", &soundTrack);
+      if(soundTrack < 1)
+      {
+          soundTrack = 1;
+      }
+      if(soundTrack > 3000)
+      {
+          soundTrack = 3000;
+      }
+      ImGui::SameLine(0.0f, 12.0f);
+      colored(ui::ansi::GREY, "mp3/%04d.mp3", soundTrack);
+
+      ImGui::Spacing();
+
+      // PLAY is green and wide: it is the thing this view is for.
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Play",
+                        ImVec2(160.0f * uiDpiScale, 0.0f)))
+      {
+          Char cmd[48];
+          std::snprintf(cmd, sizeof(cmd), "SOUND PLAY %d", soundTrack);
+          sendPico(cmd);
+      }
+
+      ImGui::SameLine();
+      if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause",
+                        ImVec2(120.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND PAUSE");
+      }
+      ImGui::SameLine();
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Resume",
+                        ImVec2(120.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND RESUME");
+      }
+      ImGui::SameLine();
+      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop",
+                        ImVec2(120.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND STOP");
+      }
+
+      ImGui::Spacing();
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Prev",
+                        ImVec2(110.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND PREV");
+      }
+      ImGui::SameLine();
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Next",
+                        ImVec2(110.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND NEXT");
+      }
+
+      // ---- playing ----------------------------------------------------------
+      ImGui::SeparatorText("Playing");
+
+      if(soundBusy == "unwired")
+      {
+          // Said plainly rather than shown as "not playing", which would be a
+          // claim this car cannot currently make. BUSY is the module's own
+          // output and it is the only honest answer - the serial reply says a
+          // command was ACCEPTED, which is a different thing from a track still
+          // being audible.
+          ImGui::TextDisabled("BUSY is not wired, so the board cannot tell.");
+          ImGui::TextDisabled("Wire the module's BUSY pin and set");
+          ImGui::SameLine(0.0f, 4.0f);
+          colored(ui::ansi::BRCYAN, "pins::SOUND_BUSY");
+      }
+      else if(soundBusy == "yes")
+      {
+          colored(ui::sem::GOOD, "playing");
+      }
+      else
+      {
+          colored(ui::ansi::GREY, "idle");
+      }
+
+      ImGui::EndDisabled();
+
+      if(!linkUp)
+      {
+          ImGui::Spacing();
+          colored(ui::sem::WARN, "no board connected");
+      }
+  }
+
   Void drawCueBody(Float32 w, Float32 h)
   {
       ImGui::BeginChild("##cueboard", ImVec2(w, h), ImGuiChildFlags_None,
@@ -8045,6 +8347,11 @@ Array<Char, 64> wifiHost{};
           pollCueState();
           drawCueBody(w, h);
       }
+      else if(view == SOUND_VIEW)
+      {
+          pollSoundState();
+          drawSoundBody(w, h);
+      }
       else
       {
           // Range is the terminal branch, so an index from a stale settings file
@@ -8086,6 +8393,10 @@ Array<Char, 64> wifiHost{};
       {
           return "Cues";
       }
+      if(view == SOUND_VIEW)
+      {
+          return "Sound";
+      }
       return "Range";
   }
 
@@ -8110,6 +8421,10 @@ Array<Char, 64> wifiHost{};
       if(view == CUE_VIEW)
       {
           return ui::Icon::ICON_LAMP;
+      }
+      if(view == SOUND_VIEW)
+      {
+          return ui::Icon::ICON_SIGNAL;
       }
       return ui::Icon::ICON_TOF;
   }
@@ -10175,6 +10490,15 @@ Void app::init(Float32 dpiScale)
                          forceView = DRIVE_VIEW;
                          forceViewFrames = 4;
                      }
+            else if(_stricmp(v, "sound") == 0 ||
+                     _stricmp(v, "speaker") == 0 ||
+                     _stricmp(v, "audio") == 0 ||
+                     _stricmp(v, "dfplayer") == 0)
+                     {
+                         forceView = SOUND_VIEW;
+                         forceViewFrames = 4;
+                     }
+
             // The documents live in the Code tree now, so every word that used
             // to mean "the Reference view" means the Code view. Kept rather
             // than removed: somebody's shortcut or note still says --view ref,

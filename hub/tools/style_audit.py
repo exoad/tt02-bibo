@@ -408,7 +408,12 @@ LAYERS = {
     # it declares facts and includes nothing but types. A subsystem naming
     # pins::SERVO instead of 0 is reading downward, not sideways.
     'firmware/lib':          {'types.hxx', 'hal.hxx', 'pins.hxx'},
-    'firmware/lib/drivers':  {'../hal.hxx'},
+    # ../types.hxx because a driver's PROTOCOL half should be able to reach the
+    # vocabulary without the SDK - that is what makes it host-testable, and
+    # dfplayer_proto.hxx exists precisely so its checksum can be exercised off
+    # the bench. dfplayer_proto.hxx because the transport half includes it.
+    'firmware/lib/drivers':  {'../hal.hxx', '../types.hxx',
+                              'dfplayer_proto.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
     # Renamed from scratch/ when a sketch became a file rather than a slot. The
@@ -418,7 +423,8 @@ LAYERS = {
     'firmware/sketches':     {'../lib/bibo.hxx'},
     # A host test of ONE header includes that header, not the umbrella - the
     # umbrella drags in the SDK and these compile with MSVC.
-    'firmware/tests':        {'../lib/text.hxx'},
+    'firmware/tests':        {'../lib/text.hxx',
+                              '../lib/drivers/dfplayer_proto.hxx'},
 }
 
 # gfx draws INTO a Screen, so it is the one file at lib root that legitimately

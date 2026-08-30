@@ -1090,6 +1090,159 @@ static Void cmdBootsel(CharSeq arg)
     bibo::board::rebootToBootsel();          /* flushes, then does not return */
 }
 
+
+/* ===========================================================================
+ * SOUND - the DFPlayer Mini.
+ *
+ * TEMPORARY, in the same sense the LIGHTS block below is temporary: this is
+ * scaffolding for bringing a module up on a breadboard, not the shape sound
+ * will have on the finished car. Sound BELONGS in the cue system - a car that
+ * says "reversing" should not care whether that comes out as a lamp or a
+ * chime, and cue.hxx already has a `tone` field waiting for exactly this.
+ *
+ * What it is NOT is a second place that decides what the car means. Nothing
+ * here reacts to anything; every function is a person pressing a button.
+ * ======================================================================== */
+static bibo::dfplayer::Bus soundBus;
+
+/* Remembered so SOUND can report it. The module has no "what volume are you"
+ * query worth the round trip - it answers a status frame that means several
+ * things - and a value the hub cannot read back is a slider that jumps to a
+ * default every time you open the view. */
+static UInt8 soundVolume = 8;
+static UInt16 soundTrack  = 1;
+
+/* Whether RESET has been run since power-on.
+ *
+ * The card takes 1.5-3 s to mount and a play sent before that is LOST - no
+ * error, no sound. Boot does not pay that cost, because most sessions never
+ * touch sound; the first thing that needs the card asks for it. Reported so
+ * the hub can say "not mounted" rather than leaving somebody to wonder why a
+ * button did nothing. */
+static Bool soundReady = false;
+
+static Void printSound(Void)
+{
+    bibo::serial::printf(
+        "OK sound ready=%s vol=%u max=%u track=%u busy=%s tx=%d rx=%d\n",
+        soundReady ? "yes" : "no",
+        static_cast<UInt32>(soundVolume),
+        static_cast<UInt32>(DFP_VOLUME_MAX),
+        static_cast<UInt32>(soundTrack),
+        (bibo::pins::SOUND_BUSY == bibo::pins::NONE)
+            ? "unwired"
+            : (bibo::dfplayer::playing(&soundBus) ? "yes" : "no"),
+        static_cast<Int32>(bibo::pins::SOUND_TX),
+        static_cast<Int32>(bibo::pins::SOUND_RX));
+}
+
+static Void cmdSound(CharSeq arg)
+{
+    if(arg[0] == '\0')
+    {
+        printSound();
+        return;
+    }
+
+    if(bibo::text::eq(arg, "RESET"))
+    {
+        /* Two seconds of nothing. Said BEFORE it happens, because a console
+         * that goes quiet for two seconds looks hung. */
+        bibo::serial::printLine("INFO sound resetting, waiting for the card");
+        bibo::dfplayer::reset(&soundBus);
+        bibo::dfplayer::useCard(&soundBus);
+        bibo::dfplayer::volume(&soundBus, soundVolume);
+        soundReady = true;
+        printSound();
+        return;
+    }
+
+    if(bibo::text::starts(arg, "VOL"))
+    {
+        Int32 v = 0;
+        if(!bibo::text::toInt(bibo::text::after(arg, "VOL "), &v))
+        {
+            bibo::serial::printLine("ERR sound VOL wants a number 0-30");
+            return;
+        }
+        if(v < 0 || v > static_cast<Int32>(DFP_VOLUME_MAX))
+        {
+            bibo::serial::printf("ERR sound volume out of range 0-%u\n",
+                                 static_cast<UInt32>(DFP_VOLUME_MAX));
+            return;
+        }
+
+        soundVolume = static_cast<UInt8>(v);
+        bibo::dfplayer::volume(&soundBus, soundVolume);
+        printSound();
+        return;
+    }
+
+    if(bibo::text::starts(arg, "PLAY"))
+    {
+        /* Bare PLAY repeats the last track, which is what a person pressing a
+         * button on a test view means by it. */
+        Int32 n = 0;
+        if(!bibo::text::toInt(bibo::text::after(arg, "PLAY "), &n))
+        {
+            n = static_cast<Int32>(soundTrack);
+        }
+        if(n < 1 || n > 3000)
+        {
+            bibo::serial::printLine("ERR sound track is 1-3000");
+            return;
+        }
+
+        /* The card has to be mounted, and this is the one command where NOT
+         * saying so would be indistinguishable from a wiring fault. */
+        if(!soundReady)
+        {
+            bibo::serial::printLine(
+                "ERR sound card not mounted - run SOUND RESET first");
+            return;
+        }
+
+        soundTrack = static_cast<UInt16>(n);
+        bibo::dfplayer::playMp3(&soundBus, soundTrack);
+        printSound();
+        return;
+    }
+
+    if(bibo::text::eq(arg, "STOP"))
+    {
+        bibo::dfplayer::stop(&soundBus);
+        printSound();
+        return;
+    }
+    if(bibo::text::eq(arg, "PAUSE"))
+    {
+        bibo::dfplayer::pause(&soundBus);
+        printSound();
+        return;
+    }
+    if(bibo::text::eq(arg, "RESUME"))
+    {
+        bibo::dfplayer::play(&soundBus);
+        printSound();
+        return;
+    }
+    if(bibo::text::eq(arg, "NEXT"))
+    {
+        bibo::dfplayer::send(&soundBus, DFP_CMD_NEXT, 0);
+        printSound();
+        return;
+    }
+    if(bibo::text::eq(arg, "PREV"))
+    {
+        bibo::dfplayer::send(&soundBus, DFP_CMD_PREV, 0);
+        printSound();
+        return;
+    }
+
+    bibo::serial::printLine(
+        "ERR sound wants RESET|VOL <0-30>|PLAY <n>|STOP|PAUSE|RESUME|NEXT|PREV");
+}
+
 static const Command COMMANDS[] =
 {
     { "PING",        "",                        "answers PONG",                             cmdPing },
@@ -1115,6 +1268,9 @@ static const Command COMMANDS[] =
 
     { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
     { "CUE",         " [LIST|STOP|<name> [OFF]]",     "what the car says, and saying it",      cmdCue },
+
+    { "SOUND",       " [RESET|VOL <0-30>|PLAY <n>|STOP|PAUSE|RESUME|NEXT|PREV]",
+                                                "the speaker",                              cmdSound },
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
      * the wheel encoder. See lib/lights.h. */
@@ -1225,6 +1381,14 @@ int main(Void)
      * layering forbids it, and rightly: the RULE is the same on any car and only
      * the number is this one's. */
     bibo::cue::setMotionUs(LIGHT_CAL_OFF_US);
+
+    /* The speaker's UART. Opening it is cheap - a baud rate and two pin
+     * functions - so it happens at boot; MOUNTING THE CARD is not, and does
+     * not. SOUND RESET pays the two seconds, and only a session that wants
+     * sound pays them at all. See cmdSound. */
+    bibo::dfplayer::open(&soundBus, uart0,
+                         bibo::pins::SOUND_TX, bibo::pins::SOUND_RX,
+                         bibo::pins::SOUND_BUSY);
 
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */
