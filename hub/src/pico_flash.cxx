@@ -208,7 +208,8 @@ namespace
       Array<Char, 4096> chunk;
       DWORD       got = 0;
 
-      while(ReadFile(rd, chunk.data(), chunk.size(), &got, nullptr) && got > 0)
+      while(ReadFile(rd, chunk.data(), static_cast<DWORD>(chunk.size()), &got, nullptr)
+            && got > 0)
       {
           partial.append(chunk.data(), got);
 

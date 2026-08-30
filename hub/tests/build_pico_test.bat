@@ -35,7 +35,7 @@ cl /nologo /EHsc /O2 /MT /W4 /std:c++20 ^
   "%SRC%\devlink.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_pico_link.exe" ^
-  /link kernel32.lib advapi32.lib setupapi.lib
+  /link kernel32.lib advapi32.lib setupapi.lib ws2_32.lib
 if errorlevel 1 (
   echo [test] compile failed
   exit /b 1

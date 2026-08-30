@@ -403,7 +403,8 @@ namespace
           DWORD hwidLen   = 0;
           if(!SetupDiGetDeviceRegistryPropertyA(set, &info, SPDRP_HARDWAREID, nullptr,
                                                  reinterpret_cast<BYTE*>(hwid.data()),
-                                                 hwid.size() - 2, &hwidLen))
+                                                 static_cast<DWORD>(hwid.size() - 2),
+                                                 &hwidLen))
               continue;
 
           // REG_MULTI_SZ: scan every embedded string.

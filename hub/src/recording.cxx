@@ -209,7 +209,7 @@ namespace rec
       }
 
       Array<Char, 64> line= {};
-      if(std::fgets(line.data(), line.size(), f) == nullptr
+      if(std::fgets(line.data(), static_cast<Int32>(line.size()), f) == nullptr
          || (std::strncmp(line.data(), "# biborec", 9) != 0
              && std::strncmp(line.data(), "# tt02rec", 9) != 0))
       {
