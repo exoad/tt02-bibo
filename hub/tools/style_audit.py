@@ -400,9 +400,12 @@ for name in [r[0] for r in RULES]:
 LAYERS = {
     # hal.h is the floor everything stands on, so lib root may name it. hal.h
     # itself only needs shared.h, and naming itself is not a thing a file does.
-    'firmware/lib':          {'types.hxx', 'hal.hxx'},
+    # pins.hxx sits beside types.hxx in the layering and for the same reason:
+    # it declares facts and includes nothing but types. A subsystem naming
+    # pins::SERVO instead of 0 is reading downward, not sideways.
+    'firmware/lib':          {'types.hxx', 'hal.hxx', 'pins.hxx'},
     'firmware/lib/drivers':  {'../hal.hxx'},
-    'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx'},
+    'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
     # Renamed from scratch/ when a sketch became a file rather than a slot. The
     # key is matched by substring against the path, so the stale name matched
@@ -427,7 +430,8 @@ LAYER_EXTRA = {
     # naming the one below it, written down rather than special-cased in silence.
     'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
-                            'drivers/display.hxx',
+                            'pins.hxx',
+                            'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
                             'lights.hxx', 'cue.hxx', 'net.hxx'},

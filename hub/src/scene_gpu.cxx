@@ -405,8 +405,8 @@ ImTextureID end(const Float32* mvp)
         return 0;
     started = false;
 
-    const Float32 CLEAR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ctx->ClearRenderTargetView(colorRtv, CLEAR);
+    const Array<Float32, 4> CLEAR= { 0.0f, 0.0f, 0.0f, 1.0f };
+    ctx->ClearRenderTargetView(colorRtv, CLEAR.data());
     ctx->ClearDepthStencilView(depthDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     if(opaqueTris.empty() && blendedTris.empty())
@@ -486,8 +486,8 @@ ImTextureID end(const Float32* mvp)
     ctx->PSSetSamplers(0, 1, &sampler);
     ctx->RSSetState(rasterizer);
 
-    const Float32 BLEND_FACTOR[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    ctx->OMSetBlendState(blendOn, BLEND_FACTOR, 0xFFFFFFFFu);
+    const Array<Float32, 4> BLEND_FACTOR= { 0.0f, 0.0f, 0.0f, 0.0f };
+    ctx->OMSetBlendState(blendOn, BLEND_FACTOR.data(), 0xFFFFFFFFu);
 
     // Runs of one texture, drawn in one call each.
     const auto drawRuns = [&](const Vec<Tri>& tris, Int32 base) {

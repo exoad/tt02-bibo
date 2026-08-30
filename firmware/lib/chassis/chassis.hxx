@@ -57,6 +57,7 @@
 #pragma once
 
 #include "../hal.hxx"
+#include "../pins.hxx"
 #include "cal.hxx"
 
 namespace bibo
@@ -67,8 +68,13 @@ namespace drive
 
 /* ---- pins ---------------------------------------------------------------- */
 
-#define PIN_SERVO 0
-#define PIN_ESC   1
+/* From the car's pin map rather than spelled here. These two were the last
+ * literal GPIO numbers in the chassis, and the reason they had to move is that
+ * "which pins are taken" was a question you answered by grepping - which is how
+ * the DFPlayer nearly landed on the tail lamps. pins.hxx answers it with a
+ * static_assert instead. */
+#define PIN_SERVO pins::SERVO
+#define PIN_ESC   pins::ESC
 
 /* ---- bounds -------------------------------------------------------------- */
 

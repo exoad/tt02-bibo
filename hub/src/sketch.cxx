@@ -214,10 +214,10 @@ Str load(const Str& path)
         return Str();
 
     Str  out;
-    Char buf[4096];
+    Array<Char, 4096> buf;
     Size n = 0;
-    while((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
-        out.append(buf, n);
+    while((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
+        out.append(buf.data(), n);
     std::fclose(f);
 
     // CRLF in, LF held internally. The editor works in LF and writes LF back;
@@ -398,10 +398,10 @@ Str makeName()
 
     for(Int32 i = 2; i < 1000; ++i)
     {
-        Char buf[32];
-        std::snprintf(buf, sizeof(buf), "sketch-%d.cxx", i);
-        if(!taken(buf))
-            return Str(buf);
+        Array<Char, 32> buf;
+        std::snprintf(buf.data(), buf.size(), "sketch-%d.cxx", i);
+        if(!taken(buf.data()))
+            return Str(buf.data());
     }
     return "sketch.cxx";
 }

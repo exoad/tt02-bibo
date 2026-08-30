@@ -15,11 +15,11 @@ Str dir()
         return cached;
     tried = true;
 
-    Char buf[MAX_PATH] = {};
-    if(::GetEnvironmentVariableA("LOCALAPPDATA", buf, MAX_PATH) == 0)
+    Array<Char, MAX_PATH> buf= {};
+    if(::GetEnvironmentVariableA("LOCALAPPDATA", buf.data(), MAX_PATH) == 0)
         return cached;                  // no profile: run without persistence
 
-    cached = Str(buf) + "\\bibo";
+    cached = Str(buf.data()) + "\\bibo";
 
     // ---- the car got a name, and the folder follows it -------------------
     //
@@ -32,7 +32,7 @@ Str dir()
     // this does nothing, so a second machine, a restored backup, or a person
     // who moved it by hand is never overwritten.
     {
-        const Str older = Str(buf) + "\\tt02-auto";
+        const Str older = Str(buf.data()) + "\\tt02-auto";
         if(::GetFileAttributesA(cached.c_str()) == INVALID_FILE_ATTRIBUTES
            && ::GetFileAttributesA(older.c_str()) != INVALID_FILE_ATTRIBUTES)
         {
@@ -66,13 +66,13 @@ Str read(const Char* name)
     if(f == nullptr)
         return out;
 
-    Char buf[1024];
+    Array<Char, 1024> buf;
     for(;;)
     {
-        const Size n = std::fread(buf, 1, sizeof(buf), f);
+        const Size n = std::fread(buf.data(), 1, buf.size(), f);
         if(n == 0)
             break;
-        out.append(buf, n);
+        out.append(buf.data(), n);
 
         // A settings file is a few hundred bytes. Anything larger is a file
         // that does not belong here, and reading it all would be the bug.

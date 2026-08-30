@@ -96,10 +96,10 @@ Str formatMtime(const FILETIME& ft)
         return Str();
     }
 
-    Char buf[32];
-    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
+    Array<Char, 32> buf;
+    std::snprintf(buf.data(), buf.size(), "%04d-%02d-%02d %02d:%02d",
                   st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
-    return buf;
+    return buf.data();
 }
 
 // ---------------------------------------------------------------- board ----
@@ -117,18 +117,18 @@ Bool findBootselDrive(Str& outDrive)
             continue;
         }
 
-        Char root[8];
-        std::snprintf(root, sizeof(root), "%c:\\", 'A' + i);
-        if(GetDriveTypeA(root) != DRIVE_REMOVABLE)
+        Array<Char, 8> root;
+        std::snprintf(root.data(), root.size(), "%c:\\", 'A' + i);
+        if(GetDriveTypeA(root.data()) != DRIVE_REMOVABLE)
         {
             continue;
         }
 
-        Char label[MAX_PATH] = {};
-        if(!GetVolumeInformationA(root, label, MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
+        Array<Char, MAX_PATH> label= {};
+        if(!GetVolumeInformationA(root.data(), label.data(), MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
             continue;   // an empty card reader: no volume, not an error
 
-        if(_stricmp(label, "RP2350") == 0 || _stricmp(label, "RPI-RP2") == 0)
+        if(_stricmp(label.data(), "RP2350") == 0 || _stricmp(label.data(), "RPI-RP2") == 0)
         {
             outDrive = Str(1, static_cast<Char>(('A' + i))) + ":";
             return true;
@@ -195,21 +195,21 @@ Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
 
     if(!ok)
     {
-        Char buf[160];
-        std::snprintf(buf, sizeof(buf), "[error] could not start the process (%lu)",
+        Array<Char, 160> buf;
+        std::snprintf(buf.data(), buf.size(), "[error] could not start the process (%lu)",
                       static_cast<unsigned long>(GetLastError()));
-        sink(buf);
+        sink(buf.data());
         CloseHandle(rd);
         return -1;
     }
 
     Str partial;
-    Char        chunk[4096];
+    Array<Char, 4096> chunk;
     DWORD       got = 0;
 
-    while(ReadFile(rd, chunk, sizeof(chunk), &got, nullptr) && got > 0)
+    while(ReadFile(rd, chunk.data(), chunk.size(), &got, nullptr) && got > 0)
     {
-        partial.append(chunk, got);
+        partial.append(chunk.data(), got);
 
         Size nl;
         while((nl = partial.find('\n')) != Str::npos)
@@ -278,12 +278,12 @@ struct Impl
 
     Void logf(const Char* fmt, ...)
     {
-        Char buf[1024];
+        Array<Char, 1024> buf;
         va_list ap;
         va_start(ap, fmt);
-        std::vsnprintf(buf, sizeof(buf), fmt, ap);
+        std::vsnprintf(buf.data(), buf.size(), fmt, ap);
         va_end(ap);
-        log(buf);
+        log(buf.data());
     }
 
     // Starts `body` on the worker. Rejects (and says so) while one is running,
@@ -385,11 +385,11 @@ Str PicoFlash::repoRoot()
     }
     done = true;
 
-    Char exe[MAX_PATH] = {};
-    if(GetModuleFileNameA(nullptr, exe, MAX_PATH) == 0)
+    Array<Char, MAX_PATH> exe= {};
+    if(GetModuleFileNameA(nullptr, exe.data(), MAX_PATH) == 0)
         return cached;
 
-    Str dir(exe);
+    Str dir(exe.data());
     Size slash = dir.find_last_of("\\/");
     if(slash == Str::npos)
     {

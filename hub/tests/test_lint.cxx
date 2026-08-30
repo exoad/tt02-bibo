@@ -234,11 +234,11 @@ Int32 lintFiles(Int32 argc, Utf8** argv)
         }
 
         Str  text;
-        Char buf[4096];
+        Array<Char, 4096> buf;
         Size n = 0;
-        while((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
+        while((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
         {
-            text.append(buf, n);
+            text.append(buf.data(), n);
         }
         std::fclose(f);
 

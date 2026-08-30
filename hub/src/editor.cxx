@@ -744,9 +744,9 @@ Void Editor::yankRange(Cursor a, Cursor b, Bool linewise)
         const Int32 n = b.line - a.line + 1;
         if(n > 1)
         {
-            Char buf[64];
-            std::snprintf(buf, sizeof(buf), "%d lines yanked", n);
-            message = buf;
+            Array<Char, 64> buf;
+            std::snprintf(buf.data(), buf.size(), "%d lines yanked", n);
+            message = buf.data();
         }
         return;
     }
@@ -1768,18 +1768,18 @@ Void Editor::substitute(const Str& spec)
         }
     }
 
-    Char buf[96];
+    Array<Char, 96> buf;
     if(hits == 0)
     {
-        std::snprintf(buf, sizeof(buf), "pattern not found: %s", pat.c_str());
+        std::snprintf(buf.data(), buf.size(), "pattern not found: %s", pat.c_str());
     }
     else
     {
-        std::snprintf(buf, sizeof(buf), "%d substitution%s on %d line%s",
+        std::snprintf(buf.data(), buf.size(), "%d substitution%s on %d line%s",
                       hits, hits == 1 ? "" : "s",
                       touchedLines, touchedLines == 1 ? "" : "s");
     }
-    message = buf;
+    message = buf.data();
     clampCursor();
 }
 

@@ -214,12 +214,12 @@ Bool assetPath(const Char* relative, Char* out, Size cap)
     if(relative == nullptr || out == nullptr || cap == 0)
         return false;
 
-    Char        exe[MAX_PATH];
-    const DWORD n = ::GetModuleFileNameA(nullptr, exe, MAX_PATH);
+    Array<Char, MAX_PATH> exe;
+    const DWORD n = ::GetModuleFileNameA(nullptr, exe.data(), MAX_PATH);
     if(n == 0 || n >= MAX_PATH)
         return false;
 
-    Char* slash = std::strrchr(exe, '\\');
+    Char* slash = std::strrchr(exe.data(), '\\');
     if(slash == nullptr)
         return false;
     *slash = 0;
@@ -231,14 +231,14 @@ Bool assetPath(const Char* relative, Char* out, Size cap)
 
     for(const Char* fmt : LAYOUTS)
     {
-        std::snprintf(out, cap, fmt, exe, relative);
+        std::snprintf(out, cap, fmt, exe.data(), relative);
         if(::GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES)
             return true;
     }
 
     // Neither exists. Leave the FIRST candidate in `out` so a caller that logs
     // the path names the one it should have been, not the fallback it tried last.
-    std::snprintf(out, cap, LAYOUTS[0], exe, relative);
+    std::snprintf(out, cap, LAYOUTS[0], exe.data(), relative);
     return false;
 }
 
@@ -250,8 +250,8 @@ Void loadIcons(ID3D11Device* device)
     if(device == nullptr)
         return;
 
-    Char dir[MAX_PATH];
-    if(!assetDir(dir, sizeof(dir)))
+    Array<Char, MAX_PATH> dir;
+    if(!assetDir(dir.data(), dir.size()))
         return;
 
     const Int32 rows = (COUNT + COLS - 1) / COLS;
@@ -275,11 +275,11 @@ Void loadIcons(ID3D11Device* device)
     Int32 loaded = 0;
     for(Int32 i = 0; i < COUNT; ++i)
     {
-        Char path[MAX_PATH];
-        std::snprintf(path, sizeof(path), "%s\\%s.png", dir, FILES[i].file);
+        Array<Char, MAX_PATH> path;
+        std::snprintf(path.data(), path.size(), "%s\\%s.png", dir.data(), FILES[i].file);
 
         UInt32 w = 0, h = 0;
-        if(!decodePng(wic, path, px, w, h))
+        if(!decodePng(wic, path.data(), px, w, h))
             continue;
         if(w != static_cast<UInt32>(SRC) || h != static_cast<UInt32>(SRC))
             continue;   // not the art we expect; skip rather than stretch it
@@ -502,7 +502,7 @@ Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut, Bool enabled
 {
     // Enough leading spaces to clear the icon, measured rather than guessed -
     // the icon size and the space width move independently with DPI.
-    Char padded[128];
+    Array<Char, 128> padded;
     const Float32 spaceW = ImGui::CalcTextSize(" ").x;
     Int32 n = 3;
     if(iconsReady() && spaceW > 0.0f)
@@ -513,9 +513,9 @@ Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut, Bool enabled
     }
     n = (n < 0) ? 0 : ((n > 32) ? 32 : n);
 
-    std::snprintf(padded, sizeof(padded), "%*s%s", n, "", label);
+    std::snprintf(padded.data(), padded.size(), "%*s%s", n, "", label);
 
-    const Bool hit = ImGui::MenuItem(padded, shortcut, selected, enabled);
+    const Bool hit = ImGui::MenuItem(padded.data(), shortcut, selected, enabled);
 
     if(iconsReady())
     {

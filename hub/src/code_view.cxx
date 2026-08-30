@@ -166,11 +166,11 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
     // Gutter wide enough for the largest line number this buffer will ever show,
     // so it does not jump a pixel when the file crosses 100 lines.
-    Char  numBuf[16];
-    std::snprintf(numBuf, sizeof(numBuf), "%d", std::max(1, e.lineCount()));
+    Array<Char, 16> numBuf;
+    std::snprintf(numBuf.data(), numBuf.size(), "%d", std::max(1, e.lineCount()));
     // +3 rather than +2: one column for the diagnostic mark on the left, and
     // one of margin on each side of the number itself.
-    const Float32 gutterW = (static_cast<Float32>(std::strlen(numBuf)) + 3.0f) * charW;
+    const Float32 gutterW = (static_cast<Float32>(std::strlen(numBuf.data())) + 3.0f) * charW;
 
     const Float32 textX   = origin.x + gutterW;
     const Float32 viewH   = std::max(lineH, region.y - statusH);
@@ -499,8 +499,8 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
         const Int32 shown = absolute ? (l + 1)
                                      : std::abs(l - e.cursor().line);
-        std::snprintf(numBuf, sizeof(numBuf), "%d", shown);
-        const Float32 numW = static_cast<Float32>(std::strlen(numBuf)) * charW;
+        std::snprintf(numBuf.data(), numBuf.size(), "%d", shown);
+        const Float32 numW = static_cast<Float32>(std::strlen(numBuf.data())) * charW;
         // The caret's own number is left-aligned and bright; the relative ones
         // are right-aligned against it, so the column of distances reads as a
         // ruler rather than as a list of numbers.
@@ -510,7 +510,7 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
         dl->AddText(ImVec2(numX, y),
                     onCaret ? syn::gruv::YELLOW : syn::gruv::FG4,
-                    numBuf);
+                    numBuf.data());
 
         // ---- diagnostic mark in the gutter ---------------------------------
         if(!v.diags.empty())
@@ -614,9 +614,9 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
                     continue;
                 }
 
-                const Char one[2] = { ch, '\0' };
+                const Array<Char, 2> one= { ch, '\0' };
                 dl->AddText(ImVec2(textX + static_cast<Float32>(k) * charW, y),
-                            col, one, one + 1);
+                            col, one.data(), one.data() + 1);
             }
         }
     }
@@ -767,11 +767,11 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
                           modeColor(e.mode()));
         dl->AddText(ImVec2(origin.x + pad, ty), syn::gruv::BG0_H, mn);
 
-        Char pos[64];
-        std::snprintf(pos, sizeof(pos), "%d:%d",
+        Array<Char, 64> pos;
+        std::snprintf(pos.data(), pos.size(), "%d:%d",
                       e.cursor().line + 1, e.cursor().col + 1);
-        const Float32 pw = ImGui::CalcTextSize(pos).x;
-        dl->AddText(ImVec2(origin.x + region.x - pw - pad, ty), syn::gruv::FG4, pos);
+        const Float32 pw = ImGui::CalcTextSize(pos.data()).x;
+        dl->AddText(ImVec2(origin.x + region.x - pw - pad, ty), syn::gruv::FG4, pos.data());
 
         // The middle slot, in priority order: what you are typing, then what
         // just happened, then a hint. A transient note outranks the hint
@@ -840,11 +840,11 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
 
             if(errs > 0 || warns > 0)
             {
-                Char db[64];
-                std::snprintf(db, sizeof(db), "%d e  %d w", errs, warns);
-                const Float32 dw = ImGui::CalcTextSize(db).x;
+                Array<Char, 64> db;
+                std::snprintf(db.data(), db.size(), "%d e  %d w", errs, warns);
+                const Float32 dw = ImGui::CalcTextSize(db.data()).x;
                 dl->AddText(ImVec2(origin.x + region.x - pw - dw - pad * 3.0f, ty),
-                            (errs > 0) ? syn::gruv::RED : syn::gruv::YELLOW, db);
+                            (errs > 0) ? syn::gruv::RED : syn::gruv::YELLOW, db.data());
             }
         }
     }

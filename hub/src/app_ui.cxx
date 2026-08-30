@@ -103,11 +103,11 @@ Int32   qMin  = 0;
 Int32   qMax  = 0;
 
 constexpr Int32 QUALITY_BUCKETS = 16;         // 0..63 folded into 16 bins
-Float32 qHist[QUALITY_BUCKETS] = {};
+Array<Float32, QUALITY_BUCKETS> qHist= {};
 Float32 qHistMax = 1.0f;
 
 constexpr Int32 DIST_BUCKETS = 24;            // 0..12 m in 0.5 m bins
-Float32 distHist[DIST_BUCKETS] = {};
+Array<Float32, DIST_BUCKETS> distHist= {};
 Float32 distHistMax = 1.0f;
 
 // Angular coverage: fraction of 1-degree bins with at least one in-spec return.
@@ -115,7 +115,7 @@ Float32 coverageDeg = 0.0f;
 
 // Clearance: distance to the nearest return in each 30 degree sector, in metres.
 constexpr Int32 SECTORS = 12;
-Float32 sectorM[SECTORS] = {};
+Array<Float32, SECTORS> sectorM= {};
 constexpr Float32 CLEARANCE_CAP_M = 2.5f;   // beyond this a direction is just "clear"
 
 // ------------------------------------------------------------- pico link ---
@@ -149,8 +149,8 @@ Bool       logShowPoll  = false;
 Bool lastSendWasPoll = false;
 Vec<Int32>      logShown;    // indices passing the filter, rebuilt per frame
 
-Char cmdBuf[192]   = {};
-Char filterBuf[64] = {};
+Array<Char, 192> cmdBuf= {};
+Array<Char, 64> filterBuf= {};
 Bool logAutoscroll = true;
 
 // Result of the last BOOTSEL touch, so a failure is not silent.
@@ -399,8 +399,8 @@ Float64 lightsLastPoll = 0.0;
 // only two of them exist in copper. That is the point of the split: wiring the
 // next LED changes a table in the firmware and nothing here.
 constexpr Int32 LAMP_N = 10;
-Int32 boardLamp[LAMP_N] = {};
-Int32 boardLampPin[LAMP_N] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+Array<Int32, LAMP_N> boardLamp= {};
+Array<Int32, LAMP_N> boardLampPin= { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 
 Int32 driveServoMin = 1300;
 Int32 driveServoMax = 1700;
@@ -448,7 +448,7 @@ UInt64  tofReplies   = 0;
 // A rolling history for the strip chart. Fixed size, oldest overwritten - a
 // chart that grows without bound is a leak with a picture on it.
 constexpr Int32 TOF_HISTORY = 240;
-Float32 tofHistory[TOF_HISTORY] = {};
+Array<Float32, TOF_HISTORY> tofHistory= {};
 Int32   tofHistoryAt = 0;
 Bool    tofHistoryWrapped = false;
 
@@ -550,7 +550,7 @@ Void resetBoardStatus()
 constexpr Size FLASH_LOG_MAX = 3000;
 Vec<Str> flashLog;
 
-Char backupBuf[320] = {};
+Array<Char, 320> backupBuf= {};
 Bool flashAutoscroll = true;
 
 // Set when the confirm modal is opened, so the modal can name what it is about
@@ -594,7 +594,7 @@ enum Section
 // four load normally.
 Int32 sectionOrder[SECTION_COUNT] = { SECTION_SYSTEM, SECTION_SENSORS, SECTION_VEHICLE,
                                   SECTION_FIRMWARE };
-Bool  sectionFloating[SECTION_COUNT] = {};
+Array<Bool, SECTION_COUNT> sectionFloating= {};
 
 // Logical (96-dpi) pixels, so the column keeps its apparent width across a DPI
 // change or a zoom rather than growing in one and not the other.
@@ -656,7 +656,7 @@ Void loadPanelLayout()
     // file costs a default layout rather than a parser.
     Size i = 0;
     Int32 seen = 0;
-    Int32 order[SECTION_COUNT] = {};
+    Array<Int32, SECTION_COUNT> order= {};
 
     while(i < txt.size())
     {
@@ -708,7 +708,7 @@ Void loadPanelLayout()
     // one would silently drop a section off the screen with no way back.
     if(seen == SECTION_COUNT)
     {
-        Bool used[SECTION_COUNT] = {};
+        Array<Bool, SECTION_COUNT> used= {};
         Bool ok = true;
         for(Int32 k = 0; k < SECTION_COUNT; ++k)
         {
@@ -728,24 +728,24 @@ Void loadPanelLayout()
 Void savePanelLayout()
 {
     // Wide enough for the longest line here, which is a panel record.
-    Char buf[160];
+    Array<Char, 160> buf;
     Str out;
-    std::snprintf(buf, sizeof(buf), "w %.0f\n", static_cast<Float64>(sidebarLogicalW));
-    out += buf;
-    std::snprintf(buf, sizeof(buf), "t %.0f %d\n",
+    std::snprintf(buf.data(), buf.size(), "w %.0f\n", static_cast<Float64>(sidebarLogicalW));
+    out += buf.data();
+    std::snprintf(buf.data(), buf.size(), "t %.0f %d\n",
                   static_cast<Float64>(codeTreeLogicalW),
                   codeTreeCollapsed ? 1 : 0);
-    out += buf;
-    std::snprintf(buf, sizeof(buf), "k %.0f %d\n",
+    out += buf.data();
+    std::snprintf(buf.data(), buf.size(), "k %.0f %d\n",
                   static_cast<Float64>(consoleLogicalW),
                   consoleOpen ? 1 : 0);
-    out += buf;
+    out += buf.data();
 
     for(Int32 k = 0; k < SECTION_COUNT; ++k)
     {
-        std::snprintf(buf, sizeof(buf), "s %d %d\n",
+        std::snprintf(buf.data(), buf.size(), "s %d %d\n",
                       sectionOrder[k], sectionFloating[sectionOrder[k]] ? 1 : 0);
-        out += buf;
+        out += buf.data();
     }
     settings::write("panels.txt", out);
 }
@@ -921,7 +921,7 @@ lights::AutoState autoLightState;
 
 // Rolling rotation-rate history for the sparkline.
 constexpr Int32 HISTORY = 240;
-Float32 hzHist[HISTORY] = {};
+Array<Float32, HISTORY> hzHist= {};
 Int32   hzCount = 0;
 
 // The C1M1 datasheet rev 1.1 lists exactly ONE rate: Figure 2-1 gives
@@ -1121,7 +1121,7 @@ Bool picoUserDisconnected  = false;
 // The ADDRESS only. The network password never reaches the hub at all - it goes
 // from the person to the board over the USB console and lives in the board's
 // RAM until it is reset. See firmware/lib/net.h.
-Char wifiHost[64]    = "";
+Array<Char, 64> wifiHost{};
 Bool wifiHostLoaded  = false;
 
 const Char* const WIFI_HOST_FILE = "car-address.txt";
@@ -1136,7 +1136,7 @@ Void loadWifiHost()
 
     const Str saved = settings::read(WIFI_HOST_FILE);
     Size n = 0;
-    while(n < saved.size() && n + 1 < sizeof(wifiHost)
+    while(n < saved.size() && n + 1 < wifiHost.size()
           && saved[n] != '\n' && saved[n] != '\r')
     {
         wifiHost[n] = saved[n];
@@ -1530,11 +1530,11 @@ Void observeLine(const PicoLine& ln)
 
         if(const Char* q = std::strstr(p, "levels="))
         {
-            commas(q + 7, boardLamp, LAMP_N);
+            commas(q + 7, boardLamp.data(), LAMP_N);
         }
         if(const Char* q = std::strstr(p, "pins="))
         {
-            commas(q + 5, boardLampPin, LAMP_N);
+            commas(q + 5, boardLampPin.data(), LAMP_N);
         }
         return;
     }
@@ -1973,7 +1973,7 @@ Bool logMatches(const PicoLine& ln)
     for(; *hay; ++hay)
     {
         const Char* h = hay;
-        const Char* n = filterBuf;
+        const Char* n = filterBuf.data();
         while(*n && *h &&
                std::tolower(static_cast<UInt8>(*h)) == std::tolower(static_cast<UInt8>(*n)))
                {
@@ -1992,7 +1992,7 @@ Void recomputeDerived()
 {
     pointsPs = latestFrame.hz * static_cast<Float32>(latestFrame.points.size());
 
-    Float32 sectorMm[SECTORS] = {};
+    Array<Float32, SECTORS> sectorMm= {};
     for(Int32 i = 0; i < QUALITY_BUCKETS; ++i)
     {
         qHist[i] = 0.0f;
@@ -2002,8 +2002,8 @@ Void recomputeDerived()
         distHist[i] = 0.0f;
     }
 
-    static Bool binSeen[360];
-    std::memset(binSeen, 0, sizeof(binSeen));
+    static Array<Bool, 360> binSeen;
+    std::memset(binSeen.data(), 0, (binSeen.size() * sizeof(Bool)));
 
     Float64 sum   = 0.0;
     Float64 qSum = 0.0;
@@ -2103,7 +2103,7 @@ Void recomputeDerived()
     }
     else
     {
-        std::memmove(hzHist, hzHist + 1, sizeof(Float32) * (HISTORY - 1));
+        std::memmove(hzHist.data(), hzHist.data() + 1, sizeof(Float32) * (HISTORY - 1));
         hzHist[HISTORY - 1] = latestFrame.hz;
     }
 }
@@ -2121,11 +2121,11 @@ Void defaultBackupName()
     std::tm     lt{};
     localtime_s(&lt, &t);
 
-    Char stamp[32];
-    std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M", &lt);
+    Array<Char, 32> stamp;
+    std::strftime(stamp.data(), stamp.size(), "%Y%m%d-%H%M", &lt);
 
-    std::snprintf(backupBuf, sizeof(backupBuf), "%s\\vendor\\pico-flash-%s.uf2",
-                  root.empty() ? "." : root.c_str(), stamp);
+    std::snprintf(backupBuf.data(), backupBuf.size(), "%s\\vendor\\pico-flash-%s.uf2",
+                  root.empty() ? "." : root.c_str(), stamp.data());
 }
 
 // The most useful line of the flash/build log: the last one the script marked
@@ -2639,7 +2639,7 @@ Void startBackup()
     // its COM port away; an open link would just fault.
     picoLink.disconnect();
     releasePicoPortForBoardOp();
-    picoFlash.backup(backupBuf);
+    picoFlash.backup(backupBuf.data());
 }
 
 // ------------------------------------------------------------- HUD on map
@@ -2671,49 +2671,49 @@ Void drawMapHud(const ImVec2& p0, const ImVec2& size)
 
     if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
     {
-        Char conn[64];
-        std::snprintf(conn, sizeof(conn), "%s  -  %d baud",
+        Array<Char, 64> conn;
+        std::snprintf(conn.data(), conn.size(), "%s  -  %d baud",
                       lidarPorts[portIndex].c_str(), BAUDS[baudIndex].rate);
-        dl->AddText(f, px, ImVec2(x, y), ui::plot::LABEL, conn);
+        dl->AddText(f, px, ImVec2(x, y), ui::plot::LABEL, conn.data());
     }
 
     // ---- top right: throughput ------------------------------------------
-    Char thru[96];
-    std::snprintf(thru, sizeof(thru), "%.0f pts/s   %.0f fps",
+    Array<Char, 96> thru;
+    std::snprintf(thru.data(), thru.size(), "%.0f pts/s   %.0f fps",
                   pointsPs, ImGui::GetIO().Framerate);
-    const Float32 tw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, thru).x;
-    dl->AddText(f, px, ImVec2(p0.x + size.x - pad - tw, y), ui::plot::LABEL, thru);
+    const Float32 tw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, thru.data()).x;
+    dl->AddText(f, px, ImVec2(p0.x + size.x - pad - tw, y), ui::plot::LABEL, thru.data());
 
     // ---- bottom left: cursor / measurement -------------------------------
-    Char read[128];
+    Array<Char, 128> read;
     read[0] = '\0';
 
     if(radarView.measuring)
-        std::snprintf(read, sizeof(read), "measure   %.2f m", radarView.measureMm / 1000.0f);
+        std::snprintf(read.data(), read.size(), "measure   %.2f m", radarView.measureMm / 1000.0f);
     else if(radarView.cursorValid)
-        std::snprintf(read, sizeof(read), "%.1f deg   %.2f m",
+        std::snprintf(read.data(), read.size(), "%.1f deg   %.2f m",
                       radarView.cursorBearingDeg, radarView.cursorRangeMm / 1000.0f);
 
     if(read[0])
     {
-        const Float32 rw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, read).x;
+        const Float32 rw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, read.data()).x;
         const ImVec2 bp(p0.x + pad, p0.y + size.y - pad - px - 10.0f * uiDpiScale);
         const ImVec2 be(bp.x + rw + 18.0f * uiDpiScale, bp.y + px + 12.0f * uiDpiScale);
         // A raised plate, the same treatment the buttons get: a readout sitting
         // on the display still belongs to the machine around it.
         ui::plate(bp, be, IM_COL32(0x33, 0x36, 0x3B, 0xF2), ImGui::GetStyle().FrameRounding);
         dl->AddText(f, px, ImVec2(bp.x + 9.0f * uiDpiScale, bp.y + 6.0f * uiDpiScale),
-                    IM_COL32(235, 238, 242, 255), read);
+                    IM_COL32(235, 238, 242, 255), read.data());
     }
 
     // ---- bottom right: zoom state ----------------------------------------
-    Char zoom[96];
-    std::snprintf(zoom, sizeof(zoom), "%s   %.1f m across",
+    Array<Char, 96> zoom;
+    std::snprintf(zoom.data(), zoom.size(), "%s   %.1f m across",
                   radarView.isAutoFit() ? "fit" : "manual",
                   radarView.visibleRangeMm() * 2.0f / 1000.0f);
-    const Float32 zw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, zoom).x;
+    const Float32 zw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, zoom.data()).x;
     dl->AddText(f, px, ImVec2(p0.x + size.x - pad - zw, p0.y + size.y - pad - px),
-                ui::plot::LABEL, zoom);
+                ui::plot::LABEL, zoom.data());
 
     // ---- second line, top left: the active mode and its reading ----------
     //
@@ -2734,7 +2734,7 @@ Void drawMapHud(const ImVec2& p0, const ImVec2& size)
         mx += f->CalcTextSizeA(px, FLT_MAX, 0.0f, mn).x + 12.0f * uiDpiScale;
 
         if(radarView.diag[0] != 0)
-            dl->AddText(f, px, ImVec2(mx, my), ui::plot::LABEL, radarView.diag);
+            dl->AddText(f, px, ImVec2(mx, my), ui::plot::LABEL, radarView.diag.data());
     }
 }
 
@@ -2756,27 +2756,27 @@ Void statCell(const Char* value, const Char* caption)
 
 Void keyValue(const Char* k, const Char* fmt, ...)
 {
-    Char buf[128];
+    Array<Char, 128> buf;
     va_list ap;
     va_start(ap, fmt);
-    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    std::vsnprintf(buf.data(), buf.size(), fmt, ap);
     va_end(ap);
 
     ImGui::TableNextRow();
     ImGui::TableNextColumn(); ImGui::TextDisabled("%s", k);
-    ImGui::TableNextColumn(); ImGui::TextUnformatted(buf);
+    ImGui::TableNextColumn(); ImGui::TextUnformatted(buf.data());
 }
 
 Void colored(ImU32 col, const Char* fmt, ...)
 {
-    Char buf[192];
+    Array<Char, 192> buf;
     va_list ap;
     va_start(ap, fmt);
-    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    std::vsnprintf(buf.data(), buf.size(), fmt, ap);
     va_end(ap);
 
     ImGui::PushStyleColor(ImGuiCol_Text, col);
-    ImGui::TextUnformatted(buf);
+    ImGui::TextUnformatted(buf.data());
     ImGui::PopStyleColor();
 }
 
@@ -2919,8 +2919,8 @@ Float32 drawZoomControl(Float32 cy, Float32 rightEdge)
 {
     const ImGuiStyle& sty = ImGui::GetStyle();
 
-    Char pct[16];
-    std::snprintf(pct, sizeof(pct), "%d%%",
+    Array<Char, 16> pct;
+    std::snprintf(pct.data(), pct.size(), "%d%%",
                   static_cast<Int32>(ui::userScale() * 100.0f + 0.5f));
 
     const Float32 btnW = ImGui::CalcTextSize("A+").x + sty.FramePadding.x * 2.0f;
@@ -2961,12 +2961,12 @@ Float32 drawZoomControl(Float32 cy, Float32 rightEdge)
     // sized for "000%" so the buttons either side never move as the number
     // changes, and left-aligning inside it meant 90% and 110% sat at different
     // distances from the button on their right.
-    const ImVec2   psz  = ImGui::CalcTextSize(pct);
+    const ImVec2   psz  = ImGui::CalcTextSize(pct.data());
     const Float32  slot = x0 + btnW + gap;
     const Float32  px   = slot + ((pctW - psz.x) * 0.5f);
     ImGui::GetWindowDrawList()->AddText(ImVec2(px, cy - psz.y * 0.5f),
                                         ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                                        pct);
+                                        pct.data());
 
     // An invisible hit box over it, so the click-to-reset and the tooltip still
     // work now that the text is drawn rather than submitted.
@@ -3009,17 +3009,17 @@ Void drawStatusBar()
     const Float32 stopAt = drawZoomControl(pen.cy, p0.x + av.x);
 
     // ---- lidar ----------------------------------------------------------
-    Char lidarExtra[64] = {};
+    Array<Char, 64> lidarExtra= {};
     if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
-        std::snprintf(lidarExtra, sizeof(lidarExtra), "%s  %.1f Hz",
+        std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s  %.1f Hz",
                       (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
                           ? lidarPorts[portIndex].c_str() : "",
                       haveFrame ? latestFrame.hz : 0.0f);
     else if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
-        std::snprintf(lidarExtra, sizeof(lidarExtra), "%s", lidarPorts[portIndex].c_str());
+        std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s", lidarPorts[portIndex].c_str());
 
     stripField(pen, ui::Icon::ICON_RADAR, "LIDAR", lidarStateColor(),
-               lidarStateText(), lidarExtra);
+               lidarStateText(), lidarExtra.data());
 
     // ---- pico link -------------------------------------------------------
     stripSep(pen);
@@ -3157,7 +3157,7 @@ Void drawSubsystems()
     {
         subsystemRow(ui::Icon::ICON_NETWORK, "UDP link", ui::sem::MUTED,
                      "not in use",
-                     wifiHost[0] != '\0' ? wifiHost : "", false);
+                     wifiHost[0] != '\0' ? wifiHost.data() : "", false);
     }
 
     ImGui::EndTable();
@@ -3193,9 +3193,9 @@ Void drawWifiLink(Float32 bh)
     ImGui::BeginDisabled(live);
     ImGui::SetNextItemWidth(-FLT_MIN);
     if(ImGui::InputTextWithHint("##carip", "the car's address, e.g. 192.168.1.42",
-                                wifiHost, sizeof(wifiHost)))
+                                wifiHost.data(), wifiHost.size()))
     {
-        settings::write(WIFI_HOST_FILE, Str(wifiHost));
+        settings::write(WIFI_HOST_FILE, Str(wifiHost.data()));
     }
     ImGui::EndDisabled();
 
@@ -3235,9 +3235,9 @@ Void drawWifiLink(Float32 bh)
         if(ui::iconButton(ui::Icon::ICON_NETWORK, "Link over Wi-Fi",
                           ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
         {
-            LOG_INFO("pico", "linking to %s over UDP", wifiHost);
+            LOG_INFO("pico", "linking to %s over UDP", wifiHost.data());
             picoUserDisconnected = false;
-            picoLink.connectUdp(Str(wifiHost));
+            picoLink.connectUdp(Str(wifiHost.data()));
         }
         ImGui::EndDisabled();
 
@@ -3542,13 +3542,13 @@ Void sensorRow(Int32 index, Bool wired, Bool* vis, const Char* name, ImU32 col, 
 Void drawSensorList()
 {
 
-    Char st[48];
+    Array<Char, 48> st;
     if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
-        std::snprintf(st, sizeof(st), "%.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
+        std::snprintf(st.data(), st.size(), "%.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
     else
-        std::snprintf(st, sizeof(st), "%s", lidarStateText());
+        std::snprintf(st.data(), st.size(), "%s", lidarStateText());
 
-    sensorRow(0, true, &layerLidar, "RPLIDAR C1", lidarStateColor(), st);
+    sensorRow(0, true, &layerLidar, "RPLIDAR C1", lidarStateColor(), st.data());
 
     static Bool off = false;
     sensorRow(1, false, &off, "ToF front level (GP10)",   ui::sem::MUTED, "not wired");
@@ -3561,30 +3561,34 @@ Void drawSensorList()
 
 Void tabLive()
 {
-    Char hz[24] = "--", pts[24] = "--", valid[24] = "--";
-    Char nearS[24] = "--", meanS[24] = "--", maxS[24] = "--";
+    Array<Char, 24> hz    = {'-', '-'};
+    Array<Char, 24> pts   = {'-', '-'};
+    Array<Char, 24> valid = {'-', '-'};
+    Array<Char, 24> nearS = {'-', '-'};
+    Array<Char, 24> meanS = {'-', '-'};
+    Array<Char, 24> maxS  = {'-', '-'};
 
     if(haveFrame)
     {
-        std::snprintf(hz,  sizeof(hz),  "%.1f", latestFrame.hz);
-        std::snprintf(pts, sizeof(pts), "%d",   static_cast<Int32>(latestFrame.points.size()));
+        std::snprintf(hz.data(),  hz.size(),  "%.1f", latestFrame.hz);
+        std::snprintf(pts.data(), sizeof(pts.data()), "%d",   static_cast<Int32>(latestFrame.points.size()));
 
         const Float64 frac = latestFrame.points.empty()
                           ? 0.0 : static_cast<Float64>(nInspec) / static_cast<Float64>(latestFrame.points.size());
-        std::snprintf(valid, sizeof(valid), "%d%%", static_cast<Int32>((frac * 100.0 + 0.5)));
+        std::snprintf(valid.data(), sizeof(valid.data()), "%d%%", static_cast<Int32>((frac * 100.0 + 0.5)));
 
         if(radarView.hasNearest)
-            std::snprintf(nearS, sizeof(nearS), "%.2f", radarView.nearestMm / 1000.0f);
-        std::snprintf(meanS, sizeof(meanS), "%.2f", meanMm / 1000.0f);
-        std::snprintf(maxS,  sizeof(maxS),  "%.2f", maxRangeMm / 1000.0f);
+            std::snprintf(nearS.data(), nearS.size(), "%.2f", radarView.nearestMm / 1000.0f);
+        std::snprintf(meanS.data(), sizeof(meanS.data()), "%.2f", meanMm / 1000.0f);
+        std::snprintf(maxS.data(),  sizeof(maxS.data()),  "%.2f", maxRangeMm / 1000.0f);
     }
 
     if(ImGui::BeginTable("stats", 3, ImGuiTableFlags_SizingStretchSame))
     {
         ImGui::TableNextRow();
-        ImGui::TableNextColumn(); statCell(hz,     "Hz");
-        ImGui::TableNextColumn(); statCell(pts,    "pts/rev");
-        ImGui::TableNextColumn(); statCell(valid,  "in-spec");
+        ImGui::TableNextColumn(); statCell(hz.data(),     "Hz");
+        ImGui::TableNextColumn(); statCell(pts.data(),    "pts/rev");
+        ImGui::TableNextColumn(); statCell(valid.data(),  "in-spec");
         if(ImGui::IsItemHovered())
         {
             ImGui::SetTooltip(
@@ -3602,19 +3606,19 @@ Void tabLive()
         }
 
         ImGui::TableNextRow();
-        ImGui::TableNextColumn(); statCell(nearS, "near (m)");
-        ImGui::TableNextColumn(); statCell(meanS, "mean (m)");
-        ImGui::TableNextColumn(); statCell(maxS,  "max (m)");
+        ImGui::TableNextColumn(); statCell(nearS.data(), "near (m)");
+        ImGui::TableNextColumn(); statCell(meanS.data(), "mean (m)");
+        ImGui::TableNextColumn(); statCell(maxS.data(),  "max (m)");
         ImGui::EndTable();
     }
 
-    Char overlay[48];
-    std::snprintf(overlay, sizeof(overlay), "rotation  %.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
-    ImGui::PlotLines("##hz", hzHist, hzCount, 0, overlay,
+    Array<Char, 48> overlay;
+    std::snprintf(overlay.data(), overlay.size(), "rotation  %.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
+    ImGui::PlotLines("##hz", hzHist.data(), hzCount, 0, overlay.data(),
                      0.0f, 15.0f, ImVec2(-FLT_MIN, 46.0f * uiDpiScale));
 
     ImGui::TextDisabled("Clearance by sector (m, capped %.1f)", CLEARANCE_CAP_M);
-    ImGui::PlotHistogram("##sectors", sectorM, SECTORS, 0, nullptr,
+    ImGui::PlotHistogram("##sectors", sectorM.data(), SECTORS, 0, nullptr,
                          0.0f, CLEARANCE_CAP_M, ImVec2(-FLT_MIN, 58.0f * uiDpiScale));
 }
 
@@ -3663,7 +3667,7 @@ Void tabSignal()
     // completely invisible - it is the main clue when returns start dropping.
     ImGui::TextDisabled("Signal quality  (mean %.1f, range %d-%d of 63)",
                         qMean, qMin, qMax);
-    ImGui::PlotHistogram("##qhist", qHist, QUALITY_BUCKETS, 0, nullptr,
+    ImGui::PlotHistogram("##qhist", qHist.data(), QUALITY_BUCKETS, 0, nullptr,
                          0.0f, qHistMax, ImVec2(-FLT_MIN, 62.0f * uiDpiScale));
 }
 
@@ -3691,7 +3695,7 @@ Void tabScan()
 
     ImGui::Spacing();
     ImGui::TextDisabled("Range distribution (0 - 12 m, 0.5 m bins)");
-    ImGui::PlotHistogram("##dhist", distHist, DIST_BUCKETS, 0, nullptr,
+    ImGui::PlotHistogram("##dhist", distHist.data(), DIST_BUCKETS, 0, nullptr,
                          0.0f, distHistMax, ImVec2(-FLT_MIN, 70.0f * uiDpiScale));
 }
 
@@ -3921,8 +3925,8 @@ Void sectionSensors()
         };
 
         {
-            Char lb[40];
-            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Live"),
+            Array<Char, 40> lb;
+            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb.data(), lb.size(), "Live"),
                                                nullptr, sub(0));
             tabIcon(ui::Icon::ICON_LIVE);
             if(t)
@@ -3932,8 +3936,8 @@ Void sectionSensors()
             }
         }
         {
-            Char lb[40];
-            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Signal"),
+            Array<Char, 40> lb;
+            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb.data(), lb.size(), "Signal"),
                                                nullptr, sub(1));
             tabIcon(ui::Icon::ICON_SIGNAL);
             if(t)
@@ -3943,8 +3947,8 @@ Void sectionSensors()
             }
         }
         {
-            Char lb[40];
-            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Scan"),
+            Array<Char, 40> lb;
+            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb.data(), lb.size(), "Scan"),
                                                nullptr, sub(2));
             tabIcon(ui::Icon::ICON_SCAN);
             if(t)
@@ -3954,8 +3958,8 @@ Void sectionSensors()
             }
         }
         {
-            Char lb[40];
-            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb, sizeof(lb), "Device"),
+            Array<Char, 40> lb;
+            const Bool t = ImGui::BeginTabItem(iconTabLabel(lb.data(), lb.size(), "Device"),
                                                nullptr, sub(3));
             tabIcon(ui::Icon::ICON_DEVICE);
             if(t)
@@ -4240,18 +4244,18 @@ Void drawRecorderHud(const ImVec2& p0, const ImVec2& size)
     ImFont* f = ui::fonts.small ? ui::fonts.small : ImGui::GetFont();
     const Float32 fs = f->LegacySize > 0.0f ? f->LegacySize : ImGui::GetFontSize();
 
-    Char line[192];
+    Array<Char, 192> line;
     ImU32 col = ui::sem::MUTED;
 
     if(recArmed)
     {
-        std::snprintf(line, sizeof(line), "RECORDING  -  %zu revolutions",
+        std::snprintf(line.data(), line.size(), "RECORDING  -  %zu revolutions",
                       recording.count());
         col = ui::sem::BAD;
     }
     else if(!recording.empty())
     {
-        std::snprintf(line, sizeof(line),
+        std::snprintf(line.data(), line.size(),
                       "%s  -  revolution %zu of %zu  -  %.2f s",
                       recPlaying ? "PLAYING" : "PAUSED",
                       recIndex + 1u, recording.count(), recPlayS);
@@ -4259,13 +4263,13 @@ Void drawRecorderHud(const ImVec2& p0, const ImVec2& size)
     }
     else
     {
-        std::snprintf(line, sizeof(line), "%s",
+        std::snprintf(line.data(), line.size(), "%s",
                       (lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
                           ? "live  -  press Record to capture"
                           : "no lidar; connect one to record");
     }
 
-    dl->AddText(f, fs, ImVec2(p0.x + pad, p0.y + pad), col, line);
+    dl->AddText(f, fs, ImVec2(p0.x + pad, p0.y + pad), col, line.data());
     static_cast<Void>(size);
 }
 
@@ -5394,17 +5398,17 @@ Void drawCueBody(Float32 w, Float32 h)
                                  : c.latched     ? ui::Tint::TINT_GOOD
                                                  : ui::Tint::TINT_WARN;
 
-            Char label[64];
-            std::snprintf(label, sizeof(label), "%s", c.name.c_str());
-            for(Char* q = label; *q != '\0'; ++q)
+            Array<Char, 64> label;
+            std::snprintf(label.data(), label.size(), "%s", c.name.c_str());
+            for(Char* q = label.data(); *q != '\0'; ++q)
             {
                 *q = static_cast<Char>(std::toupper(static_cast<UInt8>(*q)));
             }
 
-            if(ui::iconButton(ui::Icon::ICON_LAMP, label,
+            if(ui::iconButton(ui::Icon::ICON_LAMP, label.data(),
                               ImVec2(-FLT_MIN, btnH), tint))
             {
-                Char cmd[80];
+                Array<Char, 80> cmd;
 
                 // Pressing a sticky cue that a PERSON is holding lowers it.
                 // Pressing one the CAR raised takes it over rather than
@@ -5412,15 +5416,15 @@ Void drawCueBody(Float32 w, Float32 h)
                 // nothing because the next tick puts it straight back.
                 if(sticky && c.on && c.latched)
                 {
-                    std::snprintf(cmd, sizeof(cmd), "CUE %s OFF", c.name.c_str());
+                    std::snprintf(cmd.data(), cmd.size(), "CUE %s OFF", c.name.c_str());
                 }
                 else
                 {
-                    std::snprintf(cmd, sizeof(cmd), "CUE %s", c.name.c_str());
+                    std::snprintf(cmd.data(), cmd.size(), "CUE %s", c.name.c_str());
                 }
 
-                sendPico(cmd);
-                LOG_INFO("cue", "%s", cmd + 4);
+                sendPico(cmd.data());
+                LOG_INFO("cue", "%s", cmd.data() + 4);
             }
 
             if(ImGui::IsItemHovered())
@@ -5674,8 +5678,8 @@ Void drawRangeBody(Float32 w, Float32 h)
 
     // ---- the number ------------------------------------------------------
     {
-        Char buf[32];
-        std::snprintf(buf, sizeof(buf), good ? "%d" : "----", tofMm);
+        Array<Char, 32> buf;
+        std::snprintf(buf.data(), buf.size(), good ? "%d" : "----", tofMm);
 
         ImFont* const f  = ui::fonts.big ? ui::fonts.big : ImGui::GetFont();
         const Float32 fs = (f != nullptr && f->LegacySize > 0.0f)
@@ -5683,20 +5687,20 @@ Void drawRangeBody(Float32 w, Float32 h)
                          : ImGui::GetFontSize() * 3.0f;
 
         dl->AddText(f, fs, ImVec2(p0.x + pad, top),
-                    good ? ui::ansi::BRWHITE : ui::sem::MUTED, buf);
+                    good ? ui::ansi::BRWHITE : ui::sem::MUTED, buf.data());
 
-        const Float32 numW = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf).x;
+        const Float32 numW = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf.data()).x;
         dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
                            top + fs * 0.55f),
                     ui::sem::MUTED, "mm");
 
         if(good)
         {
-            std::snprintf(buf, sizeof(buf), "%d.%02d m",
+            std::snprintf(buf.data(), buf.size(), "%d.%02d m",
                           tofMm / 1000, (tofMm % 1000) / 10);
             dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
                                top + fs * 0.05f),
-                        ui::plot::OK, buf);
+                        ui::plot::OK, buf.data());
         }
 
         // The status, spelled out. A bad reading is not a short reading.
@@ -5740,12 +5744,12 @@ Void drawRangeBody(Float32 w, Float32 h)
         dl->AddLine(ImVec2(c0.x, gy), ImVec2(c1.x, gy),
                     IM_COL32(0x26, 0x28, 0x2E, 0xFF));
 
-        Char lab[16];
-        std::snprintf(lab, sizeof(lab), "%.1fm",
+        Array<Char, 16> lab;
+        std::snprintf(lab.data(), lab.size(), "%.1fm",
                       static_cast<Float64>(FULL_MM * (static_cast<Float32>(g) / 4.0f)
                                            / 1000.0f));
         dl->AddText(ImVec2(c0.x + 4.0f, gy - 14.0f * uiDpiScale),
-                    IM_COL32(0x50, 0x52, 0x58, 0xFF), lab);
+                    IM_COL32(0x50, 0x52, 0x58, 0xFF), lab.data());
     }
 
     {
@@ -5781,7 +5785,7 @@ Void drawRangeBody(Float32 w, Float32 h)
 
     // ---- the footer ------------------------------------------------------
     {
-        Char buf[96];
+        Array<Char, 96> buf;
         if(tofSeenMax > 0)
         {
             // Raw, in the sensor's own fixed point. Scaling them into
@@ -5790,7 +5794,7 @@ Void drawRangeBody(Float32 w, Float32 h)
             // whole diagnostic and it is scale-free.
             if(tofSignal >= 0)
             {
-                std::snprintf(buf, sizeof(buf),
+                std::snprintf(buf.data(), buf.size(),
                               "seen %d - %d mm   %llu readings   "
                               "signal %d   ambient %d",
                               tofSeenMin, tofSeenMax,
@@ -5799,7 +5803,7 @@ Void drawRangeBody(Float32 w, Float32 h)
             }
             else
             {
-                std::snprintf(buf, sizeof(buf),
+                std::snprintf(buf.data(), buf.size(),
                               "seen %d - %d mm     %llu readings",
                               tofSeenMin, tofSeenMax,
                               static_cast<unsigned long long>(tofReplies));
@@ -5807,9 +5811,9 @@ Void drawRangeBody(Float32 w, Float32 h)
         }
         else
         {
-            std::snprintf(buf, sizeof(buf), "no good reading yet");
+            std::snprintf(buf.data(), buf.size(), "no good reading yet");
         }
-        dl->AddText(ImVec2(c0.x, c1.y + 8.0f * uiDpiScale), ui::sem::MUTED, buf);
+        dl->AddText(ImVec2(c0.x, c1.y + 8.0f * uiDpiScale), ui::sem::MUTED, buf.data());
 
         // How stale the number is. A link that has gone quiet leaves the last
         // reading on screen looking perfectly current, which is the one way a
@@ -5865,9 +5869,9 @@ Void drawRangeBody(Float32 w, Float32 h)
         const Float64 age = ImGui::GetTime() - tofLastReply;
         if(tofReplies > 0 && age > 1.0)
         {
-            std::snprintf(buf, sizeof(buf), "last reply %.0f s ago", age);
+            std::snprintf(buf.data(), buf.size(), "last reply %.0f s ago", age);
             dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale),
-                        ui::sem::WARN, buf);
+                        ui::sem::WARN, buf.data());
         }
     }
 
@@ -6030,9 +6034,9 @@ Void loadCalibration()
 
 Void saveCalibration()
 {
-    Char buf[64];
-    std::snprintf(buf, sizeof(buf), "%d %d %d\n", calLeft, calCenter, calRight);
-    settings::write("steering.txt", Str(buf));
+    Array<Char, 64> buf;
+    std::snprintf(buf.data(), buf.size(), "%d %d %d\n", calLeft, calCenter, calRight);
+    settings::write("steering.txt", Str(buf.data()));
 }
 
 // The generated header, built as text so the view can SHOW it before anything
@@ -6040,12 +6044,14 @@ Void saveCalibration()
 // reads until it is wrong.
 Str steeringCalText()
 {
-    Char when[64] = "unknown date";
+    // The fallback when localtime_s below fails; normally overwritten.
+    Array<Char, 64> when{};
+    std::snprintf(when.data(), when.size(), "unknown date");
     const std::time_t now = std::time(nullptr);
     std::tm           tm{};
     if(localtime_s(&tm, &now) == 0)
     {
-        std::strftime(when, sizeof(when), "%Y-%m-%d", &tm);
+        std::strftime(when.data(), when.size(), "%Y-%m-%d", &tm);
     }
 
     /*
@@ -6062,8 +6068,8 @@ Str steeringCalText()
      * ever does not fit, this returns nothing and the caller refuses to write,
      * because no file at all is a better outcome than half of one.
      */
-    Char buf[8192];
-    const Int32 need = std::snprintf(buf, sizeof(buf),
+    Array<Char, 8192> buf;
+    const Int32 need = std::snprintf(buf.data(), buf.size(),
         "/* ---------------------------------------------------------------------------\n"
         " * Steering calibration - GENERATED.\n"
         " *\n"
@@ -6142,16 +6148,16 @@ Str steeringCalText()
         " * rather than trusted. \"defaults\" means nobody has calibrated this car yet. */\n"
         "#define STEER_CAL_STAMP \"measured %s\"\n",
         calLeft, calCenter, calRight, driveEscMin, driveEscMax,
-        driveSlew, driveEscSlew, boardLightsOff, when);
+        driveSlew, driveEscSlew, boardLightsOff, when.data());
 
-    if(need < 0 || static_cast<Size>(need) >= sizeof(buf))
+    if(need < 0 || static_cast<Size>(need) >= buf.size())
     {
         LOG_WARN("drive", "cal.hxx would be %d bytes, buffer is %d - not written",
-                 need, static_cast<Int32>(sizeof(buf)));
+                 need, static_cast<Int32>(buf.size()));
         return Str();
     }
 
-    return Str(buf);
+    return Str(buf.data());
 }
 
 // Pulls the three numbers back out of a generated header.
@@ -6251,9 +6257,9 @@ Void calRow(const Char* label, const Char* help, Int32* value)
     {
         driveSweep     = false;
         driveServoWant = *value;
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "SERVO %d", *value);
-        sendPico(cmd);
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "SERVO %d", *value);
+        sendPico(cmd.data());
     }
     ImGui::EndDisabled();
     if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -6622,10 +6628,10 @@ Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32
 
     // The angle beside the front axle: a number and a picture of the same
     // thing, because one is checkable and the other is fast.
-    Char deglabel[24];
-    std::snprintf(deglabel, sizeof(deglabel), "%+.0f deg", static_cast<Float64>(deg));
+    Array<Char, 24> deglabel;
+    std::snprintf(deglabel.data(), deglabel.size(), "%+.0f deg", static_cast<Float64>(deg));
     dl->AddText(ImVec2(mid.x + track + (wheelW * 2.6f), axleF - (7.0f * uiDpiScale)),
-                servoLive ? ui::ansi::BRYELLOW : faint, deglabel);
+                servoLive ? ui::ansi::BRYELLOW : faint, deglabel.data());
 
     // A hard border rather than the bevelled inset the rest of the panel uses.
     // The inset is a moulding, and this is a screen.
@@ -6786,9 +6792,9 @@ Void drawDriveBody(Float32 w, Float32 h)
                 driveServoWant = driveServoMin;
                 driveSweepDir  = 1;
             }
-            Char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
-            sendPico(cmd);
+            Array<Char, 32> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "SERVO %d", driveServoWant);
+            sendPico(cmd.data());
         }
     }
 
@@ -6819,7 +6825,7 @@ Void drawDriveBody(Float32 w, Float32 h)
 
         drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
                     driveSteerNow, power, driveServoOn, driveArmed,
-                    boardLamp, boardLampPin);
+                    boardLamp.data(), boardLampPin.data());
 
         ImGui::Dummy(ImVec2(full, cah));
         if(ImGui::IsItemHovered())
@@ -6932,10 +6938,10 @@ Void drawDriveBody(Float32 w, Float32 h)
     if(ImGui::SliderFloat("##steer", &driveSteerWant, -1.0f, 1.0f, "%+.2f"))
     {
         driveSweep = false;
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "STEER %.3f",
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "STEER %.3f",
                       static_cast<Float64>(driveSteerWant));
-        sendPico(cmd);
+        sendPico(cmd.data());
     }
     driveSteerHeld = ImGui::IsItemActive();
     if(ImGui::IsItemHovered())
@@ -6981,21 +6987,21 @@ Void drawDriveBody(Float32 w, Float32 h)
             const Int32 perSec = driveSlew * 50;
             const Int32 travel = driveServoMax - driveServoMin;
 
-            Char r[64];
-            std::snprintf(r, sizeof(r), "%d us/s   lock to lock %.2f s",
+            Array<Char, 64> r;
+            std::snprintf(r.data(), r.size(), "%d us/s   lock to lock %.2f s",
                           perSec,
                           (perSec > 0) ? (static_cast<Float64>(travel) / perSec)
                                        : 0.0);
-            driveReading(ui::sem::MUTED, r);
+            driveReading(ui::sem::MUTED, r.data());
         }
 
         ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
         if(ImGui::SliderInt("##slew", &driveSlewWant, 1, 200, "%d us/tick",
                             ImGuiSliderFlags_Logarithmic))
         {
-            Char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "SLEW STEER %d", driveSlewWant);
-            sendPico(cmd);
+            Array<Char, 32> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "SLEW STEER %d", driveSlewWant);
+            sendPico(cmd.data());
         }
         driveSlewHeld = ImGui::IsItemActive();
 
@@ -7047,9 +7053,9 @@ Void drawDriveBody(Float32 w, Float32 h)
     if(ImGui::SliderInt("##servo", &driveServoWant,
                         driveServoMin, driveServoMax, "%d us"))
     {
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
-        sendPico(cmd);
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "SERVO %d", driveServoWant);
+        sendPico(cmd.data());
     }
     driveServoHeld = ImGui::IsItemActive();
     if(ImGui::IsItemHovered())
@@ -7084,9 +7090,9 @@ Void drawDriveBody(Float32 w, Float32 h)
         driveSweep      = false;
         driveServoWant += by;
         driveServoWant  = clampInt(driveServoWant, driveServoMin, driveServoMax);
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "SERVO %d", driveServoWant);
-        sendPico(cmd);
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "SERVO %d", driveServoWant);
+        sendPico(cmd.data());
     };
 
     const Float32 bw = DRIVE_STEP_W * uiDpiScale;
@@ -7141,18 +7147,18 @@ Void drawDriveBody(Float32 w, Float32 h)
     // lines: the fraction, the raw slider, and this. A number repeated is a
     // number you stop reading.
     {
-        Char st[96];
+        Array<Char, 96> st;
         if(driveServoOn)
         {
-            std::snprintf(st, sizeof(st), "%+.2f   %d us   target %d us",
+            std::snprintf(st.data(), st.size(), "%+.2f   %d us   target %d us",
                           static_cast<Float64>(driveSteer), driveServo, driveServoT);
         }
         else
         {
-            std::snprintf(st, sizeof(st), "%+.2f   target %d us   not driven",
+            std::snprintf(st.data(), st.size(), "%+.2f   target %d us   not driven",
                           static_cast<Float64>(driveSteer), driveServoT);
         }
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "%s", st);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "%s", st.data());
     }
 
 
@@ -7194,11 +7200,11 @@ Void drawDriveBody(Float32 w, Float32 h)
         if(ui::iconButton(ui::Icon::ICON_SEND, "Send to the board",
                           ImVec2(200.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
         {
-            Char cmd[48];
-            std::snprintf(cmd, sizeof(cmd), "SERVOLIMITS %d %d", calLeft, calRight);
-            sendPico(cmd);
-            std::snprintf(cmd, sizeof(cmd), "SERVOTRIM %d", calCenter);
-            sendPico(cmd);
+            Array<Char, 48> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "SERVOLIMITS %d %d", calLeft, calRight);
+            sendPico(cmd.data());
+            std::snprintf(cmd.data(), cmd.size(), "SERVOTRIM %d", calCenter);
+            sendPico(cmd.data());
         }
         ImGui::EndDisabled();
         if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -7355,10 +7361,10 @@ Void drawDriveBody(Float32 w, Float32 h)
         if(ui::iconButton(ui::Icon::ICON_SAVE, "Apply to the board",
                           ImVec2(220.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
         {
-            Char cmd[48];
-            std::snprintf(cmd, sizeof(cmd), "SERVOLIMITS %d %d",
+            Array<Char, 48> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "SERVOLIMITS %d %d",
                           driveLimitLo, driveLimitHi);
-            sendPico(cmd);
+            sendPico(cmd.data());
             driveLimitsDirty = false;
         }
         ImGui::EndDisabled();
@@ -7389,10 +7395,10 @@ Void drawDriveBody(Float32 w, Float32 h)
     {
         const Float32 frac = throttleFraction(driveEsc);
 
-        Char r[32];
-        std::snprintf(r, sizeof(r), "%.0f%%",
+        Array<Char, 32> r;
+        std::snprintf(r.data(), r.size(), "%.0f%%",
                       static_cast<Float64>((driveArmed ? frac : 0.0f) * 100.0f));
-        driveReading(driveArmed ? ui::sem::WARN : ui::sem::MUTED, r);
+        driveReading(driveArmed ? ui::sem::WARN : ui::sem::MUTED, r.data());
     }
 
     // Arming is a separate, deliberate act. The slider does nothing until it
@@ -7421,9 +7427,9 @@ Void drawDriveBody(Float32 w, Float32 h)
     if(ImGui::SliderInt("##esc", &driveEscWant,
                         driveEscMin, driveEscMax, "%d us"))
     {
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "ESC %d", driveEscWant);
-        sendPico(cmd);
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "ESC %d", driveEscWant);
+        sendPico(cmd.data());
     }
     driveEscHeld = ImGui::IsItemActive();
     ImGui::EndDisabled();
@@ -7454,9 +7460,9 @@ Void drawDriveBody(Float32 w, Float32 h)
     {
         driveEscWant += by;
         driveEscWant  = clampInt(driveEscWant, driveEscMin, driveEscMax);
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "ESC %d", driveEscWant);
-        sendPico(cmd);
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "ESC %d", driveEscWant);
+        sendPico(cmd.data());
     };
 
     // A power bar, because a microsecond figure is not a sense of how much.
@@ -7513,10 +7519,10 @@ Void drawDriveBody(Float32 w, Float32 h)
     ImGui::EndDisabled();
 
     {
-        Char line[64];
-        std::snprintf(line, sizeof(line), "output %d us   target %d us   %s",
+        Array<Char, 64> line;
+        std::snprintf(line.data(), line.size(), "output %d us   target %d us   %s",
                       driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
-        driveLamp(driveArmed, driveArmed ? ui::sem::BAD : ui::sem::MUTED, line);
+        driveLamp(driveArmed, driveArmed ? ui::sem::BAD : ui::sem::MUTED, line.data());
     }
 
     // Response belongs WITH the thing it governs, not in a settings pile at the
@@ -7531,20 +7537,20 @@ Void drawDriveBody(Float32 w, Float32 h)
         const Int32 perSec = driveEscSlew * 50;
         const Int32 span   = driveEscMax - driveEscMin;
 
-        Char r[64];
-        std::snprintf(r, sizeof(r), "%d us/s   idle to full %.2f s",
+        Array<Char, 64> r;
+        std::snprintf(r.data(), r.size(), "%d us/s   idle to full %.2f s",
                       perSec,
                       (perSec > 0) ? (static_cast<Float64>(span) / perSec) : 0.0);
-        driveReading(ui::sem::MUTED, r);
+        driveReading(ui::sem::MUTED, r.data());
     }
 
     ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
     if(ImGui::SliderInt("##slewesc", &driveEscSlewWant, 1, 200, "%d us/tick",
                         ImGuiSliderFlags_Logarithmic))
     {
-        Char cmd[40];
-        std::snprintf(cmd, sizeof(cmd), "SLEW THROTTLE %d", driveEscSlewWant);
-        sendPico(cmd);
+        Array<Char, 40> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "SLEW THROTTLE %d", driveEscSlewWant);
+        sendPico(cmd.data());
     }
     driveEscSlewHeld = ImGui::IsItemActive();
 
@@ -7602,10 +7608,10 @@ Void drawDriveBody(Float32 w, Float32 h)
         if(ui::iconButton(ui::Icon::ICON_SAVE, "Apply to the board##esc",
                           ImVec2(220.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
         {
-            Char cmd[48];
-            std::snprintf(cmd, sizeof(cmd), "ESCLIMITS %d %d",
+            Array<Char, 48> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "ESCLIMITS %d %d",
                           driveEscLimitLo, driveEscLimitHi);
-            sendPico(cmd);
+            sendPico(cmd.data());
             driveEscLimitsDirty = false;
         }
         ImGui::EndDisabled();
@@ -7682,10 +7688,10 @@ Void drawDriveBody(Float32 w, Float32 h)
                            "Forward cap");
 
         {
-            Char r[48];
-            std::snprintf(r, sizeof(r), "%d us above idle",
+            Array<Char, 48> r;
+            std::snprintf(r.data(), r.size(), "%d us above idle",
                           wasdCapNow() - driveEscMin);
-            driveReading(ui::sem::MUTED, r);
+            driveReading(ui::sem::MUTED, r.data());
         }
 
         ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
@@ -7739,9 +7745,9 @@ Void drawDriveBody(Float32 w, Float32 h)
         ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
         if(ImGui::SliderInt("##lightsoff", &lightsOffWant, 0, 60, "%d us past idle"))
         {
-            Char cmd[40];
-            std::snprintf(cmd, sizeof(cmd), "LIGHTS OFFAT %d", lightsOffWant);
-            sendPico(cmd);
+            Array<Char, 40> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "LIGHTS OFFAT %d", lightsOffWant);
+            sendPico(cmd.data());
         }
         lightsOffHeld = ImGui::IsItemActive();
 
@@ -8129,10 +8135,10 @@ Void drawTabbedViews(Float32 mapW, Float32 viewH)
     const Int32 total = VIEW_COUNT;
     for(Int32 v = 0; v < total; ++v)
     {
-        Char label[48];
-        iconTabLabel(label, sizeof(label), viewName(v));
+        Array<Char, 48> label;
+        iconTabLabel(label.data(), label.size(), viewName(v));
 
-        const Bool open = ImGui::BeginTabItem(label, nullptr, viewSel(v));
+        const Bool open = ImGui::BeginTabItem(label.data(), nullptr, viewSel(v));
         tabIcon(viewIcon(v));
         if(open)
         {
@@ -8267,14 +8273,14 @@ Void drawPicoLinkBlock()
         // A board that never answers has to read as deliberately silent rather
         // than broken, and the value alone carries that.
         const Float64 age = picoLink.lastRxAgeS();
-        Char ageS[48];
-        picoAgeText(ageS, sizeof(ageS), age);
+        Array<Char, 48> ageS;
+        picoAgeText(ageS.data(), ageS.size(), age);
 
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); ImGui::TextDisabled("Last line");
         ImGui::TableNextColumn();
         colored((age >= 0.0 && age < 2.0) ? ui::sem::GOOD
-                : (live ? ui::sem::WARN : ui::sem::MUTED), "%s", ageS);
+                : (live ? ui::sem::WARN : ui::sem::MUTED), "%s", ageS.data());
 
         ImGui::EndTable();
     }
@@ -8331,7 +8337,7 @@ Void drawPicoCommands()
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - sendW - sty.ItemSpacing.x);
 
     Bool fire = ImGui::InputTextWithHint("##picocmdline", "type a command",
-                                         cmdBuf, sizeof(cmdBuf),
+                                         cmdBuf.data(), cmdBuf.size(),
                                          ImGuiInputTextFlags_EnterReturnsTrue);
     if(fire)
     {
@@ -8346,7 +8352,7 @@ Void drawPicoCommands()
 
     if(fire)
     {
-        sendPico(cmdBuf);
+        sendPico(cmdBuf.data());
         cmdBuf[0] = '\0';
     }
     ImGui::EndDisabled();
@@ -8359,11 +8365,12 @@ Void drawControllerState()
 {
     ImGui::SeparatorText("Controller state");
 
-    Char servo[24] = "--", esc[24] = "--";
+    Array<Char, 24> servo = {'-', '-'};
+    Array<Char, 24> esc   = {'-', '-'};
     if(vehicleStatus.have)
     {
-        std::snprintf(servo, sizeof(servo), "%d", vehicleStatus.servoUs);
-        std::snprintf(esc,   sizeof(esc),   "%d", vehicleStatus.escUs);
+        std::snprintf(servo.data(), servo.size(), "%d", vehicleStatus.servoUs);
+        std::snprintf(esc.data(),   sizeof(esc.data()),   "%d", vehicleStatus.escUs);
     }
 
     // Bounded rather than stretched: at full workspace width a two-column table
@@ -8375,8 +8382,8 @@ Void drawControllerState()
                           ImVec2(tableW, 0.0f)))
     {
         ImGui::TableNextRow();
-        ImGui::TableNextColumn(); statCell(servo, "servo GP0  us");
-        ImGui::TableNextColumn(); statCell(esc,   "ESC GP1  us");
+        ImGui::TableNextColumn(); statCell(servo.data(), "servo GP0  us");
+        ImGui::TableNextColumn(); statCell(esc.data(),   "ESC GP1  us");
         ImGui::EndTable();
     }
 
@@ -8990,9 +8997,9 @@ Void drawFlashControls()
             ScopedFont sf(ui::fonts.small);
             if(e.present)
             {
-                Char sz[32];
-                sizeText(sz, sizeof(sz), e.sizeBytes);
-                colored(ui::sem::GOOD, "%s   %s", sz, e.builtAt.c_str());
+                Array<Char, 32> sz;
+                sizeText(sz.data(), sz.size(), e.sizeBytes);
+                colored(ui::sem::GOOD, "%s   %s", sz.data(), e.builtAt.c_str());
             }
             else
             {
@@ -9051,7 +9058,7 @@ Void drawFlashControls()
 
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##backupout", "output .uf2 path",
-                             backupBuf, sizeof(backupBuf));
+                             backupBuf.data(), backupBuf.size());
 
     ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
     if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
@@ -9255,7 +9262,7 @@ Void drawSerialConsole(const ImVec2& size)
     }
 
     ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##logfilter", "filter lines", filterBuf, sizeof(filterBuf));
+    ImGui::InputTextWithHint("##logfilter", "filter lines", filterBuf.data(), filterBuf.size());
 
     logShown.clear();
     for(Int32 i = 0; i < static_cast<Int32>(picoLog.size()); ++i)
@@ -9315,8 +9322,8 @@ Void drawSerialConsole(const ImVec2& size)
                 const Int32     idx = logShown[r];
                 const PicoLine& ln  = picoLog[idx];
 
-                Char buf[512];
-                std::snprintf(buf, sizeof(buf), "%8.2f  %c  %s",
+                Array<Char, 512> buf;
+                std::snprintf(buf.data(), buf.size(), "%8.2f  %c  %s",
                               ln.tS, ln.outgoing ? '>' : '<', ln.text.c_str());
 
                 // A Selectable rather than plain text, so lines can be
@@ -9326,7 +9333,7 @@ Void drawSerialConsole(const ImVec2& size)
                 ImGui::PushStyleColor(ImGuiCol_Text, consoleColour(ln));
                 ImGui::PushID(idx);
                 const Bool wasSel = (logSel.count(idx) != 0);
-                if(ImGui::Selectable(buf, wasSel,
+                if(ImGui::Selectable(buf.data(), wasSel,
                                      ImGuiSelectableFlags_AllowDoubleClick))
                 {
                     const ImGuiIO& io = ImGui::GetIO();
@@ -9436,9 +9443,9 @@ Void drawConsoleColumn(Float32 w, Float32 h)
 
     if(ImGui::BeginTabBar("##concoltabs"))
     {
-        Char lbA[40];
+        Array<Char, 40> lbA;
         const Bool tA = ImGui::BeginTabItem(
-            iconTabLabel(lbA, sizeof(lbA), "Pico serial"));
+            iconTabLabel(lbA.data(), lbA.size(), "Pico serial"));
         tabIcon(ui::Icon::ICON_CONSOLE);
         if(tA)
         {
@@ -9448,9 +9455,9 @@ Void drawConsoleColumn(Float32 w, Float32 h)
             ImGui::EndTabItem();
         }
 
-        Char lbB[40];
+        Array<Char, 40> lbB;
         const Bool tB = ImGui::BeginTabItem(
-            iconTabLabel(lbB, sizeof(lbB), "Build / flash"));
+            iconTabLabel(lbB.data(), lbB.size(), "Build / flash"));
         tabIcon(ui::Icon::ICON_BUILD);
         if(tB)
         {
@@ -10391,9 +10398,9 @@ Void updateKeyboardDrive()
         wasdSentSteer = wantSteer;
         driveSteerWant = static_cast<Float32>(wantSteer);
 
-        Char cmd[32];
-        std::snprintf(cmd, sizeof(cmd), "STEER %d", wantSteer);
-        pollPico(cmd);
+        Array<Char, 32> cmd;
+        std::snprintf(cmd.data(), cmd.size(), "STEER %d", wantSteer);
+        pollPico(cmd.data());
     }
 
     if(wantEsc != wasdSentEsc)
@@ -10410,9 +10417,9 @@ Void updateKeyboardDrive()
             const Int32 us = wasdCapNow();
             driveEscWant   = us;
 
-            Char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "ESC %d", us);
-            pollPico(cmd);
+            Array<Char, 32> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "ESC %d", us);
+            pollPico(cmd.data());
         }
         wasdFedAt = ImGui::GetTime();
     }
@@ -10434,9 +10441,9 @@ Void updateKeyboardDrive()
             wasdFedAt = now;
 
             const Int32 us = wasdCapNow();
-            Char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "ESC %d", us);
-            pollPico(cmd);
+            Array<Char, 32> cmd;
+            std::snprintf(cmd.data(), cmd.size(), "ESC %d", us);
+            pollPico(cmd.data());
         }
     }
 }

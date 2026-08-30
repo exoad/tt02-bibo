@@ -230,11 +230,11 @@ Str readFile(const Str& path)
     {
         return out;
     }
-    Char buf[4096];
+    Array<Char, 4096> buf;
     Size n = 0;
-    while((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
+    while((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
     {
-        out.append(buf, n);
+        out.append(buf.data(), n);
     }
     std::fclose(f);
 

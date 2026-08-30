@@ -128,11 +128,11 @@ Void init()
     SYSTEMTIME t = {};
     ::GetLocalTime(&t);
 
-    Char name[64];
-    std::snprintf(name, sizeof(name), "session-%04d%02d%02d-%02d%02d%02d.log",
+    Array<Char, 64> name;
+    std::snprintf(name.data(), name.size(), "session-%04d%02d%02d-%02d%02d%02d.log",
                   t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 
-    filePath = d + "\\" + name;
+    filePath = d + "\\" + name.data();
     file     = std::fopen(filePath.c_str(), "wb");
     if(file == nullptr)
     {
@@ -170,10 +170,10 @@ Void writef(Level level, const Char* tag, const Char* fmt, ...)
         return;
     }
 
-    Char body[1024];
+    Array<Char, 1024> body;
     va_list ap;
     va_start(ap, fmt);
-    std::vsnprintf(body, sizeof(body), fmt, ap);
+    std::vsnprintf(body.data(), body.size(), fmt, ap);
     va_end(ap);
 
     // Seconds since start, then level, then a fixed-width tag. Fixed width so
@@ -183,7 +183,7 @@ Void writef(Level level, const Char* tag, const Char* fmt, ...)
                  static_cast<Float64>(nowMs() - startTicks) / 1000.0,
                  levelName(level),
                  (tag != nullptr) ? tag : "-",
-                 body);
+                 body.data());
 
     // Anything that went wrong is flushed at once. A crash after a warning must
     // still leave the warning on disk - that is most of the value here.

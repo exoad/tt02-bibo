@@ -173,13 +173,13 @@ PortKind portKind(const Str& port)
 
     for(DWORD i = 0; ; ++i)
     {
-        Char  name[512];
+        Array<Char, 512> name;
         BYTE  data[512];
-        DWORD nlen = static_cast<DWORD>(sizeof(name));
+        DWORD nlen = static_cast<DWORD>(name.size());
         DWORD dlen = static_cast<DWORD>(sizeof(data));
         DWORD type = 0;
 
-        const LONG r = ::RegEnumValueA(key, i, name, &nlen, nullptr, &type,
+        const LONG r = ::RegEnumValueA(key, i, name.data(), &nlen, nullptr, &type,
                                        data, &dlen);
         if(r != ERROR_SUCCESS)
         {
@@ -202,7 +202,7 @@ PortKind portKind(const Str& port)
             continue;
         }
 
-        Str dev(name, nlen);
+        Str dev(name.data(), nlen);
         for(Char& c : dev)
         {
             if(c >= 'A' && c <= 'Z')

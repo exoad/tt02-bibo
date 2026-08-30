@@ -170,9 +170,9 @@ Void testReach()
     constexpr Int32   BINS = 120;
     constexpr Float32 STEP = 360.0f / static_cast<Float32>(BINS);
 
-    Float32 clr[BINS];
-    Bool    seen[BINS];
-    Float32 out[BINS];
+    Array<Float32, BINS> clr;
+    Array<Bool, BINS> seen;
+    Array<Float32, BINS> out;
 
     // An empty circular room, 3 m radius.
     for(Int32 i = 0; i < BINS; ++i)
@@ -182,7 +182,7 @@ Void testReach()
     }
 
     // A car 190 mm wide -> 95 mm half-width.
-    mapgeo::computeReach(clr, seen, BINS, STEP, 95.0f, out);
+    mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 95.0f, out.data());
 
     // In an open circular room the centre can get to within halfW of the wall,
     // and no further. sqrt(3000^2 - 95^2) - ... is not the answer; the binding
@@ -204,13 +204,13 @@ Void testReach()
         clr[1] = r;               // + side
         clr[BINS - 1] = r;        // - side
     }
-    mapgeo::computeReach(clr, seen, BINS, STEP, 95.0f, out);
+    mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 95.0f, out.data());
     check(out[0] < 1100.0f, "a 150 mm slot blocks a 190 mm car");
     std::printf("        reach through the slot = %.0f mm\n",
                 static_cast<Float64>(out[0]));
 
     // A narrow car fits through the same slot.
-    mapgeo::computeReach(clr, seen, BINS, STEP, 40.0f, out);
+    mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 40.0f, out.data());
     check(out[0] > 2000.0f, "an 80 mm car passes the same slot");
     std::printf("        reach for the narrow car = %.0f mm\n",
                 static_cast<Float64>(out[0]));
@@ -218,7 +218,7 @@ Void testReach()
     // Reach can never exceed the raw clearance on its own bearing.
     for(Int32 i = 0; i < BINS; ++i) { clr[i] = 500.0f + static_cast<Float32>(i) * 20.0f;
                                       seen[i] = true; }
-    mapgeo::computeReach(clr, seen, BINS, STEP, 95.0f, out);
+    mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 95.0f, out.data());
     Bool bounded = true;
     for(Int32 i = 0; i < BINS; ++i)
         if(out[i] > clr[i] + 0.5f)
@@ -312,17 +312,17 @@ Void testArea()
     constexpr Int32   BINS = 120;
     constexpr Float32 STEP = 360.0f / static_cast<Float32>(BINS);
 
-    Float32 r[BINS];
+    Array<Float32, BINS> r;
     for(Int32 i = 0; i < BINS; ++i) r[i] = 1000.0f;   // a 1 m circle
 
     // pi * 1^2 = 3.1416 m^2. A 120-gon is very slightly under.
-    checkNear(mapgeo::polarArea(r, BINS, STEP), 3.1416f, 0.01f, "unit circle area");
+    checkNear(mapgeo::polarArea(r.data(), BINS, STEP), 3.1416f, 0.01f, "unit circle area");
 
     for(Int32 i = 0; i < BINS; ++i)
     {
         r[i] = 0.0f;
     }
-    checkNear(mapgeo::polarArea(r, BINS, STEP), 0.0f, 1e-4f, "empty polygon");
+    checkNear(mapgeo::polarArea(r.data(), BINS, STEP), 0.0f, 1e-4f, "empty polygon");
 }
 
 } // namespace

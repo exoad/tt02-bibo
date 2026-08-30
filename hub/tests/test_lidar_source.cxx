@@ -58,9 +58,9 @@ struct Check
 
 Str fmtValue(const Char* fmt, Float64 v)
 {
-    Char b[64];
-    std::snprintf(b, sizeof(b), fmt, v);
-    return b;
+    Array<Char, 64> b;
+    std::snprintf(b.data(), b.size(), fmt, v);
+    return b.data();
 }
 
 } // namespace

@@ -83,6 +83,7 @@ endif()
 set(BIBO_LIB
     lib/bibo.hxx
     lib/types.hxx
+    lib/pins.hxx
     lib/text.hxx
     lib/hal.hxx
     lib/gfx.hxx
@@ -90,6 +91,7 @@ set(BIBO_LIB
     lib/lights.hxx
     lib/cue.hxx
     lib/net.hxx
+    lib/drivers/dfplayer.hxx
     lib/drivers/display.hxx
     lib/drivers/range.hxx
     lib/drivers/storage.hxx
