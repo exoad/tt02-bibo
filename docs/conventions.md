@@ -32,7 +32,7 @@ throw is asymmetric, which is why every command above the calibration is a
 fraction rather than a microsecond count.
 
 Four LEDs are on the car — two tail lamps and one pair of indicators — driven
-by a lighting model in `firmware/lib/lights.h` that computes ten lamps whether
+by a lighting model in `firmware/lib/lights.hxx` that computes ten lamps whether
 or not an LED exists for each. Two of the four pins are borrowed, and **GP15 is
 the wheel encoder's**, so it goes back when the Hall sensor is fitted.
 
@@ -277,7 +277,9 @@ asked what to work on, phase 2 is the answer.
 
 ## Conventions
 
-- Firmware: C, Pico SDK, CMake, PIO for PWM generation
+- Firmware: **C++**, Pico SDK, CMake, PIO for PWM generation. It was C until
+  2026-08-28; every `.c`/`.h` under `firmware/` is now `.cxx`/`.hxx` and the
+  module prefixes became real namespaces
 - Host: Go. ROS2 layer: C++ (rclcpp)
 - **Control code thinks in normalized units (-1.0 to 1.0), never microseconds.**
   The microsecond mapping lives in exactly one function so calibration is a
@@ -298,15 +300,63 @@ surrounding history.
 | `constexpr` constants, macros, non-type template params | `SCREAMING_SNAKE_CASE` — no `k` prefix |
 | Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS` |
 | Namespaces | lowercase — `ui`, `board`, `app` |
-| Headers | `.hxx`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.hxx`’s C twin, `firmware/lib/types.h` |
-| Vocabulary | `shared/shared.hxx` for C++, `firmware/lib/types.h` for C. Two files kept in step by hand, not one file shared — nothing ever included both |
+| Headers | `.hxx`, `#pragma once` — **no `#ifndef` guards**. There are no `.h` headers of ours left; `hub/src/resource.h` is the one exception, because `rc.exe` compiles it |
+| Vocabulary | `shared/shared.hxx` for the hub, `firmware/lib/types.hxx` for the firmware. Two files kept in step by hand — not because one is C any more, but because the firmware is freestanding: no heap, no exceptions, no STL, so every template in `shared.hxx` is unusable there. Nothing ever includes both |
 | Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short. That includes a body with no braces at all: `if(x) return;` is a body on its head's line |
 | Namespaces | Allman brace, and the body **indented one level** — see below |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
 | Standard library | use the `shared/shared.hxx` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
+| Arrays | `Array<T, N>`, never `T name[N]`. A raw array decays to a pointer the moment it is passed and the size stops travelling with it |
+| Time | `Clock`, `TimePoint`, `Millis`, `Duration`, and the `monoNow` / `elapsedMs` / `elapsedS` / `sleepMs` helpers. Never `std::chrono::steady_clock::now()` in our own code |
+| Files | `InFile` / `OutFile`. Most file reading here is C stdio and needs no alias |
+| `*` and `&` | bind to the **type**, not the name — `Char* p`, `const Str& s`. Never `Char *p` |
+| Only TYPES are aliased | `std::move`, `std::min`, `std::sort`, `std::chrono::duration_cast` keep their own spelling. A function is not vocabulary |
 | Aggregate init | designated initializers where the type has named members — `Vec3{ .x = 1.0f, .y = 0.0f }` |
 | Control keywords | `if(cond)`, not `if (cond)` |
 | Casts | named casts only. **No C-style casts** — see below |
+
+### `Array<T, N>`, and the one place the vocabulary stops being free
+
+Every alias in `shared.hxx` is a `using` declaration, so a `Float32` **is** a
+`float` and handing one to ImGui is not a conversion. `Array<T, N>` is the
+exception and the only one: `std::array<Char, 64>` is **not** `char[64]`, so
+every C API it reaches gets `.data()` and `.size()`.
+
+That was paid knowingly on 2026-08-30 — 175 declarations, 123 of them `Char`
+scratch buffers feeding `snprintf` and ImGui. It is worth it because a raw
+array decays to a pointer at the first call and its length becomes something
+the caller has to know by other means, which is how a buffer and its `sizeof`
+drift apart.
+
+**`sizeof` is the trap.** For a one-byte element `sizeof(a)` and `a.size()`
+agree; for anything wider they differ by `sizeof(T)`. Getting that backwards
+divides a buffer by four and still compiles.
+
+A `Char` buffer initialised from a string literal has no clean equivalent:
+`= ""` becomes `{}` (identical zero-fill) and `= "--"` becomes `{'-', '-'}`,
+but a long literal is better written as an explicit `snprintf` of the fallback
+than as a list of character constants.
+
+### There is no `Ptr<T>`, deliberately
+
+An alias for a raw pointer was considered and rejected. `template<typename T>
+using Ptr = T*;` reads well until `const` appears, and then it silently means
+the wrong thing:
+
+```cpp
+const Ptr<Char>   p;   // Char* const  - a const POINTER to mutable chars
+const Char*       q;   // what everyone writing the line above meant
+```
+
+`Ptr<const Char>` is the pointer-to-const one, and the two spellings differ by
+where a word sits rather than by anything a reader would notice. Raw `*`
+syntax has no such ambiguity.
+
+It would not carry meaning either. Ownership is already spelled — `UniqPtr`,
+`SharedPtr`, `WeakPtr` — so a bare `T*` in this codebase already means
+"borrowed, may be null", and `Ptr<T>` would rename that without adding to it.
+Where a pointer type genuinely deserves a name it gets a specific one:
+`CharSeq` is `const Utf8*`, and it says what it is for.
 
 ### A namespace is a block, and its body is indented
 
@@ -354,8 +404,8 @@ is held by `hub/tools/style_audit.py` under `--- namespace layout ---`.
 
 | | |
 |---|---|
-| `.c` `.h` | C. `firmware/` and nothing else |
-| `.cxx` `.hxx` | C++. `hub/`, `lidar/bridge/`, `shared/shared.hxx` |
+| `.cxx` `.hxx` | C++. **Everything of ours** — `hub/`, `lidar/bridge/`, `shared/`, and `firmware/` since the 2026-08-28 conversion |
+| `.c` `.h` | C. **Nothing of ours any more.** `hub/src/resource.h` is the single exception, and `rc.exe` compiles it |
 
 `.cpp` and `.hpp` are not used. Neither is a bare `.h` outside `firmware/`, and
 the style audit fails on all three.
@@ -383,15 +433,20 @@ meant and fail when the meaning stops being available.
 MSVC has no `-Wold-style-cast`, so this is held by `hub/tools/style_audit.py`
 rather than by the compiler.
 
-**C is carved out because C has no named casts** — `(Int64) x` is the only
-spelling the language has, and banning it would ban casting. That carve-out is
-COUNTED and printed by the audit rather than applied silently, because
-`firmware/` is expected to become C++ eventually and every one of those casts is
-work that move inherits. A waiver nobody can see is a waiver that grows.
+C used to be carved out, because C has no named casts and banning `(Int64) x`
+there would have banned casting. **That carve-out is spent.** The doc said
+"when a file moves from C to C++, the waiver stops with it", and on
+2026-08-30 the bill arrived: eight C-style casts, every one of them in
+`firmware/`, converted. There are no C files left to waive.
 
-**When a file moves from C to C++, the waiver stops with it.** Renaming
-`something.h` to `something.hxx` is not a rename — it is a commitment to convert
-its casts, and the audit will start saying so.
+**The rule is enforced on SYNTAX, not on a list of type names.** It used to
+enumerate the types a cast could be *to*, which meant it only found casts to
+types somebody had remembered to add — and it missed `(MINMAXINFO*)lparam`,
+`(const RECT*)lparam` and `(sl_u32)baud` for as long as those existed. What
+makes a cast recognisable is its shape, and the hard part — telling a type
+from an expression — is settled by this project's own naming: types are
+PascalCase, so `(Foo)x` is a cast and `(width) * 2` is arithmetic. Win32
+shouts, the standard library uses `_t`, Slamtec uses `sl_`.
 
 ### A parameter list never wraps
 
@@ -428,25 +483,26 @@ those signatures is real work and is not done.
 
 | instead of | use | from |
 |---|---|---|
-| `printf` | `serialPrintf` | `hal.h` |
-| `puts` / `fputs` | `serialPrintLine` / `serialPrint` | `hal.h` |
-| `strcmp(a,b)==0` | `textEq` | `text.h` |
-| `strncmp(s,p,n)==0` | `textStarts` | `text.h` |
-| `atoi` / `atof` | `textInt` / `textFloat` | `text.h` |
-| `sscanf("%d %d")` | `textTwoInts` | `text.h` |
-| `toupper` loop | `textUpper` | `text.h` |
+| `printf` | `serial::printf` | `hal.hxx` |
+| `puts` / `fputs` | `serial::printLine` / `serial::print` | `hal.hxx` |
+| `strcmp(a,b)==0` | `text::eq` | `text.hxx` |
+| `strncmp(s,p,n)==0` | `text::starts` | `text.hxx` |
+| `atoi` / `atof` | `text::toInt` / `text::toFloat` | `text.hxx` |
+| `sscanf("%d %d")` | `text::twoInts` | `text.hxx` |
+| `toupper` loop | `text::upper` | `text.hxx` |
+| `snprintf` | `text::format` | `text.hxx` |
 
 The wrappers cost nothing — they are macros or `static inline` and compile to
-exactly what they wrap. **The point is that the seam is complete.** `hal.h` is
+exactly what they wrap. **The point is that the seam is complete.** `hal.hxx` is
 where the SDK's spelling stops and this project's begins, and a console calling
 `printf()` directly was the one place reaching past it — sixty-two times. The
 day the transport is not stdio (a UDP link, a log to the SD card, both at once)
 that is sixty-two call sites to find instead of one definition to change.
 
-`app/` and `scratch/` include **`../lib/bibo.hxx` and nothing else**, and name no
+`app/` and `sketches/` include **`../lib/bibo.hxx` and nothing else**, and name no
 libc function at all. The style audit checks this and names the replacement.
 
-**`lib/` is exempt, because it is where the wrapping happens.** `text.h` naming
+**`lib/` is exempt, because it is where the wrapping happens.** `text.hxx` naming
 `strtol` is the wrapper doing its job.
 
 ### `static inline` is `static`, in C++
@@ -458,7 +514,13 @@ nothing it did not know.
 **C is the exception and keeps `static inline`.** There it is the standard idiom
 for a definition in a header: without `static` every translation unit emits a
 copy and they collide at link time, and without `inline` the compiler is not
-asked to inline it. `firmware/` has 148 of them and they are all correct.
+asked to inline it.
+
+**This no longer applies to `firmware/`, because `firmware/` is no longer C.**
+The C++ conversion dropped every one of them: there are now 329 plain
+`static` definitions in `firmware/lib` and **zero** `static inline`. The only
+occurrence left in the tree is the phrase inside `hal.hxx`'s own header
+comment, describing a design the file no longer has.
 
 This is worth knowing because most editors assume an unowned `.h` is C++ and
 will flag every one of them as redundant. That is the editor being wrong about
@@ -568,20 +630,20 @@ vendor/     upstream clones (gitignored) - rplidar_sdk lives here
 firmware/
   lib/
     bibo.hxx            the ONE header an application includes
-    hal.h             the board: gpio, pwm, i2c, spi, serial, led, time
-    gfx.h             drawing into a Screen
-    status.h          the onboard LED as a readable signal
+    hal.hxx           the board: gpio, pwm, i2c, spi, serial, led, time
+    gfx.hxx           drawing into a Screen
+    status.hxx        the onboard LED as a readable signal
     drivers/
-      display.h       ST7789 / ST7735 panel
-      range.h         VL53L1X
-      storage.h       SD over SPI
+      display.hxx     ST7789 / ST7735 panel
+      range.hxx       VL53L1X
+      storage.hxx     SD over SPI
     chassis/
-      chassis.h       steering + throttle, in fractions not microseconds
-      cal.h           GENERATED - this car's measured numbers
+      chassis.hxx     steering + throttle, in fractions not microseconds
+      cal.hxx         GENERATED - this car's measured numbers
   app/
-    main.c            the serial console
-  scratch/
-    sketch.cxx          the Code view's scratch slot
+    main.cxx          the serial console
+  sketches/
+    *.cxx             one file per sketch, each its own build target
 ```
 
 ### Rules, enforced by `hub/tools/style_audit.py`
@@ -590,14 +652,14 @@ firmware/
 
 | a file in | may include |
 |---|---|
-| `lib/` | `types.h`, `hal.h` — hal is the floor everything stands on |
-| `lib/drivers/` | `hal.h` |
-| `lib/chassis/` | `hal.h`, `chassis/cal.h` |
-| `app/`, `scratch/` | `bibo.hxx` — and nothing else of ours |
+| `lib/` | `types.hxx`, `hal.hxx` — hal is the floor everything stands on |
+| `lib/drivers/` | `../hal.hxx` |
+| `lib/chassis/` | `../hal.hxx`, `cal.hxx` |
+| `app/`, `sketches/` | `../lib/bibo.hxx` — and nothing else of ours. The `../lib/` is part of the rule: the bare spelling compiles only because `-Ifirmware/lib` is set |
 
-`lib/gfx.h` is the one written-down exception: it draws into a `Screen`, so it
-reaches sideways into `drivers/display.h`. The Pico SDK (`pico/`, `hardware/`)
-is exempt everywhere — it is not ours and is not a layer, and `hal.h` exists
+`lib/gfx.hxx` is the one written-down exception: it draws into a `Screen`, so it
+reaches sideways into `drivers/display.hxx`. The Pico SDK (`pico/`, `hardware/`)
+is exempt everywhere — it is not ours and is not a layer, and `hal.hxx` exists
 precisely to be the file that reaches into it.
 
 A driver that needed another driver would be two things wearing one name. The
@@ -613,7 +675,7 @@ specific header still compiles and is still wrong: it makes every file's
 dependencies something you have to read the top of the file to know, and a
 header that moves then breaks callers that had no business naming it.
 
-**Wrap the SDK once, in `hal.h`.** If application code is reaching for
+**Wrap the SDK once, in `hal.hxx`.** If application code is reaching for
 `cyw43_arch_gpio_put`, `getchar_timeout_us` or `pico_get_unique_board_id`, the
 HAL has a gap — fill it there rather than at the call site. And **derive
 sentinels, never restate them**: `SERIAL_NONE` was written as `-1` because that
@@ -622,7 +684,7 @@ buffer filling with bytes nobody typed.
 
 **Ask the SDK which board this is; never hard-code one.** The firmware builds
 for two — `pico2_w` (the breadboard mule) and `pico2` (the car) — and the only
-place that difference is allowed to appear is behind the HAL. `hal.h` switches
+place that difference is allowed to appear is behind the HAL. `hal.hxx` switches
 the LED on `CYW43_WL_GPIO_LED_PIN` versus `PICO_DEFAULT_LED_PIN`, both of which
 come from the SDK's board header; `CMakeLists.txt` links the wireless arch on
 `PICO_CYW43_SUPPORTED`, which the SDK lifts out of that same header. Matching on
@@ -635,17 +697,28 @@ so anything that claims one works on one board and quietly drives a chip select
 on the other. Nothing here uses them, which is exactly what makes the two boards
 drop-in for each other — see [wiring.md](wiring.md).
 
-**Every public symbol carries its module's prefix** — `gpio`, `pwm`, `i2c`,
-`spi`, `serial`, `led`, `tft`, `gfx`, `vl53`, `sd`, `drive` — so a call site
-says which layer it reaches into without anyone looking it up.
+**Every module is a NAMESPACE** — `gpio`, `pwm`, `i2c`, `spi`, `serial`,
+`led`, `radio`, `adc`, `watchdog`, `timing`, `board`, `tft`, `tof`, `sd`,
+`drive`, `gfx`, `text`, `lights`, `cue`, `net`, `status` — all inside
+`bibo`. A call site says which layer it reaches into without anyone looking
+it up.
 
-**Safety lives in the module, not the caller.** `chassis.h` refuses throttle
+This used to be a spelling rule, because the library was C and C has no
+namespaces: every symbol carried its module in its name, `gpioWrite`. Since
+the C++ conversion the boundary is real, and the compiler enforces what a
+prefix could only suggest. What the audit still checks is the thing the
+compiler cannot: that each module HAS its namespace and that it is the one
+everybody expects. A header that quietly stops declaring one still compiles
+— its symbols simply move to the global namespace, one file at a time,
+which is exactly how the prefixes decayed before anything checked them.
+
+**Safety lives in the module, not the caller.** `chassis.hxx` refuses throttle
 until armed and returns `Bool`; it never prints. A console, a sketch and an
 autonomy loop each carrying their own copy of that rule is three copies, and the
 day one of them forgets is the day it matters.
 
-**Header-only, `static inline`.** Deliberate on a microcontroller: the compiler
+**Header-only, `static`.** Deliberate on a microcontroller: the compiler
 sees through `gpioWrite()` and emits the single store it actually is. The cost
 is compile time rather than link time, which at this size is free. The state in
-`chassis.h` is file-scope, so each firmware image must stay a single translation
+`chassis.hxx` is file-scope, so each firmware image must stay a single translation
 unit — two would give you two chassis and one car.
