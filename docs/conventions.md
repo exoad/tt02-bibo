@@ -300,12 +300,55 @@ surrounding history.
 | Namespaces | lowercase — `ui`, `board`, `app` |
 | Headers | `.hxx`, `#pragma once`. `.h` only for headers that must also compile as C — that is `firmware/` and `shared/shared.hxx`’s C twin, `firmware/lib/types.h` |
 | Vocabulary | `shared/shared.hxx` for C++, `firmware/lib/types.h` for C. Two files kept in step by hand, not one file shared — nothing ever included both |
-| Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short |
+| Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short. That includes a body with no braces at all: `if(x) return;` is a body on its head's line |
+| Namespaces | Allman brace, and the body **indented one level** — see below |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
 | Standard library | use the `shared/shared.hxx` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
 | Aggregate init | designated initializers where the type has named members — `Vec3{ .x = 1.0f, .y = 0.0f }` |
 | Control keywords | `if(cond)`, not `if (cond)` |
 | Casts | named casts only. **No C-style casts** — see below |
+
+### A namespace is a block, and its body is indented
+
+```cpp
+namespace ui
+{
+
+  Void draw()
+  {
+  }
+
+}
+```
+
+not
+
+```cpp
+namespace ui {
+Void draw()
+{
+}
+}
+```
+
+**Two spaces per namespace level**, not four. Most of `firmware/lib` sits two
+namespaces deep — `bibo::lights`, `bibo::gpio` — and at four spaces every real
+line would start eight columns in before it had said anything. Two keeps the
+nesting visible without spending the width.
+
+The brace goes on its own line for the same reason it does everywhere else: a
+namespace is a block, and this project does not have one brace rule for blocks
+and a second one for the block that contains them all.
+
+The honest reason this is written down rather than assumed: the tree was split
+almost exactly in half. 45 files wrote `namespace ui {` and 46 wrote the brace
+on its own line, and **not one file indented a body**. The half that was
+already Allman only stayed that way by accident — `style_audit.py`'s check that
+each module declares its namespace was anchored at column 0, so it enforced the
+brace placement as a side effect while nobody had decided it.
+
+Applied 2026-08-30, tree-wide: 32,722 lines, every one of them whitespace. It
+is held by `hub/tools/style_audit.py` under `--- namespace layout ---`.
 
 ### File extensions ARE the language
 

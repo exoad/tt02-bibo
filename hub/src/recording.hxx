@@ -62,70 +62,71 @@
 #include "shared.hxx"
 #include "lidar_source.hxx"
 
-namespace rec {
-
-struct Rev
+namespace rec
 {
-    Float64                 tS = 0.0;     // seconds from the start
-    Float32                 hz = 0.0f;
-    Vec<LidarPoint> points;
-};
 
-class Recording
-{
-public:
-    Void clear();
+  struct Rev
+  {
+      Float64                 tS = 0.0;     // seconds from the start
+      Float32                 hz = 0.0f;
+      Vec<LidarPoint> points;
+  };
 
-    // Appends a revolution at `tS` seconds from the start.
-    Void append(const LidarFrame& f, Float64 tS);
+  class Recording
+  {
+  public:
+      Void clear();
 
-    [[nodiscard]] Size       count() const
-    {
-        return revs.size();
-    }
-    [[nodiscard]] Bool       empty() const
-    {
-        return revs.empty();
-    }
-    [[nodiscard]] const Rev& at(Size i) const;
+      // Appends a revolution at `tS` seconds from the start.
+      Void append(const LidarFrame& f, Float64 tS);
 
-    // Wall-clock span from the first revolution to the last. Zero for fewer
-    // than two - a single revolution has a timestamp but no duration.
-    [[nodiscard]] Float64 durationS() const;
+      [[nodiscard]] Size       count() const
+      {
+          return revs.size();
+      }
+      [[nodiscard]] Bool       empty() const
+      {
+          return revs.empty();
+      }
+      [[nodiscard]] const Rev& at(Size i) const;
 
-    // Total points held, for reporting a size without walking the file.
-    [[nodiscard]] Size pointCount() const;
+      // Wall-clock span from the first revolution to the last. Zero for fewer
+      // than two - a single revolution has a timestamp but no duration.
+      [[nodiscard]] Float64 durationS() const;
 
-    // The revolution at or just before `tS`, for playback. Returns count()-1
-    // past the end so a finished playback holds on the last frame rather than
-    // snapping back.
-    [[nodiscard]] Size indexAt(Float64 tS) const;
+      // Total points held, for reporting a size without walking the file.
+      [[nodiscard]] Size pointCount() const;
 
-    // Both report failure through `err` rather than throwing. A recording that
-    // will not save must say why - it may be the only copy of a run that took a
-    // person twenty minutes to set up.
-    //
-    // load() also reads the original "TT02REC1" binary files. Keeping that path
-    // costs twenty lines and means changing the format never cost anybody a
-    // recording.
-    Bool save(const Str& path, Str& err) const;
-    Bool load(const Str& path, Str& err);
+      // The revolution at or just before `tS`, for playback. Returns count()-1
+      // past the end so a finished playback holds on the last frame rather than
+      // snapping back.
+      [[nodiscard]] Size indexAt(Float64 tS) const;
 
-private:
-    Bool loadBinaryV1(const Str& path, Str& err);
-    Bool loadTextV2(const Str& path, Str& err);
+      // Both report failure through `err` rather than throwing. A recording that
+      // will not save must say why - it may be the only copy of a run that took a
+      // person twenty minutes to set up.
+      //
+      // load() also reads the original "TT02REC1" binary files. Keeping that path
+      // costs twenty lines and means changing the format never cost anybody a
+      // recording.
+      Bool save(const Str& path, Str& err) const;
+      Bool load(const Str& path, Str& err);
 
-    Vec<Rev> revs;
-};
+  private:
+      Bool loadBinaryV1(const Str& path, Str& err);
+      Bool loadTextV2(const Str& path, Str& err);
 
-// %LOCALAPPDATA%\tt02-auto\recordings, created on demand. Empty if there is no
-// user profile.
-[[nodiscard]] Str dir();
+      Vec<Rev> revs;
+  };
 
-// Existing recordings, newest first, bare filenames.
-[[nodiscard]] Vec<Str> list();
+  // %LOCALAPPDATA%\tt02-auto\recordings, created on demand. Empty if there is no
+  // user profile.
+  [[nodiscard]] Str dir();
 
-// A timestamped name: scan-YYYYMMDD-HHMMSS.biborec
-[[nodiscard]] Str makeName();
+  // Existing recordings, newest first, bare filenames.
+  [[nodiscard]] Vec<Str> list();
+
+  // A timestamped name: scan-YYYYMMDD-HHMMSS.biborec
+  [[nodiscard]] Str makeName();
 
 } // namespace rec

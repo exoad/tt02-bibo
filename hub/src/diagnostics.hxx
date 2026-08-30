@@ -26,59 +26,60 @@
 
 #include "shared.hxx"
 
-namespace diag {
-
-// SEVERITY_ERR rather than the obvious SEVERITY_ERROR, and SEVERITY_WARN rather
-// than SEVERITY_WARNING: <winerror.h> defines both of those as macros for
-// building HRESULTs, so any translation unit that reaches windows.h before this
-// header would see the enumerators textually replaced and fail with a syntax
-// error pointing here rather than at the collision. Renaming is rude to nobody;
-// #undef-ing another library's macros from a public header is.
-enum class Severity
+namespace diag
 {
-    SEVERITY_NOTE = 0,
-    SEVERITY_WARN,
-    SEVERITY_ERR,
-};
 
-struct Item
-{
-    Str      file;              // exactly as the compiler spelled it
-    Int32    line = 0;          // 1-based, as the compiler counts
-    Int32    column = 0;        // 1-based; 0 when the compiler gave none
-    Severity severity = Severity::SEVERITY_ERR;
-    Str      message;
-};
+  // SEVERITY_ERR rather than the obvious SEVERITY_ERROR, and SEVERITY_WARN rather
+  // than SEVERITY_WARNING: <winerror.h> defines both of those as macros for
+  // building HRESULTs, so any translation unit that reaches windows.h before this
+  // header would see the enumerators textually replaced and fail with a syntax
+  // error pointing here rather than at the collision. Renaming is rude to nobody;
+  // #undef-ing another library's macros from a public header is.
+  enum class Severity
+  {
+      SEVERITY_NOTE = 0,
+      SEVERITY_WARN,
+      SEVERITY_ERR,
+  };
 
-// Parses ONE line of build output. Returns false when the line is not a
-// diagnostic, which is most of them.
-//
-// Handles the shapes gcc, clang and MSVC actually emit:
-//
-//     path:LINE:COL: error: message          gcc / clang
-//     path:LINE: error: message              gcc, no column
-//     path(LINE,COL): error C2065: message    MSVC
-//     path(LINE): error C2065: message        MSVC
-//
-// A Windows drive letter is the reason this cannot be a naive split on ':' -
-// "C:/x/y.c:42:1: error: z" has four colons and the first one is not a
-// separator.
-[[nodiscard]] Bool parseLine(const Str& text, Item& out);
+  struct Item
+  {
+      Str      file;              // exactly as the compiler spelled it
+      Int32    line = 0;          // 1-based, as the compiler counts
+      Int32    column = 0;        // 1-based; 0 when the compiler gave none
+      Severity severity = Severity::SEVERITY_ERR;
+      Str      message;
+  };
 
-// Every diagnostic in a block of build output, in the order emitted.
-[[nodiscard]] Vec<Item> parseAll(const Vec<Str>& lines);
+  // Parses ONE line of build output. Returns false when the line is not a
+  // diagnostic, which is most of them.
+  //
+  // Handles the shapes gcc, clang and MSVC actually emit:
+  //
+  //     path:LINE:COL: error: message          gcc / clang
+  //     path:LINE: error: message              gcc, no column
+  //     path(LINE,COL): error C2065: message    MSVC
+  //     path(LINE): error C2065: message        MSVC
+  //
+  // A Windows drive letter is the reason this cannot be a naive split on ':' -
+  // "C:/x/y.c:42:1: error: z" has four colons and the first one is not a
+  // separator.
+  [[nodiscard]] Bool parseLine(const Str& text, Item& out);
 
-// Those belonging to `path`, matched on the FILE NAME rather than the whole
-// path. The compiler sees firmware/scratch/sketch.cxx while the editor may be showing
-// the same bytes from the sketch library, and refusing to mark the file the user
-// is actually looking at would make the feature useless in the one workflow it
-// exists for.
-[[nodiscard]] Vec<Item> forFile(const Vec<Item>& all, const Str& path);
+  // Every diagnostic in a block of build output, in the order emitted.
+  [[nodiscard]] Vec<Item> parseAll(const Vec<Str>& lines);
 
-// The worst severity on `line`, or -1 if the line is clean. Used per row while
-// drawing, so it is a plain scan rather than a map: a sketch has tens of
-// diagnostics at the very worst, and building an index would cost more than it
-// saves.
-[[nodiscard]] Int32 worstOnLine(const Vec<Item>& items, Int32 line);
+  // Those belonging to `path`, matched on the FILE NAME rather than the whole
+  // path. The compiler sees firmware/scratch/sketch.cxx while the editor may be showing
+  // the same bytes from the sketch library, and refusing to mark the file the user
+  // is actually looking at would make the feature useless in the one workflow it
+  // exists for.
+  [[nodiscard]] Vec<Item> forFile(const Vec<Item>& all, const Str& path);
+
+  // The worst severity on `line`, or -1 if the line is clean. Used per row while
+  // drawing, so it is a plain scan rather than a map: a sketch has tens of
+  // diagnostics at the very worst, and building an index would cost more than it
+  // saves.
+  [[nodiscard]] Int32 worstOnLine(const Vec<Item>& items, Int32 line);
 
 } // namespace diag

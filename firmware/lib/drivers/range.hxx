@@ -63,12 +63,12 @@
 namespace bibo
 {
 
-namespace tof
-{
+  namespace tof
+  {
 
 #define VL53_ADDR_DEFAULT 0x29
 
-/* The registers worth naming. The rest live inside the config block. */
+    /* The registers worth naming. The rest live inside the config block. */
 #define VL53_REG_CONFIG_START     0x002D
 #define VL53_REG_GPIO_HV_MUX      0x0030
 #define VL53_REG_GPIO_TIO_STATUS  0x0031
@@ -80,512 +80,512 @@ namespace tof
 #define VL53_REG_FIRMWARE_STATUS  0x00E5
 #define VL53_REG_MODEL_ID         0x010F
 
-/* What the sensor says it is. Checked at open, because a wrong-but-present
- * device at 0x29 is a much clearer failure than a sensor that never ranges. */
+    /* What the sensor says it is. Checked at open, because a wrong-but-present
+     * device at 0x29 is a much clearer failure than a sensor that never ranges. */
 #define VL53_MODEL_ID 0xEACC
 
-/* ---- timing budget --------------------------------------------------------
- *
- * How long the sensor integrates for, per measurement. This is the single
- * biggest control over how far it reaches, and leaving it unset is a mistake
- * that hides well: the sensor still ranges, still reports status 0, and simply
- * cannot see anything far away.
- *
- * Longer means more photons collected, which means a weak return from a distant
- * or dark surface rises above the noise. Roughly:
- *
- *   20 ms    short reach, fast                       ~1.0 m in long mode
- *   50 ms    the sensible default                    ~2.5 m
- *   100 ms   what the 4 m figure on the box assumes  ~3.6 m
- *   200 ms   diminishing returns indoors             ~4.0 m
- *
- * The numbers below are ST's, from the ULD driver. They are pre-computed
- * macro-period timeouts rather than anything derivable from the milliseconds,
- * and they DIFFER BY DISTANCE MODE - which is why changing the mode has to
- * re-apply the budget, and why tof::setMode() does.
- */
-typedef enum Budget
-{
-    BUDGET_20MS = 0,
-    BUDGET_33MS,
-    BUDGET_50MS,
-    BUDGET_100MS,
-    BUDGET_200MS,
-    BUDGET_500MS
-} Budget;
-
-/* Registers 0x005E and 0x0061, indexed [budget][0..1]. */
-static const UInt16 BUDGET_LONG[6][2] = {
-    { 0x001E, 0x0022 },   /*  20 ms */
-    { 0x0060, 0x006E },   /*  33 ms */
-    { 0x00AD, 0x00C6 },   /*  50 ms */
-    { 0x01CC, 0x01EA },   /* 100 ms */
-    { 0x02D9, 0x02F8 },   /* 200 ms */
-    { 0x048F, 0x04A4 }    /* 500 ms */
-};
-
-/* NOTE the first row. ST publishes a 15 ms entry for short mode that has no
- * long-mode counterpart, so the two tables are not row-for-row the same budget
- * - this one starts at ST's 20 ms values, matching the enum, and the 15 ms
- * entry is simply not offered. */
-static const UInt16 BUDGET_SHORT[6][2] = {
-    { 0x0051, 0x006E },   /*  20 ms */
-    { 0x00D6, 0x006E },   /*  33 ms */
-    { 0x01AE, 0x01E8 },   /*  50 ms */
-    { 0x02E1, 0x0388 },   /* 100 ms */
-    { 0x03E1, 0x0496 },   /* 200 ms */
-    { 0x0591, 0x05C1 }    /* 500 ms */
-};
-
-typedef enum Mode
-{
-    /* Up to about 1.3 m, and much better in bright light. The right default for
-     * a bumper: the ambient infrared in daylight is what limits this sensor,
-     * not the laser. */
-    MODE_SHORT = 0,
-
-    /* Up to about 4 m indoors, and easily blinded outdoors. */
-    MODE_LONG
-} Mode;
-
-typedef struct Vl53
-{
-    Pin   sda;
-    UInt8 addr;
-    Bool  ok;
-
-    /* Remembered because the timing budget's register values DEPEND on the
-     * distance mode. Changing one without re-applying the other leaves the
-     * sensor integrating for a length of time it was not configured for, which
-     * shortens its reach without reporting anything wrong. */
-    Mode   mode;
-    Budget budget;
-
-    /* The interrupt polarity the sensor was configured with. tof::ready()
-     * compares against it, and reading it back rather than assuming is what
-     * makes the check work on a module wired either way round. */
-    UInt8 intPolarity;
-} Vl53;
-
-/*
- * ST's published default configuration, registers 0x2D through 0x87.
- *
- * Comments mark the bytes that are documented and meaningful. Everything
- * unmarked is "not user-modifiable" in ST's own words - undocumented
- * calibration that the sensor does not work without.
- */
-static const UInt8 DEFAULT_CONFIG[91] = {
-    0x00,   /* 0x2D */
-    0x00,   /* 0x2E  I2C pull-up level */
-    0x00,   /* 0x2F  GPIO pull-up level */
-    0x01,   /* 0x30  interrupt polarity lives in bit 4 */
-    0x02,   /* 0x31 */
-    0x00, 0x02, 0x08, 0x00, 0x08, 0x10, 0x01, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0xFF, 0x00, 0x0F, 0x00, 0x00, 0x00,
-    0x00, 0x00,     /* 0x44, 0x45 */
-    0x20,   /* 0x46  interrupt on "new sample ready" */
-    0x0B, 0x00, 0x00, 0x02, 0x0A, 0x21, 0x00, 0x00, 0x05,
-    0x00, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x38, 0xFF,
-    0x01, 0x00, 0x08, 0x00, 0x00, 0x01, 0xDB, 0x0F, 0x01,
-    0xF1, 0x0D,
-    0x01,   /* 0x64  sigma threshold, high byte - 90 mm by default */
-    0x68,   /* 0x65  sigma threshold, low byte */
-    0x00,   /* 0x66  minimum count rate, high byte */
-    0x80,   /* 0x67  minimum count rate, low byte */
-    0x08, 0xB8, 0x00, 0x00,
-    0x00,   /* 0x6C  inter-measurement period, 32 bits from here */
-    0x00, 0x0F, 0x89,
-    0x00, 0x00,
-    0x00,   /* 0x72  distance threshold high, high byte */
-    0x00,   /* 0x73  distance threshold high, low byte */
-    0x00,   /* 0x74  distance threshold low, high byte */
-    0x00,   /* 0x75  distance threshold low, low byte */
-    0x00, 0x01, 0x0F, 0x0D, 0x0E, 0x0E, 0x00, 0x00, 0x02,
-    0xC7,   /* 0x7F  region-of-interest centre */
-    0xFF,   /* 0x80  region-of-interest size, X and Y */
-    0x9B, 0x00, 0x00, 0x00, 0x01,
-    0x00,   /* 0x86  clear interrupt */
-    0x00    /* 0x87  start/stop ranging */
-};
-
-/* ---- distance mode ------------------------------------------------------- */
-
-/*
- * Short or long range.
- *
- * These four registers are the phase and timing windows the sensor uses to
- * decide what counts as a return. Short mode narrows them, which is what makes
- * it reject the ambient infrared that swamps the long mode in daylight.
- */
-/* Forward declared: setting the mode re-applies the budget, and setting the
- * budget needs to know the mode. */
-static Bool setBudget(Vl53* v, Budget budget);
-
-static Bool setMode(Vl53* v, Mode mode)
-{
-    if(!v->ok)
+    /* ---- timing budget --------------------------------------------------------
+     *
+     * How long the sensor integrates for, per measurement. This is the single
+     * biggest control over how far it reaches, and leaving it unset is a mistake
+     * that hides well: the sensor still ranges, still reports status 0, and simply
+     * cannot see anything far away.
+     *
+     * Longer means more photons collected, which means a weak return from a distant
+     * or dark surface rises above the noise. Roughly:
+     *
+     *   20 ms    short reach, fast                       ~1.0 m in long mode
+     *   50 ms    the sensible default                    ~2.5 m
+     *   100 ms   what the 4 m figure on the box assumes  ~3.6 m
+     *   200 ms   diminishing returns indoors             ~4.0 m
+     *
+     * The numbers below are ST's, from the ULD driver. They are pre-computed
+     * macro-period timeouts rather than anything derivable from the milliseconds,
+     * and they DIFFER BY DISTANCE MODE - which is why changing the mode has to
+     * re-apply the budget, and why tof::setMode() does.
+     */
+    typedef enum Budget
     {
-        return false;
-    }
+        BUDGET_20MS = 0,
+        BUDGET_33MS,
+        BUDGET_50MS,
+        BUDGET_100MS,
+        BUDGET_200MS,
+        BUDGET_500MS
+    } Budget;
 
-    v->mode = mode;
+    /* Registers 0x005E and 0x0061, indexed [budget][0..1]. */
+    static const UInt16 BUDGET_LONG[6][2] = {
+        { 0x001E, 0x0022 },   /*  20 ms */
+        { 0x0060, 0x006E },   /*  33 ms */
+        { 0x00AD, 0x00C6 },   /*  50 ms */
+        { 0x01CC, 0x01EA },   /* 100 ms */
+        { 0x02D9, 0x02F8 },   /* 200 ms */
+        { 0x048F, 0x04A4 }    /* 500 ms */
+    };
 
-    if(mode == MODE_SHORT)
+    /* NOTE the first row. ST publishes a 15 ms entry for short mode that has no
+     * long-mode counterpart, so the two tables are not row-for-row the same budget
+     * - this one starts at ST's 20 ms values, matching the enum, and the 15 ms
+     * entry is simply not offered. */
+    static const UInt16 BUDGET_SHORT[6][2] = {
+        { 0x0051, 0x006E },   /*  20 ms */
+        { 0x00D6, 0x006E },   /*  33 ms */
+        { 0x01AE, 0x01E8 },   /*  50 ms */
+        { 0x02E1, 0x0388 },   /* 100 ms */
+        { 0x03E1, 0x0496 },   /* 200 ms */
+        { 0x0591, 0x05C1 }    /* 500 ms */
+    };
+
+    typedef enum Mode
     {
-        const Bool okShort =
-               i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x14)
-            && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x07)
-            && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x05)
-            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
+        /* Up to about 1.3 m, and much better in bright light. The right default for
+         * a bumper: the ambient infrared in daylight is what limits this sensor,
+         * not the laser. */
+        MODE_SHORT = 0,
 
-            /* The sigma-delta pair, and the reason short mode reported a
-             * hardware fault when these were missing.
-             *
-             * The configuration block leaves 0x78 = 0x0F0D and 0x7A = 0x0E0E,
-             * which are the LONG values. Changing the VCSEL periods above
-             * without changing these leaves the sensor with a phase window
-             * that does not match the period it is now pulsing at - which is
-             * not a wrong reading, it is an inconsistent configuration, and it
-             * reports as a fault.
-             *
-             * Long mode worked precisely BECAUSE it agreed with the block by
-             * accident. That is why only one of the two modes was broken. */
-            && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
-            && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
+        /* Up to about 4 m indoors, and easily blinded outdoors. */
+        MODE_LONG
+    } Mode;
 
-        return okShort && setBudget(v, v->budget);
-    }
-
-    const Bool okLong =
-           i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x0A)
-        && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x0F)
-        && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
-        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
-
-        /* Written explicitly even though the configuration block already
-         * leaves these values. Relying on that meant long mode worked by
-         * agreement rather than by instruction, and switching to short and
-         * back would otherwise never restore them. */
-        && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
-        && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
-
-    /* The budget's values are mode-specific, so it goes back in. */
-    return okLong && setBudget(v, v->budget);
-}
-
-/*
- * How long each measurement integrates for.
- *
- * Must be set - the configuration block alone does not leave a usable budget,
- * and a sensor without one ranges happily and cannot see past about a metre.
- */
-static Bool setBudget(Vl53* v, Budget budget)
-{
-    if(!v->ok)
+    typedef struct Vl53
     {
-        return false;
-    }
-    if(static_cast<Int32>(budget) < 0 || static_cast<Int32>(budget) > static_cast<Int32>(BUDGET_500MS))
-    {
-        return false;
-    }
+        Pin   sda;
+        UInt8 addr;
+        Bool  ok;
 
-    v->budget = budget;
+        /* Remembered because the timing budget's register values DEPEND on the
+         * distance mode. Changing one without re-applying the other leaves the
+         * sensor integrating for a length of time it was not configured for, which
+         * shortens its reach without reporting anything wrong. */
+        Mode   mode;
+        Budget budget;
 
-    const UInt16* row = (v->mode == MODE_SHORT)
-                      ? BUDGET_SHORT[static_cast<Int32>(budget)]
-                      : BUDGET_LONG[static_cast<Int32>(budget)];
-
-    return i2c::writeReg16U16(v->sda, v->addr, 0x005E, row[0])
-        && i2c::writeReg16U16(v->sda, v->addr, 0x0061, row[1]);
-}
-
-/* ---- bring-up ------------------------------------------------------------ */
-
-/*
- * Wakes the sensor, checks it is one, and writes the configuration.
- *
- * The bus must already be open - i2c::open() - because several devices share it
- * and it is not this driver's to configure.
- */
-static Bool open(Vl53* v, Pin sda, UInt8 addr)
-{
-    if(v == NULL)
-    {
-        return false;
-    }
-
-    v->sda         = sda;
-    v->addr        = addr;
-    v->ok          = false;
-    v->intPolarity = 1;
-    v->mode        = MODE_LONG;
-    v->budget      = BUDGET_50MS;
-
-    /* Is anything there at all? A separate check from the ID below, because
-     * "nothing answers" and "something answers and is not a VL53L1X" are
-     * different problems with different fixes. */
-    if(!i2c::present(sda, addr))
-    {
-        return false;
-    }
-
-    UInt16 model = 0;
-    if(!i2c::readReg16U16(sda, addr, VL53_REG_MODEL_ID, &model)
-       || model != VL53_MODEL_ID)
-    {
-        return false;
-    }
+        /* The interrupt polarity the sensor was configured with. tof::ready()
+         * compares against it, and reading it back rather than assuming is what
+         * makes the check work on a module wired either way round. */
+        UInt8 intPolarity;
+    } Vl53;
 
     /*
-     * Wait for the firmware to finish booting. Writing configuration into a
-     * sensor that is still starting up is the classic way to get one that
-     * ranges but returns nonsense.
+     * ST's published default configuration, registers 0x2D through 0x87.
+     *
+     * Comments mark the bytes that are documented and meaningful. Everything
+     * unmarked is "not user-modifiable" in ST's own words - undocumented
+     * calibration that the sensor does not work without.
      */
-    Bool booted = false;
-    for(Int32 i = 0; i < 1000; ++i)
-    {
-        UInt8 st = 0;
-        if(i2c::readReg16U8(sda, addr, VL53_REG_FIRMWARE_STATUS, &st)
-           && (st & 0x01u) != 0u)
-        {
-            booted = true;
-            break;
-        }
-        timing::ms(2);
-    }
-    if(!booted)
-    {
-        return false;
-    }
+    static const UInt8 DEFAULT_CONFIG[91] = {
+        0x00,   /* 0x2D */
+        0x00,   /* 0x2E  I2C pull-up level */
+        0x00,   /* 0x2F  GPIO pull-up level */
+        0x01,   /* 0x30  interrupt polarity lives in bit 4 */
+        0x02,   /* 0x31 */
+        0x00, 0x02, 0x08, 0x00, 0x08, 0x10, 0x01, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0xFF, 0x00, 0x0F, 0x00, 0x00, 0x00,
+        0x00, 0x00,     /* 0x44, 0x45 */
+        0x20,   /* 0x46  interrupt on "new sample ready" */
+        0x0B, 0x00, 0x00, 0x02, 0x0A, 0x21, 0x00, 0x00, 0x05,
+        0x00, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x38, 0xFF,
+        0x01, 0x00, 0x08, 0x00, 0x00, 0x01, 0xDB, 0x0F, 0x01,
+        0xF1, 0x0D,
+        0x01,   /* 0x64  sigma threshold, high byte - 90 mm by default */
+        0x68,   /* 0x65  sigma threshold, low byte */
+        0x00,   /* 0x66  minimum count rate, high byte */
+        0x80,   /* 0x67  minimum count rate, low byte */
+        0x08, 0xB8, 0x00, 0x00,
+        0x00,   /* 0x6C  inter-measurement period, 32 bits from here */
+        0x00, 0x0F, 0x89,
+        0x00, 0x00,
+        0x00,   /* 0x72  distance threshold high, high byte */
+        0x00,   /* 0x73  distance threshold high, low byte */
+        0x00,   /* 0x74  distance threshold low, high byte */
+        0x00,   /* 0x75  distance threshold low, low byte */
+        0x00, 0x01, 0x0F, 0x0D, 0x0E, 0x0E, 0x00, 0x00, 0x02,
+        0xC7,   /* 0x7F  region-of-interest centre */
+        0xFF,   /* 0x80  region-of-interest size, X and Y */
+        0x9B, 0x00, 0x00, 0x00, 0x01,
+        0x00,   /* 0x86  clear interrupt */
+        0x00    /* 0x87  start/stop ranging */
+    };
 
-    /* The block goes in one register at a time. It could go as one burst, and
-     * a burst would need a 93-byte buffer for a one-off - not worth it. */
-    for(Int32 i = 0; i < 91; ++i)
+    /* ---- distance mode ------------------------------------------------------- */
+
+    /*
+     * Short or long range.
+     *
+     * These four registers are the phase and timing windows the sensor uses to
+     * decide what counts as a return. Short mode narrows them, which is what makes
+     * it reject the ambient infrared that swamps the long mode in daylight.
+     */
+    /* Forward declared: setting the mode re-applies the budget, and setting the
+     * budget needs to know the mode. */
+    static Bool setBudget(Vl53* v, Budget budget);
+
+    static Bool setMode(Vl53* v, Mode mode)
     {
-        const UInt16 reg = static_cast<UInt16>(VL53_REG_CONFIG_START + i);
-        if(!i2c::writeReg16U8(sda, addr, reg, DEFAULT_CONFIG[i]))
+        if(!v->ok)
         {
             return false;
         }
+
+        v->mode = mode;
+
+        if(mode == MODE_SHORT)
+        {
+            const Bool okShort =
+                   i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x14)
+                && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x07)
+                && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x05)
+                && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
+
+                /* The sigma-delta pair, and the reason short mode reported a
+                 * hardware fault when these were missing.
+                 *
+                 * The configuration block leaves 0x78 = 0x0F0D and 0x7A = 0x0E0E,
+                 * which are the LONG values. Changing the VCSEL periods above
+                 * without changing these leaves the sensor with a phase window
+                 * that does not match the period it is now pulsing at - which is
+                 * not a wrong reading, it is an inconsistent configuration, and it
+                 * reports as a fault.
+                 *
+                 * Long mode worked precisely BECAUSE it agreed with the block by
+                 * accident. That is why only one of the two modes was broken. */
+                && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
+                && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
+
+            return okShort && setBudget(v, v->budget);
+        }
+
+        const Bool okLong =
+               i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x0A)
+            && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x0F)
+            && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
+            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
+
+            /* Written explicitly even though the configuration block already
+             * leaves these values. Relying on that meant long mode worked by
+             * agreement rather than by instruction, and switching to short and
+             * back would otherwise never restore them. */
+            && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
+            && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
+
+        /* The budget's values are mode-specific, so it goes back in. */
+        return okLong && setBudget(v, v->budget);
     }
 
-    v->ok = true;
+    /*
+     * How long each measurement integrates for.
+     *
+     * Must be set - the configuration block alone does not leave a usable budget,
+     * and a sensor without one ranges happily and cannot see past about a metre.
+     */
+    static Bool setBudget(Vl53* v, Budget budget)
+    {
+        if(!v->ok)
+        {
+            return false;
+        }
+        if(static_cast<Int32>(budget) < 0 || static_cast<Int32>(budget) > static_cast<Int32>(BUDGET_500MS))
+        {
+            return false;
+        }
+
+        v->budget = budget;
+
+        const UInt16* row = (v->mode == MODE_SHORT)
+                          ? BUDGET_SHORT[static_cast<Int32>(budget)]
+                          : BUDGET_LONG[static_cast<Int32>(budget)];
+
+        return i2c::writeReg16U16(v->sda, v->addr, 0x005E, row[0])
+            && i2c::writeReg16U16(v->sda, v->addr, 0x0061, row[1]);
+    }
+
+    /* ---- bring-up ------------------------------------------------------------ */
 
     /*
-     * One throwaway measurement, which ST's own driver also does. The first
-     * result after configuration is not trustworthy, and starting a program by
-     * showing a wrong number is worse than starting it a hundred milliseconds
-     * later.
+     * Wakes the sensor, checks it is one, and writes the configuration.
+     *
+     * The bus must already be open - i2c::open() - because several devices share it
+     * and it is not this driver's to configure.
      */
-    static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x40));
-    for(Int32 i = 0; i < 500; ++i)
+    static Bool open(Vl53* v, Pin sda, UInt8 addr)
     {
-        UInt8 st = 0;
-        if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_TIO_STATUS, &st))
+        if(v == NULL)
         {
-            if((st & 0x01u) == v->intPolarity)
+            return false;
+        }
+
+        v->sda         = sda;
+        v->addr        = addr;
+        v->ok          = false;
+        v->intPolarity = 1;
+        v->mode        = MODE_LONG;
+        v->budget      = BUDGET_50MS;
+
+        /* Is anything there at all? A separate check from the ID below, because
+         * "nothing answers" and "something answers and is not a VL53L1X" are
+         * different problems with different fixes. */
+        if(!i2c::present(sda, addr))
+        {
+            return false;
+        }
+
+        UInt16 model = 0;
+        if(!i2c::readReg16U16(sda, addr, VL53_REG_MODEL_ID, &model)
+           || model != VL53_MODEL_ID)
+        {
+            return false;
+        }
+
+        /*
+         * Wait for the firmware to finish booting. Writing configuration into a
+         * sensor that is still starting up is the classic way to get one that
+         * ranges but returns nonsense.
+         */
+        Bool booted = false;
+        for(Int32 i = 0; i < 1000; ++i)
+        {
+            UInt8 st = 0;
+            if(i2c::readReg16U8(sda, addr, VL53_REG_FIRMWARE_STATUS, &st)
+               && (st & 0x01u) != 0u)
             {
+                booted = true;
                 break;
             }
+            timing::ms(2);
         }
-        timing::ms(2);
-    }
-    static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_INTERRUPT, 0x01));
-    static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x00));
-
-    /* VHV config, which ST's driver writes after the first range. */
-    static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x0008, 0x09));
-    static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x000B, 0x00));
-
-    /* Read back the polarity actually configured rather than assuming it. */
-    {
-        UInt8 mux = 0;
-        if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
+        if(!booted)
         {
-            v->intPolarity = ((mux & 0x10u) != 0u) ? 0u : 1u;
+            return false;
         }
+
+        /* The block goes in one register at a time. It could go as one burst, and
+         * a burst would need a 93-byte buffer for a one-off - not worth it. */
+        for(Int32 i = 0; i < 91; ++i)
+        {
+            const UInt16 reg = static_cast<UInt16>(VL53_REG_CONFIG_START + i);
+            if(!i2c::writeReg16U8(sda, addr, reg, DEFAULT_CONFIG[i]))
+            {
+                return false;
+            }
+        }
+
+        v->ok = true;
+
+        /*
+         * One throwaway measurement, which ST's own driver also does. The first
+         * result after configuration is not trustworthy, and starting a program by
+         * showing a wrong number is worse than starting it a hundred milliseconds
+         * later.
+         */
+        static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x40));
+        for(Int32 i = 0; i < 500; ++i)
+        {
+            UInt8 st = 0;
+            if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_TIO_STATUS, &st))
+            {
+                if((st & 0x01u) == v->intPolarity)
+                {
+                    break;
+                }
+            }
+            timing::ms(2);
+        }
+        static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_INTERRUPT, 0x01));
+        static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x00));
+
+        /* VHV config, which ST's driver writes after the first range. */
+        static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x0008, 0x09));
+        static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x000B, 0x00));
+
+        /* Read back the polarity actually configured rather than assuming it. */
+        {
+            UInt8 mux = 0;
+            if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
+            {
+                v->intPolarity = ((mux & 0x10u) != 0u) ? 0u : 1u;
+            }
+        }
+
+        /* Mode first, then budget - and tof::setMode re-applies the budget anyway,
+         * because the two are not independent. 50 ms reaches about 2.5 m, which is
+         * a useful indoor default; raise it for more reach at a lower rate. */
+        setMode(v, MODE_LONG);
+        setBudget(v, BUDGET_50MS);
+        return true;
     }
-
-    /* Mode first, then budget - and tof::setMode re-applies the budget anyway,
-     * because the two are not independent. 50 ms reaches about 2.5 m, which is
-     * a useful indoor default; raise it for more reach at a lower rate. */
-    setMode(v, MODE_LONG);
-    setBudget(v, BUDGET_50MS);
-    return true;
-}
-
-/*
- * Signal and ambient rates, in mega-counts per second, 16.16 fixed point.
- *
- * The diagnostic that tells you WHY a reading is what it is. A strong signal at
- * a short distance means something really is close - including a protective
- * film still stuck on the lens, which is by far the commonest reason a brand
- * new sensor reads a few centimetres and never changes.
- *
- * A high AMBIENT rate with a weak signal means the sensor is being blinded by
- * infrared in the room, which is what short mode exists to fix.
- */
-static Bool rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
-{
-    if(!v->ok)
-    {
-        return false;
-    }
-
-    UInt16 sig = 0;
-    UInt16 amb = 0;
 
     /*
-     * 0x0098 is the crosstalk-corrected peak SIGNAL rate for this measurement,
-     * and 0x0090 is the AMBIENT rate. Both are the sensor's own fixed point;
-     * the ratio between them is what matters and the absolute units do not.
+     * Signal and ambient rates, in mega-counts per second, 16.16 fixed point.
      *
-     * The ambient register is 0x0090 and NOT 0x009A. Reading 0x009A returns a
-     * different field entirely, and it returns a large, almost unchanging
-     * number - which read exactly like a sensor being swamped by room light and
-     * was nothing of the kind. Worth naming, because a plausible wrong answer
-     * from a wrong register is the hardest kind to notice.
+     * The diagnostic that tells you WHY a reading is what it is. A strong signal at
+     * a short distance means something really is close - including a protective
+     * film still stuck on the lens, which is by far the commonest reason a brand
+     * new sensor reads a few centimetres and never changes.
+     *
+     * A high AMBIENT rate with a weak signal means the sensor is being blinded by
+     * infrared in the room, which is what short mode exists to fix.
      */
-    if(!i2c::readReg16U16(v->sda, v->addr, 0x0098, &sig)
-       || !i2c::readReg16U16(v->sda, v->addr, 0x0090, &amb))
+    static Bool rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
     {
-        return false;
+        if(!v->ok)
+        {
+            return false;
+        }
+
+        UInt16 sig = 0;
+        UInt16 amb = 0;
+
+        /*
+         * 0x0098 is the crosstalk-corrected peak SIGNAL rate for this measurement,
+         * and 0x0090 is the AMBIENT rate. Both are the sensor's own fixed point;
+         * the ratio between them is what matters and the absolute units do not.
+         *
+         * The ambient register is 0x0090 and NOT 0x009A. Reading 0x009A returns a
+         * different field entirely, and it returns a large, almost unchanging
+         * number - which read exactly like a sensor being swamped by room light and
+         * was nothing of the kind. Worth naming, because a plausible wrong answer
+         * from a wrong register is the hardest kind to notice.
+         */
+        if(!i2c::readReg16U16(v->sda, v->addr, 0x0098, &sig)
+           || !i2c::readReg16U16(v->sda, v->addr, 0x0090, &amb))
+        {
+            return false;
+        }
+
+        if(signalOut != NULL)
+        {
+            *signalOut = sig;
+        }
+        if(ambientOut != NULL)
+        {
+            *ambientOut = amb;
+        }
+        return true;
     }
 
-    if(signalOut != NULL)
+    /* ---- ranging ------------------------------------------------------------- */
+
+    static Bool startRanging(Vl53* v)
     {
-        *signalOut = sig;
-    }
-    if(ambientOut != NULL)
-    {
-        *ambientOut = amb;
-    }
-    return true;
-}
-
-/* ---- ranging ------------------------------------------------------------- */
-
-static Bool startRanging(Vl53* v)
-{
-    return v->ok
-        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
-}
-
-static Bool stopRanging(Vl53* v)
-{
-    return v->ok
-        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
-}
-
-/* True when a new measurement is waiting. Costs one register read. */
-static Bool ready(const Vl53* v)
-{
-    if(!v->ok)
-    {
-        return false;
-    }
-    UInt8 st = 0;
-    if(!i2c::readReg16U8(v->sda, v->addr, VL53_REG_GPIO_TIO_STATUS, &st))
-    {
-        return false;
-    }
-    return (st & 0x01u) == v->intPolarity;
-}
-
-/*
- * Arms the next measurement.
- *
- * Must be called after every reading. Without it the sensor holds the same
- * result forever and tof::ready() stays true - which looks exactly like a
- * distance that has frozen, and sends you looking at the wrong thing.
- */
-static Bool clear(Vl53* v)
-{
-    return v->ok
-        && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
-}
-
-/*
- * Clears any stale interrupt and starts ranging again.
- *
- * The pair belongs together after a reconfiguration: the interrupt left over
- * from the previous settings would otherwise be handed back as the first
- * "reading" under the new ones, which is the one measurement guaranteed to be
- * wrong.
- */
-static Bool clearInterruptAndStart(Vl53* v)
-{
-    return clear(v) && startRanging(v);
-}
-
-/* Millimetres to whatever is in front. Meaningless unless tof::status() is 0. */
-static UInt16 distance(const Vl53* v)
-{
-    if(!v->ok)
-    {
-        return 0;
-    }
-    UInt16 mm = 0;
-    if(!i2c::readReg16U16(v->sda, v->addr, VL53_REG_RESULT_DISTANCE, &mm))
-    {
-        return 0;
-    }
-    return mm;
-}
-
-/*
- * 0 means the reading is good. Anything else means it is not, and the distance
- * that came with it should be ignored rather than shown.
- *
- * The raw codes are remapped by ST's driver into a friendlier set; this returns
- * the friendly one, because the raw values are not in a useful order.
- */
-static UInt8 status(const Vl53* v)
-{
-    if(!v->ok)
-    {
-        return 255;
+        return v->ok
+            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
     }
 
-    UInt8 raw = 0;
-    if(!i2c::readReg16U8(v->sda, v->addr, VL53_REG_RESULT_STATUS, &raw))
+    static Bool stopRanging(Vl53* v)
     {
-        return 255;
+        return v->ok
+            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
     }
-    raw &= 0x1Fu;
 
-    switch(raw)
+    /* True when a new measurement is waiting. Costs one register read. */
+    static Bool ready(const Vl53* v)
     {
-    case 9:  return 0;    /* the only "good" raw code */
-    case 6:  return 1;    /* sigma too high - the answer is too noisy */
-    case 4:  return 2;    /* signal too weak - nothing came back */
-    case 8:  return 3;    /* out of the valid phase - beyond range */
-    case 5:  return 4;    /* hardware fail */
-    case 12: return 5;    /* wrapped target - an echo from further than it says */
-    case 18: return 6;    /* synchronisation */
-    case 3:  return 7;    /* merged pulse */
-    default: return 8;    /* something else */
+        if(!v->ok)
+        {
+            return false;
+        }
+        UInt8 st = 0;
+        if(!i2c::readReg16U8(v->sda, v->addr, VL53_REG_GPIO_TIO_STATUS, &st))
+        {
+            return false;
+        }
+        return (st & 0x01u) == v->intPolarity;
     }
-}
 
-static const Utf8* statusName(UInt8 status)
-{
-    switch(status)
+    /*
+     * Arms the next measurement.
+     *
+     * Must be called after every reading. Without it the sensor holds the same
+     * result forever and tof::ready() stays true - which looks exactly like a
+     * distance that has frozen, and sends you looking at the wrong thing.
+     */
+    static Bool clear(Vl53* v)
     {
-    case 0: return "OK";
-    case 1: return "TOO NOISY";
-    case 2: return "NO SIGNAL";
-    case 3: return "OUT OF RANGE";
-    case 4: return "HARDWARE FAIL";
-    case 5: return "WRAPPED TARGET";
-    case 6: return "SYNC";
-    case 7: return "MERGED PULSE";
-    default: return "UNKNOWN";
+        return v->ok
+            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
     }
-}
+
+    /*
+     * Clears any stale interrupt and starts ranging again.
+     *
+     * The pair belongs together after a reconfiguration: the interrupt left over
+     * from the previous settings would otherwise be handed back as the first
+     * "reading" under the new ones, which is the one measurement guaranteed to be
+     * wrong.
+     */
+    static Bool clearInterruptAndStart(Vl53* v)
+    {
+        return clear(v) && startRanging(v);
+    }
+
+    /* Millimetres to whatever is in front. Meaningless unless tof::status() is 0. */
+    static UInt16 distance(const Vl53* v)
+    {
+        if(!v->ok)
+        {
+            return 0;
+        }
+        UInt16 mm = 0;
+        if(!i2c::readReg16U16(v->sda, v->addr, VL53_REG_RESULT_DISTANCE, &mm))
+        {
+            return 0;
+        }
+        return mm;
+    }
+
+    /*
+     * 0 means the reading is good. Anything else means it is not, and the distance
+     * that came with it should be ignored rather than shown.
+     *
+     * The raw codes are remapped by ST's driver into a friendlier set; this returns
+     * the friendly one, because the raw values are not in a useful order.
+     */
+    static UInt8 status(const Vl53* v)
+    {
+        if(!v->ok)
+        {
+            return 255;
+        }
+
+        UInt8 raw = 0;
+        if(!i2c::readReg16U8(v->sda, v->addr, VL53_REG_RESULT_STATUS, &raw))
+        {
+            return 255;
+        }
+        raw &= 0x1Fu;
+
+        switch(raw)
+        {
+        case 9:  return 0;    /* the only "good" raw code */
+        case 6:  return 1;    /* sigma too high - the answer is too noisy */
+        case 4:  return 2;    /* signal too weak - nothing came back */
+        case 8:  return 3;    /* out of the valid phase - beyond range */
+        case 5:  return 4;    /* hardware fail */
+        case 12: return 5;    /* wrapped target - an echo from further than it says */
+        case 18: return 6;    /* synchronisation */
+        case 3:  return 7;    /* merged pulse */
+        default: return 8;    /* something else */
+        }
+    }
+
+    static const Utf8* statusName(UInt8 status)
+    {
+        switch(status)
+        {
+        case 0: return "OK";
+        case 1: return "TOO NOISY";
+        case 2: return "NO SIGNAL";
+        case 3: return "OUT OF RANGE";
+        case 4: return "HARDWARE FAIL";
+        case 5: return "WRAPPED TARGET";
+        case 6: return "SYNC";
+        case 7: return "MERGED PULSE";
+        default: return "UNKNOWN";
+        }
+    }
 
 
-} // namespace tof
+  } // namespace tof
 
 } // namespace bibo

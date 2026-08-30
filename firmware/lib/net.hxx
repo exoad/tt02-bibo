@@ -57,456 +57,456 @@
 namespace bibo
 {
 
-namespace net
-{
+  namespace net
+  {
 
-/* The port. Arbitrary, above the registered range, and the same number the hub
- * uses - hub/src/pico_link.hxx. Change one and change the other. */
+    /* The port. Arbitrary, above the registered range, and the same number the hub
+     * uses - hub/src/pico_link.hxx. Change one and change the other. */
 #define NET_PORT 4242
 
-/*
- * One line's worth. The same 128 as main.c's LINE_CAP, and for the same
- * reason: no command this protocol has is anywhere near it, and a bigger
- * buffer here would only let an over-long line travel further before being
- * refused.
- */
+    /*
+     * One line's worth. The same 128 as main.c's LINE_CAP, and for the same
+     * reason: no command this protocol has is anywhere near it, and a bigger
+     * buffer here would only let an over-long line travel further before being
+     * refused.
+     */
 #define NET_LINE_CAP 128
 
-/*
- * How many complete lines can be held between one net::poll() and the next.
- *
- * The loop drains this every millisecond or so, so eight is already generous;
- * it exists for the burst that arrives while the loop is off doing something
- * slow, not for steady traffic.
- */
+    /*
+     * How many complete lines can be held between one net::poll() and the next.
+     *
+     * The loop drains this every millisecond or so, so eight is already generous;
+     * it exists for the burst that arrives while the loop is off doing something
+     * slow, not for steady traffic.
+     */
 #define NET_QUEUE_LINES 8
 
-typedef enum
-{
-    STATE_ABSENT = 0,  /* no radio on this board */
-    STATE_OFF,         /* radio up, not joined to anything */
-    STATE_JOINING,
-    STATE_UP,
-    STATE_FAILED
-} State;
+    typedef enum
+    {
+        STATE_ABSENT = 0,  /* no radio on this board */
+        STATE_OFF,         /* radio up, not joined to anything */
+        STATE_JOINING,
+        STATE_UP,
+        STATE_FAILED
+    } State;
 
-typedef Void (*LineHandler)(Utf8* line);
+    typedef Void (*LineHandler)(Utf8* line);
 
 #ifdef BIBO_WIRELESS
 
-/*
- * OFF, not ABSENT: this half of the file only compiles on a board that HAS the
- * chip, so "no radio" is never the answer here. ABSENT belongs to the stub half
- * at the bottom, and keeping the two meanings apart is what lets a caller print
- * net::stateWord() without having to know which build it is in.
- */
-static State       stateNow  = STATE_OFF;
-static Bool           started   = false;
-static LineHandler handler   = NULL;
-static struct udp_pcb* pcb      = NULL;
-
-/* The last host that said anything. Replies go here - including replies to
- * commands that arrived over USB, which is deliberate: a console watching
- * wirelessly should see the whole conversation, not only its half of it. */
-static ip_addr_t peerAddr;
-static UInt16    peerPort = 0;
-static Bool      peerKnownNow = false;
-
-/* The join in progress. cyw43's async connect keeps no copy of these, so they
- * have to outlive the call that starts it. */
-static Utf8 joinSsid[40];
-static Utf8 joinPass[68];
-
-/* The line queue, filled from the lwIP callback and drained by net::poll(). */
-static Utf8  queue[NET_QUEUE_LINES][NET_LINE_CAP];
-static Size  queueHead  = 0;   /* next to drain */
-static Size  queueCount = 0;
-static UInt32 dropped   = 0;
-
-/* Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be
- * - a sender is free to put two in one packet, or split one across two. */
-static Utf8 partial[NET_LINE_CAP];
-static Size partialLen = 0;
-
-static Bool present(Void)
-{
-    return true;
-}
-
-static State status(Void)
-{
-    return stateNow;
-}
-
-static Bool peerKnown(Void)
-{
-    return peerKnownNow;
-}
-
-static UInt32 droppedCount(Void)
-{
-    return dropped;
-}
-
-static Void setLineHandler(LineHandler fn)
-{
-    handler = fn;
-}
-
-/*
- * The car's address on the network, or "-" before it has one.
- *
- * Points into lwIP's own static formatting buffer, so it is valid until the
- * next call. Print it, do not keep it.
- */
-static CharSeq address(Void)
-{
-    if(stateNow != STATE_UP || netif_default == NULL)
-    {
-        return "-";
-    }
-    return ip4addr_ntoa(netif_ip4_addr(netif_default));
-}
-
-/* One finished line into the queue. */
-static Void queuePush(const Utf8* text, Size len)
-{
-    if(len == 0)
-    {
-        return;   /* a bare newline is not a command */
-    }
-    if(len >= NET_LINE_CAP)
-    {
-        len = NET_LINE_CAP - 1;
-    }
-
     /*
-     * Full: drop the OLDEST, not this one.
-     *
-     * On a control link the freshest command is the one that matters - it is
-     * the one describing where the car should be NOW - and a queue that
-     * discarded arrivals would preferentially discard the newest, which is
-     * exactly backwards. Losing a stale keepalive costs nothing.
+     * OFF, not ABSENT: this half of the file only compiles on a board that HAS the
+     * chip, so "no radio" is never the answer here. ABSENT belongs to the stub half
+     * at the bottom, and keeping the two meanings apart is what lets a caller print
+     * net::stateWord() without having to know which build it is in.
      */
-    if(queueCount == NET_QUEUE_LINES)
-    {
-        queueHead = (queueHead + 1) % NET_QUEUE_LINES;
-        queueCount--;
-        dropped++;
-    }
+    static State       stateNow  = STATE_OFF;
+    static Bool           started   = false;
+    static LineHandler handler   = NULL;
+    static struct udp_pcb* pcb      = NULL;
 
-    const Size slot = (queueHead + queueCount) % NET_QUEUE_LINES;
-    memcpy(queue[slot], text, len);
-    queue[slot][len] = '\0';
-    queueCount++;
-}
+    /* The last host that said anything. Replies go here - including replies to
+     * commands that arrived over USB, which is deliberate: a console watching
+     * wirelessly should see the whole conversation, not only its half of it. */
+    static ip_addr_t peerAddr;
+    static UInt16    peerPort = 0;
+    static Bool      peerKnownNow = false;
 
-/* Bytes off the wire, split into lines. */
-static Void feed(const Utf8* data, Size len)
-{
-    for(Size i = 0; i < len; ++i)
-    {
-        const Utf8 c = data[i];
+    /* The join in progress. cyw43's async connect keeps no copy of these, so they
+     * have to outlive the call that starts it. */
+    static Utf8 joinSsid[40];
+    static Utf8 joinPass[68];
 
-        if(c == '\n' || c == '\r')
-        {
-            queuePush(partial, partialLen);
-            partialLen = 0;
-        }
-        else if(partialLen + 1 < NET_LINE_CAP)
-        {
-            partial[partialLen++] = c;
-        }
-        else
-        {
-            /* Over-long. Drop the whole line rather than letting its tail
-             * become a command nobody sent - the same rule, and the same
-             * reasoning, as the USB reader in main.c. */
-            partialLen = 0;
-        }
-    }
+    /* The line queue, filled from the lwIP callback and drained by net::poll(). */
+    static Utf8  queue[NET_QUEUE_LINES][NET_LINE_CAP];
+    static Size  queueHead  = 0;   /* next to drain */
+    static Size  queueCount = 0;
+    static UInt32 dropped   = 0;
 
-    /*
-     * A datagram that ends without a newline is a COMPLETE line.
-     *
-     * UDP preserves message boundaries - unlike a stream, where the end of a
-     * read means nothing - so requiring a trailing newline would silently
-     * ignore every sender that does not bother with one. Which is most of
-     * them, including a one-line test from a shell.
-     */
-    if(partialLen > 0)
-    {
-        queuePush(partial, partialLen);
-        partialLen = 0;
-    }
-}
+    /* Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be
+     * - a sender is free to put two in one packet, or split one across two. */
+    static Utf8 partial[NET_LINE_CAP];
+    static Size partialLen = 0;
 
-/* The signature is lwIP's, not ours - it is a callback that stack calls, so
- * every parameter is spelled the way udp_recv_fn declares it. */
-static Void onPacket(Void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, u16_t port)
-{
-    static_cast<Void>(arg);
-    static_cast<Void>(pcb);
-
-    if(p == NULL)
-    {
-        return;
-    }
-
-    peerAddr     = *addr;
-    peerPort     = port;
-    peerKnownNow = true;
-
-    /* pbufs can be chained; walking the chain is not optional even for small
-     * packets, because "small" is the sender's decision and not ours. */
-    for(struct pbuf* q = p; q != NULL; q = q->next)
-    {
-        feed(static_cast<const Utf8*>(q->payload), static_cast<Size>(q->len));
-    }
-
-    pbuf_free(p);
-}
-
-/*
- * Brings the radio up in station mode. Does NOT join anything.
- *
- * Power management is turned OFF here, and that is not a detail. The default
- * parks the radio between beacons and adds latency spikes well past a hundred
- * milliseconds - which on a link that carries hold-to-drive commands means the
- * deadman fires mid-drive and it looks like a fault in the car.
- */
-static Bool start(Void)
-{
-    if(started)
+    static Bool present(Void)
     {
         return true;
     }
 
+    static State status(Void)
+    {
+        return stateNow;
+    }
+
+    static Bool peerKnown(Void)
+    {
+        return peerKnownNow;
+    }
+
+    static UInt32 droppedCount(Void)
+    {
+        return dropped;
+    }
+
+    static Void setLineHandler(LineHandler fn)
+    {
+        handler = fn;
+    }
+
     /*
-     * radio::open(), not cyw43_arch_init().
+     * The car's address on the network, or "-" before it has one.
      *
-     * The LED on this board hangs off the same chip and main() brings it up at
-     * boot, so by the time anybody asks for wireless the radio is ALREADY
-     * initialised. A second cyw43_arch_init() does not return an error - it
-     * quietly leaves the chip half re-initialised, and the next thing to touch
-     * it behaves strangely for reasons that are nowhere near the code that
-     * caused them. hal.h owns that call and answers it once.
+     * Points into lwIP's own static formatting buffer, so it is valid until the
+     * next call. Print it, do not keep it.
      */
-    if(!radio::open())
+    static CharSeq address(Void)
     {
-        stateNow = STATE_FAILED;
-        return false;
-    }
-
-    cyw43_arch_enable_sta_mode();
-    cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
-
-    pcb = udp_new();
-    if(pcb == NULL)
-    {
-        stateNow = STATE_FAILED;
-        return false;
-    }
-
-    if(udp_bind(pcb, IP_ANY_TYPE, NET_PORT) != ERR_OK)
-    {
-        udp_remove(pcb);
-        pcb      = NULL;
-        stateNow = STATE_FAILED;
-        return false;
-    }
-
-    udp_recv(pcb, onPacket, NULL);
-
-    started  = true;
-    stateNow = STATE_OFF;
-    return true;
-}
-
-/*
- * Starts joining. Returns immediately.
- *
- * Asynchronous on purpose: the blocking form of this call sits inside the SDK
- * for up to thirty seconds, and every one of those seconds is a second the main
- * loop is not running drive::pump(), not slewing an output, and not honouring the
- * deadman. A join that freezes the car is a join nobody can make while the car
- * is switched on.
- */
-static Bool join(CharSeq ssid, CharSeq pass)
-{
-    if(!started && !start())
-    {
-        return false;
-    }
-
-    /* Copies, because the async connect keeps pointers to these. */
-    snprintf(joinSsid, sizeof(joinSsid), "%s", ssid);
-    snprintf(joinPass, sizeof(joinPass), "%s", (pass != NULL) ? pass : "");
-
-    const UInt32 auth = (joinPass[0] == '\0')
-                            ? CYW43_AUTH_OPEN
-                            : CYW43_AUTH_WPA2_AES_PSK;
-
-    /* NULL rather than an empty string for an open network: the SDK tests the
-     * pointer, not what it points at. */
-    CharSeq key = (joinPass[0] == '\0') ? NULL : joinPass;
-
-    if(cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
-    {
-        stateNow = STATE_FAILED;
-        return false;
-    }
-
-    stateNow = STATE_JOINING;
-    return true;
-}
-
-/* One line out to whoever last spoke. Silently does nothing if nobody has. */
-static Void sendLine(CharSeq text)
-{
-    if(stateNow != STATE_UP || !peerKnownNow || pcb == NULL)
-    {
-        return;
-    }
-
-    const Size len = strlen(text);
-    if(len == 0)
-    {
-        return;
-    }
-
-    struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(len), PBUF_RAM);
-    if(p == NULL)
-    {
-        return;   /* out of buffers: dropping a reply beats blocking the loop */
-    }
-
-    memcpy(p->payload, text, len);
-    udp_sendto(pcb, p, &peerAddr, peerPort);
-    pbuf_free(p);
-}
-
-/*
- * Pumps the stack and hands over anything that arrived.
- *
- * Call it every time round the main loop. In NO_SYS mode nothing in lwIP
- * happens on its own: no packet is received, no join completes and no timer
- * fires except inside this call.
- */
-static Void poll(Void)
-{
-    if(!started)
-    {
-        return;
-    }
-
-    cyw43_arch_poll();
-
-    if(stateNow == STATE_JOINING)
-    {
-        const Int32 link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-
-        if(link == CYW43_LINK_UP)
+        if(stateNow != STATE_UP || netif_default == NULL)
         {
-            stateNow = STATE_UP;
+            return "-";
         }
-        else if(link < 0)
+        return ip4addr_ntoa(netif_ip4_addr(netif_default));
+    }
+
+    /* One finished line into the queue. */
+    static Void queuePush(const Utf8* text, Size len)
+    {
+        if(len == 0)
+        {
+            return;   /* a bare newline is not a command */
+        }
+        if(len >= NET_LINE_CAP)
+        {
+            len = NET_LINE_CAP - 1;
+        }
+
+        /*
+         * Full: drop the OLDEST, not this one.
+         *
+         * On a control link the freshest command is the one that matters - it is
+         * the one describing where the car should be NOW - and a queue that
+         * discarded arrivals would preferentially discard the newest, which is
+         * exactly backwards. Losing a stale keepalive costs nothing.
+         */
+        if(queueCount == NET_QUEUE_LINES)
+        {
+            queueHead = (queueHead + 1) % NET_QUEUE_LINES;
+            queueCount--;
+            dropped++;
+        }
+
+        const Size slot = (queueHead + queueCount) % NET_QUEUE_LINES;
+        memcpy(queue[slot], text, len);
+        queue[slot][len] = '\0';
+        queueCount++;
+    }
+
+    /* Bytes off the wire, split into lines. */
+    static Void feed(const Utf8* data, Size len)
+    {
+        for(Size i = 0; i < len; ++i)
+        {
+            const Utf8 c = data[i];
+
+            if(c == '\n' || c == '\r')
+            {
+                queuePush(partial, partialLen);
+                partialLen = 0;
+            }
+            else if(partialLen + 1 < NET_LINE_CAP)
+            {
+                partial[partialLen++] = c;
+            }
+            else
+            {
+                /* Over-long. Drop the whole line rather than letting its tail
+                 * become a command nobody sent - the same rule, and the same
+                 * reasoning, as the USB reader in main.c. */
+                partialLen = 0;
+            }
+        }
+
+        /*
+         * A datagram that ends without a newline is a COMPLETE line.
+         *
+         * UDP preserves message boundaries - unlike a stream, where the end of a
+         * read means nothing - so requiring a trailing newline would silently
+         * ignore every sender that does not bother with one. Which is most of
+         * them, including a one-line test from a shell.
+         */
+        if(partialLen > 0)
+        {
+            queuePush(partial, partialLen);
+            partialLen = 0;
+        }
+    }
+
+    /* The signature is lwIP's, not ours - it is a callback that stack calls, so
+     * every parameter is spelled the way udp_recv_fn declares it. */
+    static Void onPacket(Void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, u16_t port)
+    {
+        static_cast<Void>(arg);
+        static_cast<Void>(pcb);
+
+        if(p == NULL)
+        {
+            return;
+        }
+
+        peerAddr     = *addr;
+        peerPort     = port;
+        peerKnownNow = true;
+
+        /* pbufs can be chained; walking the chain is not optional even for small
+         * packets, because "small" is the sender's decision and not ours. */
+        for(struct pbuf* q = p; q != NULL; q = q->next)
+        {
+            feed(static_cast<const Utf8*>(q->payload), static_cast<Size>(q->len));
+        }
+
+        pbuf_free(p);
+    }
+
+    /*
+     * Brings the radio up in station mode. Does NOT join anything.
+     *
+     * Power management is turned OFF here, and that is not a detail. The default
+     * parks the radio between beacons and adds latency spikes well past a hundred
+     * milliseconds - which on a link that carries hold-to-drive commands means the
+     * deadman fires mid-drive and it looks like a fault in the car.
+     */
+    static Bool start(Void)
+    {
+        if(started)
+        {
+            return true;
+        }
+
+        /*
+         * radio::open(), not cyw43_arch_init().
+         *
+         * The LED on this board hangs off the same chip and main() brings it up at
+         * boot, so by the time anybody asks for wireless the radio is ALREADY
+         * initialised. A second cyw43_arch_init() does not return an error - it
+         * quietly leaves the chip half re-initialised, and the next thing to touch
+         * it behaves strangely for reasons that are nowhere near the code that
+         * caused them. hal.h owns that call and answers it once.
+         */
+        if(!radio::open())
         {
             stateNow = STATE_FAILED;
+            return false;
         }
-    }
-    else if(stateNow == STATE_UP)
-    {
-        if(cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP)
+
+        cyw43_arch_enable_sta_mode();
+        cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
+
+        pcb = udp_new();
+        if(pcb == NULL)
         {
             stateNow = STATE_FAILED;
+            return false;
         }
-    }
 
-    while(queueCount > 0)
-    {
-        Utf8* line = queue[queueHead];
-
-        queueHead = (queueHead + 1) % NET_QUEUE_LINES;
-        queueCount--;
-
-        if(handler != NULL)
+        if(udp_bind(pcb, IP_ANY_TYPE, NET_PORT) != ERR_OK)
         {
-            handler(line);
+            udp_remove(pcb);
+            pcb      = NULL;
+            stateNow = STATE_FAILED;
+            return false;
+        }
+
+        udp_recv(pcb, onPacket, NULL);
+
+        started  = true;
+        stateNow = STATE_OFF;
+        return true;
+    }
+
+    /*
+     * Starts joining. Returns immediately.
+     *
+     * Asynchronous on purpose: the blocking form of this call sits inside the SDK
+     * for up to thirty seconds, and every one of those seconds is a second the main
+     * loop is not running drive::pump(), not slewing an output, and not honouring the
+     * deadman. A join that freezes the car is a join nobody can make while the car
+     * is switched on.
+     */
+    static Bool join(CharSeq ssid, CharSeq pass)
+    {
+        if(!started && !start())
+        {
+            return false;
+        }
+
+        /* Copies, because the async connect keeps pointers to these. */
+        snprintf(joinSsid, sizeof(joinSsid), "%s", ssid);
+        snprintf(joinPass, sizeof(joinPass), "%s", (pass != NULL) ? pass : "");
+
+        const UInt32 auth = (joinPass[0] == '\0')
+                                ? CYW43_AUTH_OPEN
+                                : CYW43_AUTH_WPA2_AES_PSK;
+
+        /* NULL rather than an empty string for an open network: the SDK tests the
+         * pointer, not what it points at. */
+        CharSeq key = (joinPass[0] == '\0') ? NULL : joinPass;
+
+        if(cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
+        {
+            stateNow = STATE_FAILED;
+            return false;
+        }
+
+        stateNow = STATE_JOINING;
+        return true;
+    }
+
+    /* One line out to whoever last spoke. Silently does nothing if nobody has. */
+    static Void sendLine(CharSeq text)
+    {
+        if(stateNow != STATE_UP || !peerKnownNow || pcb == NULL)
+        {
+            return;
+        }
+
+        const Size len = strlen(text);
+        if(len == 0)
+        {
+            return;
+        }
+
+        struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(len), PBUF_RAM);
+        if(p == NULL)
+        {
+            return;   /* out of buffers: dropping a reply beats blocking the loop */
+        }
+
+        memcpy(p->payload, text, len);
+        udp_sendto(pcb, p, &peerAddr, peerPort);
+        pbuf_free(p);
+    }
+
+    /*
+     * Pumps the stack and hands over anything that arrived.
+     *
+     * Call it every time round the main loop. In NO_SYS mode nothing in lwIP
+     * happens on its own: no packet is received, no join completes and no timer
+     * fires except inside this call.
+     */
+    static Void poll(Void)
+    {
+        if(!started)
+        {
+            return;
+        }
+
+        cyw43_arch_poll();
+
+        if(stateNow == STATE_JOINING)
+        {
+            const Int32 link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+
+            if(link == CYW43_LINK_UP)
+            {
+                stateNow = STATE_UP;
+            }
+            else if(link < 0)
+            {
+                stateNow = STATE_FAILED;
+            }
+        }
+        else if(stateNow == STATE_UP)
+        {
+            if(cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP)
+            {
+                stateNow = STATE_FAILED;
+            }
+        }
+
+        while(queueCount > 0)
+        {
+            Utf8* line = queue[queueHead];
+
+            queueHead = (queueHead + 1) % NET_QUEUE_LINES;
+            queueCount--;
+
+            if(handler != NULL)
+            {
+                handler(line);
+            }
         }
     }
-}
 
 #else /* no radio on this board */
 
-static Bool present(Void)
-{
-    return false;
-}
+    static Bool present(Void)
+    {
+        return false;
+    }
 
-static State status(Void)
-{
-    return STATE_ABSENT;
-}
+    static State status(Void)
+    {
+        return STATE_ABSENT;
+    }
 
-static Bool peerKnown(Void)
-{
-    return false;
-}
+    static Bool peerKnown(Void)
+    {
+        return false;
+    }
 
-static UInt32 droppedCount(Void)
-{
-    return 0;
-}
+    static UInt32 droppedCount(Void)
+    {
+        return 0;
+    }
 
-static Void setLineHandler(LineHandler fn)
-{
-    static_cast<Void>(fn);
-}
+    static Void setLineHandler(LineHandler fn)
+    {
+        static_cast<Void>(fn);
+    }
 
-static CharSeq address(Void)
-{
-    return "-";
-}
+    static CharSeq address(Void)
+    {
+        return "-";
+    }
 
-static Bool start(Void)
-{
-    return false;
-}
+    static Bool start(Void)
+    {
+        return false;
+    }
 
-static Bool join(CharSeq ssid, CharSeq pass)
-{
-    static_cast<Void>(ssid);
-    static_cast<Void>(pass);
-    return false;
-}
+    static Bool join(CharSeq ssid, CharSeq pass)
+    {
+        static_cast<Void>(ssid);
+        static_cast<Void>(pass);
+        return false;
+    }
 
-static Void sendLine(CharSeq text)
-{
-    static_cast<Void>(text);
-}
+    static Void sendLine(CharSeq text)
+    {
+        static_cast<Void>(text);
+    }
 
-static Void poll(Void)
-{
-}
+    static Void poll(Void)
+    {
+    }
 
 #endif /* BIBO_WIRELESS */
 
-/* The word for a state, for anything that prints one. */
-static CharSeq stateWord(State s)
-{
-    switch(s)
+    /* The word for a state, for anything that prints one. */
+    static CharSeq stateWord(State s)
     {
-        case STATE_ABSENT:  return "no-radio";
-        case STATE_OFF:     return "off";
-        case STATE_JOINING: return "joining";
-        case STATE_UP:      return "up";
-        case STATE_FAILED:  return "failed";
-        default:                return "?";
+        switch(s)
+        {
+            case STATE_ABSENT:  return "no-radio";
+            case STATE_OFF:     return "off";
+            case STATE_JOINING: return "joining";
+            case STATE_UP:      return "up";
+            case STATE_FAILED:  return "failed";
+            default:                return "?";
+        }
     }
-}
 
 
-} // namespace net
+  } // namespace net
 
 } // namespace bibo

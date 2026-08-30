@@ -583,6 +583,66 @@ if libc_bad == 0:
     print('  ok')
 total += libc_bad
 
+print('\n--- namespace layout ---')
+# Allman brace, and a body indented one level inside it.
+#
+#     namespace ui
+#     {
+#       Void draw()
+#       {
+#       }
+#     }
+#
+# Two spaces per namespace level. Most of the firmware sits two namespaces
+# deep (bibo::lights), and four would push every real line eight columns right
+# before it had said anything.
+#
+# The tree was split almost exactly in half before this rule: 45 files wrote
+# `namespace ui {` and 46 wrote the brace on its own line, and NOTHING
+# indented a body. The half that was already Allman only stayed that way
+# because the namespace-presence check above happened to require it.
+NS_SAME_LINE = re.compile(r'^\s*namespace(\s+[A-Za-z_][\w:]*)?\s*\{')
+NS_OPEN_LINE = re.compile(r'^(?P<ind>\s*)namespace(\s+[A-Za-z_][\w:]*)?\s*$')
+
+ns_bad_layout = 0
+for path in files:
+    code = strip_noise(rd(path))          # braces in prose are not structure
+    lines = rd(path).split('\n')
+    clean = code.split('\n')
+    depth = 0          # brace depth
+    ns_stack = []      # brace depths at which a namespace opened
+    pending = False    # saw `namespace X`, its `{` is next
+    for i, line in enumerate(lines):
+        c = clean[i] if i < len(clean) else ''
+        if NS_SAME_LINE.match(c):
+            print('  %-26s %5d  brace on the namespace line'
+                  % (os.path.basename(path), i + 1))
+            ns_bad_layout += 1
+        else:
+            m = NS_OPEN_LINE.match(c)
+            if m:
+                want = ' ' * (2 * len(ns_stack))
+                if m.group('ind') != want:
+                    print('  %-26s %5d  namespace indent %d, want %d'
+                          % (os.path.basename(path), i + 1,
+                             len(m.group('ind')), len(want)))
+                    ns_bad_layout += 1
+                pending = True
+        for ch in c:
+            if ch == '{':
+                if pending:
+                    ns_stack.append(depth)
+                    pending = False
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if ns_stack and depth == ns_stack[-1]:
+                    ns_stack.pop()
+
+if ns_bad_layout == 0:
+    print('  ok')
+total += ns_bad_layout
+
 print('\n--- header guards ---')
 # `#pragma once`, not an #ifndef guard.
 #
@@ -704,7 +764,11 @@ for path in files:
     base = os.path.basename(path)
 
     if base == 'hal.hxx':
-        have = set(re.findall(r'^namespace (\w+)$', rd(path), re.M))
+        # `\s*` in front: a namespace inside another namespace is indented now,
+        # so `namespace gpio` sits two columns in. Anchoring at column 0 made
+        # every module in hal.hxx report itself missing the moment the bodies
+        # were indented.
+        have = set(re.findall(r'^\s*namespace (\w+)\s*$', rd(path), re.M))
         for want in sorted(HAL_NAMESPACES - have):
             print('  %-14s declares no namespace %s' % (base, want))
             ns_bad += 1
@@ -713,7 +777,7 @@ for path in files:
     want = MODULE_NAMESPACE.get(base)
     if want is None:
         continue
-    if not re.search(r'^namespace %s$' % re.escape(want), rd(path), re.M):
+    if not re.search(r'^\s*namespace %s\s*$' % re.escape(want), rd(path), re.M):
         print('  %-14s declares no namespace %s' % (base, want))
         ns_bad += 1
 

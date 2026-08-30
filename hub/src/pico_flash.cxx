@@ -34,324 +34,325 @@
 
 #include "pico_link.hxx"   // listPicoPorts(): the VID 2E8A walk already lives there
 
-namespace {
-
-// The GUI owns exactly one PicoFlash and the header declares no members, so the
-// state is here. The constructor enforces the "one instance" assumption rather
-// than leaving it implicit.
-constexpr Size PENDING_MAX = 4000;   // this app runs for hours; the log is bounded
-
-Str trim(const Str& s)
+namespace
 {
-    Size a = 0, b = s.size();
-    while(a < b && static_cast<UInt8>(s[a]) <= ' ')
-    {
-        ++a;
-    }
-    while(b > a && static_cast<UInt8>(s[b - 1]) <= ' ')
-    {
-        --b;
-    }
-    return s.substr(a, b - a);
-}
 
-Bool dirExists(const Str& p)
-{
-    const DWORD a = GetFileAttributesA(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
-}
+  // The GUI owns exactly one PicoFlash and the header declares no members, so the
+  // state is here. The constructor enforces the "one instance" assumption rather
+  // than leaving it implicit.
+  constexpr Size PENDING_MAX = 4000;   // this app runs for hours; the log is bounded
 
-Bool fileExists(const Str& p)
-{
-    const DWORD a = GetFileAttributesA(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
-}
+  Str trim(const Str& s)
+  {
+      Size a = 0, b = s.size();
+      while(a < b && static_cast<UInt8>(s[a]) <= ' ')
+      {
+          ++a;
+      }
+      while(b > a && static_cast<UInt8>(s[b - 1]) <= ' ')
+      {
+          --b;
+      }
+      return s.substr(a, b - a);
+  }
 
-// Backslashes throughout: these strings end up on a cmd.exe command line, and
-// catalog.txt writes them with forward slashes because it is a text file.
-Str toBackslashes(Str s)
-{
-    std::replace(s.begin(), s.end(), '/', '\\');
-    return s;
-}
+  Bool dirExists(const Str& p)
+  {
+      const DWORD a = GetFileAttributesA(p.c_str());
+      return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
+  }
 
-// cmd.exe's quoting rule with /s: the first and last quote of the argument are
-// stripped and everything between is taken literally. That is the only reliable
-// way to run "a path with spaces\x.bat" "another path with spaces".
-Str quote(const Str& s)
-{
-    return "\"" + s + "\"";
-}
+  Bool fileExists(const Str& p)
+  {
+      const DWORD a = GetFileAttributesA(p.c_str());
+      return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
+  }
 
-Str formatMtime(const FILETIME& ft)
-{
-    FILETIME local{};
-    SYSTEMTIME st{};
-    if(!FileTimeToLocalFileTime(&ft, &local))
-    {
-        return Str();
-    }
-    if(!FileTimeToSystemTime(&local, &st))
-    {
-        return Str();
-    }
+  // Backslashes throughout: these strings end up on a cmd.exe command line, and
+  // catalog.txt writes them with forward slashes because it is a text file.
+  Str toBackslashes(Str s)
+  {
+      std::replace(s.begin(), s.end(), '/', '\\');
+      return s;
+  }
 
-    Array<Char, 32> buf;
-    std::snprintf(buf.data(), buf.size(), "%04d-%02d-%02d %02d:%02d",
-                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
-    return buf.data();
-}
+  // cmd.exe's quoting rule with /s: the first and last quote of the argument are
+  // stripped and everything between is taken literally. That is the only reliable
+  // way to run "a path with spaces\x.bat" "another path with spaces".
+  Str quote(const Str& s)
+  {
+      return "\"" + s + "\"";
+  }
 
-// ---------------------------------------------------------------- board ----
+  Str formatMtime(const FILETIME& ft)
+  {
+      FILETIME local{};
+      SYSTEMTIME st{};
+      if(!FileTimeToLocalFileTime(&ft, &local))
+      {
+          return Str();
+      }
+      if(!FileTimeToSystemTime(&local, &st))
+      {
+          return Str();
+      }
 
-// The RP2040 bootloader labels its drive RPI-RP2; the RP2350 on a Pico 2 W
-// labels it RP2350. Accepting only one of the two means never finding the
-// board - the scripts carry the same note for the same reason.
-Bool findBootselDrive(Str& outDrive)
-{
-    const DWORD mask = GetLogicalDrives();
-    for(Int32 i = 0; i < 26; ++i)
-    {
-        if(!(mask & (1u << i)))
-        {
-            continue;
-        }
+      Array<Char, 32> buf;
+      std::snprintf(buf.data(), buf.size(), "%04d-%02d-%02d %02d:%02d",
+                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
+      return buf.data();
+  }
 
-        Array<Char, 8> root;
-        std::snprintf(root.data(), root.size(), "%c:\\", 'A' + i);
-        if(GetDriveTypeA(root.data()) != DRIVE_REMOVABLE)
-        {
-            continue;
-        }
+  // ---------------------------------------------------------------- board ----
 
-        Array<Char, MAX_PATH> label= {};
-        if(!GetVolumeInformationA(root.data(), label.data(), MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
-            continue;   // an empty card reader: no volume, not an error
+  // The RP2040 bootloader labels its drive RPI-RP2; the RP2350 on a Pico 2 W
+  // labels it RP2350. Accepting only one of the two means never finding the
+  // board - the scripts carry the same note for the same reason.
+  Bool findBootselDrive(Str& outDrive)
+  {
+      const DWORD mask = GetLogicalDrives();
+      for(Int32 i = 0; i < 26; ++i)
+      {
+          if(!(mask & (1u << i)))
+          {
+              continue;
+          }
 
-        if(_stricmp(label.data(), "RP2350") == 0 || _stricmp(label.data(), "RPI-RP2") == 0)
-        {
-            outDrive = Str(1, static_cast<Char>(('A' + i))) + ":";
-            return true;
-        }
-    }
-    return false;
-}
+          Array<Char, 8> root;
+          std::snprintf(root.data(), root.size(), "%c:\\", 'A' + i);
+          if(GetDriveTypeA(root.data()) != DRIVE_REMOVABLE)
+          {
+              continue;
+          }
 
-// ------------------------------------------------------------- processes ---
+          Array<Char, MAX_PATH> label= {};
+          if(!GetVolumeInformationA(root.data(), label.data(), MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
+              continue;   // an empty card reader: no volume, not an error
 
-using LineSink = Fn<Void(const Str&)>;
+          if(_stricmp(label.data(), "RP2350") == 0 || _stricmp(label.data(), "RPI-RP2") == 0)
+          {
+              outDrive = Str(1, static_cast<Char>(('A' + i))) + ":";
+              return true;
+          }
+      }
+      return false;
+  }
 
-// Runs `cmdline` and streams its combined stdout/stderr to `sink` a line at a
-// time. Returns the process exit code, or -1 if it could not be started.
-//
-// stdout and stderr share one pipe on purpose: the scripts write progress to
-// one and errors to the other, and interleaving them is what makes the output
-// pane read like a terminal.
-Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
-{
-    SECURITY_ATTRIBUTES sa{};
-    sa.nLength        = sizeof(sa);
-    sa.bInheritHandle = TRUE;
+  // ------------------------------------------------------------- processes ---
 
-    HANDLE rd = nullptr, wr = nullptr;
-    if(!CreatePipe(&rd, &wr, &sa, 0))
-    {
-        sink("[error] CreatePipe failed");
-        return -1;
-    }
-    // Only the write end is inherited; leaving the read end inheritable means
-    // the final ReadFile never sees EOF because the child still holds it.
-    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+  using LineSink = Fn<Void(const Str&)>;
 
-    // A real handle for stdin, not NULL: a batch file that reads (or that pipes
-    // into something that reads) would otherwise block forever.
-    HANDLE nul = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                             &sa, OPEN_EXISTING, 0, nullptr);
+  // Runs `cmdline` and streams its combined stdout/stderr to `sink` a line at a
+  // time. Returns the process exit code, or -1 if it could not be started.
+  //
+  // stdout and stderr share one pipe on purpose: the scripts write progress to
+  // one and errors to the other, and interleaving them is what makes the output
+  // pane read like a terminal.
+  Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
+  {
+      SECURITY_ATTRIBUTES sa{};
+      sa.nLength        = sizeof(sa);
+      sa.bInheritHandle = TRUE;
 
-    STARTUPINFOA si{};
-    si.cb         = sizeof(si);
-    si.dwFlags    = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    si.hStdInput  = (nul == INVALID_HANDLE_VALUE) ? nullptr : nul;
-    si.hStdOutput = wr;
-    si.hStdError  = wr;
+      HANDLE rd = nullptr, wr = nullptr;
+      if(!CreatePipe(&rd, &wr, &sa, 0))
+      {
+          sink("[error] CreatePipe failed");
+          return -1;
+      }
+      // Only the write end is inherited; leaving the read end inheritable means
+      // the final ReadFile never sees EOF because the child still holds it.
+      SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
 
-    PROCESS_INFORMATION pi{};
+      // A real handle for stdin, not NULL: a batch file that reads (or that pipes
+      // into something that reads) would otherwise block forever.
+      HANDLE nul = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               &sa, OPEN_EXISTING, 0, nullptr);
 
-    // CreateProcessA writes to its command line argument, so it cannot be a
-    // string literal or a c_str().
-    Vec<Char> mutableCmd(cmdline.begin(), cmdline.end());
-    mutableCmd.push_back('\0');
+      STARTUPINFOA si{};
+      si.cb         = sizeof(si);
+      si.dwFlags    = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+      si.wShowWindow = SW_HIDE;
+      si.hStdInput  = (nul == INVALID_HANDLE_VALUE) ? nullptr : nul;
+      si.hStdOutput = wr;
+      si.hStdError  = wr;
 
-    const BOOL ok = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
-                                   TRUE, CREATE_NO_WINDOW, nullptr,
-                                   cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
+      PROCESS_INFORMATION pi{};
 
-    CloseHandle(wr);   // the parent's copy, or the read below never ends
-    if(nul != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(nul);
-    }
+      // CreateProcessA writes to its command line argument, so it cannot be a
+      // string literal or a c_str().
+      Vec<Char> mutableCmd(cmdline.begin(), cmdline.end());
+      mutableCmd.push_back('\0');
 
-    if(!ok)
-    {
-        Array<Char, 160> buf;
-        std::snprintf(buf.data(), buf.size(), "[error] could not start the process (%lu)",
-                      static_cast<unsigned long>(GetLastError()));
-        sink(buf.data());
-        CloseHandle(rd);
-        return -1;
-    }
+      const BOOL ok = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
+                                     TRUE, CREATE_NO_WINDOW, nullptr,
+                                     cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
 
-    Str partial;
-    Array<Char, 4096> chunk;
-    DWORD       got = 0;
+      CloseHandle(wr);   // the parent's copy, or the read below never ends
+      if(nul != INVALID_HANDLE_VALUE)
+      {
+          CloseHandle(nul);
+      }
 
-    while(ReadFile(rd, chunk.data(), chunk.size(), &got, nullptr) && got > 0)
-    {
-        partial.append(chunk.data(), got);
+      if(!ok)
+      {
+          Array<Char, 160> buf;
+          std::snprintf(buf.data(), buf.size(), "[error] could not start the process (%lu)",
+                        static_cast<unsigned long>(GetLastError()));
+          sink(buf.data());
+          CloseHandle(rd);
+          return -1;
+      }
 
-        Size nl;
-        while((nl = partial.find('\n')) != Str::npos)
-        {
-            Str line = partial.substr(0, nl);
-            partial.erase(0, nl + 1);
-            if(!line.empty() && line.back() == '\r')
-            {
-                line.pop_back();
-            }
-            sink(line);
-        }
+      Str partial;
+      Array<Char, 4096> chunk;
+      DWORD       got = 0;
 
-        // A script that ends without a newline, or one that prints a prompt and
-        // waits, would otherwise be invisible. Flush anything that has sat in
-        // the buffer once it gets long.
-        if(partial.size() > 512)
-        {
-            sink(partial);
-            partial.clear();
-        }
-    }
-    if(!partial.empty())
-    {
-        sink(partial);
-    }
+      while(ReadFile(rd, chunk.data(), chunk.size(), &got, nullptr) && got > 0)
+      {
+          partial.append(chunk.data(), got);
 
-    WaitForSingleObject(pi.hProcess, INFINITE);
+          Size nl;
+          while((nl = partial.find('\n')) != Str::npos)
+          {
+              Str line = partial.substr(0, nl);
+              partial.erase(0, nl + 1);
+              if(!line.empty() && line.back() == '\r')
+              {
+                  line.pop_back();
+              }
+              sink(line);
+          }
 
-    DWORD code = 0;
-    GetExitCodeProcess(pi.hProcess, &code);
+          // A script that ends without a newline, or one that prints a prompt and
+          // waits, would otherwise be invisible. Flush anything that has sat in
+          // the buffer once it gets long.
+          if(partial.size() > 512)
+          {
+              sink(partial);
+              partial.clear();
+          }
+      }
+      if(!partial.empty())
+      {
+          sink(partial);
+      }
 
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    CloseHandle(rd);
-    return static_cast<Int32>(code);
-}
+      WaitForSingleObject(pi.hProcess, INFINITE);
 
-// ------------------------------------------------------------------ state --
+      DWORD code = 0;
+      GetExitCodeProcess(pi.hProcess, &code);
 
-struct Impl
-{
-    mutable Mutex mu;              // guards catalog, op, brd
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      CloseHandle(rd);
+      return static_cast<Int32>(code);
+  }
 
-    Vec<FirmwareEntry> catalog;
-    Str                op;
-    BoardStatus                brd;
+  // ------------------------------------------------------------------ state --
 
-    Mutex              logMu;
-    Deque<Str> pending;
+  struct Impl
+  {
+      mutable Mutex mu;              // guards catalog, op, brd
 
-    Atomic<FlashState> state{FlashState::FLASH_STATE_IDLE};
-    Atomic<Bool>       boardQuerying{false};
+      Vec<FirmwareEntry> catalog;
+      Str                op;
+      BoardStatus                brd;
 
-    Thread worker;
+      Mutex              logMu;
+      Deque<Str> pending;
 
-    Void log(const Str& line)
-    {
-        LockGuard<Mutex> lk(logMu);
-        pending.push_back(line);
-        while(pending.size() > PENDING_MAX)
-        {
-            pending.pop_front();
-        }
-    }
+      Atomic<FlashState> state{FlashState::FLASH_STATE_IDLE};
+      Atomic<Bool>       boardQuerying{false};
 
-    Void logf(const Char* fmt, ...)
-    {
-        Array<Char, 1024> buf;
-        va_list ap;
-        va_start(ap, fmt);
-        std::vsnprintf(buf.data(), buf.size(), fmt, ap);
-        va_end(ap);
-        log(buf.data());
-    }
+      Thread worker;
 
-    // Starts `body` on the worker. Rejects (and says so) while one is running,
-    // which is the documented behaviour and also the only safe one: two things
-    // touching the board's USB at once is how you end up with a brick.
-    Void start(const Str& desc, Fn<Int32()> body)
-    {
-        if(state.load() == FlashState::FLASH_STATE_WORKING)
-        {
-            LockGuard<Mutex> lk(mu);
-            logf("[busy ] %s is still running - %s was not started", op.c_str(), desc.c_str());
-            return;
-        }
+      Void log(const Str& line)
+      {
+          LockGuard<Mutex> lk(logMu);
+          pending.push_back(line);
+          while(pending.size() > PENDING_MAX)
+          {
+              pending.pop_front();
+          }
+      }
 
-        // finished, just not reaped yet
-        if(worker.joinable())
-        {
-            worker.join();
-        }
+      Void logf(const Char* fmt, ...)
+      {
+          Array<Char, 1024> buf;
+          va_list ap;
+          va_start(ap, fmt);
+          std::vsnprintf(buf.data(), buf.size(), fmt, ap);
+          va_end(ap);
+          log(buf.data());
+      }
 
-        {
-            LockGuard<Mutex> lk(mu);
-            op = desc;
-        }
-        state.store(FlashState::FLASH_STATE_WORKING);
-        logf("[start] %s", desc.c_str());
+      // Starts `body` on the worker. Rejects (and says so) while one is running,
+      // which is the documented behaviour and also the only safe one: two things
+      // touching the board's USB at once is how you end up with a brick.
+      Void start(const Str& desc, Fn<Int32()> body)
+      {
+          if(state.load() == FlashState::FLASH_STATE_WORKING)
+          {
+              LockGuard<Mutex> lk(mu);
+              logf("[busy ] %s is still running - %s was not started", op.c_str(), desc.c_str());
+              return;
+          }
 
-        worker = Thread([this, body, desc]()
-        {
-            Int32 code = -1;
-            try
-            {
-                code = body();
-            }
-            catch(...)
-            {
-                code = -1;
-            }
+          // finished, just not reaped yet
+          if(worker.joinable())
+          {
+              worker.join();
+          }
 
-            if(code == 0)
-            {
-                logf("[ok   ] %s", desc.c_str());
-                state.store(FlashState::FLASH_STATE_SUCCESS);
-            }
-            else
-            {
-                logf("[fail ] %s (exit %d)", desc.c_str(), code);
-                state.store(FlashState::FLASH_STATE_FAILED);
-            }
-        });
-    }
-};
+          {
+              LockGuard<Mutex> lk(mu);
+              op = desc;
+          }
+          state.store(FlashState::FLASH_STATE_WORKING);
+          logf("[start] %s", desc.c_str());
 
-Impl& pimpl()
-{
-    static Impl s;
-    return s;
-}
+          worker = Thread([this, body, desc]()
+          {
+              Int32 code = -1;
+              try
+              {
+                  code = body();
+              }
+              catch(...)
+              {
+                  code = -1;
+              }
 
-const FirmwareEntry* findEntry(const Vec<FirmwareEntry>& v, const Str& id)
-{
-    for(const FirmwareEntry& e : v)
-        if(e.id == id)
-        {
-            return &e;
-        }
-    return nullptr;
-}
+              if(code == 0)
+              {
+                  logf("[ok   ] %s", desc.c_str());
+                  state.store(FlashState::FLASH_STATE_SUCCESS);
+              }
+              else
+              {
+                  logf("[fail ] %s (exit %d)", desc.c_str(), code);
+                  state.store(FlashState::FLASH_STATE_FAILED);
+              }
+          });
+      }
+  };
+
+  Impl& pimpl()
+  {
+      static Impl s;
+      return s;
+  }
+
+  const FirmwareEntry* findEntry(const Vec<FirmwareEntry>& v, const Str& id)
+  {
+      for(const FirmwareEntry& e : v)
+          if(e.id == id)
+          {
+              return &e;
+          }
+      return nullptr;
+  }
 
 } // namespace
 

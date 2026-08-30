@@ -18,46 +18,47 @@
 
 #include "shared.hxx"
 
-namespace cmpl {
-
-enum class Kind
+namespace cmpl
 {
-    KIND_FUNCTION = 0,
-    KIND_TYPE,
-    KIND_MACRO,       // and enum constants: both are SCREAMING_SNAKE to a reader
-    KIND_KEYWORD,
-};
 
-struct Item
-{
-    const Char* name      = nullptr;
-    const Char* detail    = nullptr;   // signature, or the underlying type
-    const Char* doc       = nullptr;   // one line, may be empty
-    Kind        kind      = Kind::KIND_FUNCTION;
-};
+  enum class Kind
+  {
+      KIND_FUNCTION = 0,
+      KIND_TYPE,
+      KIND_MACRO,       // and enum constants: both are SCREAMING_SNAKE to a reader
+      KIND_KEYWORD,
+  };
 
-// Everything the table holds, for tests and for a "show all" listing.
-[[nodiscard]] const Vec<Item>& all();
+  struct Item
+  {
+      const Char* name      = nullptr;
+      const Char* detail    = nullptr;   // signature, or the underlying type
+      const Char* doc       = nullptr;   // one line, may be empty
+      Kind        kind      = Kind::KIND_FUNCTION;
+  };
 
-// Appends up to `max` matches for `prefix` to `out`, best first.
-//
-// Matching is case-insensitive on a PREFIX only - not a fuzzy subsequence.
-// Fuzzy matching is worth it when the candidate set is thousands of names and
-// you are guessing; here it is forty names you already half-know, and it would
-// mostly serve to put `servoWriteUs` under `sw`.
-//
-// Ranking, in order: exact prefix with matching case, then case-insensitive
-// prefix, then shorter names before longer, then alphabetical. The last two
-// matter more than they look - `gpioOpen` must beat `gpioToggle` for "gpio" or
-// the list reads as unsorted.
-//
-// Returns the number appended. `out` is NOT cleared, so a caller can gather
-// from several prefixes.
-Size suggest(const Str& prefix, Vec<const Item*>& out, Size max);
+  // Everything the table holds, for tests and for a "show all" listing.
+  [[nodiscard]] const Vec<Item>& all();
 
-// The identifier ending at the end of `line` - what the user is part-way
-// through typing. Empty when the line ends in anything else, which is the
-// signal to close the popup rather than show all forty entries.
-[[nodiscard]] Str wordAtEnd(const Str& line);
+  // Appends up to `max` matches for `prefix` to `out`, best first.
+  //
+  // Matching is case-insensitive on a PREFIX only - not a fuzzy subsequence.
+  // Fuzzy matching is worth it when the candidate set is thousands of names and
+  // you are guessing; here it is forty names you already half-know, and it would
+  // mostly serve to put `servoWriteUs` under `sw`.
+  //
+  // Ranking, in order: exact prefix with matching case, then case-insensitive
+  // prefix, then shorter names before longer, then alphabetical. The last two
+  // matter more than they look - `gpioOpen` must beat `gpioToggle` for "gpio" or
+  // the list reads as unsorted.
+  //
+  // Returns the number appended. `out` is NOT cleared, so a caller can gather
+  // from several prefixes.
+  Size suggest(const Str& prefix, Vec<const Item*>& out, Size max);
+
+  // The identifier ending at the end of `line` - what the user is part-way
+  // through typing. Empty when the line ends in anything else, which is the
+  // signal to close the popup rather than show all forty entries.
+  [[nodiscard]] Str wordAtEnd(const Str& line);
 
 } // namespace cmpl
