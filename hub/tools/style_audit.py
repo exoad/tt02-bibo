@@ -33,6 +33,10 @@ def at(*parts):
 DIRS = [
     at('hub', 'src'),
     at('hub', 'tests'),
+    # board_preview holds only a build/ directory now - no sources. Kept in
+    # the list because the point of an explicit list is that a directory
+    # appearing in it is a decision, and one that scans nothing today will
+    # scan whatever lands there tomorrow.
     at('hub', 'tests', 'board_preview'),
     at('lidar', 'bridge'),
     at('firmware', 'lib'),
@@ -519,7 +523,17 @@ for path in files:
         c_casts[os.path.relpath(path, ROOT).replace('\\', '/')] = n
 
 if not c_casts:
-    print('  none')
+    # "none" reads as "no casts left to fix", and what it actually means now
+    # is "there are no C files to look in": the conversion finished, and
+    # is_c() matches nothing in scope but hub/src/resource.h, which rc.exe
+    # compiles and which contains no casts. Say which it is - a check that
+    # cannot fire should announce that, not report success.
+    cFiles = [f for f in files if is_c(f)]
+    if not cFiles:
+        print('  no C files in scope - the C++ conversion is complete, and '
+              'this pass has nothing left to count')
+    else:
+        print('  none')
 else:
     for path in sorted(c_casts, key=lambda k: -c_casts[k]):
         print('  %-40s %4d' % (path, c_casts[path]))
