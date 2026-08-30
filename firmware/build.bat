@@ -40,8 +40,14 @@ REM Two flags in any order, because "clean pico2" and "pico2 clean" are the same
 REM intent and having one of them silently build the wrong board would be a
 REM genuinely expensive mistake - it produces a working image for the wrong
 REM chip, which flashes without complaint.
+REM A third argument, added when sketches stopped being one overwritten slot and
+REM became one target per file: TARGET, which builds just that image. Without it
+REM every sketch in sketches/ is built along with the car, and that grows with
+REM the folder - which is the wrong thing to charge someone for pressing Build
+REM on a one-file experiment.
 set "BOARD=pico2_w"
 set "DOCLEAN="
+set "TARGET="
 
 for %%A in (%*) do (
     if /i "%%~A"=="clean" (
@@ -50,9 +56,19 @@ for %%A in (%*) do (
         set "BOARD=pico2"
     ) else if /i "%%~A"=="pico2_w" (
         set "BOARD=pico2_w"
+    ) else if /i "%%~A"=="pico_debug" (
+        set "TARGET=pico_debug"
+    ) else if exist "%HERE%sketches\%%~A.cxx" (
+        REM Checked against the FILE rather than taken on trust, so a typo is
+        REM caught here with a list of what exists instead of surfacing two
+        REM minutes later as ninja saying "unknown target".
+        set "TARGET=%%~A"
     ) else (
         echo [error] unknown argument "%%~A"
-        echo         usage: build.bat [clean] [pico2^|pico2_w]
+        echo         usage: build.bat [clean] [pico2^|pico2_w] [TARGET]
+        echo.
+        echo         TARGET is pico_debug, or the name of a sketch:
+        for %%S in ("%HERE%sketches\*.cxx") do echo           %%~nS
         exit /b 1
     )
 )
@@ -138,19 +154,35 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [build] compiling
-"%CMAKE%" --build "%BUILD%"
+if defined TARGET (
+    echo [build] compiling %TARGET%
+    "%CMAKE%" --build "%BUILD%" --target %TARGET%
+) else (
+    echo [build] compiling everything
+    "%CMAKE%" --build "%BUILD%"
+)
 if errorlevel 1 (
     echo [error] build failed
     exit /b 1
 )
 
-if not exist "%BUILD%\pico_debug.uf2" (
-    echo [error] build reported success but pico_debug.uf2 is missing
+REM The image the caller actually asked for, checked by name. A build that
+REM "succeeded" while producing no UF2 is the failure worth catching here: the
+REM flash step downstream would otherwise reach for a stale file from a previous
+REM build and report success having flashed the wrong program.
+set "WANT=pico_debug"
+if defined TARGET set "WANT=%TARGET%"
+
+if not exist "%BUILD%\%WANT%.uf2" (
+    echo [error] build reported success but %WANT%.uf2 is missing
     exit /b 1
 )
 
 echo.
-echo [ok] %BUILD%\pico_debug.uf2   (%BOARD%)
-if exist "%BUILD%\sketch.uf2" echo [ok] %BUILD%\sketch.uf2   (%BOARD%)
-echo      Flash it with:  firmware\flash.bat "%BUILD%\pico_debug.uf2"
+echo [ok] %BUILD%\%WANT%.uf2   (%BOARD%)
+if not defined TARGET (
+    for %%S in ("%HERE%sketches\*.cxx") do (
+        if exist "%BUILD%\%%~nS.uf2" echo [ok] %BUILD%\%%~nS.uf2   (%BOARD%)
+    )
+)
+echo      Flash it with:  firmware\flash.bat "%BUILD%\%WANT%.uf2"

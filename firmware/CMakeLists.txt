@@ -97,8 +97,27 @@ set(BIBO_LIB
     lib/chassis/cal.hxx
 )
 
+# ---------------------------------------------------------------------------
+# app: the car. Multi-file, and globbed because it is meant to grow.
+#
+# It was `app/main.cxx` written out by hand, which is the better habit in
+# general - a glob hides a file somebody forgot to mention. Here the opposite is
+# true: app/ IS the final product and every .cxx in it is part of the car by
+# definition. There is no such thing as a file in app/ that should not be
+# compiled, so listing them buys nothing and costs a mystery the day somebody
+# adds sound.cxx and it silently is not built.
+#
+# CONFIGURE_DEPENDS makes the glob re-run when the directory changes, so a new
+# file appears in the build without a manual reconfigure. It costs a directory
+# stat per build, which against a 190-translation-unit link is nothing.
+file(GLOB BIBO_APP CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/*.cxx")
+
+if(NOT BIBO_APP)
+    message(FATAL_ERROR "bibo: firmware/app is empty - nothing to build")
+endif()
+
 add_executable(pico_debug
-    app/main.cxx
+    ${BIBO_APP}
     ${BIBO_LIB}
 )
 
@@ -140,21 +159,50 @@ target_include_directories(pico_debug PRIVATE
 pico_add_extra_outputs(pico_debug)
 
 # ---------------------------------------------------------------------------
-# sketch: the scratch program the hub's Code view edits and flashes.
+# sketches: ONE TARGET PER FILE, and that is the whole point of this section.
 #
-# Deliberately linked against pico_stdlib ONLY. The point of this target is that
-# a beginner's program builds in a couple of seconds and that a mistake in it
-# cannot break the debug image sitting next to it. Adding cyw43 here would pull
-# in the wireless stack, roughly triple the build, and buy nothing that a plain
-# GPIO on a breadboard needs.
+# There used to be a single `sketch` target compiled from firmware/scratch/
+# sketch.cxx - a SLOT rather than a file. The hub's Code view copied whatever
+# you were editing into it before every build, so the slot's previous contents
+# were destroyed on each Build & Flash, silently, as a side effect of pressing
+# the button. It held a working VL53L1X range view for weeks; that is now
+# sketches/range-view.cxx and it is in git like everything else.
 #
-# USB stdio is on so printf() from a sketch lands in the hub's console. UART
-# stdio stays off for the same reason as above: GP0/GP1 are the servo and ESC.
+# So: every .cxx in sketches/ is its own executable, named after the file.
+# range-view.cxx builds range-view.uf2. Nothing is overwritten, nothing is
+# copied anywhere before a build, and a sketch is findable a month later by the
+# name you gave it.
+#
+# THE DIVISION OF LABOUR between this and app/:
+#
+#   app/        the car. Multi-file, one image, aimed at the finished thing.
+#   sketches/   findings and side quests. One file, one image, one question -
+#               "what does this pin do", "does this module answer at all".
+#
+# Deliberately linked against pico_stdlib and the hardware units ONLY - no lwIP.
+# A sketch should build in seconds and a mistake in one cannot break the image
+# next to it. USB stdio is on so printf() lands in the hub's console; UART stdio
+# stays off because GP0/GP1 are the servo and the ESC.
 # ---------------------------------------------------------------------------
-add_executable(sketch
-    scratch/sketch.cxx
-    ${BIBO_LIB}
-)
+file(GLOB BIBO_SKETCHES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/sketches/*.cxx")
+
+foreach(SKETCH_SRC ${BIBO_SKETCHES})
+    get_filename_component(SKETCH_NAME "${SKETCH_SRC}" NAME_WE)
+
+    # A sketch called main.cxx or pico_debug.cxx would collide with the car's
+    # target and CMake's error for that is about as clear as a wall. Say which
+    # file, and say what to do about it.
+    if(TARGET ${SKETCH_NAME})
+        message(FATAL_ERROR
+            "bibo: sketches/${SKETCH_NAME}.cxx collides with an existing "
+            "target named ${SKETCH_NAME} - rename the file")
+    endif()
+
+    add_executable(${SKETCH_NAME}
+        "${SKETCH_SRC}"
+        ${BIBO_LIB}
+    )
 
 # pico_stdlib does not carry PWM, ADC or the watchdog, and on the Pico 2 W the
 # LED hangs off the CYW43439 rather than a GPIO - so there the wireless arch has
@@ -167,21 +215,25 @@ add_executable(sketch
 # - editing sketch.cxx still recompiles one file - and a first-hour program that
 # cannot blink the LED everybody can see is the worse trade. The car's pico2
 # build does not pay it at all: BIBO_LED_LIBS is empty there.
-target_link_libraries(sketch
-    pico_stdlib
-    ${BIBO_LED_LIBS}
-    hardware_pwm
-    hardware_adc
-    hardware_watchdog
-    hardware_spi
-    hardware_i2c
-)
+    target_link_libraries(${SKETCH_NAME}
+        pico_stdlib
+        ${BIBO_LED_LIBS}
+        hardware_pwm
+        hardware_adc
+        hardware_watchdog
+        hardware_spi
+        hardware_i2c
+    )
 
-pico_enable_stdio_usb(sketch 1)
-pico_enable_stdio_uart(sketch 0)
+    pico_enable_stdio_usb(${SKETCH_NAME} 1)
+    pico_enable_stdio_uart(${SKETCH_NAME} 0)
 
-target_include_directories(sketch PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/lib"
-)
+    target_include_directories(${SKETCH_NAME} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib"
+    )
 
-pico_add_extra_outputs(sketch)
+    pico_add_extra_outputs(${SKETCH_NAME})
+endforeach()
+
+list(LENGTH BIBO_SKETCHES BIBO_SKETCH_COUNT)
+message(STATUS "bibo: ${BIBO_SKETCH_COUNT} sketch target(s) in sketches/")

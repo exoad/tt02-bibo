@@ -39,7 +39,7 @@ DIRS = [
     at('firmware', 'lib', 'drivers'),
     at('firmware', 'lib', 'chassis'),
     at('firmware', 'app'),
-    at('firmware', 'scratch'),
+    at('firmware', 'sketches'),
     at('firmware', 'tests'),
     at('shared'),
 ]

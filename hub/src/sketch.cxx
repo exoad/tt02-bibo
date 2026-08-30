@@ -14,11 +14,15 @@ namespace sketch {
 
 Str dir()
 {
-    const Str base = settings::dir();
-    if(base.empty())
+    // IN THE REPO, not in %LOCALAPPDATA%. It was the latter, and that is what
+    // made a sketch feel disposable: it was not in git, not in a clone, not in
+    // a backup and not in the file tree next to the code it was written to
+    // test. A finding you cannot find later is not a finding.
+    const Str root = PicoFlash::repoRoot();
+    if(root.empty())
         return Str();
 
-    const Str d = base + "\\sketches";
+    const Str d = root + "\\firmware\\sketches";
     if(!::CreateDirectoryA(d.c_str(), nullptr)
        && ::GetLastError() != ERROR_ALREADY_EXISTS)
         return Str();
@@ -38,6 +42,11 @@ Vec<Str> list()
     // *.cxx AND *.c. The library is C++ now, but sketches written before that
     // are still on disk and still the user's - listing only the new extension
     // would make them vanish from a view they were saved in.
+    //
+    // Only .cxx gets a CMake target, though: the glob in firmware/CMakeLists.txt
+    // is *.cxx. A stray .c here is listed and editable and will not build, which
+    // is the honest answer - inventing a target for it would produce an image
+    // nobody asked for.
     const Str        pattern = d + "\\*.c*";
     HANDLE           h = ::FindFirstFileA(pattern.c_str(), &fd);
     if(h == INVALID_HANDLE_VALUE)
@@ -66,14 +75,6 @@ Str pathOf(const Str& name)
     return d + "\\" + name;
 }
 
-Str slotPath()
-{
-    const Str root = PicoFlash::repoRoot();
-    if(root.empty())
-        return Str();
-    return root + "\\firmware\\scratch\\sketch.cxx";
-}
-
 Str firmwareDir()
 {
     const Str root = PicoFlash::repoRoot();
@@ -95,7 +96,7 @@ const Char* const FW_DIRS[] = {
     "lib\\drivers",
     "lib\\chassis",
     "app",
-    "scratch",
+    "sketches",
     "docs",
     "docs\\pinouts",
 };
@@ -144,21 +145,57 @@ Vec<Str> listFirmware()
     return out;
 }
 
+namespace
+{
+
+// The bare filename with its extension removed - "range-view" out of any of
+// C:\...\firmware\sketches\range-view.cxx, sketches\range-view.cxx or
+// range-view.cxx. This is the CMake target name, because
+// get_filename_component(... NAME_WE) computes exactly the same thing from the
+// same file. Two implementations of one rule, which is a risk; the alternative
+// was a hand-kept table mapping files to targets, which is a worse one.
+[[nodiscard]] Str stemOf(const Str& path)
+{
+    Size begin = 0;
+    for(Size i = 0; i < path.size(); ++i)
+    {
+        if(path[i] == '\\' || path[i] == '/')
+        {
+            begin = i + 1;
+        }
+    }
+
+    Size end = path.size();
+    for(Size i = path.size(); i > begin; --i)
+    {
+        if(path[i - 1] == '.')
+        {
+            end = i - 1;
+            break;
+        }
+    }
+
+    return path.substr(begin, end - begin);
+}
+
+} // namespace
+
 Str targetFor(const Str& path)
 {
     if(path.empty())
-        return "sketch";
+        return "pico_debug";
 
-    // The scratch slot itself.
-    const Str slot = slotPath();
-    if(!slot.empty() && _stricmp(path.c_str(), slot.c_str()) == 0)
-        return "sketch";
-
-    // Anything in the sketch library.
-    const Str lib = dir();
-    if(!lib.empty() && path.size() > lib.size()
-       && _strnicmp(path.c_str(), lib.c_str(), lib.size()) == 0)
-        return "sketch";
+    // A sketch owns a target named after its own file. This used to answer
+    // "sketch" for every one of them, because there was one target and the
+    // Code view copied whichever file you had open into it first - so the
+    // answer was right by making the question meaningless.
+    const Str sk = dir();
+    if(!sk.empty() && path.size() > sk.size()
+       && _strnicmp(path.c_str(), sk.c_str(), sk.size()) == 0
+       && (path[sk.size()] == '\\' || path[sk.size()] == '/'))
+    {
+        return stemOf(path);
+    }
 
     // Everything else under firmware/ belongs to the debug image. The library
     // headers are compiled into BOTH images, and naming pico_debug for them is
