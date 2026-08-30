@@ -40,7 +40,7 @@
  * by daylight. Start on LONG and switch if readings collapse near a window.
  */
 
-#include "../lib/bibo.hxx"
+#include "bibo.hxx"
 
 /*
  * The whole library lives in namespace bibo, and this line opens it so a sketch

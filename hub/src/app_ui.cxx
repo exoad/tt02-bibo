@@ -8432,6 +8432,201 @@ Void descriptionTooltip(const Str& text)
     ImGui::EndTooltip();
 }
 
+// ---------------------------------------------------------------------------
+// ANSI colouring for the build log.
+//
+// It used to be ONE COLOUR PER LINE, chosen from the prefix: an [error] line
+// was red end to end, an [ok] line green end to end. That is a status light
+// rather than a log. It also meant the two things actually worth finding in a
+// two-hundred-line cmake dump - the verb and the word "error" - were the same
+// colour as the eighty characters of absolute path sitting next to them.
+//
+// So: the tag is coloured, and the rest of the line is coloured by TOKEN.
+// Paths recede to grey because every line has one and none of them is the
+// point; ninja's verbs come forward in bright white; error and warning are
+// found wherever they appear rather than only at the start of a line.
+//
+// Restrained on purpose. Six colours, each meaning one thing, on the black
+// ground the serial console next door already uses - this is the other half of
+// the same terminal and the two should not look like different programs.
+// ---------------------------------------------------------------------------
+struct LogRun
+{
+    Size  begin;
+    Size  end;
+    ImU32 col;
+};
+
+[[nodiscard]] Bool containsCI(const Str& hay, const Char* needle)
+{
+    const Size n = std::strlen(needle);
+    if(n == 0 || hay.size() < n)
+    {
+        return false;
+    }
+    for(Size i = 0; i + n <= hay.size(); ++i)
+    {
+        if(_strnicmp(hay.c_str() + i, needle, n) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] ImU32 flashTokenColour(const Str& tok, ImU32 fallback)
+{
+    // Found anywhere, not just at the start of a line. "CMake Warning at ..."
+    // and "range.cxx:41:9: error: ..." both carry the word in the middle, and
+    // those are precisely the lines somebody is scrolling to look for.
+    if(containsCI(tok, "error"))
+    {
+        return ui::ansi::BRRED;
+    }
+    if(containsCI(tok, "warning"))
+    {
+        return ui::ansi::BRYELLOW;
+    }
+
+    // A PATH RECEDES. Nearly every line of a cmake configure carries a full
+    // absolute path and it is the least interesting thing on the line - what
+    // matters is the verb in front of it. Grey is what "context, not content"
+    // already means in the console next door.
+    //
+    // A separator AND a dot, so "no RP2350/RPI-RP2 drive" stays white: a slash
+    // alone is not a path.
+    const Bool sep = tok.find('/') != Str::npos || tok.find('\\') != Str::npos;
+    const Bool dot = tok.find('.') != Str::npos;
+    if(sep && dot)
+    {
+        return ui::ansi::GREY;
+    }
+
+    // 'pico2_w', 'rp2350-arm-s' - the VALUE in a cmake status line, which is
+    // the one word on it that ever differs between two builds.
+    Int32 quotes = 0;
+    for(const Char c : tok)
+    {
+        if(c == '\'' || c == '"')
+        {
+            ++quotes;
+        }
+    }
+    if(quotes >= 2)
+    {
+        return ui::ansi::BRYELLOW;
+    }
+
+    return fallback;
+}
+
+// Splits `s` into coloured runs covering it end to end.
+Void flashRuns(const Str& s, Vec<LogRun>& out)
+{
+    out.clear();
+    if(s.empty())
+    {
+        return;
+    }
+
+    Size  i     = 0;
+    ImU32 body  = ui::ansi::WHITE;
+    ImU32 first = 0;          // 0 = no override for the first word
+
+    if(s[0] == '[')
+    {
+        // The scripts write [conf ], [build], [ok   ], [error]; ninja writes
+        // [1/3]. Both are a bracket at column zero and both want colouring, so
+        // this handles them together and tells them apart by content.
+        const Size close = s.find(']');
+        if(close != Str::npos && close <= 12)
+        {
+            Str tag = s.substr(1, close - 1);
+            while(!tag.empty() && tag.back() == ' ')
+            {
+                tag.pop_back();
+            }
+
+            ImU32 head = ui::ansi::BRCYAN;
+
+            if(!tag.empty()
+               && tag.find_first_not_of("0123456789/") == Str::npos)
+            {
+                // ninja's progress counter. Grey: it is a COUNTER, not a
+                // verdict, and it is the same on every successful build.
+                head  = ui::ansi::GREY;
+                first = ui::ansi::BRWHITE;   // ...but "Linking" is worth seeing
+            }
+            else if(_stricmp(tag.c_str(), "error") == 0
+                 || _stricmp(tag.c_str(), "fail") == 0)
+            {
+                head = ui::ansi::BRRED;
+
+                // The dim red, not the bright one. The line still reads as bad
+                // at a glance without becoming a block of shouting that the
+                // eye then has to read anyway to find out what broke.
+                body = ui::ansi::RED;
+            }
+            else if(_stricmp(tag.c_str(), "ok") == 0)
+            {
+                head = ui::ansi::BRGREEN;
+            }
+            else if(_stricmp(tag.c_str(), "start") == 0
+                 || _stricmp(tag.c_str(), "busy") == 0
+                 || _stricmp(tag.c_str(), "skip") == 0)
+            {
+                head = ui::ansi::BRYELLOW;
+            }
+
+            out.push_back(LogRun{ 0, close + 1, head });
+            i = close + 1;
+        }
+    }
+    else if(s.rfind("-- ", 0) == 0)
+    {
+        // cmake's status prefix. Dim, because there are forty of them and the
+        // marker is not the message.
+        out.push_back(LogRun{ 0, 2, ui::ansi::GREY });
+        i = 2;
+
+        // OURS. The messages this project's CMakeLists prints - which board was
+        // detected, how many sketch targets were found - are the only lines in
+        // a configure dump written by somebody who works on this car.
+        if(s.rfind("-- bibo:", 0) == 0)
+        {
+            body = ui::ansi::BRCYAN;
+        }
+    }
+
+    while(i < s.size())
+    {
+        Size b = i;
+        while(i < s.size() && (s[i] == ' ' || s[i] == '\t'))
+        {
+            ++i;
+        }
+        if(i > b)
+        {
+            out.push_back(LogRun{ b, i, body });
+        }
+        if(i >= s.size())
+        {
+            break;
+        }
+
+        b = i;
+        while(i < s.size() && s[i] != ' ' && s[i] != '\t')
+        {
+            ++i;
+        }
+
+        const Str  tok = s.substr(b, i - b);
+        const ImU32 col = (first != 0) ? first : flashTokenColour(tok, body);
+        first = 0;
+        out.push_back(LogRun{ b, i, col });
+    }
+}
+
 // The script output pane. A build prints a hundred lines and you want to watch
 // them arrive, so this scrolls - it is a log.
 Void drawFlashOutput(const Char* id, const ImVec2& size)
@@ -8446,13 +8641,32 @@ Void drawFlashOutput(const Char* id, const ImVec2& size)
         ImGui::TextDisabled("%d lines", static_cast<Int32>(flashLog.size()));
     }
 
+    // The same black ground and the same mono face as the serial console. The
+    // two panes are tabs of one console and used to look like two different
+    // programs - one a terminal, the other proportional text on the window
+    // background.
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::ansi::BLACK);
+
     ImGui::BeginChild(id, size, ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
     {
-        ScopedFont sf(ui::fonts.small);
+        // Pushed and popped INSIDE the child. A ScopedFont at function scope
+        // would pop after EndChild, and a push that straddles the boundary
+        // renders as a blank white window rather than as an error anybody can
+        // read - see the same note in drawSerialConsole.
+        ScopedFont sf(ui::fonts.mono);
 
         if(!flashLog.empty())
         {
+            // Reused across every line and every frame rather than built per
+            // line: the clipper means about forty lines are tokenized per
+            // frame, and none of them needs its own allocation.
+            static Vec<LogRun> runs;
+
+            // The runs butt against each other, so no horizontal item spacing.
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                                ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
+
             ImGuiListClipper clipper;
             clipper.Begin(static_cast<Int32>(flashLog.size()));
             while(clipper.Step())
@@ -8461,28 +8675,38 @@ Void drawFlashOutput(const Char* id, const ImVec2& size)
                 {
                     const Str& s = flashLog[r];
 
-                    // The scripts prefix their lines: [error]/[fail ] red,
-                    // [ok   ] green, the rest plain.
-                    ImU32 col = ui::plot::LABEL;
-                    if(s.rfind("[error", 0) == 0 || s.rfind("[fail", 0) == 0)
-                        col = ui::sem::BAD;
-                    else if(s.rfind("[ok", 0) == 0)
-                        col = ui::sem::GOOD;
-                    else if(s.rfind("[start", 0) == 0 || s.rfind("[busy", 0) == 0 ||
-                             s.rfind("[skip", 0) == 0)
-                        col = ui::sem::WARN;
+                    flashRuns(s, runs);
+                    if(runs.empty())
+                    {
+                        // A blank line still has to take a line's height, or a
+                        // build log's paragraphing collapses.
+                        ImGui::TextUnformatted("");
+                        continue;
+                    }
 
-                    ImGui::PushStyleColor(ImGuiCol_Text, col);
-                    ImGui::TextUnformatted(s.c_str());
-                    ImGui::PopStyleColor();
+                    for(Size k = 0; k < runs.size(); ++k)
+                    {
+                        if(k != 0)
+                        {
+                            ImGui::SameLine(0.0f, 0.0f);
+                        }
+                        ImGui::PushStyleColor(ImGuiCol_Text, runs[k].col);
+                        ImGui::TextUnformatted(s.c_str() + runs[k].begin,
+                                               s.c_str() + runs[k].end);
+                        ImGui::PopStyleColor();
+                    }
                 }
             }
+
+            ImGui::PopStyleVar();
         }
 
         if(flashAutoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
             ImGui::SetScrollHereY(1.0f);
     }
     ImGui::EndChild();
+
+    ImGui::PopStyleColor();
 }
 
 Void drawFlashControls()
