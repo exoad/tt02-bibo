@@ -96,6 +96,7 @@ const Char* const FW_DIRS[] = {
     "lib\\chassis",
     "app",
     "scratch",
+    "docs",
 };
 
 Vec<Str> listFirmware()
@@ -110,8 +111,13 @@ Vec<Str> listFirmware()
     {
         const Str d = root + "\\" + sub;
 
+        // .bdoc joins the list because firmware/docs holds the reference
+        // documents and they are edited here like anything else. See
+        // hub/src/refdoc.hxx - the Code view renders them, and the toggle above
+        // the editor swaps between the page and the source that made it.
         const Char* const PATTERNS[] = { "\\*.cxx", "\\*.hxx",
-                                         "\\*.c", "\\*.h" };
+                                         "\\*.c", "\\*.h",
+                                         "\\*.bdoc" };
         for(const Char* pat : PATTERNS)
         {
             WIN32_FIND_DATAA fd = {};

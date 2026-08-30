@@ -54,6 +54,7 @@
 #include "recording.hxx"
 #include "sketch.hxx"
 #include "reference.hxx"
+#include "refdoc.hxx"
 #include "devlink.hxx"
 #include "lint.hxx"
 #include "settings.hxx"
@@ -359,7 +360,7 @@ Bool    driveSteerHeld = false;
 // wherever it lands.
 //
 // Held here as the working copy, saved to settings so a session does not lose
-// them, and written out to firmware/lib/chassis/cal.h when the user commits -
+// them, and written out to firmware/lib/chassis/cal.hxx when the user commits -
 // three places on purpose. Settings is what survives a restart; the header is
 // what survives a reflash and what other code can actually read.
 Int32 calLeft   = 1300;
@@ -769,6 +770,25 @@ rec::Recording recording;
 // A sketch is edited here, written to firmware/scratch/sketch.cxx, and built and
 // flashed by the SAME scripts the Firmware panel uses. There is one toolchain
 // path in this project and this is a front-end to it.
+// ---- .bdoc: the page, or the source that made it -------------------------
+//
+// One flag and the file it belongs to, rather than a map of every document ever
+// opened. This view holds exactly one file at a time - there is no tab bar and
+// no buffer list - so a per-file map would be a container with one live entry
+// and a lifetime nobody manages. Switching documents starts on the PAGE, which
+// is what somebody opening a pinout wants to see.
+Str  docModeFor;        // the path the flag below is about
+Bool docModeSource = false;
+
+// The parsed document, cached against the text it came from.
+//
+// Reparsed only when the text changes, which is both the optimisation and the
+// feature: editing the source and watching the page redraw is the whole reason
+// the toggle exists, and it costs nothing because a parse is a few hundred
+// microseconds on a document this size.
+refdoc::Doc docParsed;
+Str         docParsedFrom;
+
 ed::Editor   codeEditor;
 ui::CodeView codeView;
 Str          codePath;        // absolute path of the open file, or empty
@@ -4333,7 +4353,7 @@ Void openCodeFile(const Str& path, const Str& name)
     // Marks the view as loaded even though it may never have been drawn. Its
     // first draw otherwise runs a lazy init that picks the first sketch in the
     // library, which would replace whatever was just opened - the view would
-    // switch, announce "opened cal.h", and show a different file.
+    // switch, announce "opened cal.hxx", and show a different file.
     codeLoaded = true;
 
     codePath = path;
@@ -4422,13 +4442,26 @@ Void drawCodeTree(Float32 w, Float32 h)
     // Destructive entries do not act here. They record what was asked and the
     // caller resolves it after the tree has finished drawing: deleting a file
     // while iterating the list that drew it is how a tree crashes.
+    // `label` tints the NAME as well as the glyph. A document and a source
+    // file were told apart by two icons that are the same page in two shades,
+    // which does not read at sixteen pixels - so the filename carries it too.
+    // Colour is the thing the eye sorts a list by.
     const auto row = [](const Str& name, const Str& path, Bool sel, ui::Icon ic,
-                        Bool deletable)
+                        Bool deletable, ImU32 label = 0)
     {
         ImGui::PushID(path.c_str());
         ui::icon(ic);
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        if(label != 0)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImGui::ColorConvertU32ToFloat4(label));
+        }
         const Bool hit = ImGui::Selectable(name.c_str(), sel);
+        if(label != 0)
+        {
+            ImGui::PopStyleColor();
+        }
 
         if(ImGui::BeginPopupContextItem("##rowmenu"))
         {
@@ -4560,21 +4593,15 @@ Void drawCodeTree(Float32 w, Float32 h)
         self(self, node.dirs.back(), tail);
     };
 
-    if(ImGui::TreeNodeEx("Sketches", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        for(const Str& n : libFiles)
-        {
-            const Str p = sketch::pathOf(n);
-            if(row(n, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
-                   ui::Icon::ICON_CODE, true))
-            {
-                openCodeFile(p, n);
-            }
-        }
-        if(libFiles.empty())
-            ImGui::TextDisabled("  none saved yet");
-        ImGui::TreePop();
-    }
+    // ---- there is no sketch library any more ----------------------------
+    //
+    // There was one, in %LOCALAPPDATA%, holding numbered teaching sketches that
+    // were copied into firmware/scratch to be built. It was scaffolding from
+    // the first week, and it outlived its purpose: the firmware library is the
+    // thing worth reading now, and a second copy of some of it in a folder the
+    // repository does not track was somewhere for edits to get lost.
+    //
+    // The tree shows the REPOSITORY, which is the only place a change survives.
 
     // ---- firmware, as the folders it actually is -------------------------
     //
@@ -4654,15 +4681,29 @@ Void drawCodeTree(Float32 w, Float32 h)
             {
                 const Str rel = prefix + f;
                 const Str p   = dir + "\\" + rel;
-                const Bool hdr = (f.size() > 2
-                                  && f.compare(f.size() - 2, 2, ".h") == 0);
+
+                // A document is not code and should not look like it. The
+                // header test also has to know about .hxx: it checked the last
+                // two characters, which stopped being right the day the
+                // library became C++.
+                const auto ends = [](const Str& x, const Char* suf)
+                {
+                    const Size n = std::strlen(suf);
+                    return x.size() > n
+                        && _stricmp(x.c_str() + (x.size() - n), suf) == 0;
+                };
+                const Bool doc = refdoc::isDocPath(f);
+                const Bool hdr = ends(f, ".h") || ends(f, ".hxx");
 
                 // The LEAF name in the tree, the RELATIVE path everywhere else -
                 // two files called main.c in different folders must not look
                 // like one row, and the editor's title should still say which.
                 if(row(f, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
-                       hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE,
-                       false))
+                       doc ? ui::Icon::ICON_DOC
+                           : (hdr ? ui::Icon::ICON_FIRMWARE
+                                  : ui::Icon::ICON_CODE),
+                       false,
+                       doc ? ui::ansi::BRCYAN : 0u))
                 {
                     openCodeFile(p, rel);
                 }
@@ -4778,22 +4819,23 @@ Void drawCodeControls()
     if(ui::iconButton(ui::Icon::ICON_SAVE, "Save"))
         saveSketch();
 
-    ImGui::SameLine();
-    if(ui::iconButton(ui::Icon::ICON_CODE, "New"))
-    {
-        codeName = sketch::makeName();
-        codePath = sketch::pathOf(codeName);
-        codeEditor.setText(sketch::starter());
-        codeMessage = "new sketch: " + codeName;
-    }
+    // ---- there is no "New" any more --------------------------------------
+    //
+    // It made a file in the sketch library, and the library is gone. What it
+    // would mean now is "create a file in the repository", and that is a thing
+    // with a right answer per folder - a new driver is not a new document is
+    // not a new scratch program - which a single button cannot have.
+    //
+    // Starting over on the scratch program is what it was mostly used for, and
+    // that is selecting all and typing.
 
     ImGui::SameLine();
     ImGui::TextUnformatted("|");
     ImGui::SameLine();
 
-    // The path, not just the name. Two files called sketch.cxx can exist - one in
-    // the library and one in the slot - and knowing which is open is the whole
-    // difference between editing your program and editing its copy.
+    // The path, not just the name. Two files with the same leaf name exist all
+    // over the firmware tree, and knowing which one is open is the difference
+    // between editing a driver and editing the one beside it.
     ImGui::TextDisabled("%s", codePath.empty() ? "(unsaved)" : codePath.c_str());
 
     if(codeEditor.dirty())
@@ -4812,8 +4854,21 @@ Void drawCodeControls()
     // compiles gfx.h", which is three kinds of wrong at once. It would build
     // some unrelated target, flash it, and report success against a file it
     // never compiled.
-    const Bool onHeader = (codePath.size() > 2
-                           && codePath.compare(codePath.size() - 2, 2, ".h") == 0);
+    // ".hxx" AND ".h". This tested the last two characters only, which stopped
+    // being right the day the firmware library became C++: bibo.hxx does not
+    // end in ".h", so every library header was enabled in this button and Run
+    // on one would build pico_debug while claiming to compile that file. That
+    // is precisely the failure the note above says this check exists to stop.
+    //
+    // A .bdoc is not buildable either, for a different reason: it is not code.
+    const auto endsWith = [](const Str& p, const Char* suf)
+    {
+        const Size n = std::strlen(suf);
+        return p.size() > n && _stricmp(p.c_str() + (p.size() - n), suf) == 0;
+    };
+    const Bool onHeader = endsWith(codePath, ".h")
+                       || endsWith(codePath, ".hxx")
+                       || refdoc::isDocPath(codePath);
 
     ImGui::BeginDisabled(busy || onHeader);
 
@@ -5754,7 +5809,15 @@ Void drawDriveFlashButton()
 Str steeringCalPath()
 {
     const Str d = sketch::firmwareDir();
-    return d.empty() ? Str() : (d + "\\lib\\chassis\\cal.h");
+    // .hxx, and it was ".h" until now - which was not a cosmetic mistake.
+    //
+    // The firmware library became C++ and chassis.hxx now includes "cal.hxx".
+    // This kept writing cal.h, so every "Write to firmware" since the
+    // conversion has been putting the measured numbers into a file NOTHING
+    // COMPILES: recalibrate, write, flash, and the board keeps the old numbers
+    // with no error anywhere. A generator writing to a path that no longer
+    // exists is worse than one that fails, because it looks like it worked.
+    return d.empty() ? Str() : (d + "\\lib\\chassis\\cal.hxx");
 }
 
 Bool readThrottleNumbers(const Str& text, Int32& lo, Int32& hi);
@@ -5829,7 +5892,7 @@ Str steeringCalText()
      *
      * This was 2048 and the header grew past it. snprintf truncates silently
      * and returns what it WOULD have written, which nothing looked at, so the
-     * Drive view wrote a cal.h that stopped mid-comment. The firmware then
+     * Drive view wrote a cal.hxx that stopped mid-comment. The firmware then
      * would not compile, and the failure surfaced three steps away from the
      * button that caused it.
      *
@@ -5922,7 +5985,7 @@ Str steeringCalText()
 
     if(need < 0 || static_cast<Size>(need) >= sizeof(buf))
     {
-        LOG_WARN("drive", "cal.h would be %d bytes, buffer is %d - not written",
+        LOG_WARN("drive", "cal.hxx would be %d bytes, buffer is %d - not written",
                  need, static_cast<Int32>(sizeof(buf)));
         return Str();
     }
@@ -6998,7 +7061,7 @@ Void drawDriveBody(Float32 w, Float32 h)
             {
                 // steeringCalText() has already said why. Writing here would
                 // put a truncated header on disk, which is how this was found.
-                LOG_WARN("drive", "refusing to write an incomplete cal.h");
+                LOG_WARN("drive", "refusing to write an incomplete cal.hxx");
             }
             else if(path.empty())
             {
@@ -7580,6 +7643,123 @@ Void drawDriveBody(Float32 w, Float32 h)
     ImGui::EndChild();
 }
 
+// ---------------------------------------------------------------------------
+// A .bdoc, drawn either as the page it describes or as the source that
+// describes it.
+//
+// The SAME editor and the same file underneath. This is a view of one thing,
+// not two documents - which is the point of a text format over a binary one:
+// when the page looks wrong you can see, in one click, whether the document is
+// wrong or the renderer is.
+// ---------------------------------------------------------------------------
+Void drawDocPane(Float32 w, Float32 h)
+{
+    ImGui::BeginChild("##docpane", ImVec2(w, h), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar
+                      | ImGuiWindowFlags_NoScrollWithMouse);
+
+    // A different document starts on the page. Somebody opening a pinout wants
+    // the pinout, and the last file's mode is not a preference about this one.
+    if(docModeFor != codePath)
+    {
+        docModeFor    = codePath;
+        docModeSource = false;
+    }
+
+    // ---- the toggle -------------------------------------------------------
+    const Float32 bh = ImGui::GetFrameHeight();
+
+    if(ui::iconButton(ui::Icon::ICON_REFERENCE, "Page",
+                      ImVec2(84.0f * uiDpiScale, bh),
+                      docModeSource ? ui::Tint::TINT_NONE : ui::Tint::TINT_GOOD))
+    {
+        docModeSource = false;
+    }
+    ImGui::SameLine();
+    if(ui::iconButton(ui::Icon::ICON_CODE, "Source",
+                      ImVec2(94.0f * uiDpiScale, bh),
+                      docModeSource ? ui::Tint::TINT_GOOD : ui::Tint::TINT_NONE))
+    {
+        docModeSource = true;
+    }
+
+    // Reparsed only when the text changes. That is what makes editing the
+    // source and watching the page update work, and it costs nothing.
+    if(docParsedFrom != codeEditor.text())
+    {
+        docParsedFrom = codeEditor.text();
+        docParsed     = refdoc::parse(docParsedFrom);
+    }
+
+    ImGui::SameLine();
+    if(!docParsed.ok())
+    {
+        colored(ui::sem::BAD, "line %d: %s", docParsed.errorLine,
+                docParsed.error.c_str());
+    }
+    else
+    {
+        // Style complaints, counted rather than listed. They are not errors -
+        // the document renders - so they belong where somebody can choose to
+        // look at them.
+        const Vec<Str> notes = refdoc::check(docParsed);
+        if(notes.empty())
+        {
+            colored(ui::sem::MUTED, "%s", codeName.c_str());
+        }
+        else
+        {
+            colored(ui::sem::WARN, "%d style note%s",
+                    static_cast<Int32>(notes.size()),
+                    notes.size() == 1 ? "" : "s");
+            if(ImGui::IsItemHovered())
+            {
+                Str all;
+                for(const Str& n : notes)
+                {
+                    all += n;
+                    all += "\n";
+                }
+                ImGui::SetTooltip("%s", all.c_str());
+            }
+        }
+    }
+
+    ImGui::Separator();
+
+    const Float32 rest = h - bh - (ImGui::GetStyle().ItemSpacing.y * 3.0f);
+
+    if(docModeSource)
+    {
+        ui::drawCode(codeView, codeEditor,
+                     ImVec2(w, std::max(60.0f, rest)), ImGui::GetTime());
+    }
+    else
+    {
+        ImGui::BeginChild("##docpage", ImVec2(w, std::max(60.0f, rest)),
+                          ImGuiChildFlags_None, ImGuiWindowFlags_None);
+
+        // A reading measure, not the panel width. Text set across 1400 pixels
+        // is text nobody finishes a paragraph of, and this is a document.
+        const Float32 avail = ImGui::GetContentRegionAvail().x;
+        const Float32 measure = std::min(avail - 24.0f, 780.0f * uiDpiScale);
+        const Float32 pad = std::max(0.0f, (avail - measure) * 0.5f);
+        if(pad > 1.0f)
+        {
+            ImGui::Indent(pad);
+        }
+        refdoc::draw(docParsed, measure);
+        if(pad > 1.0f)
+        {
+            ImGui::Unindent(pad);
+        }
+
+        ImGui::EndChild();
+    }
+
+    ImGui::EndChild();
+}
+
 Void drawViewBody(Int32 view, Float32 w, Float32 h)
 {
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -7625,18 +7805,19 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
         if(!codeLoaded)
         {
             codeLoaded = true;
-            const Vec<Str> have = sketch::list();
-            if(!have.empty())
+
+            // The SLOT - firmware/scratch/sketch.cxx - which is the file the
+            // sketch target actually builds. It used to open whatever came
+            // first out of the library, which meant landing on a file the
+            // build does not compile and having to work out why.
+            //
+            // Loaded on first sight rather than at startup: most sessions
+            // never open this view, and reading a file costs nothing until
+            // somebody looks.
+            const Str slot = sketch::slotPath();
+            if(!slot.empty())
             {
-                codeName = have.front();
-                codePath = sketch::pathOf(codeName);
-                codeEditor.setText(sketch::load(codePath));
-            }
-            else
-            {
-                codeName = sketch::makeName();
-                codePath = sketch::pathOf(codeName);
-                codeEditor.setText(sketch::starter());
+                openCodeFile(slot, "scratch\\sketch.cxx");
             }
         }
 
@@ -7668,9 +7849,17 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
         }
         ImGui::SameLine(0.0f, 0.0f);
 
-        ui::drawCode(codeView, codeEditor,
-                     ImVec2(std::max(120.0f, w - treeW - splitW), h),
-                     ImGui::GetTime());
+        const Float32 editW = std::max(120.0f, w - treeW - splitW);
+
+        if(refdoc::isDocPath(codePath))
+        {
+            drawDocPane(editW, h);
+        }
+        else
+        {
+            ui::drawCode(codeView, codeEditor, ImVec2(editW, h),
+                         ImGui::GetTime());
+        }
         handleCodeCommand();
     }
     else if(view == DRIVE_VIEW)

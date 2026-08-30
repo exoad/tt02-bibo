@@ -1,0 +1,102 @@
+<Doc title="The .bdoc format" subtitle="what these files are, and the rules" id="theFormat">
+
+<Section title="Why a format at all">
+<Text>The pinouts used to be C++ arrays in <Code>hub/src/pinout.cxx</Code>,
+drawn by code written for them. That works exactly once. The second component
+needs either a second drawing routine or a generalisation of the first, and by
+the fourth the hub is carrying a small documentation system that nobody planned
+and nobody can add to without rebuilding.</Text>
+
+<Text>These are <Bold>files</Bold>. Adding a component is adding one, and the
+hub does not change. Nothing is compiled in, so a wiring note can be fixed
+without a build - which matters, because a wiring note is usually being fixed
+while the wires are in your hands.</Text>
+</Section>
+
+<Section title="A very small subset of XML">
+<Text>Deliberately small. Elements, attributes, text, and comments - that is the
+whole language. No namespaces, no DTD, no processing instructions, no CDATA, no
+entities beyond the four that make the four reserved characters writable.</Text>
+
+<List>
+<Item>Elements are <Bold>PascalCase</Bold>: <Code>Doc</Code>,
+<Code>Section</Code>, <Code>Pinout</Code>, <Code>Pin</Code>.</Item>
+<Item>Attributes are <Bold>camelCase</Bold>: <Code>title</Code>,
+<Code>subtitle</Code>, <Code>class</Code>, <Code>from</Code>.</Item>
+<Item>Class values are <Bold>camelCase</Bold> too: <Code>power</Code>,
+<Code>ground</Code>, <Code>serial</Code>, <Code>audio</Code>.</Item>
+<Item>Attribute values are always in double quotes.</Item>
+<Item><Code>&lt;Name/&gt;</Code> closes itself. Anything else needs
+<Code>&lt;/Name&gt;</Code>.</Item>
+</List>
+
+<Text>The case rules are not decoration. An element and an attribute are
+different kinds of thing and reading one as the other is the commonest mistake
+in a hand-written format; making them visibly different means the mistake is
+visible too.</Text>
+</Section>
+
+<Section title="Structure">
+<Text>One <Code>Doc</Code> at the root. Inside it, <Code>Section</Code> and
+<Code>Pinout</Code> in whatever order the component wants to be explained
+in.</Text>
+
+<Code block="yes">&lt;Doc title="..." subtitle="..." id="camelCase"&gt;
+  &lt;Section title="..."&gt;
+    &lt;Text&gt;a paragraph&lt;/Text&gt;
+    &lt;List&gt;&lt;Item&gt;a bullet&lt;/Item&gt;&lt;/List&gt;
+    &lt;Note&gt;quieter aside&lt;/Note&gt;
+    &lt;Warn&gt;the one that matters&lt;/Warn&gt;
+  &lt;/Section&gt;
+
+  &lt;Pinout title="..." package="DIP-16"&gt;
+    &lt;Column side="left" from="1" to="8"&gt;
+      &lt;Pin n="1" name="VCC" class="power"&gt;what it is&lt;/Pin&gt;
+    &lt;/Column&gt;
+  &lt;/Pinout&gt;
+&lt;/Doc&gt;</Code>
+</Section>
+
+<Section title="Inline">
+<Text>Inside any text you may write <Code>&lt;Bold&gt;</Code>,
+<Code>&lt;Dim&gt;</Code> and <Code>&lt;Code&gt;</Code>. That is the entire
+markup vocabulary, and it is short on purpose: a documentation format that grows
+italics and underline and colour grows a stylesheet, and then the question stops
+being what a component does and starts being how it looks.</Text>
+
+<Text>So: <Bold>bold for the thing you must not miss</Bold>,
+<Dim>dim for the aside you may skip</Dim>, and <Code>Code for a literal you
+would type or read on a silkscreen</Code>.</Text>
+</Section>
+
+<Section title="Pin classes and what they colour">
+<Text>A <Code>Pin</Code> carries a <Code>class</Code>, and the class picks the
+colour. The palette is the same sixteen ANSI colours the rest of the app draws
+in, so a pinout on this screen and a plot on the next one mean the same thing by
+the same colour.</Text>
+
+<List>
+<Item><Code>power</Code> and <Code>ground</Code> - structural, and quiet. They
+are on every component and carry no information about this one.</Item>
+<Item><Code>serial</Code>, <Code>digital</Code>, <Code>analog</Code>,
+<Code>usb</Code>, <Code>audio</Code> - what the pin is for.</Item>
+<Item><Code>unused</Code> - present on the package, not used here.</Item>
+</List>
+
+<Text>A pin may also carry <Code>check="yes"</Code>, which marks it as something
+to verify against the silkscreen rather than trust. That is not styling: it is a
+claim about confidence, and the DFPlayer's speaker pins are exactly why it
+exists.</Text>
+</Section>
+
+<Section title="Rendered, or read">
+<Text>Both. These open in the Code view like any other file, and the toggle
+above the editor swaps between the rendered page and the source that produced
+it.</Text>
+
+<Text>That is the point of a format over a binary: the thing on screen and the
+thing in the file are the same object, and when the render looks wrong you can
+see immediately whether the document is wrong or the renderer is.</Text>
+</Section>
+
+</Doc>
