@@ -63,12 +63,19 @@ namespace
   {
       std::printf("flasher timing\n");
 
-      checkNear(static_cast<Float32>(lights::BLINK_PERIOD_S), 0.667f, "period (s)");
+      checkNear(static_cast<Float32>(lights::BLINK_PERIOD_S), 0.600f, "period (s)");
 
-      // 1.5 Hz. The period is what the standard fixes, so that is what is checked
-      // rather than the two halves separately.
-      const Float32 hz = static_cast<Float32>(1.0 / lights::BLINK_PERIOD_S);
-      check(hz > 1.45f && hz < 1.55f, "rate is 1.5 Hz");
+      // 100 flashes per minute. This asserted 0.667 s / 1.5 Hz until
+      // 2026-08-30, which was the value BEFORE the rate was corrected: 667 ms
+      // is 89.96 fpm and the normally-closed band in SAE J945 has a floor of
+      // 90. The source moved and the test did not, so it failed for weeks
+      // saying the right answer was wrong.
+      //
+      // Checked in flashes per minute rather than Hz because that is the unit
+      // the standard is written in, and 89.96 vs 90 is a distinction Hz hides.
+      const Float32 fpm = static_cast<Float32>(60.0 / lights::BLINK_PERIOD_S);
+      checkNear(fpm, 100.0f, "100 flashes per minute");
+      check(fpm >= 90.0f && fpm <= 120.0f, "inside the SAE J945 band");
 
       check(lights::blinkPhase(T_ON),  "on inside the on phase");
       check(!lights::blinkPhase(T_OFF), "off inside the off phase");

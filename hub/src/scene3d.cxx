@@ -678,7 +678,7 @@ namespace scene3d
         Int32 part = CAR_PART_BODY;
         Array<Char, 512> line;
 
-        while(std::fgets(line.data(), line.size(), f) != nullptr)
+        while(std::fgets(line.data(), static_cast<Int32>(line.size()), f) != nullptr)
         {
             if(line[0] == 'v' && line[1] == ' ')
             {

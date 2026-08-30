@@ -594,8 +594,16 @@ Real car lighting, since the point is legibility at a glance.
 - **Headlights** white, on when armed. Optional dim/bright for DRL vs headlight.
 - **Tail and brake are the same red lamp**, PWM at 30% for tail and 100% for
   brake. Brake is not a separate light on most cars.
-- **Turn signals** amber, **1.5 Hz** (roughly 400 ms on / 267 ms off) — that's
-  the legal standard and what reads as correct.
+- **Turn signals** amber, **100 flashes per minute** — 360 ms on / 240 ms off.
+  Deliberately not 50/50: a slightly longer on than off is what real flasher
+  cans do and what the eye expects.
+
+  This said 1.5 Hz (400/267) until 2026-08-30 and that was wrong. 667 ms is
+  89.96 flashes per minute, and the normally-closed band in SAE J945 has a
+  **floor of 90** — so the "legal standard" figure was just under the legal
+  minimum. The firmware holds the band with a `static_assert`; `hub/src/
+  lights.hxx` mirrors the two numbers and must keep doing so, since the board
+  decides what the lamps do and the hub only draws the same blink.
 - **Turn signal overrides brake on that side.** Braking while signaling right
   means the right rear alternates bright/off while the left stays solid. That
   asymmetry is what makes it look real.
