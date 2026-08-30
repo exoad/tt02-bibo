@@ -583,6 +583,134 @@ if libc_bad == 0:
     print('  ok')
 total += libc_bad
 
+print('\n--- signatures over 100 columns ---')
+# A RATCHET, not a rule.
+#
+# docs/conventions.md is honest that these are a design problem and not a
+# formatting one: a function taking eleven parameters was hard to read wrapped
+# as well, and "a parameter list never wraps" only made that visible. It
+# recorded 47 at the time, worst 167, and said the work was not done.
+#
+# It still is not. What this does instead is stop the number GROWING: the
+# budget below is what the tree measured when the check went in, and the audit
+# fails if it rises. Shortening a signature lowers the budget with it; adding a
+# twelfth parameter to something already over the line does not pass.
+#
+# 2 columns of the current figure are mine: indenting namespace bodies on
+# 2026-08-30 moved every line inside a namespace two to the right, which pushed
+# borderline signatures over. That is a real cost of that change and is
+# recorded here rather than absorbed quietly.
+SIG_BUDGET = 41
+
+SIGNATURE = re.compile(
+    r'^\s*(?:\[\[nodiscard\]\]\s*)?'
+    r'(?:static\s+|inline\s+|constexpr\s+|const\s+|virtual\s+|explicit\s+)*'
+    r'[A-Za-z_][\w:<>,\s\*&]*?\s[\w:~]+\s*\([^;]*\)\s*'
+    r'(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?[;{]?\s*$')
+NOT_A_SIG = re.compile(r'^\s*(?:if|for|while|switch|return|else|case)\b')
+
+long_sigs = []
+for path in files:
+    code = strip_noise(rd(path)).split('\n')
+    raw = rd(path).split('\n')
+    for i, l in enumerate(code):
+        text = raw[i].rstrip() if i < len(raw) else ''
+        if len(text) <= 100 or NOT_A_SIG.match(l) or not SIGNATURE.match(l):
+            continue
+        long_sigs.append((len(text), os.path.basename(path), i + 1))
+
+long_sigs.sort(reverse=True)
+print('  %d signature(s) over 100 columns, budget %d'
+      % (len(long_sigs), SIG_BUDGET))
+for cols, f, ln in long_sigs[:5]:
+    print('    %4d  %-24s %5d' % (cols, f, ln))
+if len(long_sigs) > SIG_BUDGET:
+    print('  ^ that is MORE than the budget. Shorten a signature, or say why '
+          'the budget moved.')
+    total += 1
+elif len(long_sigs) < SIG_BUDGET:
+    print('  under budget - lower SIG_BUDGET to %d to keep the ratchet tight'
+          % len(long_sigs))
+
+print('\n--- enum member prefixes ---')
+# "Enum members: SCREAMING_SNAKE_CASE, PREFIXED WITH THE ENUM NAME" -
+# MapMode::MAP_MODE_POINTS. docs/conventions.md has said so since 2026-08-25
+# and nothing had ever checked it. 224 members already comply; they comply by
+# habit, which is the state a rule is in right before it stops being true.
+#
+# The prefix is what makes an unscoped enum safe to `using`, and what makes a
+# grep for MAP_MODE find the whole family.
+
+# Lamp is the one enum that does not comply, and it is WAIVED rather than
+# silently skipped, for the reason the C-cast carve-out was: a waiver nobody
+# can see is a waiver that grows. Renaming HEAD_L to LAMP_HEAD_L is 64
+# references across six files, two of which (pins.hxx, sketches/speaker.cxx)
+# are being written right now. It is a rename to do when that lands, not
+# during.
+ENUM_WAIVED = {'Lamp': 'speaker work in flight - 64 refs across 6 files'}
+
+
+def screamingOf(name):
+    """MapMode -> MAP_MODE. Loss -> LOSS."""
+    s = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', '_', name)
+    s = re.sub(r'(?<=[A-Z])(?=[A-Z][a-z])', '_', s)
+    return s.upper()
+
+
+ENUM_NAMED = re.compile(r'\benum\s+(?:class\s+|struct\s+)?([A-Z]\w*)\s*(?::[^{]*)?\{?')
+ENUM_TYPEDEF = re.compile(r'^\s*typedef\s+enum\b')
+
+enum_bad = 0
+enum_waived = 0
+for path in files:
+    lines = strip_noise(rd(path)).split('\n')
+    i = 0
+    while i < len(lines):
+        isTypedef = ENUM_TYPEDEF.match(lines[i])
+        m = None if isTypedef else ENUM_NAMED.search(lines[i])
+        if not isTypedef and not m:
+            i += 1
+            continue
+        # Collect the enum body by brace depth.
+        j, depth, started, body = i, 0, False, []
+        while j < len(lines):
+            depth += lines[j].count('{') - lines[j].count('}')
+            if '{' in lines[j]:
+                started = True
+            body.append(lines[j])
+            if started and depth == 0:
+                break
+            j += 1
+        block = '\n'.join(body)
+        if isTypedef:
+            tail = re.search(r'\}\s*(\w+)\s*;', lines[j] if j < len(lines) else '')
+            name = tail.group(1) if tail else None
+        else:
+            name = m.group(1)
+        i = j + 1
+        if not name or '{' not in block:
+            continue
+        want = screamingOf(name)
+        inner = block[block.find('{') + 1:block.rfind('}')]
+        for tok in inner.split(','):
+            mem = tok.strip().split('=')[0].strip()
+            if not re.fullmatch(r'[A-Za-z_]\w*', mem or ''):
+                continue
+            if mem.startswith(want + '_') or mem == want:
+                continue
+            if name in ENUM_WAIVED:
+                enum_waived += 1
+                continue
+            print('  %-24s %-14s %-20s want %s_*'
+                  % (os.path.basename(path), name, mem, want))
+            enum_bad += 1
+
+if enum_bad == 0:
+    print('  ok')
+for nm, why in sorted(ENUM_WAIVED.items()):
+    print('  WAIVED  %-10s %d member(s) - %s' % (nm, enum_waived, why))
+total += enum_bad
+
 print('\n--- namespace layout ---')
 # Allman brace, and a body indented one level inside it.
 #
