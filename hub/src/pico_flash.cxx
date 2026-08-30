@@ -458,6 +458,93 @@ Void PicoFlash::refreshCatalog()
         out.push_back(std::move(e));
     }
 
+    // -----------------------------------------------------------------------
+    // The sketches, added to the catalog WITHOUT being written down anywhere.
+    //
+    // catalog.txt used to carry two hand-written entries, `sketch` and
+    // `sketch_car`, because there was exactly one sketch target and it was fed
+    // by a slot that everything got copied into. Every sketch in
+    // firmware/sketches/ is now its own target, so a fixed list here would mean
+    // that writing a new sketch also meant editing this file to be allowed to
+    // flash it - and forgetting would produce "no catalog entry", which reads
+    // like a bug in the hub rather than a chore you skipped.
+    //
+    // Two entries per file, one per board, matching what CMake actually emits
+    // into build\ and build-pico2\.
+    // -----------------------------------------------------------------------
+    {
+        const Str        skDir = root + "\\firmware\\sketches";
+        WIN32_FIND_DATAA fd    = {};
+        HANDLE           h     = ::FindFirstFileA((skDir + "\\*.cxx").c_str(), &fd);
+
+        for(Bool more = (h != INVALID_HANDLE_VALUE); more;
+            more = (::FindNextFileA(h, &fd) != 0))
+        {
+            if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            {
+                continue;
+            }
+
+            Str stem = fd.cFileName;
+            const Size dot = stem.find_last_of('.');
+            if(dot != Str::npos)
+            {
+                stem.resize(dot);
+            }
+            if(stem.empty())
+            {
+                continue;
+            }
+
+            // Board, id suffix, build directory.
+            const Char* const BOARDS[2] = { "pico2_w", "pico2" };
+            const Char* const SUFFIX[2] = { "", "_car" };
+            const Char* const BUILDS[2] = { "build", "build-pico2" };
+
+            for(Int32 b = 0; b < 2; ++b)
+            {
+                FirmwareEntry e;
+                e.id = stem + SUFFIX[b];
+
+                // catalog.txt WINS. Someone who has written an entry by hand
+                // has said something this scan cannot know - a different UF2, a
+                // description worth keeping - and silently adding a second row
+                // with the same id would give the flash lookup two answers.
+                if(findEntry(out, e.id) != nullptr)
+                {
+                    continue;
+                }
+
+                e.name = stem + (b == 0 ? Str(" (sketch)")
+                                        : Str(" (sketch, car board)"));
+                e.uf2Path = root + "\\firmware\\" + BUILDS[b] + "\\"
+                          + stem + ".uf2";
+                e.buildable   = true;
+                e.board       = BOARDS[b];
+                e.description = "firmware/sketches/" + stem + ".cxx, built for "
+                              + BOARDS[b] + ".";
+
+                WIN32_FILE_ATTRIBUTE_DATA fa{};
+                if(GetFileAttributesExA(e.uf2Path.c_str(),
+                                        GetFileExInfoStandard, &fa)
+                   && !(fa.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                {
+                    e.present   = true;
+                    e.sizeBytes = (static_cast<Int64>(fa.nFileSizeHigh) << 32)
+                                | static_cast<Int64>(fa.nFileSizeLow);
+                    e.builtAt   = formatMtime(fa.ftLastWriteTime);
+                }
+
+                out.push_back(std::move(e));
+            }
+        }
+
+        if(h != INVALID_HANDLE_VALUE)
+        {
+            ::FindClose(h);
+        }
+    }
+
     LockGuard<Mutex> lk(pimpl().mu);
     pimpl().catalog.swap(out);
 }
@@ -594,6 +681,7 @@ Void PicoFlash::build(const Str& id)
 
     Str name  = id;
     Str board;
+    Str target;
     Bool        can   = false;
     {
         LockGuard<Mutex> lk(pimpl().mu);
@@ -602,6 +690,22 @@ Void PicoFlash::build(const Str& id)
             name  = e->name;
             can   = e->buildable;
             board = e->board;
+
+            // The CMake target is the UF2's basename, taken from there rather
+            // than from the catalog id on purpose: the id carries a board
+            // suffix ("range-view_car") and the target does not. uf2Path is the
+            // one field that names the file CMake actually writes.
+            target = e->uf2Path;
+            const Size slash = target.find_last_of("\\/");
+            if(slash != Str::npos)
+            {
+                target.erase(0, slash + 1);
+            }
+            const Size dot = target.find_last_of('.');
+            if(dot != Str::npos)
+            {
+                target.resize(dot);
+            }
         }
     }
     if(!can)
@@ -620,19 +724,25 @@ Void PicoFlash::build(const Str& id)
     const Str desc = "building " + name
                    + (board.empty() ? Str() : Str(" for ") + board);
 
-    pimpl().start(desc, [root, bat, board]()
+    pimpl().start(desc, [root, bat, board, target]()
     {
-        // build.bat still takes no TARGET - it builds everything
-        // firmware/CMakeLists.txt defines - but it does take a BOARD, and that
-        // decides which tree the output lands in. Passing it is what keeps the
-        // car's image out of the W's build directory and the other way round.
+        // BOARD decides which tree the output lands in; passing it is what
+        // keeps the car's image out of the W's build directory and the other
+        // way round. An entry with no board is one this repo does not build,
+        // and the check above has already refused those.
         //
-        // An entry with no board is one this repo does not build, and the check
-        // above has already refused those.
+        // TARGET builds just this image. build.bat took no target until every
+        // sketch became its own executable - at which point "build everything"
+        // started meaning "compile every experiment in the folder to press
+        // Build on one of them", and that cost grows with the folder.
         Str cmd = "cmd.exe /s /c \"" + quote(bat);
         if(!board.empty())
         {
             cmd += " " + board;
+        }
+        if(!target.empty())
+        {
+            cmd += " " + target;
         }
         cmd += "\"";
         return runCapture(cmd, root, [](const Str& l) { pimpl().log(l); });

@@ -199,9 +199,35 @@ The hub's **Code** tab completes every name in `hal.h` and `types.h` with its
 signature and a one-line doc — the table lives in `hub/src/complete.cxx` and is
 kept in step with this header by hand.
 
-## `sketch` — scratch space
+## `app/` and `sketches/` — the car, and the side quests
 
-A second target, `scratch/sketch.cxx`, built alongside `pico_debug` and flashed as
-`build/sketch.uf2`. It is what the hub's Code tab edits, and it is **overwritten
-on every Build & Flash**. Anything worth keeping graduates to its own `.c` and
-its own target in `CMakeLists.txt`.
+Two places, and the difference is what each is *for*:
+
+| | `app/` | `sketches/` |
+|---|---|---|
+| aimed at | the finished car | one question |
+| files | many, one image (`pico_debug`) | one file, one image each |
+| links | `pico_stdlib` + lwIP + the hardware units | `pico_stdlib` + the hardware units |
+| lives for | as long as the car does | as long as it is interesting |
+
+Both are globbed by `CMakeLists.txt`, so a new file is built without editing
+anything. **Every `sketches/*.cxx` gets its own target named after the file** —
+`range-view.cxx` builds `build/range-view.uf2`.
+
+```
+firmware\build.bat                  everything, for the W
+firmware\build.bat range-view       just that sketch
+firmware\build.bat pico2 range-view just that sketch, for the car's board
+```
+
+The hub's Code tab picks the right target from the file on screen, and the
+catalog entry for a sketch is synthesized rather than written down — see the
+banner in `catalog.txt`.
+
+> **This used to be one overwritten slot.** There was a single `sketch` target
+> compiled from `scratch/sketch.cxx`, and the Code view copied whatever you were
+> editing into it before every build. So the slot's previous contents were
+> destroyed by pressing Build, and the sketches themselves lived in
+> `%LOCALAPPDATA%` where no clone, backup or `git log` would find them. A working
+> VL53L1X range view sat in that slot for weeks; it is `sketches/range-view.cxx`
+> now.

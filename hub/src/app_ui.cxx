@@ -774,9 +774,14 @@ RadarView recView;
 rec::Recording recording;
 
 // ---- the Code view ---------------------------------------------------------
-// A sketch is edited here, written to firmware/scratch/sketch.cxx, and built and
-// flashed by the SAME scripts the Firmware panel uses. There is one toolchain
-// path in this project and this is a front-end to it.
+// A file is edited here, saved where it already lives, and built and flashed by
+// the SAME scripts the Firmware panel uses. There is one toolchain path in this
+// project and this is a front-end to it.
+//
+// Each firmware/sketches/*.cxx has its own CMake target named after the file,
+// so Build & Flash writes the image containing the file on screen. It used to
+// copy whatever was open into a single firmware/scratch/sketch.cxx slot first,
+// which meant the file being compiled was never quite the file you had open.
 // ---- .bdoc: the page, or the source that made it -------------------------
 //
 // One flag and the file it belongs to, rather than a map of every document ever
@@ -848,7 +853,11 @@ Int32 picoRelinkIn     = 0;
 Str   picoRelinkPort;
 
 CodeOp codeOp         = CodeOp::CODE_OP_NONE;
-Str    codeFlashTarget = "sketch";
+// Which image the last Build was for, so the Flash that follows writes the same
+// one. "pico_debug" is the default because it is the only target guaranteed to
+// exist: there used to be a single `sketch` target and naming it here was safe,
+// and now the sketch targets are named after files that may not be there.
+Str    codeFlashTarget = "pico_debug";
 
 Bool    recArmed   = false;   // capturing
 Bool    recPlaying = false;
@@ -4303,14 +4312,14 @@ Void drawRecorderControls()
 
 // ================================================================= code view
 
-// Last-write time of `path`, or 0 if it cannot be read.
-// Writes the buffer to the sketch library AND to firmware/scratch/sketch.cxx.
+// Writes the buffer to the file it came from. One write, one file.
 //
-// Both, always. The library copy is the one that survives; the slot is what
-// CMake compiles. Saving only the library would build stale code, and saving
-// only the slot would lose the file on the next Build & Flash - and both
-// failures look like "my change did nothing", which is the worst bug a beginner
-// can be handed.
+// It used to be two: the sketch library in %LOCALAPPDATA% AND a copy into
+// firmware/scratch/sketch.cxx, because that slot was what CMake compiled.
+// Every sketch was therefore saved twice and built from neither of the places
+// it appeared to live, and the slot's previous contents were destroyed by the
+// save. sketches/*.cxx each have their own target now, so the file on screen is
+// the file that compiles.
 Bool saveSketch()
 {
     if(codeName.empty())
@@ -4325,20 +4334,6 @@ Bool saveSketch()
     {
         codeMessage = err;
         return false;
-    }
-
-    // A LIBRARY sketch is also mirrored into the slot, because the slot is what
-    // CMake compiles. A firmware source is not: it already IS where the build
-    // reads it from, and copying main.c over sketch.cxx would silently replace one
-    // program with another.
-    if(sketch::targetFor(codePath) == "sketch"
-       && _stricmp(codePath.c_str(), sketch::slotPath().c_str()) != 0)
-    {
-        if(!sketch::save(sketch::slotPath(), text, err))
-        {
-            codeMessage = err;
-            return false;
-        }
     }
 
     codeEditor.clearDirty();
@@ -4627,12 +4622,14 @@ Void drawCodeTree(Float32 w, Float32 h)
     // ---- there is no sketch library any more ----------------------------
     //
     // There was one, in %LOCALAPPDATA%, holding numbered teaching sketches that
-    // were copied into firmware/scratch to be built. It was scaffolding from
-    // the first week, and it outlived its purpose: the firmware library is the
-    // thing worth reading now, and a second copy of some of it in a folder the
-    // repository does not track was somewhere for edits to get lost.
+    // were copied into a firmware/scratch slot to be built. It was scaffolding
+    // from the first week, and it outlived its purpose: a second copy of some
+    // of the firmware in a folder the repository does not track was somewhere
+    // for edits to get lost.
     //
-    // The tree shows the REPOSITORY, which is the only place a change survives.
+    // Sketches are firmware/sketches/*.cxx now - in the tree, in git, each with
+    // its own build target. The tree shows the REPOSITORY, which is the only
+    // place a change survives.
 
     // ---- firmware, as the folders it actually is -------------------------
     //
@@ -4979,16 +4976,18 @@ Void drawCodeControls()
                             target.c_str(), target.c_str());
 
         ImGui::Separator();
-        ImGui::TextDisabled("Sketches");
+        ImGui::TextDisabled("firmware");
 
-        // Two lists of filenames in one popup, and a menu entry takes its ID
-        // from its label - so a sketch named sketch.cxx and firmware/scratch/sketch.cxx
-        // are literally the same widget to ImGui, which says so. The path is
-        // unique by construction, so it is the ID.
+        // ONE LIST NOW. There were two - a "Sketches" group read out of
+        // %LOCALAPPDATA% and a "firmware" group read out of the repo - and a
+        // menu entry takes its ID from its label, so a saved sketch.cxx and
+        // firmware/scratch/sketch.cxx were literally the same widget to ImGui.
+        // The clash was a symptom: the same program genuinely did appear in two
+        // places, one of which git had never heard of.
         //
-        // The tick marks whichever file is open. That matters most in exactly
-        // the case that caused the clash: when both rows read the same, the
-        // group heading says which is which and the tick says which is live.
+        // Sketches live in firmware/sketches/ and arrive through listFirmware()
+        // like every other source. The path is still the ID, because two
+        // folders can hold the same filename.
         auto entry = [](ui::Icon ic, const Str& name, const Str& path,
                         const Char* note, Bool enabled)
         {
@@ -5000,41 +4999,26 @@ Void drawCodeControls()
             return hit;
         };
 
-        const Vec<Str> lib = sketch::list();
-        for(const Str& n : lib)
-        {
-            const Str p = sketch::pathOf(n);
-            if(entry(ui::Icon::ICON_CODE, n, p, nullptr, true))
-            {
-                openCodeFile(p, n);
-            }
-        }
-        if(lib.empty())
-        {
-            ImGui::TextDisabled("  none saved");
-        }
-
-        ImGui::Separator();
-        ImGui::TextDisabled("firmware");
-
-        const Str      fwd  = sketch::firmwareDir();
-        const Str      slot = sketch::slotPath();
-        const Vec<Str> fws  = sketch::listFirmware();
+        const Str      fwd = sketch::firmwareDir();
+        const Vec<Str> fws = sketch::listFirmware();
         for(const Str& n : fws)
         {
-            const Bool hdr = (n.size() > 2 && n.compare(n.size() - 2, 2, ".h") == 0);
+            const Bool hdr = endsWith(n, ".h") || endsWith(n, ".hxx");
+            const Bool doc = refdoc::isDocPath(n);
             const Str  p   = fwd + "\\" + n;
 
-            // firmware/scratch/sketch.cxx is the scratch slot every library sketch is
-            // copied into before a build, which is why it can share a name with
-            // one - and why saying so here is worth a word.
-            const Bool isSlot = !slot.empty()
-                             && _stricmp(p.c_str(), slot.c_str()) == 0;
+            // Which image this file ends up in, said out loud. It is the thing
+            // Build & Flash is about to act on and it is not guessable from a
+            // filename - so a row that will build `range-view` says so.
+            const Str tgt = (hdr || doc) ? Str() : sketch::targetFor(p);
 
             // A header is not a translation unit. Listed so this matches the
             // tree, disabled so it cannot be chosen and then quietly do nothing.
-            if(entry(hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE, n, p,
-                     hdr ? "header" : (isSlot ? "slot" : nullptr), !hdr))
+            if(entry(hdr ? ui::Icon::ICON_FIRMWARE
+                         : (doc ? ui::Icon::ICON_DOC : ui::Icon::ICON_CODE),
+                     n, p,
+                     hdr ? "header" : (tgt.empty() ? nullptr : tgt.c_str()),
+                     !hdr))
             {
                 openCodeFile(p, n);
             }
@@ -7835,18 +7819,19 @@ Void drawViewBody(Int32 view, Float32 w, Float32 h)
         {
             codeLoaded = true;
 
-            // The SLOT - firmware/scratch/sketch.cxx - which is the file the
-            // sketch target actually builds. It used to open whatever came
-            // first out of the library, which meant landing on a file the
-            // build does not compile and having to work out why.
+            // The first sketch, alphabetically. Every one of them is now a
+            // real file with its own build target, so there is no longer a
+            // privileged slot to land on - and any of them is a better first
+            // sight than an empty editor.
             //
             // Loaded on first sight rather than at startup: most sessions
             // never open this view, and reading a file costs nothing until
             // somebody looks.
-            const Str slot = sketch::slotPath();
-            if(!slot.empty())
+            const Vec<Str> first = sketch::list();
+            if(!first.empty())
             {
-                openCodeFile(slot, "scratch\\sketch.cxx");
+                openCodeFile(sketch::pathOf(first.front()),
+                             "sketches\\" + first.front());
             }
         }
 

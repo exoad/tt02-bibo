@@ -23,12 +23,27 @@
 #
 # Lines starting with # and blank lines are ignored. Add your own entries here;
 # anything with a .uf2 on disk can be flashed, whether this repo built it or not.
-
-sketch       | Sketch (Code view)   | firmware/build/sketch.uf2            | pico2_w | Whatever is currently in the hub's Code view. Overwritten by every Build & Flash - this is scratch space for learning the hardware, not firmware. Source: firmware/scratch/sketch.c.
+#
+# ===========================================================================
+# THE SKETCHES ARE NOT LISTED HERE, and that is deliberate.
+#
+# firmware/sketches/*.cxx each get their own CMake target named after the file,
+# and the hub synthesizes a catalog entry per sketch per board when it scans -
+# `range-view` for the W and `range-view_car` for the plain Pico 2.
+#
+# There were two hand-written rows here, `sketch` and `sketch_car`, back when
+# there was one sketch target fed by a slot that every file was copied into
+# before a build. With one target per file, a fixed list would mean that writing
+# a new sketch also meant editing this file before you were allowed to flash it,
+# and forgetting would produce "no catalog entry" - which reads like a bug in
+# the hub rather than a chore somebody skipped.
+#
+# A hand-written row still wins if you add one: the scan skips any id that is
+# already in this file, so a sketch that needs a different UF2 path or a
+# description worth keeping can have one.
+# ===========================================================================
 
 pico_debug   | Debug / Blink        | firmware/build/pico_debug.uf2        | pico2_w | LED blink plus a serial command console (PING, ID, STATUS, LED, BOOTSEL). The bring-up image - flash this when you want to prove the board and the link.
-
-sketch_car   | Sketch (car board)   | firmware/build-pico2/sketch.uf2      | pico2   | The Code view's sketch, built for the plain Pico 2 that goes in the car. Same source as `sketch` - only the board differs, so the LED is GP25 and no wireless chip is linked.
 
 pico_debug_car | Debug / Blink (car board) | firmware/build-pico2/pico_debug.uf2 | pico2 | The bring-up image for the car's plain Pico 2. Flash this FIRST on a new board: it proves the USB link, the console and the LED before anything depends on them.
 
