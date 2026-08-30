@@ -298,7 +298,7 @@ surrounding history.
 | Variables, functions, members, params | `camelCase` — no `m_`, no `g_`, no trailing `_` |
 | Types, aliases, concepts, template type params | `PascalCase` |
 | `constexpr` constants, macros, non-type template params | `SCREAMING_SNAKE_CASE` — no `k` prefix |
-| Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS` |
+| Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS`. Checked since 2026-08-30: 224 comply, and `lights::Lamp` is a written-down waiver rather than an exception nobody can see |
 | Namespaces | lowercase — `ui`, `board`, `app` |
 | Headers | `.hxx`, `#pragma once` — **no `#ifndef` guards**. There are no `.h` headers of ours left; `hub/src/resource.h` is the one exception, because `rc.exe` compiles it |
 | Vocabulary | `shared/shared.hxx` for the hub, `firmware/lib/types.hxx` for the firmware. Two files kept in step by hand — not because one is C any more, but because the firmware is freestanding: no heap, no exceptions, no STL, so every template in `shared.hxx` is unusable there. Nothing ever includes both |
@@ -472,10 +472,20 @@ an expression is allowed to be long — the rule is about the contract, not abou
 every parenthesis in the file.
 
 The honest cost: 91 signatures were unwrapped when this rule was written and
-**47 of them now exceed 100 columns**, the worst at 167. Those are not a
+**47 of them exceeded 100 columns**, the worst at 167. Those are not a
 formatting problem, they are a design one — a function taking eleven parameters
 was hard to read wrapped as well, and the wrapping was hiding it. Shortening
-those signatures is real work and is not done.
+those signatures is real work and is **still not done**.
+
+It is now **41, worst 175**, and held by a RATCHET rather than left to drift:
+`style_audit.py` records the count as `SIG_BUDGET` and fails if it rises.
+Shortening one lowers the budget with it; adding a twelfth parameter to
+something already over the line does not pass. The debt is not paid, but it
+can no longer quietly grow.
+
+Two of those columns are self-inflicted: indenting namespace bodies on
+2026-08-30 moved every line inside a namespace two to the right, which pushed
+borderline signatures over. Recorded rather than absorbed.
 
 ### Application code uses the library, not libc
 
