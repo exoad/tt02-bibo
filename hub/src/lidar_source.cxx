@@ -85,7 +85,8 @@ DWORD probePort(const Str& devPath)
                            OPEN_EXISTING,
                            0,
                            nullptr);
-    if(h != INVALID_HANDLE_VALUE) {
+    if(h != INVALID_HANDLE_VALUE)
+    {
         CloseHandle(h);
         return 0;
     }
@@ -96,7 +97,8 @@ DWORD probePort(const Str& devPath)
 // the port is genuinely there and still would not open.
 Str openFailText(const Str& friendly, DWORD err)
 {
-    switch(err) {
+    switch(err)
+    {
         case ERROR_ACCESS_DENIED:
         case ERROR_SHARING_VIOLATION:
             return "cannot open " + friendly + " (in use by another program)";
@@ -139,7 +141,7 @@ struct LidarSource::Impl
     Atomic<UInt64> statFrames{0};
     Atomic<UInt64> statPoints{0};
     Atomic<UInt32>       statTimeouts{0};
-    std::chrono::steady_clock::time_point scanStart{};
+    TimePoint scanStart{};
     Atomic<Bool>               scanStarted{false};
 
     // Touched only by poll(), i.e. only by the UI thread.
@@ -201,7 +203,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         devPath = "\\\\.\\" + port;
 
     ILidarDriver* drv = *createLidarDriver();
-    if(!drv) {
+    if(!drv)
+    {
         setError("out of memory creating the lidar driver");
         return;
     }
@@ -213,26 +216,30 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
     Bool      scanning = false;
     IChannel* channel  = nullptr;
 
-    do {
+    do
+    {
         // Done before the driver touches the port, because the driver's own
         // report of this failure is unreliable - see probePort().
         const DWORD probe = probePort(devPath);
-        if(probe != 0) {
+        if(probe != 0)
+        {
             setLost(port, probe, openFailText(port, probe));
             break;
         }
 
         // Assigns the outer `channel` deliberately - declaring a new one here
         // would shadow it and leak the channel plus its three event handles.
-        channel = *createSerialPortChannel(devPath.c_str(), (sl_u32)baud);
-        if(!channel) {
+        channel = *createSerialPortChannel(devPath.c_str(), static_cast<sl_u32>(baud));
+        if(!channel)
+        {
             setError("cannot create a serial channel for " + port);
             break;
         }
 
         // connect() failing means the port itself would not open: it does not
         // exist, or another process holds it. Nothing to do with baud rate.
-        if(SL_IS_FAIL(drv->connect(channel))) {
+        if(SL_IS_FAIL(drv->connect(channel)))
+        {
             // Distinguishes "not plugged in" from "another program has it",
             // which are the two causes and want completely different actions
             // from the person reading it.
@@ -244,7 +251,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         // The port opened but nothing answered the info request. The cable and
         // the port are fine; the framing is wrong or the device is unpowered.
         sl_lidar_response_device_info_t rawInfo;
-        if(SL_IS_FAIL(drv->getDeviceInfo(rawInfo))) {
+        if(SL_IS_FAIL(drv->getDeviceInfo(rawInfo)))
+        {
             setLost(port, 0, "no response from device on " + port +
                       " (wrong baud rate?)");
             break;
@@ -272,7 +280,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 
         // A hard health error means the unit will not produce usable data until
         // it is power cycled; starting the motor anyway just makes noise.
-        if(di.health == SL_LIDAR_STATUS_ERROR) {
+        if(di.health == SL_LIDAR_STATUS_ERROR)
+        {
             setError("lidar reports an internal error; power cycle the device");
             break;
         }
@@ -285,12 +294,13 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         // sent the stop. This makes the recovery deterministic instead of
         // relying on startScan to reset a device that is already mid-scan.
         drv->stop();
-        std::this_thread::sleep_for(std::chrono::milliseconds(60));
+        sleepMs(60);
 
         drv->setMotorSpeed();
 
         LidarScanMode mode;
-        if(SL_IS_FAIL(drv->startScan(0, 1, 0, &mode))) {
+        if(SL_IS_FAIL(drv->startScan(0, 1, 0, &mode)))
+        {
             setError("failed to start scan on " + port);
             drv->setMotorSpeed(0);
             break;
@@ -317,7 +327,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             scanInfo = si;
         }
 
-        scanStart = std::chrono::steady_clock::now();
+        scanStart = monoNow();
         scanStarted.store(true, std::memory_order_release);
 
         state.store(LidarState::LIDAR_STATE_SCANNING, std::memory_order_release);
@@ -333,24 +343,30 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 
         Bool motorRunning = true;
 
-        while(!quit.load(std::memory_order_acquire)) {
+        while(!quit.load(std::memory_order_acquire))
+        {
             // Motor pause. Checked here rather than around the grab because the
             // scan has to be stopped BEFORE the motor - killing the motor under
             // a running scan leaves the device streaming into a stopped rotor.
             const Bool want = motorOn.load(std::memory_order_acquire);
-            if(want != motorRunning) {
-                if(want) {
+            if(want != motorRunning)
+            {
+                if(want)
+                {
                     drv->setMotorSpeed();
                     LidarScanMode m2;
-                    if(SL_IS_FAIL(drv->startScan(0, 1, 0, &m2))) {
+                    if(SL_IS_FAIL(drv->startScan(0, 1, 0, &m2)))
+                    {
                         setError("failed to restart scan on " + port);
                         break;
                     }
                     state.store(LidarState::LIDAR_STATE_SCANNING,
                                 std::memory_order_release);
-                } else {
+                }
+                else
+                {
                     drv->stop();
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    sleepMs(200);
                     drv->setMotorSpeed(0);
                     state.store(LidarState::LIDAR_STATE_IDLE,
                                 std::memory_order_release);
@@ -359,23 +375,26 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                 consecutiveTimeouts = 0;
             }
 
-            if(!motorRunning) {
+            if(!motorRunning)
+            {
                 // Nothing to grab and nothing to poll. Sleeping rather than
                 // spinning keeps a paused lidar off the CPU entirely.
-                std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                sleepMs(40);
                 continue;
             }
 
             Size count = nodes.size();
 
-            if(SL_IS_FAIL(drv->grabScanDataHq(nodes.data(), count, GRAB_TIMEOUT_MS))) {
+            if(SL_IS_FAIL(drv->grabScanDataHq(nodes.data(), count, GRAB_TIMEOUT_MS)))
+            {
                 // A dropped revolution is normal - the device occasionally
                 // misses its window. A long unbroken run of them is not: the
                 // cable came out, or the device stopped talking. Surface that
                 // instead of sitting in Scanning forever with a frozen view.
                 statTimeouts.fetch_add(1, std::memory_order_relaxed);
 
-                if(++consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
+                if(++consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS)
+                {
                     // No code to offer - the SDK swallowed it - so the port
                     // enumeration decides on its own, which is the signal that
                     // was authoritative anyway.
@@ -397,7 +416,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             staging.validCount = 0;
             staging.maxDistMm = 0.0f;
 
-            for(Size i = 0; i < count; ++i) {
+            for(Size i = 0; i < count; ++i)
+            {
                 LidarPoint p;
                 // angle_z_q14 is q14 fixed point scaled so that 1.0 == 90 deg.
                 p.angleDeg = (nodes[i].angle_z_q14 * 90.0f) / 16384.0f;
@@ -405,7 +425,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                 p.quality   = static_cast<UInt8>((nodes[i].quality >>
                                         SL_LIDAR_RESP_MEASUREMENT_QUALITY_SHIFT));
 
-                if(p.distMm > 0.0f) {
+                if(p.distMm > 0.0f)
+                {
                     ++staging.validCount;
                     if(p.distMm > staging.maxDistMm)
                         staging.maxDistMm = p.distMm;
@@ -433,9 +454,10 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
     // true, or the scan stopped while the rotor coasts - and the cost of telling
     // an already-stopped device to stop is nothing, while the cost of skipping
     // it is a lidar spinning on a desk with no application attached.
-    if(drv != nullptr) {
+    if(drv != nullptr)
+    {
         drv->stop();
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        sleepMs(200);
         drv->setMotorSpeed(0);
     }
     static_cast<Void>(scanning);
@@ -517,7 +539,8 @@ Void LidarSource::stop()
 {
     // Safe when never started and safe to call twice: joinable() is false in
     // both cases and there is nothing to unwind.
-    if(!pimpl->worker.joinable()) {
+    if(!pimpl->worker.joinable())
+    {
         pimpl->running.store(false, std::memory_order_release);
         return;
     }
@@ -569,8 +592,7 @@ LidarStats LidarSource::stats() const
 
     if(pimpl->scanStarted.load(std::memory_order_acquire))
     {
-        const auto now = std::chrono::steady_clock::now();
-        s.uptimeS = std::chrono::duration<Float64>(now - pimpl->scanStart).count();
+        s.uptimeS = elapsedS(pimpl->scanStart);
     }
     return s;
 }
@@ -619,11 +641,17 @@ Str LidarSource::preferredPort()
             continue;
 
         // Registry strings are not guaranteed to be terminated.
-        if(dlen >= sizeof(data)) dlen = static_cast<DWORD>(sizeof(data)) - 1;
+        if(dlen >= sizeof(data))
+        {
+            dlen = static_cast<DWORD>(sizeof(data)) - 1;
+        }
         data[dlen] = 0;
 
         Str dev(name, nlen);
-        for(Char& c : dev) c = static_cast<Char>(std::tolower(static_cast<UInt8>(c)));
+        for(Char& c : dev)
+        {
+            c = static_cast<Char>(std::tolower(static_cast<UInt8>(c)));
+        }
 
         if(dev.find("silabser") != Str::npos)
         {
@@ -643,18 +671,22 @@ Vec<Str> LidarSource::listPorts()
     // QueryDosDeviceA with a NULL device name returns every DOS device as a
     // packed run of NUL-terminated strings. It needs no extra import library
     // beyond kernel32, which is why it is preferred over SetupAPI here.
-    try {
+    try
+    {
         DWORD cap = 8192;
         Vec<Char> buf;
 
-        for(Int32 attempt = 0; attempt < 6; ++attempt) {
+        for(Int32 attempt = 0; attempt < 6; ++attempt)
+        {
             buf.assign(cap, '\0');
             DWORD n = QueryDosDeviceA(nullptr, buf.data(), cap);
-            if(n != 0) {
+            if(n != 0)
+            {
                 // Walk the packed list; a lone NUL terminates the whole block.
                 const Char* p = buf.data();
                 const Char* end = buf.data() + n;
-                while(p < end && *p) {
+                while(p < end && *p)
+                {
                     Size len = std::strlen(p);
 
                     // Accept only COM followed entirely by digits, so entries
@@ -662,9 +694,11 @@ Vec<Str> LidarSource::listPorts()
                     if(len > 3 &&
                         (p[0] == 'C' || p[0] == 'c') &&
                         (p[1] == 'O' || p[1] == 'o') &&
-                        (p[2] == 'M' || p[2] == 'm')) {
+                        (p[2] == 'M' || p[2] == 'm'))
+                    {
                         Bool allDigits = true;
-                        for(Size i = 3; i < len; ++i) {
+                        for(Size i = 3; i < len; ++i)
+                        {
                             if(p[i] < '0' || p[i] > '9')
                             {
                                 allDigits = false;
@@ -689,12 +723,16 @@ Vec<Str> LidarSource::listPorts()
                   [](const Str& a, const Str& b) {
                       long na = std::strtol(a.c_str() + 3, nullptr, 10);
                       long nb = std::strtol(b.c_str() + 3, nullptr, 10);
-                      if(na != nb) return na < nb;
+                      if(na != nb)
+                      {
+                          return na < nb;
+                      }
                       return a < b;
                   });
         ports.erase(std::unique(ports.begin(), ports.end()), ports.end());
     }
-    catch(...) {
+    catch(...)
+    {
         // The header promises this never throws; a partial list beats an
         // exception escaping into the UI's frame loop.
     }

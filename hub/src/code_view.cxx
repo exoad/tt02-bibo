@@ -294,9 +294,18 @@ Bool drawCode(CodeView& v, ed::Editor& e, const ImVec2& size, Float64 nowS)
         // also arrive as characters on some layouts.
         for(const SpecialKey& s : SPECIALS)
         {
-            if(eatEnter && s.sp == ed::Special::SPECIAL_ENTER) continue;
-            if(eatTab   && s.sp == ed::Special::SPECIAL_TAB)   continue;
-            if(eatEsc   && s.sp == ed::Special::SPECIAL_ESC)   continue;
+            if(eatEnter && s.sp == ed::Special::SPECIAL_ENTER)
+            {
+                continue;
+            }
+            if(eatTab   && s.sp == ed::Special::SPECIAL_TAB)
+            {
+                continue;
+            }
+            if(eatEsc   && s.sp == ed::Special::SPECIAL_ESC)
+            {
+                continue;
+            }
 
             if(ImGui::IsKeyPressed(s.key, true))
             {

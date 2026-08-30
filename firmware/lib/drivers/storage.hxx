@@ -46,8 +46,7 @@
  * the whole handshake at 400 kHz and only then asks for a real speed. Starting
  * fast produces a card that never leaves idle, which reads as a dead card.
  */
-#ifndef BIBO_SDCARD_H
-#define BIBO_SDCARD_H
+#pragma once
 
 #include "../hal.hxx"
 
@@ -479,4 +478,3 @@ static Bool writeBlock(const Card* c, UInt32 block, const UInt8* data)
 } // namespace sd
 
 } // namespace bibo
-#endif

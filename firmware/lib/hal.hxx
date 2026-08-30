@@ -25,8 +25,7 @@
  * blinks. Nothing here enforces that; the board cannot know what you soldered.
  */
 
-#ifndef BIBO_HAL_H
-#define BIBO_HAL_H
+#pragma once
 
 /*
  * The vocabulary: Int32, UInt16, Bool, Void, Utf8, CharSeq.
@@ -1267,4 +1266,3 @@ static Void rebootToBootsel(Void)
 } // namespace board
 
 } // namespace bibo
-#endif /* BIBO_HAL_H */

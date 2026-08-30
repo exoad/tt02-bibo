@@ -114,8 +114,14 @@ Void testHazard()
         const lights::Lamps l = lights::solve(in, t);
         if(l.indFL != l.indFR || l.indRL != l.indRR)
             everDiffered = true;
-        if(l.indFL > 0.5f) sawOn = true;
-        else               sawOff = true;
+        if(l.indFL > 0.5f)
+        {
+            sawOn = true;
+        }
+        else
+        {
+            sawOff = true;
+        }
     }
 
     check(!everDiffered, "both sides in phase, never alternating");

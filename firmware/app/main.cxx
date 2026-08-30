@@ -979,10 +979,10 @@ static Void printCue(Void)
             continue;
         }
 
-        const Int32 n = snprintf(&list[at], sizeof(list) - at, "%s%s%s",
-                                 (at > 0) ? "," : "",
-                                 bibo::cue::name(c),
-                                 bibo::cue::held(c) ? "*" : "");
+        const Int32 n = bibo::text::format(&list[at], sizeof(list) - at, "%s%s%s",
+                                          (at > 0) ? "," : "",
+                                          bibo::cue::name(c),
+                                          bibo::cue::held(c) ? "*" : "");
         if(n <= 0 || static_cast<Size>(n) >= sizeof(list) - at)
         {
             break;   /* full: report what fits rather than a truncated name */
@@ -1143,7 +1143,7 @@ static Void handleLine(Utf8* line)
     }
 
     /* BEFORE bibo::text::upper, which rewrites in place. */
-    snprintf(rawLine, sizeof(rawLine), "%s", line);
+    bibo::text::format(rawLine, sizeof(rawLine), "%s", line);
 
     bibo::text::upper(line);
 
@@ -1167,7 +1167,7 @@ static Void handleLine(Utf8* line)
         if(arg != NULL)
         {
             /* Same offset, other buffer - see rawLine above. */
-            cmdRawArg = rawLine + (arg - (CharSeq) line);
+            cmdRawArg = rawLine + (arg - static_cast<CharSeq>(line));
             COMMANDS[i].run(arg);
             return;
         }
@@ -1371,7 +1371,7 @@ int main(Void)
         }
         else if(len + 1 < LINE_CAP)
         {
-            line[len++] = (Utf8) c;
+            line[len++] = static_cast<Utf8>(c);
         }
         else
         {

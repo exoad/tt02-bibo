@@ -56,8 +56,7 @@
  * scattered through the code, with the handful of bytes that ARE meaningful
  * called out by name in the comments beside them.
  */
-#ifndef BIBO_VL53L1X_H
-#define BIBO_VL53L1X_H
+#pragma once
 
 #include "../hal.hxx"
 
@@ -590,4 +589,3 @@ static const Utf8* statusName(UInt8 status)
 } // namespace tof
 
 } // namespace bibo
-#endif

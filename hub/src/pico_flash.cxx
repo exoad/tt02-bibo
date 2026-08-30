@@ -44,8 +44,14 @@ constexpr Size PENDING_MAX = 4000;   // this app runs for hours; the log is boun
 Str trim(const Str& s)
 {
     Size a = 0, b = s.size();
-    while(a < b && static_cast<UInt8>(s[a]) <= ' ') ++a;
-    while(b > a && static_cast<UInt8>(s[b - 1]) <= ' ') --b;
+    while(a < b && static_cast<UInt8>(s[a]) <= ' ')
+    {
+        ++a;
+    }
+    while(b > a && static_cast<UInt8>(s[b - 1]) <= ' ')
+    {
+        --b;
+    }
     return s.substr(a, b - a);
 }
 
@@ -81,8 +87,14 @@ Str formatMtime(const FILETIME& ft)
 {
     FILETIME local{};
     SYSTEMTIME st{};
-    if(!FileTimeToLocalFileTime(&ft, &local)) return Str();
-    if(!FileTimeToSystemTime(&local, &st))    return Str();
+    if(!FileTimeToLocalFileTime(&ft, &local))
+    {
+        return Str();
+    }
+    if(!FileTimeToSystemTime(&local, &st))
+    {
+        return Str();
+    }
 
     Char buf[32];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
@@ -100,11 +112,17 @@ Bool findBootselDrive(Str& outDrive)
     const DWORD mask = GetLogicalDrives();
     for(Int32 i = 0; i < 26; ++i)
     {
-        if(!(mask & (1u << i))) continue;
+        if(!(mask & (1u << i)))
+        {
+            continue;
+        }
 
         Char root[8];
         std::snprintf(root, sizeof(root), "%c:\\", 'A' + i);
-        if(GetDriveTypeA(root) != DRIVE_REMOVABLE) continue;
+        if(GetDriveTypeA(root) != DRIVE_REMOVABLE)
+        {
+            continue;
+        }
 
         Char label[MAX_PATH] = {};
         if(!GetVolumeInformationA(root, label, MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
@@ -170,7 +188,10 @@ Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
                                    cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
 
     CloseHandle(wr);   // the parent's copy, or the read below never ends
-    if(nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    if(nul != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(nul);
+    }
 
     if(!ok)
     {
@@ -195,7 +216,10 @@ Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
         {
             Str line = partial.substr(0, nl);
             partial.erase(0, nl + 1);
-            if(!line.empty() && line.back() == '\r') line.pop_back();
+            if(!line.empty() && line.back() == '\r')
+            {
+                line.pop_back();
+            }
             sink(line);
         }
 
@@ -208,7 +232,10 @@ Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
             partial.clear();
         }
     }
-    if(!partial.empty()) sink(partial);
+    if(!partial.empty())
+    {
+        sink(partial);
+    }
 
     WaitForSingleObject(pi.hProcess, INFINITE);
 
@@ -243,7 +270,10 @@ struct Impl
     {
         LockGuard<Mutex> lk(logMu);
         pending.push_back(line);
-        while(pending.size() > PENDING_MAX) pending.pop_front();
+        while(pending.size() > PENDING_MAX)
+        {
+            pending.pop_front();
+        }
     }
 
     Void logf(const Char* fmt, ...)
@@ -268,7 +298,11 @@ struct Impl
             return;
         }
 
-        if(worker.joinable()) worker.join();   // finished, just not reaped yet
+        // finished, just not reaped yet
+        if(worker.joinable())
+        {
+            worker.join();
+        }
 
         {
             LockGuard<Mutex> lk(mu);
@@ -312,7 +346,10 @@ Impl& pimpl()
 const FirmwareEntry* findEntry(const Vec<FirmwareEntry>& v, const Str& id)
 {
     for(const FirmwareEntry& e : v)
-        if(e.id == id) return &e;
+        if(e.id == id)
+        {
+            return &e;
+        }
     return nullptr;
 }
 
@@ -329,7 +366,10 @@ PicoFlash::~PicoFlash()
 {
     // Never detach: the worker writes into pimpl(), and pimpl() is a function
     // static that outlives this object but not the process teardown.
-    if(pimpl().worker.joinable()) pimpl().worker.join();
+    if(pimpl().worker.joinable())
+    {
+        pimpl().worker.join();
+    }
 }
 
 // repoRoot(): the exe lives in hub\build\, so walk up until a
@@ -339,7 +379,10 @@ Str PicoFlash::repoRoot()
 {
     static Str cached;
     static Bool        done = false;
-    if(done) return cached;
+    if(done)
+    {
+        return cached;
+    }
     done = true;
 
     Char exe[MAX_PATH] = {};
@@ -348,7 +391,10 @@ Str PicoFlash::repoRoot()
 
     Str dir(exe);
     Size slash = dir.find_last_of("\\/");
-    if(slash == Str::npos) return cached;
+    if(slash == Str::npos)
+    {
+        return cached;
+    }
     dir.resize(slash);
 
     for(Int32 up = 0; up < 12; ++up)
@@ -363,7 +409,11 @@ Str PicoFlash::repoRoot()
             return cached;
         }
         slash = dir.find_last_of("\\/");
-        if(slash == Str::npos || slash < 3) break;   // past "C:\"
+        // past "C:\"
+        if(slash == Str::npos || slash < 3)
+        {
+            break;
+        }
         dir.resize(slash);
     }
     return cached;   // empty: the UI shows that plainly rather than guessing
@@ -384,7 +434,7 @@ Void PicoFlash::refreshCatalog()
     }
 
     const Str path = root + "\\firmware\\catalog.txt";
-    std::ifstream in(path.c_str());
+    InFile in(path.c_str());
     if(!in)
     {
         pimpl().logf("[error] cannot read %s", path.c_str());
@@ -397,7 +447,10 @@ Void PicoFlash::refreshCatalog()
     while(std::getline(in, line))
     {
         Str s = trim(line);
-        if(s.empty() || s[0] == '#') continue;
+        if(s.empty() || s[0] == '#')
+        {
+            continue;
+        }
 
         // id | name | uf2 path | build | description
         //
@@ -422,7 +475,10 @@ Void PicoFlash::refreshCatalog()
                 start = i + 1;
             }
         }
-        if(n < 4 || field[0].empty() || field[2].empty()) continue;
+        if(n < 4 || field[0].empty() || field[2].empty())
+        {
+            continue;
+        }
 
         FirmwareEntry e;
         e.id          = field[0];
@@ -576,7 +632,10 @@ Size PicoFlash::drainLog(Vec<Str>& out)
 {
     LockGuard<Mutex> lk(pimpl().logMu);
     const Size n = pimpl().pending.size();
-    for(const Str& s : pimpl().pending) out.push_back(s);
+    for(const Str& s : pimpl().pending)
+    {
+        out.push_back(s);
+    }
     pimpl().pending.clear();
     return n;
 }
@@ -594,7 +653,10 @@ Void PicoFlash::refreshBoard()
     // Deliberately its own thread and its own guard: this is a query, not an
     // operation, so it must not make busy() true and block the buttons - but it
     // spawns picotool, so it must not run on the UI thread either.
-    if(pimpl().boardQuerying.exchange(true)) return;
+    if(pimpl().boardQuerying.exchange(true))
+    {
+        return;
+    }
 
     Thread([]()
     {
@@ -605,7 +667,10 @@ Void PicoFlash::refreshBoard()
         if(!b.bootsel)
         {
             const Vec<Str> ports = PicoLink::listPicoPorts();
-            if(!ports.empty()) b.port = ports.front();
+            if(!ports.empty())
+            {
+                b.port = ports.front();
+            }
         }
 
         // picotool WITHOUT -f. With -f it would reboot a running board into the
@@ -641,7 +706,10 @@ Void PicoFlash::refreshBoard()
                     else if(b.chip.empty() && t.find(" device at bus ") != Str::npos)
                     {
                         const Size sp = t.find(' ');
-                        if(sp != Str::npos && sp > 0) b.chip = t.substr(0, sp);
+                        if(sp != Str::npos && sp > 0)
+                        {
+                            b.chip = t.substr(0, sp);
+                        }
                     }
                 }
             }
@@ -909,7 +977,11 @@ Void PicoFlash::rebootNormal()
 
         const Int32 rc = runCapture(quote(picotool) + args, root,
                                    [](const Str& l) { pimpl().log(l); });
-        if(rc == 0) Sleep(1500);   // let USB re-enumerate before the status refresh
+        // let USB re-enumerate before the status refresh
+        if(rc == 0)
+        {
+            Sleep(1500);
+        }
         return rc;
     });
 }

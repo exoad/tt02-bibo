@@ -246,7 +246,10 @@ static UINT dpiForWindow(HWND hwnd)
         return getDpiForWindowFn(hwnd);
     HDC dc = ::GetDC(hwnd);
     UINT dpi = dc ? static_cast<UINT>(::GetDeviceCaps(dc, LOGPIXELSX)) : 96;
-    if(dc) ::ReleaseDC(hwnd, dc);
+    if(dc)
+    {
+        ::ReleaseDC(hwnd, dc);
+    }
     return dpi ? dpi : 96;
 }
 
@@ -288,11 +291,23 @@ static Void clampToWorkArea(HWND hwnd, LONG* w, LONG* h)
     {
         const LONG maxW = work.right - work.left;
         const LONG maxH = work.bottom - work.top;
-        if(*w > maxW) *w = maxW;
-        if(*h > maxH) *h = maxH;
+        if(*w > maxW)
+        {
+            *w = maxW;
+        }
+        if(*h > maxH)
+        {
+            *h = maxH;
+        }
     }
-    if(*w < FLOOR_WIDTH)  *w = FLOOR_WIDTH;
-    if(*h < FLOOR_HEIGHT) *h = FLOOR_HEIGHT;
+    if(*w < FLOOR_WIDTH)
+    {
+        *w = FLOOR_WIDTH;
+    }
+    if(*h < FLOOR_HEIGHT)
+    {
+        *h = FLOOR_HEIGHT;
+    }
 }
 
 // Smallest OUTER window size we let the user drag to, in physical px:
@@ -500,7 +515,9 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
     case WM_GETMINMAXINFO:
     {
-        MINMAXINFO* mmi = (MINMAXINFO*)lparam;
+        // reinterpret_cast: Windows passes the struct's address in an LPARAM,
+        // and recovering a pointer from an integer is what that cast is for.
+        MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(lparam);
         LONG w = 0, h = 0;
         minTrackSizeForWindow(hwnd, &w, &h);
         mmi->ptMinTrackSize.x = w;
@@ -512,7 +529,7 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     {
         // Windows hands us the rect that keeps the window the same physical
         // size on the new monitor; honouring it is required for v2 awareness.
-        const RECT* suggested = (const RECT*)lparam;
+        const RECT* suggested = reinterpret_cast<const RECT*>(lparam);
         ::SetWindowPos(hwnd, nullptr,
                        suggested->left, suggested->top,
                        suggested->right - suggested->left,

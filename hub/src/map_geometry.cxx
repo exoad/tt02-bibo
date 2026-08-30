@@ -94,8 +94,14 @@ Void computeReach(const Float32* clr, const Bool* seen, Int32 bins, Float32 binD
         for(Int32 k = -win; k <= win && r > 0.0f; ++k)
         {
             Int32 j = i + k;
-            while(j < 0)      j += bins;
-            while(j >= bins)  j -= bins;
+            while(j < 0)
+            {
+                j += bins;
+            }
+            while(j >= bins)
+            {
+                j -= bins;
+            }
             if(!seen[j])
                 continue;
 
@@ -136,7 +142,10 @@ Bool estimateHeading(const Float32* ref, const Bool* refSeen, const Float32* cur
         for(Int32 i = 0; i < bins; ++i)
         {
             Int32 j = i + k;
-            while(j >= bins) j -= bins;
+            while(j >= bins)
+            {
+                j -= bins;
+            }
 
             if(!refSeen[i] || !curSeen[j])
                 continue;
@@ -177,8 +186,14 @@ Bool estimateHeading(const Float32* ref, const Bool* refSeen, const Float32* cur
 
     const Float32 median = sorted.empty() ? 0.0f : sorted[sorted.size() / 2];
     outScore = (median > 1e-3f) ? (1.0f - bestCost / median) : 0.0f;
-    if(outScore < 0.0f) outScore = 0.0f;
-    if(outScore > 1.0f) outScore = 1.0f;
+    if(outScore < 0.0f)
+    {
+        outScore = 0.0f;
+    }
+    if(outScore > 1.0f)
+    {
+        outScore = 1.0f;
+    }
 
     // Sub-bin refinement by parabola through the best and its two neighbours.
     // Without it the heading quantises to 3 deg steps and the world visibly
@@ -195,13 +210,25 @@ Bool estimateHeading(const Float32* ref, const Bool* refSeen, const Float32* cur
         const Float32 den = (c0 - 2.0f * c1 + c2);
         if(std::fabs(den) > 1e-6f)
             delta = 0.5f * (c0 - c2) / den;
-        if(delta < -1.0f) delta = -1.0f;
-        if(delta >  1.0f) delta =  1.0f;
+        if(delta < -1.0f)
+        {
+            delta = -1.0f;
+        }
+        if(delta >  1.0f)
+        {
+            delta =  1.0f;
+        }
     }
 
     Float32 deg = (static_cast<Float32>(best) + delta) * binDeg;
-    while(deg >= 360.0f) deg -= 360.0f;
-    while(deg <    0.0f) deg += 360.0f;
+    while(deg >= 360.0f)
+    {
+        deg -= 360.0f;
+    }
+    while(deg <    0.0f)
+    {
+        deg += 360.0f;
+    }
 
     outDeg = deg;
     return true;

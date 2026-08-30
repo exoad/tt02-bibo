@@ -45,8 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * the header is usable as written. Everything above that block is upstream.
  */
 
-#ifndef SHARED_H
-#define SHARED_H
+#pragma once
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -96,6 +95,4 @@ typedef uint32_t Utf32;
 #ifndef STRINGIFY
 #define STRINGIFY_INNER(x) #x
 #define STRINGIFY(x) STRINGIFY_INNER(x)
-#endif
-
 #endif

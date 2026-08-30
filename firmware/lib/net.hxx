@@ -261,7 +261,7 @@ static Void onPacket(Void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_ad
      * packets, because "small" is the sender's decision and not ours. */
     for(struct pbuf* q = p; q != NULL; q = q->next)
     {
-        feed((const Utf8*) q->payload, static_cast<Size>(q->len));
+        feed(static_cast<const Utf8*>(q->payload), static_cast<Size>(q->len));
     }
 
     pbuf_free(p);
@@ -375,7 +375,7 @@ static Void sendLine(CharSeq text)
         return;
     }
 
-    struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, (u16_t) len, PBUF_RAM);
+    struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(len), PBUF_RAM);
     if(p == NULL)
     {
         return;   /* out of buffers: dropping a reply beats blocking the loop */

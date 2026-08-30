@@ -33,11 +33,6 @@ static const Char* stateName(PicoState s)
     return "?";
 }
 
-static Void sleepMs(Int32 ms)
-{
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-}
-
 // Mimics the UI thread: drain every ~16 ms for `ms` milliseconds.
 static Size pump(PicoLink& link, Vec<PicoLine>& sink, Int32 ms, const Char* what)
 {
@@ -74,11 +69,10 @@ int main()
     PicoLink link;
     printf("  state before connect: %s\n", stateName(link.state()));
 
-    const auto t_connect = std::chrono::steady_clock::now();
+    const TimePoint tConnect = monoNow();
     link.connect(PORT);
-    const Float64 connect_ms =
-        std::chrono::duration<Float64, std::milli>(std::chrono::steady_clock::now() - t_connect).count();
-    printf("  connect() returned in %.2f ms (must be non-blocking)\n", connect_ms);
+    const Float64 connectMs = elapsedMs(tConnect);
+    printf("  connect() returned in %.2f ms (must be non-blocking)\n", connectMs);
 
     // connect() twice must be a harmless no-op.
     link.connect(PORT);
@@ -138,11 +132,10 @@ int main()
         ++failures;
 
     printf("\n=== 8. disconnect ===\n");
-    const auto t_dc = std::chrono::steady_clock::now();
+    const TimePoint tDc = monoNow();
     link.disconnect();
-    const Float64 dc_ms =
-        std::chrono::duration<Float64, std::milli>(std::chrono::steady_clock::now() - t_dc).count();
-    printf("  disconnect() blocked %.2f ms (worker joined)\n", dc_ms);
+    const Float64 dcMs = elapsedMs(tDc);
+    printf("  disconnect() blocked %.2f ms (worker joined)\n", dcMs);
     printf("  state: %s ... %s\n", stateName(link.state()),
            link.state() == PicoState::PICO_STATE_DISCONNECTED ? "PASS" : "FAIL");
     if(link.state() != PicoState::PICO_STATE_DISCONNECTED)

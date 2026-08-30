@@ -439,8 +439,20 @@ ImTextureID end(const Float32* mvp)
 
     Vertex* out = static_cast<Vertex*>(ms.pData);
     Int32   n   = 0;
-    for(const Tri& t : opaqueTris)  for(Int32 i = 0; i < 3; ++i) out[n++] = t.v[i];
-    for(const Tri& t : blendedTris) for(Int32 i = 0; i < 3; ++i) out[n++] = t.v[i];
+    for(const Tri& t : opaqueTris)
+    {
+        for(Int32 i = 0; i < 3; ++i)
+        {
+            out[n++] = t.v[i];
+        }
+    }
+    for(const Tri& t : blendedTris)
+    {
+        for(Int32 i = 0; i < 3; ++i)
+        {
+            out[n++] = t.v[i];
+        }
+    }
     ctx->Unmap(vbuf, 0);
 
     if(SUCCEEDED(ctx->Map(cbuf, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))

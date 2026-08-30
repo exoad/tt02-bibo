@@ -63,8 +63,14 @@ struct Corner
 [[nodiscard]] inline Float32 segBearingDeg(const WorldPt& a, const WorldPt& b)
 {
     Float32 deg = std::atan2(b.x - a.x, -(b.y - a.y)) * 180.0f / 3.14159265358979323846f;
-    while(deg <    0.0f) deg += 180.0f;
-    while(deg >= 180.0f) deg -= 180.0f;
+    while(deg <    0.0f)
+    {
+        deg += 180.0f;
+    }
+    while(deg >= 180.0f)
+    {
+        deg -= 180.0f;
+    }
     return deg;
 }
 
