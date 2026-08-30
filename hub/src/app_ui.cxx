@@ -4450,6 +4450,26 @@ Void drawCodeTree(Float32 w, Float32 h)
                         Bool deletable, ImU32 label = 0)
     {
         ImGui::PushID(path.c_str());
+
+        // The icon, centred on the LABEL rather than hung from the top of the
+        // row.
+        //
+        // Items put on one line with SameLine are aligned by their top edges,
+        // so the shorter of the two sits high - and the icon is shorter than a
+        // line of text whenever the icon set and the font disagree, which is
+        // most DPI settings. Half the difference, applied to the icon only,
+        // because the label is already where it should be.
+        //
+        // Guarded rather than assumed positive: an icon TALLER than the text
+        // would otherwise be pushed up out of its own row.
+        const Float32 iconH = ui::iconSize();
+        const Float32 textH = ImGui::GetTextLineHeight();
+        if(textH > iconH)
+        {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY()
+                                 + ((textH - iconH) * 0.5f));
+        }
+
         ui::icon(ic);
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         if(label != 0)
