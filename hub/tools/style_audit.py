@@ -324,6 +324,22 @@ EXEMPT = [
     # main.cxx resolves user32 entry points; the typedefs themselves are Win32
     # signatures and `int` there is the OS ABI, not our code's choice.
     (r'typedef .*WINAPI', 'Win32 ABI signature'),
+    # `int main(` STAYS WAIVED, and the reason is measured rather than assumed.
+    #
+    # It was tried the other way on 2026-08-31: all 24 entry points converted to
+    # `Int32 main(...)`, on the reasoning that Int32 is int so the spelling is
+    # ours to choose. The host suites passed and the audit went clean, because
+    # MSVC's int32_t IS int. Both boards then failed:
+    #
+    #     main.cxx:1519:1: error: '::main' must return 'int'
+    #
+    # On arm-none-eabi, int32_t is `long int`. Same 32 bits, different type, and
+    # `long main()` is ill-formed however wide a long happens to be.
+    #
+    # So main is not an exception to the vocabulary, it is a place the LANGUAGE
+    # fixes the type - exactly like WinMain, which is why they share this line.
+    # Writing `int` there is not a lapse; writing Int32 is a portability bug
+    # that two of three toolchains cannot see.
     (r'int APIENTRY|WinMain|int main\(', 'the platform entry point signature'),
     (r'IMGUI_IMPL_API|ImGui_ImplWin32_WndProcHandler', 'third-party signature'),
     (r'static_cast<int>|static_cast<float>|static_cast<unsigned', 'named cast to an ABI type'),

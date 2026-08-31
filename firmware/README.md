@@ -143,7 +143,7 @@ Mixing the two inside one function is how a style guide quietly dies.
 ```c
 #include "bibo.hxx"
 
-Int32 main(Void)
+int main(Void)
 {
     gpioOpen(28, PIN_DIR_OUT);
 
