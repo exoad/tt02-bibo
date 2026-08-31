@@ -180,7 +180,7 @@ namespace
       check(diag::worstOnLine(all, 7) == -1, "a clean line reports -1");
   }
 
-} // namespace
+}
 
 Int32 main()
 {

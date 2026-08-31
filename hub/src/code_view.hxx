@@ -120,4 +120,4 @@ namespace ui
   // yanks, and for anything else the editor wants to say in passing.
   Void setNote(CodeView& v, const Str& text, Float64 nowS);
 
-} // namespace ui
+}

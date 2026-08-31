@@ -129,4 +129,4 @@ namespace rec
   // A timestamped name: scan-YYYYMMDD-HHMMSS.biborec
   [[nodiscard]] Str makeName();
 
-} // namespace rec
+}

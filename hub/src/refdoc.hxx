@@ -135,4 +135,4 @@ namespace refdoc
   // `view` is the caller's, so each surface keeps its own place on the page.
   Void drawPage(const Doc& d, const ImVec2& size, View& view, Float32 dpiScale);
 
-} // namespace refdoc
+}

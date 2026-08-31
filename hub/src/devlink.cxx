@@ -60,7 +60,7 @@ namespace dev
         return true;
     }
 
-  } // namespace
+  }
 
   Bool isRemovalCode(UInt32 win32Code) noexcept
   {
@@ -288,4 +288,4 @@ namespace dev
                           : (name + " stopped responding on " + port);
   }
 
-} // namespace dev
+}

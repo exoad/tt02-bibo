@@ -197,7 +197,7 @@ namespace sketch
         return path.substr(begin, end - begin);
     }
 
-  } // namespace
+  }
 
   Str targetFor(const Str& path)
   {
@@ -531,4 +531,4 @@ namespace sketch
       return "sketch.cxx";
   }
 
-} // namespace sketch
+}

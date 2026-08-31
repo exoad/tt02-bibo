@@ -64,7 +64,7 @@ namespace
       return b.data();
   }
 
-} // namespace
+}
 
 Int32 main(Int32 argc, Char** argv)
 {

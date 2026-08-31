@@ -383,7 +383,7 @@ namespace
       checkNear(on.indRR, 1.0f, "and the indicator blinks beside it");
   }
 
-} // namespace
+}
 
 Int32 main()
 {

@@ -82,4 +82,4 @@ namespace diag
   // saves.
   [[nodiscard]] Int32 worstOnLine(const Vec<Item>& items, Int32 line);
 
-} // namespace diag
+}

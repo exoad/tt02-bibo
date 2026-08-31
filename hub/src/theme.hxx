@@ -162,7 +162,7 @@ namespace ui
     inline constexpr ImU32 BAD   = BRRED;
     inline constexpr ImU32 IDLE  = GREY;
 
-  } // namespace ansi
+  }
 
   namespace plot
   {
@@ -200,7 +200,7 @@ namespace ui
 
     inline constexpr ImU32 ACCENT  = ansi::BRCYAN;
 
-  } // namespace plot
+  }
 
   // The interface accent. Cyan is reserved for "the UI is pointing at this" -
   // selection, check marks, the active tab, a slider grab. Deliberately NOT a
@@ -211,7 +211,7 @@ namespace ui
     inline constexpr ImU32 CYAN      = ansi::CYAN;
     inline constexpr ImU32 CYAN_HI   = ansi::BRCYAN;
 
-  } // namespace accent
+  }
 
   // ---------------------------------------------------------------------------
   // Pin CATEGORY colours, for the board view.
@@ -231,7 +231,7 @@ namespace ui
     inline constexpr ImU32 POWER    = ansi::GREY;                        // structural: quiet
     inline constexpr ImU32 FREE     = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);  // unused: quietest
 
-  } // namespace pin
+  }
 
   // ---------------------------------------------------------------------------
   // Semantic colours for UI TEXT. This is the whole palette; there is no other.
@@ -257,7 +257,7 @@ namespace ui
     inline constexpr ImU32 BAD   = plot::BAD;    // failed, disconnected, error
     inline constexpr ImU32 MUTED = plot::IDLE;   // absent, idle, not applicable
 
-  } // namespace sem
+  }
 
   // Loads Segoe UI at the sizes above, falling back to ImGui's built-in font if
   // it is unavailable. Never leaves a null ImFont*. Call once after
@@ -410,4 +410,4 @@ namespace ui
   Bool segmentedButton(const Char* label, Bool selected, const ImVec2& size = ImVec2(0, 0),
                        Mark mark = Mark::MARK_UNDERLINE);
 
-} // namespace ui
+}

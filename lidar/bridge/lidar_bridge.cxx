@@ -93,7 +93,7 @@ namespace
       std::fflush(stdout);
   }
 
-} // namespace
+}
 
 Int32 main(Int32 argc, const Char* argv[])
 {

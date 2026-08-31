@@ -73,4 +73,4 @@ namespace vehicle
   inline constexpr Float32 C1_OPTICAL_Z_MM = C1_TALL_MM * 0.66f;
   inline constexpr Float32 C1_SCAN_Z_MM    = C1_MOUNT_BASE_MM + C1_OPTICAL_Z_MM;
 
-} // namespace vehicle
+}

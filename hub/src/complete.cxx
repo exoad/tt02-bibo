@@ -304,7 +304,7 @@ namespace cmpl
         return Vec<Item>(TABLE, TABLE + sizeof(TABLE) / sizeof(TABLE[0]));
     }
 
-  } // namespace
+  }
 
   const Vec<Item>& all()
   {
@@ -378,4 +378,4 @@ namespace cmpl
       return n;
   }
 
-} // namespace cmpl
+}

@@ -1683,7 +1683,7 @@ namespace scene3d
           "a pedestrian would be inventing one." },
     };
 
-  } // namespace
+  }
 
   // ---------------------------------------------------------------------------
 
@@ -1900,4 +1900,4 @@ namespace scene3d
       a.dl->PopClipRect();
   }
 
-} // namespace scene3d
+}

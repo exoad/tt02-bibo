@@ -172,4 +172,4 @@ namespace lights
   [[nodiscard]] Input detect(AutoState& st, const Drive& d, Float64 seconds,
                            const AutoConfig& cfg = AutoConfig{}) noexcept;
 
-} // namespace lights
+}

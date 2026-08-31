@@ -167,7 +167,7 @@ namespace ui
         return v >= 1.0f ? v : 1.0f;
     }
 
-  } // namespace
+  }
 
   // ---------------------------------------------------------------------------
 
@@ -732,7 +732,7 @@ namespace ui
         }
     }
 
-  } // namespace
+  }
 
   Void pushTint(Tint t)
   {
@@ -1026,4 +1026,4 @@ namespace ui
       return d;
   }
 
-} // namespace ui
+}

@@ -119,4 +119,4 @@ namespace settings
       std::fclose(f);
   }
 
-} // namespace settings
+}

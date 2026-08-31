@@ -99,4 +99,4 @@ namespace link
   // decides policy is a transport nobody can test.
   [[nodiscard]] Int32 silentForMs();
 
-} // namespace link
+}

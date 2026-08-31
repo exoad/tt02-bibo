@@ -216,7 +216,7 @@ namespace
       check(v.empty(), "a conforming file produces NO diagnostics");
   }
 
-} // namespace
+}
 
 // With file arguments, lints those files and prints what it found instead of
 // running the suite. The repo's own sources all pass tools/style_audit.py, so

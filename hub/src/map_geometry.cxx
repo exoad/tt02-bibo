@@ -303,4 +303,4 @@ namespace mapgeo
       return static_cast<Float32>(a / 1.0e6);      // mm^2 -> m^2
   }
 
-} // namespace mapgeo
+}

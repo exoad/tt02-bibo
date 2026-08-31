@@ -56,4 +56,4 @@ namespace lint
   // Pure: no file access, no globals, no ImGui. Tested in tests/test_lint.cxx.
   [[nodiscard]] Vec<diag::Item> check(const Str& text, Lang lang);
 
-} // namespace lint
+}

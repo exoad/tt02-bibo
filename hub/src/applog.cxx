@@ -87,7 +87,7 @@ namespace applog
         }
     }
 
-  } // namespace
+  }
 
   Str dir()
   {
@@ -201,4 +201,4 @@ namespace applog
       return filePath;
   }
 
-} // namespace applog
+}

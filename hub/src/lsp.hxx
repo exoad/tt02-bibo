@@ -119,4 +119,4 @@ namespace lsp
   // identical and mean opposite things.
   [[nodiscard]] Bool busy();
 
-} // namespace lsp
+}
