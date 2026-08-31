@@ -116,9 +116,9 @@ int main(Void)
      * sensor: tof::Vl53 is the device, i2c is the bus it
      * sits on, and the bus is opened before the device that needs it.
      * ================================================================== */
-    tft::Screen panel;      /* the hardware: size, pins, the glass  */
-    gfx::Canvas screen;     /* what you draw on: buffer, clip, text */
+    tft::Screen panel;   /* the hardware: size, pads, the glass  */
 
+    /* The canvas comes FROM open(); it is not declared and then filled in. */
     gfx::Canvas c = gfx::open(&panel, { SCREEN_W, SCREEN_H, SCREEN_XOFF, SCREEN_YOFF });
     c.safeInset(SAFE_INSET);
 
