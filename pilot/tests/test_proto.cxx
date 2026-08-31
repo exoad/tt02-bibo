@@ -47,7 +47,7 @@ static Void checkStr(const Str& got, const Char* want, const Char* what)
     }
 }
 
-int main()
+Int32 main()
 {
     std::printf("\nproto - the car's line protocol\n\n");
 

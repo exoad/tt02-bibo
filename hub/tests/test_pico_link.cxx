@@ -47,7 +47,7 @@ static Size pump(PicoLink& link, Vec<PicoLine>& sink, Int32 ms, const Char* what
     return sink.size() - before;
 }
 
-int main()
+Int32 main()
 {
     Int32 failures = 0;
 

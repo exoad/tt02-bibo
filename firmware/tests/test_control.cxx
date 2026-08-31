@@ -49,7 +49,7 @@ static Bool near(Float32 a, Float32 b, Float32 tol)
     return ((d < 0.0f) ? -d : d) <= tol;
 }
 
-int main(Void)
+Int32 main(Void)
 {
     printf("\ncontrol: feedforward\n\n");
 

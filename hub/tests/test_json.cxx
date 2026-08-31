@@ -43,7 +43,7 @@ static js::Value read(const Char* text, Bool& ok)
     return js::parse(Str(text), ok, at);
 }
 
-int main()
+Int32 main()
 {
     std::printf("\njson\n\n");
 

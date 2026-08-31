@@ -66,7 +66,7 @@ namespace
 
 } // namespace
 
-int main(int argc, char** argv)
+Int32 main(Int32 argc, Char** argv)
 {
     const Str port = (argc > 1) ? argv[1] : "COM7";
     const Int32         baud = (argc > 2) ? std::atoi(argv[2]) : 460800;

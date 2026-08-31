@@ -244,7 +244,7 @@ namespace
 
 } // namespace
 
-int main()
+Int32 main()
 {
     std::printf("devlink tests\n");
 
