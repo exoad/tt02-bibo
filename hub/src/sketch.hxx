@@ -103,6 +103,24 @@ namespace sketch
   // nothing about the app depends on it.
   Void reveal(const Str& path);
 
+  // Opens the generated firmware documentation in the default browser.
+  //
+  // It sits beside reveal() because this file already owns "ask Windows to
+  // open something", not because documentation is a sketch concern.
+  //
+  // THE SITE HAS TO BE SERVED, not opened from disk. Nuxt writes absolute
+  // asset URLs - `/_nuxt/entry.css` - which under file:// resolve to the root
+  // of C: and load nothing, so a double-clicked index.html is unstyled text
+  // with a dead sidebar. Checked against the built output, not assumed.
+  //
+  // website\docs.bat is the whole entry point: it builds the site if it has
+  // never been built, starts a local server if one is not already listening,
+  // and opens the browser. Keeping those three steps there rather than here
+  // means the button and the shell do the same thing.
+  //
+  // Best-effort and silent on failure, like reveal().
+  Void openDocs();
+
   // The program a new sketch starts from: a blink on GP28 with the wiring in a
   // comment above it. A blank buffer is a worse starting point than a working
   // program you can change one number in.

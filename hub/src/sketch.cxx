@@ -312,6 +312,29 @@ namespace sketch
                       SW_SHOWNORMAL);
   }
 
+  Void openDocs()
+  {
+      const Str root = PicoFlash::repoRoot();
+      if(root.empty())
+      {
+          return;
+      }
+
+      const Str bat = root + "\\website\\docs.bat";
+      const Str dir = root + "\\website";
+
+      // SW_SHOWMINNOACTIVE, because the console is a means and not the thing
+      // asked for. It is instant once the site has been built, and the browser
+      // it launches is what should take the foreground.
+      //
+      // The working directory is passed explicitly rather than relying on the
+      // batch file's own `cd /d %~dp0`. Both are correct; having both means a
+      // relative path inside it cannot resolve against hub\build\ if that line
+      // is ever edited out.
+      ::ShellExecuteA(nullptr, "open", bat.c_str(), nullptr, dir.c_str(),
+                      SW_SHOWMINNOACTIVE);
+  }
+
   Str starter()
   {
       // A STARTER PROGRAM IS THE STRONGEST STYLE DOCUMENT A PROJECT HAS, because

@@ -8722,6 +8722,28 @@ namespace
           }
       }
 
+      // Beside the console, because both are things you REACH FOR rather than
+      // views you work in - and before it, so the console keeps the far-right
+      // spot it has always had.
+      //
+      // A BUTTON RATHER THAN AN EMBEDDED VIEW. Rendering the reference inside
+      // this window means hosting WebView2 in the D3D11 swapchain or standing
+      // a second top-level window next to this one, and the second is just a
+      // worse browser. The docs are static HTML that a real browser renders,
+      // searches and bookmarks better than anything worth building here.
+      if(ImGui::TabItemButton("  Docs  ",
+                              ImGuiTabItemFlags_Trailing
+                              | ImGuiTabItemFlags_NoTooltip))
+      {
+          sketch::openDocs();
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip("The firmware API reference, in your browser.\n"
+                            "Generated from firmware/lib. Builds on first use,\n"
+                            "which takes a few seconds; instant after that.");
+      }
+
       // Right-aligned, so opening the console is where the tabs END rather than
       // in a second row of chrome above them. The same place the old layout
       // switch used to live, for the same reason.
