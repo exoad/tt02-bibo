@@ -69,7 +69,9 @@ namespace syn
         {
             const Char* k = list[i];
             if(std::strncmp(k, s, static_cast<Size>(len)) == 0 && k[len] == '\0')
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -77,7 +79,9 @@ namespace syn
     Void push(Vec<Span>& out, Int32 b, Int32 e, Role r)
     {
         if(e <= b)
+        {
             return;
+        }
 
         // Merge with the previous span when the role matches. Without this a line of
         // plain text becomes one span per character and the renderer does a draw
@@ -109,7 +113,9 @@ namespace syn
       {
           Int32 j = 0;
           while(j + 1 < n && !(p[j] == '*' && p[j + 1] == '/'))
+          {
               ++j;
+          }
 
           if(j + 1 < n)          // closes here
           {
@@ -130,7 +136,9 @@ namespace syn
       {
           Int32 k = i;
           while(k < n && (p[k] == ' ' || p[k] == '\t'))
+          {
               ++k;
+          }
           if(k < n && p[k] == '#')
           {
               push(out, i, k, Role::ROLE_TEXT);
@@ -140,16 +148,22 @@ namespace syn
               // loses the only part of the line anybody scans for.
               Int32 q = k;
               while(q < n && p[q] != '"' && p[q] != '<')
+              {
                   ++q;
+              }
               push(out, k, q, Role::ROLE_PREPROC);
               if(q < n)
               {
                   const Char close = (p[q] == '<') ? '>' : '"';
                   Int32 e = q + 1;
                   while(e < n && p[e] != close)
+                  {
                       ++e;
+                  }
                   if(e < n)
+                  {
                       ++e;
+                  }
                   push(out, q, e, Role::ROLE_STRING);
                   push(out, e, n, Role::ROLE_PREPROC);
               }
@@ -171,7 +185,9 @@ namespace syn
           {
               Int32 j = i + 2;
               while(j + 1 < n && !(p[j] == '*' && p[j + 1] == '/'))
+              {
                   ++j;
+              }
               if(j + 1 < n)
               {
                   push(out, i, j + 2, Role::ROLE_COMMENT);
@@ -219,7 +235,9 @@ namespace syn
           {
               Int32 j = i;
               while(j < n && (identChar(p[j]) || p[j] == '.'))
+              {
                   ++j;   // swallows 0x1F, 1e-3, 100u, 1.5f in one bite
+              }
               push(out, i, j, Role::ROLE_NUMBER);
               i = j;
               continue;
@@ -230,23 +248,33 @@ namespace syn
           {
               Int32 j = i;
               while(j < n && identChar(p[j]))
+              {
                   ++j;
+              }
 
               const Int32 len = j - i;
               Role        r   = Role::ROLE_TEXT;
 
               if(inList(KEYWORDS, sizeof(KEYWORDS) / sizeof(KEYWORDS[0]), p + i, len))
+              {
                   r = Role::ROLE_KEYWORD;
+              }
               else if(inList(TYPES, sizeof(TYPES) / sizeof(TYPES[0]), p + i, len))
+              {
                   r = Role::ROLE_TYPE;
+              }
               else
               {
                   // A call or a definition: identifier, optional spaces, '('.
                   Int32 k = j;
                   while(k < n && p[k] == ' ')
+                  {
                       ++k;
+                  }
                   if(k < n && p[k] == '(')
+                  {
                       r = Role::ROLE_FUNCTION;
+                  }
               }
 
               push(out, i, j, r);

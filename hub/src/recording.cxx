@@ -57,7 +57,9 @@ namespace rec
   Float64 Recording::durationS() const
   {
       if(revs.size() < 2u)
+      {
           return 0.0;
+      }
       return revs.back().tS - revs.front().tS;
   }
 
@@ -65,23 +67,31 @@ namespace rec
   {
       Size n = 0;
       for(const Rev& r : revs)
+      {
           n += r.points.size();
+      }
       return n;
   }
 
   Size Recording::indexAt(Float64 tS) const
   {
       if(revs.empty())
+      {
           return 0;
+      }
 
       // Linear from the front would be fine at these sizes, but a scrub drags
       // across the whole recording every frame, so this is the one place it is
       // worth being a binary search.
       Size lo = 0, hi = revs.size() - 1u;
       if(tS <= revs[0].tS)
+      {
           return 0;
+      }
       if(tS >= revs[hi].tS)
+      {
           return hi;
+      }
 
       while(lo + 1u < hi)
       {
@@ -194,7 +204,9 @@ namespace rec
       std::fclose(f);
 
       if(got == head.size() && std::memcmp(head.data(), MAGIC_V1.data(), MAGIC_V1.size()) == 0)
+      {
           return loadBinaryV1(path, err);
+      }
 
       return loadTextV2(path, err);
   }
@@ -238,7 +250,9 @@ namespace rec
           if(tok[0] == 'R' && tok[1] == 0)
           {
               if(inRev)
+              {
                   revs.push_back(std::move(cur));
+              }
 
               long long tms = 0, n = 0;
               Int32     hzc = 0;
@@ -262,13 +276,17 @@ namespace rec
           }
 
           if(!inRev)
+          {
               continue;
+          }
 
           // A pair; its first token is already in `tok`.
           const Int32 da = std::atoi(tok.data());
           Int32 dist = 0;
           if(std::fscanf(f, "%d", &dist) != 1)
+          {
               break;
+          }
 
           runDeg += static_cast<Float32>(da) / 100.0f;
           while(runDeg >= 360.0f)
@@ -286,7 +304,9 @@ namespace rec
       }
 
       if(inRev)
+      {
           revs.push_back(std::move(cur));
+      }
 
       std::fclose(f);
 
@@ -342,7 +362,9 @@ namespace rec
           r.points.resize(pc);
           Bool ok = true;
           for(UInt32 k = 0; ok && k < pc; ++k)
+          {
               ok = readPod(f, r.points[k].angleDeg) && readPod(f, r.points[k].distMm);
+          }
 
           if(!ok)
           {
@@ -362,12 +384,16 @@ namespace rec
   {
       const Str base = settings::dir();
       if(base.empty())
+      {
           return Str();
+      }
 
       const Str d = base + "\\recordings";
       if(!::CreateDirectoryA(d.c_str(), nullptr)
          && ::GetLastError() != ERROR_ALREADY_EXISTS)
+      {
           return Str();
+      }
 
       return d;
   }
@@ -378,7 +404,9 @@ namespace rec
 
       const Str d = dir();
       if(d.empty())
+      {
           return out;
+      }
 
       WIN32_FIND_DATAA fd = {};
       // Both extensions. Every recording made before the car had a name is
@@ -387,12 +415,16 @@ namespace rec
       const Str pattern = d + "\\*.*rec";
       HANDLE h = ::FindFirstFileA(pattern.c_str(), &fd);
       if(h == INVALID_HANDLE_VALUE)
+      {
           return out;
+      }
 
       do
       {
           if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+          {
               out.push_back(fd.cFileName);
+          }
       }
       while(::FindNextFileA(h, &fd) != 0);
       ::FindClose(h);

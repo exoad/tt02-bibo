@@ -94,7 +94,9 @@ namespace
 
       check(out.size() == 1u, "one corner");
       if(out.size() != 1u)
+      {
           return;
+      }
 
       checkNear(out[0].x, 1000.0f,  1.0f, "corner x");
       checkNear(out[0].y, -1000.0f, 1.0f, "corner y");
@@ -226,8 +228,12 @@ namespace
                            95.0f, out.data());
       Bool bounded = true;
       for(Int32 i = 0; i < BINS; ++i)
+      {
           if(out[i] > clr[i] + 0.5f)
+          {
               bounded = false;
+          }
+      }
       check(bounded, "reach never exceeds the free radius on its own bearing");
   }
 
@@ -326,7 +332,10 @@ namespace
       constexpr Float32 STEP = 360.0f / static_cast<Float32>(BINS);
 
       Array<Float32, BINS> r;
-      for(Int32 i = 0; i < BINS; ++i) r[i] = 1000.0f;   // a 1 m circle
+      for(Int32 i = 0; i < BINS; ++i)
+      {
+          r[i] = 1000.0f;  // a 1 m circle
+      }
 
       // pi * 1^2 = 3.1416 m^2. A 120-gon is very slightly under.
       checkNear(mapgeo::polarArea(r.data(), BINS, STEP), 3.1416f, 0.01f, "unit circle area");

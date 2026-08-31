@@ -117,7 +117,9 @@ namespace scenegpu
     Bool ensureTargets(Int32 w, Int32 h)
     {
         if(w == rtW && h == rtH && colorRtv != nullptr && depthDsv != nullptr)
+        {
             return true;
+        }
 
         releaseTargets();
 
@@ -169,7 +171,9 @@ namespace scenegpu
     Bool ensureVertexBuffer(Int32 count)
     {
         if(count <= vbufCap && vbuf != nullptr)
+        {
             return true;
+        }
 
         release(vbuf);
 
@@ -200,7 +204,9 @@ namespace scenegpu
       dev = device;
       ctx = context;
       if(dev == nullptr || ctx == nullptr)
+      {
           return;
+      }
 
       ID3DBlob* vsBlob = nullptr;
       ID3DBlob* psBlob = nullptr;
@@ -373,9 +379,13 @@ namespace scenegpu
       blendedTris.clear();
 
       if(!ready() || widthPx < 8 || heightPx < 8)
+      {
           return false;
+      }
       if(!ensureTargets(widthPx, heightPx))
+      {
           return false;
+      }
 
       started = true;
       return true;
@@ -384,7 +394,9 @@ namespace scenegpu
   Void addOpaque(const Vertex& a, const Vertex& b, const Vertex& c, ImTextureID tex)
   {
       if(!started)
+      {
           return;
+      }
       Tri t;
       t.v[0] = a; t.v[1] = b; t.v[2] = c;
       t.tex  = tex;
@@ -394,7 +406,9 @@ namespace scenegpu
   Void addBlended(const Vertex& a, const Vertex& b, const Vertex& c, ImTextureID tex)
   {
       if(!started)
+      {
           return;
+      }
       Tri t;
       t.v[0] = a; t.v[1] = b; t.v[2] = c;
       t.tex  = tex;
@@ -404,7 +418,9 @@ namespace scenegpu
   ImTextureID end(const Float32* mvp)
   {
       if(!started || mvp == nullptr)
+      {
           return 0;
+      }
       started = false;
 
       const Array<Float32, 4> CLEAR= { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -412,7 +428,9 @@ namespace scenegpu
       ctx->ClearDepthStencilView(depthDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
       if(opaqueTris.empty() && blendedTris.empty())
+      {
           return reinterpret_cast<ImTextureID>(colorSrv);
+      }
 
       // Opaque triangles may be reordered freely - the depth buffer decides the
       // result, not the order - so they are grouped by texture to collapse the
@@ -425,7 +443,9 @@ namespace scenegpu
           // w after the row-vector transform is the view-space depth.
           Float32 d = 0.0f;
           for(Int32 i = 0; i < 3; ++i)
+          {
               d += t.v[i].x * mvp[3] + t.v[i].y * mvp[7] + t.v[i].z * mvp[11] + mvp[15];
+          }
           return d;
       };
       std::stable_sort(blendedTris.begin(), blendedTris.end(),
@@ -433,11 +453,15 @@ namespace scenegpu
 
       const Int32 total = static_cast<Int32>((opaqueTris.size() + blendedTris.size()) * 3);
       if(!ensureVertexBuffer(total))
+      {
           return reinterpret_cast<ImTextureID>(colorSrv);
+      }
 
       D3D11_MAPPED_SUBRESOURCE ms = {};
       if(FAILED(ctx->Map(vbuf, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))
+      {
           return reinterpret_cast<ImTextureID>(colorSrv);
+      }
 
       Vertex* out = static_cast<Vertex*>(ms.pData);
       Int32   n   = 0;
@@ -499,7 +523,9 @@ namespace scenegpu
               const ImTextureID tex = tris[i].tex;
               Size j = i + 1;
               while(j < tris.size() && tris[j].tex == tex)
+              {
                   ++j;
+              }
 
               ID3D11ShaderResourceView* srv =
                   (tex != 0) ? reinterpret_cast<ID3D11ShaderResourceView*>(tex) : whiteSrv;

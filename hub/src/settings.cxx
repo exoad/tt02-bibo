@@ -13,12 +13,16 @@ namespace settings
       static Bool tried = false;
 
       if(tried)
+      {
           return cached;
+      }
       tried = true;
 
       Array<Char, MAX_PATH> buf= {};
       if(::GetEnvironmentVariableA("LOCALAPPDATA", buf.data(), MAX_PATH) == 0)
+      {
           return cached;                  // no profile: run without persistence
+      }
 
       cached = Str(buf.data()) + "\\bibo";
 
@@ -44,7 +48,9 @@ namespace settings
       // ERROR_ALREADY_EXISTS is the expected case on every run but the first.
       if(!::CreateDirectoryA(cached.c_str(), nullptr)
          && ::GetLastError() != ERROR_ALREADY_EXISTS)
+      {
           cached.clear();
+      }
 
       return cached;
   }
@@ -61,24 +67,32 @@ namespace settings
 
       const Str p = path(name);
       if(p.empty())
+      {
           return out;
+      }
 
       FILE* f = std::fopen(p.c_str(), "rb");
       if(f == nullptr)
+      {
           return out;
+      }
 
       Array<Char, 1024> buf;
       for(;;)
       {
           const Size n = std::fread(buf.data(), 1, buf.size(), f);
           if(n == 0)
+          {
               break;
+          }
           out.append(buf.data(), n);
 
           // A settings file is a few hundred bytes. Anything larger is a file
           // that does not belong here, and reading it all would be the bug.
           if(out.size() > 64u * 1024u)
+          {
               break;
+          }
       }
       std::fclose(f);
       return out;
@@ -88,14 +102,20 @@ namespace settings
   {
       const Str p = path(name);
       if(p.empty())
+      {
           return;
+      }
 
       FILE* f = std::fopen(p.c_str(), "wb");
       if(f == nullptr)
+      {
           return;
+      }
 
       if(!text.empty())
+      {
           static_cast<Void>(std::fwrite(text.data(), 1, text.size(), f));
+      }
       std::fclose(f);
   }
 

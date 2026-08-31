@@ -25,9 +25,13 @@ namespace cmpl
         {
             const Char a = s[i];
             if(a == '\0')
+            {
                 return false;
+            }
             if(caseSensitive ? (a != p[i]) : (lower(a) != lower(p[i])))
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -313,12 +317,16 @@ namespace cmpl
       Size end = line.size();
       Size i   = end;
       while(i > 0 && identChar(line[i - 1]))
+      {
           --i;
+      }
 
       // A run that starts with a digit is a number, not an identifier being
       // typed - completing `42` against the table would be nonsense.
       if(i < end && line[i] >= '0' && line[i] <= '9')
+      {
           return Str();
+      }
 
       return line.substr(i, end - i);
   }
@@ -326,14 +334,20 @@ namespace cmpl
   Size suggest(const Str& prefix, Vec<const Item*>& out, Size max)
   {
       if(prefix.empty() || max == 0)
+      {
           return 0;
+      }
 
       const Vec<Item>& items = all();
 
       Vec<const Item*> hits;
       for(const Item& it : items)
+      {
           if(startsWith(it.name, prefix, false))
+          {
               hits.push_back(&it);
+          }
+      }
 
       std::sort(hits.begin(), hits.end(), [&prefix](const Item* a, const Item* b)
       {
@@ -342,19 +356,25 @@ namespace cmpl
           const Bool ea = startsWith(a->name, prefix, true);
           const Bool eb = startsWith(b->name, prefix, true);
           if(ea != eb)
+          {
               return ea;
+          }
 
           const Size la = std::strlen(a->name);
           const Size lb = std::strlen(b->name);
           if(la != lb)
+          {
               return la < lb;
+          }
 
           return std::strcmp(a->name, b->name) < 0;
       });
 
       const Size n = std::min(max, hits.size());
       for(Size i = 0; i < n; ++i)
+      {
           out.push_back(hits[i]);
+      }
       return n;
   }
 

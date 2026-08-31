@@ -24,9 +24,13 @@ namespace mapgeo
               // Undirected bearings, so the turn lands in [0,90].
               Float32 turn = std::fabs(w[static_cast<Size>(i)].deg - w[static_cast<Size>(j)].deg);
               if(turn > 90.0f)
+              {
                   turn = 180.0f - turn;
+              }
               if(turn < CORNER_MIN_DEG)
+              {
                   continue;
+              }
 
               const WorldPt& p1 = w[static_cast<Size>(i)].a;
               const WorldPt& p2 = w[static_cast<Size>(i)].b;
@@ -38,18 +42,24 @@ namespace mapgeo
 
               const Float32 den = d1x * d2y - d1y * d2x;
               if(std::fabs(den) < 1e-4f)
+              {
                   continue;               // parallel; the turn test should already
+              }
                                           // have caught this
 
               const Float32 t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / den;
               const WorldPt hit{ p1.x + d1x * t, p1.y + d1y * t };
 
               if(endGap(hit, p1, p2) > CORNER_NEAR_MM || endGap(hit, p3, p4) > CORNER_NEAR_MM)
+              {
                   continue;
+              }
 
               const Float32 r = std::sqrt(hit.x * hit.x + hit.y * hit.y);
               if(!(r >= minRangeMm) || r > maxRangeMm)
+              {
                   continue;
+              }
 
               // Arms point back along each wall, away from the crossing, toward
               // whichever end is further from it - so the marker traces the two
@@ -78,7 +88,9 @@ namespace mapgeo
               out.push_back(k);
 
               if(out.size() >= CORNER_MAX)
+              {
                   return;
+              }
           }
       }
   }
@@ -110,17 +122,23 @@ namespace mapgeo
                   j -= bins;
               }
               if(!seen[j])
+              {
                   continue;
+              }
 
               const Float32 a = static_cast<Float32>(k) * binDeg * (PI_F / 180.0f);
               const Float32 R = clr[j];
               const Float32 s = R * std::sin(a);
               if(std::fabs(s) >= halfW)
+              {
                   continue;                       // already clears the disc
+              }
 
               const Float32 rj = R * std::cos(a) - std::sqrt(halfW * halfW - s * s);
               if(rj < r)
+              {
                   r = (rj > 0.0f) ? rj : 0.0f;
+              }
           }
 
           out[i] = r;
@@ -173,7 +191,9 @@ namespace mapgeo
               }
 
               if(!refSeen[i] || !curSeen[j])
+              {
                   continue;
+              }
 
               sum += std::fabs(static_cast<Float64>(cur[j]) - static_cast<Float64>(ref[i]));
               ++n;
@@ -189,14 +209,18 @@ namespace mapgeo
       Int32   best     = -1;
       Float32 bestCost = FLT_MAX;
       for(Int32 k = 0; k < bins; ++k)
+      {
           if(cost[static_cast<Size>(k)] < bestCost)
           {
               bestCost = cost[static_cast<Size>(k)];
               best     = k;
           }
+      }
 
       if(best < 0 || bestCost == FLT_MAX)
+      {
           return false;
+      }
 
       // Separability: the best against the MEDIAN, not against the worst. The
       // worst shift is an outlier and flatters every match; the median is what a
@@ -205,8 +229,12 @@ namespace mapgeo
       Vec<Float32> sorted;
       sorted.reserve(static_cast<Size>(bins));
       for(Int32 k = 0; k < bins; ++k)
+      {
           if(cost[static_cast<Size>(k)] != FLT_MAX)
+          {
               sorted.push_back(cost[static_cast<Size>(k)]);
+          }
+      }
       std::sort(sorted.begin(), sorted.end());
 
       const Float32 median = sorted.empty() ? 0.0f : sorted[sorted.size() / 2];
@@ -234,7 +262,9 @@ namespace mapgeo
       {
           const Float32 den = (c0 - 2.0f * c1 + c2);
           if(std::fabs(den) > 1e-6f)
+          {
               delta = 0.5f * (c0 - c2) / den;
+          }
           if(delta < -1.0f)
           {
               delta = -1.0f;

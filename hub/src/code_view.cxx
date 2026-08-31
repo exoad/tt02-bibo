@@ -598,11 +598,15 @@ namespace ui
 
                   if(ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)
                      || (ctrl && ImGui::IsKeyPressed(ImGuiKey_N, true)))
+                  {
                       v.popupSel = (v.popupSel + 1) % n;
+                  }
 
                   if(ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)
                      || (ctrl && ImGui::IsKeyPressed(ImGuiKey_P, true)))
+                  {
                       v.popupSel = (v.popupSel + n - 1) % n;
+                  }
 
                   // A page at a time, for a list that is now long enough to have
                   // pages.
@@ -695,9 +699,13 @@ namespace ui
           {
               const ImWchar wc = io.InputQueueCharacters[i];
               if(wc < 32 || wc > 126)
+              {
                   continue;                       // control bytes and non-ASCII
+              }
               if(ctrl)
+              {
                   continue;                       // handled above
+              }
 
               // ---- p and P pull from the system clipboard ------------------
               //
@@ -848,9 +856,13 @@ namespace ui
       {
           const Float32 caretY = static_cast<Float32>(e.cursor().line) * lineH;
           if(caretY < v.scrollY)
+          {
               v.scrollY = caretY;
+          }
           else if(caretY + lineH > v.scrollY + viewH)
+          {
               v.scrollY = caretY + lineH - viewH;
+          }
           v.followCaret = false;
       }
       v.scrollY = std::max(0.0f, std::min(v.scrollY, maxScroll));
@@ -867,7 +879,9 @@ namespace ui
       // that depends on every line above it - so it is recomputed whenever the
       // line count or the buffer changes. Cheap: a sketch is tens of lines.
       if(blockAt.size() != static_cast<Size>(e.lineCount()) + 1 || changed)
+      {
           rebuildBlockFlags(e);
+      }
 
       const Int32 first = std::max(0, static_cast<Int32>(v.scrollY / lineH));
       const Int32 last  = std::min(e.lineCount() - 1,
@@ -1280,7 +1294,9 @@ namespace ui
               {
                   nameW = std::max(nameW, ImGui::CalcTextSize(it.name).x);
                   if(it.detail != nullptr && it.detail[0] != 0)
+                  {
                       detW = std::max(detW, ImGui::CalcTextSize(it.detail).x);
+                  }
               }
 
               // clangd's `detail` is a full C++ type and can be a hundred
@@ -1303,8 +1319,10 @@ namespace ui
 
               // Flip above the caret rather than fall off the bottom.
               if(py + boxH > origin.y + viewH)
+              {
                   py = origin.y + static_cast<Float32>(e.cursor().line) * lineH
                      - v.scrollY - boxH;
+              }
 
               px = std::max(origin.x, std::min(px, origin.x + region.x - boxW));
 

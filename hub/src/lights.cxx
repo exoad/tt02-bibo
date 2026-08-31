@@ -8,7 +8,9 @@ namespace lights
   Bool blinkPhase(Float64 seconds) noexcept
   {
       if(seconds < 0.0)
+      {
           seconds = 0.0;
+      }
 
       // std::fmod, not an accumulating counter: an accumulator drifts with the
       // frame rate and this has to stay locked to wall-clock time.
@@ -46,9 +48,13 @@ namespace lights
       // BRAKE_LEVEL when braking. Braking wins - it is the more urgent claim.
       Float32 red = 0.0f;
       if(in.brake)
+      {
           red = BRAKE_LEVEL;
+      }
       else if(in.head != Head::HEAD_OFF)
+      {
           red = TAIL_LEVEL;
+      }
 
       out.tailL = red;
       out.tailR = red;

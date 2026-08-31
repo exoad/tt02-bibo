@@ -55,15 +55,23 @@ Int32 main()
     Vec<Str> ports = PicoLink::listPicoPorts();
     printf("  %zu Raspberry Pi (VID_2E8A) serial port(s):\n", ports.size());
     for(const auto& p : ports)
+    {
         printf("    %s\n", p.c_str());
+    }
 
     Bool found = false;
     for(const auto& p : ports)
+    {
         if(p == PORT)
+        {
             found = true;
+        }
+    }
     printf("  %s must be present ... %s\n", PORT, found ? "PASS" : "FAIL");
     if(!found)
+    {
         ++failures;
+    }
 
     printf("\n=== 2. connect(%s) ===\n", PORT);
     PicoLink link;
@@ -78,7 +86,9 @@ Int32 main()
     link.connect(PORT);
 
     for(Int32 i = 0; i < 200 && link.state() == PicoState::PICO_STATE_CONNECTING; ++i)
+    {
         sleepMs(10);
+    }
     printf("  state after open: %s\n", stateName(link.state()));
     printf("  port():           '%s'\n", link.port().c_str());
     printf("  error():          '%s'\n", link.error().c_str());
@@ -96,7 +106,9 @@ Int32 main()
            stateName(link.state()),
            link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL");
     if(link.state() != PicoState::PICO_STATE_CONNECTED)
+    {
         ++failures;
+    }
 
     printf("\n=== 4. probe lines ===\n");
     const Array<const Char*, 3> probes = { "PING", "HELP", "?" };
@@ -113,9 +125,13 @@ Int32 main()
 
     printf("\n=== 6. everything logged (%zu line(s)) ===\n", lines.size());
     if(lines.empty())
+    {
         printf("  (nothing at all - unexpected, tx lines should be logged)\n");
+    }
     for(const auto& l : lines)
+    {
         printf("  %8.3f  %s  %s\n", l.tS, l.outgoing ? "TX >" : "RX <", l.text.c_str());
+    }
 
     printf("\n=== 7. counters ===\n");
     printf("  tx_lines()      = %llu\n", link.txLines());
@@ -126,10 +142,14 @@ Int32 main()
            age < 0.0 ? "(negative == nothing ever received, as documented)" : "");
     printf("  3 probes sent   ... %s\n", link.txLines() == 3 ? "PASS" : "FAIL");
     if(link.txLines() != 3)
+    {
         ++failures;
+    }
     printf("  0 dropped while connected ... %s\n", link.dropped() == 0 ? "PASS" : "FAIL");
     if(link.dropped() != 0)
+    {
         ++failures;
+    }
 
     printf("\n=== 8. disconnect ===\n");
     const TimePoint tDc = monoNow();
@@ -139,7 +159,9 @@ Int32 main()
     printf("  state: %s ... %s\n", stateName(link.state()),
            link.state() == PicoState::PICO_STATE_DISCONNECTED ? "PASS" : "FAIL");
     if(link.state() != PicoState::PICO_STATE_DISCONNECTED)
+    {
         ++failures;
+    }
     printf("  port() now '%s' ... %s\n", link.port().c_str(),
            link.port().empty() ? "PASS" : "FAIL");
 
@@ -152,16 +174,22 @@ Int32 main()
            beforeDrop, link.dropped(),
            link.dropped() == beforeDrop + 1 ? "PASS" : "FAIL");
     if(link.dropped() != beforeDrop + 1)
+    {
         ++failures;
+    }
 
     printf("\n=== 9. reconnect after disconnect ===\n");
     link.connect(PORT);
     for(Int32 i = 0; i < 200 && link.state() == PicoState::PICO_STATE_CONNECTING; ++i)
+    {
         sleepMs(10);
+    }
     printf("  state: %s ... %s\n", stateName(link.state()),
            link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL");
     if(link.state() != PicoState::PICO_STATE_CONNECTED)
+    {
         ++failures;
+    }
     link.disconnect();
 
     printf("\n=== bootsel_touch() ===\n");

@@ -86,10 +86,14 @@ namespace ui
     Bool fileReadable(const Char* path)
     {
         if(path == nullptr)
+        {
             return false;
+        }
         FILE* f = fopen(path, "rb");
         if(f == nullptr)
+        {
             return false;
+        }
         fclose(f);
         return true;
     }
@@ -99,7 +103,9 @@ namespace ui
     ImFont* tryAddFile(ImFontAtlas* atlas, const Char* path, Float32 sizePx)
     {
         if(!fileReadable(path))
+        {
             return nullptr;
+        }
 
         ImFontConfig cfg;
         cfg.SizePixels  = sizePx;
@@ -120,11 +126,15 @@ namespace ui
 #if !defined(IMGUI_DISABLE_DEFAULT_FONT) && !defined(IMGUI_DISABLE_DEFAULT_FONT_VECTOR)
         // The vector default scales cleanly to arbitrary sizes; prefer it.
         if(ImFont* f = atlas->AddFontDefaultVector(&cfg))
+        {
             return f;
+        }
 #endif
 #if !defined(IMGUI_DISABLE_DEFAULT_FONT)
         if(ImFont* f = atlas->AddFontDefault(&cfg))
+        {
             return f;
+        }
 #endif
         return nullptr;
     }
@@ -136,11 +146,17 @@ namespace ui
                      const Char* first, const Char* second, const Char* third)
     {
         if(ImFont* f = tryAddFile(atlas, first, sizePx))
+        {
             return f;
+        }
         if(ImFont* f = tryAddFile(atlas, second, sizePx))
+        {
             return f;
+        }
         if(ImFont* f = tryAddFile(atlas, third, sizePx))
+        {
             return f;
+        }
         return addBuiltinAt(atlas, sizePx);
     }
 
@@ -158,7 +174,9 @@ namespace ui
   Void loadFonts(Float32 dpiScale)
   {
       if(!(dpiScale > 0.0f))
+      {
           dpiScale = 1.0f;
+      }
 
       fontBaseDpi = dpiScale;
 
@@ -169,7 +187,9 @@ namespace ui
       // only marked Locked inside NewFrame()..EndFrame() on backends without
       // dynamic texture support; touching it then would assert.
       if(!atlas->Locked)
+      {
           atlas->Clear();
+      }
 
       // The type scale from theme.h, in logical px, multiplied by the LOAD-TIME
       // DPI exactly once. These are the values that end up in ImFont::LegacySize
@@ -197,16 +217,22 @@ namespace ui
       {
           ImFont* const candidates[] = { fonts.small, fonts.title, fonts.stat, fonts.big, fonts.mono };
           for(ImFont* c : candidates)
+          {
               if(c != nullptr)
               {
                   any = c;
                   break;
               }
+          }
       }
       if(any == nullptr)
+      {
           any = addBuiltinAt(atlas, szBody);
+      }
       if(any == nullptr && atlas->Fonts.Size > 0)
+      {
           any = atlas->Fonts[0];
+      }
 
       IM_ASSERT(any != nullptr && "No font could be loaded (default font compiled out?)");
 
@@ -245,8 +271,12 @@ namespace ui
       const Array<Float32, 6> sizes = { szSmall,     szBody,     szTitle,
                                         szStat,      szBig,      szCode };
       for(Int32 i = 0; i < 6; ++i)
+      {
           if(roles[i] != nullptr && !(roles[i]->LegacySize > 0.0f))
+          {
               roles[i]->LegacySize = sizes[i];
+          }
+      }
 
       // Untagged text must be the readable body size, not ImGui's 13px default.
       // Fonts[0] is `small`, so this assignment is what makes body the default.
@@ -262,7 +292,9 @@ namespace ui
   Void applyStyle(Float32 dpiScale)
   {
       if(!(dpiScale > 0.0f))
+      {
           dpiScale = 1.0f;
+      }
 
       ImGuiStyle& style = ImGui::GetStyle();
 
@@ -490,12 +522,16 @@ namespace ui
   Void bevelRect(const ImVec2& pMin, const ImVec2& pMax, Bool pressed, Float32 strength)
   {
       if(strength <= 0.0f)
+      {
           return;
+      }
 
       const Float32 w = pMax.x - pMin.x;
       const Float32 h = pMax.y - pMin.y;
       if(w < 4.0f || h < 4.0f)
+      {
           return;
+      }
 
       const Float32 a = (strength > 1.0f) ? 1.0f : strength;
       ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -535,9 +571,11 @@ namespace ui
       // A pressed key also shadows itself along its top inner edge, the way a real
       // one does when it drops into the casing.
       if(pressed)
+      {
           dl->AddLine(ImVec2(pMin.x + r, pMin.y + 1.5f),
                       ImVec2(pMax.x - r, pMin.y + 1.5f),
                       IM_COL32(0, 0, 0, static_cast<Int32>(55 * a)), 1.0f);
+      }
   }
 
   // ---------------------------------------------------------------------------
@@ -551,7 +589,9 @@ namespace ui
   Void led(ImDrawList* dl, const ImVec2& centre, Float32 radius, ImU32 colour, Bool lit)
   {
       if(dl == nullptr || radius <= 0.0f)
+      {
           return;
+      }
 
       // The socket the lamp sits in, always drawn.
       dl->AddCircleFilled(centre, radius * 1.55f, IM_COL32(0, 0, 0, 110), 16);
@@ -590,12 +630,16 @@ namespace ui
   Void screenInset(const ImVec2& pMin, const ImVec2& pMax, Float32 strength)
   {
       if(strength <= 0.0f)
+      {
           return;
+      }
 
       const Float32 w = pMax.x - pMin.x;
       const Float32 h = pMax.y - pMin.y;
       if(w < 8.0f || h < 8.0f)
+      {
           return;
+      }
 
       const Float32 a  = (strength > 1.0f) ? 1.0f : strength;
       ImDrawList*   dl = ImGui::GetWindowDrawList();
@@ -636,7 +680,9 @@ namespace ui
   Void shadeLastItem(Float32 strength)
   {
       if(!ImGui::IsItemVisible())
+      {
           return;
+      }
       bevelRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
                 ImGui::IsItemActive(), strength);
   }
@@ -691,7 +737,9 @@ namespace ui
   Void pushTint(Tint t)
   {
       if(t == Tint::TINT_NONE)
+      {
           return;
+      }
 
       const ImU32   hue = tintHue(t);
       const ImVec4* c   = ImGui::GetStyle().Colors;
@@ -707,7 +755,9 @@ namespace ui
   Void popTint(Tint t)
   {
       if(t != Tint::TINT_NONE)
+      {
           ImGui::PopStyleColor(3);
+      }
   }
 
   Bool button(const Char* label, const ImVec2& size, Tint tint)
@@ -882,9 +932,13 @@ namespace ui
           // vertical list - in both cases the mark runs along the edge the row is
           // stacked against, which is what makes a column of them scan as a list.
           if(mark == Mark::MARK_UNDERLINE)
+          {
               ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, b.y - t), b, m);
+          }
           else if(mark == Mark::MARK_LEFT_BAR)
+          {
               ImGui::GetWindowDrawList()->AddRectFilled(a, ImVec2(a.x + t, b.y), m);
+          }
       }
       else
       {
@@ -939,7 +993,9 @@ namespace ui
   Void setUserScale(Float32 s)
   {
       if(!(s > 0.0f))
+      {
           s = 1.0f;
+      }
 
       // Snapped before clamping so the ends of the range are reachable exactly.
       s = std::floor(s / USER_SCALE_STEP + 0.5f) * USER_SCALE_STEP;
@@ -955,7 +1011,9 @@ namespace ui
       // Half a step, so float noise from the snap can never register as a change
       // and rebuild the style every frame.
       if(std::fabs(s - uiUserScale) < USER_SCALE_STEP * 0.5f)
+      {
           return;
+      }
 
       uiUserScale      = s;
       uiUserScaleDirty = true;
