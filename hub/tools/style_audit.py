@@ -412,7 +412,11 @@ LAYERS = {
     # vocabulary without the SDK - that is what makes it host-testable, and
     # dfplayer_proto.hxx exists precisely so its checksum can be exercised off
     # the bench. dfplayer_proto.hxx because the transport half includes it.
-    'firmware/lib/drivers':  {'../hal.hxx', '../types.hxx',
+    # ../pins.hxx: a driver reads the pin map it was WIRED with rather than
+    # holding pad numbers of its own, so tft::open() asks pins::active()
+    # where the panel is. That is a downward read of a declaration, not a
+    # driver reaching at another driver.
+    'firmware/lib/drivers':  {'../hal.hxx', '../types.hxx', '../pins.hxx',
                               'dfplayer_proto.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
@@ -595,7 +599,10 @@ for path in files:
             # serial::printf CONTAINS printf, so without it every corrected
             # call site reported itself as the thing it had just been corrected
             # from - the rule accusing its own fix.
-            if re.search(r'(?<![A-Za-z0-9_:])' + name + r'\s*\(', line):
+            # `.` and `>` join the lookbehind for the same reason `:` did:
+            # gfx::Canvas has a printf METHOD, and `c.printf(...)` is the
+            # library being used correctly, not libc being reached for.
+            if re.search(r'(?<![A-Za-z0-9_:.>])' + name + r'\s*\(', line):
                 print('  %-22s %5d  %s( -> use %s('
                       % (os.path.basename(path), i + 1, name, instead))
                 libc_bad += 1

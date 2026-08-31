@@ -60,9 +60,10 @@ using namespace bibo;
 #define SCREEN_YOFF  20
 #define SAFE_INSET   14
 
-/* ---- the bus ------------------------------------------------------------- */
-#define PIN_SDA      4
-#define PIN_SCL      5
+/* ---- the bus -------------------------------------------------------------
+ *
+ * The PADS are not here any more - they come from the map this program installs
+ * in main(). Only the speed is a property of this sketch. */
 #define I2C_HZ       400000u     /* the sensor is happy at 400 kHz */
 
 /* Full scale for the bar, in millimetres. 2 m is a useful indoor span: far
@@ -83,18 +84,62 @@ int main(Void)
 {
     serial::open();
 
-    tft::Screen screen;
-    gfx::open(&screen, SCREEN_W, SCREEN_H, SCREEN_XOFF, SCREEN_YOFF);
-    gfx::safeInset(&screen, SAFE_INSET);
+    /* ===================================================================== 1
+     * DECLARE - what is wired where.
+     *
+     * Before anything is opened, because every driver below reads the
+     * installed map rather than holding pin numbers. The map starts empty, so a
+     * program that skips this opens a display on nothing and looks broken in a
+     * way that has no obvious cause.
+     *
+     * This sketch borrows the car's pads for the bus and the panel, so it
+     * starts from car() and changes nothing. A sketch that wanted the panel
+     * somewhere else would set five fields here and no driver would notice.
+     * ================================================================== */
+    pins::Map wiring = pins::car();
 
-    const Int32 left  = gfx::safeLeft(&screen);
-    const Int32 right = gfx::safeRight(&screen);
-    const Int32 wide  = gfx::safeWidth(&screen);
+    if(!pins::begin(wiring))
+    {
+        serial::printf("ERR pins %s and %s both want GP%d\n",
+                       pins::conflictFirst(),
+                       pins::conflictSecond(),
+                       pins::conflictPin());
+        return 1;
+    }
 
-    const Bool haveBus = i2c::open(PIN_SDA, PIN_SCL, I2C_HZ);
+    /* ===================================================================== 2
+     * BIND - hand the low-level parts to the high-level ones.
+     *
+     * tft::Screen is the panel. gfx does not own one and never opens one; it
+     * DRAWS ONTO a Canvas, which is handed the panel once at open() and owns the
+     * back buffer, the clip and the text state from then on. Same for the
+     * sensor: tof::Vl53 is the device, i2c is the bus it
+     * sits on, and the bus is opened before the device that needs it.
+     * ================================================================== */
+    tft::Screen panel;      /* the hardware: size, pins, the glass  */
+    gfx::Canvas screen;     /* what you draw on: buffer, clip, text */
+
+    gfx::Canvas c = gfx::open(&panel, { SCREEN_W, SCREEN_H, SCREEN_XOFF, SCREEN_YOFF });
+    c.safeInset(SAFE_INSET);
+
+    const gfx::Box safe = c.safe();
+    const Int32 left  = safe.x;
+    const Int32 right = safe.x + safe.w;
+    const Int32 wide  = safe.w;
+
+    /* The four appearances this screen uses, named once. */
+    const gfx::Paint TITLE { GFX_ORANGE,   GFX_BLACK, false, 2 };
+    const gfx::Paint ALERT { GFX_RED,      GFX_BLACK, false, 1 };
+    const gfx::Paint MUTED { GFX_GREY,     GFX_BLACK, false, 1 };
+    const gfx::Paint FAINT { GFX_DARKGREY, GFX_BLACK, false, 1 };
+
+    const Bool haveBus = i2c::open(pins::active().i2cSda,
+                                   pins::active().i2cScl, I2C_HZ);
 
     tof::Vl53 tof;
-    const Bool haveTof = haveBus && tof::open(&tof, PIN_SDA, VL53_ADDR_DEFAULT);
+    const Bool haveTof = haveBus
+                      && tof::open(&tof, pins::active().i2cSda,
+                                   VL53_ADDR_DEFAULT);
 
     if(haveTof)
     {
@@ -137,39 +182,27 @@ int main(Void)
             }
         }
 
-        gfx::clear(&screen, GFX_NAVY);
+        Int32 y = safe.y;
 
-        Int32 y = gfx::safeTop(&screen);
-
-        gfx::textTransparent(&screen);
-        gfx::textColour(&screen, GFX_ORANGE);
-        gfx::textSize(&screen, 2);
-        gfx::textAt(&screen, left, y, "RANGE");
+        c.clear(GFX_NAVY)
+         .text({ left, y }, "RANGE", TITLE);
         y += 26;
 
         if(!haveBus)
         {
-            gfx::textSize(&screen, 1);
-            gfx::textColour(&screen, GFX_RED);
-            gfx::textAt(&screen, left, y, "I2C PINS NOT A PAIR");
-            gfx::present(&screen);
+            c.text({ left, y }, "I2C PINS NOT A PAIR", ALERT)
+             .present();
             timing::ms(1000);
             continue;
         }
 
         if(!haveTof)
         {
-            gfx::textSize(&screen, 1);
-            gfx::textColour(&screen, GFX_RED);
-            gfx::textAt(&screen, left, y, "NO VL53L1X AT 0X29");
-            y += 20;
-            gfx::textColour(&screen, GFX_GREY);
-            gfx::textAt(&screen, left, y, "SDA GP4  SCL GP5");
-            y += 14;
-            gfx::textAt(&screen, left, y, "VIN TO 3V3, GND TO GND");
-            y += 14;
-            gfx::textAt(&screen, left, y, "RUN THE I2C SCAN FIRST");
-            gfx::present(&screen);
+            c.text({ left, y },      "NO VL53L1X AT 0X29",     ALERT)
+             .text({ left, y + 20 }, "SDA GP4  SCL GP5",       MUTED)
+             .text({ left, y + 34 }, "VIN TO 3V3, GND TO GND", MUTED)
+             .text({ left, y + 48 }, "RUN THE I2C SCAN FIRST", MUTED)
+             .present();
             timing::ms(1000);
             continue;
         }
@@ -177,42 +210,36 @@ int main(Void)
         /* ---- the number -------------------------------------------------- */
         const Bool good = (status == 0);
 
-        gfx::textColour(&screen, good ? GFX_WHITE : GFX_DARKGREY);
-        gfx::textSize(&screen, 4);
-        gfx::cursor(&screen, left, y);
+        const gfx::Paint BIG { good ? GFX_WHITE : GFX_DARKGREY, GFX_BLACK, false, 4 };
         if(good)
         {
-            gfx::printf(&screen, "%u", mm);
+            c.printf({ left, y }, BIG, "%u", mm);
         }
         else
         {
-            gfx::print(&screen, "----");
+            c.text({ left, y }, "----", BIG);
         }
         y += 36;
 
-        gfx::textSize(&screen, 1);
-        gfx::textColour(&screen, GFX_GREY);
-        gfx::textAt(&screen, left, y, "MM");
+        c.text({ left, y }, "MM", MUTED);
         y += 18;
 
-        gfx::textSize(&screen, 2);
-        gfx::textColour(&screen, good ? GFX_CYAN : GFX_DARKGREY);
-        gfx::cursor(&screen, left, y);
+        const gfx::Paint METRES { good ? GFX_CYAN : GFX_DARKGREY, GFX_BLACK, false, 2 };
         if(good)
         {
             /* One decimal, done in integers - a float here would pull in the
              * whole soft-float formatting path for one number. */
-            gfx::printf(&screen, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
+            c.printf({ left, y }, METRES, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
         }
         else
         {
-            gfx::print(&screen, "--.-- M");
+            c.text({ left, y }, "--.-- M", METRES);
         }
         y += 30;
 
         /* ---- the bar ----------------------------------------------------- */
         const Int32 barH = 16;
-        gfx::rect(&screen, left, y, wide, barH, GFX_DARKGREY);
+        c.rect({ left, y, wide, barH }, GFX_DARKGREY);
 
         if(good)
         {
@@ -225,41 +252,35 @@ int main(Void)
 
             /* Green far, amber near, red very near - the colours a bumper
              * wants, so the same view is useful once this is on the car. */
-            const UInt16 c = (mm < 150) ? GFX_RED
+            const UInt16 bar = (mm < 150) ? GFX_RED
                            : (mm < 400) ? GFX_ORANGE
                            : GFX_GREEN;
-            gfx::rectFill(&screen, left + 1, y + 1, fill, barH - 2, c);
+            c.rectFill({ left + 1, y + 1, fill, barH - 2 }, bar);
         }
         y += barH + 6;
 
-        gfx::textSize(&screen, 1);
-        gfx::textColour(&screen, GFX_DARKGREY);
-        gfx::textAt(&screen, left, y, "0");
-        gfx::textAligned(&screen, right, y, "2 M", gfx::ALIGN_RIGHT);
+        c.text({ left, y },  "0",   FAINT)
+         .text({ right, y }, "2 M", FAINT, gfx::ALIGN_RIGHT);
         y += 22;
 
         /* ---- status ------------------------------------------------------ */
-        gfx::textColour(&screen, good ? GFX_GREEN : GFX_YELLOW);
-        gfx::textAt(&screen, left, y, tof::statusName(status));
+        const gfx::Paint STATUS { good ? GFX_GREEN : GFX_YELLOW, GFX_BLACK, false, 1 };
+        c.text({ left, y }, tof::statusName(status), STATUS);
         y += 20;
 
         /* ---- what it has managed so far ---------------------------------- */
-        gfx::textColour(&screen, GFX_GREY);
-        gfx::cursor(&screen, left, y);
         if(seenMax > 0)
         {
-            gfx::printf(&screen, "SEEN %u - %u MM", seenMin, seenMax);
+            c.printf({ left, y }, MUTED, "SEEN %u - %u MM", seenMin, seenMax);
         }
         else
         {
-            gfx::print(&screen, "SEEN NOTHING YET");
+            c.text({ left, y }, "SEEN NOTHING YET", MUTED);
         }
         y += 14;
 
-        gfx::cursor(&screen, left, y);
-        gfx::printf(&screen, "%u READS", reads);
-
-        gfx::present(&screen);
+        c.printf({ left, y }, MUTED, "%u READS", reads)
+         .present();
 
         /* ~20 fps. The sensor's own measurement takes longer than this, so
          * polling faster would only burn power to be told "not yet". */

@@ -32,10 +32,17 @@
  *                        headlight flash. Decides; lights emits.
  *   net.hxx              net:: - the same command link, over Wi-Fi.
  *
- *   drivers/display.hxx  tft:: - an ST7789 / ST7735 panel over SPI. Owns a
- *                        tft::Screen.
- *   gfx.hxx              gfx:: - drawing INTO a tft::Screen. Knows shapes, not
- *                        panels.
+ *   drivers/display.hxx  tft:: - an ST7789 / ST7735 panel over SPI. THE PANEL:
+ *                        its size, its pads, and the things that are true of
+ *                        glass - inversion, sleep, backlight brightness. Owns
+ *                        a tft::Screen and nothing about drawing.
+ *   gfx.hxx              gfx:: - the 2D layer. gfx::open() is handed a panel
+ *                        and returns a gfx::Canvas, which owns the back
+ *                        buffer, the clip and the text state, and which every
+ *                        shape is drawn onto. Knows shapes, not panels.
+ *
+ *                        Use gfx to draw a frame; reach for tft when you want
+ *                        the hardware itself.
  *   drivers/range.hxx    tof:: - a VL53L1X time-of-flight sensor over I2C.
  *   drivers/storage.hxx  sd:: - an SD card over SPI.
  *
