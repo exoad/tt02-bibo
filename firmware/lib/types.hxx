@@ -47,36 +47,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <math.h>
+/* <cstdint> and <cstddef>, not <stdint.h> and <stddef.h>: this is C++ and the
+ * counterpart vocabulary in shared/shared.hxx has always said so. <stdbool.h>
+ * was here too and is a no-op - bool is a keyword. */
+#include <cstddef>
+#include <cstdint>
 
-typedef int32_t Int32;
-typedef int64_t Int64;
-typedef uint32_t UInt32;
-typedef uint64_t UInt64;
-typedef int8_t Int8;
-typedef uint8_t UInt8;
-typedef char Utf8;
-typedef uintptr_t UPtr;
-typedef size_t Size;
-typedef float Float32;
-typedef double Float64;
-typedef int16_t Int16;
-typedef uint16_t UInt16;
-typedef void Void;
-typedef FILE CFile;
-typedef bool Bool;
-typedef Void* Any;
+/* ---- integers ------------------------------------------------------------ */
+using Int8    = std::int8_t;
+using Int16   = std::int16_t;
+using Int32   = std::int32_t;
+using Int64   = std::int64_t;
 
-#define CharSeq const Utf8*
-#define CharSeq16 const Utf16*
-#define CharSeq32 const Utf32*
+using UInt8   = std::uint8_t;
+using UInt16  = std::uint16_t;
+using UInt32  = std::uint32_t;
+using UInt64  = std::uint64_t;
 
-/* ---- local addition, see the note at the top of this file ---------------- */
-typedef uint16_t Utf16;
-typedef uint32_t Utf32;
+using Size    = std::size_t;
+using UPtr    = std::uintptr_t;
+
+/* ---- floating point ------------------------------------------------------ */
+using Float32 = float;
+using Float64 = double;
+
+/* ---- other fundamentals -------------------------------------------------- */
+using Bool    = bool;
+using Void    = void;
+
+/* ---- text ----------------------------------------------------------------
+ *
+ * CharSeq is a borrowed, NUL-terminated pointer. It is a `using` and no longer
+ * a #define, which matters: shared.hxx has always spelled it as an alias, and
+ * a macro and an alias disagree the moment anyone writes `const CharSeq` -
+ * the macro producing `const const Utf8*`, which does not compile, and the
+ * alias producing `Utf8* const`, which does and means something else.
+ *
+ * Utf16 and Utf32 are declared BEFORE the sequences built from them. As macros
+ * the order did not matter, because a macro body is not looked at until it is
+ * used. An alias is.
+ */
+using Utf8      = char;
+using Utf16     = std::uint16_t;
+using Utf32     = std::uint32_t;
+
+using CharSeq   = const Utf8*;
+using CharSeq16 = const Utf16*;
+using CharSeq32 = const Utf32*;
 
 /*
  * A macro's VALUE as a string literal.
