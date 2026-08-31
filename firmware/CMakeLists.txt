@@ -89,6 +89,7 @@ set(BIBO_LIB
     lib/geom.hxx
     lib/kinematics.hxx
     lib/pursuit.hxx
+    lib/plan.hxx
     lib/control.hxx
     lib/text.hxx
     lib/hal.hxx

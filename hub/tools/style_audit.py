@@ -474,6 +474,9 @@ LAYER_EXTRA = {
     'firmware/lib/geom.hxx': {'types.hxx'},
     'firmware/lib/kinematics.hxx': {'geom.hxx'},
     'firmware/lib/pursuit.hxx': {'geom.hxx', 'kinematics.hxx'},
+    # plan sits above pursuit - it caps the speed on the arc pursuit chose, so
+    # it names the file that computes the curvature rather than recomputing it.
+    'firmware/lib/plan.hxx': {'geom.hxx', 'pursuit.hxx'},
     'firmware/lib/chassis/odom.hxx': {'../types.hxx'},
     # sound.hxx owns the speaker and names what comes out of it, so it reaches
     # down to the driver and sideways to the clip table and the pin map. The
@@ -492,6 +495,7 @@ LAYER_EXTRA = {
                             'pins.hxx', 'sfx.hxx', 'sound.hxx', 'boot.hxx',
                             'control.hxx', 'chassis/odom.hxx',
                             'geom.hxx', 'kinematics.hxx', 'pursuit.hxx',
+                            'plan.hxx',
                             'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
@@ -767,7 +771,12 @@ print('\n--- enum member prefixes ---')
 # references across six files, two of which (pins.hxx, sketches/speaker.cxx)
 # are being written right now. It is a rename to do when that lands, not
 # during.
-ENUM_WAIVED = {'Lamp': 'speaker work in flight - 64 refs across 6 files'}
+# Empty, and that is the point of having printed it. Lamp was the one enum in
+# the tree whose members did not carry their enum's name, waived on 2026-08-31
+# because the speaker work was mid-flight across the same files. It landed, so
+# the rename happened and the waiver came out with it. A waiver that is never
+# revisited is just a rule with an exception nobody remembers agreeing to.
+ENUM_WAIVED = {}
 
 
 def screamingOf(name):

@@ -46,11 +46,21 @@ namespace bibo
 
     /* ---- the three numbers that turn ticks into metres --------------------
      *
-     * MEASURED, NOT LOOKED UP, when the time comes. A TT-02's rolling diameter
-     * depends on the tyre, the foam insert and how much the car weighs, and the
-     * difference between a catalogue number and the real one is a map that
-     * drifts a few percent per lap - which looks exactly like bad odometry
-     * rather than a wrong constant. */
+     * A VALUE, NOT A #define, and that is the point of this block.
+     *
+     * They were defines, which meant tuning them was a rebuild and a reflash.
+     * These are numbers you find by rolling the car across a floor with a tape
+     * measure - the loop is measure, adjust, measure again - and a loop with a
+     * two-minute build in it is a loop nobody runs twice. Now a sketch or the
+     * console can set them and read the answer back immediately.
+     *
+     * The defines remain as the DEFAULTS, so a program that configures nothing
+     * still behaves exactly as before.
+     *
+     * MEASURED, NOT LOOKED UP. A TT-02's rolling diameter depends on the tyre,
+     * the foam insert and how much the car weighs, and the difference between a
+     * catalogue number and the real one is a map that drifts a few percent per
+     * lap - which looks like bad odometry rather than a wrong constant. */
 
     /* Rolling diameter in millimetres. 64 is the stock TT-02 touring tyre as a
      * PLACEHOLDER; roll the car a measured distance and divide. */
@@ -65,21 +75,51 @@ namespace bibo
      * changes with the pinion. */
     #define ODOM_GEAR_RATIO 1.0f
 
-    /* Set once the three above are real. Until then every reading is
-     * proportional to the truth and calibrated() says so. */
-    #define ODOM_CALIBRATED 0
+    struct Config
+    {
+        Float32 wheelMm     = ODOM_WHEEL_MM;
+        Float32 ticksPerRev = ODOM_TICKS_PER_REV;
+        Float32 gearRatio   = ODOM_GEAR_RATIO;
+
+        /* Set this yourself once the three above are MEASURED rather than
+         * guessed. Nothing can work it out for you - a number is not more true
+         * for having been typed in - so it is a claim the person who measured
+         * makes, and calibrated() only ever repeats it. */
+        Bool    measured    = false;
+    };
+
+    static Config tuning;
+
+    /* Rejects anything that would make metresPerTick meaningless. A zero wheel
+     * or zero ticks-per-rev divides by zero and every distance afterwards is
+     * inf, which propagates into the pose and is then very hard to trace back
+     * to a setter that quietly accepted a bad value. */
+    static Bool configure(const Config& c)
+    {
+        if(c.wheelMm <= 0.0f || c.ticksPerRev <= 0.0f || c.gearRatio <= 0.0f)
+        {
+            return false;
+        }
+        tuning = c;
+        return true;
+    }
+
+    static const Config& config(Void)
+    {
+        return tuning;
+    }
 
     static Bool calibrated(Void)
     {
-        return ODOM_CALIBRATED != 0;
+        return tuning.measured;
     }
 
     /* Metres of travel per tick. One multiply at the call site instead of a
      * division, and one place that knows the geometry. */
     static Float32 metresPerTick(Void)
     {
-        const Float32 circumference = 3.14159265f * (ODOM_WHEEL_MM / 1000.0f);
-        return circumference / (ODOM_TICKS_PER_REV * ODOM_GEAR_RATIO);
+        const Float32 circumference = 3.14159265f * (tuning.wheelMm / 1000.0f);
+        return circumference / (tuning.ticksPerRev * tuning.gearRatio);
     }
 
     /* ---- state ------------------------------------------------------------
@@ -88,7 +128,7 @@ namespace bibo
      * and read here. It is the one field that changes underneath this code,
      * which is why it is the only one marked volatile and why nothing in this
      * file does arithmetic on it twice in a row without copying it first. */
-    typedef struct Wheel
+    struct Wheel
     {
         volatile UInt32 ticks = 0u;
 
@@ -96,14 +136,14 @@ namespace bibo
         UInt64  lastUs    = 0u;
         Float32 speed     = 0.0f;   /* metres per second, filtered */
         Bool    primed    = false;
-    } Wheel;
+    };
 
     /* Called by the counter. Deliberately the smallest thing in this file: an
      * interrupt handler that does more than increment is an interrupt handler
      * that will one day be blamed for a servo glitch. */
     static Void tick(Wheel* w)
     {
-        if(w != NULL)
+        if(w != nullptr)
         {
             w->ticks = w->ticks + 1u;
         }
@@ -111,7 +151,7 @@ namespace bibo
 
     static Void reset(Wheel* w, UInt64 nowUs)
     {
-        if(w == NULL)
+        if(w == nullptr)
         {
             return;
         }
@@ -125,7 +165,7 @@ namespace bibo
     /* Total distance since the last reset. */
     static Float32 distance(const Wheel* w)
     {
-        if(w == NULL)
+        if(w == nullptr)
         {
             return 0.0f;
         }
@@ -148,7 +188,7 @@ namespace bibo
      * this is the one for a control loop. */
     static Float32 update(Wheel* w, UInt64 nowUs, Float32 tauS)
     {
-        if(w == NULL)
+        if(w == nullptr)
         {
             return 0.0f;
         }
@@ -199,7 +239,7 @@ namespace bibo
 
     static Float32 speed(const Wheel* w)
     {
-        return (w != NULL) ? w->speed : 0.0f;
+        return (w != nullptr) ? w->speed : 0.0f;
     }
 
   } /* namespace odom */
