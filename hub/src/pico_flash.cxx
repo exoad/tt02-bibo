@@ -459,7 +459,7 @@ Void PicoFlash::refreshCatalog()
         // The build field names the board ("pico2_w" / "pico2") or is "no".
         // "yes" and "true" are the old spelling, from when there was only one
         // board, and still mean the W.
-        Str field[5];
+        Array<Str, 5> field;
         Int32         n     = 0;
         Size      start = 0;
         for(Size i = 0; i <= s.size() && n < 5; ++i)

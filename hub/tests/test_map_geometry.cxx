@@ -183,7 +183,8 @@ namespace
       }
 
       // A car 190 mm wide -> 95 mm half-width.
-      mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 95.0f, out.data());
+      mapgeo::computeReach(mapgeo::PolarScan{ clr.data(), seen.data(), BINS, STEP },
+                           95.0f, out.data());
 
       // In an open circular room the centre can get to within halfW of the wall,
       // and no further. sqrt(3000^2 - 95^2) - ... is not the answer; the binding
@@ -205,13 +206,15 @@ namespace
           clr[1] = r;               // + side
           clr[BINS - 1] = r;        // - side
       }
-      mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 95.0f, out.data());
+      mapgeo::computeReach(mapgeo::PolarScan{ clr.data(), seen.data(), BINS, STEP },
+                           95.0f, out.data());
       check(out[0] < 1100.0f, "a 150 mm slot blocks a 190 mm car");
       std::printf("        reach through the slot = %.0f mm\n",
                   static_cast<Float64>(out[0]));
 
       // A narrow car fits through the same slot.
-      mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 40.0f, out.data());
+      mapgeo::computeReach(mapgeo::PolarScan{ clr.data(), seen.data(), BINS, STEP },
+                           40.0f, out.data());
       check(out[0] > 2000.0f, "an 80 mm car passes the same slot");
       std::printf("        reach for the narrow car = %.0f mm\n",
                   static_cast<Float64>(out[0]));
@@ -219,7 +222,8 @@ namespace
       // Reach can never exceed the raw clearance on its own bearing.
       for(Int32 i = 0; i < BINS; ++i) { clr[i] = 500.0f + static_cast<Float32>(i) * 20.0f;
                                         seen[i] = true; }
-      mapgeo::computeReach(clr.data(), seen.data(), BINS, STEP, 95.0f, out.data());
+      mapgeo::computeReach(mapgeo::PolarScan{ clr.data(), seen.data(), BINS, STEP },
+                           95.0f, out.data());
       Bool bounded = true;
       for(Int32 i = 0; i < BINS; ++i)
           if(out[i] > clr[i] + 0.5f)
@@ -234,8 +238,16 @@ namespace
       constexpr Int32   BINS = 120;
       constexpr Float32 STEP = 360.0f / static_cast<Float32>(BINS);
 
-      Float32 ref[BINS], cur[BINS];
-      Bool    refSeen[BINS], curSeen[BINS];
+      Array<Float32, BINS> ref;
+      Array<Float32, BINS> cur;
+      Array<Bool, BINS>    refSeen;
+      Array<Bool, BINS>    curSeen;
+
+      const auto scanOf = [](const Array<Float32, BINS>& r,
+                             const Array<Bool, BINS>& seen)
+      {
+          return mapgeo::PolarScan{ r.data(), seen.data(), BINS, STEP };
+      };
 
       // An asymmetric room: a long wall one way, a short one the other, so the
       // profile actually identifies a direction.
@@ -255,7 +267,7 @@ namespace
       }
 
       Float32 deg = 0.0f, score = 0.0f;
-      check(mapgeo::estimateHeading(ref, refSeen, cur, curSeen, BINS, STEP, deg, score),
+      check(mapgeo::estimateHeading(scanOf(ref, refSeen), scanOf(cur, curSeen), deg, score),
             "a shifted profile is matched");
       checkNear(deg, static_cast<Float32>(SHIFT) * STEP, 0.6f, "recovered angle");
       check(score > 0.3f, "and it is confident about it");
@@ -263,8 +275,8 @@ namespace
 
       // Zero shift must come back as zero, not as 360.
       Float32 d0 = 0.0f, s0 = 0.0f;
-      static_cast<Void>(mapgeo::estimateHeading(ref, refSeen, ref, refSeen,
-                                                BINS, STEP, d0, s0));
+      static_cast<Void>(mapgeo::estimateHeading(scanOf(ref, refSeen),
+                                                scanOf(ref, refSeen), d0, s0));
       check(d0 < 1.0f || d0 > 359.0f, "an unrotated profile reads as zero");
 
       // SUB-BIN. Rotating by half a bin must not quantise to a whole one - the
@@ -277,8 +289,8 @@ namespace
           curSeen[i] = true;
       }
       Float32 dh = 0.0f, sh = 0.0f;
-      static_cast<Void>(mapgeo::estimateHeading(ref, refSeen, cur, curSeen,
-                                                BINS, STEP, dh, sh));
+      static_cast<Void>(mapgeo::estimateHeading(scanOf(ref, refSeen),
+                                                scanOf(cur, curSeen), dh, sh));
       checkNear(dh, 10.5f * STEP, 1.2f, "half-bin rotation resolved below a bin");
 
       // THE FAILURE CASE THAT MATTERS. A circular room is the same from every
@@ -290,8 +302,8 @@ namespace
           cur[i] = 2500.0f; curSeen[i] = true;
       }
       Float32 dc = 0.0f, sc = 1.0f;
-      static_cast<Void>(mapgeo::estimateHeading(ref, refSeen, cur, curSeen,
-                                                BINS, STEP, dc, sc));
+      static_cast<Void>(mapgeo::estimateHeading(scanOf(ref, refSeen),
+                                                scanOf(cur, curSeen), dc, sc));
       check(sc < 0.05f, "a circular room scores ~0: no direction to find");
       std::printf("        score %.3f\n", static_cast<Float64>(sc));
 
@@ -302,7 +314,7 @@ namespace
           curSeen[i] = false;
       }
       Float32 dn = 0.0f, sn = 0.0f;
-      check(!mapgeo::estimateHeading(ref, refSeen, cur, curSeen, BINS, STEP, dn, sn),
+      check(!mapgeo::estimateHeading(scanOf(ref, refSeen), scanOf(cur, curSeen), dn, sn),
             "no overlapping evidence returns false");
   }
 

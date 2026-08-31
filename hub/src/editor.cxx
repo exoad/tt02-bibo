@@ -1701,7 +1701,7 @@ namespace ed
       const Char delim = spec[i];
       ++i;
 
-      Str parts[3];
+      Array<Str, 3> parts;
       Int32 which = 0;
       for(; i < spec.size() && which < 3; ++i)
       {

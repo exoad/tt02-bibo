@@ -63,9 +63,9 @@ namespace scene3d
     // ---------------------------------------------------------------------------
     // Vector helpers
     // ---------------------------------------------------------------------------
-  Vec3 sub(const Vec3& a, const Vec3& b) { return Vec3{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z }; }
-  Vec3 add(const Vec3& a, const Vec3& b) { return Vec3{ a.x + b.x, a.y + b.y, a.z + b.z }; }
-  Vec3 mul(const Vec3& a, Float32 k)     { return Vec3{ a.x * k, a.y * k, a.z * k }; }
+    Vec3 sub(const Vec3& a, const Vec3& b) { return Vec3{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z }; }
+    Vec3 add(const Vec3& a, const Vec3& b) { return Vec3{ a.x + b.x, a.y + b.y, a.z + b.z }; }
+    Vec3 mul(const Vec3& a, Float32 k)     { return Vec3{ a.x * k, a.y * k, a.z * k }; }
     Float32 dot(const Vec3& a, const Vec3& b)
     {
         return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -156,13 +156,13 @@ namespace scene3d
         const Float32 zn = v.nearMm, zf = v.farMm;
         const Float32 q  = zf / (zf - zn);
 
-        const Float32 view[16] = {
+        const Array<Float32, 16> view = {
             v.right.x, v.up.x, v.fwd.x, 0.0f,
             v.right.y, v.up.y, v.fwd.y, 0.0f,
             v.right.z, v.up.z, v.fwd.z, 0.0f,
             -dot(v.eye, v.right), -dot(v.eye, v.up), -dot(v.eye, v.fwd), 1.0f,
         };
-        const Float32 proj[16] = {
+        const Array<Float32, 16> proj = {
             xs,   0.0f, 0.0f,     0.0f,
             0.0f, ys,   0.0f,     0.0f,
             0.0f, 0.0f, q,        1.0f,
@@ -180,7 +180,7 @@ namespace scene3d
         // about +z, so undoing it - putting the world back where it was - is +d.
         const Float32 wy = worldYawDeg * (PI_F / 180.0f);
         const Float32 cw = std::cos(wy), sw = std::sin(wy);
-        const Float32 model[16] = {
+        const Array<Float32, 16> model = {
              cw,   sw,   0.0f, 0.0f,
             -sw,   cw,   0.0f, 0.0f,
              0.0f, 0.0f, 1.0f, 0.0f,
@@ -487,10 +487,10 @@ namespace scene3d
         const Float32 k = std::min(std::min(hl, hw) * 0.45f, 90.0f);
 
         // Eight corners, going round the plan.
-        const Float32 ol[8] = {  hl - k,  hl,      hl,     hl - k,
-                                -hl + k, -hl,     -hl,    -hl + k };
-        const Float32 ow[8] = { -hw,     -hw + k,  hw - k, hw,
-                                 hw,      hw - k, -hw + k, -hw };
+        const Array<Float32, 8> ol = {  hl - k,  hl,      hl,     hl - k,
+                                       -hl + k, -hl,     -hl,    -hl + k };
+        const Array<Float32, 8> ow = { -hw,     -hw + k,  hw - k, hw,
+                                        hw,      hw - k, -hw + k, -hw };
 
         Vec3 lo[8], hi[8];
         for(Int32 i = 0; i < 8; ++i)
@@ -610,7 +610,7 @@ namespace scene3d
     // anyway. This is a schematic, and `body` / `wheel-*` / `spoiler` is exactly the
     // distinction a schematic wants.
     // ---------------------------------------------------------------------------
-  enum CarPart { CAR_PART_BODY = 0, CAR_PART_WHEEL, CAR_PART_SPOILER, CAR_PART_COUNT };
+    enum CarPart { CAR_PART_BODY = 0, CAR_PART_WHEEL, CAR_PART_SPOILER, CAR_PART_COUNT };
 
     struct CarTri
     {

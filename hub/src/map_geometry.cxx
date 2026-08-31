@@ -83,8 +83,13 @@ namespace mapgeo
       }
   }
 
-  Void computeReach(const Float32* clr, const Bool* seen, Int32 bins, Float32 binDeg, Float32 halfW, Float32* out)
+  Void computeReach(const PolarScan& in, Float32 halfW, Float32* out)
   {
+      const Float32* clr    = in.r;
+      const Bool*    seen   = in.seen;
+      const Int32    bins   = in.bins;
+      const Float32  binDeg = in.binDeg;
+
       // Beyond this offset nothing in spec can block: at 72 deg the perpendicular
       // offset of anything further than ~halfW/sin(72) already clears the disc.
       const Int32 win = std::min(bins / 2, 24);
@@ -122,13 +127,31 @@ namespace mapgeo
       }
   }
 
-  Bool estimateHeading(const Float32* ref, const Bool* refSeen, const Float32* cur, const Bool* curSeen, Int32 bins, Float32 binDeg, Float32& outDeg, Float32& outScore)
+  Bool estimateHeading(const PolarScan& refScan, const PolarScan& curScan, Float32& outDeg, Float32& outScore)
   {
       outDeg   = 0.0f;
       outScore = 0.0f;
 
-      if(ref == nullptr || cur == nullptr || bins < 8)
+      const Float32* ref     = refScan.r;
+      const Bool*    refSeen = refScan.seen;
+      const Float32* cur     = curScan.r;
+      const Bool*    curSeen = curScan.seen;
+      const Int32    bins    = refScan.bins;
+      const Float32  binDeg  = refScan.binDeg;
+
+      if(ref == nullptr || cur == nullptr || refSeen == nullptr
+         || curSeen == nullptr || bins < 8)
+      {
           return false;
+      }
+
+      // Two profiles of different shapes cannot be correlated bin against
+      // bin, and silently using the reference's count would read past the end
+      // of the shorter one.
+      if(curScan.bins != bins || curScan.binDeg != binDeg)
+      {
+          return false;
+      }
 
       // Cost per candidate shift: mean absolute difference over the bearings both
       // profiles actually have evidence for. Bins either side has never seen

@@ -603,6 +603,52 @@ if libc_bad == 0:
     print('  ok')
 total += libc_bad
 
+print('\n--- raw C arrays ---')
+# `T name[N]` where T is OURS. Array<T, N> carries its length; a raw array
+# decays to a pointer at the first call and the length becomes something the
+# caller has to know by other means.
+#
+# THE CARVE-OUT IS THE ELEMENT TYPE, and it is the same seam every other rule
+# here draws. `BYTE data[512]` handed to RegEnumValueA, `WCHAR wide[MAX_PATH]`
+# to GetModuleFileNameW, `D3D11_INPUT_ELEMENT_DESC elems[]` to
+# CreateInputLayout - those are somebody else's buffers in somebody else's
+# shapes, and shared.hxx is explicit that we do not dress up a third-party API
+# to look like ours. An array of OUR types has no such excuse.
+#
+# firmware/ is exempt entirely: it is freestanding, there is no <array>, and
+# there is nothing to convert to.
+#
+# This rule went in after the fact, and the first thing it found was three
+# `Char cmd[48]` buffers added to app_ui.cxx by work that landed AFTER the
+# conversion pass - which is exactly the argument for having it: a one-off
+# sweep fixes a tree once, and a check keeps it fixed.
+ARRAY_ELEM_OURS = re.compile(
+    r'^\s*(?:static\s+|const\s+|constexpr\s+|inline\s+|mutable\s+)*'
+    r'(?:const\s+)?'
+    r'(Char|Utf8|Bool|Size|Str|StrView|Int8|Int16|Int32|Int64'
+    r'|UInt8|UInt16|UInt32|UInt64|Float32|Float64)'
+    r'\s*\**\s+[A-Za-z_]\w*\s*\[[^\]]*\]\s*(?:=|;|,)')
+NOT_A_DECL = re.compile(r'^\s*(?:return|if|for|while|switch|else|case|delete)\b')
+
+raw_arrays = 0
+for path in files:
+    if '/firmware/' in path.replace('\\', '/'):
+        continue
+    code = strip_noise(rd(path)).split('\n')
+    raw = rd(path).split('\n')
+    for i, l in enumerate(code):
+        if 'Array<' in l or NOT_A_DECL.match(l):
+            continue
+        if ARRAY_ELEM_OURS.match(l):
+            print('  %-24s %5d  %s'
+                  % (os.path.basename(path), i + 1,
+                     (raw[i] if i < len(raw) else '').strip()[:60]))
+            raw_arrays += 1
+
+if raw_arrays == 0:
+    print('  ok')
+total += raw_arrays
+
 print('\n--- signatures over 100 columns ---')
 # A RATCHET, not a rule.
 #
@@ -620,7 +666,7 @@ print('\n--- signatures over 100 columns ---')
 # 2026-08-30 moved every line inside a namespace two to the right, which pushed
 # borderline signatures over. That is a real cost of that change and is
 # recorded here rather than absorbed quietly.
-SIG_BUDGET = 41
+SIG_BUDGET = 39
 
 SIGNATURE = re.compile(
     r'^\s*(?:\[\[nodiscard\]\]\s*)?'
@@ -776,6 +822,28 @@ for path in files:
                              len(m.group('ind')), len(want)))
                     ns_bad_layout += 1
                 pending = True
+
+        # And the BODY, which the check above cannot see: every line inside N
+        # namespaces starts at column 2N or deeper.
+        #
+        # This is here because the reindent that introduced the rule got 30
+        # lines wrong and nothing noticed. It decided a line closed its
+        # namespace by counting `}`, which is true for `} // namespace ui` and
+        # false for `struct WorldPt { Float32 x, y; };` - one brace pair on one
+        # line, opening and closing itself, left sitting at column 0.
+        stripped = line.strip()
+        level = len(ns_stack)
+        closes, opens = c.count('}'), c.count('{')
+        if closes and ns_stack and c.strip().startswith('}') \
+                and (depth - closes + opens) <= ns_stack[-1]:
+            level -= 1
+        if stripped and not stripped.startswith('#') and level > 0:
+            indent = len(line) - len(line.lstrip())
+            if indent < 2 * level:
+                print('  %-26s %5d  indent %d, want at least %d'
+                      % (os.path.basename(path), i + 1, indent, 2 * level))
+                ns_bad_layout += 1
+
         for ch in c:
             if ch == '{':
                 if pending:

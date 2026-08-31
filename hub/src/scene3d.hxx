@@ -31,7 +31,7 @@
 namespace scene3d
 {
 
-struct Vec3 { Float32 x = 0.0f, y = 0.0f, z = 0.0f; };
+  struct Vec3 { Float32 x = 0.0f, y = 0.0f, z = 0.0f; };
 
   // A 2D map point (x right, y DOWN) at ground level, in scene axes.
   [[nodiscard]] inline Vec3 toScene(Float32 mapX, Float32 mapY, Float32 up = 0.0f)

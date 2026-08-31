@@ -332,6 +332,19 @@ drift apart.
 agree; for anything wider they differ by `sizeof(T)`. Getting that backwards
 divides a buffer by four and still compiles.
 
+**The carve-out is the ELEMENT TYPE.** `BYTE data[512]` handed to
+`RegEnumValueA`, `WCHAR wide[MAX_PATH]` to `GetModuleFileNameW`,
+`D3D11_INPUT_ELEMENT_DESC elems[]` to `CreateInputLayout` — those are
+somebody else's buffers in somebody else's shape, and `shared.hxx` is
+explicit that we do not dress up a third-party API to look like ours. An
+array of OUR types has no such excuse. `firmware/` is exempt entirely: it is
+freestanding, there is no `<array>`, and there is nothing to convert to.
+
+The check went in after the sweep, and the first thing it found was three
+`Char cmd[48]` buffers added to `app_ui.cxx` by work that landed afterwards.
+That is the argument for it in one line: a sweep fixes a tree once, a check
+keeps it fixed.
+
 A `Char` buffer initialised from a string literal has no clean equivalent:
 `= ""` becomes `{}` (identical zero-fill) and `= "--"` becomes `{'-', '-'}`,
 but a long literal is better written as an explicit `snprintf` of the fallback

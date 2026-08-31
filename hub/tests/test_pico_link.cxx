@@ -99,7 +99,7 @@ int main()
         ++failures;
 
     printf("\n=== 4. probe lines ===\n");
-    const Char* probes[] = {"PING", "HELP", "?"};
+    const Array<const Char*, 3> probes = { "PING", "HELP", "?" };
     for(const Char* p : probes)
     {
         printf("  send(\"%s\")\n", p);
