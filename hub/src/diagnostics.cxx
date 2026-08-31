@@ -105,8 +105,7 @@ namespace diag
       // Tried first because its shape is unambiguous, and because a path with a
       // parenthesis in it is not a thing that happens in this tree.
       {
-          const Size open = text.find('(');
-          if(open != Str::npos && open > 0)
+          if(const Size open = text.find('('); open != Str::npos && open > 0)
           {
               Size i = open + 1;
               Int32 line = 0;
