@@ -1832,8 +1832,12 @@ namespace
   // Projects one revolution into screen space, dropping "no return" samples and
   // anything outside the widget. At high zoom this is what keeps the submitted
   // geometry proportional to what is actually visible.
-  Void collectDots(const Vec<LidarPoint>& pts, const ImVec2& s0, Float32 ppm, const ImVec2& lo, const ImVec2& hi, Vec<Dot>& out)
+  Void collectDots(const Vec<LidarPoint>& pts, const MapScale& sc, const Rect& cull, Vec<Dot>& out)
   {
+      const ImVec2& s0  = sc.s0;
+      const Float32 ppm = sc.pxPerMm;
+      const ImVec2& lo  = cull.p0;
+      const ImVec2& hi  = cull.p1;
       out.clear();
       if(pts.empty())
           return;
@@ -1917,13 +1921,15 @@ namespace
               if(a8 <= 0)
                   continue;
 
-              collectDots(trail[static_cast<Size>(i)], c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+              collectDots(trail[static_cast<Size>(i)], MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
               emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.6f * c.dpi,
                         POINT_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT), c.uv);
           }
       }
 
-      collectDots(trail[static_cast<Size>(last)], c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(trail[static_cast<Size>(last)], MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR,
                 POINT_RGB | (static_cast<ImU32>(255u) << IM_COL32_A_SHIFT), c.uv);
   }
@@ -2120,7 +2126,8 @@ namespace
       // The live revolution over the top, dim: the polygon is a derived, smoothed
       // thing and should never be the only evidence on screen.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
                 POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
   }
@@ -2136,7 +2143,8 @@ namespace
       // Context first, and dim - an empty motion map is the correct reading for a
       // still room, but on its own it is indistinguishable from a broken one.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
                 POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT), c.uv);
 
@@ -2186,7 +2194,8 @@ namespace
       // The live revolution underneath, dim: the gaps are derived, and a derived
       // thing should never be the only evidence on screen.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
                 POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
 
@@ -2462,7 +2471,8 @@ namespace
       // The returns underneath, dim: a fitted wall is inferred, and the evidence
       // it was inferred from has to stay visible beside it.
       Vec<Dot>& dots = scratch();
-      collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
                 POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT), c.uv);
 
@@ -2554,7 +2564,8 @@ namespace
       const Vec<LidarPoint>& pts = trail.back();
 
       Vec<Dot>& dots = scratch();
-      collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
                 POINT_RGB | (static_cast<ImU32>(50u) << IM_COL32_A_SHIFT), c.uv);
 
@@ -2708,7 +2719,8 @@ namespace
       // The returns, so the surfaces doing the blocking are visible.
       const Vec<LidarPoint>& pts = trail.back();
       Vec<Dot>& dots = scratch();
-      collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
                 POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
 
@@ -3353,7 +3365,8 @@ namespace
 
       // ---- the returns themselves, brightest -------------------------------
       Vec<Dot>& dots = scratch();
-      collectDots(pts, c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR,
                 POINT_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), c.uv);
 
@@ -3610,7 +3623,8 @@ namespace
       // debug modes' 2 px dots, because at a glance a scatter of small dots reads
       // as noise and a scatter of larger ones reads as an edge.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), c.s0, c.ppm, c.cullLo, c.cullHi, dots);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi }, dots);
       emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR * 1.5f,
                 IM_COL32(0xFF, 0xFF, 0xFF, 0xE0), c.uv);
 
