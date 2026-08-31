@@ -393,6 +393,31 @@ call site was changed:
 None of the three was found by reading the code, including by the people who
 had just written them.
 
+### When a hardware sequence may short-circuit
+
+`a() && b()` skips `b` whenever `a` fails, and for a sequence of hardware
+commands that is sometimes right and sometimes the bug. The test is what a
+failed first step does to the second:
+
+**Unchain** when the second step is independent and skipping it leaves the
+hardware stuck or half-configured. `tof::open()` writes a mode and a budget:
+the budget has nothing to do with whether the mode took, and skipping it leaves
+a config gap. The `TOF MODE` handler stops, reconfigures and restarts: skipping
+the restart leaves ranging stopped forever.
+
+**Chain** when a failed first step corrupts the second's *output*.
+`clearInterruptAndStart()` is `clear(v) && startRanging(v)`, and that is
+correct: a failed clear leaves a stale interrupt pending, so starting anyway
+hands back a measurement taken under the OLD settings, presented as a valid
+reading under the new ones. No data and a reported failure beats wrong data
+wearing the costume of good data.
+
+**A short-circuit is only acceptable where the skip is REPORTED.** That chain
+was defensible in principle and dangerous in practice until 2026-08-31, because
+the caller discarded the result and printed `OK` — so a failed clear skipped the
+start and left the sensor idle in silence. `[[nodiscard]]` and the chain are the
+same argument twice: a hardware step that can fail has to be able to say so.
+
 ### There is no `Ptr<T>`, deliberately
 
 An alias for a raw pointer was considered and rejected. `template<typename T>
