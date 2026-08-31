@@ -1134,50 +1134,34 @@ static Void cmdBootsel(CharSeq arg)
  * What it is NOT is a second place that decides what the car means. Nothing
  * here reacts to anything; every function is a person pressing a button.
  * ======================================================================== */
-static bibo::dfplayer::Bus soundBus;
-
-/* Remembered so SOUND can report it. The module has no "what volume are you"
- * query worth the round trip - it answers a status frame that means several
- * things - and a value the hub cannot read back is a slider that jumps to a
- * default every time you open the view. */
-static UInt8 soundVolume = 8;
-static UInt16 soundTrack  = 1;
-
-/* How many files the card holds, or 0 for "not asked yet / did not answer".
+/* THE STATE MOVED TO lib/sound.hxx. What is left here is console glue.
  *
- * Remembered rather than queried on every status line: a query is a round trip
- * that WAITS, and the hub polls SOUND twice a second. Asked once by SOUND FILES
- * and by RESET, which is when it can change - a card is not swapped while the
- * board is running. */
-static UInt16 soundFiles  = 0;
-
-/* The equaliser, remembered like the volume so SOUND can report it and the hub
- * can show which one is on. Re-applied after a reset, because a reset returns
- * the module to Normal. */
-static UInt8  soundEq     = DFP_EQ_NORMAL;
-
-/* Whether RESET has been run since power-on.
- *
- * The card takes 1.5-3 s to mount and a play sent before that is LOST - no
- * error, no sound. Boot does not pay that cost, because most sessions never
- * touch sound; the first thing that needs the card asks for it. Reported so
- * the hub can say "not mounted" rather than leaving somebody to wonder why a
- * button did nothing. */
-static Bool soundReady = false;
+ * The Bus, the volume, the equaliser and the file count used to live in this
+ * file, which works exactly as long as a PERSON is the only thing making noise.
+ * The moment the CAR wants to - and cue.hxx carries a `tone` field waiting for
+ * it - the cue system would have had to reach up into the application to find
+ * the speaker. An app is glue over a library, not something a library reads
+ * from. */
 
 static Void printSound(Void)
 {
+    /* The CLIP NAME beside the number, when the track has one. A status line
+     * that says track 2 makes a person open sfx.hxx to find out what that is. */
+    CharSeq clip = bibo::sfx::nameOf(bibo::sound::track());
+
     bibo::serial::printf(
-        "OK sound ready=%s vol=%u max=%u eq=%u track=%u files=%u busy=%s tx=%d rx=%d busyGp=%d\n",
-        soundReady ? "yes" : "no",
-        static_cast<UInt32>(soundVolume),
+        "OK sound ready=%s vol=%u max=%u eq=%u track=%u clip=%s files=%u "
+        "busy=%s tx=%d rx=%d busyGp=%d\n",
+        bibo::sound::ready() ? "yes" : "no",
+        static_cast<UInt32>(bibo::sound::volume()),
         static_cast<UInt32>(DFP_VOLUME_MAX),
-        static_cast<UInt32>(soundEq),
-        static_cast<UInt32>(soundTrack),
-        static_cast<UInt32>(soundFiles),
-        !bibo::dfplayer::hasBusy(&soundBus)
+        static_cast<UInt32>(bibo::sound::eq()),
+        static_cast<UInt32>(bibo::sound::track()),
+        (clip != NULL) ? clip : "-",
+        static_cast<UInt32>(bibo::sound::count()),
+        !bibo::sound::hasVoice()
             ? "unwired"
-            : (bibo::dfplayer::playing(&soundBus) ? "yes" : "no"),
+            : (bibo::sound::speaking() ? "yes" : "no"),
         static_cast<Int32>(bibo::pins::active().soundTx),
         static_cast<Int32>(bibo::pins::active().soundRx),
         static_cast<Int32>(bibo::pins::active().soundBusy));
@@ -1196,21 +1180,7 @@ static Void cmdSound(CharSeq arg)
         /* Two seconds of nothing. Said BEFORE it happens, because a console
          * that goes quiet for two seconds looks hung. */
         bibo::serial::printLine("INFO sound resetting, waiting for the card");
-        bibo::dfplayer::reset(&soundBus);
-        bibo::dfplayer::useCard(&soundBus);
-        bibo::dfplayer::volume(&soundBus, soundVolume);
-
-        /* A reset returns the module to Normal, so the setting has to be put
-         * back or it silently reverts and the console still claims it is on. */
-        bibo::dfplayer::eq(&soundBus, soundEq);
-        soundReady = true;
-
-        /* Asked here because a reset is exactly when the card is remounted and
-         * the count can change. A failure is not fatal - the module may simply
-         * be quiet on TX while perfectly able to play - so it is recorded as
-         * "unknown" rather than refusing the reset. */
-        UInt16 n = 0;
-        soundFiles = bibo::dfplayer::fileCount(&soundBus, &n) ? n : 0;
+        static_cast<Void>(bibo::sound::mount());
 
         printSound();
         return;
@@ -1231,76 +1201,56 @@ static Void cmdSound(CharSeq arg)
             return;
         }
 
-        soundVolume = static_cast<UInt8>(v);
-        bibo::dfplayer::volume(&soundBus, soundVolume);
+        bibo::sound::setVolume(static_cast<UInt8>(v));
         printSound();
         return;
     }
 
     if(bibo::text::starts(arg, "PLAY"))
     {
-        /* A NAME OR A NUMBER, and the name is tried first.
+        /* A NAME OR A NUMBER. `SOUND PLAY hit1` reads as what the car is doing;
+         * `SOUND PLAY 2` is a fact about a filesystem. Both work, because a
+         * number is what you have before a clip has earned a name.
          *
-         * `SOUND PLAY horn` reads as what the car is doing; `SOUND PLAY 2` is a
-         * fact about a filesystem. Both work, because a number is what you have
-         * before a clip has earned a name and there is no reason to make that
-         * awkward.
-         *
-         * Bare PLAY repeats the last track, which is what a person pressing a
-         * button on a test view means by it. */
+         * THE DECIDING IS sound::play's, not this handler's. Everything below
+         * is turning a Result into a sentence - which is all a console should
+         * be doing, and is why a cue will be able to make the same call without
+         * reimplementing any of it. */
         CharSeq want = bibo::text::after(arg, "PLAY ");
 
-        Int32 n = 0;
-        const UInt16 named = bibo::sfx::track(want);
+        bibo::sound::Result r = bibo::sound::RESULT_OK;
 
-        if(named != bibo::sfx::NONE)
+        if(want[0] == '\0')
         {
-            n = static_cast<Int32>(named);
+            /* Bare PLAY repeats, which is what a person pressing a button on a
+             * test view means by it. */
+            r = bibo::sound::playTrack(bibo::sound::track());
         }
-        else if(!bibo::text::toInt(want, &n))
+        else
         {
-            /* Neither a known name nor a number. Said as such rather than
-             * silently playing the last track - a typo in a clip name would
-             * otherwise sound exactly like success. */
-            if(want[0] != '\0')
+            r = bibo::sound::play(want);
+
+            /* Not a known name - try it as a number before giving up, so the
+             * numeric form keeps working without a second command. */
+            if(r == bibo::sound::RESULT_NO_CLIP)
             {
-                bibo::serial::printf(
-                    "ERR sound no clip named %s - SOUND LIST for the names\n",
-                    want);
-                return;
+                Int32 n = 0;
+                if(bibo::text::toInt(want, &n) && n >= 1 && n <= 3000)
+                {
+                    r = bibo::sound::playTrack(static_cast<UInt16>(n));
+                }
             }
-            n = static_cast<Int32>(soundTrack);
         }
-        if(n < 1 || n > 3000)
+
+        if(r != bibo::sound::RESULT_OK)
         {
-            bibo::serial::printLine("ERR sound track is 1-3000");
+            /* WHICH failure, because the four need four different fixes and
+             * every one of them sounds identical - like nothing at all. */
+            bibo::serial::printf("ERR sound %s: %s\n",
+                                 bibo::sound::why(r), want);
             return;
         }
 
-        /* The card has to be mounted, and this is the one command where NOT
-         * saying so would be indistinguishable from a wiring fault. */
-        if(!soundReady)
-        {
-            bibo::serial::printLine(
-                "ERR sound card not mounted - run SOUND RESET first");
-            return;
-        }
-
-        /* A NAME THAT POINTS PAST THE CARD is a table that has drifted from
-         * the filesystem, and it is worth saying so plainly - the sound simply
-         * not happening is the least informative failure available. Only
-         * checked when the count is known; 0 means nobody has asked. */
-        if(soundFiles > 0 && n > static_cast<Int32>(soundFiles))
-        {
-            bibo::serial::printf(
-                "ERR sound track %d but the card holds %u - "
-                "lib/sfx.hxx names a clip that is not there\n",
-                n, static_cast<UInt32>(soundFiles));
-            return;
-        }
-
-        soundTrack = static_cast<UInt16>(n);
-        bibo::dfplayer::playMp3(&soundBus, soundTrack);
         printSound();
         return;
     }
@@ -1346,8 +1296,7 @@ static Void cmdSound(CharSeq arg)
             return;
         }
 
-        soundEq = static_cast<UInt8>(m);
-        bibo::dfplayer::eq(&soundBus, soundEq);
+        bibo::sound::setEq(static_cast<UInt8>(m));
         printSound();
         return;
     }
@@ -1369,12 +1318,13 @@ static Void cmdSound(CharSeq arg)
         /* The table's claim about the card, checked when the card has been
          * counted. A name pointing past the end is the one failure this table
          * can have on its own. */
-        if(soundFiles > 0 && bibo::sfx::highest() > soundFiles)
+        if(bibo::sound::count() > 0
+           && bibo::sfx::highest() > bibo::sound::count())
         {
             bibo::serial::printf(
                 "ERR sfx names reach track %u but the card holds %u\n",
                 static_cast<UInt32>(bibo::sfx::highest()),
-                static_cast<UInt32>(soundFiles));
+                static_cast<UInt32>(bibo::sound::count()));
         }
         printSound();
         return;
@@ -1382,8 +1332,10 @@ static Void cmdSound(CharSeq arg)
 
     if(bibo::text::eq(arg, "FILES"))
     {
-        UInt16 n = 0;
-        if(!bibo::dfplayer::fileCount(&soundBus, &n))
+        /* Re-mounts, which is what actually re-counts: the query is part of
+         * bringing the card up, and asking for the count alone would leave the
+         * two able to disagree. */
+        if(!bibo::sound::mount() || bibo::sound::count() == 0)
         {
             bibo::serial::printLine(
                 "ERR sound the module did not answer - check power, the card, "
@@ -1391,9 +1343,8 @@ static Void cmdSound(CharSeq arg)
             return;
         }
 
-        soundFiles = n;
         bibo::serial::printf("INFO sound %u file(s) on the card\n",
-                             static_cast<UInt32>(n));
+                             static_cast<UInt32>(bibo::sound::count()));
         printSound();
         return;
     }
@@ -1431,31 +1382,31 @@ static Void cmdSound(CharSeq arg)
 
     if(bibo::text::eq(arg, "STOP"))
     {
-        bibo::dfplayer::stop(&soundBus);
+        bibo::sound::stop();
         printSound();
         return;
     }
     if(bibo::text::eq(arg, "PAUSE"))
     {
-        bibo::dfplayer::pause(&soundBus);
+        bibo::sound::pause();
         printSound();
         return;
     }
     if(bibo::text::eq(arg, "RESUME"))
     {
-        bibo::dfplayer::play(&soundBus);
+        bibo::sound::resume();
         printSound();
         return;
     }
     if(bibo::text::eq(arg, "NEXT"))
     {
-        bibo::dfplayer::send(&soundBus, DFP_CMD_NEXT, 0);
+        bibo::dfplayer::send(&bibo::sound::bus, DFP_CMD_NEXT, 0);
         printSound();
         return;
     }
     if(bibo::text::eq(arg, "PREV"))
     {
-        bibo::dfplayer::send(&soundBus, DFP_CMD_PREV, 0);
+        bibo::dfplayer::send(&bibo::sound::bus, DFP_CMD_PREV, 0);
         printSound();
         return;
     }
@@ -1628,10 +1579,7 @@ int main(Void)
      * functions - so it happens at boot; MOUNTING THE CARD is not, and does
      * not. SOUND RESET pays the two seconds, and only a session that wants
      * sound pays them at all. See cmdSound. */
-    bibo::dfplayer::open(&soundBus, uart0,
-                         bibo::pins::active().soundTx,
-                         bibo::pins::active().soundRx,
-                         bibo::pins::active().soundBusy);
+    bibo::sound::open();
 
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */

@@ -107,6 +107,10 @@
 /* What the sounds on the card mean. A leaf like pins - names and numbers,
  * no SDK - so it can be read and tested without a board. */
 #include "sfx.hxx"
+
+/* The car's voice, asked for by name. Above the driver and above sfx, the way
+ * cue sits above lights. */
+#include "sound.hxx"
 #include "boot.hxx"
 
 #include "drivers/dfplayer.hxx"

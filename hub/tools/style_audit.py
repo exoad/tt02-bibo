@@ -449,6 +449,12 @@ LAYER_EXTRA = {
     # like pins: types for the vocabulary, text to compare a name. No SDK, so
     # it compiles on the host and its table can be tested without a board.
     'firmware/lib/sfx.hxx': {'types.hxx'},
+    # sound.hxx owns the speaker and names what comes out of it, so it reaches
+    # down to the driver and sideways to the clip table and the pin map. The
+    # same legitimate one-layer-above reach cue.hxx makes into lights.hxx,
+    # written down rather than waived.
+    'firmware/lib/sound.hxx': {'hal.hxx', 'pins.hxx', 'sfx.hxx',
+                               'drivers/dfplayer.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
     'firmware/lib/lights.hxx': {'hal.hxx'},
     'firmware/lib/net.hxx': {'hal.hxx'},
@@ -457,7 +463,7 @@ LAYER_EXTRA = {
     # naming the one below it, written down rather than special-cased in silence.
     'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
-                            'pins.hxx', 'sfx.hxx', 'boot.hxx',
+                            'pins.hxx', 'sfx.hxx', 'sound.hxx', 'boot.hxx',
                             'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',

@@ -137,6 +137,22 @@ int main(void)
     check(sfx::nameOf(60000u) == NULL,
           "an unknown track has no name, and says so with NULL");
 
+    /* ---- zero is the sentinel and must never BE a clip -------------------
+     *
+     * sfx::NONE is 0, and the DFPlayer numbers files from 1, so a row claiming
+     * track 0 would be both unplayable and indistinguishable from "not found".
+     * The table check above already rejects it; this states why. */
+    Int32 zero = 0;
+    for(Size i = 0; i < sfx::COUNT; ++i)
+    {
+        if(sfx::CLIPS[i].track == 0u)
+        {
+            ++zero;
+        }
+    }
+    check(zero == 0, "no clip claims track 0, which is the NONE sentinel");
+    check(sfx::nameOf(0u) == NULL, "track 0 has no name");
+
     /* ---- highest() is what the card is checked against ------------------- */
     UInt16 top = 0;
     for(Size i = 0; i < sfx::COUNT; ++i)
