@@ -40,7 +40,7 @@ namespace scene3d
   }
 
   // ---------------------------------------------------------------------------
-  // The orbit camera. Angles in radians, distances in millimetres.
+  // The orbit camera. Angles in radians, distances in millimeters.
   // ---------------------------------------------------------------------------
   struct Camera
   {
@@ -121,7 +121,7 @@ namespace scene3d
 
   struct Detection
   {
-      Float32 cx = 0.0f, cy = 0.0f;      // centre, mm, sensor frame (y DOWN)
+      Float32 cx = 0.0f, cy = 0.0f;      // center, mm, sensor frame (y DOWN)
       Float32 ux = 1.0f, uy = 0.0f;      // principal axis
       Float32 halfL = 0.0f, halfW = 0.0f;
       Float32 nearMm = 0.0f;
@@ -165,7 +165,7 @@ namespace scene3d
       Float32          corridorFree  = 0.0f;
 
       // Lamp brightness, already solved. The renderer does not know the RULES -
-      // it is handed ten numbers and draws ten lamps - so the behaviour lives in
+      // it is handed ten numbers and draws ten lamps - so the behavior lives in
       // one tested place instead of being re-derived from what looks right.
       lights::Lamps lamps;
 

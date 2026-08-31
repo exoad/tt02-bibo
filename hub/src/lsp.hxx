@@ -3,7 +3,7 @@
 // WHY A LANGUAGE SERVER AND NOT A BIGGER TABLE. complete.cxx holds forty names
 // written out by hand, and that was the right call while the only thing worth
 // completing was pico2w.h. It is not any more. `pins::Map` has 24 fields that a
-// designated initialiser wants by name, `sfx::Clip` has three, gfx's colours
+// designated initializer wants by name, `sfx::Clip` has three, gfx's colors
 // just stopped being macros and became namespace members, and none of that is
 // knowable without actually parsing the translation unit. clangd already does,
 // and it is already installed for the build.

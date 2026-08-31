@@ -53,7 +53,7 @@ Conclusion (constant offset / scale error / neither):
 
 ## 2. Zero-degree orientation
 
-There is a directional arrow moulded into the housing. Point it at a known
+There is a directional arrow molded into the housing. Point it at a known
 object and confirm which angle the viewer reports.
 
 This is the first term of the lidar-to-vehicle transform, so getting it wrong
@@ -75,7 +75,7 @@ Determines whether the bumper ToF sensors are actually necessary.
 
 - Datasheet minimum: 0.05 m
 - Measured dropout point:
-- Behaviour below it (no return / garbage return / clamped):
+- Behavior below it (no return / garbage return / clamped):
 
 The viewer discards returns below 50 mm as housing reflections and draws a
 hatched blind disc at that radius. If the measured minimum differs, that
@@ -93,7 +93,7 @@ Point at matte black and find where it drops out.
 
 ---
 
-## 5. Sunlight behaviour
+## 5. Sunlight behavior
 
 **This is the outdoor blocker. Characterise it now, not in month six.**
 
@@ -147,7 +147,7 @@ function so calibration is a single-constant change.
 
 | Quantity | Value |
 |---|---|
-| Servo centre (µs) | |
+| Servo center (µs) | |
 | Servo full left (µs) | |
 | Servo full right (µs) | |
 | Mechanical steering limit (does full travel bind?) | |

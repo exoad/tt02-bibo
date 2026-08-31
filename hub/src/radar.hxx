@@ -1,6 +1,6 @@
 // Interactive 2D map of recent scan revolutions, drawn with ImDrawList.
 //
-// World space is millimetres with the sensor at the origin, x right, y down on
+// World space is millimeters with the sensor at the origin, x right, y down on
 // screen; a measurement at (angle, dist) maps to (dist*sin a, -dist*cos a), so
 // 0 degrees points up and angle increases clockwise.
 //
@@ -26,7 +26,7 @@ enum class MapMode
     // Nine, and every one of them ANSWERS SOMETHING the dots do not already
     // say. That is the bar, and seven modes that did not clear it were removed
     // rather than kept for variety - see docs/log.md. A view that re-paints the
-    // same returns in a different colour is not an analysis, and a toggle full
+    // same returns in a different color is not an analyzis, and a toggle full
     // of them makes the ones that are harder to find.
     MAP_MODE_POINTS = 0,   // the raw returns. Nothing inferred - the ground truth
     MAP_MODE_DENSITY,      // what stayed put: hit counts in a fixed world grid
@@ -50,7 +50,7 @@ enum class MapMode
 //
 //   RADIAL     rings and bearings. Correct when the quantity IS a range and a
 //              bearing - Clearance, Gaps, Points.
-//   CARTESIAN  metre squares, axis-aligned. Correct when the quantity is a
+//   CARTESIAN  meter squares, axis-aligned. Correct when the quantity is a
 //              LENGTH or a right angle - Walls, Corners - and honest for
 //              Density and Motion, whose cells are literally a fixed world grid.
 //              Rings behind a wall you are trying to judge the straightness of
@@ -183,7 +183,7 @@ public:
     }
 
     // ---- view control ---------------------------------------------------
-    // Auto-fit keeps the sensor centred and eases the scale to contain the data.
+    // Auto-fit keeps the sensor centered and eases the scale to contain the data.
     // Any pan or zoom drops out of it; fit() returns to it.
     Void fit();
     [[nodiscard]] Bool isAutoFit() const noexcept
@@ -191,10 +191,10 @@ public:
         return autoFit;
     }
 
-    // Pins the view to a fixed radius in mm (drops auto-fit, recentres).
+    // Pins the view to a fixed radius in mm (drops auto-fit, recenters).
     Void setRangeMm(Float32 mm);
 
-    // Distance from the view centre to the nearer edge of the widget, in mm.
+    // Distance from the view center to the nearer edge of the widget, in mm.
     [[nodiscard]] Float32 visibleRangeMm() const noexcept;
 
     // ---- geometry, for HUD overlays drawn by the caller ------------------
@@ -205,7 +205,7 @@ private:
     Deque<Vec<LidarPoint>> trail;
     Bool hasData = false;
 
-    // View: world point shown at the widget centre, and the zoom.
+    // View: world point shown at the widget center, and the zoom.
     ImVec2  viewCenterMm = ImVec2(0.0f, 0.0f);
     Float32 pxPerMm      = 0.0f;      // 0 until the first draw sizes it
     Bool    autoFit      = true;

@@ -35,7 +35,7 @@ struct ID3D11DeviceContext;
 namespace scenegpu
 {
 
-  // Position in world space, colour already lit (flat shading is done on the CPU,
+  // Position in world space, color already lit (flat shading is done on the CPU,
   // where the face normals are), and a texture coordinate.
   struct Vertex
   {

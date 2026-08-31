@@ -110,7 +110,7 @@ Void driveSteerUs(Int32 us);           /* raw - for calibrating               */
 ```
 
 `driveSteer` takes a **fraction**, and each side is scaled separately from the
-calibration. This car throws 254 µs one way from centre and 186 the other, so
+calibration. This car throws 254 µs one way from center and 186 the other, so
 anything that added a fixed amount to a midpoint would pull to one side every
 time it was asked for half. Nothing above the calibration should need to know
 what a microsecond is.
@@ -429,8 +429,8 @@ being read off a lamp level.
 
 `LIGHTS OFFAT <us>` still sets the motion threshold and `LIGHTS` still reports
 it as `off_us=`. The wire protocol did not move when the code did — the hub's
-Drive view drives both, and a reorganisation that changed what a board answers
-would be a reorganisation that broke a screen.
+Drive view drives both, and a reorganization that changed what a board answers
+would be a reorganization that broke a screen.
 
 ---
 

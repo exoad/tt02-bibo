@@ -6,7 +6,7 @@
 // are the kind that a person glancing at a blinking LED would accept:
 //
 //   * The indicator OVERRIDES the brake on its own side. Braking while
-//     signalling right means the right rear alternates and the left stays
+//     signaling right means the right rear alternates and the left stays
 //     solid. Get it wrong and both stay solid, which looks fine and is wrong.
 //   * Hazards are both sides IN PHASE. Alternating is what a film prop does.
 //   * Front and rear on one side share ONE clock. Per-lamp timers drift, and
@@ -286,7 +286,7 @@ namespace
 
       lights::AutoState st;
 
-      // Flick the wheel and centre it again immediately. The flasher clock is
+      // Flick the wheel and center it again immediately. The flasher clock is
       // free-running, so without a hold this shows a fragment of a cycle or
       // nothing at all, depending on when it happened to land.
       check(step(st, 0.60f, 1500, 0.0).turn == lights::Turn::TURN_RIGHT, "flick triggers");

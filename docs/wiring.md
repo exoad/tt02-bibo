@@ -159,7 +159,7 @@ bugs. Check them first.
   is precisely what the invariant above predicts, and it was diagnosed instead
   as a damaged servo, a dead feedback pot, a sagging BEC, and swapped signal
   pins, in that order. The Pico's ground and the BEC's ground were four
-  centimetres apart on what looked like one rail.
+  centimeters apart on what looked like one rail.
 
   If a servo behaves strangely, check this SECOND, straight after checking the
   signal pin. Before the servo, before the supply, before the code.
@@ -240,7 +240,7 @@ black. One of the five positions is unpopulated — that is correct, not a fault
 From the C1M1 datasheet rev 1.1, Figure 2-6 — external interface signal
 definition:
 
-| Colour | Signal | Type | Description | Min | Typ | Max |
+| Color | Signal | Type | Description | Min | Typ | Max |
 |---|---|---|---|---|---|---|
 | Red | VCC | Power | Total power | 4.8 V | 5 V | 5.2 V |
 | Yellow | TX | Output | Serial output of the scanner core | 0 V | / | 3.5 V |
@@ -274,5 +274,5 @@ MIBIDAO pre-wired RC light pairs, 3–7 V, resistors already inline. Driven
 through a **ULN2003** — the Pico's total GPIO current budget (~50 mA) cannot
 drive ten LEDs directly, even at 3.3 V.
 
-See conventions.md for the lighting *behaviour* spec (brake/indicator priority,
+See conventions.md for the lighting *behavior* spec (brake/indicator priority,
 1.5 Hz flash, hazards on watchdog fire).

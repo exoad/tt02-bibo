@@ -152,7 +152,7 @@ revolutions before choosing:
 | **text, absolute mm** | **6.65** | **83%** |
 | text, delta-coded mm | ~5.9 | 74% |
 
-**Text won outright.** The device reports whole millimetres - the fractional part
+**Text won outright.** The device reports whole millimeters - the fractional part
 of every distance in a real capture is exactly 0.0000 - so `6789` carries
 precisely what a float32 did, in four bytes, with none of the ambiguity. Angles
 are centidegree deltas, which are two digits because the C1 steps ~0.72 deg.
@@ -218,7 +218,7 @@ not drift at all. The trade is that it fails when the room stops resembling the
 reference - a failure you can see and reason about, where drift is one you
 cannot.
 
-Sub-bin refinement by parabola through the best cost and its neighbours, because
+Sub-bin refinement by parabola through the best cost and its neighbors, because
 without it the heading quantises to 3 degrees and the world visibly snaps as you
 turn.
 
@@ -301,10 +301,10 @@ actual car - and its published specification says:
 | Width | 190 | **186 mm** |
 | Height | 135 | **140 mm** |
 | Wheelbase | 257 | 257 |
-| Tyre | 64 x 26 | **69 x 27 mm** |
+| Tire | 64 x 26 | **69 x 27 mm** |
 
 Tread is not published and the TT-02 offers two settings, so it is **derived**:
-the stated 186 mm is measured across the tyres, so centre-to-centre is
+the stated 186 mm is measured across the tires, so center-to-center is
 186 - 27 = **159 mm**, self-consistent with both published figures. If the car is
 ever set to the wider tread this becomes wrong *visibly* - the wheels will sit
 outside the shell.
@@ -347,7 +347,7 @@ copy rather than a re-derivation from a photograph.
 and are not, which is precisely why they are tested rather than eyeballed:
 
 - **The indicator overrides the brake on its own side.** Braking while
-  signalling right means the right rear alternates and the left stays solid. Get
+  signaling right means the right rear alternates and the left stays solid. Get
   it wrong and both stay solid, which looks fine and is wrong.
 - **Hazards are both sides IN PHASE.** Alternating is what a film prop does.
 - **Front and rear on one side share ONE clock.** Per-lamp timers drift, and
@@ -372,16 +372,16 @@ exists and the board has no lighting firmware. The panel says so.
 
 3D Full is now modelled on the display an autonomous car shows its
 **passengers**, which is a different object from the four modes above it. Those
-are instruments - a grid to measure against, a number per mode, a colour per
+are instruments - a grid to measure against, a number per mode, a color per
 meaning. This is a picture of the situation, and the rules that follow are:
 
 - **No wireframe.** A grid of lines is how you read a value off a plot. It is
   not how you show somebody where the car is. The ground is a filled disc that
   fades out, and its edge is where the sensor stops seeing - the only boundary
   the view draws.
-- **Almost no text.** One line: objects, and metres ahead.
-- **Few colours.** Near-white for things that are there, one accent for the path,
-  a dark ground. Waymo's screen is essentially two colours and reads from the
+- **Almost no text.** One line: objects, and meters ahead.
+- **Few colors.** Near-white for things that are there, one accent for the path,
+  a dark ground. Waymo's screen is essentially two colors and reads from the
   back seat.
 - **Soft and matte.** Detections are chamfered boxes - eight sides in plan
   instead of four, four extra triangles, and the whole difference between "a
@@ -412,8 +412,8 @@ whole subject is where things are on the ground is the wrong impression.
 ### Caught in the screenshot
 
 The ground gradient came out as a ring of flat wedges. `emitTri` paints a whole
-triangle one colour, and a gradient made of flat triangles is a gradient made of
-bands. Added `emitTriC` with a colour per vertex - the vertex format always had
+triangle one color, and a gradient made of flat triangles is a gradient made of
+bands. Added `emitTriC` with a color per vertex - the vertex format always had
 the field, nothing was using it.
 
 ---
@@ -480,7 +480,7 @@ being measured:
 | | |
 |---|---|
 | **Radial** | Points, Clearance, Gaps, Full - where the quantity IS a range and a bearing |
-| **Cartesian** | Walls, Corners - lengths and right angles. And Density and Motion, whose cells *are* a fixed 60 mm world grid: metre squares show the coordinate system the data actually lives in, where rings would be a second, unrelated one laid over it |
+| **Cartesian** | Walls, Corners - lengths and right angles. And Density and Motion, whose cells *are* a fixed 60 mm world grid: meter squares show the coordinate system the data actually lives in, where rings would be a second, unrelated one laid over it |
 | **None** | Minimal |
 
 A wall you are judging the straightness of, drawn against concentric circles, is
@@ -553,7 +553,7 @@ now, and the discrepancy is written into conventions.md rather than quietly fixe
   `PrimWriteVtx` with the model's own texture coordinates, batched by texture in
   depth order - grouping by texture first would have drawn the car in front of
   the columns occluding it. Affine interpolation, so a huge near triangle would
-  warp; at this poly count it does not. The vertex colour becomes a light level
+  warp; at this poly count it does not. The vertex color becomes a light level
   rather than a paint, so the flat-shading still carries the form.
   `ui::loadTexture()` reuses the WIC decode that already existed for the icons
   rather than adding a second one.
@@ -564,10 +564,10 @@ now, and the discrepancy is written into conventions.md rather than quietly fixe
 script rather than an image edit: the atlas is a *palette*, so there is no bonnet
 to paint - only the swatch the bonnet samples. It asks the mesh, samples the
 `body` group's UVs, and picks the most common **chromatic** swatch, because the
-greys that dominate that histogram are the underbody nobody ever sees. Remapped
+grays that dominate that histogram are the underbody nobody ever sees. Remapped
 by nearness and luminance-preserving, so the palette's baked shading survives.
 
-**It is still a generic saloon in the right colour, not an Impreza.** The closest
+**It is still a generic saloon in the right color, not an Impreza.** The closest
 properly-licensed low-poly Impreza WRC is Aeroux's 368-triangle CC-BY model on
 Sketchfab, which returns 401 on its download endpoint without an account. The
 loader needs nothing but the file dropped into `assets/models/`.
@@ -581,11 +581,11 @@ loader needs nothing but the file dropped into `assets/models/`.
 `assets/models/car.obj` - **"sedan-sports" from Kenney's Car Kit, CC0**. The
 hand-lofted shell before it got a touring car's proportions roughly right and
 never once looked like a car; there is no reason to keep approximating a thing
-that exists under a public-domain licence.
+that exists under a public-domain license.
 
 The loader is ~120 lines and deliberately not a general OBJ parser: it reads
 `v`, `g` and triangular `f`, which is all this file contains, and skips anything
-else rather than guessing. Colour comes from the **group names** (`body`,
+else rather than guessing. Color comes from the **group names** (`body`,
 `spoiler`, `wheel-*`), not from the material - the kit textures everything from
 one atlas, and a texture is the wrong answer for a schematic drawn in a terminal
 palette anyway. Flat-shaded from face normals against a fixed world-space light,
@@ -608,7 +608,7 @@ The hand-built shell stays as a fallback. A missing asset must cost fidelity,
 never the car: with nothing at the origin the scene loses its frame of reference.
 
 Attribution is in `assets/ATTRIBUTION.md` even though CC0 does not require it -
-knowing where a file came from is worth more than the licence obliges.
+knowing where a file came from is worth more than the license obliges.
 
 ### 2D and 3D are tabs
 
@@ -633,7 +633,7 @@ sitting next to a car in a car park.
 A `CreateWaitableTimerEx` with `HIGH_RESOLUTION` rather than `Sleep()`: the
 default system timer resolution is 15.6 ms, so `Sleep(1)` between frames would
 have hit 60 Hz by luck rather than by design, and would have silently changed
-behaviour on a machine where another process had raised the global timer
+behavior on a machine where another process had raised the global timer
 resolution. Falls back to `Sleep` where the flag is unsupported. Behind schedule
 it resyncs to now rather than running a burst of uncapped frames to make up time
 that is already spent.
@@ -641,7 +641,7 @@ that is already spent.
 ### Also
 
 The end-cap fans on the hand-built shell were outlining every triangle, which
-drew a star across the nose and tail - the spokes are an artefact of how a cap is
+drew a star across the nose and tail - the spokes are an artifact of how a cap is
 triangulated, not lines that exist on the object. Caps are filled with no edge
 now and the rim gets its outline from the section loop.
 
@@ -651,7 +651,7 @@ now and the rim gets its outline from the section loop.
 
 ### Motion was firing on stationary things
 
-`neighbourhoodCold()` used a fixed 3x3 - plus or minus one 60 mm cell. But the
+`neighborhoodCold()` used a fixed 3x3 - plus or minus one 60 mm cell. But the
 gap between adjacent samples along a surface is `r x 0.72 deg`: **25 mm at 2 m
 and 151 mm at 12 m**. Past about 6 m, consecutive returns on the SAME stationary
 wall land further apart than the test can reach, each one finds nothing warm
@@ -684,10 +684,10 @@ like a fault. A still room now reads blank, which is the correct output.
 | Tread | implied ~164 mm | **162 mm**, explicit |
 | Wheels | 64 x 26 mm | 64 x 26 mm |
 
-The width being 190 mm two ways is not a coincidence: tread 162 + tyre 26 = 188
+The width being 190 mm two ways is not a coincidence: tread 162 + tire 26 = 188
 across the rubber, and the body is 190. The widest part is the same either way.
 Two caveats recorded in the source: **length depends on the body shell**, and the
-sensor is still drawn at the chassis centre because the C1 is not mounted yet.
+sensor is still drawn at the chassis center because the C1 is not mounted yet.
 
 The plan view is a touring silhouette now rather than a six-point wedge - widest
 over the rear arches, waisted at the doors, tapering to a nose about a third of
@@ -741,7 +741,7 @@ Seven failed it and were deleted, code and all.
 
 | Cut | Why |
 |---|---|
-| Distance | Coloured dots by range - but range **is** the radius. It encoded one variable twice. |
+| Distance | Colored dots by range - but range **is** the radius. It encoded one variable twice. |
 | Sectors | Clearance at 30 deg instead of 3. Same computation, strictly coarser. Never rendered legibly either; I chased that bug twice. |
 | Occupancy | Density with a longer fade. Two modes for one idea. |
 | Rays | Dots plus a line to the origin. Its stated value was Validity's job, done better. |
@@ -875,11 +875,11 @@ Three things only this mode computes, on top of the composite it already was:
   wheels and a nose, because which way it is facing is the reason to draw it. It
   vanishes at 12 m across, correctly: a vehicle outline that stays legible while
   the world zooms out is lying about how big the car is. The sensor sits at the
-  chassis centre because that is the only position currently *true* - the C1 is
+  chassis center because that is the only position currently *true* - the C1 is
   not mounted yet - and the drawing is written in terms of an offset so mounting
   it is changing one constant.
 - **Objects.** Returns clustered by a gap threshold that grows with range (at
-  0.72 deg, neighbours are 63 mm apart at 5 m and 151 mm at 12 m - one fixed
+  0.72 deg, neighbors are 63 mm apart at 5 m and 151 mm at 12 m - one fixed
   number would either shred distant objects or weld near ones), then an oriented
   box per cluster by principal axis. Drawn as **corner brackets**, not closed
   rectangles: the lidar sees one face, so the box is a bound and not a shape, and
@@ -889,7 +889,7 @@ Three things only this mode computes, on top of the composite it already was:
   The ring is closed, so the scan is rotated to start at its largest gap; that
   removes the wrap-around case instead of special-casing it.
 - **The corridor.** How far the car could drive straight before something enters
-  the width it sweeps, coloured green/amber/red.
+  the width it sweeps, colored green/amber/red.
 
 **Two bugs the screenshots caught.** The corridor read `0.02 m` - returns *inside
 the chassis* were being treated as obstacles. A return at 80 mm dead ahead is
@@ -913,7 +913,7 @@ Not a dial-back of the skeuomorphism this time. A replacement.
 `ui::ansi` is the xterm sixteen, and it is the map's palette and nothing else's.
 The chrome around it stays industrial slate, and the board view keeps `plot::` -
 that panel is a picture of a physical object, and a photograph of a PCB has no
-business being drawn in sixteen colours.
+business being drawn in sixteen colors.
 
 The map is a different kind of thing. It is a readout, and a readout wants
 maximum separation between its few meanings with no ambiguity about which one you
@@ -937,15 +937,15 @@ could be itself.
 
 All fourteen modes return `0x000000` now - a real black, not a dark blue standing
 in for one. The tint told you which mode was active, but the mode toggle already
-does that in words, and the cost was that no data colour could be fully itself.
-On a terminal palette the ground has one job: be the thing every other colour is
+does that in words, and the cost was that no data color could be fully itself.
+On a terminal palette the ground has one job: be the thing every other color is
 maximally far from. Anything other than black is worse at it.
 
 ### The assignments
 
 - **Distance: red near, yellow mid, green far.** A traffic light. This is also why
   the ramp no longer ends in cyan - cyan is the heading marker, and a far wall
-  should not be the same colour as the direction the car is pointing.
+  should not be the same color as the direction the car is pointing.
 - Density blue -> magenta -> white; walls bright cyan; gaps bright green; motion
   bright red; clearance cyan; sweep cyan -> magenta -> yellow.
 - The dead zone is red now instead of amber, dropping the recessed disc and the
@@ -954,7 +954,7 @@ maximally far from. Anything other than black is worse at it.
 - The sensor is a ring and a crosshair. It marks 0,0 exactly without covering it,
   which the lit-component-in-a-socket did not.
 
-**The one departure from the sixteen** is the grid: two neutral greys, `0x3A3A3A`
+**The one departure from the sixteen** is the grid: two neutral grays, `0x3A3A3A`
 and `0x7F7F7F`, because a range grid at full brightness competes with the returns
 it exists to measure. Their alpha then had to come down again after the first
 screenshot - values tuned against a lit graphite substrate read brighter than the
@@ -967,7 +967,7 @@ Deleting the engraving block took `strokeRing` with it - the helper sat between
 two landmarks swallowed the function every ring on the map calls. Restoring it
 from the backup then put it back at the *original* line, which is below its first
 caller; C++ needed it above. Same class of mistake as the earlier block
-replacements that ate their neighbours, and the same lesson: bound a deletion by
+replacements that ate their neighbors, and the same lesson: bound a deletion by
 what it *contains*, not by the comments on either side of it.
 
 ---
@@ -979,7 +979,7 @@ what it *contains*, not by the comments on either side of it.
 Pulled back hard, because the previous pass crossed from describing an object
 into decorating one:
 
-- The centre bloom went from 16 discs at alpha 5 (a ~80/255 lift at the hub) to
+- The center bloom went from 16 discs at alpha 5 (a ~80/255 lift at the hub) to
   10 at alpha 2 (~20). It should hint that the panel is lit. What it was doing
   was a spotlight.
 - The vignette dropped from 46 to 26.
@@ -1036,10 +1036,10 @@ The map still read as a flat plot on near-black, which is what "not aligned with
 the skeuomorphic design" was pointing at. Three changes, and none of them touches
 a single return.
 
-### The substrate is coloured, and it is lit
+### The substrate is colored, and it is lit
 
 Flat neutral black was the single thing making this look like a chart on a page.
-A phosphor screen is never neutral: it is a dark, faintly **coloured** panel
+A phosphor screen is never neutral: it is a dark, faintly **colored** panel
 behind glass. Every mode's ground moved to a deep blue-graphite — the modes now
 shift its hue rather than its idea.
 
@@ -1048,7 +1048,7 @@ sensor, so the display is brightest where it is *driven* and falls off toward th
 bezel. Together with the vignette already in `drawGlass` that is the same idea
 worked from both ends — lit in the middle, dark at the edge — and it is what makes
 the viewport read as a surface with a light behind it instead of a rectangle of
-one colour.
+one color.
 
 ### The blind zone was a warning sticker
 
@@ -1116,7 +1116,7 @@ matched the Live panel exactly on the first run (9.8 Hz / 511 / 65% / 0.12 / 1.4
 / 7.39). Two separate code paths agreeing on six numbers is worth more than
 either of them agreeing with itself.
 
-The panel sits at the right edge, vertically centred — the only quarter of the
+The panel sits at the right edge, vertically centered — the only quarter of the
 map the existing HUD does not already use.
 
 ---
@@ -1158,7 +1158,7 @@ rather than being flat strokes like the grid they sit on.
 ### What was deliberately left flat: the returns
 
 The dots, cells and rays are **measurements**, and this is where a skeuomorphic
-pass has to stop. A glossy blob has a bright centre and a soft edge, which reads
+pass has to stop. A glossy blob has a bright center and a soft edge, which reads
 as a position and a confidence that the sensor never reported — decorating a
 return would be inventing data. They keep the flat, honest disc they have always
 had.
@@ -1171,19 +1171,19 @@ but their geometry is still exact.
 
 ## 2026-08-25 — the status strip, and icons on the overlays
 
-### The strip was cropped, not off-centre
+### The strip was cropped, not off-center
 
-Reported as "not vertically centred". It was centred — it was **clipped**. The
+Reported as "not vertically centered". It was centered — it was **clipped**. The
 strip child was sized to exactly one text line, and a lit `ui::led` throws a halo
 out to ~2.6x its radius, so the top and bottom of every lamp was being cut off by
 the child bounds. That reads as a misaligned dot, which is what it looked like.
 
 Two fixes, and the first one was also asked for on its own:
 
-- **The lamps are gone from the strip.** A lamp *and* a colour-coded word said
+- **The lamps are gone from the strip.** A lamp *and* a color-coded word said
   the same thing twice, which is what made the row feel heavy. An icon replaced
-  the lamp and carries something the colour does not: WHICH subsystem this is.
-  Identity from the icon, state from the colour, one channel each.
+  the lamp and carries something the color does not: WHICH subsystem this is.
+  Identity from the icon, state from the color, one channel each.
 - **The strip is sized to `max(textLineHeight, iconSize)`**, not to the text
   alone. Sizing chrome to one of the two things inside it is what caused the
   original crop, and it would have come back the moment the icon scale changed.
@@ -1205,7 +1205,7 @@ Two details that matter more than the choice of picture:
 - **Unselected icons are drawn at 130/255.** A row of twelve equally-loud icons
   competes with the selection, and the selection is the thing that has to be
   seen first.
-- **The icon sits immediately left of the CENTRED label**, not out at the frame
+- **The icon sits immediately left of the CENTERED label**, not out at the frame
   padding. These cells are wide; an icon pinned to the far margin reads as
   unrelated to the word in the middle of the same button. The quick-action
   buttons keep the margin placement, which is right for a toolbar key.
@@ -1227,7 +1227,7 @@ theme change instead of drifting away from it.
 Wired through `src/app.rc` (icon + VERSIONINFO), a `[rc]` step in `build.bat`,
 and `LoadImageW` on the window class for the title bar and taskbar. The
 VERSIONINFO carries the Fugue attribution in `LegalCopyright`, which puts it
-somewhere a user of the *built binary* can see it — the CC BY licence asks for
+somewhere a user of the *built binary* can see it — the CC BY license asks for
 that and a file in the repo does not satisfy it on its own.
 
 ### Four things went wrong, and one of them mattered
@@ -1250,7 +1250,7 @@ that and a file in the repo does not satisfy it on its own.
 4. **`%SRC%` was never defined in build.bat.** I invented the variable; the .rc
    path resolved to `\app.rc`, `rc.exe` failed, and the build printed
    `[warn] rc.exe failed - building without an icon` and carried on — which is
-   the behaviour I wanted for a missing SDK and which neatly hid my own typo for
+   the behavior I wanted for a missing SDK and which neatly hid my own typo for
    two builds. The warning is still non-fatal (refusing to build over decoration
    is the wrong trade) but the path is now `%ROOT%src\app.rc`.
 
@@ -1272,7 +1272,7 @@ something that already existed:
   right. That is the exact inverse of the raised-key bevel, which is what makes
   a display and a button read as opposite mechanisms rather than as two
   rectangles. The inner shadow is a gradient, not a line, because a milled edge
-  falls off over a couple of millimetres and at screen scale that is a few
+  falls off over a couple of millimeters and at screen scale that is a few
   pixels. Applied to both central views.
 - **`ui::plate`** — the raised-key treatment for custom-drawn chrome that is not
   an ImGui item. The map's HUD readout and the board's legend swatches now get
@@ -1318,11 +1318,11 @@ without scrolling. Previously it ran out of room at Telemetry.
 Two additions that make the surfaces read as objects rather than rectangles:
 
 - **Gloss.** A raised control now carries a soft sheen over its top half above
-  the bevel — light falling on a moulded surface, which is what "glossy charcoal"
+  the bevel — light falling on a molded surface, which is what "glossy charcoal"
   means. Kept at 15/255 because this is the first effect that tips into looking
   cheap.
 - **`ui::led`.** A lit indicator throws a *halo* onto the panel around it plus an
-  off-centre hot spot, so it reads as emitting rather than as a coloured dot
+  off-center hot spot, so it reads as emitting rather than as a colored dot
   painted on; an unlit one is a dark lamp in a recessed socket. Both states are
   drawn — a socket is always there — so they differ in more than brightness.
   Used on the status strip and on every subsystem row.
@@ -1371,7 +1371,7 @@ low-contrast ground the rest of the theme exists to provide.
 
 `ui::bevelRect` gives every control one pixel of light along its top edge and one
 of shadow along its bottom, **inverted when pressed** so a key visibly sinks into
-the panel instead of merely changing colour. Buttons are raised keys; checkboxes
+the panel instead of merely changing color. Buttons are raised keys; checkboxes
 and text fields take the *inverted* bevel because they are wells milled into the
 casing — that difference is what makes the two read as different mechanisms.
 
@@ -1450,7 +1450,7 @@ is not "healthy".
 
 What the three categories actually encode is one axis — how much this pin has to
 do with the project — so `ui::pin` is now **one hue at three weights**: blue for
-ours, mid grey for structural, dim grey for unused. No green, no orange, and the
+ours, mid gray for structural, dim gray for unused. No green, no orange, and the
 column reads as a list instead of an alarm.
 
 ---
@@ -1505,7 +1505,7 @@ disagree about whether that scrollbar exists.
 ## 2026-08-25 — the palette goes Frutiger Aero
 
 Geometry stayed (squared corners, outlined widgets, flat plates — the Unreal /
-IntelliJ pass). Only the **colour** changed, and it changed a lot: that era is
+IntelliJ pass). Only the **color** changed, and it changed a lot: that era is
 high chroma, and the muted mint-and-salmon it replaced is exactly what was making
 the app read as a 2020s product rather than a panel.
 
@@ -1520,14 +1520,14 @@ Three anchors, everything derived from them:
 Red `#F0453B` for failure, steel `#8496A6` for idle.
 
 **Cyan is deliberately not a status.** "The UI is pointing at this" and "this is
-healthy" are different claims and must not share a colour — which is why the
+healthy" are different claims and must not share a color — which is why the
 accent lives in its own `ui::accent` namespace rather than in `ui::plot`.
 
-Three changes did most of the work, and none of them is an accent colour:
+Three changes did most of the work, and none of them is an accent color:
 
-- **Chrome is brushed steel, not neutral grey.** Every surface carries a few
+- **Chrome is brushed steel, not neutral gray.** Every surface carries a few
   percent blue cast — what metal looks like under that era's cool light. Neutral
-  `#262626` is a modern app's grey and reads as one.
+  `#262626` is a modern app's gray and reads as one.
 - **Text is cool white** (`#DAE5F1`), not ImGui's stock neutral `0.90`. Single
   biggest shift in the whole pass for its size.
 - **The distance ramp ends on the cyan**: amber near → lime → cyan far, so the
@@ -1535,7 +1535,7 @@ Three changes did most of the work, and none of them is an accent colour:
 
 The blind-zone disc and the 12 m envelope moved from dusty rose to hazard amber,
 joining `sem::WARN` — they are spec boundaries, which *is* a warning, so they
-should not have had a private colour in the first place.
+should not have had a private color in the first place.
 
 The board view needed no changes: it draws a physical object (green mask, gold
 pads) and its category stripes read `sem::` directly, so it followed on its own.
@@ -1586,7 +1586,7 @@ builtin types to the new `hub/src/shared.hpp` alias layer.
 
 3. **It merges two identifiers and still compiles.** This is the dangerous one.
    A local `impl` and a member `impl_` both mapped to `impl`, turning
-   `Impl* impl = impl_;` into `Impl* impl = impl;` — a self-initialisation that
+   `Impl* impl = impl_;` into `Impl* impl = impl;` — a self-initialization that
    compiles clean and reads plausibly. Same class of bug hit `g_max_mm = max_mm`,
    which silently stopped publishing the max-range readout.
 
@@ -1634,7 +1634,7 @@ has to match the format specifier regardless.
 
 ### The UI is now Unreal/early-IntelliJ, not Material
 
-Flat neutral greys, widgets **outlined**, corners nearly square (5 px → 2 px),
+Flat neutral grays, widgets **outlined**, corners nearly square (5 px → 2 px),
 one accent blue used only where something is selected or set, and tighter
 spacing. The ground stays pure black, which was asked for earlier and which both
 reference tools are close to behind their panels anyway.
@@ -1647,7 +1647,7 @@ Two carry-overs were kept deliberately rather than reverted:
   `FrameBorderSize` came back to 1 while child and window borders stayed at 0.
 - **The soft elevation shading was cut, not deleted.** Unreal's buttons are flat;
   early IntelliJ's have the faintest top-down fall. What is left is a hint of
-  light on the upper edge and no base shadow at all. The convex modelling
+  light on the upper edge and no base shadow at all. The convex modeling
   belonged to the Material design this replaced.
 
 **The parts of the palette nobody looks at were still stock.** `PlotLines`,
@@ -1660,16 +1660,16 @@ got missed.
 
 Also swept, all of it toward the same target:
 
-- **Scrollbar** — 14 px → 11 px with a faintly visible track and a square grey
+- **Scrollbar** — 14 px → 11 px with a faintly visible track and a square gray
   grab. The stock 14 px bar is a touch-sized affordance; a tool that expects a
   mouse gives the space to the content.
 - **Combos** — ImGui fills the arrow area with `ImGuiCol_Button`, so against a
   darker `FrameBg` the drop-down read as a separate button welded to the right of
   a field. Both reference tools draw the arrow *inside* the field; `ui::Combo`
-  pushes the button colours to match the frame and is otherwise stock.
+  pushes the button colors to match the frame and is otherwise stock.
 - **Tab strip** — `TabBarOverlineSize` 1 → 2. The selected tab is marked by its
   overline, and at 1 px against a 2 px-rounded tab it read as an anti-aliasing
-  artefact rather than a deliberate mark.
+  artifact rather than a deliberate mark.
 - **The map's own chrome** — the label plates behind ring numbers and the board
   view's legend swatches had their own hard-coded 4 px and 30 % radii. Both now
   read `style.FrameRounding`, so the map cannot drift away from the app around
@@ -1679,7 +1679,7 @@ Also swept, all of it toward the same target:
 **The checkbox had to be hand-rolled.** `ImGui::Checkbox` sizes its box to the
 whole frame height, which at this type scale is a ~28 px square; filled with an
 accent and rounded, it was the single most off-style control in the app. The
-replacement is a small outlined square centred in a taller row, and when checked
+replacement is a small outlined square centered in a taller row, and when checked
 the box stays dark — the accent arrives as the tick and the outline rather than
 flooding. It is still a real ImGui item (an `InvisibleButton` over box + label),
 so hover, nav and `BeginDisabled` all behave.
@@ -1708,7 +1708,7 @@ importantly, by treating a single empty bin as **no information** — it holds, 
 only opens after four consecutive empty revolutions. An empty bin is genuinely
 ambiguous: open space and a surface too dark to return look identical from here.
 
-Motion requires the whole 3×3 neighbourhood to be cold, not just the cell.
+Motion requires the whole 3×3 neighborhood to be cold, not just the cell.
 Angular jitter lands a stationary wall's returns in slightly different cells each
 revolution, so a bare cell-was-empty test lights every wall edge permanently.
 
@@ -1752,7 +1752,7 @@ must not be asked forever.
 
 ---
 
-## 2026-08-25 — the centre stops being only the map
+## 2026-08-25 — the center stops being only the map
 
 Top tabs above the central panel, and a segmented mode row under it. The map is
 now one central view among several and one of five render modes, rather than the
@@ -1766,7 +1766,7 @@ diverge, instead of quietly being wrong the way a drawing in a document is.
 Three things worth keeping:
 
 - **Auto-fit was jittering** because the fitted range was a continuous function
-  of the scene — a 95th-percentile distance that moved a few centimetres redrew
+  of the scene — a 95th-percentile distance that moved a few centimeters redrew
   every ring label. It now quantises to the same 1/2/5 × 10ⁿ ladder the rings
   use, grows immediately, and shrinks only below 55% of the current step. Reads a
   locked `10.0 m` across samples seconds apart; it was flipping 4.7 ↔ 10.0.
@@ -1781,7 +1781,7 @@ Three things worth keeping:
 
 `--tab map` and `--tab pico` were removed rather than kept working: `map` and
 `pico` now name central views, and one word selecting two different things is a
-trap. `--view` picks the centre, `--tab` picks the sidebar section.
+trap. `--view` picks the center, `--tab` picks the sidebar section.
 
 ---
 
@@ -1868,7 +1868,7 @@ looks exactly like dead hardware. Assert DTR.
 None of these produce a useful error message; three of them produce *no* message
 at all, which is what made them expensive.
 
-1. **MSYS2's `usr/bin` cmake is Cygwin-flavoured.** It uses POSIX paths and
+1. **MSYS2's `usr/bin` cmake is Cygwin-flavored.** It uses POSIX paths and
    cannot drive a native Windows ARM toolchain.
 2. **MSYS2's `mingw64` cmake dies with `0xC0000135` (DLL not found)** because
    this MSYS2 install is only partially updated. Fixing that means a full
@@ -1888,7 +1888,7 @@ at all, which is what made them expensive.
 #### `RP2350`, not `RPI-RP2`
 
 The flash script never found the board in BOOTSEL because it looked for a
-removable drive labelled `RPI-RP2`. **That is the RP2040 label. RP2350 — Pico 2
+removable drive labeled `RPI-RP2`. **That is the RP2040 label. RP2350 — Pico 2
 and Pico 2 W — labels its drive `RP2350`**, and enumerates as PID `0x000F`
 rather than `0x0003`. Both labels are now accepted.
 
@@ -1970,7 +1970,7 @@ by looking at the running app:
 
 - The blind-zone disc was drawn with a minimum on-screen radius so it would not
   vanish, which made it cover ~200 mm against a real blind radius of 50 mm.
-  Returns from a hand held near the unit landed *inside* a region labelled
+  Returns from a hand held near the unit landed *inside* a region labeled
   "cannot see here". Now drawn true to scale.
 - Out-of-spec returns were drawn but not counted. The rule now is: **whatever is
   not counted is not drawn.** The in-spec window is 0.05–12 m.
@@ -2003,7 +2003,7 @@ the lexan becomes the glossy outer layer. But the windows and light sections wer
 not masked on the first pass and got painted over. Scraped clear and re-masked.
 
 PS-12 Silver backing coat is ordered and pending. It goes over the blue once
-cured, blocks light transmission, and makes the colour read opaque rather than
+cured, blocks light transmission, and makes the color read opaque rather than
 translucent.
 
 **2026-08-26 — silver applied.** PS-12 sprayed over the blue across the whole
@@ -2040,15 +2040,15 @@ stages rather than in one pass.
       `firmware/` before that .uf2 is the last copy anywhere.
 - [x] **Phase 2: make the servo move under code** — 2026-08-27. Steering sweeps
       its full travel on command, and the ESC is verified. Calibrated on this
-      car: left 1230, **centre 1484**, right 1670, in
+      car: left 1230, **center 1484**, right 1670, in
       `firmware/lib/chassis/cal.h`.
 
-      Centre is 1484, not 1500. The servo was binding at what the firmware
+      Center is 1484, not 1500. The servo was binding at what the firmware
       called neutral, and that is why it kept stalling against the frame.
 
       The throw is asymmetric — 254 µs one way, 186 µs the other. Anything that
-      assumes ±X µs from centre steers further one way than the other, so the
-      next layer needs a normalised command that maps through the calibration
+      assumes ±X µs from center steers further one way than the other, so the
+      next layer needs a normalized command that maps through the calibration
       rather than adding microseconds to a midpoint.
 
       The evening it took was a missing common ground, hidden by a breadboard

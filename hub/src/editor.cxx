@@ -1124,7 +1124,7 @@ namespace ed
   // C sketches; `/gpio` is what gets typed, and a regex engine would mean std::regex
   // - which would silently reinterpret every . ( ) [ ] * + in the C under the caret
   // as syntax. Searching for `gpioWrite(LED` would then find nothing and give no
-  // hint why. Literal is the behaviour that matches what people actually type here.
+  // hint why. Literal is the behavior that matches what people actually type here.
   //
   // Smartcase, as vim does it: an all-lowercase pattern ignores case, a pattern
   // with any capital in it is exact.

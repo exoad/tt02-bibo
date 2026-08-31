@@ -1,7 +1,7 @@
 // Toolbar icons.
 //
 // Fugue Icons 3.5.6 by Yusuke Kamiyamane, CC BY 3.0. See assets/icons/LICENSE.txt
-// and the attribution in the repo README - the licence requires it.
+// and the attribution in the repo README - the license requires it.
 //
 // They are 16x16 pixel art, hinted at that size and available at no other, so
 // they are drawn at INTEGER multiples of 16 physical pixels and never at a
@@ -108,7 +108,7 @@ namespace ui
       ICON_MODE_MINIMAL,
 
       // The 3D scene's own modes. Walls and Fit reuse the flat map's icons on
-      // purpose: they are the SAME analysis seen from a different place, and
+      // purpose: they are the SAME analyzis seen from a different place, and
       // giving them separate marks would imply they were separate answers.
       ICON_SCENE_CLOUD,
       ICON_SCENE_BLOCKS,
@@ -187,13 +187,13 @@ namespace ui
 
   // A normal ImGui button with an icon set into its left margin.
   //
-  // The label stays centred, which is what leaves the margin free - so this needs
+  // The label stays centered, which is what leaves the margin free - so this needs
   // no padded label string and no hand-rolled widget. Returns what Button returns.
   [[nodiscard]] Bool iconButton(Icon ic, const Char* label, const ImVec2& size = ImVec2(0, 0), Tint tint = Tint::TINT_NONE);
 
   // A context-menu entry with an icon in its left margin.
   //
-  // MenuItem centres nothing and has no margin of its own, so the icon is drawn
+  // MenuItem centers nothing and has no margin of its own, so the icon is drawn
   // over the leading spaces of a padded label - the same trick iconTabLabel uses,
   // and for the same reason: no hand-rolled widget, and the highlight, the
   // keyboard navigation and the close-on-click all still belong to ImGui.

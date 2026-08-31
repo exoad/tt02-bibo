@@ -9,14 +9,14 @@ a car-shaped texture, it is whichever swatch the `body` group's triangles happen
 to sample, and the only reliable way to find it is to ask the mesh.
 
 So: read car.obj, take the triangles in the `body` group, sample the atlas at
-their UVs, and the most common colour among them IS the paint. Then recolour
-every pixel of that exact colour.
+their UVs, and the most common color among them IS the paint. Then recolor
+every pixel of that exact color.
 
 The result is written back over assets/models/colormap.png. The kit is CC0, so
 modifying it is permitted; the modification is recorded in ATTRIBUTION.md.
 
 WHAT THIS IS NOT: it does not make the model an Impreza. It is a generic Kenney
-saloon in the right colours. The shape is still a stand-in - see ATTRIBUTION.md.
+saloon in the right colors. The shape is still a stand-in - see ATTRIBUTION.md.
 """
 import io, os, struct, sys, zlib
 from collections import Counter
@@ -135,9 +135,9 @@ def main():
         i = (y * w + x) * 4
         hist[(px[i], px[i + 1], px[i + 2])] += 1
 
-    # The most common body swatch is NOT the paint: the greys that dominate are
+    # The most common body swatch is NOT the paint: the grays that dominate are
     # the underbody, which nobody ever sees. Paint is the most common CHROMATIC
-    # swatch - a car's colour is a colour, and its chassis is not.
+    # swatch - a car's color is a color, and its chassis is not.
     def chroma(c):
         return max(c) - min(c)
 
@@ -152,12 +152,12 @@ def main():
     print('body samples: %d, paint #%02X%02X%02X (chroma %d, used %d)'
           % (len(uv), paint[0], paint[1], paint[2], chroma(paint), hist[paint]))
     if paint == LIVERY:
-        print('already in the livery colour; nothing to do'); return 0
+        print('already in the livery color; nothing to do'); return 0
 
     # Remapped by NEARNESS and luminance-preserving, not by exact match. The
     # atlas has several near-identical shades per region - shading baked into
     # the palette - and an exact-match replace would repaint one of them and
-    # leave the car in two colours.
+    # leave the car in two colors.
     def lum(c):
         return (c[0] * 299 + c[1] * 587 + c[2] * 114) // 1000
 

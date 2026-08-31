@@ -181,7 +181,7 @@ namespace proto
 
     // A fixed-point float, written without printf.
     //
-    // NOT snprintf("%.3f"). That honours the C locale, and on a machine set to
+    // NOT snprintf("%.3f"). That honors the C locale, and on a machine set to
     // a comma decimal separator it emits `0,250` - which the board's parser
     // reads as 0, so the car goes straight when it was told to turn. The bug
     // appears only on somebody else's laptop and only in the field.

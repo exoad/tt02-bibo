@@ -188,7 +188,7 @@ namespace
       mapgeo::computeReach(mapgeo::PolarScan{ clr.data(), seen.data(), BINS, STEP },
                            95.0f, out.data());
 
-      // In an open circular room the centre can get to within halfW of the wall,
+      // In an open circular room the center can get to within halfW of the wall,
       // and no further. sqrt(3000^2 - 95^2) - ... is not the answer; the binding
       // obstacle is the one straight ahead, so r = 3000 - 95.
       checkNear(out[0], 3000.0f - 95.0f, 12.0f, "open room: reach = radius - halfW");
@@ -203,7 +203,7 @@ namespace
       {
           // Two returns at 1000 mm, +/-75 mm either side of the bearing-0 axis.
           // 75 mm off-axis at 1000 mm range is atan(75/1000) = 4.29 deg, which at
-          // 3 deg bins is bin +/-1 (bin centres sit at +/-1.5 deg, +/-4.5 deg).
+          // 3 deg bins is bin +/-1 (bin centers sit at +/-1.5 deg, +/-4.5 deg).
           const Float32 r = std::sqrt(1000.0f * 1000.0f + 75.0f * 75.0f);
           clr[1] = r;               // + side
           clr[BINS - 1] = r;        // - side

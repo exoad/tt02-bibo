@@ -348,7 +348,7 @@ Int32 main()
                     got.items[i].detail.substr(0, 34).c_str());
     }
 
-    // ---- a designated initialiser, against an UNSAVED edit ----------------
+    // ---- a designated initializer, against an UNSAVED edit ----------------
     //
     // The case the whole feature was asked for. `pins::Map` has 24 fields and
     // this is where you least remember their names.
@@ -404,7 +404,7 @@ Int32 main()
 
             check(has(fields, "soundTx") && has(fields, "soundRx")
                   && has(fields, "soundBusy"),
-                  "designated initialiser fields, from an unsaved edit");
+                  "designated initializer fields, from an unsaved edit");
 
             Bool anyField = false;
             for(const lsp::Item& it : fields.items)

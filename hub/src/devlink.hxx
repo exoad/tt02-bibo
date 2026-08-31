@@ -113,7 +113,7 @@ namespace dev
   // This is the rule that stops the lidar grabbing COM10. A USB CDC device is a
   // Pico; a Bluetooth port is a dead end that answers with a timeout looking
   // exactly like a broken lidar. UNKNOWN is allowed through because an
-  // unrecognised adapter is a real possibility and refusing it would be worse
+  // unrecognized adapter is a real possibility and refusing it would be worse
   // than offering it.
   [[nodiscard]] Bool couldBeLidar(PortKind k);
 

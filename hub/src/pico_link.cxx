@@ -110,7 +110,7 @@ namespace
       Deque<PicoLine>    log;
       // What is waiting to go out. The flag rides WITH the payload: the echo
       // into the log happens on the worker thread, long after send() returned,
-      // and a parallel deque of flags would be one mispop away from labelling the
+      // and a parallel deque of flags would be one mispop away from labeling the
       // wrong line.
       struct TxItem
       {
@@ -1079,7 +1079,7 @@ PicoLink::~PicoLink()
     // a crash on exit, blamed on whatever happened to be running at the time.
     //
     // The alternatives are worse. Waiting for it means the app takes two
-    // minutes to close, which is the behaviour that made it look hung in the
+    // minutes to close, which is the behavior that made it look hung in the
     // first place. Killing the thread leaves the driver's own state half
     // written.
     //

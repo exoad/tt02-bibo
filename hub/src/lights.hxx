@@ -1,14 +1,14 @@
 // ---------------------------------------------------------------------------
 // Vehicle lighting: the state machine, not the drawing.
 //
-// This is the behaviour written down in docs/conventions.md under "Lighting behavior",
+// This is the behavior written down in docs/conventions.md under "Lighting behavior",
 // implemented once. The 3D view drives it today so the rules can be watched and
 // argued with before any LED exists; the firmware will need exactly this logic,
 // and it is here rather than in the renderer so that porting it is a copy rather
 // than a re-derivation from a picture.
 //
 // Pure: inputs and a clock go in, per-lamp brightness comes out. No statics, no
-// device, nothing to initialise - which is what makes it testable, and it is
+// device, nothing to initialize - which is what makes it testable, and it is
 // tested (tests/test_lights.cxx), because three of these rules are the kind
 // that look right and are not:
 //

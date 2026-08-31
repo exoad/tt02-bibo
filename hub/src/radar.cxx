@@ -1,6 +1,6 @@
 // Interactive 2D map of recent scan revolutions, drawn with ImDrawList.
 //
-// World space is millimetres with the sensor at the origin, x right, y down on
+// World space is millimeters with the sensor at the origin, x right, y down on
 // screen; a measurement at (angle, dist) maps to (dist*sin a, -dist*cos a), so
 // 0 degrees points up and angle increases clockwise. Screen space follows from
 //     screen = center_px + (world_mm - view_center_mm) * px_per_mm
@@ -10,8 +10,8 @@
 // The hot path is ~5 revolutions x ~500 points x 1 disc per frame at 60 fps,
 // so the points are emitted as untessellated 8-gons written straight into the
 // draw list through PrimReserve/PrimWriteVtx/PrimWriteIdx. Every point in a
-// revolution shares one flat colour, so the colour is hoisted out of the inner
-// loop entirely: distance is read off the rings, not off a colour ramp.
+// revolution shares one flat color, so the color is hoisted out of the inner
+// loop entirely: distance is read off the rings, not off a color ramp.
 //
 // RENDER MODES (MapMode, radar.h). `mode` reaches exactly one switch, in
 // draw(), around the block that emits the returns. Everything else - the view
@@ -24,9 +24,9 @@
 //   Rays       one clipped line per return, from the sensor. A direction that
 //              came back empty simply has no ray, which is what makes a
 //              dropout visible as a wedge instead of a gap you have to infer.
-//   Distance   the same dots, coloured off the ui::plot ramp, indexed against
+//   Distance   the same dots, colored off the ui::plot ramp, indexed against
 //              the device's IN-SPEC WINDOW rather than the zoom - so a wall
-//              keeps its colour while you scale the view.
+//              keeps its color while you scale the view.
 //   Density    hit counts accumulated into a fixed world-space grid over a
 //              rolling window of revolutions, shaded by count.
 //   Occupancy  the same grid, but returns persist and decay in wall-clock
@@ -91,7 +91,7 @@ namespace
   // Figure 2-1: Resolution 15 mm, Accuracy +/-30 mm.
   //
   // This is what the sensor can DISTINGUISH, and it is why the readouts below do
-  // not print a millimetre. Two surfaces 10 mm apart are one surface to a C1, and
+  // not print a millimeter. Two surfaces 10 mm apart are one surface to a C1, and
   // a display that says "437 mm" is offering three significant figures the device
   // cannot support - which reads as precision and is decoration.
   constexpr Float32 RESOLUTION_MM = 15.0f;
@@ -103,7 +103,7 @@ namespace
   // legible minimum marks area the sensor can see perfectly well as blind: at a
   // typical fit zoom a 16 dp floor covered ~200 mm against a real blind radius of
   // 50 mm, so a hand held near the unit produced returns that landed inside the
-  // disc labelled "cannot see here". The disc is drawn true to scale; zoom in to
+  // disc labeled "cannot see here". The disc is drawn true to scale; zoom in to
   // inspect it.
   constexpr Float32 BLIND_MIN_PX = 4.0f;
 
@@ -113,7 +113,7 @@ namespace
   // (45/135/...) that carry the compass numbers.
   constexpr Float32 RING_LABEL_BEARING = 25.0f;
 
-  // Zoom limits, expressed as the visible radius (centre -> nearer edge) in mm.
+  // Zoom limits, expressed as the visible radius (center -> nearer edge) in mm.
   constexpr Float32 MIN_VISIBLE_MM = 50.0f;      //  5 cm across the short half-axis
   constexpr Float32 MAX_VISIBLE_MM = 40000.0f;   // 40 m
 
@@ -129,7 +129,7 @@ namespace
 
   // ---------------------------------------------------------------- palette ---
 
-  // Map chrome. These are plot colours, not UI chrome, so they are explicit
+  // Map chrome. These are plot colors, not UI chrome, so they are explicit
   // rather than following ImGui's theme - see theme.h.
   constexpr ImU32 RING_COL     = (ui::ansi::GRID       & 0x00FFFFFFu) | (0x9Au << IM_COL32_A_SHIFT);
   constexpr ImU32 RING_MAJOR   = (ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0xA6u << IM_COL32_A_SHIFT);
@@ -140,7 +140,7 @@ namespace
   constexpr ImU32 HEADING_COL  = ui::ansi::HEADING;
   constexpr ImU32 HUB_COL      = ui::ansi::BRCYAN;
   constexpr ImU32 HUB_CORE_COL  = ui::ansi::BRWHITE;
-  constexpr ImU32 EMPTY_COL    = ui::ansi::GREY;
+  constexpr ImU32 EMPTY_COL    = ui::ansi::GRAY;
   constexpr ImU32 NEAREST_COL  = ui::ansi::NEAREST;
   constexpr ImU32 MEASURE_COL  = ui::ansi::MEASURE;
 
@@ -150,11 +150,11 @@ namespace
 
   // Ring / compass label inks. Distances read brighter than bearings so the two
   // families of number never get confused for one another.
-  constexpr ImU32 RING_TEXT_COL = ui::ansi::GREY;
-  constexpr ImU32 BEARING_COL  = ui::ansi::GREY;
+  constexpr ImU32 RING_TEXT_COL = ui::ansi::GRAY;
+  constexpr ImU32 BEARING_COL  = ui::ansi::GRAY;
   constexpr ImU32 CARDINAL_COL = ui::ansi::WHITE;
   constexpr ImU32 TICK_COL     = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);
-  constexpr ImU32 TICK_MAJOR_COL= ui::ansi::GREY;
+  constexpr ImU32 TICK_MAJOR_COL= ui::ansi::GRAY;
   constexpr ImU32 SCALE_COL    = ui::ansi::WHITE;
 
   // Blind zone: the C1 returns nothing inside its 0.05 m spec floor. Drawn as a
@@ -178,8 +178,8 @@ namespace
   // supplied per revolution, so the RGB is kept separate from it here.
   //
   // That reasoning is why Points is the default and why it is untinted. It is NOT
-  // an argument that a colour ramp is never legitimate: the objection was to
-  // colour arriving unasked-for. MapMode::MAP_MODE_DISTANCE is the same ramp, chosen
+  // an argument that a color ramp is never legitimate: the objection was to
+  // color arriving unasked-for. MapMode::MAP_MODE_DISTANCE is the same ramp, chosen
   // deliberately, and it says so in the toggle.
   constexpr ImU32 POINT_RGB    = IM_COL32(0xFF, 0xFF, 0xFF, 0x00);
 
@@ -194,7 +194,7 @@ namespace
   // the live revolution drawn over it in POINT_RGB reads as "now".
   constexpr ImU32 OCC_RGB      = IM_COL32(0x5C, 0x5C, 0xFF, 0x00);
 
-  // Motion. The one alarming colour in the file, and deliberately: a cell here
+  // Motion. The one alarming color in the file, and deliberately: a cell here
   // means something is where nothing was, which is the only thing the map draws
   // that a driving robot would need to react to.
   constexpr ImU32 MOTION_RGB   = IM_COL32(0xFF, 0x00, 0x00, 0x00);
@@ -219,7 +219,7 @@ namespace
 
   // Sweep ramp: position within one revolution. Deliberately a THIRD hue family,
   // sharing stops with neither the distance ramp nor the density heat, because a
-  // point's colour here says nothing about its range or how often it was seen.
+  // point's color here says nothing about its range or how often it was seen.
   constexpr ImU32 SWEEP_START_RGB = IM_COL32(0x00, 0xFF, 0xFF, 0x00);   // aqua
   constexpr ImU32 SWEEP_MID_RGB   = IM_COL32(0xFF, 0x00, 0xFF, 0x00);   // violet
   constexpr ImU32 SWEEP_END_RGB   = IM_COL32(0xFF, 0xFF, 0x00, 0x00);   // yellow
@@ -247,9 +247,9 @@ namespace
       return n;
   }
 
-  // ------------------------------------------------------------- colour ramp ---
+  // ------------------------------------------------------------- color ramp ---
 
-  // Channel-wise blend of two packed colours. Alpha is dropped: every ramp entry
+  // Channel-wise blend of two packed colors. Alpha is dropped: every ramp entry
   // is stored with alpha 0 so the caller ORs in the per-revolution alpha, exactly
   // as POINT_RGB is used.
   inline ImU32 lerpRgb(ImU32 a, ImU32 b, Float32 t)
@@ -267,8 +267,8 @@ namespace
   constexpr Int32 RAMP_N = 128;
 
   // A three-stop ramp baked once. Two of these exist: range (Distance mode) and
-  // heat (Density mode). Both are indexed by a normalised quantity, never by a
-  // screen-space one, so the same physical thing keeps its colour as you zoom.
+  // heat (Density mode). Both are indexed by a normalized quantity, never by a
+  // screen-space one, so the same physical thing keeps its color as you zoom.
   struct Ramp
   {
       ImU32 c[RAMP_N];
@@ -320,7 +320,7 @@ namespace
 
   // Where a range sits in the device's in-spec window. Deliberately the SPEC
   // window and not the visible range: indexing against the zoom would repaint the
-  // whole scene every time the view scaled, so the same wall would change colour
+  // whole scene every time the view scaled, so the same wall would change color
   // while its distance had not changed at all.
   inline Float32 rangeT(Float32 mm)
   {
@@ -434,13 +434,13 @@ namespace
   // Readout labels: as much precision as the SENSOR deserves, which is a
   // different question from what the magnitude deserves.
   //
-  // This used to print "%.0f mm" below a metre - "437 mm", three significant
+  // This used to print "%.0f mm" below a meter - "437 mm", three significant
   // figures. The C1 resolves 15 mm and is accurate to +/-30 mm, so the last digit
   // of that was never measured, and the digit before it was decoration. A readout
   // that jitters between 437 and 441 while nothing moves teaches you to distrust
   // the display; one that reads 440 and stays there is telling the truth.
   //
-  // So: snapped to the resolution below a metre, and two decimals of a metre
+  // So: snapped to the resolution below a meter, and two decimals of a meter
   // above it - 10 mm granularity, which is still finer than the accuracy but
   // coarse enough not to claim anything absurd.
   Void formatDist(Char* buf, Size n, Float32 mm)
@@ -476,7 +476,7 @@ namespace
   };
 
   // How the world maps onto that rectangle: where the sensor sits in screen
-  // space, how many pixels a millimetre is worth, and the display scale.
+  // space, how many pixels a millimeter is worth, and the display scale.
   //
   // These three are constant across every overlay drawn in a frame, while the
   // RECTANGLE changes - the grid draws into the plot area and its labels into a
@@ -489,7 +489,7 @@ namespace
       Float32 dpi     = 1.0f;
   };
 
-  // One screen-space point disc. Colour is uniform across a revolution and so is
+  // One screen-space point disc. Color is uniform across a revolution and so is
   // passed to emitDiscs() once rather than stored per point.
   struct Dot { Float32 x, y; };
 
@@ -510,7 +510,7 @@ namespace
       return s;
   }
 
-  // A screen-space point that carries its own colour, for the modes where the
+  // A screen-space point that carries its own color, for the modes where the
 
   // A screen-space axis-aligned cell, for Density and Occupancy.
   struct Cell { Float32 x0, y0, x1, y1; ImU32 c; };
@@ -524,7 +524,7 @@ namespace
   // --------------------------------------------------------- persistent maps ---
   //
   // Density and Occupancy both accumulate into the SAME fixed world-space grid,
-  // anchored on the sensor origin in millimetres. World-space and not screen-space
+  // anchored on the sensor origin in millimeters. World-space and not screen-space
   // is the whole point: a cell must mean the same patch of floor at every zoom, or
   // panning would redraw the map into a different shape.
   //
@@ -544,7 +544,7 @@ namespace
   constexpr Int32 DENS_WINDOW = 40;
 
   // Hit count at which a density cell is fully saturated. Fixed, NOT the current
-  // frame's maximum: normalising against a running maximum would make the same
+  // frame's maximum: normalizing against a running maximum would make the same
   // count mean a different brightness from one frame to the next, which is the
   // one thing a heatmap may not do.
   constexpr Float32 DENS_FULL = 36.0f;
@@ -567,14 +567,14 @@ namespace
   constexpr Float32 EGO_HEIGHT_MM    = vehicle::CAR_HEIGHT_MM;
   constexpr Float32 EGO_WHEELBASE_MM = vehicle::CAR_WHEELBASE_MM;
   constexpr Float32 EGO_TREAD_MM     = vehicle::CAR_TREAD_MM;
-  constexpr Float32 EGO_WHEEL_D_MM   = vehicle::CAR_TYRE_DIA_MM;
-  constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TYRE_WID_MM;
+  constexpr Float32 EGO_WHEEL_D_MM   = vehicle::CAR_TIRE_DIA_MM;
+  constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TIRE_WID_MM;
   constexpr Float32 EGO_SENSOR_AHEAD_MM = vehicle::C1_MOUNT_AHEAD_MM;
 
   // The sensor is drawn at the middle of the chassis because that is the only
   // position that is currently TRUE: the C1 is not mounted yet. When it is, this
   // becomes a measured offset and the footprint shifts around the origin - the
-  // drawing already works in terms of it rather than assuming the centre.
+  // drawing already works in terms of it rather than assuming the center.
 
   // --- Clearance -------------------------------------------------------------
   //
@@ -594,7 +594,7 @@ namespace
   constexpr Int32 CLR_MISS_OPEN = 4;
 
   // Asymmetric smoothing, and the asymmetry is the point. A bin CLOSES instantly
-  // - something that just appeared two metres ahead is reported at two metres on
+  // - something that just appeared two meters ahead is reported at two meters on
   // the frame it appears, because a free-space map that lags an obstacle is worse
   // than no free-space map. A bin OPENS slowly, so a single dropped return cannot
   // briefly declare a wall gone. Per-second rate, applied via a dt-corrected step.
@@ -602,13 +602,13 @@ namespace
 
   // --- Motion ----------------------------------------------------------------
   //
-  // A cell counts as motion when it is hit and the neighbourhood around it was
+  // A cell counts as motion when it is hit and the neighborhood around it was
   // cold in the occupancy map.
   //
-  // THE NEIGHBOURHOOD IS A DISTANCE, NOT A CELL COUNT, and getting that wrong is
+  // THE NEIGHBORHOOD IS A DISTANCE, NOT A CELL COUNT, and getting that wrong is
   // what made this mode useless. It was a fixed 3x3 - plus or minus one 60 mm cell
   // - which is smaller than the gap between adjacent samples at anything past
-  // about 6 m: the C1 steps 0.72 deg, so neighbouring returns on the SAME wall are
+  // about 6 m: the C1 steps 0.72 deg, so neighboring returns on the SAME wall are
   // 25 mm apart at 2 m but 151 mm apart at 12 m. Beyond that crossover every
   // return on a distant stationary surface landed further from the last one than
   // the test could reach, found nothing warm, and was reported as new. Forever.
@@ -809,7 +809,7 @@ namespace
   // must not depend on which mode happened to be on screen while it saw it.
   // True when every cell of the 3x3 around `ci` is below the cold threshold, i.e.
   // nothing has been seen anywhere near here recently. Rows are contiguous, so the
-  // neighbourhood is nine indexed reads with no bounds maths beyond the edges.
+  // neighborhood is nine indexed reads with no bounds maths beyond the edges.
   // How far either side of a cell counts as "the same place", given how far away
   // it is. See MOT_ARC_RAD for why this cannot be a constant.
   Int32 motionRadiusCells(Float32 rangeMm)
@@ -827,7 +827,7 @@ namespace
       return n;
   }
 
-  Bool neighbourhoodCold(const MapState& st, Int32 ci, Int32 rad)
+  Bool neighborhoodCold(const MapState& st, Int32 ci, Int32 rad)
   {
       const Int32 ix = ci % GRID_N;
       const Int32 iy = ci / GRID_N;
@@ -927,7 +927,7 @@ namespace
           // The radius comes from THIS return's range: a far return is allowed to
           // have wandered further and still be the same surface.
           if(st.revs >= MOT_WARMUP_REVS
-             && neighbourhoodCold(st, ci, motionRadiusCells(p.distMm)))
+             && neighborhoodCold(st, ci, motionRadiusCells(p.distMm)))
           {
               if(!(st.mot[static_cast<Size>(ci)] > 0.0f))
               {
@@ -1204,7 +1204,7 @@ namespace
       }
   }
 
-  // Axis-aligned filled cells, one colour each.
+  // Axis-aligned filled cells, one color each.
   //
   // Reserved per cell: 4 vertices and 6 indices.
   // Written  per cell: 4 PrimWriteVtx and 2 triangles == 6 PrimWriteIdx.
@@ -1244,7 +1244,7 @@ namespace
   }
 
   // Strokes only the part of a circle that can fall inside the widget. Range
-  // rings are centred on the sensor, which may sit far outside the rect once the
+  // rings are centered on the sensor, which may sit far outside the rect once the
   // view is panned; tessellating the whole circle would then cost thousands of
   // segments for a few visible pixels.
 
@@ -1268,7 +1268,7 @@ namespace
       }
 
       // The sensor is outside the rect, so the rect subtends less than 180 deg
-      // from it: the corner bearings, taken relative to the rect centre, bracket
+      // from it: the corner bearings, taken relative to the rect center, bracket
       // the only arc worth drawing.
       const ImVec2 rc((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
       const Float32  ac = std::atan2(rc.y - c.y, rc.x - c.x);
@@ -1385,7 +1385,7 @@ namespace
       dl->AddText(font, fs, pos, col, txt);
   }
 
-  // Text with a plate behind it, anchored by its centre. Returns false without
+  // Text with a plate behind it, anchored by its center. Returns false without
   // drawing when the plate would not fit inside [p0,p1].
   Bool plateTextAt(ImDrawList* dl, const ImVec2& mid, const Rect& area, Float32 dpi, ImU32 col, const Char* txt)
   {
@@ -1424,7 +1424,7 @@ namespace
       Int32   compassI = 1;
       Float32 compassR = 0.0f;     // px, from the sensor
       Float32 ppm       = 0.0f;     // px per mm, for range-limit drawing
-      Bool  centred   = false;    // is the sensor itself inside the widget?
+      Bool  centered   = false;    // is the sensor itself inside the widget?
   };
 
   // `s0` is where the sensor lands on screen; it may be well outside [p0,p1].
@@ -1451,7 +1451,7 @@ namespace
       const Float32 ny = clampf(s0.y, p0.y, p1.y);
       const Float32 nearD = std::sqrt((nx - s0.x) * (nx - s0.x) + (ny - s0.y) * (ny - s0.y));
 
-      g.centred = (nearD <= 0.0f);
+      g.centered = (nearD <= 0.0f);
 
       Float32 farD = 0.0f;
       const ImVec2 corner[4] = { p0, ImVec2(p1.x, p0.y), p1, ImVec2(p0.x, p1.y) };
@@ -1494,7 +1494,7 @@ namespace
       return ImVec2(std::sin(a), -std::cos(a));
   }
 
-  // Metre squares, axis-aligned on the sensor, with the same 1/2/5 step ladder
+  // Meter squares, axis-aligned on the sensor, with the same 1/2/5 step ladder
   // the rings use so the two grids never disagree about scale.
   //
   // Drawn from the sensor outward rather than from the widget corner, so the
@@ -1550,7 +1550,7 @@ namespace
   }
 
   // Distance labels for the Cartesian grid, along the two axes through the
-  // sensor. Only the major lines get one - a number on every metre line is a wall
+  // sensor. Only the major lines get one - a number on every meter line is a wall
   // of text on a grid whose whole point is to be read at a glance.
   Void drawGridCartesianLabels(ImDrawList* dl, const GridSpec& g, const Rect& area, const MapScale& sc)
   {
@@ -1650,7 +1650,7 @@ namespace
           // compass ring is therefore meaningful; once it has been panned or
           // zoomed away, every visible ring is carrying the reading.
           ImU32 col; Float32 th;
-          if(!g.centred)       { col = ((i % 5) == 0) ? RING_MAJOR : RING_COL;
+          if(!g.centered)       { col = ((i % 5) == 0) ? RING_MAJOR : RING_COL;
                                        th  = ((i % 5) == 0) ? 1.3f : 1.0f; }
           else if(i == g.compassI)
           {
@@ -1803,7 +1803,7 @@ namespace
 
       // The transmitter's own shadow: the region the C1 cannot see inside, which
       // is not a hazard and not a surface. It stays black like everything else and
-      // the only marks on it are red - the colour this palette already spends on
+      // the only marks on it are red - the color this palette already spends on
       // "there is nothing here".
       hatchDisc(dl, s0, r, BLIND_HATCH, 1.0f * dpi, 7.0f * dpi);
       dashedRing(dl, s0, r, BLIND_EDGE, 1.4f * dpi, 5.0f * dpi);
@@ -1836,15 +1836,15 @@ namespace
       plateTextAt(dl, ImVec2(s0.x, s0.y + r * 0.42f), area, dpi, BLIND_TEXT, txt);
   }
 
-  // Which way the unit is physically pointing. The C1 has an arrow moulded on its
+  // Which way the unit is physically pointing. The C1 has an arrow molded on its
   // housing marking the front, the SDK reports that direction as angle 0, and this
-  // map puts 0 up - so this arrow lines up with the moulded one when the device is
+  // map puts 0 up - so this arrow lines up with the molded one when the device is
   // oriented the same way as the map.
   //
   // Deliberately a thin debug-overlay stroke: a long shaft plus an open head, no
   // fill, no plate and no caption - the bearing numbers around the compass ring
   // already say where 0 is. Anchored on the sensor's world origin, so it tracks
-  // correctly once the sensor is panned off-centre.
+  // correctly once the sensor is panned off-center.
   Void drawHeadingArrow(ImDrawList* dl, const Rect& area, const MapScale& sc, Float32 radiusPx)
   {
       const ImVec2& p0 = area.p0;
@@ -1898,7 +1898,7 @@ namespace
       }
   }
 
-  // Labelled bar in the bottom-left corner. Unlike the rings this stays useful
+  // Labeled bar in the bottom-left corner. Unlike the rings this stays useful
   // when the sensor has been panned right out of the widget.
   Void drawScaleBar(ImDrawList* dl, const Rect& area, const MapScale& sc)
   {
@@ -2035,7 +2035,7 @@ namespace
       const Int32 last = static_cast<Int32>(trail.size()) - 1;
       Vec<Dot>& dots = scratch();
 
-      // Older revolutions fade out behind the current one. Same flat colour,
+      // Older revolutions fade out behind the current one. Same flat color,
       // lower alpha and a slightly smaller dot: the trail is context, the
       // latest revolution is the reading.
       if(showTrail && last > 0)
@@ -2152,7 +2152,7 @@ namespace
   // as a wall rather than as the dots a wall happens to produce.
   //
   // A break is declared when consecutive returns are further apart than a gap that
-  // GROWS WITH RANGE. It has to: at 0.72 deg the arc between neighbouring samples
+  // GROWS WITH RANGE. It has to: at 0.72 deg the arc between neighboring samples
   // is ~13 mm at 1 m and ~150 mm at 12 m, so a fixed threshold either shatters
   // every distant surface or bridges across doorways up close.
   Void drawMarksContour(const MarkCtx& c, const Deque<Vec<LidarPoint>>& trail)
@@ -2281,7 +2281,7 @@ namespace
   }
 
   // MapMode::MAP_MODE_MOTION. Cells that were hit while the memory map said their whole
-  // neighbourhood was empty - so a static room is very nearly blank and anything
+  // neighborhood was empty - so a static room is very nearly blank and anything
   // that moves through it draws a bright trail.
   //
   // This is the complement of Density: that one shows what has stayed put, this
@@ -2837,8 +2837,8 @@ namespace
   // This is obstacle inflation - configuration space - done in polar form. Instead
   // of growing every obstacle by the vehicle's half-width and then measuring, each
   // obstacle is asked directly where along a bearing it would first come within
-  // half a car of the centreline. For an obstacle at (R, dth) off the bearing, the
-  // centre first touches it at
+  // half a car of the centerline. For an obstacle at (R, dth) off the bearing, the
+  // center first touches it at
   //
   //     r = R cos(dth) - sqrt(halfW^2 - (R sin(dth))^2)
   //
@@ -2948,7 +2948,7 @@ namespace
       const Float32 fitArea  = mapgeo::polarArea(reach.data(), CLR_BINS, CLR_BIN_DEG);
 
       // Forward reach, on the bearing the car actually points.
-      const Int32 fwd = 0;    // bin 0 is centred on bearing 0 + half a bin
+      const Int32 fwd = 0;    // bin 0 is centered on bearing 0 + half a bin
       say(c, "car fits in %.1f m2 of %.1f m2 free (%.0f%%)  |  %.2f m ahead  |  "
              "%d of %d bearings blocked",
           static_cast<Float64>(fitArea), static_cast<Float64>(freeArea),
@@ -2979,7 +2979,7 @@ namespace
 
   // Object extraction. A cluster is a run of consecutive returns with no large
   // gap between them; the break threshold has to GROW with range because the arc
-  // between two samples does - at 0.72 deg, neighbours are 63 mm apart at 5 m and
+  // between two samples does - at 0.72 deg, neighbors are 63 mm apart at 5 m and
   // 151 mm apart at 12 m, so one fixed number would either shred distant objects
   // or weld together near ones.
   constexpr Int32   OBJ_MIN_PTS     = 4;
@@ -2998,7 +2998,7 @@ namespace
 
   struct Obstacle
   {
-      Float32 cx = 0.0f, cy = 0.0f;      // centre, mm, sensor frame (y is DOWN)
+      Float32 cx = 0.0f, cy = 0.0f;      // center, mm, sensor frame (y is DOWN)
       Float32 ux = 1.0f, uy = 0.0f;      // principal axis, unit
       Float32 halfL = 0.0f, halfW = 0.0f;
       Float32 nearMm = 0.0f;             // closest return in the cluster
@@ -3224,7 +3224,7 @@ namespace
       return best;
   }
 
-  ImU32 clearanceColour(Float32 mm)
+  ImU32 clearanceColor(Float32 mm)
   {
       if(mm >= CORRIDOR_WARN_MM)
       {
@@ -3287,7 +3287,7 @@ namespace
       const Float32 th = std::max(1.0f, 1.4f * c.dpi);
 
       // Wheels first, so the body sits over them. Placed on the real TREAD rather
-      // than tucked inside the body edge - on a touring car the tyres sit inboard
+      // than tucked inside the body edge - on a touring car the tires sit inboard
       // of the arches, and the difference is 14 mm a side.
       const Float32 wr = EGO_WHEEL_D_MM * 0.5f * c.ppm;
       const Float32 ww = EGO_WHEEL_W_MM * 0.5f * c.ppm;
@@ -3352,7 +3352,7 @@ namespace
                             ImDrawFlags_Closed, th);
       }
 
-      // Centre line: the axis the corridor is measured along, so the two cannot
+      // Center line: the axis the corridor is measured along, so the two cannot
       // appear to disagree.
       if(hl > 6.0f)
       {
@@ -3449,7 +3449,7 @@ namespace
       }
 
       // Range, and size for anything big enough that its size is a fact rather
-      // than a quantisation artefact.
+      // than a quantisation artifact.
       Array<Char, 40> lab;
       const Float32 across = o.halfW * 2.0f, along = o.halfL * 2.0f;
       if(std::max(across, along) >= 250.0f)
@@ -3488,7 +3488,7 @@ namespace
   }
 
   // The corridor the car would drive into. A ribbon of the chassis' own width,
-  // coloured by how much of it is free.
+  // colored by how much of it is free.
   Void drawCorridor(const MarkCtx& c, Float32 halfWidthMm, Float32 freeMm, Vec<LabelRect>& taken)
   {
       const Float32 hw = halfWidthMm * c.ppm;
@@ -3504,7 +3504,7 @@ namespace
           return;                       // nothing between the bumper and the stop
       }
 
-      const ImU32 col  = clearanceColour(freeMm);
+      const ImU32 col  = clearanceColor(freeMm);
       const ImU32 fill = (col & 0x00FFFFFFu) | (static_cast<ImU32>(24u) << IM_COL32_A_SHIFT);
       const ImU32 line = (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xB0u) << IM_COL32_A_SHIFT);
 
@@ -3800,7 +3800,7 @@ namespace
       const Float32 boxW = kw + gapW + vw + pad * 2.0f;
       const Float32 boxH = lh * static_cast<Float32>(nr) + pad * 2.0f;
 
-      // Right edge, vertically centred: the only quarter of the map the HUD does
+      // Right edge, vertically centered: the only quarter of the map the HUD does
       // not already use.
       const ImVec2 a(c.p1.x - boxW - 14.0f * c.dpi,
                      (c.p0.y + c.p1.y) * 0.5f - boxH * 0.5f);
@@ -3811,13 +3811,13 @@ namespace
       for(Int32 i = 0; i < nr; ++i)
       {
           const Float32 y = a.y + pad + lh * static_cast<Float32>(i);
-          c.dl->AddText(f, fs, ImVec2(a.x + pad, y), ui::ansi::GREY, rows[i].k);
+          c.dl->AddText(f, fs, ImVec2(a.x + pad, y), ui::ansi::GRAY, rows[i].k);
 
-          // One row is a decision rather than a measurement, and it is coloured
+          // One row is a decision rather than a measurement, and it is colored
           // like one. The rest stay white: tinting a number to make it stand out,
           // when its value carries no state, is the habit this palette exists to
           // stop.
-          const ImU32 col = (i == nr - 1) ? clearanceColour(freeAhead)
+          const ImU32 col = (i == nr - 1) ? clearanceColor(freeAhead)
                                           : ui::ansi::WHITE;
           const Float32 w = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, rows[i].v).x;
           c.dl->AddText(f, fs, ImVec2(b.x - pad - w, y), col, rows[i].v);
@@ -3838,14 +3838,14 @@ namespace
   // The one to show somebody who does not care how it works.
   //
   // Every other mode is an instrument: it has a grid to measure against, a number
-  // in the corner, and a reason for each colour. This one has none of those, and
+  // in the corner, and a reason for each color. This one has none of those, and
   // removing them IS the design - a display for an audience is not a debug view
   // with the labels turned off, it is a different question. "What can it see?"
   // rather than "is bin 47 stale?".
   //
   // So: the room as one soft shape, the returns as a scatter of light on its edge,
   // the car in the middle. No rings, no bearings, no readout, no legend. It should
-  // be legible from two metres away by somebody who has never seen a lidar.
+  // be legible from two meters away by somebody who has never seen a lidar.
   // ---------------------------------------------------------------------------
   Void drawMarksMinimal(const MarkCtx& c, const MapState& st, const Deque<Vec<LidarPoint>>& trail)
   {
@@ -3982,7 +3982,7 @@ constexpr MapModeInfo MODE_INFO[static_cast<Size>(MapMode::MAP_MODE_COUNT)] = {
       "anything that moved leaves a low-count blue smear. Least jittery mode." },
 
     { "Motion",
-      "Cells hit now whose whole neighbourhood the memory map says was empty.",
+      "Cells hit now whose whole neighborhood the memory map says was empty.",
       "What changed. The complement of Density: that shows what stayed put, "
       "this shows what did not. A still room is correctly almost blank." },
 
@@ -3992,7 +3992,7 @@ constexpr MapModeInfo MODE_INFO[static_cast<Size>(MapMode::MAP_MODE_COUNT)] = {
       "obstacle, opens slowly. Compare with Fit, which asks about the car." },
 
     { "Gaps",
-      "Openings wide enough to drive through, with their width in metres.",
+      "Openings wide enough to drive through, with their width in meters.",
       "The follow-the-gap primitive, drawn. Width is the chord across the "
       "opening at its nearest edge, so it is what would actually have to fit." },
 
@@ -4052,7 +4052,7 @@ GridStyle mapModeGrid(MapMode m) noexcept
         return GridStyle::GRID_STYLE_CARTESIAN;
 
     // These two ARE a fixed world grid - 60 mm cells accumulated in world
-    // space. Drawing metre squares over them shows the thing they are actually
+    // space. Drawing meter squares over them shows the thing they are actually
     // built on; rings would be a second, unrelated coordinate system laid on
     // top of the one the data lives in.
     case MapMode::MAP_MODE_DENSITY:
@@ -4076,9 +4076,9 @@ ImU32 mapModeBackground(MapMode m) noexcept
     //
     // The per-mode tint is gone on purpose. It was a way of telling you which
     // mode was active, but the mode toggle already does that in words, and the
-    // cost was that every data colour had to survive being laid over fourteen
+    // cost was that every data color had to survive being laid over fourteen
     // different grounds - so none of them could be fully itself. On a terminal
-    // palette the ground has exactly one job: to be the thing every other colour
+    // palette the ground has exactly one job: to be the thing every other color
     // is maximally far from. Anything other than black is worse at that job.
     static_cast<Void>(m);
     return ui::ansi::BLACK;
@@ -4105,7 +4105,7 @@ Void RadarView::push(const LidarFrame& frame)
     if(fitMm > 0.0f)
     {
         // Keep a short history and fit to the LARGEST recent revolution, not the
-        // newest one. The 95th percentile moves by metres between consecutive
+        // newest one. The 95th percentile moves by meters between consecutive
         // revolutions - returns flicker in and out at the edges of the room - and
         // chasing it directly made the view visibly bounce. Taking the window
         // maximum means a single sparse revolution cannot pull the view in, so
@@ -4145,7 +4145,7 @@ Void RadarView::push(const LidarFrame& frame)
         {
             // Shrink only when the scene has become MUCH smaller. The wide gap
             // is deliberate hysteresis - without it the view oscillates between
-            // two neighbouring rungs whenever the scene sits near a boundary.
+            // two neighboring rungs whenever the scene sits near a boundary.
             fitStepMm = niceStep(desired);
         }
 
@@ -4260,7 +4260,7 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
              || ImGui::IsMouseDown(ImGuiMouseButton_Middle)
              || (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyShift))
         {
-            // Panning in metres-per-pixel at the target's depth, so the scene
+            // Panning in meters-per-pixel at the target's depth, so the scene
             // tracks the cursor rather than sliding faster when zoomed out.
             const Float32 k = rv.cam.dist / std::max(1.0f, (p1.y - p0.y));
             rv.cam.pan(-d.x * k, d.y * k);
@@ -4670,7 +4670,7 @@ Void RadarView::draw(const ImVec2& size)
     // rather than only from the toggle below it.
     // One flat fill and no light on it. A gradient here would be a claim that
     // the display is a physical panel with a lamp behind it, and every pixel it
-    // touches is a pixel whose colour is no longer purely its own.
+    // touches is a pixel whose color is no longer purely its own.
     dl->AddRectFilled(p0, p1, mapModeBackground(mode));
 
     // Cleared every frame: a mode that has nothing to report must not leave the

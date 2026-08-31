@@ -217,7 +217,7 @@ namespace
       // offerable. Refusing it would be a worse failure than offering it, because
       // a port missing from the list reads as a driver problem.
       check(dev::couldBeLidar(dev::PortKind::PORT_KIND_UNKNOWN),
-            "an unrecognised port is still offered");
+            "an unrecognized port is still offered");
   }
 
   Void testDescribe()

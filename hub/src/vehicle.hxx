@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The car and the sensor, in millimetres. ONE definition, shared by the flat
+// The car and the sensor, in millimeters. ONE definition, shared by the flat
 // map and the 3D scene.
 //
 // They used to be two copies - one in radar.cxx, one in scene3d.cxx - which is
@@ -18,7 +18,7 @@
 //   Sensor  Slamtec RPLIDAR C1 datasheet, as recorded in lidar/README.md:
 //               55.6 x 55.6 x 41.3 mm
 //
-// Earlier revisions of this file carried 430 x 190 x 135 and 64 x 26 mm tyres,
+// Earlier revisions of this file carried 430 x 190 x 135 and 64 x 26 mm tires,
 // which were remembered rather than looked up. Four of the six were wrong.
 // ---------------------------------------------------------------------------
 #pragma once
@@ -30,22 +30,22 @@ namespace vehicle
 
   // ---- the car ----------------------------------------------------------
   inline constexpr Float32 CAR_LEN_MM       = 442.0f;
-  inline constexpr Float32 CAR_WID_MM       = 186.0f;   // across the tyres
+  inline constexpr Float32 CAR_WID_MM       = 186.0f;   // across the tires
   inline constexpr Float32 CAR_HEIGHT_MM    = 140.0f;
   inline constexpr Float32 CAR_WHEELBASE_MM = 257.0f;
-  inline constexpr Float32 CAR_TYRE_DIA_MM  = 69.0f;
-  inline constexpr Float32 CAR_TYRE_WID_MM  = 27.0f;
+  inline constexpr Float32 CAR_TIRE_DIA_MM  = 69.0f;
+  inline constexpr Float32 CAR_TIRE_WID_MM  = 27.0f;
 
-  // DERIVED, not guessed. Tamiya publishes the overall width and the tyre width
+  // DERIVED, not guessed. Tamiya publishes the overall width and the tire width
   // but not the tread, and the TT-02 offers two tread settings. The stated 186 mm
-  // is measured across the tyres, so the centre-to-centre tread is
+  // is measured across the tires, so the center-to-center tread is
   //
   //     186 - 27 = 159 mm
   //
   // which is self-consistent with both published figures. If the car is ever set
   // to its wider tread this becomes wrong, and it will be wrong VISIBLY - the
   // wheels will sit outside the shell.
-  inline constexpr Float32 CAR_TREAD_MM = CAR_WID_MM - CAR_TYRE_WID_MM;
+  inline constexpr Float32 CAR_TREAD_MM = CAR_WID_MM - CAR_TIRE_WID_MM;
 
   // ---- the sensor -------------------------------------------------------
   inline constexpr Float32 C1_BASE_MM = 55.6f;
@@ -59,7 +59,7 @@ namespace vehicle
   // three-line edit and so that nothing downstream can mistake them for facts.
   //
   //   AHEAD  along the car, + toward the nose. Zero = over the middle.
-  //   LATERAL across the car. Zero = on the centreline.
+  //   LATERAL across the car. Zero = on the centerline.
   //   BASE   the underside of the sensor above the floor. Assumed to sit on the
   //          roof of a 140 mm shell.
   inline constexpr Float32 C1_MOUNT_AHEAD_MM   = 0.0f;

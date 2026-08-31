@@ -130,7 +130,7 @@ namespace
       // The case that would ruin every table in the tree if it fired.
       check(count("    { Icon::ICON_RADAR, \"radar\" },") == 0,
             "an aggregate ROW is data, not a body");
-      check(count("    { 1, 2, 3 },") == 0, "a plain initialiser row is fine");
+      check(count("    { 1, 2, 3 },") == 0, "a plain initializer row is fine");
       check(count("    Int32 empty[] = {};") == 0, "an empty brace pair is fine");
   }
 

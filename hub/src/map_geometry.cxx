@@ -248,7 +248,7 @@ namespace mapgeo
           outScore = 1.0f;
       }
 
-      // Sub-bin refinement by parabola through the best and its two neighbours.
+      // Sub-bin refinement by parabola through the best and its two neighbors.
       // Without it the heading quantises to 3 deg steps and the world visibly
       // snaps as you turn.
       const Int32 km = (best + bins - 1) % bins;

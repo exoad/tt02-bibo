@@ -3,7 +3,7 @@
 // WHY THIS EXISTS AT ALL. ImGui's InputTextMultiline owns its own key handling
 // (it drives stb_textedit internally), so modal editing cannot be layered on top
 // of it - `h` would insert an h before any interceptor saw it. Owning the buffer
-// and the keys is what makes vim mode, auto-closing braces and per-token colour
+// and the keys is what makes vim mode, auto-closing braces and per-token color
 // all possible at once, and each of them separately is easier this way than
 // fighting the widget for it.
 //
@@ -39,7 +39,7 @@
 // a test rather than approximating it in the UI layer.
 //
 // WHY NOT A LIBRARY. Zep and libvim both exist and both were considered. Each
-// wants to own the buffer, the syntax colouring and the theme, which is most
+// wants to own the buffer, the syntax coloring and the theme, which is most
 // of what this editor already is - adopting one would mean re-fitting the
 // gruvbox palette, the pico2w.h completion, the diagnostic gutter, the
 // external-change reload and the clipboard bridge onto somebody else's model

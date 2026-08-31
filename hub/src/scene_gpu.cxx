@@ -544,7 +544,7 @@ namespace scenegpu
       drawRuns(blendedTris, static_cast<Int32>(opaqueTris.size()) * 3);
 
       // The render target must not stay bound: ImGui is about to draw to the back
-      // buffer, and leaving our colour texture as an output while it is also about
+      // buffer, and leaving our color texture as an output while it is also about
       // to be read as a shader resource is exactly the hazard D3D warns about.
       ID3D11RenderTargetView* none = nullptr;
       ctx->OMSetRenderTargets(1, &none, nullptr);

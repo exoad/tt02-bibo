@@ -26,8 +26,8 @@ that is the breadboard mule and a plain Pico 2 that goes in the car. One
 firmware builds for either; see [wiring.md](wiring.md).
 
 **Phase 2 is done.** The servo moves under code, sweeps its full travel on
-command, and is calibrated on this car: left 1230, **centre 1484**, right 1670.
-The ESC is verified and idle is measured at 1541. Centre is not 1500 and the
+command, and is calibrated on this car: left 1230, **center 1484**, right 1670.
+The ESC is verified and idle is measured at 1541. Center is not 1500 and the
 throw is asymmetric, which is why every command above the calibration is a
 fraction rather than a microsecond count.
 
@@ -238,9 +238,9 @@ single-point, fixed-bearing devices that describe the same world. The UI lists
 them as unwired layers rather than pretending the scanner is the world model, so
 adding one is filling in a row rather than redesigning a screen.
 
-**The lidar-to-vehicle transform is NOT established.** The map is sensor-centred
+**The lidar-to-vehicle transform is NOT established.** The map is sensor-centered
 because that is the only frame currently justified. `docs/calibration.md` §2 is
-an empty table, and the convention that 0° is the moulded arrow on the housing is
+an empty table, and the convention that 0° is the molded arrow on the housing is
 recorded as *assumed, not confirmed*. Inventing a plausible mounting offset would
 silently rotate every fused reading from every sensor added afterwards, in a way
 that looks like a sensor fault rather than a bad constant. Measure it first.
@@ -306,7 +306,7 @@ surrounding history.
 | Namespaces | Allman brace, and the body **indented one level** — see below |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
 | Standard library | use the `shared/shared.hxx` aliases — `Vec`, `Str`, `Map`, `Mutex`, `Opt`. Never `std::vector` in our own declarations |
-| Arrays | `Array<T, N>`, never `T name[N]`. A raw array decays to a pointer the moment it is passed and the size stops travelling with it |
+| Arrays | `Array<T, N>`, never `T name[N]`. A raw array decays to a pointer the moment it is passed and the size stops traveling with it |
 | Time | `Clock`, `TimePoint`, `Millis`, `Duration`, and the `monoNow` / `elapsedMs` / `elapsedS` / `sleepMs` helpers. Never `std::chrono::steady_clock::now()` in our own code |
 | Files | `InFile` / `OutFile`. Most file reading here is C stdio and needs no alias |
 | `*` and `&` | bind to the **type**, not the name — `Char* p`, `const Str& s`. Never `Char *p` |
@@ -388,7 +388,7 @@ The check went in after the sweep, and the first thing it found was three
 That is the argument for it in one line: a sweep fixes a tree once, a check
 keeps it fixed.
 
-A `Char` buffer initialised from a string literal has no clean equivalent:
+A `Char` buffer initialized from a string literal has no clean equivalent:
 `= ""` becomes `{}` (identical zero-fill) and `= "--"` becomes `{'-', '-'}`,
 but a long literal is better written as an explicit `snprintf` of the fallback
 than as a list of character constants.
@@ -567,7 +567,7 @@ there would have banned casting. **That carve-out is spent.** The doc said
 enumerate the types a cast could be *to*, which meant it only found casts to
 types somebody had remembered to add — and it missed `(MINMAXINFO*)lparam`,
 `(const RECT*)lparam` and `(sl_u32)baud` for as long as those existed. What
-makes a cast recognisable is its shape, and the hard part — telling a type
+makes a cast recognizable is its shape, and the hard part — telling a type
 from an expression — is settled by this project's own naming: types are
 PascalCase, so `(Foo)x` is a cast and `(width) * 2` is arithmetic. Win32
 shouts, the standard library uses `_t`, Slamtec uses `sl_`.
@@ -752,16 +752,16 @@ concatenated name at all.
 
 ### American spelling
 
-`Color`, not `Colour`. `Behavior`, `Center`, `Initialize`, `Normalize`,
+`Color`, not `Color`. `Behavior`, `Center`, `Initialize`, `Normalize`,
 `Gray`. In identifiers and in prose. Third-party names keep whatever they were
 given — `ImGuiCol` is already American, and anything that would change a call
 into a library or a key already written to disk is left alone.
 
 ### Prefer, where it changes nothing else
 
-- **`constexpr` over `const`** when the initialiser is a compile-time constant.
+- **`constexpr` over `const`** when the initializer is a compile-time constant.
 - **Range-based `for`** when the body uses only the element and never the index.
-- **`auto`** for a declaration whose type name is long and whose initialiser
+- **`auto`** for a declaration whose type name is long and whose initializer
   already states it.
 - **if-init** — `if(auto x = f(); x)` — when the variable is used only inside
   the `if`.
