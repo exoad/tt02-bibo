@@ -266,7 +266,11 @@ static Void sensorsOpen(Void)
     tofUp = bibo::tof::open(&tofFront, SENSOR_SDA, VL53_ADDR_DEFAULT);
     if(tofUp)
     {
-        bibo::tof::startRanging(&tofFront);
+        /* Checked, because a sensor that opened but never STARTED reports "not
+         * ready" for the rest of the session and looks identical to one that is
+         * simply slow. tofUp is the honest answer to "can this sensor be used",
+         * so it has to include this. */
+        tofUp = bibo::tof::startRanging(&tofFront);
     }
 }
 
@@ -366,20 +370,47 @@ static Void handleTofMode(CharSeq arg)
      * measurement leaves the sensor half-configured for as long as that
      * measurement lasts, and what it does with the result is undefined.
      * ST's own driver brackets it this way and so does this. */
-    if(bibo::text::eq(arg, "SHORT"))
+    /* THE THREE RESULTS ARE CHECKED, and this used to print OK regardless.
+     *
+     * The comment above says a half-configured sensor is undefined for as long
+     * as the measurement lasts. If setMode failed and the console still said
+     * "OK tof mode short", the operator would be told the sensor is in a mode
+     * it is not in - and every reading after that is being read against the
+     * wrong assumption about range and ambient rejection.
+     *
+     * The three are NOT chained with &&. Short-circuiting would skip
+     * clearInterruptAndStart whenever setMode failed, which leaves ranging
+     * stopped - the sensor answers "not ready" forever and nothing says why.
+     * The bracket has to close even when the middle of it did not take. */
+    if(bibo::text::eq(arg, "SHORT") || bibo::text::eq(arg, "LONG"))
     {
-        bibo::tof::stopRanging(&tofFront);
-        bibo::tof::setMode(&tofFront, bibo::tof::MODE_SHORT);
-        bibo::tof::clearInterruptAndStart(&tofFront);
-        bibo::serial::printf("OK tof mode short\n");
-        return;
-    }
-    if(bibo::text::eq(arg, "LONG"))
-    {
-        bibo::tof::stopRanging(&tofFront);
-        bibo::tof::setMode(&tofFront, bibo::tof::MODE_LONG);
-        bibo::tof::clearInterruptAndStart(&tofFront);
-        bibo::serial::printf("OK tof mode long\n");
+        const Bool wantShort = bibo::text::eq(arg, "SHORT");
+
+        const Bool stopped = bibo::tof::stopRanging(&tofFront);
+        const Bool moded   = bibo::tof::setMode(&tofFront,
+                                                wantShort
+                                                    ? bibo::tof::MODE_SHORT
+                                                    : bibo::tof::MODE_LONG);
+        const Bool started = bibo::tof::clearInterruptAndStart(&tofFront);
+
+        if(stopped && moded && started)
+        {
+            bibo::serial::printf("OK tof mode %s\n",
+                                 wantShort ? "short" : "long");
+        }
+        else
+        {
+            /* Which of the three failed, because they fail for different
+             * reasons and the fix differs: a stop that will not take is a bus
+             * problem, a mode that will not take is the sensor refusing a
+             * register write, and a start that will not take leaves it idle. */
+            bibo::serial::printf(
+                "ERR tof mode %s failed: stop=%d set=%d start=%d\n",
+                wantShort ? "short" : "long",
+                static_cast<Int32>(stopped),
+                static_cast<Int32>(moded),
+                static_cast<Int32>(started));
+        }
         return;
     }
     bibo::serial::printf("ERR bad mode: %s\n", arg);
