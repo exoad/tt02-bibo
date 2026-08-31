@@ -366,6 +366,18 @@ condition the next iteration reports again, and demanding a check on every
 tick pushes callers into writing `static_cast<Void>(...)`, which is noise that
 teaches people to ignore the attribute everywhere it appears.
 
+**"Per-poll" is a property of the CALL SITE, not of the function**, and that
+distinction is worth the words. Six `tof::` functions looked like polling
+helpers because of what they are named; five of them are called exactly once,
+at boot or from a console handler. `setBudget` has no application caller at
+all. Only `tof::clear()` is genuinely in a loop, and it is the only one left
+plain. Judge where it is called from, not what it sounds like.
+
+That check is also how you know the attribute is placed right: if marking a
+function produces a rash of `static_cast<Void>(...)` at its call sites, it was
+the wrong function to mark. `tof::clear()` already had one of those next to it
+before any of this, which is the tree saying so in advance.
+
 Adding it was worth it for what it found on the first build, before any
 call site was changed:
 
@@ -374,9 +386,12 @@ call site was changed:
   itself open.
 - `gfx::open()` — one hour old at the time — discarded whether the panel came
   up at all. It records it now, and `Canvas::ok()` is how you ask.
+- The `TOF MODE` console handler discarded all three of its results and then
+  printed `OK`. A half-configured sensor is undefined by that file's own
+  comment, and the console was reporting success for exactly that state.
 
-Neither was found by reading the code, including by the person who had just
-written the second one.
+None of the three was found by reading the code, including by the people who
+had just written them.
 
 ### There is no `Ptr<T>`, deliberately
 

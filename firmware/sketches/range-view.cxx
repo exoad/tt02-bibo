@@ -137,14 +137,14 @@ int main(Void)
                                    pins::active().i2cScl, I2C_HZ);
 
     tof::Vl53 tof;
+    /* The start is PART of the answer, not something done to it afterwards:
+     * a sensor that opened but never started answers "not ready" forever
+     * while haveTof still says yes. Short-circuiting is right here - there
+     * is nothing to start on a sensor that did not open. */
     const Bool haveTof = haveBus
                       && tof::open(&tof, pins::active().i2cSda,
-                                   VL53_ADDR_DEFAULT);
-
-    if(haveTof)
-    {
-        tof::startRanging(&tof);
-    }
+                                   VL53_ADDR_DEFAULT)
+                      && tof::startRanging(&tof);
 
     UInt16 mm     = 0;
     UInt8  status = 255;

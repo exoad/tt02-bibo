@@ -219,9 +219,9 @@ namespace bibo
      */
     /* Forward declared: setting the mode re-applies the budget, and setting the
      * budget needs to know the mode. */
-    static Bool setBudget(Vl53* v, Budget budget);
+    [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget);
 
-    static Bool setMode(Vl53* v, Mode mode)
+    [[nodiscard]] static Bool setMode(Vl53* v, Mode mode)
     {
         if(!v->ok)
         {
@@ -279,7 +279,7 @@ namespace bibo
      * Must be set - the configuration block alone does not leave a usable budget,
      * and a sensor without one ranges happily and cannot see past about a metre.
      */
-    static Bool setBudget(Vl53* v, Budget budget)
+    [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget)
     {
         if(!v->ok)
         {
@@ -469,13 +469,13 @@ namespace bibo
 
     /* ---- ranging ------------------------------------------------------------- */
 
-    static Bool startRanging(Vl53* v)
+    [[nodiscard]] static Bool startRanging(Vl53* v)
     {
         return v->ok
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
     }
 
-    static Bool stopRanging(Vl53* v)
+    [[nodiscard]] static Bool stopRanging(Vl53* v)
     {
         return v->ok
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
@@ -517,7 +517,7 @@ namespace bibo
      * "reading" under the new ones, which is the one measurement guaranteed to be
      * wrong.
      */
-    static Bool clearInterruptAndStart(Vl53* v)
+    [[nodiscard]] static Bool clearInterruptAndStart(Vl53* v)
     {
         return clear(v) && startRanging(v);
     }
