@@ -301,15 +301,24 @@ namespace sketch
 
   Str starter()
   {
-      // Kept in step with firmware/scratch/sketch.cxx by hand, and deliberately
-      // so: that file has to compile from a clean clone with no hub involved, and
-      // this one has to exist when the repo is not where the exe expects it.
+      // A STARTER PROGRAM IS THE STRONGEST STYLE DOCUMENT A PROJECT HAS, because
+      // it is the one everybody copies - and that cuts both ways. This one has
+      // been wrong twice: it included "pico2w.h" after the library stopped using
+      // that name, so a new sketch did not build at all, and it emitted
+      // #include "bibo.hxx" while the layering rule for firmware/sketches wants
+      // "../lib/bibo.hxx", so every new sketch failed the style audit on line one.
       //
-      // It was BROKEN before the C++ conversion and had been for a while - it
-      // included "pico2w.h", a name the library stopped using - so a new sketch
-      // from this template did not build. A starter program is the strongest
-      // style document a project has, because it is the one everybody copies, and
-      // that cuts both ways.
+      // IT SHOWS THE THREE PHASES every program in this firmware is written in,
+      // because a template that skipped them would teach the opposite:
+      //
+      //   1 DECLARE  what is wired where - pins::begin(), before anything opens
+      //   2 BIND     hand low-level parts to high-level ones - a tft::Screen to
+      //              a gfx::Canvas, an i2c bus to the device sitting on it
+      //   3 RUN      the loop
+      //
+      // A blink has nothing to bind, and the template says so rather than
+      // inventing a binding to demonstrate. Pretending otherwise would be worse
+      // than leaving the phase out.
       //
       // manbox style throughout: the types.hxx aliases, Allman braces, `while(...)`
       // with no space, SCREAMING_SNAKE macros, named casts, and the namespaces the
@@ -326,16 +335,21 @@ namespace sketch
           " * The resistor can go on either side of the LED. Without one the LED\n"
           " * is a short across a 3.3 V pin and both are at risk.\n"
           " *\n"
-          " * GP28 is free. Do not blink GP0/GP1 (servo, ESC), GP4/GP5 (I2C),\n"
-          " * GP10-13 (lights, and the ToF XSHUT lines they borrow), GP14/GP15\n"
-          " * (tail lamps, encoder) or GP16-19 (SD) once the car is wired.\n"
+          " * GP28 is free. lib/pins.hxx is the car's map and the place to look\n"
+          " * before borrowing a pad: GP0/GP1 servo and ESC, GP4/GP5 I2C, GP9 the\n"
+          " * DFPlayer's BUSY, GP10-13 lamps on the ToF XSHUT lines, GP14/GP15 the\n"
+          " * DFPlayer's UART, GP16-21 the SPI display, GP22 the SD card.\n"
           " *\n"
           " * bibo.hxx is the whole library. Every module is a namespace - type\n"
-          " * gpio::, serial::, led::, adc::, gfx:: and the completion list will\n"
+          " * gpio::, serial::, led::, pins::, gfx:: and the completion list will\n"
           " * tell you the rest.\n"
           " */\n"
           "\n"
-          "#include \"bibo.hxx\"\n"
+          "// \"../lib/bibo.hxx\", not \"bibo.hxx\". Both compile - the include path\n"
+          "// carries lib/ - but the layering check in hub/tools/style_audit.py\n"
+          "// wants the explicit one, and a sketch that fails the audit on its\n"
+          "// first line is a bad way to start.\n"
+          "#include \"../lib/bibo.hxx\"\n"
           "\n"
           "// The library lives in namespace bibo. This opens it, so the calls\n"
           "// below are gpio::write rather than bibo::gpio::write. A sketch is\n"
@@ -354,6 +368,42 @@ namespace sketch
           "    // holding BOOTSEL while plugging the cable in.\n"
           "    serial::open();\n"
           "\n"
+          "    // ================================================== 1 DECLARE\n"
+          "    //\n"
+          "    // What is wired where, before anything is opened. Every driver in\n"
+          "    // this library reads the installed map rather than holding pin\n"
+          "    // numbers, and the map starts EMPTY - so a program that skips this\n"
+          "    // opens a display, a servo or a UART on nothing and looks broken\n"
+          "    // for no visible reason.\n"
+          "    //\n"
+          "    // A blink needs no role from the map: a breadboard LED is not part\n"
+          "    // of the car, so its pad is a plain constant above. The map is\n"
+          "    // installed anyway, because the moment you use a DRIVER - tft, the\n"
+          "    // DFPlayer, the chassis - it takes its pads from here and nowhere\n"
+          "    // else. Start from pins::car() instead if you want the car's\n"
+          "    // wiring, and override the fields you are moving.\n"
+          "    pins::Map wiring;\n"
+          "\n"
+          "    if(!pins::begin(wiring))\n"
+          "    {\n"
+          "        // Two roles on one pad. It names both rather than saying\n"
+          "        // \"pin conflict\", because the pad alone sends you back to\n"
+          "        // the file to work out which two things wanted it.\n"
+          "        serial::printf(\"ERR pins %s and %s both want GP%d\\n\",\n"
+          "                       pins::conflictFirst(),\n"
+          "                       pins::conflictSecond(),\n"
+          "                       pins::conflictPin());\n"
+          "        return 1;\n"
+          "    }\n"
+          "\n"
+          "    // ===================================================== 2 BIND\n"
+          "    //\n"
+          "    // Where a low-level part is handed to the high-level one that uses\n"
+          "    // it - a tft::Screen to a gfx::Canvas, an i2c bus to the sensor on\n"
+          "    // it. A blink has nothing to bind, so this phase is empty here.\n"
+          "    // See firmware/sketches/range-view.cxx for one that is not.\n"
+          "\n"
+          "    // ====================================================== 3 RUN\n"
           "    gpio::open(LED_PIN, PIN_DIR_OUT);\n"
           "\n"
           "    // The onboard LED is on the wireless chip rather than a GPIO, so it\n"
