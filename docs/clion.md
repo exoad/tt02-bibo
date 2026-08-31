@@ -86,6 +86,49 @@ Nothing else is needed. CLion auto-detects the Visual Studio 2022 toolchain, and
 
 ---
 
+## If `Int32` is red in firmware/ but the includes are fine
+
+A different fault from the two above, and the giveaway is that it survives
+attaching the project. `firmware/lib/types.hxx` fails on `#include <cstddef>`,
+so every alias it defines — `Int32`, `UInt8`, `Bool`, `Void` — is an unknown
+type name in every firmware file at once.
+
+**The cause is that clangd will not run the cross-compiler.** The build
+compiles firmware with `arm-none-eabi-g++`, so clangd correctly targets
+`arm-none-eabi` — but the system headers for that target are wherever that
+compiler keeps them, and the only way to find out is to ASK it. clangd will not
+execute a compiler it has not been told is safe, which is a sensible default
+when a `compile_commands.json` can name any binary on disk.
+
+**Fix:** allow that one driver, by exact path.
+
+```
+--query-driver=C:/msys64/mingw64/bin/arm-none-eabi-g++.exe
+```
+
+Where it goes depends on the editor, because **it is a clangd command-line
+flag and not a config key**. `firmware/.clangd` cannot carry it: clangd 18.1.8
+answers `Unknown CompileFlags key 'QueryDriver'` and carries on without it.
+Checked, rather than assumed.
+
+- **VS Code** — `"clangd.arguments": ["--query-driver=C:/msys64/mingw64/bin/arm-none-eabi-g++.exe"]`
+- **CLion** — Settings → Languages & Frameworks → C/C++ → Clangd, in the
+  additional-flags box
+- **Anything else** — wherever that editor spells "extra clangd arguments"
+
+Use the exact path rather than a glob. The flag is a whitelist of programs
+clangd may execute, and the one it needs is the compiler the build already
+runs.
+
+**It does not fail loudly.** Without the flag clangd still answers questions —
+from an identifier index rather than a parsed AST — so completion returns
+plausible-looking nonsense (`printf` and `define` offered after `dfplayer::`)
+and nothing announces that the file never compiled. Found on 2026-08-31 while
+wiring clangd into the Code view, where it showed up as a namespace offering a
+handful of completions instead of its real members.
+
+---
+
 ## 1. The hub
 
 Open the repo root. CLion reads `CMakePresets.json` and offers one profile:
