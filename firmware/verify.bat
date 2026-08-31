@@ -62,6 +62,17 @@ call :suite pins     "%HERE%tests\build_pins_test.bat"
 call :suite dfplayer "%HERE%tests\build_dfplayer_test.bat"
 call :suite chassis  "%HERE%tests\build_chassis_test.bat"
 
+REM control, pursuit and sfx were WRITTEN AND NEVER GATED. Their build scripts
+REM had been sitting in tests\ passing 71 checks between them that nothing ran -
+REM so the day one of them broke, the gate would have said PASS. Found while
+REM adding pilot\, which wanted to build on control and pursuit and had no way
+REM to know whether they still worked.
+REM
+REM A test suite that is not in this list is a suite that does not exist.
+call :suite control  "%HERE%tests\build_control_test.bat"
+call :suite pursuit  "%HERE%tests\build_pursuit_test.bat"
+call :suite sfx      "%HERE%tests\build_sfx_test.bat"
+
 REM ---- 3. the style audit --------------------------------------------------
 python "%ROOT%\hub\tools\style_audit.py" >nul 2>&1
 if errorlevel 1 (
