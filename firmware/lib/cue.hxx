@@ -204,7 +204,7 @@ namespace bibo
      * cannot reach for cal.h and should not want to, since the rule is the same on
      * any car and only the number is this one's.
      */
-    static Int32 motionUsNow = 10;
+    inline Int32 motionUsNow = 10;
 
     /* Wide enough to be useful, narrow enough that a typo cannot switch the lamps
      * off for the whole usable throttle range. */
@@ -407,19 +407,19 @@ namespace bibo
      * braking, and indicating left is three cues at once and is an ordinary
      * Tuesday; the old single `kindNow` could hold exactly one of them.
      */
-    static Bool   up = false;
+    inline Bool   up = false;
 
-    static Bool   active[KIND_COUNT];
-    static Bool   latched[KIND_COUNT];   /* raised by a person, not by the car */
-    static UInt8  stepIx[KIND_COUNT];
-    static UInt8  loopIx[KIND_COUNT];
-    static UInt64 stepAtUs[KIND_COUNT];
+    inline Bool   active[KIND_COUNT];
+    inline Bool   latched[KIND_COUNT];   /* raised by a person, not by the car */
+    inline UInt8  stepIx[KIND_COUNT];
+    inline UInt8  loopIx[KIND_COUNT];
+    inline UInt64 stepAtUs[KIND_COUNT];
 
-    static UInt8  toneNow = TONE_NONE;
+    inline UInt8  toneNow = TONE_NONE;
 
     /* The turn hysteresis, which decides what the CAR wants, not what is lit. */
-    static Turn   turnWant = TURN_OFF;
-    static UInt64 turnHoldUs = 0;
+    inline Turn   turnWant = TURN_OFF;
+    inline UInt64 turnHoldUs = 0;
 
     inline Void open(Void)
     {

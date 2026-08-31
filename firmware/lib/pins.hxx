@@ -151,7 +151,7 @@ namespace bibo
                   "pins::Map must be exactly FIELD_COUNT Int32 fields - a role "
                   "was added without updating FIELD_COUNT and NAMES");
 
-    static CharSeq NAMES[FIELD_COUNT] =
+    inline CharSeq NAMES[FIELD_COUNT] =
     {
         "servo", "esc",
         "i2cSda", "i2cScl",
@@ -235,15 +235,15 @@ namespace bibo
      * binds nothing and is visibly dead. That is the right failure: a servo on
      * a pad chosen by whatever ran last is worse than a servo that does not
      * move. */
-    static Map  installed;
-    static Bool up = false;
+    inline Map  installed;
+    inline Bool up = false;
 
     /* Where the last begin() found a problem. Kept so a caller can SAY which
      * pins clashed - "pin conflict" without the pin sends somebody back to the
      * file to work out which. */
-    static Int32 clashPin = NONE;
-    static Size  clashA   = 0;
-    static Size  clashB   = 0;
+    inline Int32 clashPin = NONE;
+    inline Size  clashA   = 0;
+    inline Size  clashB   = 0;
 
     /* ---- validate and install ---------------------------------------------
      *

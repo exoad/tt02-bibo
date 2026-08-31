@@ -40,9 +40,9 @@ namespace bibo
   {
 
     /* 0 means not blinking: solid at whatever status::solid() last set. */
-    static Float32 hzNow  = 0.0f;
-    static Bool    lit    = false;
-    static UInt64  nextUs = 0;
+    inline Float32 hzNow  = 0.0f;
+    inline Bool    lit    = false;
+    inline UInt64  nextUs = 0;
 
     /*
      * Half a period per toggle, so `hz` counts full on-off cycles per second

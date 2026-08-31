@@ -88,7 +88,7 @@ namespace bibo
         Bool    measured    = false;
     };
 
-    static Config tuning;
+    inline Config tuning;
 
     /* Rejects anything that would make metresPerTick meaningless. A zero wheel
      * or zero ticks-per-rev divides by zero and every distance afterwards is

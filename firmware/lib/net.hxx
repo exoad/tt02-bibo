@@ -100,33 +100,33 @@ namespace bibo
      * at the bottom, and keeping the two meanings apart is what lets a caller print
      * net::stateWord() without having to know which build it is in.
      */
-    static State       stateNow  = STATE_OFF;
-    static Bool           started   = false;
-    static LineHandler handler   = nullptr;
-    static struct udp_pcb* pcb      = nullptr;
+    inline State       stateNow  = STATE_OFF;
+    inline Bool           started   = false;
+    inline LineHandler handler   = nullptr;
+    inline struct udp_pcb* pcb      = nullptr;
 
     /* The last host that said anything. Replies go here - including replies to
      * commands that arrived over USB, which is deliberate: a console watching
      * wirelessly should see the whole conversation, not only its half of it. */
-    static ip_addr_t peerAddr;
-    static UInt16    peerPort = 0;
-    static Bool      peerKnownNow = false;
+    inline ip_addr_t peerAddr;
+    inline UInt16    peerPort = 0;
+    inline Bool      peerKnownNow = false;
 
     /* The join in progress. cyw43's async connect keeps no copy of these, so they
      * have to outlive the call that starts it. */
-    static Utf8 joinSsid[40];
-    static Utf8 joinPass[68];
+    inline Utf8 joinSsid[40];
+    inline Utf8 joinPass[68];
 
     /* The line queue, filled from the lwIP callback and drained by net::poll(). */
-    static Utf8  queue[NET_QUEUE_LINES][NET_LINE_CAP];
-    static Size  queueHead  = 0;   /* next to drain */
-    static Size  queueCount = 0;
-    static UInt32 dropped   = 0;
+    inline Utf8  queue[NET_QUEUE_LINES][NET_LINE_CAP];
+    inline Size  queueHead  = 0;   /* next to drain */
+    inline Size  queueCount = 0;
+    inline UInt32 dropped   = 0;
 
     /* Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be
      * - a sender is free to put two in one packet, or split one across two. */
-    static Utf8 partial[NET_LINE_CAP];
-    static Size partialLen = 0;
+    inline Utf8 partial[NET_LINE_CAP];
+    inline Size partialLen = 0;
 
     [[nodiscard]] static Bool present(Void)
     {

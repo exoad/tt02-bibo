@@ -204,9 +204,9 @@ namespace bibo
 
     /* ---- state --------------------------------------------------------------- */
 
-    static Bool  up    = false;
-    static Bool  escArmed   = false;
-    static Bool  servoLive  = false;
+    inline Bool  up    = false;
+    inline Bool  escArmed   = false;
+    inline Bool  servoLive  = false;
 
     /*
      * The working limits, widened only on purpose. They start at the calibration
@@ -214,10 +214,10 @@ namespace bibo
      * end stop is FOUND. Guessing them from a datasheet gets you a number the
      * linkage has never heard of.
      */
-    static Int32 servoMin = SERVO_DEFAULT_MIN;
-    static Int32 servoMax = SERVO_DEFAULT_MAX;
-    static Int32 escMin   = ESC_DEFAULT_MIN;
-    static Int32 escMax   = ESC_DEFAULT_MAX;
+    inline Int32 servoMin = SERVO_DEFAULT_MIN;
+    inline Int32 servoMax = SERVO_DEFAULT_MAX;
+    inline Int32 escMin   = ESC_DEFAULT_MIN;
+    inline Int32 escMax   = ESC_DEFAULT_MAX;
 
     /*
      * Where the wheels actually point straight.
@@ -227,12 +227,12 @@ namespace bibo
      * straight-ahead lands wherever it lands - and treating 1500 as centre is how a
      * servo comes to lean on a frame at what everyone is calling neutral.
      */
-    static Int32 servoCenterUs = STEER_CAL_CENTER;
+    inline Int32 servoCenterUs = STEER_CAL_CENTER;
 
-    static Int32 servoTarget = STEER_CAL_CENTER;
-    static Int32 servoNow    = STEER_CAL_CENTER;
-    static Int32 escTarget   = DRIVE_NEUTRAL_US;
-    static Int32 escNow      = DRIVE_NEUTRAL_US;
+    inline Int32 servoTarget = STEER_CAL_CENTER;
+    inline Int32 servoNow    = STEER_CAL_CENTER;
+    inline Int32 escTarget   = DRIVE_NEUTRAL_US;
+    inline Int32 escNow      = DRIVE_NEUTRAL_US;
 
     /*
      * How fast an output may move, in microseconds per tick.
@@ -242,13 +242,13 @@ namespace bibo
      * the steering crawled to wherever a slider was dragged, which reads as lag in
      * the UI and is a real limit on the car.
      */
-    static Int32 steerSlewUs    = STEER_SLEW_US;
-    static Int32 throttleSlewUs = THROTTLE_SLEW_US;
+    inline Int32 steerSlewUs    = STEER_SLEW_US;
+    inline Int32 throttleSlewUs = THROTTLE_SLEW_US;
 
     /* When the slew limiter may next take a step. The only symbol in this module
      * that carried no module prefix, which is exactly the kind of thing the
      * prefix rule in tools/style_audit.py exists to stop drifting in. */
-    static timing::Deadline slewNextAt;
+    inline timing::Deadline slewNextAt;
 
     /* ---- helpers ------------------------------------------------------------- */
 

@@ -25,7 +25,7 @@ if errorlevel 1 (
 
 if not exist "%HERE%build" mkdir "%HERE%build"
 
-cl /nologo /O2 /MT /W4 /D_CRT_SECURE_NO_WARNINGS ^
+cl /nologo /O2 /MT /W4 /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\lib" ^
   "%HERE%test_text.cxx" ^
   /Fo"%HERE%build\\" ^
