@@ -311,9 +311,52 @@ surrounding history.
 | Files | `InFile` / `OutFile`. Most file reading here is C stdio and needs no alias |
 | `*` and `&` | bind to the **type**, not the name — `Char* p`, `const Str& s`. Never `Char *p` |
 | Only TYPES are aliased | `std::move`, `std::min`, `std::sort`, `std::chrono::duration_cast` keep their own spelling. A function is not vocabulary |
-| Aggregate init | designated initializers where the type has named members — `Vec3{ .x = 1.0f, .y = 0.0f }` |
+| Aggregate init | designated initializers **when a value's meaning is not obvious from its position** — see below |
 | Control keywords | `if(cond)`, not `if (cond)` |
 | Casts | named casts only. **No C-style casts** — see below |
+
+### Designated initializers, and when they make things worse
+
+The rule used to read "designated initializers where the type has named
+members", which is every aggregate in the tree. Applied literally it turns
+
+```cpp
+Vec3{ x, y, z }                 // 61 of these
+Cursor{ line, col }
+MapScale{ c.s0, c.ppm, c.dpi }
+```
+
+into `Vec3{ .x = x, .y = y, .z = z }`, which is longer and says nothing the
+reader did not already know. For a vector the ORDER IS THE MEANING, and
+`MapScale{ c.s0, c.ppm, c.dpi }` already names its fields through its
+arguments.
+
+**Designate when a reader cannot tell what a value is from where it sits.** In
+practice that means a bare literal — a `true`, or a number whose units are
+invisible:
+
+```cpp
+Paint{ GFX_ORANGE, GFX_BLACK, false, 2 }              // what is false? what is 2?
+Paint{ .fg = GFX_ORANGE, .size = 2 }                  // and the rest default
+
+{ Vec3{ ... }, 20.0f, 9.0f, true, WHITE, L.headL }    // what is true?
+{ .at = Vec3{ ... }, .halfW = 20.0f, .halfH = 9.0f,
+  .facingFront = true, .hue = WHITE, .level = L.headL }
+```
+
+Give the struct DEFAULTS and the designated form gets shorter than the
+positional one, because it says only what differs. That is what makes this
+worth doing rather than a tax.
+
+**Table rows stay positional.** `{ 460800, "460800", true }` in a baud table is
+data, the column headings are the struct three lines above, and designating
+thirty rows would quadruple the table to say what the reader can already see.
+
+**This one is NOT checked, deliberately.** Every candidate rule reduces to
+"a bare literal inside braces", and after the 2026-08-31 pass the only things
+that matched were table rows and the word `false` inside a string literal. A
+check whose every hit is an exemption is worse than no check: it trains people
+to skip the output.
 
 ### `Array<T, N>`, and the one place the vocabulary stops being free
 

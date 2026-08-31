@@ -95,7 +95,6 @@ int main(Void)
 {
     /* FIRST, always. This brings up USB CDC; without it the board runs fine
      * and never enumerates, and the only way back in is BOOTSEL. */
-    serial::open();
 
     /* Not required, but this sketch is worth watching, and the console is the
      * only way to tell "the module never answered" from "the speaker is
@@ -118,19 +117,13 @@ int main(Void)
     wiring.soundRx   = SOUND_RX;
     wiring.soundBusy = SOUND_BUSY;
 
-    if(!pins::begin(wiring))
+    /* Said out loud and then STOPPED. Carrying on with no map would open a
+     * UART on nothing and sit there looking like a wiring fault, which is
+     * the exact confusion this file is trying to avoid. This blink is
+     * where boot::halt() came from. */
+    if(!boot::begin(wiring))
     {
-        /* Said out loud and then STOPPED. Carrying on with no map would open a
-         * UART on nothing and sit there looking like a wiring fault, which is
-         * the exact confusion this file is trying to avoid. */
-        serial::printf("ERR %s\n", pins::conflictText());
-        while(true)
-        {
-            led::write(true);
-            timing::ms(120);
-            led::write(false);
-            timing::ms(120);
-        }
+        boot::halt();
     }
 
     dfplayer::Bus sound;

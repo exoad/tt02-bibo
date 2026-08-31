@@ -212,10 +212,10 @@ namespace bibo
 
     typedef struct Paint
     {
-        UInt16 fg;
-        UInt16 bg;
-        Bool   bgSolid;   /* false: draw the glyph only, leave the background */
-        Int32  size;      /* integer scale of the 5x7 font, >= 1 */
+        UInt16 fg      = GFX_WHITE;
+        UInt16 bg      = GFX_BLACK;
+        Bool   bgSolid = false;  /* false: glyph only, leave the background */
+        Int32  size    = 1;      /* integer scale of the 5x7 font, >= 1 */
     } Paint;
 
     /* ---------------------------------------------------------------------------
