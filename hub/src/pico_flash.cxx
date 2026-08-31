@@ -717,8 +717,7 @@ Void PicoFlash::refreshBoard()
                     // declining to do anything, but it still identifies the chip.
                     else if(b.chip.empty() && t.find(" device at bus ") != Str::npos)
                     {
-                        const Size sp = t.find(' ');
-                        if(sp != Str::npos && sp > 0)
+                        if(const Size sp = t.find(' '); sp != Str::npos && sp > 0)
                         {
                             b.chip = t.substr(0, sp);
                         }

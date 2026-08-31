@@ -236,8 +236,7 @@ namespace lsp
             text = doc.at("value").string();   // MarkupContent
         }
 
-        const Size nl = text.find('\n');
-        if(nl != Str::npos)
+        if(const Size nl = text.find('\n'); nl != Str::npos)
         {
             text.resize(nl);
         }

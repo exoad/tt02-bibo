@@ -1329,8 +1329,7 @@ namespace
           if(t.compare(0, 9, "INFO cue ") == 0)
           {
               const Str rest = t.substr(9);
-              const Size cut = rest.find(" - ");
-              if(cut != Str::npos)
+              if(const Size cut = rest.find(" - "); cut != Str::npos)
               {
                   CueEntry e;
                   e.name  = rest.substr(0, cut);
@@ -1340,8 +1339,8 @@ namespace
                   // the modes sends no bracket and lands on an empty play, which
                   // the board then draws as a plain button - the old behavior,
                   // rather than a crash or a guess.
-                  const Size br = e.name.find(" [");
-                  if(br != Str::npos && e.name.back() == ']')
+                  if(const Size br = e.name.find(" [");
+                     br != Str::npos && e.name.back() == ']')
                   {
                       e.play = e.name.substr(br + 2, e.name.size() - br - 3);
                       e.name = e.name.substr(0, br);
@@ -9588,8 +9587,7 @@ namespace
           // The scripts write [conf ], [build], [ok   ], [error]; ninja writes
           // [1/3]. Both are a bracket at column zero and both want coloring, so
           // this handles them together and tells them apart by content.
-          const Size close = s.find(']');
-          if(close != Str::npos && close <= 12)
+          if(const Size close = s.find(']'); close != Str::npos && close <= 12)
           {
               Str tag = s.substr(1, close - 1);
               while(!tag.empty() && tag.back() == ' ')

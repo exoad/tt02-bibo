@@ -119,11 +119,9 @@ namespace lint
         // Detected as `[` ... `]` followed by `(` ... `)` and then a brace, which
         // is the shape of a lambda and not of an if.
         {
-            const Size br = line.find('[');
-            if(br != Str::npos)
+            if(const Size br = line.find('['); br != Str::npos)
             {
-                const Size brEnd = line.find(']', br);
-                if(brEnd != Str::npos)
+                if(const Size brEnd = line.find(']', br); brEnd != Str::npos)
                 {
                     Size p = brEnd + 1;
                     while(p < line.size() && space(line[p]))
@@ -539,8 +537,7 @@ namespace lint
         {
             for(const Char* t : STD_TYPES)
             {
-                const Size pos = code.find(t);
-                if(pos != Str::npos)
+                if(const Size pos = code.find(t); pos != Str::npos)
                 {
                     add(out, lineNo, pos,
                         "unaliased std type - use the shared.hxx alias "
@@ -557,11 +554,10 @@ namespace lint
         // from a table ROW - `{ Icon::ICON_RADAR, "radar" },` is data, and
         // expanding it would quadruple every table in the tree for nothing.
         {
-            const Size open = code.find('{');
-            if(open != Str::npos)
+            if(const Size open = code.find('{'); open != Str::npos)
             {
-                const Size close = code.find('}', open + 1);
-                if(close != Str::npos && code.find('{', open + 1) == Str::npos)
+                if(const Size close = code.find('}', open + 1);
+                   close != Str::npos && code.find('{', open + 1) == Str::npos)
                 {
                     Bool hasContent = false;
                     for(Size q = open + 1; q < close; ++q)
