@@ -21,13 +21,59 @@
 #include "lsp.hxx"
 #include "pico_flash.hxx"
 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
 #include <cstdio>
 
 // The one thing lsp.cxx needs from the app. Defined here rather than linking
 // pico_flash.cxx, which drags in the whole flashing machine for one string.
+//
+// DERIVED, NOT WRITTEN DOWN. The real one in pico_flash.cxx walks up from the
+// executable looking for a directory that holds both firmware\ and hub\, and
+// this does the same thing for the same two reasons: the tree can be moved or
+// renamed without editing a test, and nobody's home directory ends up in a
+// repository that is going public.
 Str PicoFlash::repoRoot()
 {
-    return Str("C:\\Users\\error\\Code\\RPLIDAR-C1");
+    Array<Char, MAX_PATH> exe = {};
+    if(GetModuleFileNameA(nullptr, exe.data(), MAX_PATH) == 0)
+    {
+        return Str();
+    }
+
+    Str  dir(exe.data());
+    Size slash = dir.find_last_of("\\/");
+    if(slash == Str::npos)
+    {
+        return Str();
+    }
+    dir.resize(slash);
+
+    const auto isDir = [](const Str& p)
+    {
+        const DWORD a = GetFileAttributesA(p.c_str());
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    };
+
+    for(Int32 up = 0; up < 12; ++up)
+    {
+        if(isDir(dir + "\\firmware") && isDir(dir + "\\hub"))
+        {
+            return dir;
+        }
+        slash = dir.find_last_of("\\/");
+        if(slash == Str::npos || slash < 3)     // past "C:\"
+        {
+            break;
+        }
+        dir.resize(slash);
+    }
+
+    // Empty rather than a guess. main() below turns that into a SKIP with the
+    // reason said out loud, which is the honest outcome for a test that cannot
+    // find the tree it is supposed to be testing.
+    return Str();
 }
 
 static Int32 failures = 0;
@@ -130,9 +176,17 @@ int main()
 {
     std::printf("\nlsp - against the clangd on this machine\n\n");
 
-    const Str root  = PicoFlash::repoRoot();
-    const Str file  = root + "\\firmware\\sketches\\speaker.cxx";
-    const Str ccj   = root + "\\firmware\\build\\compile_commands.json";
+    const Str root = PicoFlash::repoRoot();
+    if(root.empty())
+    {
+        std::printf("  SKIP  could not find the repository root above this"
+                    " executable\n\n");
+        return 0;
+    }
+    std::printf("  root  %s\n\n", root.c_str());
+
+    const Str file = root + "\\firmware\\sketches\\speaker.cxx";
+    const Str ccj  = root + "\\firmware\\build\\compile_commands.json";
 
     if(readFile(ccj).empty())
     {
