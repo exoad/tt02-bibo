@@ -41,7 +41,7 @@ namespace cmpl
     // suggest() sorts what it returns, and grouping by subsystem here is what makes
     // this maintainable against pico2w.h.
     // ---------------------------------------------------------------------------
-    const Item TABLE[] = {
+    constexpr Item TABLE[] = {
         // ---- pico2w.h: GPIO ----
         { "gpioOpen",       "Void gpioOpen(Pin pin, PinDir dir)",
           "Claim a pin and set its direction. Both, in one call.", Kind::KIND_FUNCTION },

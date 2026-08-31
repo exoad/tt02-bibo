@@ -26,7 +26,7 @@ namespace syn
     // Control flow, storage and the rest of the language's own words. Sorted only
     // for readability; the lookup is linear because the list is short and a line is
     // short, and a hash map here would be slower after the setup cost.
-    const Char* const KEYWORDS[] = {
+    constexpr const Char* const KEYWORDS[] = {
         "alignas", "alignof", "asm", "auto", "break", "case", "catch", "class",
         "const", "consteval", "constexpr", "constinit", "const_cast", "continue",
         "decltype", "default", "delete", "do", "dynamic_cast", "else", "enum",
@@ -48,7 +48,7 @@ namespace syn
     // light up; a style guide that its own editor does not recognise is a style
     // guide nobody follows. The rest are the underlying spellings and the Pico SDK's
     // own, which still appear at every third-party boundary.
-    const Char* const TYPES[] = {
+    constexpr const Char* const TYPES[] = {
         // manbox aliases, C and C++ alike
         "Any", "Bool", "CFile", "Char", "CharSeq", "CharSeq16", "CharSeq32",
         "Float32", "Float64", "Fn", "ISize", "Int16", "Int32", "Int64", "Int8",

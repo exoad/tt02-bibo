@@ -19,7 +19,7 @@
 #include <cstdio>
 #include <thread>
 
-static const Char* PORT = "COM10";
+static constexpr const Char* PORT = "COM10";
 
 static const Char* stateName(PicoState s)
 {
@@ -111,7 +111,7 @@ Int32 main()
     }
 
     printf("\n=== 4. probe lines ===\n");
-    const Array<const Char*, 3> probes = { "PING", "HELP", "?" };
+    constexpr const Array<const Char*, 3> probes = { "PING", "HELP", "?" };
     for(const Char* p : probes)
     {
         printf("  send(\"%s\")\n", p);

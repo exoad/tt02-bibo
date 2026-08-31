@@ -234,7 +234,7 @@ namespace ui
       }
       *slash = 0;
 
-      const Char* const LAYOUTS[] = {
+      constexpr const Char* const LAYOUTS[] = {
           "%s\\assets\\%s",        // shipped: assets beside the exe
           "%s\\..\\assets\\%s",    // build.bat: exe one level down, in build/
       };

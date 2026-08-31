@@ -23,7 +23,7 @@ namespace lsp
     // The PATH lookup is second, not first: a PATH clangd could be any version
     // and any bitness, whereas the LLVM installer's path is the one that came
     // with the toolchain the firmware is actually built with.
-    const Char* const CLANGD_PATHS[] = {
+    constexpr const Char* const CLANGD_PATHS[] = {
         "C:\\Program Files\\LLVM\\bin\\clangd.exe",
         "C:\\Program Files (x86)\\LLVM\\bin\\clangd.exe",
     };

@@ -987,7 +987,7 @@ namespace
       Bool        supported;
   };
 
-  const BaudOpt BAUDS[] = {
+  constexpr BaudOpt BAUDS[] = {
       { 460800, "460800", true  },
       { 115200, "115200", false },
       { 256000, "256000", false },
@@ -995,7 +995,7 @@ namespace
   constexpr Int32 BAUD_COUNT = static_cast<Int32>(sizeof(BAUDS) / sizeof(BAUDS[0]));
 
   struct RangeOpt { const Char* label; Float32 mm; };   // mm <= 0 means auto-fit
-  const RangeOpt RANGES[] = {
+  constexpr RangeOpt RANGES[] = {
     { "Fit", 0.0f }, { "0.5 m", 500.0f }, { "1 m", 1000.0f }, { "2 m", 2000.0f },
     { "4 m", 4000.0f }, { "8 m", 8000.0f }, { "12 m", 12000.0f },
   };
@@ -5797,7 +5797,7 @@ namespace
       // plainly what it does than to leave people to guess.
       ImGui::SeparatorText("Tone");
 
-      static const Char* const EQ_NAME[6] =
+      static constexpr const Char* const EQ_NAME[6] =
       {
           "Normal", "Pop", "Rock", "Jazz", "Classic", "Bass"
       };
@@ -6598,7 +6598,7 @@ namespace
 
   // Steering steps. 50 us is about a degree and a half of wheel on a TT-02 - big
   // enough to see, small enough that overshooting costs nothing.
-  const Step SERVO_STEPS[] =
+  constexpr Step SERVO_STEPS[] =
   {
     { "-50", -50 }, { "-10", -10 }, { "-1", -1 },
     { "+1",    1 }, { "+10",  10 }, { "+50", 50 },
@@ -6608,7 +6608,7 @@ namespace
   // the time you decide it was too much. The "##esc" suffixes keep these distinct
   // from the steering row - ImGui derives a widget's identity from its label, so
   // two buttons called "-10" would be one button.
-  const Step ESC_STEPS[] =
+  constexpr Step ESC_STEPS[] =
   {
     { "-10##esc", -10 }, { "-5##esc", -5 }, { "-1##esc", -1 },
     { "+1##esc",    1 }, { "+5##esc",  5 }, { "+10##esc", 10 },
@@ -9324,13 +9324,13 @@ namespace
 
       ImGui::TextDisabled("Headlights");
       struct HeadOpt { const Char* label; lights::Head v; };
-      static const HeadOpt HEADS[3] = {
+      static constexpr HeadOpt HEADS[3] = {
           { "Off", lights::Head::HEAD_OFF },
           { "DRL", lights::Head::HEAD_DRL },
           { "On",  lights::Head::HEAD_ON  },
       };
       // Off / dim / full, as three states of one lamp - which is what they are.
-      static const ui::Icon HEAD_ICONS[3] = {
+      static constexpr ui::Icon HEAD_ICONS[3] = {
           ui::Icon::ICON_STATUS_IDLE, ui::Icon::ICON_LAMP_DIM, ui::Icon::ICON_LAMP,
       };
       for(Int32 i = 0; i < 3; ++i)
@@ -9350,7 +9350,7 @@ namespace
       ImGui::Spacing();
       ImGui::TextDisabled("Turn");
       struct TurnOpt { const Char* label; lights::Turn v; };
-      static const TurnOpt TURNS[4] = {
+      static constexpr TurnOpt TURNS[4] = {
           { "Off",    lights::Turn::TURN_OFF    },
           { "Left",   lights::Turn::TURN_LEFT   },
           { "Right",  lights::Turn::TURN_RIGHT  },
@@ -11151,7 +11151,7 @@ Void app::init(Float32 dpiScale)
         if(std::strcmp(__argv[i], "--tab") == 0 && i + 1 < __argc)
         {
             struct TabName { const Char* name; Int32 sec; Int32 sub; };
-            static const TabName TAB_NAMES[] = {
+            static constexpr TabName TAB_NAMES[] = {
                 { "system",   SECTION_SYSTEM,   -1 }, { "overview", SECTION_SYSTEM,   -1 },
                 { "sensors",  SECTION_SENSORS,  -1 }, { "world",    SECTION_SENSORS,  -1 },
                 { "lidar",    SECTION_SENSORS,  -1 },

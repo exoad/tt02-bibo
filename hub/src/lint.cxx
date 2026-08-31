@@ -65,7 +65,7 @@ namespace lint
             return true;                      // preprocessor
         }
 
-        const Char* const SKIP[] = {
+        constexpr const Char* const SKIP[] = {
             "sizeof",            // sizeof(Float32) is not a cast
             "static_cast<int>",  // a named cast TO an ABI type is correct
             "static_cast<float>",
@@ -236,19 +236,19 @@ namespace lint
     // them - and a linter that is stricter than the gate flags code the commit will
     // happily accept, which teaches people to ignore the linter. If those should be
     // caught, the place to add them is the audit, and then here.
-    const Char* const BUILTINS[] = {
+    constexpr const Char* const BUILTINS[] = {
         "int", "float", "double", "bool", "char", "unsigned", "size_t",
     };
 
     // The return types a function definition starts with. Used to find the NAME
     // that follows, which is what the case rules are about.
-    const Char* const RETURN_TYPES[] = {
+    constexpr const Char* const RETURN_TYPES[] = {
         "Void", "Bool", "Int8", "Int16", "Int32", "Int64",
         "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Float64",
         "Size", "Str", "Char", "Utf8",
     };
 
-    const Char* const STD_TYPES[] = {
+    constexpr const Char* const STD_TYPES[] = {
         "std::vector", "std::deque", "std::array", "std::map", "std::set",
         "std::unordered_map", "std::unordered_set", "std::pair", "std::tuple",
         "std::string_view", "std::string", "std::optional", "std::variant",
@@ -289,7 +289,7 @@ namespace lint
         }
 
         // ---- keyword spacing --------------------------------------------------
-        const Char* const KEYWORDS[] = { "if", "for", "while", "switch" };
+        constexpr const Char* const KEYWORDS[] = { "if", "for", "while", "switch" };
         for(const Char* k : KEYWORDS)
         {
             const Size n = std::strlen(k);
@@ -415,7 +415,7 @@ namespace lint
             {
                 ++i;
             }
-            const Char* const LEAD[] = { "static ", "const ", "inline ", "extern " };
+            constexpr const Char* const LEAD[] = { "static ", "const ", "inline ", "extern " };
             Bool moved = true;
             while(moved)
             {
@@ -489,7 +489,7 @@ namespace lint
         //
         // struct / enum / typedef introduce a TYPE, and types are PascalCase.
         {
-            const Char* const INTRO[] = { "struct ", "enum class ", "enum ",
+            constexpr const Char* const INTRO[] = { "struct ", "enum class ", "enum ",
                                           "class ", "union " };
             for(const Char* kw : INTRO)
             {

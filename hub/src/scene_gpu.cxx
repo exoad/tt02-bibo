@@ -242,7 +242,7 @@ namespace scenegpu
           release(vsBlob); release(psBlob); shutdown(); return;
       }
 
-      const D3D11_INPUT_ELEMENT_DESC elems[] = {
+      constexpr D3D11_INPUT_ELEMENT_DESC elems[] = {
           { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
           { "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM,  0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
           { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -423,7 +423,7 @@ namespace scenegpu
       }
       started = false;
 
-      const Array<Float32, 4> CLEAR= { 0.0f, 0.0f, 0.0f, 1.0f };
+      constexpr Array<Float32, 4> CLEAR= { 0.0f, 0.0f, 0.0f, 1.0f };
       ctx->ClearRenderTargetView(colorRtv, CLEAR.data());
       ctx->ClearDepthStencilView(depthDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
@@ -512,7 +512,7 @@ namespace scenegpu
       ctx->PSSetSamplers(0, 1, &sampler);
       ctx->RSSetState(rasterizer);
 
-      const Array<Float32, 4> BLEND_FACTOR= { 0.0f, 0.0f, 0.0f, 0.0f };
+      constexpr Array<Float32, 4> BLEND_FACTOR= { 0.0f, 0.0f, 0.0f, 0.0f };
       ctx->OMSetBlendState(blendOn, BLEND_FACTOR.data(), 0xFFFFFFFFu);
 
       // Runs of one texture, drawn in one call each.

@@ -37,22 +37,22 @@
 // logical at 175% is 1925x1260 physical, taller than a 1920x1080 laptop panel,
 // and the window then cannot be shrunk or even fully seen.
 // ---------------------------------------------------------------------------
-static const Int32 DEFAULT_WIDTH  = 1400;
-static const Int32 DEFAULT_HEIGHT = 900;
-static const Int32 MIN_WIDTH      = 880;   // rail (360) + gap + a usable radar
-static const Int32 MIN_HEIGHT     = 600;
+static constexpr Int32 DEFAULT_WIDTH  = 1400;
+static constexpr Int32 DEFAULT_HEIGHT = 900;
+static constexpr Int32 MIN_WIDTH      = 880;   // rail (360) + gap + a usable radar
+static constexpr Int32 MIN_HEIGHT     = 600;
 
 // Absolute floor, in physical px, for the enforced minimum window size. Only
 // reachable on a comically small work area; keeps the window grabbable.
-static const LONG FLOOR_WIDTH   = 320;
-static const LONG FLOOR_HEIGHT  = 240;
+static constexpr LONG FLOOR_WIDTH   = 320;
+static constexpr LONG FLOOR_HEIGHT  = 240;
 
 // Fallback only. The real clear colour is taken from ImGui's own WindowBg each
 // frame, so the backbuffer can never seam against the UI drawn on top of it.
 // Fallback only - the frame normally clears to ImGuiCol_WindowBg. It still has
 // to match the theme: anything the UI does not cover (the sliver during a
 // resize, the moment before the first frame) shows this.
-static const Array<Float32, 4> CLEAR_COLOR= { 0.139f, 0.144f, 0.154f, 1.0f };
+static constexpr Array<Float32, 4> CLEAR_COLOR= { 0.139f, 0.144f, 0.154f, 1.0f };
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -111,7 +111,7 @@ static Void saveUiScale()
 // the flag is unsupported (pre-1803), which caps at roughly the right rate and
 // says so here rather than pretending.
 // ---------------------------------------------------------------------------
-static const Int32 TARGET_FPS = 60;
+static constexpr Int32 TARGET_FPS = 60;
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
@@ -401,7 +401,7 @@ static Bool createDeviceD3D(HWND hwnd)
     // flags |= D3D11_CREATE_DEVICE_DEBUG;   // needs the graphics tools feature
 #endif
 
-    const D3D_FEATURE_LEVEL levels[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
+    constexpr D3D_FEATURE_LEVEL levels[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
     D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_11_0;
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(

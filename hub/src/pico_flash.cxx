@@ -561,9 +561,9 @@ Void PicoFlash::refreshCatalog()
             }
 
             // Board, id suffix, build directory.
-            const Char* const BOARDS[2] = { "pico2_w", "pico2" };
-            const Char* const SUFFIX[2] = { "", "_car" };
-            const Char* const BUILDS[2] = { "build", "build-pico2" };
+            constexpr const Char* const BOARDS[2] = { "pico2_w", "pico2" };
+            constexpr const Char* const SUFFIX[2] = { "", "_car" };
+            constexpr const Char* const BUILDS[2] = { "build", "build-pico2" };
 
             for(Int32 b = 0; b < 2; ++b)
             {
