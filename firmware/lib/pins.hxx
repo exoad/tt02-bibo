@@ -184,7 +184,7 @@ namespace bibo
      * THE TAIL LAMPS GAVE UP GP14 AND GP15 to the DFPlayer, which needed a
      * UART. Those two are the only pads carrying UART0 that cost neither
      * GP0/GP1 - the servo and the ESC - nor GP12/GP13, the front indicators. */
-    static Map car(Void)
+    inline Map car(Void)
     {
         Map m;
 
@@ -256,7 +256,7 @@ namespace bibo
      * the bottom - so the vehicle can never ship a conflict. This runtime check
      * is what covers a SKETCH, whose map is written fresh against a breadboard
      * and is the one most likely to be wrong. */
-    static Bool begin(const Map& m)
+    inline Bool begin(const Map& m)
     {
         clashPin = NONE;
 
@@ -297,17 +297,17 @@ namespace bibo
     /* What the last begin() refused. NONE and empty strings when it succeeded.
      * When clashA equals clashB the pad is out of range rather than doubly
      * claimed. */
-    static Int32 conflictPin(Void)
+    inline Int32 conflictPin(Void)
     {
         return clashPin;
     }
 
-    static CharSeq conflictFirst(Void)
+    inline CharSeq conflictFirst(Void)
     {
         return (clashPin == NONE) ? "" : NAMES[clashA];
     }
 
-    static CharSeq conflictSecond(Void)
+    inline CharSeq conflictSecond(Void)
     {
         return (clashPin == NONE) ? "" : NAMES[clashB];
     }
@@ -328,7 +328,7 @@ namespace bibo
      * One call, one sentence, both cases. The parts stay for a caller that
      * wants to say it differently.
      */
-    static CharSeq conflictText(Void)
+    inline CharSeq conflictText(Void)
     {
         static Utf8 buf[96];
 
@@ -356,7 +356,7 @@ namespace bibo
     }
 
     /* False until begin() has succeeded. */
-    static Bool ready(Void)
+    inline Bool ready(Void)
     {
         return up;
     }

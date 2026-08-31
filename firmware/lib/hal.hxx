@@ -160,28 +160,28 @@ namespace bibo
 
   namespace gpio
   {
-    static Void open(Pin pin, PinDir dir)
+    inline Void open(Pin pin, PinDir dir)
     {
         gpio_init((uint) pin);
         gpio_set_dir((uint) pin, dir == PIN_DIR_OUT);
     }
 
-    static Void write(Pin pin, Bool high)
+    inline Void write(Pin pin, Bool high)
     {
         gpio_put((uint) pin, high);
     }
 
-    static Bool read(Pin pin)
+    inline Bool read(Pin pin)
     {
         return gpio_get((uint) pin);
     }
 
-    static Void toggle(Pin pin)
+    inline Void toggle(Pin pin)
     {
         gpio_xor_mask(1u << (uint) pin);
     }
 
-    static Void pull(Pin pin, PinPull pull)
+    inline Void pull(Pin pin, PinPull pull)
     {
         gpio_set_pulls((uint) pin, pull == PIN_PULL_UP, pull == PIN_PULL_DOWN);
     }
@@ -230,7 +230,7 @@ namespace bibo
      * pad that carries no UART at all returns the normal value and simply will not
      * work, which is what a wiring mistake should look like - the pin table in
      * pins.hxx is where that is prevented, not here. */
-    static gpio_function_t dataFunc(Pin pin)
+    inline gpio_function_t dataFunc(Pin pin)
     {
         return (pin == 14 || pin == 15) ? GPIO_FUNC_UART_AUX : GPIO_FUNC_UART;
     }
@@ -245,7 +245,7 @@ namespace bibo
      * the one asked for - the divider is integer and the peripheral clock is
      * whatever it is. At 9600 the error is negligible; the value is returned
      * because a caller that cares should be able to see it rather than assume. */
-    static UInt32 open(uart_inst_t* port, UInt32 baud, Pin tx, Pin rx)
+    inline UInt32 open(uart_inst_t* port, UInt32 baud, Pin tx, Pin rx)
     {
         const UInt32 got = uart_init(port, baud);
 
@@ -271,20 +271,20 @@ namespace bibo
         return got;
     }
 
-    static Void write(uart_inst_t* port, const UInt8* data, Size len)
+    inline Void write(uart_inst_t* port, const UInt8* data, Size len)
     {
         uart_write_blocking(port, data, len);
     }
 
     /* True if at least one byte is waiting. */
-    static Bool readable(uart_inst_t* port)
+    inline Bool readable(uart_inst_t* port)
     {
         return uart_is_readable(port);
     }
 
     /* One byte, or -1 if none arrived within the timeout. Int32 rather than UInt8
      * so "nothing" and "the byte 0xFF" are different answers. */
-    static Int32 readByte(uart_inst_t* port, UInt32 timeoutUs)
+    inline Int32 readByte(uart_inst_t* port, UInt32 timeoutUs)
     {
         if(!uart_is_readable_within_us(port, timeoutUs))
         {
@@ -298,7 +298,7 @@ namespace bibo
      * Worth having before a command: a module that was mid-reply when the Pico
      * reset has left bytes in there, and reading them as the answer to the NEXT
      * question is the kind of bug that looks like corruption. */
-    static Void drain(uart_inst_t* port)
+    inline Void drain(uart_inst_t* port)
     {
         while(uart_is_readable(port))
         {
@@ -310,18 +310,18 @@ namespace bibo
 
   namespace timing
   {
-    static Void ms(UInt32 ms)
+    inline Void ms(UInt32 ms)
     {
         sleep_ms(ms);
     }
 
-    static Void us(UInt64 us)
+    inline Void us(UInt64 us)
     {
         sleep_us(us);
     }
 
     /* Milliseconds since boot. Wraps after about 49 days. */
-    static UInt32 nowMs(Void)
+    inline UInt32 nowMs(Void)
     {
         return static_cast<UInt32>(to_ms_since_boot(get_absolute_time()));
     }
@@ -338,18 +338,18 @@ namespace bibo
     typedef absolute_time_t Deadline;
 
     /* A deadline `ms` from now. */
-    static Deadline armMs(UInt32 ms)
+    inline Deadline armMs(UInt32 ms)
     {
         return make_timeout_time_ms(ms);
     }
 
     /* Has it arrived. */
-    static Bool reached(Deadline d)
+    inline Bool reached(Deadline d)
     {
         return time_reached(d);
     }
 
-    static UInt64 nowUs(Void)
+    inline UInt64 nowUs(Void)
     {
         return static_cast<UInt64>(to_us_since_boot(get_absolute_time()));
     }
@@ -382,7 +382,7 @@ namespace bibo
 
   namespace serial
   {
-    static Void open(Void)
+    inline Void open(Void)
     {
         stdio_init_all();
     }
@@ -405,12 +405,12 @@ namespace bibo
 
     static Mirror mirrorFn = nullptr;
 
-    static Void setMirror(Mirror fn)
+    inline Void setMirror(Mirror fn)
     {
         mirrorFn = fn;
     }
 
-    static Void emit(CharSeq text)
+    inline Void emit(CharSeq text)
     {
         fputs(text, stdout);
 
@@ -420,12 +420,12 @@ namespace bibo
         }
     }
 
-    static Void print(CharSeq text)
+    inline Void print(CharSeq text)
     {
         emit(text);
     }
 
-    static Void printLine(CharSeq text)
+    inline Void printLine(CharSeq text)
     {
         emit(text);
         emit("\n");
@@ -469,7 +469,7 @@ namespace bibo
      * serial line whose tail became a fresh command - and both times the damage
      * came from the truncation being SILENT.
      */
-    static Void printf(CharSeq fmt, ...)
+    inline Void printf(CharSeq fmt, ...)
     {
         Utf8 buf[LINE_CAP];
 
@@ -504,7 +504,7 @@ namespace bibo
      *
      * Returns true if the host connected.
      */
-    static Bool waitForHost(UInt32 timeoutMs)
+    inline Bool waitForHost(UInt32 timeoutMs)
     {
         const UInt32 start = to_ms_since_boot(get_absolute_time());
 
@@ -528,7 +528,7 @@ namespace bibo
      * only at startup. A board that greeted the first listener and then went quiet
      * forever looks dead to the second one.
      */
-    static Bool hostPresent(Void)
+    inline Bool hostPresent(Void)
     {
         return stdio_usb_connected();
     }
@@ -552,14 +552,14 @@ namespace bibo
      */
     static const Int32 NONE = PICO_ERROR_TIMEOUT;
 
-    static Int32 readChar(UInt32 timeoutUs)
+    inline Int32 readChar(UInt32 timeoutUs)
     {
         return getchar_timeout_us(timeoutUs);
     }
 
     /* Flushes anything buffered out to the host. Worth doing before a reboot, or
      * the last thing the program said is lost with it. */
-    static Void flush(Void)
+    inline Void flush(Void)
     {
         stdio_flush();
     }
@@ -578,7 +578,7 @@ namespace bibo
 
   namespace board
   {
-    static Void id(Utf8* out, Size cap)
+    inline Void id(Utf8* out, Size cap)
     {
         pico_unique_board_id_t id;
         pico_get_unique_board_id(&id);
@@ -615,7 +615,7 @@ namespace bibo
 
   namespace pwm
   {
-    static Void open(Pin pin, UInt32 freqHz)
+    inline Void open(Pin pin, UInt32 freqHz)
     {
         gpio_set_function((uint) pin, GPIO_FUNC_PWM);
 
@@ -633,7 +633,7 @@ namespace bibo
     }
 
     /* `duty` is 0.0 to 1.0 and is clamped. */
-    static Void write(Pin pin, Float32 duty)
+    inline Void write(Pin pin, Float32 duty)
     {
         if(duty < 0.0f)
         {
@@ -660,7 +660,7 @@ namespace bibo
 
   namespace servo
   {
-    static Void open(Pin pin)
+    inline Void open(Pin pin)
     {
         pwm::open(pin, SERVO_HZ);
     }
@@ -670,7 +670,7 @@ namespace bibo
      * driven past its travel stalls against its own end stop, draws locked-rotor
      * current and cooks itself, and it does it quietly.
      */
-    static Void writeUs(Pin pin, UInt32 us)
+    inline Void writeUs(Pin pin, UInt32 us)
     {
         if(us < SERVO_MIN_US)
         {
@@ -686,7 +686,7 @@ namespace bibo
     }
 
     /* Centre for a servo; neutral (no drive) for an ESC. */
-    static Void center(Pin pin)
+    inline Void center(Pin pin)
     {
         writeUs(pin, SERVO_MID_US);
     }
@@ -705,7 +705,7 @@ namespace bibo
      * line is worse than no signal at all: noise on it reads as random pulse
      * widths, and the servo chases them into whatever it hits first.
      */
-    static Void release(Pin pin)
+    inline Void release(Pin pin)
     {
         pwm_set_gpio_level((uint) pin, 0);
     }
@@ -775,7 +775,7 @@ namespace bibo
   {
     static Bool tried = false;
 
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         if(!tried)
         {
@@ -785,7 +785,7 @@ namespace bibo
         return led::up;
     }
 
-    static Bool up(Void)
+    inline Bool up(Void)
     {
         return led::up;
     }
@@ -795,12 +795,12 @@ namespace bibo
 
   namespace led
   {
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         return radio::open();
     }
 
-    static Void write(Bool on)
+    inline Void write(Bool on)
     {
         if(up)
         {
@@ -808,13 +808,13 @@ namespace bibo
         }
     }
 
-    static Bool read(Void)
+    inline Bool read(Void)
     {
         return up && cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
     }
 
     /* Where the lamp is, for a program that reports its own wiring. */
-    static CharSeq backend(Void)
+    inline CharSeq backend(Void)
     {
         return "cyw43";
     }
@@ -828,12 +828,12 @@ namespace bibo
 
   namespace radio
   {
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         return false;
     }
 
-    static Bool up(Void)
+    inline Bool up(Void)
     {
         return false;
     }
@@ -843,7 +843,7 @@ namespace bibo
 
   namespace led
   {
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         gpio_init((uint) PICO_DEFAULT_LED_PIN);
         gpio_set_dir((uint) PICO_DEFAULT_LED_PIN, GPIO_OUT);
@@ -851,7 +851,7 @@ namespace bibo
         return up;
     }
 
-    static Void write(Bool on)
+    inline Void write(Bool on)
     {
         if(up)
         {
@@ -859,12 +859,12 @@ namespace bibo
         }
     }
 
-    static Bool read(Void)
+    inline Bool read(Void)
     {
         return up && gpio_get((uint) PICO_DEFAULT_LED_PIN);
     }
 
-    static CharSeq backend(Void)
+    inline CharSeq backend(Void)
     {
         return "gpio" STRINGIFY(PICO_DEFAULT_LED_PIN);
     }
@@ -882,12 +882,12 @@ namespace bibo
 
   namespace radio
   {
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         return false;
     }
 
-    static Bool up(Void)
+    inline Bool up(Void)
     {
         return false;
     }
@@ -897,23 +897,23 @@ namespace bibo
 
   namespace led
   {
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         up = false;
         return false;
     }
 
-    static Void write(Bool on)
+    inline Void write(Bool on)
     {
         static_cast<Void>(on);
     }
 
-    static Bool read(Void)
+    inline Bool read(Void)
     {
         return false;
     }
 
-    static CharSeq backend(Void)
+    inline CharSeq backend(Void)
     {
         return "none";
     }
@@ -927,12 +927,12 @@ namespace bibo
 
   namespace led
   {
-    static Bool present(Void)
+    inline Bool present(Void)
     {
         return up;
     }
 
-    static Void toggle(Void)
+    inline Void toggle(Void)
     {
         write(!read());
     }
@@ -948,20 +948,20 @@ namespace bibo
 
   namespace adc
   {
-    static Void open(Pin pin)
+    inline Void open(Pin pin)
     {
         adc_init();
         adc_gpio_init((uint) pin);
     }
 
-    static UInt16 read(Pin pin)
+    inline UInt16 read(Pin pin)
     {
         adc_select_input((uint) (pin - 26));
         return adc_read();
     }
 
     /* 12-bit reading scaled to volts against the 3.3 V reference. */
-    static Float32 readVolts(Pin pin)
+    inline Float32 readVolts(Pin pin)
     {
         return static_cast<Float32>(read(pin)) * (3.3f / 4095.0f);
     }
@@ -974,7 +974,7 @@ namespace bibo
      *
      * The conversion is the one from the RP2350 datasheet.
      */
-    static Float32 tempC(Void)
+    inline Float32 tempC(Void)
     {
         adc_init();
         adc_set_temp_sensor_enabled(true);
@@ -999,12 +999,12 @@ namespace bibo
 
   namespace watchdog
   {
-    static Void start(UInt32 ms)
+    inline Void start(UInt32 ms)
     {
         watchdog_enable(ms, true);
     }
 
-    static Void feed(Void)
+    inline Void feed(Void)
     {
         watchdog_update();
     }
@@ -1012,7 +1012,7 @@ namespace bibo
     /* True when THIS boot was caused by the watchdog firing rather than by power or
      * the reset pin. Worth printing at startup: a board that is quietly resetting in
      * a loop looks exactly like a board that is slow to start. */
-    static Bool causedReboot(Void)
+    inline Bool causedReboot(Void)
     {
         return watchdog_caused_reboot();
     }
@@ -1046,7 +1046,7 @@ namespace bibo
 
   namespace spi
   {
-    static spi_inst_t* forSck(Pin sck)
+    inline spi_inst_t* forSck(Pin sck)
     {
         switch(sck)
         {
@@ -1069,7 +1069,7 @@ namespace bibo
      *   SPI0 MISO   GP0  GP4  GP16  GP20
      *   SPI1 MISO   GP8  GP12 GP24  GP28
      */
-    static spi_inst_t* forMiso(Pin miso)
+    inline spi_inst_t* forMiso(Pin miso)
     {
         switch(miso)
         {
@@ -1087,7 +1087,7 @@ namespace bibo
      * bringing up a bus that cannot work. Baud is a request: the hardware picks the
      * closest it can reach and baud() reports what was actually set.
      */
-    static Bool open(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
+    inline Bool open(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr)
@@ -1115,7 +1115,7 @@ namespace bibo
      * check worth having: MISO on a pad that cannot carry it fails silently, the
      * card never appears to respond, and every symptom points at the card.
      */
-    static Bool openFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz)
+    inline Bool openFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz)
     {
         spi_inst_t* const bus  = forSck(sck);
         spi_inst_t* const rxBus = forMiso(miso);
@@ -1154,7 +1154,7 @@ namespace bibo
      * from a wiring fault and is why this is worth naming rather than leaving to a
      * default nobody remembers.
      */
-    static Void mode(Pin sck, Bool cpol, Bool cpha)
+    inline Void mode(Pin sck, Bool cpol, Bool cpha)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr)
@@ -1169,14 +1169,14 @@ namespace bibo
 
     /* What the hardware actually settled on, which is rarely exactly what was asked
      * for - the divider is an integer. Worth printing during bring-up. */
-    static UInt32 baud(Pin sck, UInt32 hz)
+    inline UInt32 baud(Pin sck, UInt32 hz)
     {
         spi_inst_t* const bus = forSck(sck);
         return (bus == nullptr) ? 0u : static_cast<UInt32>(spi_set_baudrate(bus, hz));
     }
 
     /* Blocking write. Returns the number of bytes sent, or 0 for a bad SCK pin. */
-    static Size write(Pin sck, const UInt8* data, Size n)
+    inline Size write(Pin sck, const UInt8* data, Size n)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr || data == nullptr || n == 0)
@@ -1187,13 +1187,13 @@ namespace bibo
         return (sent < 0) ? 0u : static_cast<Size>(sent);
     }
 
-    static Size writeByte(Pin sck, UInt8 b)
+    inline Size writeByte(Pin sck, UInt8 b)
     {
         return write(sck, &b, 1);
     }
 
     /* Full duplex: sends `tx` and captures the same number of bytes into `rx`. */
-    static Size transfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
+    inline Size transfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr || tx == nullptr || rx == nullptr || n == 0)
@@ -1254,7 +1254,7 @@ namespace bibo
 
   namespace i2c
   {
-    static i2c_inst_t* forSda(Pin sda)
+    inline i2c_inst_t* forSda(Pin sda)
     {
         switch(sda)
         {
@@ -1276,7 +1276,7 @@ namespace bibo
      * Returns false if the pins do not belong to one controller, rather than
      * bringing up a bus that cannot work.
      */
-    static Bool open(Pin sda, Pin scl, UInt32 hz)
+    inline Bool open(Pin sda, Pin scl, UInt32 hz)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr)
@@ -1299,7 +1299,7 @@ namespace bibo
      * or it does not. Nothing is transferred, so this is safe to do to an address
      * you know nothing about - which is what makes scanning the bus possible.
      */
-    static Bool present(Pin sda, UInt8 addr)
+    inline Bool present(Pin sda, UInt8 addr)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr)
@@ -1314,7 +1314,7 @@ namespace bibo
     /* Writes `n` bytes. `hold` true leaves the bus claimed for a repeated start,
      * which is how a register read is done: write the register, then read without
      * letting go. Returns bytes written, or 0 on failure. */
-    static Size write(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
+    inline Size write(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr || data == nullptr || n == 0)
@@ -1326,7 +1326,7 @@ namespace bibo
         return (sent < 0) ? 0u : static_cast<Size>(sent);
     }
 
-    static Size read(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
+    inline Size read(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr || data == nullptr || n == 0)
@@ -1344,7 +1344,7 @@ namespace bibo
      * bus: letting go between the two is what makes a sensor return the wrong
      * register, or nothing.
      */
-    static Bool readReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data, Size n)
+    inline Bool readReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data, Size n)
     {
         UInt8 r[2];
         r[0] = static_cast<UInt8>(reg >> 8);
@@ -1357,7 +1357,7 @@ namespace bibo
         return read(sda, addr, data, n, false) == n;
     }
 
-    static Bool writeReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* data, Size n)
+    inline Bool writeReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* data, Size n)
     {
         /* Register index and payload must go out as ONE transaction, so they are
          * assembled into one buffer rather than written twice. */
@@ -1375,12 +1375,12 @@ namespace bibo
         return write(sda, addr, buf, n + 2, false) == (n + 2);
     }
 
-    static Bool writeReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8 v)
+    inline Bool writeReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8 v)
     {
         return writeReg16(sda, addr, reg, &v, 1);
     }
 
-    static Bool writeReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16 v)
+    inline Bool writeReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16 v)
     {
         UInt8 b[2];
         b[0] = static_cast<UInt8>(v >> 8);
@@ -1388,12 +1388,12 @@ namespace bibo
         return writeReg16(sda, addr, reg, b, 2);
     }
 
-    static Bool readReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8* out)
+    inline Bool readReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8* out)
     {
         return readReg16(sda, addr, reg, out, 1);
     }
 
-    static Bool readReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
+    inline Bool readReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
     {
         UInt8 b[2];
         if(!readReg16(sda, addr, reg, b, 2))
@@ -1417,7 +1417,7 @@ namespace bibo
 
   namespace board
   {
-    static Void rebootToBootsel(Void)
+    inline Void rebootToBootsel(Void)
     {
         /*
          * Flush and settle before going, or the last thing the program said dies

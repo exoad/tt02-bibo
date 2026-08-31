@@ -49,7 +49,7 @@ namespace bibo
         STATUS_FULL
     };
 
-    static CharSeq why(Status s)
+    inline CharSeq why(Status s)
     {
         switch(s)
         {
@@ -90,7 +90,7 @@ namespace bibo
 
     static Limits limits;
 
-    static Bool configure(const Limits& l)
+    inline Bool configure(const Limits& l)
     {
         if(l.vMax <= 0.0f || l.aMax <= 0.0f || l.aBrake <= 0.0f
            || l.latAccel <= 0.0f || l.vMin < 0.0f || l.vMin > l.vMax)
@@ -111,7 +111,7 @@ namespace bibo
      * `out` is untouched on anything but STATUS_OK, so a caller that ignores
      * the Status gets whatever it initialised - which is its own value, not a
      * number this file invented. */
-    static Status speedFor(const pursuit::Path* path, geom::Pose pose,
+    inline Status speedFor(const pursuit::Path* path, geom::Pose pose,
                            Float32* out)
     {
         static_cast<Void>(path);
@@ -145,7 +145,7 @@ namespace bibo
 
     static Guard guard;
 
-    static Bool configure(const Guard& g)
+    inline Bool configure(const Guard& g)
     {
         if(g.stopM < 0.0f || g.slowM <= g.stopM || g.widthM <= 0.0f)
         {
@@ -162,7 +162,7 @@ namespace bibo
 
     /* STUB. Will return a speed cap in metres per second given the nearest
      * obstacle ahead. */
-    static Status capFor(Float32 nearestM, Float32* out)
+    inline Status capFor(Float32 nearestM, Float32* out)
     {
         static_cast<Void>(nearestM);
         static_cast<Void>(out);
@@ -196,7 +196,7 @@ namespace bibo
 
     static Recorder recorder;
 
-    static Bool configure(const Recorder& r)
+    inline Bool configure(const Recorder& r)
     {
         if(r.spacingM <= 0.0f || r.headingRad <= 0.0f)
         {
@@ -214,7 +214,7 @@ namespace bibo
     /* STUB. Will append `pose` to `into` if it is far enough from the last
      * point, and report STATUS_FULL rather than overwriting when the buffer
      * is exhausted. */
-    static Status keep(geom::Pose pose, geom::Vec2* into, Size cap, Size* count)
+    inline Status keep(geom::Pose pose, geom::Vec2* into, Size cap, Size* count)
     {
         static_cast<Void>(pose);
         static_cast<Void>(into);

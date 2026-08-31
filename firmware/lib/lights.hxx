@@ -140,7 +140,7 @@ namespace bibo
      */
     static Int32 forced = LAMP_COUNT;
 
-    static Void clear(Set* s)
+    inline Void clear(Set* s)
     {
         for(Int32 i = 0; i < LAMP_COUNT; ++i)
         {
@@ -150,7 +150,7 @@ namespace bibo
 
     /* Straight at the pins, no gates. Everything below goes through this so there
      * is exactly one place that touches a GPIO. */
-    static Void push(const Set* s)
+    inline Void push(const Set* s)
     {
         for(Int32 i = 0; i < LAMP_COUNT; ++i)
         {
@@ -162,7 +162,7 @@ namespace bibo
         now = *s;
     }
 
-    static Void open(Void)
+    inline Void open(Void)
     {
         /* The binding, taken from whatever this program declared. Copied rather
          * than read through on every write: push() runs every tick and a lamp
@@ -202,7 +202,7 @@ namespace bibo
      * only worked when the cue layer remembered to ask is a master switch, one day,
      * that does not.
      */
-    static Void write(const Set* s)
+    inline Void write(const Set* s)
     {
         if(!up || !on || s == nullptr)
         {
@@ -223,7 +223,7 @@ namespace bibo
 
     /* The master switch. Off parks every lamp dark rather than leaving whichever
      * happened to be lit when it was turned off. */
-    static Void enable(Bool state)
+    inline Void enable(Bool state)
     {
         /* Named `state`, not `on`: a parameter called `on` shadows the file-scope
          * switch, and `on = on` then assigns the parameter to itself. The switch
@@ -238,29 +238,29 @@ namespace bibo
         }
     }
 
-    static Bool enabled(Void)
+    inline Bool enabled(Void)
     {
         return on;
     }
 
     /* What each lamp is doing this instant. */
-    static Set read(Void)
+    inline Set read(Void)
     {
         return now;
     }
 
-    static Bool lit(Lamp l)
+    inline Bool lit(Lamp l)
     {
         return now.level[l] > LAMP_OFF;
     }
 
     /* Hold ONE lamp lit, or lights::LAMP_COUNT to hand it back to the cue layer. */
-    static Void forceLamp(Int32 lamp)
+    inline Void forceLamp(Int32 lamp)
     {
         forced = lamp;
     }
 
-    static Int32 forcedLamp(Void)
+    inline Int32 forcedLamp(Void)
     {
         return forced;
     }

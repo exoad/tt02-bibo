@@ -65,7 +65,7 @@ namespace bibo
      * 120 ms is deliberately not the status:: heartbeat: this is not a health
      * signal, it is a stop, and it should not be mistaken for one.
      */
-    static Void halt(Void)
+    inline Void halt(Void)
     {
         while(true)
         {

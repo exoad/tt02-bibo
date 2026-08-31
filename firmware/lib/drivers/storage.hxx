@@ -98,19 +98,19 @@ namespace bibo
 
     /* ---- the wire ------------------------------------------------------------ */
 
-    static UInt8 xfer(const Card* c, UInt8 out)
+    inline UInt8 xfer(const Card* c, UInt8 out)
     {
         UInt8 in = 0xFF;
         spi::transfer(c->sck, &out, &in, 1);
         return in;
     }
 
-    static Void select(const Card* c)
+    inline Void select(const Card* c)
     {
         gpio::write(c->cs, false);
     }
 
-    static Void deselect(const Card* c)
+    inline Void deselect(const Card* c)
     {
         gpio::write(c->cs, true);
 
@@ -131,7 +131,7 @@ namespace bibo
      * The card answers with 0xFF while it thinks. R1 is the first byte with the top
      * bit clear, and 0xFF back after eight tries means it never answered at all.
      */
-    static UInt8 command(const Card* c, UInt8 cmd, UInt32 arg, UInt8 crc)
+    inline UInt8 command(const Card* c, UInt8 cmd, UInt32 arg, UInt8 crc)
     {
         static_cast<Void>(xfer(c, static_cast<UInt8>(0x40 | cmd)));
         static_cast<Void>(xfer(c, static_cast<UInt8>(arg >> 24)));
@@ -152,7 +152,7 @@ namespace bibo
     }
 
     /* CMD55 then the command - which is what an "application" command is. */
-    static UInt8 appCommand(const Card* c, UInt8 cmd, UInt32 arg)
+    inline UInt8 appCommand(const Card* c, UInt8 cmd, UInt32 arg)
     {
         static_cast<Void>(command(c, 55, 0, 0x01));
         return command(c, cmd, arg, 0x01);
@@ -351,7 +351,7 @@ namespace bibo
     }
 
     /* Capacity in megabytes, for showing a person. */
-    static UInt32 megabytes(const Card* c)
+    inline UInt32 megabytes(const Card* c)
     {
         return (c->blocks / 2048u);
     }

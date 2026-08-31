@@ -133,7 +133,7 @@ namespace bibo
         return true;
     }
 
-    static State status(Void)
+    inline State status(Void)
     {
         return stateNow;
     }
@@ -143,12 +143,12 @@ namespace bibo
         return peerKnownNow;
     }
 
-    static UInt32 droppedCount(Void)
+    inline UInt32 droppedCount(Void)
     {
         return dropped;
     }
 
-    static Void setLineHandler(LineHandler fn)
+    inline Void setLineHandler(LineHandler fn)
     {
         handler = fn;
     }
@@ -159,7 +159,7 @@ namespace bibo
      * Points into lwIP's own static formatting buffer, so it is valid until the
      * next call. Print it, do not keep it.
      */
-    static CharSeq address(Void)
+    inline CharSeq address(Void)
     {
         if(stateNow != STATE_UP || netif_default == nullptr)
         {
@@ -169,7 +169,7 @@ namespace bibo
     }
 
     /* One finished line into the queue. */
-    static Void queuePush(const Utf8* text, Size len)
+    inline Void queuePush(const Utf8* text, Size len)
     {
         if(len == 0)
         {
@@ -202,7 +202,7 @@ namespace bibo
     }
 
     /* Bytes off the wire, split into lines. */
-    static Void feed(const Utf8* data, Size len)
+    inline Void feed(const Utf8* data, Size len)
     {
         for(Size i = 0; i < len; ++i)
         {
@@ -243,7 +243,7 @@ namespace bibo
 
     /* The signature is lwIP's, not ours - it is a callback that stack calls, so
      * every parameter is spelled the way udp_recv_fn declares it. */
-    static Void onPacket(Void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, u16_t port)
+    inline Void onPacket(Void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, u16_t port)
     {
         static_cast<Void>(arg);
         static_cast<Void>(pcb);
@@ -362,7 +362,7 @@ namespace bibo
     }
 
     /* One line out to whoever last spoke. Silently does nothing if nobody has. */
-    static Void sendLine(CharSeq text)
+    inline Void sendLine(CharSeq text)
     {
         if(stateNow != STATE_UP || !peerKnownNow || pcb == nullptr)
         {
@@ -393,7 +393,7 @@ namespace bibo
      * happens on its own: no packet is received, no join completes and no timer
      * fires except inside this call.
      */
-    static Void poll(Void)
+    inline Void poll(Void)
     {
         if(!started)
         {
@@ -444,7 +444,7 @@ namespace bibo
         return false;
     }
 
-    static State status(Void)
+    inline State status(Void)
     {
         return STATE_ABSENT;
     }
@@ -454,17 +454,17 @@ namespace bibo
         return false;
     }
 
-    static UInt32 droppedCount(Void)
+    inline UInt32 droppedCount(Void)
     {
         return 0;
     }
 
-    static Void setLineHandler(LineHandler fn)
+    inline Void setLineHandler(LineHandler fn)
     {
         static_cast<Void>(fn);
     }
 
-    static CharSeq address(Void)
+    inline CharSeq address(Void)
     {
         return "-";
     }
@@ -481,19 +481,19 @@ namespace bibo
         return false;
     }
 
-    static Void sendLine(CharSeq text)
+    inline Void sendLine(CharSeq text)
     {
         static_cast<Void>(text);
     }
 
-    static Void poll(Void)
+    inline Void poll(Void)
     {
     }
 
 #endif /* BIBO_WIRELESS */
 
     /* The word for a state, for anything that prints one. */
-    static CharSeq stateWord(State s)
+    inline CharSeq stateWord(State s)
     {
         switch(s)
         {

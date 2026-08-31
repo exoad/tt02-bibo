@@ -92,7 +92,7 @@ namespace bibo
         Float32    crossTrack = 0.0f;  /* metres, + is left of the path  */
     };
 
-    static Void reset(Follower* f)
+    inline Void reset(Follower* f)
     {
         if(f != nullptr)
         {
@@ -103,7 +103,7 @@ namespace bibo
     /* ---------------------------------------------------------------------
      * One step. Returns what to steer, or valid=false if there is no path.
      * ------------------------------------------------------------------- */
-    static Aim follow(Follower* f, const Path* path, geom::Pose pose, Float32 speed)
+    inline Aim follow(Follower* f, const Path* path, geom::Pose pose, Float32 speed)
     {
         Aim aim;
 

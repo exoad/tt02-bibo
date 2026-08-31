@@ -525,7 +525,7 @@ namespace bibo
      * result forever and tof::ready() stays true - which looks exactly like a
      * distance that has frozen, and sends you looking at the wrong thing.
      */
-    static Bool clear(Vl53* v)
+    inline Bool clear(Vl53* v)
     {
         return v->ok
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
@@ -545,7 +545,7 @@ namespace bibo
     }
 
     /* Millimetres to whatever is in front. Meaningless unless tof::status() is 0. */
-    static UInt16 distance(const Vl53* v)
+    inline UInt16 distance(const Vl53* v)
     {
         if(!v->ok)
         {
@@ -566,7 +566,7 @@ namespace bibo
      * The raw codes are remapped by ST's driver into a friendlier set; this returns
      * the friendly one, because the raw values are not in a useful order.
      */
-    static UInt8 status(const Vl53* v)
+    inline UInt8 status(const Vl53* v)
     {
         if(!v->ok)
         {

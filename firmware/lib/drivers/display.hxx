@@ -188,12 +188,12 @@ namespace bibo
         Int32 safeInset;
     };
 
-    static Int32 width(const Screen* s)
+    inline Int32 width(const Screen* s)
     {
         return (s != nullptr) ? s->width : 0;
     }
 
-    static Int32 height(const Screen* s)
+    inline Int32 height(const Screen* s)
     {
         return (s != nullptr) ? s->height : 0;
     }
@@ -212,18 +212,18 @@ namespace bibo
      * but COLMOD, MADCTL, CASET, RASET and RAMWR all lose their data and nothing is
      * ever drawn. A lit blank screen and a dead wire look identical.
      */
-    static Void select(const Screen* s)
+    inline Void select(const Screen* s)
     {
         gpio::write(s->cs, false);
     }
 
-    static Void deselect(const Screen* s)
+    inline Void deselect(const Screen* s)
     {
         gpio::write(s->cs, true);
     }
 
     /* A command and its parameters, as one transaction. `n` may be 0. */
-    static Void write(const Screen* s, UInt8 cmd, const UInt8* params, Size n)
+    inline Void write(const Screen* s, UInt8 cmd, const UInt8* params, Size n)
     {
         select(s);
 
@@ -239,12 +239,12 @@ namespace bibo
         deselect(s);
     }
 
-    static Void cmd(const Screen* s, UInt8 c)
+    inline Void cmd(const Screen* s, UInt8 c)
     {
         write(s, c, nullptr, 0);
     }
 
-    static Void cmd1(const Screen* s, UInt8 c, UInt8 p)
+    inline Void cmd1(const Screen* s, UInt8 c, UInt8 p)
     {
         write(s, c, &p, 1);
     }
@@ -254,7 +254,7 @@ namespace bibo
      * into it", which is why there is no per-pixel addressing anywhere below - the
      * controller advances its own cursor and wraps at the right edge.
      */
-    static Void window(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+    inline Void window(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
     {
         const Int32 x0 = x + s->xoff;
         const Int32 y0 = y + s->yoff;
@@ -282,7 +282,7 @@ namespace bibo
      * RAMWR is exactly the command whose data must not be separated from it, since
      * its "parameters" are the whole image.
      */
-    static Void beginPixels(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+    inline Void beginPixels(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
     {
         window(s, x, y, w, h);
 
@@ -293,7 +293,7 @@ namespace bibo
         /* CS stays LOW; the caller streams pixels now. */
     }
 
-    static Void endPixels(const Screen* s)
+    inline Void endPixels(const Screen* s)
     {
         deselect(s);
     }
@@ -320,7 +320,7 @@ namespace bibo
     namespace detail
     {
 
-      static Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
       {
         if(w <= 0 || h <= 0)
         {
@@ -366,12 +366,12 @@ namespace bibo
         endPixels(s);
       }
 
-      static Void fill(const Screen* s, UInt16 colour)
+      inline Void fill(const Screen* s, UInt16 colour)
       {
         rect(s, 0, 0, s->width, s->height, colour);
       }
 
-      static Void pixel(const Screen* s, Int32 x, Int32 y, UInt16 colour)
+      inline Void pixel(const Screen* s, Int32 x, Int32 y, UInt16 colour)
       {
         rect(s, x, y, 1, 1, colour);
       }
@@ -460,7 +460,7 @@ namespace bibo
       * costs at most 1536 bytes of stack and turns a character into one address
       * setup and one burst.
       */
-      static Void drawChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg, Int32 scale)
+      inline Void drawChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg, Int32 scale)
       {
         if(scale < 1)
         {
@@ -524,7 +524,7 @@ namespace bibo
         endPixels(s);
       }
 
-      static Void text(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
+      inline Void text(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
       {
         Int32 cx = x;
         while(str != nullptr && *str != '\0')
@@ -711,7 +711,7 @@ namespace bibo
     /* Colour inversion at the controller. ST7789 glass is wired inverted, which
      * is why PANEL_INVERT exists and why open() already sets this - flipping it
      * afterwards is for looking at a panel you are not sure about. */
-    static Void invert(const Screen* s, Bool on)
+    inline Void invert(const Screen* s, Bool on)
     {
         cmd(s, on ? 0x21 : 0x20);   /* INVON / INVOFF */
     }
@@ -720,14 +720,14 @@ namespace bibo
      * backlight off: on a board with BLK tied to 3V3 a sleeping panel is a lit
      * rectangle of nothing, which looks like a crash. Turn the backlight down
      * too if there is one. */
-    static Void sleep(const Screen* s, Bool on)
+    inline Void sleep(const Screen* s, Bool on)
     {
         cmd(s, on ? 0x10 : 0x11);   /* SLPIN / SLPOUT */
         timing::ms(on ? 5u : 120u);         /* SLPOUT needs the long wait */
     }
 
     /* Blanks the output without sleeping. Faster to come back from than sleep. */
-    static Void display(const Screen* s, Bool on)
+    inline Void display(const Screen* s, Bool on)
     {
         cmd(s, on ? 0x29 : 0x28);   /* DISPON / DISPOFF */
     }
