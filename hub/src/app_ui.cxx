@@ -809,9 +809,15 @@ namespace
   Str  docModeFor;        // the path the flag below is about
   Bool docModeSource = false;
 
-  // How far the page is zoomed. One value for the view rather than one per file:
-  // it is a property of how you are reading right now, not of the document.
-  Float32 docZoom = 1.0f;
+  // Where the reader is on the page - zoom and pan together. One value for the
+  // VIEW rather than one per file: it is a property of how you are reading right
+  // now, not of the document.
+  //
+  // Reset when the file changes, which the pan makes necessary rather than
+  // merely tidy. A zoom carried between documents is at worst a surprise you can
+  // see; a pan carried between documents can open the next one entirely
+  // off-panel, which looks like a renderer that failed.
+  refdoc::View docView;
 
   // The parsed document, cached against the text it came from.
   //
@@ -4609,6 +4615,11 @@ namespace
       codeEditor.setText(sketch::load(path));
       codeView.scrollY = 0.0f;
       codeView.diags.clear();      // a new file has not been compiled yet
+
+      // The PAGE's view too, not just the editor's. A pan carried from the last
+      // document can open this one entirely off-panel, and an empty panel reads
+      // as a renderer that failed rather than as a page parked somewhere.
+      docView = refdoc::View();
       codeDiags.clear();
 
       // Linted immediately rather than half a second later: opening a file and
@@ -8250,7 +8261,7 @@ namespace
           // zoom, drag to pan, the reading measure - lives in refdoc so that a
           // document behaves identically wherever it is opened from.
           refdoc::drawPage(docParsed, ImVec2(w, std::max(60.0f, rest)),
-                           docZoom, uiDpiScale);
+                           docView, uiDpiScale);
       }
 
       ImGui::EndChild();
