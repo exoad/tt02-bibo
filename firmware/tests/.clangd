@@ -1,0 +1,5 @@
+CompileFlags:
+  # This directory, not firmware/build. The parent firmware/.clangd points at
+  # the CMake database, which describes only ARM cross-compiled files - so an
+  # unknown file here inherited --target=arm-none-eabi and failed 21 ways.
+  CompilationDatabase: .
