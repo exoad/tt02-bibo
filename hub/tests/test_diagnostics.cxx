@@ -5,7 +5,7 @@
 // This exists because the obvious implementation - split the line on ':' - is
 // wrong on Windows and wrong in a way that looks right in testing:
 //
-//     C:/Users/error/sketch.c:42:15: error: 'foo' undeclared
+//     C:/dev/sketch.c:42:15: error: 'foo' undeclared
 //
 // has four colons and the FIRST one is a drive letter, not a separator. Get it
 // wrong and every diagnostic points at a file called "C".
@@ -65,10 +65,10 @@ namespace
 
       // The Windows drive-letter case. This is the whole reason for the parser.
       check(diag::parseLine(
-                "C:/Users/error/Code/RPLIDAR-C1/firmware/src/sketch.c:42:15: "
+                "C:/dev/bibo/firmware/src/sketch.c:42:15: "
                 "error: 'foo' undeclared (first use in this function)", it),
             "a path with a drive letter parses");
-      checkStr(it.file, "C:/Users/error/Code/RPLIDAR-C1/firmware/src/sketch.c",
+      checkStr(it.file, "C:/dev/bibo/firmware/src/sketch.c",
                "the drive letter stays part of the path");
       check(it.line == 42, "line is 42");
       check(it.column == 15, "column is 15");
