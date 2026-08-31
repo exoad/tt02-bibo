@@ -42,7 +42,7 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
-int main(Void)
+Int32 main(Void)
 {
     printf("\nsfx clip table\n\n");
 

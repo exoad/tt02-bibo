@@ -82,7 +82,7 @@ static Void dump(CharSeq label, const UInt8* f)
     printf(" (residue %04X)\n", residue(f));
 }
 
-int main(Void)
+Int32 main(Void)
 {
     UInt8 f[10];
 

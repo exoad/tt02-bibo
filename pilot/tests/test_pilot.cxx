@@ -42,7 +42,7 @@ static Void check(Bool ok, const Char* what)
     }
 }
 
-int main()
+Int32 main()
 {
     std::printf("\npilot - the companion board's link and loop\n\n");
 

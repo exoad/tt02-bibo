@@ -255,7 +255,7 @@ Int32 lintFiles(Int32 argc, Utf8** argv)
     return 0;
 }
 
-int main(int argc, char** argv)
+Int32 main(Int32 argc, Char** argv)
 {
     if(argc > 1)
     {

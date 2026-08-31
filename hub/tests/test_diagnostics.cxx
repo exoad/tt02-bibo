@@ -182,7 +182,7 @@ namespace
 
 } // namespace
 
-int main()
+Int32 main()
 {
     std::printf("diagnostics parser tests\n");
 

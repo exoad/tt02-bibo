@@ -227,7 +227,7 @@ namespace
 
 } // namespace
 
-int main()
+Int32 main()
 {
     printf("chassis - the safety property\n");
     printf("=============================\n");

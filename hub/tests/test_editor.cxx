@@ -1065,7 +1065,7 @@ Void testSubstitute()
     }
 }
 
-int main()
+Int32 main()
 {
     std::printf("editor + syntax tests\n");
 

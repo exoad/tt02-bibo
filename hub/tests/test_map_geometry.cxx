@@ -340,7 +340,7 @@ namespace
 
 } // namespace
 
-int main()
+Int32 main()
 {
     std::printf("map geometry tests\n\n");
 

@@ -172,7 +172,7 @@ static Bool has(const lsp::Answer& a, const Char* name)
     return false;
 }
 
-int main()
+Int32 main()
 {
     std::printf("\nlsp - against the clangd on this machine\n\n");
 

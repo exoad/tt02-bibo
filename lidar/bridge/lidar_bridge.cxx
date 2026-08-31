@@ -95,7 +95,7 @@ namespace
 
 } // namespace
 
-int main(int argc, const char* argv[])
+Int32 main(Int32 argc, const Char* argv[])
 {
     if(argc < 3)
     {
