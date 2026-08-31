@@ -43,10 +43,14 @@ if errorlevel 1 (
 
 echo [test] built -^> %HERE%build\test_pico_link.exe
 
-if /i "%~1"=="run" (
-  echo.
-  "%HERE%build\test_pico_link.exe"
-  exit /b %errorlevel%
-)
-
-exit /b 0
+REM An EARLY RETURN, not an if-block, and the reason is a cmd.exe
+REM parsing rule that cost every one of these scripts its exit code:
+REM `exit /b %errorlevel%` inside `if ... ( ... )` is expanded when
+REM cmd parses the BLOCK, which is before the test has run. All 11
+REM scripts exited 0 while printing OVERALL: FAIL, so not one of them
+REM could ever have gated a commit. Out here the expansion happens
+REM when the line is reached.
+if /i not "%~1"=="run" exit /b 0
+echo.
+"%HERE%build\test_pico_link.exe"
+exit /b %errorlevel%
