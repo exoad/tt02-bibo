@@ -459,6 +459,32 @@ namespace
 
   // ------------------------------------------------------------- primitives ---
 
+  // A screen rectangle, top-left and bottom-right.
+  //
+  // This travelled as `const ImVec2& p0, const ImVec2& p1` through a dozen
+  // signatures, which is how drawGridLabels came to take eight parameters and
+  // run to 159 columns - it needs TWO rectangles, the plot area and the label
+  // area, and spelling each as a pair meant four parameters for two things.
+  struct Rect
+  {
+      ImVec2 p0{ 0.0f, 0.0f };
+      ImVec2 p1{ 0.0f, 0.0f };
+  };
+
+  // How the world maps onto that rectangle: where the sensor sits in screen
+  // space, how many pixels a millimetre is worth, and the display scale.
+  //
+  // These three are constant across every overlay drawn in a frame, while the
+  // RECTANGLE changes - the grid draws into the plot area and its labels into a
+  // slightly larger one. Separating them is what lets the varying part vary
+  // without dragging the fixed part along as three more parameters.
+  struct MapScale
+  {
+      ImVec2  s0{ 0.0f, 0.0f };   // sensor origin, screen space
+      Float32 pxPerMm = 0.0f;
+      Float32 dpi     = 1.0f;
+  };
+
   // One screen-space point disc. Colour is uniform across a revolution and so is
   // passed to emitDiscs() once rather than stored per point.
   struct Dot { Float32 x, y; };
@@ -1169,8 +1195,10 @@ namespace
   // segments for a few visible pixels.
 
   // Only the visible slice of a dashed circle. Same visibility reasoning as
-  Void strokeRing(ImDrawList* dl, const ImVec2& c, Float32 r, const ImVec2& p0, const ImVec2& p1, ImU32 col, Float32 th)
+  Void strokeRing(ImDrawList* dl, const ImVec2& c, Float32 r, const Rect& area, ImU32 col, Float32 th)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
       if(r <= 0.75f)
           return;
 
@@ -1295,8 +1323,10 @@ namespace
 
   // Text with a plate behind it, anchored by its centre. Returns false without
   // drawing when the plate would not fit inside [p0,p1].
-  Bool plateTextAt(ImDrawList* dl, const ImVec2& mid, const ImVec2& p0, const ImVec2& p1, Float32 dpi, ImU32 col, const Char* txt)
+  Bool plateTextAt(ImDrawList* dl, const ImVec2& mid, const Rect& area, Float32 dpi, ImU32 col, const Char* txt)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
       ImFont*      font = labelFont();
       const Float32  fs   = labelPx();
       const ImVec2 ts   = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
@@ -1332,9 +1362,12 @@ namespace
   };
 
   // `s0` is where the sensor lands on screen; it may be well outside [p0,p1].
-  GridSpec computeGrid(const ImVec2& p0, const ImVec2& p1, const ImVec2& s0,
-                       Float32 ppm, Float32 visibleMm, Float32 radiusPx)
+  GridSpec computeGrid(const Rect& area, const MapScale& sc, Float32 visibleMm, Float32 radiusPx)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const ImVec2& s0 = sc.s0;
+      const Float32 ppm = sc.pxPerMm;
       GridSpec g;
 
       g.ppm     = ppm;
@@ -1399,8 +1432,12 @@ namespace
   // Drawn from the sensor outward rather than from the widget corner, so the
   // origin always lands on a line: a grid whose lines are at arbitrary offsets
   // from the thing everything is measured from is decoration.
-  Void drawGridCartesian(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const ImVec2& p1, const ImVec2& s0, Float32 dpi)
+  Void drawGridCartesian(ImDrawList* dl, const GridSpec& g, const Rect& area, const MapScale& sc)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const ImVec2& s0 = sc.s0;
+      const Float32 dpi = sc.dpi;
       if(!g.on || g.stepPx < 4.0f)
           return;
 
@@ -1439,8 +1476,12 @@ namespace
   // Distance labels for the Cartesian grid, along the two axes through the
   // sensor. Only the major lines get one - a number on every metre line is a wall
   // of text on a grid whose whole point is to be read at a glance.
-  Void drawGridCartesianLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const ImVec2& p1, const ImVec2& s0, Float32 dpi)
+  Void drawGridCartesianLabels(ImDrawList* dl, const GridSpec& g, const Rect& area, const MapScale& sc)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const ImVec2& s0 = sc.s0;
+      const Float32 dpi = sc.dpi;
       if(!g.on || g.stepPx < 18.0f)
           return;
 
@@ -1481,8 +1522,12 @@ namespace
   }
 
   // Rings, axes and compass ticks. Drawn beneath the point cloud.
-  Void drawGridLines(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const ImVec2& p1, const ImVec2& s0, Float32 dpi)
+  Void drawGridLines(ImDrawList* dl, const GridSpec& g, const Rect& area, const MapScale& sc)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const ImVec2& s0 = sc.s0;
+      const Float32 dpi = sc.dpi;
       if(!g.on)
           return;
 
@@ -1534,7 +1579,7 @@ namespace
               th = 1.0f;
           }
 
-          strokeRing(dl, s0, static_cast<Float32>(i) * g.stepPx, p0, p1, col, th * dpi);
+          strokeRing(dl, s0, static_cast<Float32>(i) * g.stepPx, area, col, th * dpi);
       }
 
       // Bearing ticks around the compass ring: every 15 deg, longer every 45.
@@ -1568,8 +1613,10 @@ namespace
   // at fixed points on the compass ring - the widget's vertical midline, where
   // nothing else is drawn - so they may use the full widget rect [f0,f1] and stay
   // visible when the compass ring reaches the top and bottom edges.
-  Void drawGridLabels(ImDrawList* dl, const GridSpec& g, const ImVec2& p0, const ImVec2& p1, const ImVec2& f0, const ImVec2& f1, const ImVec2& s0, Float32 dpi)
+  Void drawGridLabels(ImDrawList* dl, const GridSpec& g, const Rect& area, const Rect& fit, const MapScale& sc)
   {
+      const ImVec2& s0 = sc.s0;
+      const Float32 dpi = sc.dpi;
       if(!g.on)
           return;
 
@@ -1601,7 +1648,7 @@ namespace
                   const ImVec2 d = bearingDir(sign * (RING_LABEL_BEARING + sweep));
 
                   if(plateTextAt(dl, ImVec2(s0.x + d.x * r, s0.y + d.y * r),
-                                  p0, p1, dpi, RING_TEXT_COL, buf.data()))
+                                  area, dpi, RING_TEXT_COL, buf.data()))
                       break;
               }
           }
@@ -1624,7 +1671,7 @@ namespace
                                                  : BEARING_COL;
 
               plateTextAt(dl, ImVec2(s0.x + d.x * rl, s0.y + d.y * rl),
-                          f0, f1, dpi, col, buf.data());
+                          fit, dpi, col, buf.data());
           }
       }
   }
@@ -1632,8 +1679,13 @@ namespace
   // The sensor's dead zone: nothing inside MIN_VALID_MM is real. Hatched rather
   // than merely empty, so it reads as "cannot see here". Drawn true to scale - see
   // BLIND_MIN_PX for why it is never inflated to a legible minimum.
-  Void drawBlindZone(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImVec2& s0, Float32 ppm, Float32 dpi)
+  Void drawBlindZone(ImDrawList* dl, const Rect& area, const MapScale& sc)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const ImVec2& s0 = sc.s0;
+      const Float32 ppm = sc.pxPerMm;
+      const Float32 dpi = sc.dpi;
       const Float32 r = MIN_VALID_MM * ppm;
 
       // Too small to read as a region; the hub already occupies this area.
@@ -1658,8 +1710,11 @@ namespace
   // where the nearest-return readout lands whenever the closest obstacle is near
   // the sensor - which, at the zoom levels where this caption shows at all, is
   // most of the time.
-  Void drawBlindLabel(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImVec2& s0, Float32 ppm, Float32 dpi)
+  Void drawBlindLabel(ImDrawList* dl, const Rect& area, const MapScale& sc)
   {
+      const ImVec2& s0 = sc.s0;
+      const Float32 ppm = sc.pxPerMm;
+      const Float32 dpi = sc.dpi;
       const Float32 r = MIN_VALID_MM * ppm;
 
       ImFont*      font = labelFont();
@@ -1670,7 +1725,7 @@ namespace
       if(ts.x + 14.0f * dpi > r * 1.55f)
           return;
 
-      plateTextAt(dl, ImVec2(s0.x, s0.y + r * 0.42f), p0, p1, dpi, BLIND_TEXT, txt);
+      plateTextAt(dl, ImVec2(s0.x, s0.y + r * 0.42f), area, dpi, BLIND_TEXT, txt);
   }
 
   // Which way the unit is physically pointing. The C1 has an arrow moulded on its
@@ -1682,8 +1737,13 @@ namespace
   // fill, no plate and no caption - the bearing numbers around the compass ring
   // already say where 0 is. Anchored on the sensor's world origin, so it tracks
   // correctly once the sensor is panned off-centre.
-  Void drawHeadingArrow(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImVec2& s0, Float32 ppm, Float32 radiusPx, Float32 dpi)
+  Void drawHeadingArrow(ImDrawList* dl, const Rect& area, const MapScale& sc, Float32 radiusPx)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const ImVec2& s0 = sc.s0;
+      const Float32 ppm = sc.pxPerMm;
+      const Float32 dpi = sc.dpi;
       const ImVec2 d = bearingDir(0.0f);           // straight up on screen
 
       // A fixed fraction of the fitted radius: the arrow is an orientation cue,
@@ -1728,8 +1788,12 @@ namespace
 
   // Labelled bar in the bottom-left corner. Unlike the rings this stays useful
   // when the sensor has been panned right out of the widget.
-  Void drawScaleBar(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, Float32 ppm, Float32 dpi)
+  Void drawScaleBar(ImDrawList* dl, const Rect& area, const MapScale& sc)
   {
+      const ImVec2& p0 = area.p0;
+      const ImVec2& p1 = area.p1;
+      const Float32 ppm = sc.pxPerMm;
+      const Float32 dpi = sc.dpi;
       if(!(ppm > 0.0f))
           return;
 
@@ -2543,7 +2607,8 @@ namespace
 
           Array<Char, 16> lab;
           std::snprintf(lab.data(), lab.size(), "%.0f deg", static_cast<Float64>(k.angDeg));
-          plateTextAt(c.dl, ImVec2(at.x, at.y - 16.0f * c.dpi), c.p0, c.p1, c.dpi, col, lab.data());
+          plateTextAt(c.dl, ImVec2(at.x, at.y - 16.0f * c.dpi), Rect{ c.p0, c.p1 },
+                      c.dpi, col, lab.data());
       }
 
       const Int32 n = static_cast<Int32>(corners.size());
@@ -3165,7 +3230,7 @@ namespace
       if(!claimLabel(taken, mid, ts, c.dpi))
           return;
 
-      plateTextAt(c.dl, mid, c.p0, c.p1, c.dpi, line, lab.data());
+      plateTextAt(c.dl, mid, Rect{ c.p0, c.p1 }, c.dpi, line, lab.data());
   }
 
   // The corridor the car would drive into. A ribbon of the chassis' own width,
@@ -3208,7 +3273,7 @@ namespace
       const ImVec2  at(c.s0.x, y1 - 11.0f * c.dpi);
 
       if(claimLabel(taken, at, ts, c.dpi))
-          plateTextAt(c.dl, at, c.p0, c.p1, c.dpi,
+          plateTextAt(c.dl, at, Rect{ c.p0, c.p1 }, c.dpi,
                       (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
                       lab.data());
   }
@@ -3883,8 +3948,10 @@ ImVec2 RadarView::toWorld(const ImVec2& screenPx) const noexcept
 // radar.cxx's private state - the wall fitter, the clearance map, the trail -
 // and scene3d is deliberately kept free of all of it so it stays a renderer.
 // ---------------------------------------------------------------------------
-Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, Float32 dpi, Bool hovered, Bool active)
+Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& area, Float32 dpi, Bool hovered, Bool active)
 {
+    const ImVec2& p0 = area.p0;
+    const ImVec2& p1 = area.p1;
     ImGuiIO& io = ImGui::GetIO();
 
     // ---- camera control ---------------------------------------------------
@@ -4158,7 +4225,7 @@ Void RadarView::draw(const ImVec2& size)
             }
         }
 
-        drawScene3D(*this, map, dl, p0, p1, dpi, hovered, active);
+        drawScene3D(*this, map, dl, Rect{ p0, p1 }, dpi, hovered, active);
         return;
     }
 
@@ -4302,10 +4369,15 @@ Void RadarView::draw(const ImVec2& size)
 
     const Bool bare = (mapModeGrid(mode) == GridStyle::GRID_STYLE_NONE);
 
+    // The rectangle varies between the plot area and the label area; the
+    // mapping does not, so it is built once here.
+    const Rect     plot{ p0, p1 };
+    const MapScale scale{ s0, pxPerMm, dpi };
+
     GridSpec grid;
     if(showGrid)
     {
-        grid = computeGrid(p0, p1, s0, pxPerMm, visibleMm, radiusPx);
+        grid = computeGrid(plot, scale, visibleMm, radiusPx);
 
         // The grid belongs to the MODE now - see mapModeGrid().
         // `bare` is the same decision applied to everything else the map draws
@@ -4313,16 +4385,16 @@ Void RadarView::draw(const ImVec2& size)
         switch(mapModeGrid(mode))
         {
         case GridStyle::GRID_STYLE_CARTESIAN:
-            drawGridCartesian(dl, grid, p0, p1, s0, dpi);
+            drawGridCartesian(dl, grid, plot, scale);
             break;
         case GridStyle::GRID_STYLE_NONE:
             break;
         case GridStyle::GRID_STYLE_RADIAL:
         default:
-            drawGridLines(dl, grid, p0, p1, s0, dpi);
+            drawGridLines(dl, grid, plot, scale);
             break;
         }
-        drawBlindZone(dl, p0, p1, s0, pxPerMm, dpi);
+        drawBlindZone(dl, plot, scale);
     }
 
     const Bool havePoints = hasData && !trail.empty();
@@ -4471,7 +4543,7 @@ Void RadarView::draw(const ImVec2& size)
     // ---- chrome that must stay readable over the points --------------------
     // Orientation matters enough to survive either overlay toggle.
     if(showGrid || showLabels)
-        drawHeadingArrow(dl, p0, p1, s0, pxPerMm, radiusPx, dpi);
+        drawHeadingArrow(dl, plot, scale, radiusPx);
 
     // The app draws its own status text in the top and bottom gutters of this
     // rect, so every map label is placed inside an inset copy of it.
@@ -4486,25 +4558,26 @@ Void RadarView::draw(const ImVec2& size)
             switch(mapModeGrid(mode))
             {
             case GridStyle::GRID_STYLE_CARTESIAN:
-                drawGridCartesianLabels(dl, grid, lab0, lab1, s0, dpi);
+                drawGridCartesianLabels(dl, grid, Rect{ lab0, lab1 }, scale);
                 break;
             case GridStyle::GRID_STYLE_NONE:
                 break;
             case GridStyle::GRID_STYLE_RADIAL:
             default:
-                drawGridLabels(dl, grid, lab0, lab1,
-                               ImVec2(p0.x + 4.0f * dpi, p0.y + 4.0f * dpi),
-                               ImVec2(p1.x - 4.0f * dpi, p1.y - 4.0f * dpi), s0, dpi);
+                drawGridLabels(dl, grid, Rect{ lab0, lab1 },
+                               Rect{ ImVec2(p0.x + 4.0f * dpi, p0.y + 4.0f * dpi),
+                                     ImVec2(p1.x - 4.0f * dpi, p1.y - 4.0f * dpi) },
+                               scale);
                 break;
             }
 
             if(mapModeGrid(mode) != GridStyle::GRID_STYLE_NONE)
-                drawBlindLabel(dl, lab0, lab1, s0, pxPerMm, dpi);
+                drawBlindLabel(dl, Rect{ lab0, lab1 }, scale);
         }
 
         if(showLabels)
             if(!bare)
-                drawScaleBar(dl, lab0, lab1, pxPerMm, dpi);
+                drawScaleBar(dl, Rect{ lab0, lab1 }, scale);
     }
 
     dl->PopClipRect();
