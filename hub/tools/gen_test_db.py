@@ -41,6 +41,24 @@ TARGETS = [
       '-I' + os.path.join(ROOT, 'shared'),
       '-I' + os.path.join(ROOT, 'hub', 'src'),
       '-I' + os.path.join(ROOT, 'hub', 'third_party', 'imgui')]),
+
+    # hub/src itself, for the same reason and it is the bigger one.
+    #
+    # There IS a build/cmake/compile_commands.json, and it does NOT describe
+    # this directory - 47 entries, none of them hub/src, and older than the
+    # sources. clangd would not have found it anyway: it searches the file's
+    # own directory and its ANCESTORS, and build/cmake is neither.
+    #
+    # These are hub/build.bat's own CFLAGS and INC, read out of it.
+    (os.path.join('hub', 'src'),
+     ['-std=c++20', '-D_CRT_SECURE_NO_WARNINGS',
+      '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH',
+      '-I' + os.path.join(ROOT, 'hub', 'third_party', 'imgui'),
+      '-I' + os.path.join(ROOT, 'hub', 'third_party', 'imgui', 'backends'),
+      '-I' + os.path.join(ROOT, 'hub', 'src'),
+      '-I' + os.path.join(ROOT, 'shared'),
+      '-I' + os.path.join(ROOT, 'vendor', 'rplidar_sdk', 'sdk', 'include'),
+      '-I' + os.path.join(ROOT, 'vendor', 'rplidar_sdk', 'sdk', 'src')]),
 ]
 
 for rel, flags in TARGETS:

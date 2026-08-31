@@ -1,0 +1,5 @@
+CompileFlags:
+  # This directory. build/cmake/compile_commands.json does not describe hub/src
+  # and clangd would not search there anyway - it looks in the file directory
+  # and its ancestors only.
+  CompilationDatabase: .
