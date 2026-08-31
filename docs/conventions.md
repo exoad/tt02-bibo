@@ -664,16 +664,121 @@ copy and they collide at link time, and without `inline` the compiler is not
 asked to inline it.
 
 **This no longer applies to `firmware/`, because `firmware/` is no longer C.**
-The C++ conversion dropped every one of them: there are now 329 plain
-`static` definitions in `firmware/lib` and **zero** `static inline`. The only
-occurrence left in the tree is the phrase inside `hal.hxx`'s own header
-comment, describing a design the file no longer has.
+The C++ conversion dropped every one of them, and a later pass replaced the
+`static` too — see below.
+
+### `inline`, not `static`, for anything defined in a header
+
+`static` at namespace scope gives internal linkage: every translation unit
+including the header emits its own private copy, and a warning for each one it
+does not call. The `pilot/` build took 48 of those. `inline` is what C++ has
+for a definition in a header — one copy after the linker, and no diagnostic for
+the ones a consumer never calls.
+
+**The variables mattered more than the functions.** `cue.hxx` and `lights.hxx`
+both said "state, one copy" in as many words, and `static` gave them one copy
+PER TRANSLATION UNIT. It was true anyway, by accident: every image is exactly
+one TU, because `app/*.cxx` globs to `main.cxx` alone and each sketch is a
+single file. The accident is not stable — `CMakeLists.txt` says that directory
+is *meant to grow*, and on the day a second `.cxx` lands, `lights::up` and the
+per-kind tables in `cue.hxx` fork into two independent sets with no error, no
+warning and nothing to grep for.
+
+326 functions and 71 variables converted. Two sites deliberately keep `static`:
+a function-local static (`pins.hxx`), which is correct C++, and the 27 `const`
+and `constexpr` declarations, which have internal linkage already and want it.
 
 This is worth knowing because most editors assume an unowned `.h` is C++ and
 will flag every one of them as redundant. That is the editor being wrong about
 the language, not the code being wrong — and it is the same misreading that
 makes `NULL` and `(UInt8)` look like mistakes in a C header. Attaching the
 firmware CMake project fixes all three at once; see [clion.md](clion.md).
+
+### Every body gets braces, on their own lines
+
+Allman, always. A control statement's body is braced whether it is one
+statement or twenty, and whether it sits on the head's line or the next one.
+
+```cpp
+for(Int32 i = 0; i < BINS; ++i)     // NOT: for(...) r[i] = 1000.0f;
+{                                   // NOT: for(...)
+    r[i] = 1000.0f;                 //          r[i] = 1000.0f;
+}
+```
+
+Both spellings above were in the tree — 674 of them — because the rule that
+banned them could only see a narrow slice of `if(x) statement;`. Its condition
+group was `[^;]*`, so no `for` loop could ever match it; its body had to start
+with a letter, so `while(n) --n;` slipped through; and next-line bodies were
+skipped on purpose, with a comment saying so. The convention was never about
+which line the body sits on.
+
+### The entry point is `int`, and it is the one place the vocabulary stops
+
+`main` returns `int`, not `Int32`, in anything compiled for the board.
+
+On arm-none-eabi, `int32_t` is `long int`. `Int32` there is a **different type**
+from `int`, not a spelling of it, and `long main()` is ill-formed however wide a
+`long` happens to be:
+
+```
+main.cxx:1519:1: error: '::main' must return 'int'
+```
+
+On MSVC, `int32_t` **is** `int`, so `Int32 main(Void)` is conforming and the
+host programs use it — 20 of the 23 entry points. The three compiled by
+arm-none-eabi (`app/main.cxx` and the two sketches) cannot, and say `int`.
+
+This is not the vocabulary being forgotten. It is a place the **language** fixes
+the type, the same way `WinMain`'s signature is fixed by Win32 — which is why
+both share one line in the audit's waiver list. `argc` and `argv` follow the
+same rule: the whole signature is dictated, not just the return.
+
+### A closing brace does not say what it closes
+
+No `} // namespace foo`. The trailer is a workaround for not being able to see
+the opening line, it is written once and never checked, and it survives a
+rename — at which point it is actively wrong. Nothing verifies it.
+
+### Namespaces concatenate
+
+`namespace bibo::lights` rather than `bibo` wrapping `lights`. C++17, one brace
+level instead of two, one indent level saved for the whole file.
+
+This only applies where the outer namespace contains **nothing but** the inner
+one. `hal.hxx` holds fifteen sibling namespaces plus a typedef and several
+enums at `bibo`'s own scope; an anonymous namespace can never appear in a
+concatenated name at all.
+
+### American spelling
+
+`Color`, not `Colour`. `Behavior`, `Center`, `Initialize`, `Normalize`,
+`Gray`. In identifiers and in prose. Third-party names keep whatever they were
+given — `ImGuiCol` is already American, and anything that would change a call
+into a library or a key already written to disk is left alone.
+
+### Prefer, where it changes nothing else
+
+- **`constexpr` over `const`** when the initialiser is a compile-time constant.
+- **Range-based `for`** when the body uses only the element and never the index.
+- **`auto`** for a declaration whose type name is long and whose initialiser
+  already states it.
+- **if-init** — `if(auto x = f(); x)` — when the variable is used only inside
+  the `if`.
+- **A ternary condition needs no parentheses** when it is a single term:
+  `x = ok ? a : b;` rather than `x = (ok) ? a : b;`.
+- **A bitset over bits packed into an integer** where each flag is one bit and
+  nothing needs the packed word itself.
+
+Each of these is a preference, not a rule the audit enforces, because each has
+cases where it is wrong — a `const Str`, a loop that needs its index, an `auto`
+that hides the one type the reader needed. Where it is wrong, say why.
+
+### No elaborated type specifiers
+
+`udp_pcb* pcb`, not `struct udp_pcb* pcb`. C++ injects a struct's name as a type
+name; writing `struct` in front of it is C89 and says nothing. The remaining
+uses are lwIP interop in `net.hxx`.
 
 ## The central region is tabbed
 
