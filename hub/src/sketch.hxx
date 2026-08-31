@@ -87,6 +87,15 @@ namespace sketch
   // stat'd, which callers must treat as "unknown", not as "very old".
   [[nodiscard]] UInt64 stamp(const Str& path);
 
+  // Last-write time in seconds since 1970, for the callers that need to PRINT a
+  // date rather than compare two. 0 when the file cannot be stat'd.
+  //
+  // Separate from stamp() because that one is documented as opaque, and a caller
+  // that converts an opaque value is relying on something it was promised
+  // nothing about. Seconds rather than std::time_t so this header still needs no
+  // <ctime> - the point of this module is how few includes it forces on anyone.
+  [[nodiscard]] Int64 modifiedAtUnix(const Str& path);
+
   // Deletes a file. False if it could not be removed.
   [[nodiscard]] Bool remove(const Str& path);
 

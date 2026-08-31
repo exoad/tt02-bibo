@@ -277,6 +277,19 @@ namespace sketch
            | static_cast<UInt64>(fad.ftLastWriteTime.dwLowDateTime);
   }
 
+  Int64 modifiedAtUnix(const Str& path)
+  {
+      const UInt64 ft = stamp(path);
+      if(ft == 0)
+      {
+          return 0;
+      }
+
+      // FILETIME counts 100 ns ticks from 1601-01-01; Unix time counts seconds
+      // from 1970-01-01. 11644473600 is the gap between the two epochs.
+      return static_cast<Int64>(ft / 10000000ULL) - 11644473600LL;
+  }
+
   Bool remove(const Str& path)
   {
       if(path.empty())
