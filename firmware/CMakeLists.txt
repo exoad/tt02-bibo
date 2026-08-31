@@ -85,6 +85,7 @@ set(BIBO_LIB
     lib/types.hxx
     lib/pins.hxx
     lib/sfx.hxx
+    lib/sound.hxx
     lib/text.hxx
     lib/hal.hxx
     lib/gfx.hxx
