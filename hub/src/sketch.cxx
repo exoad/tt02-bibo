@@ -251,11 +251,11 @@ namespace sketch
       // MSVC, gcc and every other tool in this chain read LF fine on Windows.
       Str lf;
       lf.reserve(out.size());
-      for(Size i = 0; i < out.size(); ++i)
+      for(const Char c : out)
       {
-          if(out[i] != '\r')
+          if(c != '\r')
           {
-              lf.push_back(out[i]);
+              lf.push_back(c);
           }
       }
 

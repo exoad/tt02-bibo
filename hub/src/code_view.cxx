@@ -739,11 +739,11 @@ namespace ui
                       // ending in this editor is one byte.
                       Str lf;
                       lf.reserve(text.size());
-                      for(Size j = 0; j < text.size(); ++j)
+                      for(const Char c : text)
                       {
-                          if(text[j] != '\r')
+                          if(c != '\r')
                           {
-                              lf.push_back(text[j]);
+                              lf.push_back(c);
                           }
                       }
 

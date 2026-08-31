@@ -62,9 +62,8 @@ namespace ed
       lines.clear();
 
       Str acc;
-      for(Size i = 0; i < t.size(); ++i)
+      for(const Char c : t)
       {
-          const Char c = t[i];
           if(c == '\r')
           {
               continue;                    // CRLF in, LF held internally
@@ -468,9 +467,8 @@ namespace ed
       const Mode saved = md;
       md = Mode::MODE_INSERT;      // so clampCursor allows the past-the-end column
 
-      for(Size i = 0; i < s.size(); ++i)
+      for(const Char c : s)
       {
-          const Char c = s[i];
           if(c == '\r')
           {
               continue;
@@ -918,14 +916,14 @@ namespace ed
           // Split the register on newlines and splice whole lines in.
           Vec<Str> add;
           Str acc;
-          for(Size i = 0; i < yankBuf.size(); ++i)
+          for(const Char c : yankBuf)
           {
-              if(yankBuf[i] == '\n')
+              if(c == '\n')
               {
                   add.push_back(acc);
                   acc.clear(); continue;
               }
-              acc.push_back(yankBuf[i]);
+              acc.push_back(c);
           }
           if(!acc.empty())
           {

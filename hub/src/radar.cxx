@@ -717,9 +717,9 @@ namespace
           motActive.clear();
           occActive.reserve(4096);
           motActive.reserve(1024);
-          for(Int32 i = 0; i < DENS_WINDOW; ++i)
+          for(Vec<Int32>& rev : ring)
           {
-              ring[i].clear();
+              rev.clear();
           }
           ringHead = 0;
           ready = true;
@@ -737,9 +737,9 @@ namespace
           }
           occActive.clear();
           motActive.clear();
-          for(Int32 i = 0; i < DENS_WINDOW; ++i)
+          for(Vec<Int32>& rev : ring)
           {
-              ring[i].clear();
+              rev.clear();
           }
           ringHead = 0;
           for(Int32 i = 0; i < CLR_BINS; ++i)
@@ -764,21 +764,21 @@ namespace
       constexpr Int32 SLOTS = 4;
       static MapState pool[SLOTS];
 
-      for(Int32 i = 0; i < SLOTS; ++i)
+      for(MapState& slot : pool)
       {
-          if(pool[i].owner == owner)
+          if(slot.owner == owner)
           {
-              return pool[i];
+              return slot;
           }
       }
 
-      for(Int32 i = 0; i < SLOTS; ++i)
+      for(MapState& slot : pool)
       {
-          if(pool[i].owner == nullptr)
+          if(slot.owner == nullptr)
           {
-              pool[i].reset();
-              pool[i].owner = owner;
-              return pool[i];
+              slot.reset();
+              slot.owner = owner;
+              return slot;
           }
       }
 
@@ -875,9 +875,9 @@ namespace
       // the ceiling so "no return in this bin" is distinguishable from "a return
       // at the ceiling", which the smoothing below treats differently.
       Array<Float32, CLR_BINS> bin;
-      for(Int32 i = 0; i < CLR_BINS; ++i)
+      for(Float32& b : bin)
       {
-          bin[i] = FLT_MAX;
+          b = FLT_MAX;
       }
 
       for(const LidarPoint& p : pts)

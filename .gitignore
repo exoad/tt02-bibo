@@ -90,3 +90,7 @@ CLAUDE.md
 firmware/tests/compile_commands.json
 hub/tests/compile_commands.json
 hub/src/compile_commands.json
+
+# clangd index cache. Binary, machine-specific, and it embeds absolute paths -
+# the same property that put a .pyc with a home directory into 119 commits.
+.cache/
