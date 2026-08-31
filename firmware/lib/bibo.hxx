@@ -111,6 +111,11 @@
 /* The car's voice, asked for by name. Above the driver and above sfx, the way
  * cue sits above lights. */
 #include "sound.hxx"
+
+/* Drivetrain maths - PID, feedforward, and ticks to metres. Pure arithmetic,
+ * no SDK, so both are tested on the host. */
+#include "control.hxx"
+#include "chassis/odom.hxx"
 #include "boot.hxx"
 
 #include "drivers/dfplayer.hxx"

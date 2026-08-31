@@ -430,6 +430,8 @@ LAYERS = {
     'firmware/tests':        {'../lib/text.hxx',
                               '../lib/pins.hxx',
                               '../lib/sfx.hxx',
+                              '../lib/control.hxx',
+                              '../lib/chassis/odom.hxx',
                               '../lib/drivers/dfplayer_proto.hxx'},
 }
 
@@ -449,6 +451,12 @@ LAYER_EXTRA = {
     # like pins: types for the vocabulary, text to compare a name. No SDK, so
     # it compiles on the host and its table can be tested without a board.
     'firmware/lib/sfx.hxx': {'types.hxx'},
+    # control.hxx is arithmetic - PID and feedforward - and odom.hxx turns
+    # ticks into metres. Neither touches hardware, which is the property that
+    # lets both be tested on the host against invented inputs instead of by
+    # driving a car at something.
+    'firmware/lib/control.hxx': {'types.hxx'},
+    'firmware/lib/chassis/odom.hxx': {'../types.hxx'},
     # sound.hxx owns the speaker and names what comes out of it, so it reaches
     # down to the driver and sideways to the clip table and the pin map. The
     # same legitimate one-layer-above reach cue.hxx makes into lights.hxx,
@@ -464,6 +472,7 @@ LAYER_EXTRA = {
     'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
                             'pins.hxx', 'sfx.hxx', 'sound.hxx', 'boot.hxx',
+                            'control.hxx', 'chassis/odom.hxx',
                             'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
