@@ -24,7 +24,7 @@ instead, on the toolbar.</Note>
 <Row><Cell>List / Item</Cell><Cell>bullets</Cell></Row>
 <Row><Cell>Table / Row / Cell</Cell><Cell>a grid. Row head="yes" for the header</Cell></Row>
 <Row><Cell>Note / Warn</Cell><Cell>an aside, and the one that matters</Cell></Row>
-<Row><Cell>Code</Cell><Cell>verbatim, newlines kept</Cell></Row>
+<Row><Cell>Code</Cell><Cell>inline a span, on its own a panel - see below</Cell></Row>
 <Row><Cell>Draw</Cell><Cell>a canvas - see below</Cell></Row>
 <Row><Cell>Pinout / Column / Pin</Cell><Cell>a pad table</Cell></Row>
 <Row><Cell>Include</Cell><Cell>another document, spliced in</Cell></Row>
@@ -32,6 +32,28 @@ instead, on the toolbar.</Note>
 
 <Text>Inline, anywhere: <Code>Bold</Code>, <Code>Dim</Code>, <Code>Code</Code>.
 That is the whole markup vocabulary, and it is short on purpose.</Text>
+
+<Text>A <Code>Code</Code> on its own line is a PANEL rather than a span:
+gruvbox, line numbers, and the same tokenizer the Code view uses, so a snippet
+is coloured the way the file it came from is.</Text>
+
+<Code>/* Drives the servo, once the map says which pad. */
+static Bool steer(Float32 fraction)
+{
+    if(!pins::ready())
+    {
+        return false;   // begin() has not run
+    }
+
+    const Int32 us = STEER_CAL_CENTER + (Int32)(fraction * 220.0f);
+    servo::writeUs(pins::active().servo, us);
+    return true;
+}</Code>
+
+<Note>It does NOT wrap. Code is a shape, and a line folded at the panel edge is
+a different shape - an eighty-column pin table folded at sixty-two stops being a
+table. The page pans in both directions without limit, so a long line is
+reachable rather than lost.</Note>
 </Section>
 
 <Section title="Include">
