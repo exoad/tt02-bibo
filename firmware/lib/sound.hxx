@@ -47,27 +47,27 @@ namespace bibo
   {
 
     /* ---- state, one copy - the same deal chassis.hxx and lights.hxx make -- */
-    static dfplayer::Bus bus;
+    inline dfplayer::Bus bus;
 
     /* Remembered rather than asked for. The module has no "what volume are
      * you" query worth a round trip, and a value the hub cannot read back is a
      * slider that jumps to a default every time the view is opened. */
-    static UInt8  level   = 8;
-    static UInt8  tone    = DFP_EQ_NORMAL;
-    static UInt16 last    = 1;
+    inline UInt8  level   = 8;
+    inline UInt8  tone    = DFP_EQ_NORMAL;
+    inline UInt16 last    = 1;
 
     /* How many files the card holds, 0 for "not asked, or it did not answer".
      * Asked at mount, which is when it can change - a card is not swapped while
      * the board is running - rather than on every status line, because the
      * query WAITS and the hub polls twice a second. */
-    static UInt16 files   = 0;
+    inline UInt16 files   = 0;
 
     /* Whether the card has been mounted since power-on. It takes 1.5-3 s and a
      * play sent before that is LOST - no error, no sound - so boot does not pay
      * for it and the first thing that needs the card asks. */
-    static Bool   mounted = false;
+    inline Bool   mounted = false;
 
-    static Bool   up      = false;
+    inline Bool   up      = false;
 
     /* ---- bring-up ---------------------------------------------------------
      *

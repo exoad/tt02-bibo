@@ -88,7 +88,7 @@ namespace bibo
                                     /* for a stall - see THROTTLE_CAL_MIN   */
     };
 
-    static Limits limits;
+    inline Limits limits;
 
     inline Bool configure(const Limits& l)
     {
@@ -143,7 +143,7 @@ namespace bibo
         Float32 widthM = 0.22f;
     };
 
-    static Guard guard;
+    inline Guard guard;
 
     inline Bool configure(const Guard& g)
     {
@@ -194,7 +194,7 @@ namespace bibo
         Float32 headingRad = 0.15f;
     };
 
-    static Recorder recorder;
+    inline Recorder recorder;
 
     inline Bool configure(const Recorder& r)
     {

@@ -169,8 +169,8 @@ namespace bibo
      * pixel lives on has to be computed the same way every time, and rebasing the
      * stride on a resize would invalidate everything already drawn.
      */
-    static UInt16 buf[PANEL_MAX_W * PANEL_MAX_H];
-    static Bool   bufTaken = false;
+    inline UInt16 buf[PANEL_MAX_W * PANEL_MAX_H];
+    inline Bool   bufTaken = false;
 
     /* ===========================================================================
      * THE VALUE TYPES.

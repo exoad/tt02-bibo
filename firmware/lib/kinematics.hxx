@@ -72,7 +72,7 @@ namespace bibo
         Bool    measured  = false;
     };
 
-    static Config tuning;
+    inline Config tuning;
 
     /* Refuses a shape a car cannot have. A zero or negative wheelbase divides
      * by zero in curvatureFor; a zero maxSteer makes steerFraction meaningless

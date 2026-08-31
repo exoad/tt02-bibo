@@ -114,16 +114,16 @@ namespace bibo
      * Now the program says what is wired where - pins::begin() - and this table
      * is a copy taken when the lamps are opened. Same ten entries, same order
      * as the Lamp enum, and still NONE for anything with no LED on it. */
-    static Int32 pin[LAMP_COUNT] =
+    inline Int32 pin[LAMP_COUNT] =
     {
         pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE,
         pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE
     };
 
     /* ---- state, one copy - the same deal chassis.h makes -------------------- */
-    static Bool    up = false;
-    static Bool    on = true;    /* the master switch, for testing         */
-    static Set now;          /* what was last written                  */
+    inline Bool    up = false;
+    inline Bool    on = true;    /* the master switch, for testing         */
+    inline Set now;          /* what was last written                  */
 
     /*
      * A lamp held on by hand, ignoring every rule and every cue. lights::LAMP_COUNT means
@@ -138,7 +138,7 @@ namespace bibo
      * forced lamp survives whatever the cue layer is doing - including a one-shot
      * cue that would otherwise take the channel back off you mid-test.
      */
-    static Int32 forced = LAMP_COUNT;
+    inline Int32 forced = LAMP_COUNT;
 
     inline Void clear(Set* s)
     {

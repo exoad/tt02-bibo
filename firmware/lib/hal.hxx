@@ -403,7 +403,7 @@ namespace bibo
      */
     typedef Void (*Mirror)(CharSeq);
 
-    static Mirror mirrorFn = nullptr;
+    inline Mirror mirrorFn = nullptr;
 
     inline Void setMirror(Mirror fn)
     {
@@ -750,7 +750,7 @@ namespace bibo
 
   namespace led
   {
-    static Bool up = false;
+    inline Bool up = false;
 
 
   } // namespace led
@@ -773,7 +773,7 @@ namespace bibo
 
   namespace radio
   {
-    static Bool tried = false;
+    inline Bool tried = false;
 
     inline Bool open(Void)
     {
