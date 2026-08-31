@@ -502,6 +502,12 @@ namespace
   Str     soundBusy     = "unwired";
   Int32   soundTx       = -1;
   Int32   soundRx       = -1;
+  Int32   soundBusyGp   = -1;
+
+  // How many tracks the CARD holds, 0 for "not asked yet or did not answer".
+  // The card is the source of truth - the hub keeps no list, so adding a track
+  // to the card is the whole of adding a track.
+  Int32   soundFiles     = 0;
   Float64 soundLastPoll = 0.0;
 
   Str     cueSpeaking  = "none";
@@ -1388,6 +1394,8 @@ namespace
           soundBusy   = word("busy=", "unwired");
           soundTx     = num("tx=", -1);
           soundRx     = num("rx=", -1);
+          soundBusyGp = num("busyGp=", -1);
+          soundFiles  = num("files=", soundFiles);
 
           // The volume follows the board EXCEPT while the slider is held. See
           // above: the reply is older than the drag.
@@ -5431,6 +5439,22 @@ namespace
           colored(ui::ansi::GREY, "RX GP%d", soundRx);
           ImGui::SameLine(0.0f, 16.0f);
           colored(ui::ansi::GREY, "<- module TX");
+
+          // BUSY's pad, read back like the other two. The whole point of this
+          // row is that it is the BOARD's account of its own wiring - a hub
+          // printing its own idea of the pinout would be the least useful thing
+          // on the screen when the fault you are chasing is a wire on the wrong
+          // pad.
+          if(soundBusyGp >= 0)
+          {
+              colored(ui::ansi::GREY, "BUSY GP%d", soundBusyGp);
+              ImGui::SameLine(0.0f, 16.0f);
+              colored(ui::ansi::GREY, "<- module BUSY, low while playing");
+          }
+          else
+          {
+              colored(ui::ansi::GREY, "BUSY not wired");
+          }
       }
       else
       {
@@ -5517,18 +5541,75 @@ namespace
       // ---- the track --------------------------------------------------------
       ImGui::SeparatorText("Track");
 
+      // WHAT IS ON THE CARD, asked of the module rather than assumed. The hub
+      // keeps no list of tracks and neither does the firmware: adding an mp3 to
+      // the card is the whole of adding one, and this is how you find out it
+      // arrived.
+      if(soundFiles > 0)
+      {
+          colored(ui::ansi::GREY, "%d track%s on the card",
+                  soundFiles, (soundFiles == 1) ? "" : "s");
+      }
+      else
+      {
+          ImGui::TextDisabled("card not counted yet");
+      }
+      ImGui::SameLine(0.0f, 12.0f);
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Count",
+                        ImVec2(110.0f * uiDpiScale, 0.0f)))
+      {
+          sendPico("SOUND FILES");
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip("Asks the module how many files the card holds.\n"
+                            "The only command here that waits for an answer,\n"
+                            "so a reply also proves the module is powered,\n"
+                            "has a card, and its TX reaches the Pico.");
+      }
+
       ImGui::SetNextItemWidth(120.0f * uiDpiScale);
       ImGui::InputInt("##soundtrack", &soundTrack);
+
+      // Clamped to what is ACTUALLY THERE when the card has been counted.
+      // Offering track 7 on a card holding three is offering silence, and
+      // silence is the one failure on this screen with too many causes already.
+      const Int32 highest = (soundFiles > 0) ? soundFiles : 3000;
       if(soundTrack < 1)
       {
           soundTrack = 1;
       }
-      if(soundTrack > 3000)
+      if(soundTrack > highest)
       {
-          soundTrack = 3000;
+          soundTrack = highest;
       }
       ImGui::SameLine(0.0f, 12.0f);
       colored(ui::ansi::GREY, "mp3/%04d.mp3", soundTrack);
+
+      // One button per track, once the count is known and small enough to fit.
+      // Typing a number to hear a three-second sound is friction you notice on
+      // the tenth time; above a dozen the row stops being quicker than the box.
+      if(soundFiles > 0 && soundFiles <= 12)
+      {
+          for(Int32 t = 1; t <= soundFiles; ++t)
+          {
+              if(t > 1)
+              {
+                  ImGui::SameLine();
+              }
+              ImGui::PushID(t);
+              Array<Char, 8> lbl;
+              std::snprintf(lbl.data(), lbl.size(), "%d", t);
+              if(ImGui::Button(lbl.data(), ImVec2(44.0f * uiDpiScale, 0.0f)))
+              {
+                  soundTrack = t;
+                  Array<Char, 48> cmd;
+                  std::snprintf(cmd.data(), cmd.size(), "SOUND PLAY %d", t);
+                  sendPico(cmd.data());
+              }
+              ImGui::PopID();
+          }
+      }
 
       ImGui::Spacing();
 
@@ -5579,22 +5660,43 @@ namespace
       if(soundBusy == "unwired")
       {
           // Said plainly rather than shown as "not playing", which would be a
-          // claim this car cannot currently make. BUSY is the module's own
-          // output and it is the only honest answer - the serial reply says a
-          // command was ACCEPTED, which is a different thing from a track still
-          // being audible.
+          // claim this car cannot make. BUSY is the module's own output and the
+          // only honest answer - the serial reply says a command was ACCEPTED,
+          // which is a different thing from a track still being audible.
+          //
+          // The symbol named here used to be pins::SOUND_BUSY, which stopped
+          // existing when the pin map became a value. A UI that tells you to
+          // edit something that is not there is worse than one that says
+          // nothing, because it is confidently wrong and you go looking.
           ImGui::TextDisabled("BUSY is not wired, so the board cannot tell.");
-          ImGui::TextDisabled("Wire the module's BUSY pin and set");
+          ImGui::TextDisabled("Wire it and set");
           ImGui::SameLine(0.0f, 4.0f);
-          colored(ui::ansi::BRCYAN, "pins::SOUND_BUSY");
+          colored(ui::ansi::BRCYAN, "soundBusy");
+          ImGui::SameLine(0.0f, 4.0f);
+          ImGui::TextDisabled("in");
+          ImGui::SameLine(0.0f, 4.0f);
+          colored(ui::ansi::BRCYAN, "pins::car()");
       }
       else if(soundBusy == "yes")
       {
+          // A FILLED BAR, not just a word. This is the one live thing on the
+          // screen and the reason BUSY was wired at all: while a track sounds
+          // you want to see it from across the bench without reading.
           colored(ui::sem::GOOD, "playing");
+          ImGui::SameLine(0.0f, 12.0f);
+
+          const Float32 t = static_cast<Float32>(ImGui::GetTime());
+          ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                                ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD));
+          ImGui::ProgressBar(0.5f + 0.5f * std::sin(t * 6.0f),
+                             ImVec2(200.0f * uiDpiScale, 0.0f), "");
+          ImGui::PopStyleColor();
       }
       else
       {
           colored(ui::ansi::GREY, "idle");
+          ImGui::SameLine(0.0f, 12.0f);
+          ImGui::TextDisabled("(BUSY on GP%d reads high)", soundBusyGp);
       }
 
       ImGui::EndDisabled();

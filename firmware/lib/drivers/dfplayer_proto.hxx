@@ -56,6 +56,13 @@ namespace bibo
 #define DFP_CMD_MP3         0x12u   /* the "mp3" folder, by number           */
 #define DFP_CMD_STOP        0x16u
 
+    /* ---- queries, which ANSWER ------------------------------------------
+     *
+     * The module replies to these with a frame of the same shape carrying the
+     * value. Everything above it simply obeys. */
+#define DFP_Q_FILES         0x48u   /* how many files on the card */
+#define DFP_Q_TRACK         0x4Cu   /* which one is playing now   */
+
     /* Volume is 0-30 in the protocol. THIRTY IS EXTREMELY LOUD - these modules are
      * widely reported as painful well below half, and there is no reason to find
      * that out with your head next to the speaker. Everything here clamps. */

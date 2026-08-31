@@ -1143,6 +1143,14 @@ static bibo::dfplayer::Bus soundBus;
 static UInt8 soundVolume = 8;
 static UInt16 soundTrack  = 1;
 
+/* How many files the card holds, or 0 for "not asked yet / did not answer".
+ *
+ * Remembered rather than queried on every status line: a query is a round trip
+ * that WAITS, and the hub polls SOUND twice a second. Asked once by SOUND FILES
+ * and by RESET, which is when it can change - a card is not swapped while the
+ * board is running. */
+static UInt16 soundFiles  = 0;
+
 /* Whether RESET has been run since power-on.
  *
  * The card takes 1.5-3 s to mount and a play sent before that is LOST - no
@@ -1155,16 +1163,18 @@ static Bool soundReady = false;
 static Void printSound(Void)
 {
     bibo::serial::printf(
-        "OK sound ready=%s vol=%u max=%u track=%u busy=%s tx=%d rx=%d\n",
+        "OK sound ready=%s vol=%u max=%u track=%u files=%u busy=%s tx=%d rx=%d busyGp=%d\n",
         soundReady ? "yes" : "no",
         static_cast<UInt32>(soundVolume),
         static_cast<UInt32>(DFP_VOLUME_MAX),
         static_cast<UInt32>(soundTrack),
-        (bibo::pins::active().soundBusy == bibo::pins::NONE)
+        static_cast<UInt32>(soundFiles),
+        !bibo::dfplayer::hasBusy(&soundBus)
             ? "unwired"
             : (bibo::dfplayer::playing(&soundBus) ? "yes" : "no"),
         static_cast<Int32>(bibo::pins::active().soundTx),
-        static_cast<Int32>(bibo::pins::active().soundRx));
+        static_cast<Int32>(bibo::pins::active().soundRx),
+        static_cast<Int32>(bibo::pins::active().soundBusy));
 }
 
 static Void cmdSound(CharSeq arg)
@@ -1184,6 +1194,14 @@ static Void cmdSound(CharSeq arg)
         bibo::dfplayer::useCard(&soundBus);
         bibo::dfplayer::volume(&soundBus, soundVolume);
         soundReady = true;
+
+        /* Asked here because a reset is exactly when the card is remounted and
+         * the count can change. A failure is not fatal - the module may simply
+         * be quiet on TX while perfectly able to play - so it is recorded as
+         * "unknown" rather than refusing the reset. */
+        UInt16 n = 0;
+        soundFiles = bibo::dfplayer::fileCount(&soundBus, &n) ? n : 0;
+
         printSound();
         return;
     }
@@ -1239,6 +1257,79 @@ static Void cmdSound(CharSeq arg)
         return;
     }
 
+    /* SOUND RX - whatever the module has said, as raw bytes.
+     *
+     * THE DIAGNOSTIC FOR THE CASE BUSY CANNOT SETTLE. The pin is pulled up, so
+     * "idle" and "that wire is not connected" read identically - both high.
+     * When busy never goes low there is no way to tell a module that is not
+     * playing from a module that is playing and cannot say so.
+     *
+     * The module volunteers a frame when a track ENDS even with ACK off, so
+     * bytes arriving here prove it is alive, listening and reaching the end of
+     * something. Nothing arriving points at the module, the card or the RX
+     * wire; bytes arriving while busy stays high points at the BUSY wire.
+     *
+     * Reports the count either way - "0 bytes" is an answer, and a command that
+     * prints nothing when there is nothing looks like a command that failed. */
+    /* SOUND FILES - ask the card how many tracks it holds.
+     *
+     * The only command here that WAITS FOR AN ANSWER, which makes it the
+     * liveness test as well as the count: a module that replies is powered,
+     * listening, has a card mounted and has its TX wire on the right pad. All
+     * four at once, from one number.
+     *
+     * A silent module is reported as such rather than as zero files. Zero is a
+     * legitimate answer from an empty card and must not be confused with no
+     * answer at all. */
+    if(bibo::text::eq(arg, "FILES"))
+    {
+        UInt16 n = 0;
+        if(!bibo::dfplayer::fileCount(&soundBus, &n))
+        {
+            bibo::serial::printLine(
+                "ERR sound the module did not answer - check power, the card, "
+                "and that its TX reaches the Pico's RX");
+            return;
+        }
+
+        soundFiles = n;
+        bibo::serial::printf("INFO sound %u file(s) on the card\n",
+                             static_cast<UInt32>(n));
+        printSound();
+        return;
+    }
+
+    if(bibo::text::eq(arg, "RX"))
+    {
+        Utf8  line[96];
+        Size  at = 0;
+        Int32 n  = 0;
+
+        line[0] = ' ';
+
+        while(bibo::uart::readable(uart0) && n < 24)
+        {
+            const Int32 b = bibo::uart::readByte(uart0, 0);
+            if(b < 0)
+            {
+                break;
+            }
+            ++n;
+
+            const Int32 w = bibo::text::format(&line[at], sizeof(line) - at,
+                                               "%02X ", b);
+            if(w <= 0 || static_cast<Size>(w) >= sizeof(line) - at)
+            {
+                break;
+            }
+            at += static_cast<Size>(w);
+        }
+
+        bibo::serial::printf("OK sound rx %d bytes %s\n",
+                             n, (n > 0) ? line : "-");
+        return;
+    }
+
     if(bibo::text::eq(arg, "STOP"))
     {
         bibo::dfplayer::stop(&soundBus);
@@ -1271,7 +1362,7 @@ static Void cmdSound(CharSeq arg)
     }
 
     bibo::serial::printLine(
-        "ERR sound wants RESET|VOL <0-30>|PLAY <n>|STOP|PAUSE|RESUME|NEXT|PREV");
+        "ERR sound wants RESET|VOL <0-30>|PLAY <n>|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV");
 }
 
 static const Command COMMANDS[] =
@@ -1300,7 +1391,7 @@ static const Command COMMANDS[] =
     { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
     { "CUE",         " [LIST|STOP|<name> [OFF]]",     "what the car says, and saying it",      cmdCue },
 
-    { "SOUND",       " [RESET|VOL <0-30>|PLAY <n>|STOP|PAUSE|RESUME|NEXT|PREV]",
+    { "SOUND",       " [RESET|VOL <0-30>|PLAY <n>|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV]",
                                                 "the speaker",                              cmdSound },
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
