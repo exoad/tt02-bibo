@@ -122,7 +122,9 @@ namespace scene3d
             const Float32 y = p.x * mvp[1] + p.y * mvp[5] + p.z * mvp[9]  + mvp[13];
             const Float32 w = p.x * mvp[3] + p.y * mvp[7] + p.z * mvp[11] + mvp[15];
             if(w <= 1e-4f)
+            {
                 return false;
+            }
             out = ImVec2(p0.x + (x / w * 0.5f + 0.5f) * (p1.x - p0.x),
                          p0.y + (0.5f - y / w * 0.5f) * (p1.y - p0.y));
             return true;
@@ -189,22 +191,30 @@ namespace scene3d
 
         Array<Float32, 16> mv= {};
         for(Int32 r = 0; r < 4; ++r)
+        {
             for(Int32 col = 0; col < 4; ++col)
             {
                 Float32 sum = 0.0f;
                 for(Int32 k = 0; k < 4; ++k)
+                {
                     sum += model[r * 4 + k] * view[k * 4 + col];
+                }
                 mv[r * 4 + col] = sum;
             }
+        }
 
         for(Int32 r = 0; r < 4; ++r)
+        {
             for(Int32 col = 0; col < 4; ++col)
             {
                 Float32 sum = 0.0f;
                 for(Int32 k = 0; k < 4; ++k)
+                {
                     sum += mv[r * 4 + k] * proj[k * 4 + col];
+                }
                 v.mvp[r * 4 + col] = sum;
             }
+        }
 
         // The eye and the basis stay in SCENE space, unrotated: they are what
         // billboarding and pixel-width sizing are measured against, and those are
@@ -241,9 +251,13 @@ namespace scene3d
         const scenegpu::Vertex vc = vtx(c, col, uv ? uv[2] : z);
 
         if((col >> IM_COL32_A_SHIFT) >= 0xFFu)
+        {
             scenegpu::addOpaque(va, vb, vc, tex);
+        }
         else
+        {
             scenegpu::addBlended(va, vb, vc, tex);
+        }
     }
 
     // The same, with a colour per vertex. A gradient needs one: a triangle painted
@@ -259,9 +273,13 @@ namespace scene3d
         // Blended if ANY vertex is: the triangle is see-through somewhere.
         if((ca >> IM_COL32_A_SHIFT) >= 0xFFu && (cb >> IM_COL32_A_SHIFT) >= 0xFFu
            && (cc >> IM_COL32_A_SHIFT) >= 0xFFu)
+        {
             scenegpu::addOpaque(va, vb, vc, 0);
+        }
         else
+        {
             scenegpu::addBlended(va, vb, vc, 0);
+        }
     }
 
     // A camera-facing quad along a segment, `px` pixels wide wherever it is. This is
@@ -272,12 +290,16 @@ namespace scene3d
     {
         const Vec3 dir = sub(b, a);
         if(dot(dir, dir) < 1e-6f)
+        {
             return;
+        }
 
         const Vec3 mid{ (a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f };
         Vec3 side = cross(norm(dir), norm(sub(v.eye, mid)));
         if(dot(side, side) < 1e-9f)
+        {
             return;                                  // the line points at the eye
+        }
         side = mul(norm(side), v.pxToWorld(mid, px) * 0.5f);
 
         const Vec3 q0 = sub(a, side), q1 = add(a, side);
@@ -342,7 +364,9 @@ namespace scene3d
         }
 
         if(edgeW <= 0.0f || (edge >> IM_COL32_A_SHIFT) == 0u)
+        {
             return;
+        }
 
         const auto lift = [&](const Vec3& p) {
             const Vec3 toEye = norm(sub(v.eye, p));
@@ -547,7 +571,9 @@ namespace scene3d
 
         const Vec3 mid{ toScene(d.cx, d.cy, RIDE_BOX_H_MM) };
         for(Int32 i = 0; i < 8; ++i)
+        {
             emitTri(mid, hi[i], hi[(i + 1) % 8], top, nullptr, 0);
+        }
 
         static_cast<Void>(dpi);
     }
@@ -558,7 +584,9 @@ namespace scene3d
     {
         static_cast<Void>(v);
         if(a.corridorHalfW <= 0.0f || a.corridorFree <= 0.0f)
+        {
             return;
+        }
 
         const Float32 y0 = EGO_LEN_MM * 0.5f;
         const Float32 y1 = std::max(y0 + 60.0f, a.corridorFree);
@@ -689,11 +717,15 @@ namespace scene3d
 
         Array<Char, MAX_PATH> path;
         if(!carModelPath(path.data(), path.size()))
+        {
             return false;
+        }
 
         FILE* f = std::fopen(path.data(), "rb");
         if(f == nullptr)
+        {
             return false;
+        }
 
         Vec<Vec3> raw;
         raw.reserve(1400);
@@ -716,7 +748,9 @@ namespace scene3d
                 // they are ignored.
                 Float32 x = 0.0f, y = 0.0f, z = 0.0f;
                 if(std::sscanf(line.data() + 2, "%f %f %f", &x, &y, &z) == 3)
+                {
                     raw.push_back(Vec3{ x, y, z });
+                }
             }
             else if(line[0] == 'v' && line[1] == 't' && line[2] == ' ')
             {
@@ -725,13 +759,17 @@ namespace scene3d
                 // rather than at every use.
                 Float32 u = 0.0f, vv = 0.0f;
                 if(std::sscanf(line.data() + 3, "%f %f", &u, &vv) == 2)
+                {
                     uvs.push_back(ImVec2(u, 1.0f - vv));
+                }
             }
             else if(line[0] == 'g' && line[1] == ' ')
             {
                 Array<Char, 128> name= {};
                 if(std::sscanf(line.data() + 2, "%127s", name.data()) == 1)
+                {
                     part = partForGroup(name.data());
+                }
             }
             else if(line[0] == 'f' && line[1] == ' ')
             {
@@ -749,16 +787,23 @@ namespace scene3d
                         ++p;
                     }
                     if(*p == 0 || *p == '\n' || *p == '\r')
+                    {
                         break;
+                    }
 
                     idx[got] = std::atoi(p);
 
                     // `a/b/c` - b is the texture index, and may be absent (`a//c`).
                     const Char* slash = p;
                     while(*slash != 0 && *slash != ' ' && *slash != '\n'
-                          && *slash != '\r' && *slash != '/') ++slash;
+                          && *slash != '\r' && *slash != '/')
+                    {
+                        ++slash;
+                    }
                     if(*slash == '/' && slash[1] != '/')
+                    {
                         tex[got] = std::atoi(slash + 1);
+                    }
 
                     ++got;
                     while(*p != 0 && *p != ' ' && *p != '\n' && *p != '\r')
@@ -767,14 +812,18 @@ namespace scene3d
                     }
                 }
                 if(got == 3)
+                {
                     faces.push_back(Face{ idx[0], idx[1], idx[2],
                                           tex[0], tex[1], tex[2], part });
+                }
             }
         }
         std::fclose(f);
 
         if(raw.empty() || faces.empty())
+        {
             return false;
+        }
 
         // ---- fit to the real chassis -----------------------------------------
         //
@@ -849,7 +898,9 @@ namespace scene3d
 
             const Int32 i0 = resolve(fc.i0), i1 = resolve(fc.i1), i2 = resolve(fc.i2);
             if(i0 < 0 || i1 < 0 || i2 < 0 || i0 >= nRaw || i1 >= nRaw || i2 >= nRaw)
+            {
                 continue;
+            }
 
             CarTri t;
             t.a = toScene3(raw[static_cast<Size>(i0)]);
@@ -891,7 +942,9 @@ namespace scene3d
         {
             Array<Char, MAX_PATH> tp;
             if(carTexturePath(tp.data(), tp.size()))
+            {
                 m.tex = ui::loadTexture(ui::device(), tp.data());
+            }
         }
         return m;
     }
@@ -1144,7 +1197,9 @@ namespace scene3d
         pushFace(v, q, { IM_COL32(0x14, 0x16, 0x1A, 0xFF), 0u, 0.0f });
 
         if(level <= 0.01f)
+        {
             return;
+        }
 
         const Int32 r = static_cast<Int32>(((hue >> IM_COL32_R_SHIFT) & 0xFFu) * level);
         const Int32 g = static_cast<Int32>(((hue >> IM_COL32_G_SHIFT) & 0xFFu) * level);
@@ -1247,7 +1302,9 @@ namespace scene3d
             { b2, b3, t3, t2 }, { b3, b0, t0, t3 },
         }};
         for(Int32 i = 0; i < 4; ++i)
+        {
             pushFace(v, sides[i], { body, edge, 1.0f * dpi });
+        }
 
         const Array<Vec3, 4> cap = { t0, t1, t2, t3 };
         pushFace(v, cap, { top, edge, 1.0f * dpi });
@@ -1275,7 +1332,9 @@ namespace scene3d
 
         const Vec3 crown = at(0.0f, 0.0f, TALL_MM);
         for(Int32 i = 0; i < SEG; ++i)
+        {
             emitTri(crown, hi[i], hi[(i + 1) % SEG], top, nullptr, 0);
+        }
 
         // The emitter window, marking which way bearing 0 points.
         const Vec3 w0 = at(-10.0f, LAMP_HEAD_R * 0.98f, PLINTH_H + 6.0f);
@@ -1308,15 +1367,21 @@ namespace scene3d
         const Float32 ax = EGO_WHEELBASE_MM * 0.5f;
         const Float32 tx = EGO_TREAD_MM * 0.5f;
         for(Int32 sx = -1; sx <= 1; sx += 2)
+        {
             for(Int32 sy = -1; sy <= 1; sy += 2)
+            {
                 wheel(v, static_cast<Float32>(sx) * tx, static_cast<Float32>(sy) * ax,
                       wr, ww, IM_COL32(0x1E, 0x1E, 0x1E, 0xFF),
                       IM_COL32(0x8A, 0x90, 0x96, 0xFF), dpi);
+            }
+        }
 
         // The shell, lofted station to station.
         Vec3 loop[STATION_N][SECTION_N];
         for(Int32 i = 0; i < STATION_N; ++i)
+        {
             sectionLoop(STATIONS[i], hw, hl, hz, loop[i]);
+        }
 
         for(Int32 i = 0; i < STATION_N - 1; ++i)
         {
@@ -1424,9 +1489,13 @@ namespace scene3d
     Int32 drawReturns(const View& v, const DrawArgs& a, Bool solid, Int32* hidden)
     {
         if(hidden != nullptr)
+        {
             *hidden = 0;
+        }
         if(a.points == nullptr)
+        {
             return 0;
+        }
 
         const Float32 deg2rad = PI_F / 180.0f;
         Int32 n = 0;
@@ -1434,7 +1503,9 @@ namespace scene3d
         for(const LidarPoint& p : *a.points)
         {
             if(!(p.distMm >= MIN_VALID_MM) || p.distMm > MAX_VALID_MM)
+            {
                 continue;
+            }
 
             // 2D map bearing: 0 = forward, clockwise. Scene: +y forward, +x right.
             const Float32 ang = p.angleDeg * deg2rad;
@@ -1474,7 +1545,9 @@ namespace scene3d
     Int32 drawWalls(const View& v, const DrawArgs& a)
     {
         if(a.walls == nullptr)
+        {
             return 0;
+        }
 
         const ImU32 face = (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x2Eu << IM_COL32_A_SHIFT);
         const ImU32 edge = (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0xE0u << IM_COL32_A_SHIFT);
@@ -1495,7 +1568,9 @@ namespace scene3d
     Void drawFitFloor(const View& v, const DrawArgs& a)
     {
         if(a.reach == nullptr || a.reachN < 3)
+        {
             return;
+        }
 
         const ImU32 face = (ui::ansi::BRGREEN & 0x00FFFFFFu) | (0x2Cu << IM_COL32_A_SHIFT);
         const ImU32 edge = (ui::ansi::BRGREEN & 0x00FFFFFFu) | (0xC0u << IM_COL32_A_SHIFT);
@@ -1547,22 +1622,30 @@ namespace scene3d
             yaw += 360.0f;
         }
         if(yaw > -0.5f && yaw < 0.5f)
+        {
             yaw = 0.0f;
+        }
 
         if(a.worldHeadingOk < 0.33f)
+        {
             std::snprintf(buf, cap, "world lock, heading unsure (%.0f%%)",
                           static_cast<Float64>(a.worldHeadingOk * 100.0f));
+        }
         else
+        {
             std::snprintf(buf, cap, "world lock, %.0f deg (%.0f%%)",
                           static_cast<Float64>(yaw),
                           static_cast<Float64>(a.worldHeadingOk * 100.0f));
+        }
         return buf;
     }
 
     Void say(const DrawArgs& a, const Char* fmt, ...)
     {
         if(a.diag == nullptr || a.diagCap == 0)
+        {
             return;
+        }
         va_list ap;
         va_start(ap, fmt);
         std::vsnprintf(a.diag, a.diagCap, fmt, ap);
@@ -1633,7 +1716,9 @@ namespace scene3d
   {
       // Locked to the car means locked. See Camera::lockToCar.
       if(lockToCar)
+      {
           return;
+      }
 
       // In the ground plane, so panning never lifts the scene off the floor.
       const Float32 s = std::sin(yaw), c = std::cos(yaw);
@@ -1658,7 +1743,9 @@ namespace scene3d
   {
       const Size i = static_cast<Size>(m);
       if(i >= static_cast<Size>(SceneMode::SCENE_MODE_COUNT))
+      {
           return SCENE_INFO[0];
+      }
       return SCENE_INFO[i];
   }
 
@@ -1670,7 +1757,9 @@ namespace scene3d
   Void draw(const Camera& cam, const DrawArgs& a)
   {
       if(a.dl == nullptr || (a.p1.x - a.p0.x) < 32.0f || (a.p1.y - a.p0.y) < 32.0f)
+      {
           return;
+      }
 
       const View v = makeView(cam, a.p0, a.p1, a.worldYawDeg);
 
@@ -1694,11 +1783,17 @@ namespace scene3d
 
       // The ride view gets a surface; the analytical modes get a ruler.
       if(a.mode == SceneMode::SCENE_MODE_FULL)
+      {
           drawRideGround(v, a);
+      }
       else if(sceneWantsSquares(a.mode))
+      {
           drawGroundSquares(a.dl, v, a.dpi);
+      }
       else
+      {
           drawGround(a.dl, v, a.dpi);
+      }
 
       Int32 n = 0;
       Int32 hidden = 0;
@@ -1739,7 +1834,9 @@ namespace scene3d
           // is going - and the evidence for them is what the other four are for.
           drawPathRibbon(v, a);
           for(Int32 i = 0; i < a.objectN; ++i)
+          {
               drawDetection(v, a.objects[i], a.dpi);
+          }
           n = a.objectN;
           say(a, "%d object%s  |  %.2f m ahead", n, n == 1 ? "" : "s",
               static_cast<Float64>(a.aheadMm / 1000.0f));
@@ -1770,9 +1867,13 @@ namespace scene3d
       {
           const CarModel& car = carModel();
           if(car.loaded)
+          {
               drawCarModel(v, car, a.dpi);
+          }
           else
+          {
               drawCarFallback(v, a.dpi);
+          }
 
           // And the sensor ON it, at its mount. Every measurement in this scene
           // is in the sensor's frame, so where the sensor sits on the car is the
@@ -1788,9 +1889,13 @@ namespace scene3d
 
       const ImTextureID img = scenegpu::end(v.mvp.data());
       if(img != 0)
+      {
           a.dl->AddImage(img, a.p0, a.p1);
+      }
       else
+      {
           a.dl->AddRectFilled(a.p0, a.p1, ui::ansi::BLACK);
+      }
 
       a.dl->PopClipRect();
   }

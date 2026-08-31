@@ -76,11 +76,15 @@ static Void loadUiScale()
 {
     const Str txt = settings::read("ui-scale.txt");
     if(txt.empty())
+    {
         return;
+    }
 
     const Float64 v = std::atof(txt.c_str());
     if(v > 0.0)
+    {
         ui::setUserScale(static_cast<Float32>(v));
+    }
 }
 
 static Void saveUiScale()
@@ -139,7 +143,9 @@ static Void shutdownFrameLimiter()
 static Void waitForNextFrame()
 {
     if(qpcFreq.QuadPart == 0)
+    {
         return;
+    }
 
     frameNext.QuadPart += qpcFreq.QuadPart / TARGET_FPS;
 
@@ -172,7 +178,9 @@ static Void waitForNextFrame()
 
     const DWORD ms = static_cast<DWORD>((left * 1000) / qpcFreq.QuadPart);
     if(ms > 0)
+    {
         ::Sleep(ms);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +229,9 @@ static Void enableDpiAwareness()
             reinterpret_cast<PFN_SetProcessDpiAwarenessContext>(
                 ::GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
         if(setCtx && setCtx(DPI_CONTEXT_PER_MONITOR_V2))
+        {
             return;     // Windows 10 1703+ : per-monitor-v2, the good path.
+        }
     }
 
     // Windows 8.1 : per-monitor v1 via shcore.
@@ -233,7 +243,9 @@ static Void enableDpiAwareness()
             reinterpret_cast<PFN_SetProcessDpiAwareness>(
                 ::GetProcAddress(shcore, "SetProcessDpiAwareness"));
         if(setAwareness && SUCCEEDED(setAwareness(2 /*PROCESS_PER_MONITOR_DPI_AWARE*/)))
+        {
             return;
+        }
     }
 
     // Vista+ : system DPI aware.
@@ -243,7 +255,9 @@ static Void enableDpiAwareness()
 static UINT dpiForWindow(HWND hwnd)
 {
     if(getDpiForWindowFn)
+    {
         return getDpiForWindowFn(hwnd);
+    }
     HDC dc = ::GetDC(hwnd);
     UINT dpi = dc ? static_cast<UINT>(::GetDeviceCaps(dc, LOGPIXELSX)) : 96;
     if(dc)
@@ -256,9 +270,13 @@ static UINT dpiForWindow(HWND hwnd)
 static Void adjustRectForDpi(LPRECT rc, DWORD style, DWORD exStyle, UINT dpi)
 {
     if(adjustWindowRectExForDpiFn)
+    {
         adjustWindowRectExForDpiFn(rc, style, FALSE, exStyle, dpi);
+    }
     else
+    {
         ::AdjustWindowRectEx(rc, style, FALSE, exStyle);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +290,17 @@ static Bool workAreaFor(HWND hwnd, RECT* out)
     HMONITOR mon = hwnd ? ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
                         : ::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
     if(!mon)
+    {
         return false;
+    }
 
     MONITORINFO mi;
     ZeroMemory(&mi, sizeof(mi));
     mi.cbSize = sizeof(mi);
     if(!::GetMonitorInfoW(mon, &mi))
+    {
         return false;
+    }
 
     *out = mi.rcWork;
     return (out->right > out->left) && (out->bottom > out->top);
@@ -387,12 +409,16 @@ static Bool createDeviceD3D(HWND hwnd)
         D3D11_SDK_VERSION, &sd, &swapchain, &d3dDevice, &got, &d3dContext);
 
     if(hr == DXGI_ERROR_UNSUPPORTED)   // fall back to the WARP software rasteriser
+    {
         hr = D3D11CreateDeviceAndSwapChain(
             nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags, levels, 2,
             D3D11_SDK_VERSION, &sd, &swapchain, &d3dDevice, &got, &d3dContext);
+    }
 
     if(FAILED(hr))
+    {
         return false;
+    }
 
     createRenderTarget();
     return true;
@@ -432,7 +458,9 @@ static Bool appStarted = false;
 static Void shutdownAppOnce()
 {
     if(!appStarted)
+    {
         return;
+    }
     appStarted = false;
     app::shutdown();
 }
@@ -484,7 +512,9 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     if(ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
+    {
         return 1;
+    }
 
     switch(msg)
     {
@@ -500,14 +530,18 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_SIZE:
     {
         if(wparam == SIZE_MINIMIZED)
+        {
             return 0;
+        }
         // Queue it; resizing the swap chain mid-message-pump is unsafe. A zero
         // extent (minimise races, SIZE_MAXHIDE) must never reach ResizeBuffers:
         // a 0-sized buffer is invalid and drops the render target on the floor.
         const UINT w = static_cast<UINT>(LOWORD(lparam));
         const UINT h = static_cast<UINT>(HIWORD(lparam));
         if(w == 0 || h == 0)
+        {
             return 0;
+        }
         resizeW = w;
         resizeH = h;
         return 0;
@@ -544,14 +578,18 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
     case WM_SYSCOMMAND:
         if((wparam & 0xfff0) == SC_KEYMENU)    // swallow the ALT menu
+        {
             return 0;
+        }
         break;
 
     case WM_ENDSESSION:
         // The session really is ending; we may be killed the moment we return.
         // Stop the motor now rather than hoping to reach the loop's exit.
         if(wparam)
+        {
             shutdownAppOnce();
+        }
         return 0;
 
     case WM_DESTROY:
@@ -582,7 +620,9 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         HMONITOR mon = ::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
         monitorDpiScale = ImGui_ImplWin32_GetDpiScaleForMonitor(mon);
         if(monitorDpiScale <= 0.0f)
+        {
             monitorDpiScale = 1.0f;
+        }
         geometryDpiScale = monitorDpiScale * ui::userScale();
     }
 
@@ -716,10 +756,14 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
             if(msg.message == WM_QUIT)
+            {
                 done = true;
+            }
         }
         if(done)
+        {
             break;
+        }
 
         // Minimised or the screen is locked: don't burn a core spinning.
         if(occluded && swapchain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
@@ -735,7 +779,9 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
             resizeW = resizeH = 0;
             cleanupRenderTarget();
             if(SUCCEEDED(swapchain->ResizeBuffers(0, rw, rh, DXGI_FORMAT_UNKNOWN, 0)))
+            {
                 createRenderTarget();
+            }
         }
 
         // A failed resize (or a lost device) leaves us without a target; retry
@@ -779,12 +825,18 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
             const Float32 cur = ui::userScale();
             if(ImGui::IsKeyPressed(ImGuiKey_Equal, false) ||
                ImGui::IsKeyPressed(ImGuiKey_KeypadAdd, false))
+            {
                 ui::setUserScale(cur + ui::USER_SCALE_STEP);
+            }
             else if(ImGui::IsKeyPressed(ImGuiKey_Minus, false) ||
                     ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false))
+            {
                 ui::setUserScale(cur - ui::USER_SCALE_STEP);
+            }
             else if(ImGui::IsKeyPressed(ImGuiKey_0, false))
+            {
                 ui::setUserScale(1.0f);
+            }
         }
 
         ImGui::Render();

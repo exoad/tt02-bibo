@@ -127,7 +127,9 @@ namespace
 
           Array<Char, MAX_PATH> label= {};
           if(!GetVolumeInformationA(root.data(), label.data(), MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
+          {
               continue;   // an empty card reader: no volume, not an error
+          }
 
           if(_stricmp(label.data(), "RP2350") == 0 || _stricmp(label.data(), "RPI-RP2") == 0)
           {
@@ -348,10 +350,12 @@ namespace
   const FirmwareEntry* findEntry(const Vec<FirmwareEntry>& v, const Str& id)
   {
       for(const FirmwareEntry& e : v)
+      {
           if(e.id == id)
           {
               return &e;
           }
+      }
       return nullptr;
   }
 
@@ -389,7 +393,9 @@ Str PicoFlash::repoRoot()
 
     Array<Char, MAX_PATH> exe= {};
     if(GetModuleFileNameA(nullptr, exe.data(), MAX_PATH) == 0)
+    {
         return cached;
+    }
 
     Str dir(exe.data());
     Size slash = dir.find_last_of("\\/");
@@ -698,9 +704,13 @@ Void PicoFlash::refreshBoard()
                     // In BOOTSEL:  " name:          pico_debug"
                     //              " target chip:   RP2350"
                     if(t.rfind("name:", 0) == 0)
+                    {
                         b.program = trim(t.substr(5));
+                    }
                     else if(t.rfind("target chip:", 0) == 0)
+                    {
                         b.chip = trim(t.substr(12));
+                    }
 
                     // Running: "RP2350 device at bus 1, address 13 appears to
                     // have a USB serial connection". That line is picotool
@@ -725,15 +735,21 @@ Void PicoFlash::refreshBoard()
         }
 
         if(!b.present)
+        {
             pimpl().log("[board] nothing found: no RP2350/RPI-RP2 drive and no VID 2E8A port");
+        }
         else if(b.bootsel)
+        {
             pimpl().logf("[board] BOOTSEL on %s%s%s", b.drive.c_str(),
                         b.program.empty() ? "" : "  running: ",
                         b.program.c_str());
+        }
         else
+        {
             pimpl().logf("[board] %s running on %s",
                         b.chip.empty() ? "board" : b.chip.c_str(),
                         b.port.empty() ? "(no serial port)" : b.port.c_str());
+        }
 
         pimpl().boardQuerying.store(false);
     }).detach();

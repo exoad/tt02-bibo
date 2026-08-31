@@ -674,7 +674,9 @@ namespace
   {
       const Str txt = settings::read("panels.txt");
       if(txt.empty())
+      {
           return;
+      }
 
       // "w <px>" and "s <id> <floating>", one per line. Hand-written so a broken
       // file costs a default layout rather than a parser.
@@ -692,7 +694,9 @@ namespace
           {
               const Float64 v = std::atof(line.c_str() + 1);
               if(v >= SIDEBAR_MIN_W && v <= 1600.0)
+              {
                   sidebarLogicalW = static_cast<Float32>(v);
+              }
           }
           else if(line.size() > 2 && line[0] == 'k')
           {
@@ -701,7 +705,9 @@ namespace
               if(std::sscanf(line.c_str() + 1, "%lf %d", &v, &o) == 2)
               {
                   if(v >= CONSOLE_MIN_W && v <= 1600.0)
+                  {
                       consoleLogicalW = static_cast<Float32>(v);
+                  }
                   consoleOpen = (o != 0);
               }
           }
@@ -712,7 +718,9 @@ namespace
               if(std::sscanf(line.c_str() + 1, "%lf %d", &v, &c) == 2)
               {
                   if(v >= CODE_TREE_MIN_W && v <= CODE_TREE_MAX_W)
+                  {
                       codeTreeLogicalW = static_cast<Float32>(v);
+                  }
                   codeTreeCollapsed = (c != 0);
               }
           }
@@ -744,8 +752,12 @@ namespace
               used[order[k]] = true;
           }
           if(ok)
+          {
               for(Int32 k = 0; k < SECTION_COUNT; ++k)
+              {
                   sectionOrder[k] = order[k];
+              }
+          }
       }
   }
 
@@ -912,7 +924,9 @@ namespace
   {
       recFiles = rec::list();
       if(recFileIndex >= static_cast<Int32>(recFiles.size()))
+      {
           recFileIndex = 0;
+      }
   }
 
   // Which central view is on screen. 0 is the flat map, 1 is the 3D scene,
@@ -1795,7 +1809,9 @@ namespace
       }
 
       if(picoLog.size() > LOG_MAX)
+      {
           picoLog.erase(picoLog.begin(), picoLog.begin() + (picoLog.size() - LOG_MAX));
+      }
   }
 
   // Asks the board what it is doing, at most every couple of seconds.
@@ -2174,7 +2190,9 @@ namespace
 
           // Nearest return wins the sector - that is the obstacle that matters.
           if(sectorMm[s] == 0.0f || p.distMm < sectorMm[s])
+          {
               sectorMm[s] = p.distMm;
+          }
       }
 
       nInspec = n;
@@ -2185,7 +2203,10 @@ namespace
       qMax    = n ? qHi : 0;
 
       Int32 covered = 0;
-      for(Int32 i = 0; i < 360; ++i) if(binSeen[i]) ++covered;
+      for(Int32 i = 0; i < 360; ++i)
+      {
+          if(binSeen[i]) ++covered;
+      }
       coverageDeg = covered / 360.0f;
 
       qHistMax = 1.0f;
@@ -2202,7 +2223,9 @@ namespace
       // Capped, not scaled to the maximum: one open doorway at 8 m would
       // otherwise crush every near-field bar to invisibility.
       for(Int32 i = 0; i < SECTORS; ++i)
+      {
           sectorM[i] = std::min(sectorMm[i] / 1000.0f, CLEARANCE_CAP_M);
+      }
 
       if(hzCount < HISTORY)
       {
@@ -2606,8 +2629,10 @@ namespace
                            "script", "%s", ln.c_str());
       }
       if(flashLog.size() > FLASH_LOG_MAX)
+      {
           flashLog.erase(flashLog.begin(),
                             flashLog.begin() + (flashLog.size() - FLASH_LOG_MAX));
+      }
 
       // An operation ending changes the world: a build makes a .uf2 appear, a
       // flash changes what the board is running and takes its COM port away and
@@ -2705,13 +2730,17 @@ namespace
           // recording is exactly what was on screen and not a second sampling of
           // the device with its own timing.
           if(recArmed)
+          {
               recording.append(latestFrame, ImGui::GetTime() - recStartS);
+          }
 
           // Its view follows the live feed unless a recording is being played or
           // scrubbed - otherwise the tab would sit black until you pressed
           // something, and you could not frame a shot before capturing it.
           if(recArmed || (!recPlaying && recording.empty()))
+          {
               recView.push(latestFrame);
+          }
       }
 
       // Turning the layer off empties the map once rather than every frame, so the
@@ -2783,7 +2812,9 @@ namespace
       // Minimal has no HUD. It is the one mode whose subject is the picture, and
       // a status line over it is the difference between a display and a readout.
       if(!radarView.is3D && radarView.mode == MapMode::MAP_MODE_MINIMAL)
+      {
           return;
+      }
 
       ImDrawList* dl = ImGui::GetWindowDrawList();
       ImFont* f = ui::fonts.small ? ui::fonts.small : ImGui::GetFont();
@@ -2823,10 +2854,14 @@ namespace
       read[0] = '\0';
 
       if(radarView.measuring)
+      {
           std::snprintf(read.data(), read.size(), "measure   %.2f m", radarView.measureMm / 1000.0f);
+      }
       else if(radarView.cursorValid)
+      {
           std::snprintf(read.data(), read.size(), "%.1f deg   %.2f m",
                         radarView.cursorBearingDeg, radarView.cursorRangeMm / 1000.0f);
+      }
 
       if(read[0])
       {
@@ -2868,7 +2903,9 @@ namespace
           mx += f->CalcTextSizeA(px, FLT_MAX, 0.0f, mn).x + 12.0f * uiDpiScale;
 
           if(radarView.diag[0] != 0)
+          {
               dl->AddText(f, px, ImVec2(mx, my), ui::plot::LABEL, radarView.diag.data());
+          }
       }
   }
 
@@ -2959,7 +2996,9 @@ namespace
   Void barText(BarPen& p, const Char* text, ImU32 col)
   {
       if(text == nullptr || text[0] == 0)
+      {
           return;
+      }
 
       const ImVec2 sz = ImGui::CalcTextSize(text);
       p.dl->AddText(ImVec2(p.x, p.cy - sz.y * 0.5f), col, text);
@@ -3013,8 +3052,10 @@ namespace
       const Float32 spaceW = ImGui::CalcTextSize(" ").x;
       Int32 n = 3;
       if(spaceW > 0.0f)
+      {
           n = static_cast<Int32>(std::ceil((ui::iconSize()
                                             + ImGui::GetStyle().ItemInnerSpacing.x) / spaceW));
+      }
       if(n < 1)
       {
           n = 1;
@@ -3030,7 +3071,9 @@ namespace
   Void tabIcon(ui::Icon ic)
   {
       if(!ui::iconsReady())
+      {
           return;
+      }
       const ImVec2  a  = ImGui::GetItemRectMin();
       const ImVec2  b  = ImGui::GetItemRectMax();
       const Float32 sz = ui::iconSize();
@@ -3084,10 +3127,14 @@ namespace
 
       ImGui::BeginDisabled(atMin);
       if(ImGui::SmallButton("A-"))
+      {
           ui::setUserScale(ui::userScale() - ui::USER_SCALE_STEP);
+      }
       ImGui::EndDisabled();
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("Smaller  (Ctrl -)");
+      }
 
       // The percentage is text, so it centres on the line directly.
       //
@@ -3109,17 +3156,25 @@ namespace
       ImGui::SetCursorScreenPos(ImVec2(slot, cy - psz.y * 0.5f));
       ImGui::InvisibleButton("##zoompct", ImVec2(pctW, psz.y));
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("UI scale. Ctrl 0 resets it to 100%%.");
+      }
       if(ImGui::IsItemClicked())
+      {
           ui::setUserScale(1.0f);
+      }
 
       ImGui::SetCursorScreenPos(ImVec2(x0 + btnW + pctW + gap * 2.0f, cy - bh * 0.5f));
       ImGui::BeginDisabled(atMax);
       if(ImGui::SmallButton("A+"))
+      {
           ui::setUserScale(ui::userScale() + ui::USER_SCALE_STEP);
+      }
       ImGui::EndDisabled();
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("Bigger  (Ctrl +)");
+      }
 
       return x0;
   }
@@ -3145,12 +3200,16 @@ namespace
       // ---- lidar ----------------------------------------------------------
       Array<Char, 64> lidarExtra= {};
       if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
+      {
           std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s  %.1f Hz",
                         (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
                             ? lidarPorts[portIndex].c_str() : "",
                         haveFrame ? latestFrame.hz : 0.0f);
+      }
       else if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
+      {
           std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s", lidarPorts[portIndex].c_str());
+      }
 
       stripField(pen, ui::Icon::ICON_RADAR, "LIDAR", lidarStateColor(),
                  lidarStateText(), lidarExtra.data());
@@ -3169,13 +3228,19 @@ namespace
       stripSep(pen);
       const BoardStatus brd = picoFlash.board();
       if(brd.bootsel)
+      {
           stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::WARN, "BOOTSEL",
                      brd.drive.c_str());
+      }
       else if(brd.present)
+      {
           stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::GOOD, "Running",
                      brd.program.c_str());
+      }
       else
+      {
           stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::MUTED, "absent", "");
+      }
 
       // ---- long-running operation ------------------------------------------
       // Dropped rather than overlapped when the window is too narrow to hold it
@@ -3186,16 +3251,24 @@ namespace
       {
           stripSep(pen);
           if(fs == FlashState::FLASH_STATE_WORKING)
+          {
               stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::WARN, "running",
                          picoFlash.currentOp().c_str());
+          }
           else if(fs == FlashState::FLASH_STATE_SUCCESS)
+          {
               stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::GOOD, "done",
                          picoFlash.currentOp().c_str());
+          }
           else if(fs == FlashState::FLASH_STATE_FAILED)
+          {
               stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::BAD, "FAILED",
                          picoFlash.currentOp().c_str());
+          }
           else
+          {
               stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::MUTED, "idle", "");
+          }
       }
   }
 
@@ -3240,7 +3313,9 @@ namespace
 
       if(!ImGui::BeginTable("subsys", 3,
                              ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
+      {
           return;
+      }
 
       // The RPLIDAR deliberately has no row here. The Sensors section sits a few
       // lines below in this same column and is open by default, so a row saying
@@ -3252,9 +3327,12 @@ namespace
 
       const BoardStatus brd = picoFlash.board();
       if(brd.bootsel)
+      {
           subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::WARN, "BOOTSEL",
                        brd.drive.c_str());
+      }
       else if(brd.present)
+      {
           // The board NAME in the right column once the firmware has answered
           // ID, falling back to the chip until it does.
           //
@@ -3267,8 +3345,11 @@ namespace
                        debugStatus.boardName.empty()
                            ? brd.chip.c_str()
                            : debugStatus.boardName.c_str());
+      }
       else
+      {
           subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::MUTED, "absent", "", false);
+      }
 
       // Nothing below is connected, so nothing below reports a value.
       subsystemRow(ui::Icon::ICON_SERVO,   "Servo (GP0)",           ui::sem::MUTED, "not driven", "", false);
@@ -3432,14 +3513,18 @@ namespace
                                 spinning ? "Stop motor" : "Start motor",
                                 ImVec2(-FLT_MIN, bh),
                                 spinning ? ui::Tint::TINT_WARN : ui::Tint::TINT_GOOD))
+              {
                   lidarSource.setMotorEnabled(!spinning);
+              }
           }
           else
           {
               ImGui::BeginDisabled(lidarPorts.empty());
               if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect lidar",
                                 ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+              {
                   connect();
+              }
               ImGui::EndDisabled();
           }
 
@@ -3501,7 +3586,9 @@ namespace
               ImGui::BeginDisabled(!havePort);
               if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reboot to BOOTSEL...",
                             ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+              {
                   openBootsel = true;
+              }
               ImGui::EndDisabled();
           }
 
@@ -3521,8 +3608,10 @@ namespace
       // old unconditional "--" existed to stop a fixed-height panel jumping a
       // line, and in a column that scrolls it is just an unlabelled dash.
       if(bootselDone)
+      {
           colored(bootselOk ? ui::sem::GOOD : ui::sem::BAD,
                   bootselOk ? "BOOTSEL touch sent" : "BOOTSEL touch failed");
+      }
   }
 
   Void sectionSystem()
@@ -3555,9 +3644,13 @@ namespace
       ImGui::BeginDisabled(busy);
       ImGui::SetNextItemWidth(-FLT_MIN);
       if(portItems.empty())
+      {
           ImGui::TextDisabled("No serial ports found");
+      }
       else
+      {
           ui::combo("##port", &portIndex, portItems.data(), static_cast<Int32>(portItems.size()));
+      }
 
       // Drawn by hand rather than with ui::combo, because the point is that two
       // of the three rows are NOT selectable and a combo cannot say that.
@@ -3607,7 +3700,9 @@ namespace
           ImGui::BeginDisabled(lidarPorts.empty());
           if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect",
                             ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+          {
               connect();
+          }
           ImGui::EndDisabled();
       }
 
@@ -3664,7 +3759,9 @@ namespace
       const Bool hit = ui::segmentedButton(name, selected, rowSz, ui::Mark::MARK_LEFT_BAR);
       ImGui::PopStyleVar();
       if(hit && wired)
+      {
           selSensor = index;
+      }
 
       ImGui::SameLine();
       colored(col, "%s", state);
@@ -3678,9 +3775,13 @@ namespace
 
       Array<Char, 48> st;
       if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
+      {
           std::snprintf(st.data(), st.size(), "%.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
+      }
       else
+      {
           std::snprintf(st.data(), st.size(), "%s", lidarStateText());
+      }
 
       sensorRow(0, true, &layerLidar, "RPLIDAR C1", lidarStateColor(), st.data());
 
@@ -3712,7 +3813,9 @@ namespace
           std::snprintf(valid.data(), sizeof(valid.data()), "%d%%", static_cast<Int32>((frac * 100.0 + 0.5)));
 
           if(radarView.hasNearest)
+          {
               std::snprintf(nearS.data(), nearS.size(), "%.2f", radarView.nearestMm / 1000.0f);
+          }
           std::snprintf(meanS.data(), sizeof(meanS.data()), "%.2f", meanMm / 1000.0f);
           std::snprintf(maxS.data(),  sizeof(maxS.data()),  "%.2f", maxRangeMm / 1000.0f);
       }
@@ -3791,9 +3894,13 @@ namespace
       }
 
       if(nToofar > 0)
+      {
           ImGui::TextDisabled("beyond 12 m: %d", nToofar);
+      }
       else
+      {
           ImGui::TextDisabled("beyond 12 m: none");
+      }
 
       ImGui::Spacing();
 
@@ -3922,18 +4029,26 @@ namespace
 
       if(ui::segmentedIconButton(ui::Icon::ICON_SCENE_FIT, "Car", isCar,
                                  ImVec2(w, 0.0f)))
+      {
           radarView.ego = scene3d::EgoView::EGO_VIEW_CAR;
+      }
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("The TT-02, to scale: 442 x 186 mm.\n"
                             "What will be there once it is built.");
+      }
 
       ImGui::SameLine();
       if(ui::segmentedIconButton(ui::Icon::ICON_RADAR, "Sensor", !isCar,
                                  ImVec2(w, 0.0f)))
+      {
           radarView.ego = scene3d::EgoView::EGO_VIEW_SENSOR;
+      }
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("The RPLIDAR C1 alone, to scale: 55.6 x 55.6 x 41.3 mm.\n"
                             "What is actually on the desk.");
+      }
 
       ImGui::PopID();
   }
@@ -3955,7 +4070,9 @@ namespace
           ImGui::SameLine();
 
           if(ui::iconButton(ui::Icon::ICON_RESET_VIEW, "Reset camera"))
+          {
               radarView.cam = scene3d::Camera{};
+          }
 
           ImGui::SameLine();
           ImGui::TextUnformatted("|");
@@ -3972,18 +4089,26 @@ namespace
 
           if(ui::segmentedIconButton(ui::Icon::ICON_SCENE_FIT, "Car",
                                      radarView.cam.lockToCar, ImVec2(lockW, 0.0f)))
+          {
               radarView.cam.lockToCar = true;
+          }
           if(ImGui::IsItemHovered())
+          {
               ImGui::SetTooltip("The car stays centred. Orbit and zoom still work; "
                                 "panning does not, because that is what locked means.");
+          }
 
           ImGui::SameLine();
           if(ui::segmentedIconButton(ui::Icon::ICON_DIM_3D, "World",
                                      !radarView.cam.lockToCar, ImVec2(lockW, 0.0f)))
+          {
               radarView.cam.lockToCar = false;
+          }
           if(ImGui::IsItemHovered())
+          {
               ImGui::SetTooltip("Free camera. Right-drag pans anywhere and the car "
                                 "can leave the frame.");
+          }
 
           ImGui::PopID();
 
@@ -4009,7 +4134,9 @@ namespace
 
       ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
       if(ui::combo("##range", &rangeIndex, RANGE_ITEMS.data(), RANGE_COUNT))
+      {
           applyRange();
+      }
 
       ImGui::SameLine();
       ImGui::TextUnformatted("|");
@@ -4129,14 +4256,20 @@ namespace
       // Transport, then playback. The recorder does not get the render-mode strip:
       // it is a Points view on purpose - see drawRecorderControls.
       if(view == 2)
+      {
           return 2;
+      }
 
       // Code: files on one row, build/flash on the next.
       if(view == 3)
+      {
           return 2;
+      }
 
       if(view == 0 || view == 1)
+      {
           return modeToggleRows() + 1;   // render modes, then the map controls
+      }
 
       // The board views have nothing to configure yet. When one of them grows a
       // control - a pin filter, a package outline toggle - it declares its rows
@@ -4151,7 +4284,9 @@ namespace
   {
       const Int32 rows = centralControlRows(view);
       if(rows <= 0)
+      {
           return 0.0f;
+      }
 
       const ImGuiStyle& sty = ImGui::GetStyle();
       const Float32 n = static_cast<Float32>(rows);
@@ -4161,7 +4296,9 @@ namespace
 
       if((view == 0 || view == 1)
          && modeToggleScrolls(contentW - sty.WindowPadding.x * 2.0f))
+      {
           h += sty.ScrollbarSize;
+      }
 
       return h;
   }
@@ -4211,7 +4348,9 @@ namespace
 
       ImGui::TextUnformatted(name);
       if(ui::fonts.small != nullptr)
+      {
           ImGui::PushFont(ui::fonts.small, ui::fonts.small->LegacySize);
+      }
 
       ImGui::Spacing();
       ImGui::TextUnformatted(what);
@@ -4222,7 +4361,9 @@ namespace
       ImGui::PopStyleColor();
 
       if(ui::fonts.small != nullptr)
+      {
           ImGui::PopFont();
+      }
       ImGui::PopTextWrapPos();
       ImGui::EndTooltip();
   }
@@ -4230,7 +4371,9 @@ namespace
   Void sceneTooltip(scene3d::SceneMode m)
   {
       if(!ImGui::IsItemHovered())
+      {
           return;
+      }
       const scene3d::SceneModeInfo& i = scene3d::sceneModeInfo(m);
       modeTooltipBody(i.name, i.what, i.read);
   }
@@ -4238,7 +4381,9 @@ namespace
   Void modeTooltip(MapMode m)
   {
       if(!ImGui::IsItemHovered())
+      {
           return;
+      }
 
       const MapModeInfo& info = mapModeInfo(m);
 
@@ -4247,7 +4392,9 @@ namespace
 
       ImGui::TextUnformatted(info.name);
       if(ui::fonts.small != nullptr)
+      {
           ImGui::PushFont(ui::fonts.small, ui::fonts.small->LegacySize);
+      }
 
       ImGui::Spacing();
       ImGui::TextUnformatted(info.what);
@@ -4258,7 +4405,9 @@ namespace
       ImGui::PopStyleColor();
 
       if(ui::fonts.small != nullptr)
+      {
           ImGui::PopFont();
+      }
       ImGui::PopTextWrapPos();
       ImGui::EndTooltip();
   }
@@ -4316,9 +4465,13 @@ namespace
                                     / static_cast<Float32>(rowN);
 
           if(col)
+          {
               ImGui::SameLine(0.0f, gap);
+          }
           else if(second)
+          {
               ImGui::SetCursorPosX(modeX);
+          }
 
           ImGui::PushID(i);
 
@@ -4331,7 +4484,9 @@ namespace
 
               if(ui::segmentedIconButton(ic, scene3d::sceneModeName(m),
                                          radarView.scene == m, ImVec2(cellW, 0.0f)))
+              {
                   radarView.scene = m;
+              }
               sceneTooltip(m);
           }
           else
@@ -4346,7 +4501,9 @@ namespace
 
               if(ui::segmentedIconButton(ic, mapModeName(m),
                                          radarView.mode == m, ImVec2(cellW, 0.0f)))
+              {
                   radarView.mode = m;
+              }
               modeTooltip(m);
           }
 
@@ -4372,7 +4529,9 @@ namespace
   {
       ImDrawList* dl = ImGui::GetWindowDrawList();
       if(dl == nullptr)
+      {
           return;
+      }
 
       const Float32 pad = 8.0f * uiDpiScale;
       ImFont* f = ui::fonts.small ? ui::fonts.small : ImGui::GetFont();
@@ -4416,7 +4575,9 @@ namespace
       if(recArmed)
       {
           if(ui::iconButton(ui::Icon::ICON_PAUSE, "Stop"))
+          {
               recArmed = false;
+          }
       }
       else
       {
@@ -4437,7 +4598,9 @@ namespace
       }
       ImGui::EndDisabled();
       if(!live && !recArmed && ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("The lidar is not scanning. Connect it first.");
+      }
 
       ImGui::SameLine();
       ImGui::BeginDisabled(recording.empty() || recArmed);
@@ -4493,7 +4656,9 @@ namespace
           static Vec<const Char*> items;
           items.clear();
           for(const Str& f : recFiles)
+          {
               items.push_back(f.c_str());
+          }
           ui::combo("##recfile", &recFileIndex, items.data(),
                     static_cast<Int32>(items.size()));
       }
@@ -4526,7 +4691,9 @@ namespace
 
       ImGui::SameLine();
       if(ui::iconButton(ui::Icon::ICON_REFRESH, "Rescan"))
+      {
           refreshRecordings();
+      }
 
       // ---- row 2: playback and readout ------------------------------------
       ImGui::BeginDisabled(recording.empty() || recArmed);
@@ -4534,7 +4701,9 @@ namespace
       if(recPlaying)
       {
           if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause"))
+          {
               recPlaying = false;
+          }
       }
       else
       {
@@ -4544,7 +4713,9 @@ namespace
               // Replaying from the end restarts, rather than sitting there doing
               // nothing and looking broken.
               if(recPlayS >= recording.durationS() - 1e-3)
+              {
                   recPlayS = 0.0;
+              }
               recPlaying = true;
           }
       }
@@ -4608,9 +4779,13 @@ namespace
   Bool saveSketch()
   {
       if(codeName.empty())
+      {
           codeName = sketch::makeName();
+      }
       if(codePath.empty())
+      {
           codePath = sketch::pathOf(codeName);
+      }
 
       const Str text = codeEditor.text();
       Str       err;
@@ -4639,7 +4814,9 @@ namespace
   Void openCodeFile(const Str& path, const Str& name)
   {
       if(codeEditor.dirty() && !codePath.empty())
+      {
           saveSketch();
+      }
 
       // Marks the view as loaded even though it may never have been drawn. Its
       // first draw otherwise runs a lazy init that picks the first sketch in the
@@ -4695,7 +4872,9 @@ namespace
               panelLayoutDirty  = true;
           }
           if(ImGui::IsItemHovered())
+          {
               ImGui::SetTooltip("Show the file tree");
+          }
 
           ImGui::EndChild();
           ImGui::PopStyleColor();
@@ -4708,7 +4887,9 @@ namespace
           panelLayoutDirty  = true;
       }
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("Hide the file tree");
+      }
 
       ImGui::SameLine();
       ImGui::TextDisabled("Files");
@@ -5099,7 +5280,9 @@ namespace
   {
       const Str cmd = codeEditor.takeSubmittedCommand();
       if(cmd.empty())
+      {
           return;
+      }
 
       if(cmd == "w" || cmd == "wq" || cmd == "x")
       {
@@ -5135,7 +5318,9 @@ namespace
 
       // ---- row 1: which sketch, and the file operations --------------------
       if(ui::iconButton(ui::Icon::ICON_SAVE, "Save"))
+      {
           saveSketch();
+      }
 
       // ---- there is no "New" any more --------------------------------------
       //
@@ -8873,14 +9058,18 @@ namespace
       {
           if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Disconnect",
                             ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+          {
               picoLink.disconnect();
+          }
       }
       else
       {
           ImGui::BeginDisabled(picoIndex < 0);
           if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect",
                             ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+          {
               connectPico();
+          }
           ImGui::EndDisabled();
       }
 
@@ -9153,7 +9342,9 @@ namespace
           if(ui::segmentedIconButton(HEAD_ICONS[i], HEADS[i].label,
                                      lightInput.head == HEADS[i].v,
                                      ImVec2(third, 0.0f)))
+          {
               lightInput.head = HEADS[i].v;
+          }
       }
 
       ImGui::Spacing();
@@ -9198,21 +9389,27 @@ namespace
           }
 
           if(hit)
+          {
               lightInput.turn = TURNS[i].v;
+          }
       }
 
       ImGui::Spacing();
       ui::checkbox("Brake", &lightInput.brake);
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip("Tail and brake are the same red lamp - 30%% and 100%%.\n"
                             "With an indicator running, that side alternates and the\n"
                             "other stays solid. Try Brake with Right.");
+      }
       ImGui::SameLine();
       ui::checkbox("Reverse", &lightInput.reverse);
 
       ImGui::Spacing();
       if(ui::iconButton(ui::Icon::ICON_CLEAR, "All off"))
+      {
           lightInput = lights::Input{};
+      }
 
       ImGui::EndDisabled();
   }
@@ -9535,7 +9732,9 @@ namespace
           }
 
           if(flashAutoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+          {
               ImGui::SetScrollHereY(1.0f);
+          }
       }
       ImGui::EndChild();
 
@@ -9562,12 +9761,18 @@ namespace
           ImGui::AlignTextToFramePadding();
 
           if(brd.bootsel)
+          {
               colored(ui::sem::WARN, "BOOTSEL  -  %s", brd.drive.c_str());
+          }
           else if(brd.present)
+          {
               colored(ui::sem::GOOD, "Running  -  %s",
                       brd.port.empty() ? "no serial port" : brd.port.c_str());
+          }
           else
+          {
               colored(ui::sem::MUTED, "No board found");
+          }
       }
 
       ImGui::SameLine(ImGui::GetContentRegionAvail().x - refreshW);
@@ -9585,13 +9790,19 @@ namespace
           ScopedFont sf(ui::fonts.small);
 
           if(brd.present && !brd.bootsel)
+          {
               ImGui::TextDisabled("%s%s%s", brd.chip.c_str(),
                                   brd.program.empty() ? "" : "   ", brd.program.c_str());
+          }
           else if(brd.bootsel)
+          {
               ImGui::TextDisabled("%s%sbootloader",
                                   brd.chip.c_str(), brd.chip.empty() ? "" : "   ");
+          }
           else
+          {
               ImGui::TextDisabled("--");
+          }
       }
 
       // ---- current operation ------------------------------------------------
@@ -9639,7 +9850,9 @@ namespace
       }
       ImGui::SameLine();
       if(ui::iconButton(ui::Icon::ICON_REBOOT, "Normally", ImVec2(half, bh)))
+      {
           releasePicoPortForBoardOp();
+      }
           picoFlash.rebootNormal();
       ImGui::EndDisabled();
 
@@ -9676,7 +9889,9 @@ namespace
       Bool openConfirm = false;
 
       if(cat.empty())
+      {
           colored(ui::sem::WARN, "catalog.txt: no entries");
+      }
 
       for(const FirmwareEntry& e : cat)
       {
@@ -9721,10 +9936,14 @@ namespace
 
           ImGui::BeginDisabled(busy || !e.buildable);
           if(ui::iconButton(ui::Icon::ICON_BUILD, "Build", ImVec2(half, bh)))
+          {
               picoFlash.build(e.id);
+          }
           ImGui::EndDisabled();
           if(!e.buildable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+          {
               ImGui::SetTooltip("No source for this in the repo - the .uf2 is all there is.");
+          }
 
           ImGui::SameLine();
 
@@ -9784,7 +10003,9 @@ namespace
           ImGui::Separator();
 
           if(ui::button("Cancel", ImVec2(150.0f * uiDpiScale, bh)))
+          {
               ImGui::CloseCurrentPopup();
+          }
 
           ImGui::SameLine();
           // Red: this is the point of no return - it overwrites the board.
@@ -9951,14 +10172,18 @@ namespace
           const Int32 hidden = static_cast<Int32>(picoLog.size())
                              - static_cast<Int32>(logShown.size());
           if(hidden > 0)
+          {
               ImGui::TextDisabled("%d of %d lines   -   %d hidden   -   %llu sent / %llu received",
                                   static_cast<Int32>(logShown.size()),
                                   static_cast<Int32>(picoLog.size()), hidden,
                                   picoLink.txLines(), picoLink.rxLines());
+          }
           else
+          {
               ImGui::TextDisabled("%d lines   -   %llu sent / %llu received",
                                   static_cast<Int32>(picoLog.size()),
                                   picoLink.txLines(), picoLink.rxLines());
+          }
       }
 
       // ---- the screen -------------------------------------------------------
@@ -10091,7 +10316,9 @@ namespace
       // Sticks to the bottom only while the view already is at the bottom, so
       // scrolling up to read something does not yank you back.
       if(logAutoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+      {
           ImGui::SetScrollHereY(1.0f);
+      }
       }
 
       ImGui::EndChild();
@@ -10180,7 +10407,9 @@ namespace
           ImGui::Separator();
 
           if(ui::button("Cancel", ImVec2(150.0f * uiDpiScale, bh)))
+          {
               ImGui::CloseCurrentPopup();
+          }
 
           ImGui::SameLine();
           if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reboot to BOOTSEL",
@@ -10224,8 +10453,12 @@ namespace
   const SectionEntry& sectionById(Int32 id)
   {
       for(const SectionEntry& e : SECTIONS)
+      {
           if(e.id == id)
+          {
               return e;
+          }
+      }
       return SECTIONS[0];
   }
 
@@ -10235,19 +10468,25 @@ namespace
   Void moveSection(Int32 from, Int32 to)
   {
       if(from == to || from < 0 || to < 0 || from >= SECTION_COUNT || to >= SECTION_COUNT)
+      {
           return;
+      }
 
       const Int32 moved = sectionOrder[from];
       if(from < to)
+      {
           for(Int32 k = from; k < to; ++k)
           {
               sectionOrder[k] = sectionOrder[k + 1];
           }
+      }
       else
+      {
           for(Int32 k = from; k > to; --k)
           {
               sectionOrder[k] = sectionOrder[k - 1];
           }
+      }
 
       sectionOrder[to]   = moved;
       panelLayoutDirty   = true;
@@ -10279,8 +10518,10 @@ namespace
       ImGui::PushID(id);
       const Bool hit = ImGui::Button(lbl, ImVec2(w, 0.0f));
       if(ImGui::IsItemHovered())
+      {
           ImGui::SetTooltip(floating ? "Put this panel back in the column"
                                      : "Tear this panel off into its own window");
+      }
       ImGui::PopID();
       return hit;
   }
@@ -10363,10 +10604,14 @@ namespace
       // held while alt-tabbing away does not arrive here later. The test is
       // belt-and-braces for the frame focus is actually lost on.
       if(io.AppFocusLost || typing)
+      {
           return;
+      }
 
       if(ImGui::IsKeyPressed(ImGuiKey_Space, false))
+      {
           emergencyStop("space");
+      }
   }
 
   Void drawEmergencyStop(Float32 width)
@@ -10449,10 +10694,12 @@ namespace
               const ImVec2 a2 = ImGui::GetItemRectMin();
               const ImVec2 b2 = ImGui::GetItemRectMax();
               if(ui::iconsReady())
+              {
                   ui::iconAt(ImGui::GetWindowDrawList(), e.icon,
                              ImVec2(a2.x + ImGui::GetStyle().FramePadding.x
                                          + ImGui::GetFontSize() * 1.35f,
                                     a2.y + ((b2.y - a2.y) - ui::iconSize()) * 0.5f));
+              }
 
               if(tearOffButton(e.id, true))
               {
@@ -10498,10 +10745,12 @@ namespace
           // CollapsingHeader takes a string, and putting an image inside it would
           // mean hand-rolling the whole widget to get one 16px picture in.
           if(ui::iconsReady())
+          {
               ui::iconAt(ImGui::GetWindowDrawList(), e.icon,
                          ImVec2(hp.x + ImGui::GetStyle().FramePadding.x
                                      + ImGui::GetFontSize() * 1.35f,
                                 hp.y + ((hq.y - hp.y) - ui::iconSize()) * 0.5f));
+          }
 
           if(tearOffButton(e.id, false))
           {
@@ -10528,7 +10777,9 @@ namespace
       // Applied after the loop: reordering mid-iteration would draw a section
       // twice or not at all in the frame it moved.
       if(dragFrom >= 0)
+      {
           moveSection(dragFrom, dragTo);
+      }
       ImGui::EndChild();
 
       ImGui::EndChild();
@@ -10542,7 +10793,9 @@ namespace
       {
           const SectionEntry& e = sectionById(sectionOrder[slot]);
           if(!sectionFloating[e.id])
+          {
               continue;
+          }
 
           // First appearance only. After that ImGui's own ini has the position the
           // user dragged it to, and forcing one would undo their arrangement on
@@ -10608,7 +10861,9 @@ namespace
 
       const Bool active = ImGui::IsItemActive();
       if(active || ImGui::IsItemHovered())
+      {
           ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
 
       if(active)
       {
@@ -10631,8 +10886,10 @@ namespace
       const Float32 cy = at.y + h * 0.5f;
       const Float32 r  = 1.5f * uiDpiScale;
       for(Int32 k = -1; k <= 1; ++k)
+      {
           dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
                               r, col, 8);
+      }
   }
 
   Float32 sidebarWidth(Float32 availW)
@@ -10663,7 +10920,9 @@ namespace
 
       const Bool active = ImGui::IsItemActive();
       if(active || ImGui::IsItemHovered())
+      {
           ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
 
       if(active)
       {
@@ -10690,8 +10949,10 @@ namespace
       const Float32 cy = at.y + h * 0.5f;
       const Float32 r  = 1.5f * uiDpiScale;
       for(Int32 k = -1; k <= 1; ++k)
+      {
           dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
                               r, col, 8);
+      }
   }
 
   // The drag handle between the Code view's file tree and the editor.
@@ -10709,7 +10970,9 @@ namespace
 
       const Bool active = ImGui::IsItemActive();
       if(active || ImGui::IsItemHovered())
+      {
           ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
 
       if(active)
       {
@@ -10733,8 +10996,10 @@ namespace
       const Float32 cy = at.y + h * 0.5f;
       const Float32 r  = 1.5f * uiDpiScale;
       for(Int32 k = -1; k <= 1; ++k)
+      {
           dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
                               r, col, 8);
+      }
   }
 
 } // namespace
@@ -10789,6 +11054,7 @@ Void app::init(Float32 dpiScale)
         if(std::strcmp(__argv[i], "--map") == 0 && i + 1 < __argc)
         {
             for(Int32 m = 0; m < static_cast<Int32>(MapMode::MAP_MODE_COUNT); ++m)
+            {
                 if(_stricmp(__argv[i + 1], mapModeName(static_cast<MapMode>(m))) == 0)
                 {
                     radarView.mode  = static_cast<MapMode>(m);
@@ -10797,6 +11063,7 @@ Void app::init(Float32 dpiScale)
                     forceViewFrames = 4;
                     centralView     = 0;
                 }
+            }
             continue;
         }
 
@@ -10806,6 +11073,7 @@ Void app::init(Float32 dpiScale)
         {
             for(Int32 m = 0;
                 m < static_cast<Int32>(scene3d::SceneMode::SCENE_MODE_COUNT); ++m)
+            {
                 if(_stricmp(__argv[i + 1],
                             scene3d::sceneModeName(static_cast<scene3d::SceneMode>(m))) == 0)
                 {
@@ -10815,6 +11083,7 @@ Void app::init(Float32 dpiScale)
                     forceViewFrames = 4;
                     centralView     = 1;
                 }
+            }
             continue;
         }
 
@@ -10904,12 +11173,14 @@ Void app::init(Float32 dpiScale)
             }
 
             for(const TabName& t : TAB_NAMES)
+            {
                 if(_stricmp(__argv[i + 1], t.name) == 0)
                 {
                     forceSection    = t.sec;
                     forceSub        = t.sub;
                     forceTabFrames = 4;
                 }
+            }
             continue;
         }
 
@@ -10918,8 +11189,12 @@ Void app::init(Float32 dpiScale)
         {
             const Float32 m = static_cast<Float32>(std::atof(__argv[i + 1]));
             for(Int32 k = 0; k < RANGE_COUNT; ++k)
+            {
                 if(RANGES[k].mm > 0.0f && std::fabs(RANGES[k].mm - m * 1000.0f) < 1.0f)
+                {
                     rangeIndex = k;
+                }
+            }
             applyRange();
             continue;
         }
@@ -11298,10 +11573,12 @@ Void app::frame()
         lf.points = r.points;
         lf.hz     = r.hz;
         for(const LidarPoint& p : lf.points)
+        {
             if(p.distMm > 0.0f)
             {
                 ++lf.validCount;
             }
+        }
         recView.push(lf);
     }
 

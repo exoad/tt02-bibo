@@ -146,7 +146,9 @@ namespace ui
     {
         WCHAR wide[MAX_PATH];
         if(::MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, MAX_PATH) == 0)
+        {
             return false;
+        }
 
         IWICBitmapDecoder*     dec   = nullptr;
         IWICBitmapFrameDecode* frame = nullptr;
@@ -214,16 +216,22 @@ namespace ui
   Bool assetPath(const Char* relative, Char* out, Size cap)
   {
       if(relative == nullptr || out == nullptr || cap == 0)
+      {
           return false;
+      }
 
       Array<Char, MAX_PATH> exe;
       const DWORD n = ::GetModuleFileNameA(nullptr, exe.data(), MAX_PATH);
       if(n == 0 || n >= MAX_PATH)
+      {
           return false;
+      }
 
       Char* slash = std::strrchr(exe.data(), '\\');
       if(slash == nullptr)
+      {
           return false;
+      }
       *slash = 0;
 
       const Char* const LAYOUTS[] = {
@@ -235,7 +243,9 @@ namespace ui
       {
           std::snprintf(out, cap, fmt, exe.data(), relative);
           if(::GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES)
+          {
               return true;
+          }
       }
 
       // Neither exists. Leave the FIRST candidate in `out` so a caller that logs
@@ -250,11 +260,15 @@ namespace ui
 
       releaseIcons();
       if(device == nullptr)
+      {
           return;
+      }
 
       Array<Char, MAX_PATH> dir;
       if(!assetDir(dir.data(), dir.size()))
+      {
           return;
+      }
 
       const Int32 rows = (COUNT + COLS - 1) / COLS;
       atlasW = COLS * SRC;
@@ -271,7 +285,9 @@ namespace ui
       }
       if(FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                    IID_PPV_ARGS(&wic))))
+      {
           return;
+      }
 
       Vec<UInt8> px;
       Int32 loaded = 0;
@@ -282,9 +298,13 @@ namespace ui
 
           UInt32 w = 0, h = 0;
           if(!decodePng(wic, path.data(), px, w, h))
+          {
               continue;
+          }
           if(w != static_cast<UInt32>(SRC) || h != static_cast<UInt32>(SRC))
+          {
               continue;   // not the art we expect; skip rather than stretch it
+          }
 
           const Int32 dx = (static_cast<Int32>(FILES[i].id) % COLS) * SRC;
           const Int32 dy = (static_cast<Int32>(FILES[i].id) / COLS) * SRC;
@@ -340,12 +360,16 @@ namespace ui
   ImTextureID loadTexture(ID3D11Device* device, const Char* path)
   {
       if(device == nullptr || path == nullptr)
+      {
           return 0;
+      }
 
       IWICImagingFactory* wic = nullptr;
       if(FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                    IID_PPV_ARGS(&wic))) || wic == nullptr)
+      {
           return 0;
+      }
 
       Vec<UInt8> px;
       UInt32 w = 0, h = 0;
@@ -353,7 +377,9 @@ namespace ui
       wic->Release();
 
       if(!ok || w == 0 || h == 0)
+      {
           return 0;
+      }
 
       D3D11_TEXTURE2D_DESC td = {};
       td.Width            = w;
@@ -371,7 +397,9 @@ namespace ui
 
       ID3D11Texture2D* tex = nullptr;
       if(FAILED(device->CreateTexture2D(&td, &sd, &tex)))
+      {
           return 0;
+      }
 
       ID3D11ShaderResourceView* srv = nullptr;
       if(FAILED(device->CreateShaderResourceView(tex, nullptr, &srv)))
@@ -444,7 +472,9 @@ namespace ui
   Void iconAt(ImDrawList* dl, Icon ic, const ImVec2& pos, ImU32 tint)
   {
       if(!iconsReady() || dl == nullptr || ic >= Icon::ICON_COUNT)
+      {
           return;
+      }
       const Float32 s = iconSize();
       ImVec2 uv0, uv1;
       uvFor(ic, uv0, uv1);
@@ -479,7 +509,9 @@ namespace ui
       const Bool hit = button(label, sz2, tint);
 
       if(autoW)
+      {
           ImGui::PopStyleVar();
+      }
 
       if(iconsReady())
       {
@@ -495,7 +527,9 @@ namespace ui
               || (x + sz < (a.x + b.x) * 0.5f - ImGui::CalcTextSize(label).x * 0.5f);
 
           if(fits)
+          {
               iconAt(ImGui::GetWindowDrawList(), ic, ImVec2(x, y));
+          }
       }
       return hit;
   }
@@ -576,13 +610,17 @@ namespace ui
       // top of the line box, which is where ImGui::Image would otherwise put it.
       const Float32 drop = (ImGui::GetTextLineHeight() - iconSize()) * 0.5f;
       if(drop > 0.0f)
+      {
           ImGui::SetCursorPosY(ImGui::GetCursorPosY() + drop);
+      }
 
       icon(ic);
       ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 
       if(drop > 0.0f)
+      {
           ImGui::SetCursorPosY(ImGui::GetCursorPosY() - drop);
+      }
   }
 
 } // namespace ui

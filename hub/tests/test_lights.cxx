@@ -102,7 +102,9 @@ namespace
           const Float64 t = static_cast<Float64>(i) * (lights::BLINK_PERIOD_S / 37.0);
           const lights::Lamps l = lights::solve(in, t);
           if(l.indFL != l.indRL)
+          {
               everDiffered = true;
+          }
       }
       check(!everDiffered, "front and rear left never disagree");
   }
@@ -121,7 +123,9 @@ namespace
           const Float64 t = static_cast<Float64>(i) * (lights::BLINK_PERIOD_S / 37.0);
           const lights::Lamps l = lights::solve(in, t);
           if(l.indFL != l.indFR || l.indRL != l.indRR)
+          {
               everDiffered = true;
+          }
           if(l.indFL > 0.5f)
           {
               sawOn = true;

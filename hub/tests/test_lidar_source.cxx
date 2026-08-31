@@ -93,10 +93,12 @@ Int32 main(Int32 argc, Char** argv)
 
     Bool portListed = false;
     for(const Str& p : ports)
+    {
         if(p == port)
         {
             portListed = true;
         }
+    }
     std::printf("\n");
 
     // ---- start ------------------------------------------------------------
@@ -242,8 +244,10 @@ Int32 main(Int32 argc, Char** argv)
     std::printf("  ran %.1fs, %d frames total (%d spin-up, %d steady)\n",
                 secs, frames, frames < SPIN_UP_FRAMES ? frames : SPIN_UP_FRAMES, steady);
     if(warmPtsMax)
+    {
         std::printf("  spin-up: points %d..%d, peak hz %.2f (expected, motor accelerating)\n",
                     warmPtsMin, warmPtsMax, warmHzMax);
+    }
     std::printf("  steady : hz avg %.2f | points avg %.0f (min %d max %d) | valid avg %.1f%%\n",
                 avgHz, avgPts, steady ? ptsMin : 0, ptsMax, avgValidPct);
     std::printf("\n");

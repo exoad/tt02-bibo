@@ -66,7 +66,9 @@ namespace ed
       {
           const Char c = t[i];
           if(c == '\r')
+          {
               continue;                    // CRLF in, LF held internally
+          }
           if(c == '\n')
           {
               lines.push_back(acc); acc.clear(); continue;;
@@ -92,7 +94,9 @@ namespace ed
       {
           out += lines[i];
           if(i + 1 < lines.size())
+          {
               out.push_back('\n');
+          }
       }
       return out;
   }
@@ -106,7 +110,9 @@ namespace ed
   {
       static const Str empty;
       if(i < 0 || i >= lineCount())
+      {
           return empty;
+      }
       return lines[static_cast<Size>(i)];
   }
 
@@ -121,7 +127,9 @@ namespace ed
   {
       md = m;
       if(m != Mode::MODE_COMMAND)
+      {
           cmdLine.clear();
+      }
       if(m == Mode::MODE_NORMAL)
       {
           pendCount   = 0;
@@ -151,12 +159,16 @@ namespace ed
   Bool Editor::selection(Cursor& from, Cursor& to) const
   {
       if(md != Mode::MODE_VISUAL && md != Mode::MODE_VISUAL_LINE)
+      {
           return false;
+      }
 
       Cursor a = visAnchor;
       Cursor b = cur;
       if(before(b, a))
+      {
           std::swap(a, b);
+      }
 
       if(md == Mode::MODE_VISUAL_LINE)
       {
@@ -178,7 +190,9 @@ namespace ed
   Void Editor::clampCursor()
   {
       if(lines.empty())
+      {
           lines.push_back(Str());
+      }
 
       cur.line = std::max(0, std::min(cur.line, lineCount() - 1));
 
@@ -196,7 +210,9 @@ namespace ed
       const Str& s = line(lineIdx);
       Int32 i = 0;
       while(i < static_cast<Int32>(s.size()) && space(s[static_cast<Size>(i)]))
+      {
           ++i;
+      }
       return i;
   }
 
@@ -209,7 +225,9 @@ namespace ed
       s.cur   = cur;
       undoStack.push_back(std::move(s));
       if(undoStack.size() > MAX_UNDO)
+      {
           undoStack.erase(undoStack.begin());
+      }
 
       redoStack.clear();   // a new edit invalidates the redo branch
       dirtyFlag = true;
@@ -279,7 +297,9 @@ namespace ed
       {
           const Char prev = (cur.col > 0) ? s[static_cast<Size>(cur.col - 1)] : '\0';
           if(wordChar(prev) || prev == '\\')
+          {
               pair = false;
+          }
       }
       else if(close != 0)
       {
@@ -287,14 +307,18 @@ namespace ed
           // end of the line. Typing `(` before existing text usually means
           // wrapping it, and an injected `)` would land in the wrong place.
           if(next != '\0' && !space(next) && !isCloser(next) && next != ',')
+          {
               pair = false;
+          }
       }
 
       s.insert(static_cast<Size>(cur.col), 1, c);
       ++cur.col;
 
       if(pair)
+      {
           s.insert(static_cast<Size>(cur.col), 1, close);
+      }
 
       // A closing brace typed on a line that is otherwise blank re-indents to
       // match its opener's level. This is the one piece of "smart" indentation
@@ -304,7 +328,9 @@ namespace ed
           Int32 firstNonSpace = 0;
           while(firstNonSpace < static_cast<Int32>(s.size())
                 && space(s[static_cast<Size>(firstNonSpace)]))
+          {
               ++firstNonSpace;
+          }
 
           if(firstNonSpace == cur.col - 1)
           {
@@ -317,7 +343,10 @@ namespace ed
                                                      : static_cast<Int32>(t.size()) - 1;
                   for(Int32 i = from; i >= 0; --i)
                   {
-                      if(t[static_cast<Size>(i)] == '}') ++depth;
+                      if(t[static_cast<Size>(i)] == '}')
+                      {
+                          ++depth;
+                      }
                       else if(t[static_cast<Size>(i)] == '{')
                       {
                           if(depth == 0)
@@ -365,7 +394,9 @@ namespace ed
       // Leading whitespace on the tail is dropped; the new indent replaces it.
       Size cut = 0;
       while(cut < tail.size() && space(tail[cut]))
+      {
           ++cut;
+      }
       tail.erase(0, cut);
 
       lines.insert(lines.begin() + cur.line + 1,
@@ -396,7 +427,9 @@ namespace ed
           Int32 firstNonSpace = 0;
           while(firstNonSpace < static_cast<Int32>(s.size())
                 && space(s[static_cast<Size>(firstNonSpace)]))
+          {
               ++firstNonSpace;
+          }
 
           if(cur.col <= firstNonSpace && cur.col >= INDENT)
           {
@@ -412,7 +445,9 @@ namespace ed
       }
 
       if(cur.line == 0)
+      {
           return;
+      }
 
       // Join with the line above.
       const Int32 prevLen = static_cast<Int32>(lines[static_cast<Size>(cur.line - 1)].size());
@@ -425,7 +460,9 @@ namespace ed
   Void Editor::insertText(const Str& s)
   {
       if(s.empty())
+      {
           return;
+      }
 
       pushUndo();
       const Mode saved = md;
@@ -435,7 +472,9 @@ namespace ed
       {
           const Char c = s[i];
           if(c == '\r')
+          {
               continue;
+          }
           if(c == '\n')
           {
               // A pasted newline must NOT re-indent: the text already carries its
@@ -463,11 +502,15 @@ namespace ed
 
       Int32 i = n;
       while(i > 0 && wordChar(s[static_cast<Size>(i - 1)]))
+      {
           --i;
+      }
 
       // A run starting with a digit is a number being typed, not a name.
       if(i < n && s[static_cast<Size>(i)] >= '0' && s[static_cast<Size>(i)] <= '9')
+      {
           return Str();
+      }
 
       return s.substr(static_cast<Size>(i), static_cast<Size>(n - i));
   }
@@ -476,7 +519,9 @@ namespace ed
   {
       const Str word = wordBeforeCursor();
       if(word.empty())
+      {
           return;
+      }
 
       pushUndo();
 
@@ -665,9 +710,13 @@ namespace ed
               const Bool startWord = wordChar(s[static_cast<Size>(p.col)]);
               while(p.col < len && wordChar(s[static_cast<Size>(p.col)]) == startWord
                     && !space(s[static_cast<Size>(p.col)]))
+              {
                   ++p.col;
+              }
               while(p.col < len && space(s[static_cast<Size>(p.col)]))
+              {
                   ++p.col;
+              }
               if(p.col >= len && p.line + 1 < lineCount())
               {
                   ++p.line; p.col = 0;
@@ -691,13 +740,17 @@ namespace ed
               }
               const Str& s = line(p.line);
               while(p.col > 0 && space(s[static_cast<Size>(p.col - 1)]))
+              {
                   --p.col;
+              }
               if(p.col > 0)
               {
                   const Bool w = wordChar(s[static_cast<Size>(p.col - 1)]);
                   while(p.col > 0 && wordChar(s[static_cast<Size>(p.col - 1)]) == w
                         && !space(s[static_cast<Size>(p.col - 1)]))
+                  {
                       --p.col;
+                  }
               }
           }
           break;
@@ -711,14 +764,18 @@ namespace ed
               const Int32 len = static_cast<Int32>(s.size());
               ++p.col;
               while(p.col < len && space(s[static_cast<Size>(p.col)]))
+              {
                   ++p.col;
+              }
               if(p.col < len)
               {
                   const Bool w = wordChar(s[static_cast<Size>(p.col)]);
                   while(p.col + 1 < len
                         && wordChar(s[static_cast<Size>(p.col + 1)]) == w
                         && !space(s[static_cast<Size>(p.col + 1)]))
+                  {
                       ++p.col;
+                  }
               }
               p.col = std::min(p.col, std::max(0, len - 1));
           }
@@ -749,7 +806,9 @@ namespace ed
   Void Editor::yankRange(Cursor a, Cursor b, Bool linewise)
   {
       if(before(b, a))
+      {
           std::swap(a, b);
+      }
 
       yankLinewise = linewise;
       yankBuf.clear();
@@ -795,10 +854,14 @@ namespace ed
   Void Editor::deleteRange(Cursor a, Cursor b, Bool linewise, Bool yank)
   {
       if(before(b, a))
+      {
           std::swap(a, b);
+      }
 
       if(yank)
+      {
           yankRange(a, b, linewise);
+      }
 
       pushUndo();
 
@@ -808,7 +871,9 @@ namespace ed
           const Int32 to   = std::min(lineCount() - 1, b.line);
           lines.erase(lines.begin() + from, lines.begin() + to + 1);
           if(lines.empty())
+          {
               lines.push_back(Str());
+          }
           cur.line = std::min(from, lineCount() - 1);
           cur.col  = indentOf(cur.line);
           clampCursor();
@@ -842,7 +907,9 @@ namespace ed
   Void Editor::put(Bool beforeCursor)
   {
       if(yankBuf.empty())
+      {
           return;
+      }
 
       pushUndo();
 
@@ -861,7 +928,9 @@ namespace ed
               acc.push_back(yankBuf[i]);
           }
           if(!acc.empty())
+          {
               add.push_back(acc);
+          }
 
           const Int32 at = beforeCursor ? cur.line : cur.line + 1;
           lines.insert(lines.begin() + at, add.begin(), add.end());
@@ -1853,7 +1922,9 @@ namespace ed
 
       const Char c = k.ch;
       if(c == 0)
+      {
           return;
+      }
 
       if(k.ctrl && (c == 'r' || c == 'R'))
       {
@@ -2039,7 +2110,9 @@ namespace ed
       {
           pendOp = 0;
           if(c == 'Z')
+          {
               submitted = "wq";
+          }
           return;
       }
 
@@ -2139,7 +2212,9 @@ namespace ed
           Cursor to;
           Bool   linewise = false;
           if(!motion(c, count, to, linewise))
+          {
               return;
+          }
 
           // cw behaves like ce - it does not eat the whitespace after the word.
           // This is vim's own special case and its absence is immediately felt.
@@ -2149,7 +2224,9 @@ namespace ed
               Int32      e = cur.col;
               const Int32 len = static_cast<Int32>(s.size());
               while(e < len && !space(s[static_cast<Size>(e)]))
+              {
                   ++e;
+              }
               to = Cursor{ cur.line, e };
               linewise = false;
           }
@@ -2249,7 +2326,9 @@ namespace ed
           Str& s = lines[static_cast<Size>(cur.line)];
           pushUndo();
           if(cur.col < static_cast<Int32>(s.size()))
+          {
               s.erase(static_cast<Size>(cur.col));
+          }
           setMode(Mode::MODE_INSERT);
           break;
       }
@@ -2275,12 +2354,16 @@ namespace ed
 
               Size cut = 0;
               while(cut < next.size() && space(next[cut]))
+              {
                   ++cut;
+              }
               next.erase(0, cut);
 
               cur.col = static_cast<Int32>(s.size());
               if(!s.empty() && !next.empty())
+              {
                   s.push_back(' ');
+              }
               s += next;
               lines.erase(lines.begin() + cur.line + 1);
           }
@@ -2605,7 +2688,9 @@ namespace ed
           return;
       }
       if(k.ch >= 32 && k.ch < 127)
+      {
           cmdLine.push_back(k.ch);
+      }
   }
 
 } // namespace ed

@@ -78,7 +78,9 @@ namespace
           tail = msg;
           LocalFree(msg);
           while(!tail.empty() && (tail.back() == '\n' || tail.back() == '\r' || tail.back() == ' '))
+          {
               tail.pop_back();
+          }
       }
 
       Array<Char, 64> buf;
@@ -86,7 +88,9 @@ namespace
 
       Str out = what;
       if(!tail.empty())
+      {
           out += ": " + tail;
+      }
       out += buf.data();
       return out;
   }
@@ -186,7 +190,9 @@ namespace
           LockGuard<Mutex> lk(mu);
           log.push_back(std::move(ln));
           while(log.size() > MAX_LOG_LINES)
+          {
               log.pop_front();   // a chatty board loses history, never memory
+          }
       }
 
       Void run(Str port, Int32 baud, UInt32 myGen);
@@ -203,7 +209,9 @@ namespace
   Str devicePath(const Str& port)
   {
       if(port.size() >= 4 && port.compare(0, 4, "\\\\.\\") == 0)
+      {
           return port;
+      }
       return "\\\\.\\" + port;
   }
 
@@ -256,7 +264,9 @@ namespace
   {
       Size i = 0;
       while(i < s.size() && (s[i] < '0' || s[i] > '9'))
+      {
           ++i;
+      }
       Int32 n = 0;
       Bool any = false;
       for(; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i)
@@ -276,7 +286,9 @@ namespace
       HKEY key = nullptr;
       if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0,
                         KEY_READ, &key) != ERROR_SUCCESS)
+      {
           return out;
+      }
 
       for(DWORD i = 0;; ++i)
       {
@@ -288,16 +300,24 @@ namespace
 
           LONG rc = RegEnumValueA(key, i, name.data(), &nameLen, nullptr, &type, data, &dataLen);
           if(rc == ERROR_NO_MORE_ITEMS)
+          {
               break;
+          }
           if(rc != ERROR_SUCCESS)
+          {
               break;
+          }
           if(type != REG_SZ || dataLen == 0)
+          {
               continue;
+          }
 
           data[(std::min)(static_cast<Size>(dataLen), sizeof(data) - 1)] = 0;
           Str port(reinterpret_cast<Char*>(data));
           if(!port.empty())
+          {
               out.insert(port);
+          }
       }
 
       RegCloseKey(key);
@@ -308,7 +328,9 @@ namespace
   {
       HKEY k = nullptr;
       if(RegOpenKeyExA(parent, subkey, 0, KEY_READ, &k) != ERROR_SUCCESS)
+      {
           return false;
+      }
 
       Array<Char, 128> buf;
       DWORD len  = static_cast<DWORD>(buf.size());
@@ -318,7 +340,9 @@ namespace
       RegCloseKey(k);
 
       if(rc != ERROR_SUCCESS || type != REG_SZ || len == 0)
+      {
           return false;
+      }
 
       buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
       *out = buf.data();
@@ -333,7 +357,9 @@ namespace
       HKEY usb = nullptr;
       if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Enum\\USB", 0,
                         KEY_READ, &usb) != ERROR_SUCCESS)
+      {
           return;
+      }
 
       for(DWORD i = 0;; ++i)
       {
@@ -341,13 +367,19 @@ namespace
           DWORD devLen = static_cast<DWORD>(dev.size());
           LONG  rc = RegEnumKeyExA(usb, i, dev.data(), &devLen, nullptr, nullptr, nullptr, nullptr);
           if(rc != ERROR_SUCCESS)
+          {
               break;
+          }
           if(_strnicmp(dev.data(), "VID_2E8A", 8) != 0)
+          {
               continue;
+          }
 
           HKEY devk = nullptr;
           if(RegOpenKeyExA(usb, dev.data(), 0, KEY_READ, &devk) != ERROR_SUCCESS)
+          {
               continue;
+          }
 
           for(DWORD j = 0;; ++j)
           {
@@ -355,12 +387,16 @@ namespace
               DWORD instLen = static_cast<DWORD>(inst.size());
               if(RegEnumKeyExA(devk, j, inst.data(), &instLen, nullptr, nullptr, nullptr, nullptr)
                   != ERROR_SUCCESS)
+              {
                   break;
+              }
 
               Str sub = Str(inst.data()) + "\\Device Parameters";
               Str port;
               if(readPortName(devk, sub.c_str(), &port))
+              {
                   out.push_back(port);
+              }
           }
 
           RegCloseKey(devk);
@@ -374,10 +410,16 @@ namespace
   {
       const Size nlen = strlen(needle);
       if(nlen == 0)
+      {
           return true;
+      }
       for(const Char* p = hay; *p; ++p)
+      {
           if(_strnicmp(p, needle, nlen) == 0)
+          {
               return true;
+          }
+      }
       return false;
   }
 
@@ -391,7 +433,9 @@ namespace
 
       HDEVINFO set = SetupDiGetClassDevsA(&PORTS_CLASS, nullptr, nullptr, DIGCF_PRESENT);
       if(set == INVALID_HANDLE_VALUE)
+      {
           return;
+      }
 
       SP_DEVINFO_DATA info;
       ZeroMemory(&info, sizeof(info));
@@ -405,22 +449,30 @@ namespace
                                                  reinterpret_cast<BYTE*>(hwid.data()),
                                                  static_cast<DWORD>(hwid.size() - 2),
                                                  &hwidLen))
+          {
               continue;
+          }
 
           // REG_MULTI_SZ: scan every embedded string.
           Bool match = false;
           for(DWORD p = 0; p < hwidLen && hwid[p]; )
           {
               if(containsCi(hwid.data() + p, "VID_2E8A"))
+              {
                   match = true;
+              }
               p += static_cast<DWORD>(strlen(hwid.data() + p)) + 1;
           }
           if(!match)
+          {
               continue;
+          }
 
           HKEY k = SetupDiOpenDevRegKey(set, &info, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
           if(k == INVALID_HANDLE_VALUE)
+          {
               continue;
+          }
 
           Array<Char, 128> buf;
           DWORD len  = static_cast<DWORD>(buf.size());
@@ -431,7 +483,9 @@ namespace
           {
               buf[(std::min)(static_cast<Size>(len), buf.size() - 1)] = 0;
               if(buf[0])
+              {
                   out.push_back(buf.data());
+              }
           }
           RegCloseKey(k);
       }
@@ -569,7 +623,9 @@ namespace
       auto emit = [&](Str text)
       {
           if(text.empty())
+          {
               return;
+          }
           rx.fetch_add(1, std::memory_order_relaxed);
           lastRxS.store(elapsedS(), std::memory_order_relaxed);
           pushLine(false, std::move(text));
@@ -594,9 +650,13 @@ namespace
                   continue;
               }
               if(overlong)
+              {
                   continue;
+              }
               if(!printable(static_cast<UInt8>(c)))
+              {
                   continue;
+              }
 
               accum.push_back(c);
               if(accum.size() >= MAX_LINE_LEN)
@@ -668,7 +728,9 @@ namespace
 
               Str echo = item.text;
               while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
+              {
                   echo.pop_back();
+              }
               pushLine(true, std::move(echo), item.poll);
           }
 
@@ -732,7 +794,9 @@ namespace
       }
 
       if(!accum.empty() && !overlong)
+      {
           emit(std::move(accum));
+      }
 
       PicoState expected = PicoState::PICO_STATE_CONNECTED;
       state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
@@ -835,7 +899,9 @@ namespace
       auto emit = [&](Str text)
       {
           if(text.empty())
+          {
               return;   // blank lines are noise from \r\n\r\n padding
+          }
           rx.fetch_add(1, std::memory_order_relaxed);
           lastRxS.store(elapsedS(), std::memory_order_relaxed);
           pushLine(false, std::move(text));
@@ -865,7 +931,9 @@ namespace
 
               Str echo = line;
               while(!echo.empty() && (echo.back() == '\n' || echo.back() == '\r'))
+              {
                   echo.pop_back();
+              }
               pushLine(true, std::move(echo), item.poll);
           }
           if(writeFailed)
@@ -885,7 +953,9 @@ namespace
               ClearCommError(h, &commErr, &st);
 
               if(code == ERROR_OPERATION_ABORTED)
+              {
                   continue;   // recoverable: purge/abort raced with the read
+              }
 
               // A Pico that has been unplugged - or told to reboot into
               // BOOTSEL, which drops the CDC port on purpose - is not a fault.
@@ -944,9 +1014,13 @@ namespace
 
               pendingCr = false;
               if(overlong)
+              {
                   continue;                       // swallow until the next newline
+              }
               if(!printable(static_cast<UInt8>(c)))
+              {
                   continue;                       // drop NULs and stray control bytes
+              }
 
               accum.push_back(c);
               if(accum.size() >= MAX_LINE_LEN)
@@ -961,7 +1035,9 @@ namespace
 
       // A partial line that never got its newline is still worth showing.
       if(!accum.empty() && !overlong)
+      {
           emit(std::move(accum));
+      }
 
       EscapeCommFunction(h, CLRDTR);
       EscapeCommFunction(h, CLRRTS);
@@ -1021,14 +1097,18 @@ PicoLink::~PicoLink()
 Void PicoLink::connect(const Str& port, Int32 baud)
 {
     if(!pimpl || port.empty())
+    {
         return;
+    }
 
     LockGuard<Mutex> life(pimpl->lifeMu);
 
     if(pimpl->worker.joinable())
     {
         if(!pimpl->finished.load(std::memory_order_acquire))
+        {
             return;                 // already connecting/connected: no-op
+        }
         pimpl->worker.join();        // reap a worker that died on its own
     }
 
@@ -1079,14 +1159,18 @@ Void PicoLink::connect(const Str& port, Int32 baud)
 Void PicoLink::connectUdp(const Str& host, UInt16 port)
 {
     if(!pimpl || host.empty())
+    {
         return;
+    }
 
     LockGuard<Mutex> life(pimpl->lifeMu);
 
     if(pimpl->worker.joinable())
     {
         if(!pimpl->finished.load(std::memory_order_acquire))
+        {
             return;                 // already connecting/connected: no-op
+        }
         pimpl->worker.join();
     }
 
@@ -1131,7 +1215,9 @@ Bool PicoLink::wireless() const
 Void PicoLink::disconnect()
 {
     if(!pimpl)
+    {
         return;
+    }
 
     LockGuard<Mutex> life(pimpl->lifeMu);
 
@@ -1200,7 +1286,9 @@ PicoState PicoLink::state() const
 Str PicoLink::error() const
 {
     if(!pimpl)
+    {
         return Str();
+    }
     LockGuard<Mutex> lk(pimpl->mu);
     return pimpl->err;
 }
@@ -1208,7 +1296,9 @@ Str PicoLink::error() const
 Str PicoLink::port() const
 {
     if(!pimpl)
+    {
         return Str();
+    }
     LockGuard<Mutex> lk(pimpl->mu);
     return pimpl->portname;
 }
@@ -1216,7 +1306,9 @@ Str PicoLink::port() const
 Void PicoLink::send(const Str& line, Bool poll)
 {
     if(!pimpl)
+    {
         return;
+    }
 
     if(pimpl->state.load(std::memory_order_acquire) != PicoState::PICO_STATE_CONNECTED)
     {
@@ -1227,7 +1319,9 @@ Void PicoLink::send(const Str& line, Bool poll)
     Str payload = line;
     // Strip any CR/LF the caller supplied, then terminate with exactly one \n.
     while(!payload.empty() && (payload.back() == '\n' || payload.back() == '\r'))
+    {
         payload.pop_back();
+    }
     payload.push_back('\n');
 
     LockGuard<Mutex> lk(pimpl->mu);
@@ -1246,20 +1340,26 @@ Void PicoLink::send(const Str& line, Bool poll)
 Size PicoLink::drain(Vec<PicoLine>& out)
 {
     if(!pimpl)
+    {
         return 0;
+    }
 
     Deque<PicoLine> taken;
     {
         LockGuard<Mutex> lk(pimpl->mu);   // held only for the swap
         if(pimpl->log.empty())
+        {
             return 0;
+        }
         taken.swap(pimpl->log);
     }
 
     const Size n = taken.size();
     out.reserve(out.size() + n);
     for(auto& l : taken)
+    {
         out.push_back(std::move(l));
+    }
     return n;
 }
 
@@ -1281,10 +1381,14 @@ UInt64 PicoLink::dropped() const
 Float64 PicoLink::lastRxAgeS() const
 {
     if(!pimpl)
+    {
         return -1.0;
+    }
     const Float64 last = pimpl->lastRxS.load(std::memory_order_relaxed);
     if(last < 0.0)
+    {
         return -1.0;               // nothing has ever arrived
+    }
     const Float64 age = pimpl->elapsedS() - last;
     return age < 0.0 ? 0.0 : age;
 }
@@ -1296,7 +1400,9 @@ Vec<Str> PicoLink::listPicoPorts()
     {
         enumViaRegistry(found);
         if(found.empty())
+        {
             enumViaSetupapi(found);
+        }
 
         const HashSet<Str> live = serialcommPorts();
         Vec<Str> out;
@@ -1305,9 +1411,13 @@ Vec<Str> PicoLink::listPicoPorts()
             // Drop entries for Picos that are no longer plugged in. If
             // SERIALCOMM could not be read at all, do not filter.
             if(!live.empty() && live.find(p) == live.end())
+            {
                 continue;
+            }
             if(std::find(out.begin(), out.end(), p) == out.end())
+            {
                 out.push_back(p);
+            }
         }
 
         std::sort(out.begin(), out.end(), [](const Str& a, const Str& b) {
@@ -1325,14 +1435,18 @@ Vec<Str> PicoLink::listPicoPorts()
 Bool PicoLink::bootselTouch(const Str& port)
 {
     if(port.empty())
+    {
         return false;
+    }
 
     const Str path = devicePath(port);
 
     HANDLE h = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                            OPEN_EXISTING, 0, nullptr);
     if(h == INVALID_HANDLE_VALUE)
+    {
         return false;   // the only failure the contract reports
+    }
 
     // The Pico SDK's reset interface watches CDC line state: a line coding of
     // 1200 baud together with DTR *deasserted* means "reboot to BOOTSEL". Set

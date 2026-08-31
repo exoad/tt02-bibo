@@ -21,12 +21,16 @@ namespace sketch
       // test. A finding you cannot find later is not a finding.
       const Str root = PicoFlash::repoRoot();
       if(root.empty())
+      {
           return Str();
+      }
 
       const Str d = root + "\\firmware\\sketches";
       if(!::CreateDirectoryA(d.c_str(), nullptr)
          && ::GetLastError() != ERROR_ALREADY_EXISTS)
+      {
           return Str();
+      }
 
       return d;
   }
@@ -37,7 +41,9 @@ namespace sketch
 
       const Str d = dir();
       if(d.empty())
+      {
           return out;
+      }
 
       WIN32_FIND_DATAA fd = {};
       // *.cxx AND *.c. The library is C++ now, but sketches written before that
@@ -51,12 +57,16 @@ namespace sketch
       const Str        pattern = d + "\\*.c*";
       HANDLE           h = ::FindFirstFileA(pattern.c_str(), &fd);
       if(h == INVALID_HANDLE_VALUE)
+      {
           return out;
+      }
 
       do
       {
           if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+          {
               out.push_back(fd.cFileName);
+          }
       }
       while(::FindNextFileA(h, &fd) != 0);
       ::FindClose(h);
@@ -72,7 +82,9 @@ namespace sketch
   {
       const Str d = dir();
       if(d.empty() || name.empty())
+      {
           return Str();
+      }
       return d + "\\" + name;
   }
 
@@ -80,7 +92,9 @@ namespace sketch
   {
       const Str root = PicoFlash::repoRoot();
       if(root.empty())
+      {
           return Str();
+      }
       return root + "\\firmware";
   }
 
@@ -108,7 +122,9 @@ namespace sketch
 
       const Str root = firmwareDir();
       if(root.empty())
+      {
           return out;
+      }
 
       for(const Char* sub : FW_DIRS)
       {
@@ -126,7 +142,9 @@ namespace sketch
               WIN32_FIND_DATAA fd = {};
               HANDLE           h = ::FindFirstFileA((d + pat).c_str(), &fd);
               if(h == INVALID_HANDLE_VALUE)
+              {
                   continue;
+              }
               do
               {
                   if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
@@ -184,7 +202,9 @@ namespace sketch
   Str targetFor(const Str& path)
   {
       if(path.empty())
+      {
           return "pico_debug";
+      }
 
       // A sketch owns a target named after its own file. This used to answer
       // "sketch" for every one of them, because there was one target and the
@@ -208,17 +228,23 @@ namespace sketch
   Str load(const Str& path)
   {
       if(path.empty())
+      {
           return Str();
+      }
 
       FILE* f = std::fopen(path.c_str(), "rb");
       if(f == nullptr)
+      {
           return Str();
+      }
 
       Str  out;
       Array<Char, 4096> buf;
       Size n = 0;
       while((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
+      {
           out.append(buf.data(), n);
+      }
       std::fclose(f);
 
       // CRLF in, LF held internally. The editor works in LF and writes LF back;
@@ -226,8 +252,12 @@ namespace sketch
       Str lf;
       lf.reserve(out.size());
       for(Size i = 0; i < out.size(); ++i)
+      {
           if(out[i] != '\r')
+          {
               lf.push_back(out[i]);
+          }
+      }
 
       return lf;
   }
@@ -475,20 +505,28 @@ namespace sketch
       auto taken = [&have](const Str& n)
       {
           for(const Str& h : have)
+          {
               if(_stricmp(h.c_str(), n.c_str()) == 0)
+              {
                   return true;
+              }
+          }
           return false;
       };
 
       if(!taken("sketch.cxx"))
+      {
           return "sketch.cxx";
+      }
 
       for(Int32 i = 2; i < 1000; ++i)
       {
           Array<Char, 32> buf;
           std::snprintf(buf.data(), buf.size(), "sketch-%d.cxx", i);
           if(!taken(buf.data()))
+          {
               return Str(buf.data());
+          }
       }
       return "sketch.cxx";
   }

@@ -359,8 +359,12 @@ namespace
       auto roleAt = [&](Int32 at) -> syn::Role
       {
           for(const syn::Span& s : spans)
+          {
               if(at >= s.begin && at < s.end)
+              {
                   return s.role;
+              }
+          }
           return syn::Role::ROLE_COUNT;
       };
 
@@ -471,10 +475,12 @@ namespace
       cmpl::suggest("servo", hits, 8);
       Bool sawWriteUs = false;
       for(const cmpl::Item* it : hits)
+      {
           if(std::strcmp(it->name, "servoWriteUs") == 0)
           {
               sawWriteUs = true;
           }
+      }
       check(sawWriteUs, "servo offers servoWriteUs");
 
       // Matching folds case, but ranking does NOT: `Pin` and `PIN` are different
@@ -532,12 +538,16 @@ namespace
       Bool unique = true;
       const Vec<cmpl::Item>& items = cmpl::all();
       for(Size i = 0; i < items.size() && unique; ++i)
+      {
           for(Size j = i + 1; j < items.size(); ++j)
+          {
               if(std::strcmp(items[i].name, items[j].name) == 0)
               {
                   unique = false;
                   break;
               }
+          }
+      }
       check(unique, "no duplicate entries in the table");
 
       // wordAtEnd agrees with the editor's own idea of a partial word.

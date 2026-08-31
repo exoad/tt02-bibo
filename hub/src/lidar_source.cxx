@@ -201,7 +201,9 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
     // the prefix is harmless for the single-digit ports, so it always goes on.
     Str devPath = port;
     if(devPath.rfind("\\\\.\\", 0) != 0)
+    {
         devPath = "\\\\.\\" + port;
+    }
 
     ILidarDriver* drv = *createLidarDriver();
     if(!drv)
@@ -267,12 +269,16 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 
         Array<Char, 33> hex;
         for(Int32 i = 0; i < 16; ++i)
+        {
             std::snprintf(hex.data() + i * 2, 3, "%02X", static_cast<unsigned>(rawInfo.serialnum[i]));
+        }
         di.serial = hex.data();
 
         sl_lidar_response_device_health_t health;
         if(SL_IS_OK(drv->getHealth(health)))
+        {
             di.health = static_cast<Int32>(health.status);
+        }
 
         {
             LockGuard<Mutex> lock(mtx);
@@ -430,7 +436,9 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                 {
                     ++staging.validCount;
                     if(p.distMm > staging.maxDistMm)
+                    {
                         staging.maxDistMm = p.distMm;
+                    }
                 }
                 staging.points.push_back(p);
             }
@@ -605,7 +613,9 @@ Bool LidarSource::poll(LidarFrame& out)
     // Frames land at ~10Hz while this is called at ~60Hz, so the overwhelmingly
     // common path is this comparison and an immediate return.
     if(pimpl->frameSeq == pimpl->lastSeenSeq)
+    {
         return false;
+    }
 
     out = pimpl->frame;
     pimpl->lastSeenSeq = pimpl->frameSeq;
@@ -625,7 +635,9 @@ Str LidarSource::preferredPort()
     HKEY key = nullptr;
     if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM",
                       0, KEY_READ, &key) != ERROR_SUCCESS)
+    {
         return found;
+    }
 
     for(DWORD i = 0; ; ++i)
     {
@@ -637,9 +649,13 @@ Str LidarSource::preferredPort()
 
         const LONG r = RegEnumValueA(key, i, name.data(), &nlen, nullptr, &type, data, &dlen);
         if(r != ERROR_SUCCESS)
+        {
             break;
+        }
         if(type != REG_SZ || dlen == 0)
+        {
             continue;
+        }
 
         // Registry strings are not guaranteed to be terminated.
         if(dlen >= sizeof(data))
@@ -707,7 +723,9 @@ Vec<Str> LidarSource::listPorts()
                             }
                         }
                         if(allDigits)
+                        {
                             ports.push_back(Str(p, len));
+                        }
                     }
                     p += len + 1;
                 }
@@ -715,7 +733,9 @@ Vec<Str> LidarSource::listPorts()
             }
 
             if(GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+            {
                 break;
+            }
             cap *= 2;
         }
 
