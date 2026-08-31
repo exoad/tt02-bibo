@@ -9,6 +9,7 @@
  *   GND               GND               must be common, even on its own supply
  *   RX                GP14 via 1k       GP14 is UART0 TX on this chip
  *   TX                GP15              GP15 is UART0 RX
+ *   BUSY              GP9               LOW while playing, pulled up here
  *   SPK_1             speaker +
  *   SPK_2             speaker -         do NOT ground either one
  *
@@ -54,20 +55,30 @@
 
 using namespace bibo;
 
-/* ---- the wiring, in one place ------------------------------------------
+/* ---- the wiring, declared here and installed at startup -----------------
  *
- * A sketch declares its own pins rather than reading lib/pins.hxx. That file
- * is the CAR's map, and a breadboard experiment should not have to edit the
- * car to try something. What it should do is read it first - and this pair is
- * why pins.hxx now says the tail lamps are unwired: GP14/GP15 were TAIL_R and
- * TAIL_L, and sound took them because they are the only UART0 pins that do not
- * cost the servo, the ESC or the front indicators. */
+ * A SKETCH DECLARES ITS OWN MAP. pins::car() is the vehicle's, and a breadboard
+ * experiment must not be able to change what the finished car believes about
+ * itself - so this builds its own and installs it, and the two cannot affect
+ * each other.
+ *
+ * It is the same mechanism main.cxx uses and it is checked the same way: two
+ * roles on one pad and pins::begin() refuses, naming both. That check matters
+ * more here than in the car, whose map is proved at compile time - a sketch's
+ * map is written fresh against whatever is plugged in this afternoon.
+ *
+ * These three are the only roles this program has. Everything else in the map
+ * stays NONE, which is why a Map defaults to nothing wired. */
 #define SOUND_TX    14
 #define SOUND_RX    15
 
-/* Not wired yet. With no BUSY line the module cannot tell us when a track
- * ends, so this sketch waits by the clock instead - see the loop. */
-#define SOUND_BUSY  (-1)
+/* GP9, physical pin 12. The one pad claimed by nothing - GP2/3/6/7/8 are
+ * earmarked for the permanent lamp move, GP16-19 are SPI, GP20/21 the display
+ * and GP22 the SD card's chip select.
+ *
+ * LOW WHILE PLAYING, so the firmware pulls it up: with nothing attached the pad
+ * would float and read as playing about half the time. */
+#define SOUND_BUSY  9
 
 /* 0-30. Start low. Really. */
 #define VOLUME      8
@@ -100,8 +111,36 @@ int main(Void)
 
     led::open();
 
+    /* WHAT IS WIRED WHERE, before anything is opened. Everything below reads
+     * the installed map rather than these three numbers. */
+    pins::Map wiring;
+    wiring.soundTx   = SOUND_TX;
+    wiring.soundRx   = SOUND_RX;
+    wiring.soundBusy = SOUND_BUSY;
+
+    if(!pins::begin(wiring))
+    {
+        /* Said out loud and then STOPPED. Carrying on with no map would open a
+         * UART on nothing and sit there looking like a wiring fault, which is
+         * the exact confusion this file is trying to avoid. */
+        serial::printf("ERR pins %s and %s both want GP%d\n",
+                       pins::conflictFirst(),
+                       pins::conflictSecond(),
+                       pins::conflictPin());
+        while(true)
+        {
+            led::write(true);
+            timing::ms(120);
+            led::write(false);
+            timing::ms(120);
+        }
+    }
+
     dfplayer::Bus sound;
-    dfplayer::open(&sound, uart0, SOUND_TX, SOUND_RX, SOUND_BUSY);
+    dfplayer::open(&sound, uart0,
+                   pins::active().soundTx,
+                   pins::active().soundRx,
+                   pins::active().soundBusy);
 
     /* Two seconds while the card mounts. A play sent before this is simply
      * lost - no error, no sound - which is the single most common reason a
@@ -122,24 +161,37 @@ int main(Void)
 
         dfplayer::playMp3(&sound, TRACK);
 
-        /* The LED is the whole diagnostic when there is no console attached
-         * and no sound coming out: if it is blinking, the loop is running and
-         * the frames are going out, so the problem is downstream of the Pico -
-         * the wiring, the card, the supply or the speaker.
+        /* WAIT FOR THE MODULE, not for the clock.
          *
-         * If it is NOT blinking, and it was, that is the brownout described at
-         * the top of this file. */
-        for(Int32 i = 0; i < GAP_MS / 500; ++i)
+         * This loop used to count out GAP_MS because BUSY was not wired and
+         * there was nothing else to wait on. A fixed gap is a guess: too short
+         * and the next play cuts the last one off mid-word, too long and the
+         * car stands there silent. Now the module says when it is done.
+         *
+         * BUSY is LOW WHILE PLAYING and the pad is pulled up, so a module that
+         * never starts reads "idle" immediately - which is why there is a grace
+         * period first. Without it a failed play would spin this loop as fast
+         * as the link allows.
+         */
+        timing::ms(400);
+
+        UInt32 waited = 0;
+        while(dfplayer::playing(&sound) && waited < 60000)
         {
+            /* The LED is the whole diagnostic with no console attached: it
+             * blinks while a track is sounding. Steady-off means the module
+             * says it is idle; a blink that STOPS mid-track is the brownout
+             * described at the top of this file, not a crash. */
             led::write(true);
             timing::ms(60);
             led::write(false);
-            timing::ms(440);
+            timing::ms(140);
+            waited += 200;
 
-            /* Anything the module says, echoed. Nothing here depends on it -
-             * with ACK off the module only volunteers a frame when a track
-             * finishes - but seeing bytes arrive at all is proof the RX wire
-             * and its direction are right, which is otherwise invisible. */
+            /* Anything the module volunteers, echoed. With ACK off it only
+             * speaks when a track finishes - but seeing bytes arrive at all is
+             * proof the RX wire and its direction are right, which is
+             * otherwise invisible. */
             while(uart::readable(uart0))
             {
                 const Int32 b = uart::readByte(uart0, 0);
@@ -149,5 +201,16 @@ int main(Void)
                 }
             }
         }
+
+        if(waited >= 60000)
+        {
+            /* A track that never ends is a BUSY line that is not telling the
+             * truth - unwired, on the wrong pad, or the module never started.
+             * Said plainly rather than hanging here forever. */
+            serial::printLine("WARN busy never went idle - check GP9");
+        }
+
+        serial::printf("  done after %u ms\n", waited);
+        timing::ms(GAP_MS);
     }
 }

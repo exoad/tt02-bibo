@@ -68,13 +68,17 @@ namespace bibo
 
     /* ---- pins ---------------------------------------------------------------- */
 
-    /* From the car's pin map rather than spelled here. These two were the last
-     * literal GPIO numbers in the chassis, and the reason they had to move is that
-     * "which pins are taken" was a question you answered by grepping - which is how
-     * the DFPlayer nearly landed on the tail lamps. pins.hxx answers it with a
-     * static_assert instead. */
-#define PIN_SERVO pins::SERVO
-#define PIN_ESC   pins::ESC
+    /* Read from the map THIS PROGRAM installed, not spelled here. These two
+     * were the last literal GPIO numbers in the chassis, and they had to move
+     * because "which pins are taken" was a question you answered by grepping -
+     * which is how the DFPlayer nearly landed on the tail lamps.
+     *
+     * A read rather than a constant, so a sketch driving a servo on a different
+     * pad is pins::begin() and nothing else. Both resolve to NONE until begin()
+     * has run, and drive::open() then binds nothing rather than binding pad 0
+     * because that is what an uninitialised map used to say. */
+#define PIN_SERVO (pins::active().servo)
+#define PIN_ESC   (pins::active().esc)
 
     /* ---- bounds -------------------------------------------------------------- */
 

@@ -105,29 +105,19 @@ namespace bibo
      * cannot disagree. */
 #define LIGHT_PIN_NONE pins::NONE
 
-    /* THE NUMBERS ARE NOT HERE ANY MORE. This is the order of the Lamp enum
-     * mapped onto the car's pin map, and pins.hxx is where a GPIO is chosen.
+    /* FILLED AT open(), FROM THE INSTALLED MAP - not initialised here.
      *
-     * That move is what caught the collision it was written for: TAIL_L and TAIL_R
-     * were GP15 and GP14, and those are the only two pads on RP2350 that carry
-     * UART0 without taking GP0/GP1 from the servo and the ESC. The DFPlayer needed
-     * them. With the numbers in two files nothing would have said so until a lamp
-     * and a speaker fought on a breadboard; with one table it is a static_assert.
+     * It held literal GPIO numbers, then it held pins:: constants, and both had
+     * the same flaw: the binding was fixed when the firmware was COMPILED. A
+     * sketch that wanted the lamps somewhere else had to edit the car.
      *
-     * Both tails read pins::NONE now and are simply not written - the same state
-     * the rear indicators have been in since they were added. */
+     * Now the program says what is wired where - pins::begin() - and this table
+     * is a copy taken when the lamps are opened. Same ten entries, same order
+     * as the Lamp enum, and still NONE for anything with no LED on it. */
     static Int32 pin[COUNT] =
     {
-        pins::HEAD_L,
-        pins::HEAD_R,
-        pins::TAIL_L,
-        pins::TAIL_R,
-        pins::IND_FL,
-        pins::IND_FR,
-        pins::IND_RL,
-        pins::IND_RR,
-        pins::REV_L,
-        pins::REV_R
+        pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE,
+        pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE
     };
 
     /* ---- state, one copy - the same deal chassis.h makes -------------------- */
@@ -174,6 +164,22 @@ namespace bibo
 
     static Void open(Void)
     {
+        /* The binding, taken from whatever this program declared. Copied rather
+         * than read through on every write: push() runs every tick and a lamp
+         * table that could change underneath it is a race nobody needs. */
+        const pins::Map& m = pins::active();
+
+        pin[HEAD_L] = m.headL;
+        pin[HEAD_R] = m.headR;
+        pin[TAIL_L] = m.tailL;
+        pin[TAIL_R] = m.tailR;
+        pin[IND_FL] = m.indFL;
+        pin[IND_FR] = m.indFR;
+        pin[IND_RL] = m.indRL;
+        pin[IND_RR] = m.indRR;
+        pin[REV_L]  = m.revL;
+        pin[REV_R]  = m.revR;
+
         for(Int32 i = 0; i < COUNT; ++i)
         {
             if(pin[i] != LIGHT_PIN_NONE)

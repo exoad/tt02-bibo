@@ -3,12 +3,29 @@
 <Include file="pinouts/dfplayer-mini.bdoc"/>
 
 <Table>
-<Row head="yes"><Cell>signal</Cell><Cell>wiring</Cell></Row>
-<Row><Cell class="power">VCC</Cell><Cell>3.2 - 5.0 V off the ESC's BEC, not the Pico, 100 uF across it</Cell></Row>
-<Row><Cell class="serial">RX</Cell><Cell>1 kOhm in series - needed from 5 V logic, not from the 3.3 V Pico</Cell></Row>
-<Row><Cell class="serial">TX</Cell><Cell>direct; drives 3.3 V</Cell></Row>
-<Row><Cell class="digital">BUSY</Cell><Cell>one GPIO, tells the firmware whether a cue is still being spoken</Cell></Row>
+<Row head="yes"><Cell>module</Cell><Cell>Pico</Cell><Cell>wiring</Cell></Row>
+<Row><Cell class="power">VCC</Cell><Cell class="power">VBUS</Cell><Cell>5 V, 100 uF across VCC/GND</Cell></Row>
+<Row><Cell class="ground">GND</Cell><Cell class="ground">GND</Cell><Cell>common, even on a separate supply</Cell></Row>
+<Row><Cell class="serial">RX</Cell><Cell class="serial">GP14</Cell><Cell>1 kOhm in series; GP14 is UART0 TX</Cell></Row>
+<Row><Cell class="serial">TX</Cell><Cell class="serial">GP15</Cell><Cell>direct; GP15 is UART0 RX</Cell></Row>
+<Row><Cell class="digital">BUSY</Cell><Cell class="digital">GP9</Cell><Cell>LOW while playing; pulled up in firmware</Cell></Row>
+<Row><Cell>SPK_1 / SPK_2</Cell><Cell>-</Cell><Cell>speaker, neither terminal grounded</Cell></Row>
 </Table>
+
+<Note><Bold>Played on 2026-08-31</Bold> at 9600 baud,
+<Code>mp3/0001.mp3</Code> through <Code>SOUND PLAY 1</Code>. BUSY on GP9 reads
+<Code>busy=yes</Code> while the track sounds.</Note>
+
+<Warn><Bold>GP14 and GP15 need GPIO_FUNC_UART_AUX, not GPIO_FUNC_UART.</Bold>
+On RP2350 funcsel 2 on this pair is UART0 CTS and RTS - flow control. The data
+lines are funcsel 0x0b. With the wrong one the port opens, the baud rate sets,
+every write returns normally and not one byte leaves the chip. Handled once in
+<Code>uart::open</Code>.</Warn>
+
+<Warn><Bold>The directions are fixed by the silicon.</Bold> GP14 is UART0_TX and
+GP15 is UART0_RX, so the 1 kOhm goes into the module's RX from GP14. Reversed,
+two outputs face each other and two inputs face each other - nothing is damaged
+and nothing happens.</Warn>
 
 <Warn><Bold>Never drive SPK1/SPK2 and DAC_L/DAC_R at the same time.</Bold>
 SPK1/SPK2 is a bridged amplifier and DAC_L/DAC_R is a line level tap; driving
@@ -20,17 +37,30 @@ both is a fight the amplifier wins and the module loses.</Warn>
 output is differential, so a swap only inverts phase. Pin 5 read as
 <Code>DAC_I</Code> is <Code>DAC_L</Code>, the left channel.</Warn>
 
+<Note><Bold>The card takes 1.5 - 3 s to mount.</Bold> A play sent before that is
+discarded with no error and no sound, which is the same symptom as a swapped
+wire, a dead speaker or a brownout. <Code>SOUND RESET</Code> pays the wait; boot
+does not.</Note>
+
+<Note><Bold>If it resets mid-track, that is the supply.</Bold> The amplifier is
+class-D and its current follows the audio, so on VBUS - laptop USB through the
+Pico's polyfuse - a loud passage can drop the rail and reboot the board. It
+reads exactly like a firmware crash.</Note>
+
 <Table>
 <Row head="yes"><Cell>Pico pins</Cell><Cell>already taken</Cell></Row>
 <Row><Cell class="digital">GP0/GP1</Cell><Cell>servo, ESC</Cell></Row>
 <Row><Cell class="serial">GP4/GP5</Cell><Cell>I2C</Cell></Row>
-<Row><Cell class="digital">GP10-GP15</Cell><Cell>lamps, on borrowed ToF and encoder pins</Cell></Row>
+<Row><Cell class="digital">GP10-GP13</Cell><Cell>lamps, on borrowed ToF XSHUT pins</Cell></Row>
+<Row><Cell class="serial">GP14/GP15</Cell><Cell>this module; were the tail lamps</Cell></Row>
 <Row><Cell class="serial">GP16-GP19</Cell><Cell>SD header</Cell></Row>
 </Table>
 
-<Note>The permanent lamp move - <Code>GP2/GP3</Code> indicators,
-<Code>GP6/GP7</Code> tails, <Code>GP8</Code> heads - frees GP10 through GP15.
-UART0 on <Code>GP12/GP13</Code> or UART1 on <Code>GP8/GP9</Code> both work once
-the lamps have moved.</Note>
+<Note>GP14/GP15 are the only pads carrying UART0 that cost neither GP0/GP1 nor
+GP12/GP13, which is why the tail lamps gave them up. The permanent lamp move -
+<Code>GP2/GP3</Code> indicators, <Code>GP6/GP7</Code> tails, <Code>GP8</Code>
+heads - frees GP10 through GP13 and gives the tails a home again.
+<Code>lib/pins.hxx</Code> is the map, and it static_asserts that no two
+subsystems claim one pad.</Note>
 
 </Doc>
