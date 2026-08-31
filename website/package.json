@@ -1,0 +1,16 @@
+{
+  "name": "bibo-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "node sync.mjs",
+    "dev": "node sync.mjs && nuxt dev",
+    "build": "node sync.mjs && nuxt build",
+    "generate": "node sync.mjs && nuxt generate",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "docus": "~5.12.3",
+    "nuxt": "^4.5.2"
+  }
+}
