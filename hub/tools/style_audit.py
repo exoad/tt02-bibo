@@ -441,6 +441,9 @@ LAYER_EXTRA = {
     # text.hxx is a leaf - types.hxx and the C headers - so this is a
     # sideways reach that cannot cycle, the same shape as gfx -> display.
     'firmware/lib/pins.hxx': {'types.hxx', 'text.hxx'},
+    # boot.hxx is serial + the pin map + a visible refusal, so it names
+    # both. It is the one lib-root file that legitimately needs pins.
+    'firmware/lib/boot.hxx': {'hal.hxx', 'pins.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
     'firmware/lib/lights.hxx': {'hal.hxx'},
     'firmware/lib/net.hxx': {'hal.hxx'},
@@ -449,7 +452,7 @@ LAYER_EXTRA = {
     # naming the one below it, written down rather than special-cased in silence.
     'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
-                            'pins.hxx',
+                            'pins.hxx', 'boot.hxx',
                             'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
@@ -964,6 +967,7 @@ for path in files:
 #             finished before C++ has heard of a namespace.
 #   bibo.hxx  the umbrella. Declares nothing.
 MODULE_NAMESPACE = {
+    'boot.hxx':     'boot',
     'lights.hxx':   'lights',
     'cue.hxx':      'cue',
     'net.hxx':      'net',

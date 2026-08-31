@@ -82,7 +82,6 @@ using namespace bibo;
  */
 int main(Void)
 {
-    serial::open();
 
     /* ===================================================================== 1
      * DECLARE - what is wired where.
@@ -96,12 +95,12 @@ int main(Void)
      * starts from car() and changes nothing. A sketch that wanted the panel
      * somewhere else would set five fields here and no driver would notice.
      * ================================================================== */
-    pins::Map wiring = pins::car();
-
-    if(!pins::begin(wiring))
+    /* serial, the map, and a blink if the map is refused. Stopping beats
+     * returning: a Pico that returns from main is powered, silent and
+     * indistinguishable from one that never flashed. */
+    if(!boot::begin(pins::car()))
     {
-        serial::printf("ERR %s\n", pins::conflictText());
-        return 1;
+        boot::halt();
     }
 
     /* ===================================================================== 2
@@ -125,10 +124,10 @@ int main(Void)
     const Int32 wide  = safe.w;
 
     /* The four appearances this screen uses, named once. */
-    const gfx::Paint TITLE { GFX_ORANGE,   GFX_BLACK, false, 2 };
-    const gfx::Paint ALERT { GFX_RED,      GFX_BLACK, false, 1 };
-    const gfx::Paint MUTED { GFX_GREY,     GFX_BLACK, false, 1 };
-    const gfx::Paint FAINT { GFX_DARKGREY, GFX_BLACK, false, 1 };
+    const gfx::Paint TITLE { .fg = GFX_ORANGE,   .size = 2 };
+    const gfx::Paint ALERT { .fg = GFX_RED      };
+    const gfx::Paint MUTED { .fg = GFX_GREY     };
+    const gfx::Paint FAINT { .fg = GFX_DARKGREY };
 
     const Bool haveBus = i2c::open(pins::active().i2cSda,
                                    pins::active().i2cScl, I2C_HZ);
@@ -206,7 +205,7 @@ int main(Void)
         /* ---- the number -------------------------------------------------- */
         const Bool good = (status == 0);
 
-        const gfx::Paint BIG { good ? GFX_WHITE : GFX_DARKGREY, GFX_BLACK, false, 4 };
+        const gfx::Paint BIG { .fg = good ? GFX_WHITE : GFX_DARKGREY, .size = 4 };
         if(good)
         {
             c.printf({ left, y }, BIG, "%u", mm);
@@ -220,7 +219,7 @@ int main(Void)
         c.text({ left, y }, "MM", MUTED);
         y += 18;
 
-        const gfx::Paint METRES { good ? GFX_CYAN : GFX_DARKGREY, GFX_BLACK, false, 2 };
+        const gfx::Paint METRES { .fg = good ? GFX_CYAN : GFX_DARKGREY, .size = 2 };
         if(good)
         {
             /* One decimal, done in integers - a float here would pull in the
@@ -260,7 +259,7 @@ int main(Void)
         y += 22;
 
         /* ---- status ------------------------------------------------------ */
-        const gfx::Paint STATUS { good ? GFX_GREEN : GFX_YELLOW, GFX_BLACK, false, 1 };
+        const gfx::Paint STATUS { .fg = good ? GFX_GREEN : GFX_YELLOW };
         c.text({ left, y }, tof::statusName(status), STATUS);
         y += 20;
 

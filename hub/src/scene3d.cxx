@@ -1189,21 +1189,31 @@ namespace scene3d
 
         // ---- front ----
         const Float32 fz = hz * 0.30f;
-        drawLamp(v, { Vec3{ -hw * 0.52f, hl, fz }, 20.0f, 9.0f, true, WHITE, L.headL });
-        drawLamp(v, { Vec3{  hw * 0.52f, hl, fz }, 20.0f, 9.0f, true, WHITE, L.headR });
-        drawLamp(v, { Vec3{ -hw * 0.82f, hl, fz }, 9.0f,  7.0f, true, AMBER, L.indFL });
-        drawLamp(v, { Vec3{  hw * 0.82f, hl, fz }, 9.0f,  7.0f, true, AMBER, L.indFR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f,
+                     .facingFront = true, .hue = WHITE, .level = L.headL });
+        drawLamp(v, { .at = Vec3{  hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f,
+                     .facingFront = true, .hue = WHITE, .level = L.headR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f,
+                     .facingFront = true, .hue = AMBER, .level = L.indFL });
+        drawLamp(v, { .at = Vec3{  hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f,
+                     .facingFront = true, .hue = AMBER, .level = L.indFR });
 
         // ---- rear ----
         const Float32 rz = hz * 0.42f;
-        drawLamp(v, { Vec3{ -hw * 0.50f, -hl, rz }, 18.0f, 10.0f, false, RED, L.tailL });
-        drawLamp(v, { Vec3{  hw * 0.50f, -hl, rz }, 18.0f, 10.0f, false, RED, L.tailR });
-        drawLamp(v, { Vec3{ -hw * 0.80f, -hl, rz }, 10.0f,  9.0f, false, AMBER, L.indRL });
-        drawLamp(v, { Vec3{  hw * 0.80f, -hl, rz }, 10.0f,  9.0f, false, AMBER, L.indRR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f,
+                     .facingFront = false, .hue = RED, .level = L.tailL });
+        drawLamp(v, { .at = Vec3{  hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f,
+                     .facingFront = false, .hue = RED, .level = L.tailR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f,
+                     .facingFront = false, .hue = AMBER, .level = L.indRL });
+        drawLamp(v, { .at = Vec3{  hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f,
+                     .facingFront = false, .hue = AMBER, .level = L.indRR });
 
         // Nested inside the indicator housing - small, inboard, low.
-        drawLamp(v, { Vec3{ -hw * 0.80f, -hl, rz - 5.0f }, 4.5f, 3.5f, false, WHITE, L.revL });
-        drawLamp(v, { Vec3{  hw * 0.80f, -hl, rz - 5.0f }, 4.5f, 3.5f, false, WHITE, L.revR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f,
+                     .facingFront = false, .hue = WHITE, .level = L.revL });
+        drawLamp(v, { .at = Vec3{  hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f,
+                     .facingFront = false, .hue = WHITE, .level = L.revR });
     }
 
     Void drawSensor(const View& v, Float32 dpi, Float32 atX, Float32 atY, Float32 atZ)
