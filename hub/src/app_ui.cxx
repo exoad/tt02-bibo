@@ -2204,7 +2204,10 @@ namespace
       Int32 covered = 0;
       for(Int32 i = 0; i < 360; ++i)
       {
-          if(binSeen[i]) ++covered;
+          if(binSeen[i])
+          {
+              ++covered;
+          }
       }
       coverageDeg = covered / 360.0f;
 

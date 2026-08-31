@@ -300,8 +300,30 @@ RULES = [
     #
     # A body on the NEXT line without braces is NOT this and is left alone -
     # it does not share the head's line, which is what the rule is about.
+    # Two separate alternatives, and both had to be rewritten.
+    #
+    # The condition group was `[^;]*` for all three keywords, so NO for-loop
+    # could ever match it - a for head contains two semicolons by definition,
+    # and `for(...) r[i] = 0;` was invisible for as long as the rule existed.
+    # for gets its own alternative with `[^)]*`.
+    #
+    # And the body had to start with a LETTER, which missed every one that
+    # starts with an operator: `while(n) --n;` and `if(seen[i]) ++covered;`
+    # both walked past it. The body is now "anything that is not a brace, a
+    # comment or the end of the line", which is what the rule always meant.
+    # The head's parens are matched to THREE levels of nesting, spelled out,
+    # because a regex cannot balance them and this codebase nests two deep as a
+    # matter of course:
+    #
+    #     for(Int32 i = 0; i < static_cast<Int32>(ports.size()); ++i)
+    #
+    # A `[^)]*` head stops at the first `)` - inside static_cast - and reads
+    # `(ports.size()); ++i)` as the body, which contains a semicolon and so
+    # matched. Six correct loops in app_ui.cxx were reported as violations.
     ('braceless one-lined body',
-     r'^\s*(?:if|for|while)\s*\([^;]*\)\s*(?!$)[A-Za-z_][\w:.>()\[\]-]*\s*(?:\(|=|\+\+|--|;)',
+     r'^\s*(?:if|while|for)\s*'
+     r'\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)'
+     r'\s*[^\s{/;][^;]*;',
      'give the body its own braces on their own lines'),
 
     # `Type *name` / `Type &name`.
