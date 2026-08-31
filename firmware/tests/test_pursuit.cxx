@@ -47,7 +47,7 @@ static Bool near(Float32 a, Float32 b, Float32 tol)
     return ((d < 0.0f) ? -d : d) <= tol;
 }
 
-int main(void)
+int main(Void)
 {
     printf("\ngeom\n\n");
 

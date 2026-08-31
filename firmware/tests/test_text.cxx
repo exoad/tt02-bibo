@@ -232,7 +232,7 @@ static Void testWord(Void)
           "a subcommand nests");
 }
 
-Int32 main(Void)
+int main(Void)
 {
     printf("=== lib/text.h ===\n");
 

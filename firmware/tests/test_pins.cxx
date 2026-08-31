@@ -19,7 +19,7 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
-int main(void)
+int main(Void)
 {
     printf("\npins::begin\n\n");
 
