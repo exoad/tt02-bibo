@@ -2366,6 +2366,32 @@ namespace
   // would re-scan the file dozens of times while a single line is typed.
   Int32 codeLintIn = 0;
 
+  // Keeps clangd running and pointed at the open file.
+  //
+  // STARTED LAZILY, not at boot. clangd parses a Pico translation unit on its
+  // first question and holds the result, which is worth several seconds and a
+  // few hundred megabytes - and most sessions of this app never open the Code
+  // view at all. It starts when the view is first shown and stays up after,
+  // because the expensive part is the first parse and paying it twice would be
+  // the only thing worse than paying it once.
+  //
+  // start() is idempotent and cheap after the first call, so this is a plain
+  // per-frame call rather than a latch with its own "did we already" flag.
+  Void pumpCodeIntel()
+  {
+      if(centralView != 3)
+      {
+          return;
+      }
+
+      static_cast<Void>(lsp::start());
+
+      // The view asks about whatever this says. Empty for an unsaved buffer,
+      // which is correct: a file with no path has no entry in
+      // compile_commands.json, so clangd could only guess at its flags.
+      codeView.lspPath = codePath;
+  }
+
   // Merges the compiler's opinion with the linter's, compiler first.
   //
   // Order matters where both land on one line: the gutter shows the WORST
@@ -2703,6 +2729,7 @@ namespace
       pumpFlash();
       pumpDeviceScan();
       pumpCodeLint();
+      pumpCodeIntel();
       pumpPicoRelink();
       pumpCodeWatch();
       pumpCodeAutosave();
@@ -11215,6 +11242,11 @@ Void app::shutdown()
     LOG_INFO("app", "shutdown requested");
     lidarSource.stop();
     picoLink.disconnect();
+
+    // clangd holds an index of the whole firmware in memory and would otherwise
+    // outlive the window that started it - an orphan with no console, no icon
+    // and a few hundred megabytes, discoverable only in Task Manager.
+    lsp::stop();
 
     // Last, so anything the two lines above logged on their way out is in the
     // file before it closes.

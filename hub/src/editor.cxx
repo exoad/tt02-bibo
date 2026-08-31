@@ -488,6 +488,24 @@ namespace ed
       clampCursor();
   }
 
+  Void Editor::insertCompletion(const Str& with)
+  {
+      const Str word = wordBeforeCursor();
+      if(!word.empty())
+      {
+          replaceWordBeforeCursor(with);
+          return;
+      }
+
+      pushUndo();
+
+      Str&        s   = lines[static_cast<Size>(cur.line)];
+      const Int32 at  = std::min(cur.col, static_cast<Int32>(s.size()));
+      s.insert(static_cast<Size>(at), with);
+      cur.col = at + static_cast<Int32>(with.size());
+      clampCursor();
+  }
+
   // -------------------------------------------------------------------- motions
 
   Bool Editor::motion(Char c, Int32 count, Cursor& out, Bool& linewise)
