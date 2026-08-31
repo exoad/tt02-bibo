@@ -1129,11 +1129,11 @@ static Void printSound(Void)
         static_cast<UInt32>(soundVolume),
         static_cast<UInt32>(DFP_VOLUME_MAX),
         static_cast<UInt32>(soundTrack),
-        (bibo::pins::SOUND_BUSY == bibo::pins::NONE)
+        (bibo::pins::active().soundBusy == bibo::pins::NONE)
             ? "unwired"
             : (bibo::dfplayer::playing(&soundBus) ? "yes" : "no"),
-        static_cast<Int32>(bibo::pins::SOUND_TX),
-        static_cast<Int32>(bibo::pins::SOUND_RX));
+        static_cast<Int32>(bibo::pins::active().soundTx),
+        static_cast<Int32>(bibo::pins::active().soundRx));
 }
 
 static Void cmdSound(CharSeq arg)
@@ -1348,6 +1348,30 @@ int main(Void)
 {
     bibo::serial::open();
 
+    /* ---- WHAT IS WIRED WHERE, before anything is opened -------------------
+     *
+     * The first act of every program in this firmware, main and sketches
+     * alike. Nothing below pins.hxx holds a GPIO number; every subsystem reads
+     * the map installed here when it opens.
+     *
+     * It must come FIRST. The map starts empty, so a subsystem opened before
+     * this binds NOTHING and is visibly dead - which is the right failure. A
+     * servo on a pad chosen by whatever ran last is worse than a servo that
+     * does not move.
+     *
+     * A failure here means two roles claim one pad. It cannot happen for the
+     * car - pins.hxx static_asserts that map at compile time - so this branch
+     * exists for the day somebody edits car() and the assert is the thing that
+     * actually catches it. Reported rather than ignored, because a car that
+     * silently ran with no pins would be a very confusing hour. */
+    if(!bibo::pins::begin(bibo::pins::car()))
+    {
+        bibo::serial::printf("ERR pins %s and %s both want GP%d\n",
+                             bibo::pins::conflictFirst(),
+                             bibo::pins::conflictSecond(),
+                             bibo::pins::conflictPin());
+    }
+
     /* Sensors come up at boot so SENSORS and TOF can answer immediately. A
      * missing sensor is not a failure here - it is the answer. */
     sensorsOpen();
@@ -1387,8 +1411,9 @@ int main(Void)
      * not. SOUND RESET pays the two seconds, and only a session that wants
      * sound pays them at all. See cmdSound. */
     bibo::dfplayer::open(&soundBus, uart0,
-                         bibo::pins::SOUND_TX, bibo::pins::SOUND_RX,
-                         bibo::pins::SOUND_BUSY);
+                         bibo::pins::active().soundTx,
+                         bibo::pins::active().soundRx,
+                         bibo::pins::active().soundBusy);
 
     /* Visible proof of life the moment power is applied, before any host could
      * be listening: three quick flashes, then a slow idle heartbeat. */

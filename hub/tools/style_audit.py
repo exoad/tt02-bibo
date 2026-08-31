@@ -424,6 +424,7 @@ LAYERS = {
     # A host test of ONE header includes that header, not the umbrella - the
     # umbrella drags in the SDK and these compile with MSVC.
     'firmware/tests':        {'../lib/text.hxx',
+                              '../lib/pins.hxx',
                               '../lib/drivers/dfplayer_proto.hxx'},
 }
 
