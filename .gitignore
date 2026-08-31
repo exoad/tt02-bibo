@@ -89,3 +89,4 @@ CLAUDE.md
 # machine and is wrong on any other. Same reason the .pyc had to go.
 firmware/tests/compile_commands.json
 hub/tests/compile_commands.json
+hub/src/compile_commands.json
