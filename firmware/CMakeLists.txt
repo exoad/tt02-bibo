@@ -86,6 +86,7 @@ set(BIBO_LIB
     lib/pins.hxx
     lib/sfx.hxx
     lib/sound.hxx
+    lib/control.hxx
     lib/text.hxx
     lib/hal.hxx
     lib/gfx.hxx
@@ -100,6 +101,7 @@ set(BIBO_LIB
     lib/drivers/storage.hxx
     lib/chassis/chassis.hxx
     lib/chassis/cal.hxx
+    lib/chassis/odom.hxx
 )
 
 # ---------------------------------------------------------------------------
