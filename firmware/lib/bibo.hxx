@@ -103,6 +103,10 @@
  * can name pins::HEAD_L rather than 11 - and so the conflict static_asserts in
  * it fire on every build rather than only when somebody happens to include it. */
 #include "pins.hxx"
+
+/* What the sounds on the card mean. A leaf like pins - names and numbers,
+ * no SDK - so it can be read and tested without a board. */
+#include "sfx.hxx"
 #include "boot.hxx"
 
 #include "drivers/dfplayer.hxx"

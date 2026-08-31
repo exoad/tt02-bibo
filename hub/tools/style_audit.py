@@ -429,6 +429,7 @@ LAYERS = {
     # umbrella drags in the SDK and these compile with MSVC.
     'firmware/tests':        {'../lib/text.hxx',
                               '../lib/pins.hxx',
+                              '../lib/sfx.hxx',
                               '../lib/drivers/dfplayer_proto.hxx'},
 }
 
@@ -444,6 +445,10 @@ LAYER_EXTRA = {
     # boot.hxx is serial + the pin map + a visible refusal, so it names
     # both. It is the one lib-root file that legitimately needs pins.
     'firmware/lib/boot.hxx': {'hal.hxx', 'pins.hxx'},
+    # sfx.hxx is names and numbers - what the clips on the card MEAN. A leaf
+    # like pins: types for the vocabulary, text to compare a name. No SDK, so
+    # it compiles on the host and its table can be tested without a board.
+    'firmware/lib/sfx.hxx': {'types.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
     'firmware/lib/lights.hxx': {'hal.hxx'},
     'firmware/lib/net.hxx': {'hal.hxx'},
@@ -452,7 +457,7 @@ LAYER_EXTRA = {
     # naming the one below it, written down rather than special-cased in silence.
     'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
-                            'pins.hxx', 'boot.hxx',
+                            'pins.hxx', 'sfx.hxx', 'boot.hxx',
                             'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
