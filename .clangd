@@ -1,0 +1,46 @@
+# Repo-wide clangd settings. Directory .clangd files add to this rather than
+# replace it - clangd reads every one from the file's directory up to the root
+# and merges them - so the compilation databases stay where they are and the
+# check list lives here once.
+#
+# WHY THE CHECK LIST HAS TO EXIST. clang-tidy is already enabled in clangd 18;
+# the --clang-tidy flag makes no difference and passing it changes nothing.
+# What decides whether anything runs is this list, and with no list clangd runs
+# NO checks and reports nothing. Measured over the actual protocol, because
+# `clangd --check` does not run clang-tidy at all and will tell you the file is
+# clean however this is written.
+
+Diagnostics:
+  ClangTidy:
+    Add:
+      # The family that catches real defects rather than taste. This is where
+      # the narrowing conversion lives that turned an Int32 pin number into an
+      # Int64 and back on the way to gpio::open.
+      - bugprone-*
+      - clang-analyzer-*
+      - performance-*
+      - portability-*
+
+      # Named individually rather than modernize-*, which would also demand
+      # trailing return types and ban the C arrays firmware uses on purpose.
+      # These four agree with docs/conventions.md instead of arguing with it.
+      - modernize-use-nullptr
+      - modernize-use-override
+      - modernize-use-using
+      - modernize-loop-convert
+
+      # The braces rule, enforced where it is written rather than only in the
+      # style audit - conventions.md requires a body to have braces however
+      # short, and this is the check that says so as you type.
+      - readability-braces-around-statements
+
+    Remove:
+      # Fires on any function with two parameters of the same type, which here
+      # means most of the geometry and every begin/end pair. It is a real
+      # hazard and an unreadable amount of noise; the ones that matter are
+      # caught by reading the call site.
+      - bugprone-easily-swappable-parameters
+
+      # The firmware is freestanding: no exceptions, no heap. A check that
+      # wants RAII wrappers around a GPIO register has nothing to offer it.
+      - bugprone-unhandled-exception-at-new

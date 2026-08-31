@@ -2384,6 +2384,16 @@ namespace
   // replaces one without discarding the other. They are merged for display.
   Vec<diag::Item> codeLintDiags;
 
+  // clangd's, kept apart from both for the same reason: it republishes the
+  // whole set on every keystroke, and merging it into either would let one
+  // source clear the other's marks.
+  //
+  // This is where clang-tidy shows up. clangd runs it in-process and publishes
+  // its findings on the same channel as its parse errors, so a narrowing
+  // conversion and a missing semicolon arrive together and are told apart by
+  // the check name the message carries.
+  Vec<diag::Item> codeLspDiags;
+
   // Frames until the buffer is re-linted. Counted from the last EDIT, like
   // autosave, so it never fires mid-word - and re-linting on every keystroke
   // would re-scan the file dozens of times while a single line is typed.
@@ -2400,6 +2410,8 @@ namespace
   //
   // start() is idempotent and cheap after the first call, so this is a plain
   // per-frame call rather than a latch with its own "did we already" flag.
+  Void refreshCodeDiags();      // defined just below; pumpCodeIntel calls it
+
   Void pumpCodeIntel()
   {
       if(centralView != 3)
@@ -2413,6 +2425,15 @@ namespace
       // which is correct: a file with no path has no entry in
       // compile_commands.json, so clangd could only guess at its flags.
       codeView.lspPath = codePath;
+
+      // clangd republishes the whole set whenever it reparses, which is a few
+      // hundred milliseconds after a keystroke - so this is polled rather than
+      // recomputed, and only redraws the marks when something actually
+      // arrived. diagnostics() reports false on every frame in between.
+      if(lsp::diagnostics(codeLspDiags))
+      {
+          refreshCodeDiags();
+      }
   }
 
   // Merges the compiler's opinion with the linter's, compiler first.
@@ -2425,6 +2446,8 @@ namespace
       codeView.diags = codeDiags;
       codeView.diags.insert(codeView.diags.end(),
                             codeLintDiags.begin(), codeLintDiags.end());
+      codeView.diags.insert(codeView.diags.end(),
+                            codeLspDiags.begin(), codeLspDiags.end());
   }
 
   // Re-checks the buffer against docs/conventions.md a moment after typing stops.
