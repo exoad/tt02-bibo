@@ -5162,6 +5162,38 @@ namespace
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN), "modified");
       }
 
+      // ---- the firmware reference ------------------------------------------
+      //
+      // ON THIS ROW rather than in the tab strip, where it was first put. A
+      // trailing tab-bar button is visible from every view, so it offered the
+      // firmware API to somebody looking at a point cloud or a recording. The
+      // reference documents the code, so it belongs to the view with the code
+      // in it.
+      //
+      // Right-aligned, and on row 1 with the file operations rather than row 2
+      // with Run and Build. Those two write to the board; this opens a page,
+      // and putting it in that group would make it look like it is one of them.
+      {
+          const Float32 dw = 92.0f * uiDpiScale;
+          ImGui::SameLine();
+          ImGui::SetCursorPosX(std::max(
+              ImGui::GetCursorPosX(),
+              ImGui::GetWindowWidth() - dw - ImGui::GetStyle().WindowPadding.x));
+
+          if(ui::iconButton(ui::Icon::ICON_REFERENCE, "Docs",
+                            ImVec2(dw, ImGui::GetFrameHeight())))
+          {
+              sketch::openDocs();
+          }
+          if(ImGui::IsItemHovered())
+          {
+              ImGui::SetTooltip("The firmware API reference, in your browser.\n\n"
+                                "Generated from firmware/lib, so a signature there "
+                                "is the one\nthat compiles. Builds on first use - "
+                                "a few seconds - instant after.");
+          }
+      }
+
       // ---- row 2: the round trip -------------------------------------------
       const Float32 bh = ImGui::GetFrameHeight();
 
@@ -8755,28 +8787,6 @@ namespace
               drawViewBody(v, mapW, viewH);
               ImGui::EndTabItem();
           }
-      }
-
-      // Beside the console, because both are things you REACH FOR rather than
-      // views you work in - and before it, so the console keeps the far-right
-      // spot it has always had.
-      //
-      // A BUTTON RATHER THAN AN EMBEDDED VIEW. Rendering the reference inside
-      // this window means hosting WebView2 in the D3D11 swapchain or standing
-      // a second top-level window next to this one, and the second is just a
-      // worse browser. The docs are static HTML that a real browser renders,
-      // searches and bookmarks better than anything worth building here.
-      if(ImGui::TabItemButton("  Docs  ",
-                              ImGuiTabItemFlags_Trailing
-                              | ImGuiTabItemFlags_NoTooltip))
-      {
-          sketch::openDocs();
-      }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip("The firmware API reference, in your browser.\n"
-                            "Generated from firmware/lib. Builds on first use,\n"
-                            "which takes a few seconds; instant after that.");
       }
 
       // Right-aligned, so opening the console is where the tabs END rather than
