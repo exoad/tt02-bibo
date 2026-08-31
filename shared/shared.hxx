@@ -45,6 +45,7 @@
 
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -162,6 +163,12 @@ using Fn = std::function<Sig>;
 using Thread    = std::thread;
 using Mutex     = std::mutex;
 using RecMutex  = std::recursive_mutex;
+
+// For a worker that WAITS rather than polls. A thread that sleeps for five
+// milliseconds in a loop looks like it works and is really a busy-wait with
+// latency bolted on; this is the thing that lets it block until there is
+// something to do and wake immediately when there is.
+using CondVar   = std::condition_variable;
 
 template<typename T>
 using LockGuard = std::lock_guard<T>;

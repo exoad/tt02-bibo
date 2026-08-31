@@ -157,6 +157,16 @@ namespace ed
       // accepted completion with nothing to replace cannot corrupt the line.
       Void replaceWordBeforeCursor(const Str& s);
 
+      // Puts `s` in at the caret, replacing the partial identifier if there is
+      // one and inserting if there is not.
+      //
+      // A SEPARATE CALL rather than relaxing the one above, because that no-op
+      // is a guarantee: it exists so a stray accept cannot invent text, and
+      // test_editor pins it. This is the call that means "the user picked this
+      // from a list", which is allowed to insert - `volume` after `vo` replaces,
+      // and the same `volume` straight after `dfplayer::` does not.
+      Void insertCompletion(const Str& s);
+
       // ---- mode ------------------------------------------------------------
       [[nodiscard]] Mode mode() const
       {

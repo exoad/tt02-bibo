@@ -27,6 +27,16 @@ namespace cmpl
       KIND_TYPE,
       KIND_MACRO,       // and enum constants: both are SCREAMING_SNAKE to a reader
       KIND_KEYWORD,
+
+      // The two below come only from clangd - the hand-written table has no
+      // entries for them and is not going to grow any.
+      //
+      // KIND_FIELD is the one that earns its keep. A designated initialiser is
+      // the place where you least remember the names and most need them:
+      // `pins::Map` has 24 of them, and `{ .servo = 0, .esc = 1, ... }` is
+      // twenty-four chances to type `.escPin` at a struct that calls it `.esc`.
+      KIND_FIELD,
+      KIND_VARIABLE,
   };
 
   struct Item

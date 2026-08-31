@@ -9,6 +9,7 @@
 
 #include "diagnostics.hxx"
 #include "editor.hxx"
+#include "lsp.hxx"
 #include "shared.hxx"
 
 #include "imgui.h"
@@ -45,6 +46,39 @@ namespace ui
       Bool  dismissed   = false;
       Int32 popupSel    = 0;
       Str   popupPrefix;
+
+      // Open because the caret sits just after `::`, `.` or `->` rather than
+      // because a name is part-typed. The prefix is empty in that case, and it
+      // is the one time an empty prefix should show anything at all.
+      Bool  popupTrigger = false;
+
+      // First visible row. The list can hold hundreds now that clangd feeds it,
+      // and ten is as many as fit under a caret without hiding the code the
+      // suggestion is about.
+      Int32 popupTop    = 0;
+
+      // ---- clangd ----------------------------------------------------------
+      // The last reply, the place it was about, and the place we last asked.
+      //
+      // The reply's position is kept because it arrives a frame or several after
+      // the question, by which time the caret has usually moved: an answer about
+      // a column the user has left is worse than no answer, and the only way to
+      // tell is to have written down where it was for.
+      //
+      // The buffer is handed to lsp::ask() with a hash of itself as its version,
+      // so clangd's copy is only re-sent when it actually differs. Derived from
+      // the text rather than bumped at each edit site: editor.cxx has a dozen
+      // places that modify the buffer and forgetting one would show completions
+      // for a file as it was three keystrokes ago - silently, and only
+      // sometimes.
+      lsp::Answer lspAnswer;
+      Int32       lspAskLine = -1;
+      Int32       lspAskCol  = -1;
+
+      // Absolute path of the file in the buffer. Set by the caller; empty means
+      // an unsaved buffer, which clangd cannot be asked about because it has no
+      // entry in compile_commands.json.
+      Str         lspPath;
 
       // ---- diagnostics -----------------------------------------------------
       // Set by the caller after a build. Empty means "no build has run", which
