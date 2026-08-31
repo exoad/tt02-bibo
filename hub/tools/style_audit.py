@@ -151,7 +151,8 @@ RULES = [
     # in lsp.cxx matches on the ellipsis - a generic comment about URI shape,
     # naming nobody.
     ('absolute user path',
-     r'[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[A-Za-z0-9_][A-Za-z0-9_.-]*',
+     r'[A-Za-z](?::|%3[Aa])[\\/]{1,4}[Uu]sers[\\/]{1,4}'
+     r'[A-Za-z0-9_][A-Za-z0-9_.-]*',
      'derive the path - a home directory in the tree names the machine'),
     #
     # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out: that is
