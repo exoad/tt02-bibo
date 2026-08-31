@@ -45,6 +45,12 @@ DIRS = [
     at('firmware', 'app'),
     at('firmware', 'sketches'),
     at('firmware', 'tests'),
+    # The companion board's program. Stubs today - the Orange Pi is not here -
+    # but in the list from its first commit rather than when it grows up,
+    # because a directory that starts unaudited is one somebody has to remember
+    # to add later, and the whole point of this list is not relying on that.
+    at('pilot', 'src'),
+    at('pilot', 'tests'),
     at('shared'),
 ]
 
