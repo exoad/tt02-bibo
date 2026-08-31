@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Where per-user state lives.
 //
-// %LOCALAPPDATA%\tt02-auto\ - deliberately NOT next to the exe. The build
+// %LOCALAPPDATA%\bibo\ - deliberately NOT next to the exe. The build
 // directory is deleted by `build.bat clean`, and a preference that resets every
 // time the app is rebuilt is not a preference.
 //

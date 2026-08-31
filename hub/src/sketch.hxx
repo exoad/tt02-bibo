@@ -9,7 +9,7 @@
 //
 // There used to be two, and the pair was the problem:
 //
-//   the LIBRARY   %LOCALAPPDATA%\tt02-auto\sketches\*.c - saved programs,
+//   the LIBRARY   %LOCALAPPDATA%\bibo\sketches\*.c - saved programs,
 //                 outside the repo and outside git.
 //   the SLOT      firmware/scratch/sketch.cxx - what CMake compiled, COPIED
 //                 OVER from the library before every single build.
