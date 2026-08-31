@@ -104,11 +104,11 @@ namespace
   Int32   qMax  = 0;
 
   constexpr Int32 QUALITY_BUCKETS = 16;         // 0..63 folded into 16 bins
-Array<Float32, QUALITY_BUCKETS> qHist= {};
+  Array<Float32, QUALITY_BUCKETS> qHist= {};
   Float32 qHistMax = 1.0f;
 
   constexpr Int32 DIST_BUCKETS = 24;            // 0..12 m in 0.5 m bins
-Array<Float32, DIST_BUCKETS> distHist= {};
+  Array<Float32, DIST_BUCKETS> distHist= {};
   Float32 distHistMax = 1.0f;
 
   // Angular coverage: fraction of 1-degree bins with at least one in-spec return.
@@ -116,7 +116,7 @@ Array<Float32, DIST_BUCKETS> distHist= {};
 
   // Clearance: distance to the nearest return in each 30 degree sector, in metres.
   constexpr Int32 SECTORS = 12;
-Array<Float32, SECTORS> sectorM= {};
+  Array<Float32, SECTORS> sectorM= {};
   constexpr Float32 CLEARANCE_CAP_M = 2.5f;   // beyond this a direction is just "clear"
 
   // ------------------------------------------------------------- pico link ---
@@ -150,8 +150,8 @@ Array<Float32, SECTORS> sectorM= {};
   Bool lastSendWasPoll = false;
   Vec<Int32>      logShown;    // indices passing the filter, rebuilt per frame
 
-Array<Char, 192> cmdBuf= {};
-Array<Char, 64> filterBuf= {};
+  Array<Char, 192> cmdBuf= {};
+  Array<Char, 64> filterBuf= {};
   Bool logAutoscroll = true;
 
   // Result of the last BOOTSEL touch, so a failure is not silent.
@@ -400,8 +400,8 @@ Array<Char, 64> filterBuf= {};
   // only two of them exist in copper. That is the point of the split: wiring the
   // next LED changes a table in the firmware and nothing here.
   constexpr Int32 LAMP_N = 10;
-Array<Int32, LAMP_N> boardLamp= {};
-Array<Int32, LAMP_N> boardLampPin= { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+  Array<Int32, LAMP_N> boardLamp= {};
+  Array<Int32, LAMP_N> boardLampPin= { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 
   Int32 driveServoMin = 1300;
   Int32 driveServoMax = 1700;
@@ -449,7 +449,7 @@ Array<Int32, LAMP_N> boardLampPin= { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
   // A rolling history for the strip chart. Fixed size, oldest overwritten - a
   // chart that grows without bound is a leak with a picture on it.
   constexpr Int32 TOF_HISTORY = 240;
-Array<Float32, TOF_HISTORY> tofHistory= {};
+  Array<Float32, TOF_HISTORY> tofHistory= {};
   Int32   tofHistoryAt = 0;
   Bool    tofHistoryWrapped = false;
 
@@ -567,7 +567,7 @@ Array<Float32, TOF_HISTORY> tofHistory= {};
   constexpr Size FLASH_LOG_MAX = 3000;
   Vec<Str> flashLog;
 
-Array<Char, 320> backupBuf= {};
+  Array<Char, 320> backupBuf= {};
   Bool flashAutoscroll = true;
 
   // Set when the confirm modal is opened, so the modal can name what it is about
@@ -609,9 +609,9 @@ Array<Char, 320> backupBuf= {};
   // records; the loader bounds-checks each id against SECTION_COUNT and only
   // accepts a complete permutation, so the stale fifth is dropped and the other
   // four load normally.
-  Int32 sectionOrder[SECTION_COUNT] = { SECTION_SYSTEM, SECTION_SENSORS, SECTION_VEHICLE,
-                                    SECTION_FIRMWARE };
-Array<Bool, SECTION_COUNT> sectionFloating= {};
+  Array<Int32, SECTION_COUNT> sectionOrder = { SECTION_SYSTEM, SECTION_SENSORS,
+                                               SECTION_VEHICLE, SECTION_FIRMWARE };
+  Array<Bool, SECTION_COUNT> sectionFloating= {};
 
   // Logical (96-dpi) pixels, so the column keeps its apparent width across a DPI
   // change or a zoom rather than growing in one and not the other.
@@ -938,7 +938,7 @@ Array<Bool, SECTION_COUNT> sectionFloating= {};
 
   // Rolling rotation-rate history for the sparkline.
   constexpr Int32 HISTORY = 240;
-Array<Float32, HISTORY> hzHist= {};
+  Array<Float32, HISTORY> hzHist= {};
   Int32   hzCount = 0;
 
   // The C1M1 datasheet rev 1.1 lists exactly ONE rate: Figure 2-1 gives
@@ -967,13 +967,13 @@ Array<Float32, HISTORY> hzHist= {};
   };
   constexpr Int32 BAUD_COUNT = static_cast<Int32>(sizeof(BAUDS) / sizeof(BAUDS[0]));
 
-struct RangeOpt { const Char* label; Float32 mm; };   // mm <= 0 means auto-fit
+  struct RangeOpt { const Char* label; Float32 mm; };   // mm <= 0 means auto-fit
   const RangeOpt RANGES[] = {
     { "Fit", 0.0f }, { "0.5 m", 500.0f }, { "1 m", 1000.0f }, { "2 m", 2000.0f },
     { "4 m", 4000.0f }, { "8 m", 8000.0f }, { "12 m", 12000.0f },
   };
   constexpr Int32 RANGE_COUNT = static_cast<Int32>((sizeof(RANGES) / sizeof(RANGES[0])));
-const Char* RANGE_ITEMS[RANGE_COUNT] = {};
+  Array<const Char*, RANGE_COUNT> RANGE_ITEMS = {};
 
   // PushFont in 1.92 takes a pre-scale base size; LegacySize already has the DPI
   // baked in by LoadFonts, so it is never multiplied by uiDpiScale again.
@@ -1109,7 +1109,7 @@ const Char* RANGE_ITEMS[RANGE_COUNT] = {};
 
   // Set by the window procedure when Windows says the device tree changed, and
   // consumed by pumpDeviceScan() below.
-Atomic<Bool> deviceChangePending{false};
+  Atomic<Bool> deviceChangePending{false};
 
   // Frames until the rescan runs. The notification arrives BEFORE the COM port
   // exists - it is about the device NODE, and the serial driver registers its
@@ -1138,7 +1138,7 @@ Atomic<Bool> deviceChangePending{false};
   // The ADDRESS only. The network password never reaches the hub at all - it goes
   // from the person to the board over the USB console and lives in the board's
   // RAM until it is reset. See firmware/lib/net.h.
-Array<Char, 64> wifiHost{};
+  Array<Char, 64> wifiHost{};
   Bool wifiHostLoaded  = false;
 
   const Char* const WIFI_HOST_FILE = "car-address.txt";
@@ -3965,7 +3965,7 @@ Array<Char, 64> wifiHost{};
       ImGui::SameLine();
 
       ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-      if(ui::combo("##range", &rangeIndex, RANGE_ITEMS, RANGE_COUNT))
+      if(ui::combo("##range", &rangeIndex, RANGE_ITEMS.data(), RANGE_COUNT))
           applyRange();
 
       ImGui::SameLine();
@@ -5468,9 +5468,9 @@ Array<Char, 64> wifiHost{};
       ImGui::SliderInt("##soundvol", &soundVol, 0, soundVolMax, "%d");
       if(ImGui::IsItemDeactivatedAfterEdit())
       {
-          Char cmd[48];
-          std::snprintf(cmd, sizeof(cmd), "SOUND VOL %d", soundVol);
-          sendPico(cmd);
+          Array<Char, 48> cmd;
+          std::snprintf(cmd.data(), cmd.size(), "SOUND VOL %d", soundVol);
+          sendPico(cmd.data());
       }
 
       ImGui::SameLine(0.0f, 12.0f);
@@ -5485,9 +5485,9 @@ Array<Char, 64> wifiHost{};
           if(ui::iconButton(ui::Icon::ICON_SIGNAL, label,
                             ImVec2(96.0f * uiDpiScale, 0.0f)))
           {
-              Char cmd[48];
-              std::snprintf(cmd, sizeof(cmd), "SOUND VOL %d", level);
-              sendPico(cmd);
+              Array<Char, 48> cmd;
+              std::snprintf(cmd.data(), cmd.size(), "SOUND VOL %d", level);
+              sendPico(cmd.data());
           }
           if(ImGui::IsItemHovered())
           {
@@ -5525,9 +5525,9 @@ Array<Char, 64> wifiHost{};
       if(ui::iconButton(ui::Icon::ICON_PLAY, "Play",
                         ImVec2(160.0f * uiDpiScale, 0.0f)))
       {
-          Char cmd[48];
-          std::snprintf(cmd, sizeof(cmd), "SOUND PLAY %d", soundTrack);
-          sendPico(cmd);
+          Array<Char, 48> cmd;
+          std::snprintf(cmd.data(), cmd.size(), "SOUND PLAY %d", soundTrack);
+          sendPico(cmd.data());
       }
 
       ImGui::SameLine();

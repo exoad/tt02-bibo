@@ -398,7 +398,7 @@ namespace ui
   Bool combo(const Char* label, Int32* current, const Char* const items[], Int32 count);
 
   // Where the accent edge goes on a selected cell.
-enum class Mark { MARK_UNDERLINE, MARK_LEFT_BAR, MARK_NONE };
+  enum class Mark { MARK_UNDERLINE, MARK_LEFT_BAR, MARK_NONE };
 
   // One cell of a mutually-exclusive set: transparent and unoutlined when not
   // selected, plate fill plus an accent edge when it is. `selected` is the

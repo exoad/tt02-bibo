@@ -19,7 +19,7 @@
 namespace mapgeo
 {
 
-struct WorldPt { Float32 x, y; };
+  struct WorldPt { Float32 x, y; };
 
   // A straight surface fitted to a run of returns.
   struct WallSeg
@@ -93,11 +93,32 @@ struct WorldPt { Float32 x, y; };
   Void findCorners(const Vec<WallSeg>& w, Vec<Corner>& out, Float32 minRangeMm, Float32 maxRangeMm);
 
   // ---------------------------------------------------------------------------
+  // A polar profile: a radius per bearing bin, and whether each bin has evidence.
+  //
+  // These four values travelled together as four parameters through every
+  // function below, which is how `estimateHeading` came to take eight of them
+  // and run to 169 columns. They are one thing - a scan, in polar form - and
+  // naming it costs nothing at the call site because the members are the same
+  // pointers that were being passed anyway.
+  //
+  // `seen` matters as much as `r`: a bin with no evidence is not a bin that
+  // measured zero, and treating the two the same rewards alignments that line
+  // up two blind spots.
+  // ---------------------------------------------------------------------------
+  struct PolarScan
+  {
+      const Float32* r      = nullptr;   // free radius per bin, mm
+      const Bool*    seen   = nullptr;   // does this bin have evidence
+      Int32          bins   = 0;
+      Float32        binDeg = 0.0f;
+  };
+
+  // ---------------------------------------------------------------------------
   // Configuration space, in polar form.
   //
-  // `clr[i]` is the free radius on bearing bin i, `seen[i]` whether that bin has
-  // evidence. `out[i]` becomes how far the CENTRE of a disc of radius halfW could
-  // travel along bearing i before touching anything.
+  // `in.r[i]` is the free radius on bearing bin i, `in.seen[i]` whether that bin
+  // has evidence. `out[i]` becomes how far the CENTRE of a disc of radius halfW
+  // could travel along bearing i before touching anything.
   //
   // For an obstacle at (R, dth) off the bearing, the centre first touches it at
   //
@@ -107,7 +128,7 @@ struct WorldPt { Float32 x, y; };
   // offset from the bearing already clears the disc. That second condition bounds
   // how many bins can possibly block a bearing, which is what keeps this cheap.
   // ---------------------------------------------------------------------------
-  Void computeReach(const Float32* clr, const Bool* seen, Int32 bins, Float32 binDeg, Float32 halfW, Float32* out);
+  Void computeReach(const PolarScan& in, Float32 halfW, Float32* out);
 
   // ---------------------------------------------------------------------------
   // Heading, from the scan alone.
@@ -139,7 +160,12 @@ struct WorldPt { Float32 x, y; };
   // one. Near zero means "this profile does not identify a direction" and the
   // caller should say so rather than draw a confident heading.
   // ---------------------------------------------------------------------------
-  Bool estimateHeading(const Float32* ref, const Bool* refSeen, const Float32* cur, const Bool* curSeen, Int32 bins, Float32 binDeg, Float32& outDeg, Float32& outScore);
+  // Returns false, rather than guessing, when the two profiles are not the
+  // same shape. `bins` used to be ONE parameter shared by both, so a mismatch
+  // was unrepresentable; now that each scan carries its own, it is checkable
+  // instead - which is the better of the two, since the caller builds the
+  // reference and the current scan in different places.
+  Bool estimateHeading(const PolarScan& ref, const PolarScan& cur, Float32& outDeg, Float32& outScore);
 
   // Shoelace area of a polar polygon, in m^2 given radii in mm.
   [[nodiscard]] Float32 polarArea(const Float32* r, Int32 bins, Float32 binDeg);

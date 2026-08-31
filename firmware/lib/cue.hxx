@@ -353,10 +353,10 @@ namespace bibo
     };
 
     /* Held states. */
-  static const Step STEPS_HEAD[]    = { { 0u, CUE_CH_HEAD, LAMP_FULL, TONE_NONE } };
-  static const Step STEPS_RUNNING[] = { { 0u, CUE_CH_TAIL, LAMP_DIM,  TONE_NONE } };
-  static const Step STEPS_BRAKE[]   = { { 0u, CUE_CH_TAIL, LAMP_FULL, TONE_NONE } };
-  static const Step STEPS_REVERSE[] = { { 0u, CUE_CH_REV,  LAMP_FULL, TONE_NONE } };
+    static const Step STEPS_HEAD[]    = { { 0u, CUE_CH_HEAD, LAMP_FULL, TONE_NONE } };
+    static const Step STEPS_RUNNING[] = { { 0u, CUE_CH_TAIL, LAMP_DIM,  TONE_NONE } };
+    static const Step STEPS_BRAKE[]   = { { 0u, CUE_CH_TAIL, LAMP_FULL, TONE_NONE } };
+    static const Step STEPS_REVERSE[] = { { 0u, CUE_CH_REV,  LAMP_FULL, TONE_NONE } };
 
     /*
      * ORDER IS PRIORITY. A later cue wins a channel an earlier one also wants.

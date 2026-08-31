@@ -240,8 +240,10 @@ namespace ui
       // atlas copies ImFontConfig::SizePixels into LegacySize, but a shared
       // fallback carries the size of whichever role first loaded it - so re-stamp
       // anything non-positive.
-      ImFont* const roles[] = { fonts.small, fonts.body, fonts.title, fonts.stat, fonts.big, fonts.mono };
-      const Float32   sizes[] = { szSmall,    szBody,    szTitle,    szStat,    szBig,     szCode     };
+      const Array<ImFont*, 6> roles = { fonts.small, fonts.body, fonts.title,
+                                        fonts.stat,  fonts.big,  fonts.mono };
+      const Array<Float32, 6> sizes = { szSmall,     szBody,     szTitle,
+                                        szStat,      szBig,      szCode };
       for(Int32 i = 0; i < 6; ++i)
           if(roles[i] != nullptr && !(roles[i]->LegacySize > 0.0f))
               roles[i]->LegacySize = sizes[i];

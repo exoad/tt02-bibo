@@ -19,7 +19,9 @@ namespace dev
 
     // Only codes that mean the device is not there. Each one is here because it has
     // been seen from a real unplug, not because it sounded plausible.
-    constexpr UInt32 REMOVAL_CODES[] = {
+    // Explicit 8 rather than a deduced size: adding a ninth code without
+    // bumping it is then a compile error, not a silent truncation.
+    constexpr Array<UInt32, 8> REMOVAL_CODES = {
         ERROR_FILE_NOT_FOUND,        //    2  the port no longer exists
         ERROR_PATH_NOT_FOUND,        //    3
         ERROR_INVALID_HANDLE,        //    6  the handle died under us

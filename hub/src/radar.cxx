@@ -461,7 +461,7 @@ namespace
 
   // One screen-space point disc. Colour is uniform across a revolution and so is
   // passed to emitDiscs() once rather than stored per point.
-struct Dot { Float32 x, y; };
+  struct Dot { Float32 x, y; };
 
   // Reused between revolutions and frames so the per-frame cost is a memcpy-free
   // refill rather than an allocation. ImGui is single-threaded, so a file-local
@@ -483,7 +483,7 @@ struct Dot { Float32 x, y; };
   // A screen-space point that carries its own colour, for the modes where the
 
   // A screen-space axis-aligned cell, for Density and Occupancy.
-struct Cell { Float32 x0, y0, x1, y1; ImU32 c; };
+  struct Cell { Float32 x0, y0, x1, y1; ImU32 c; };
 
   Vec<Cell>& cellScratch()
   {
@@ -2610,7 +2610,8 @@ struct Cell { Float32 x0, y0, x1, y1; ImU32 c; };
       }
 
       static Array<Float32, CLR_BINS> reach;
-      mapgeo::computeReach(free.data(), seen0.data(), CLR_BINS, CLR_BIN_DEG, halfW, reach.data());
+      mapgeo::computeReach(mapgeo::PolarScan{ free.data(), seen0.data(), CLR_BINS, CLR_BIN_DEG },
+                           halfW, reach.data());
 
       ImVec2 freePoly[CLR_BINS];
       ImVec2 fitPoly[CLR_BINS];
@@ -3062,7 +3063,7 @@ struct Cell { Float32 x0, y0, x1, y1; ImU32 c; };
   // into an unreadable pile - and the first version of this did precisely that.
   // Callers place in priority order and a label that would land on one already
   // down is dropped; the box is still drawn, still counted.
-struct LabelRect { Float32 x0, y0, x1, y1; };
+  struct LabelRect { Float32 x0, y0, x1, y1; };
 
   Bool claimLabel(Vec<LabelRect>& taken, const ImVec2& mid, const ImVec2& ts, Float32 dpi)
   {
@@ -3941,9 +3942,11 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
         else
         {
             Float32 deg = 0.0f, score = 0.0f;
-            if(mapgeo::estimateHeading(mst.refClr.data(), mst.refSeen.data(),
-                                       st.clr.data(), st.clrSeen.data(),
-                                       CLR_BINS, CLR_BIN_DEG, deg, score))
+            const mapgeo::PolarScan refScan{ mst.refClr.data(), mst.refSeen.data(),
+                                             CLR_BINS, CLR_BIN_DEG };
+            const mapgeo::PolarScan curScan{ st.clr.data(), st.clrSeen.data(),
+                                             CLR_BINS, CLR_BIN_DEG };
+            if(mapgeo::estimateHeading(refScan, curScan, deg, score))
             {
                 // Eased, not snapped. The estimate is per-revolution and jitters
                 // by a fraction of a bin; easing it costs a little lag and buys
@@ -3995,7 +3998,8 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const ImVec2
             freeR[i] = st.clrSeen[i] ? st.clr[i] : 0.0f;
             seenR[i] = st.clrSeen[i];
         }
-        mapgeo::computeReach(freeR.data(), seenR.data(), CLR_BINS, CLR_BIN_DEG,
+        mapgeo::computeReach(mapgeo::PolarScan{ freeR.data(), seenR.data(),
+                                                CLR_BINS, CLR_BIN_DEG },
                              EGO_WID_MM * 0.5f + 30.0f, reach.data());
         haveReach = true;
     }

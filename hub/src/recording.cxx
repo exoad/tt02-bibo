@@ -18,7 +18,7 @@ namespace rec
 
     // The original binary format's magic. Still recognised on load, never
     // written - see loadBinaryV1.
-  const Array<Char, 8> MAGIC_V1= { 'T', 'T', '0', '2', 'R', 'E', 'C', '1' };
+    const Array<Char, 8> MAGIC_V1= { 'T', 'T', '0', '2', 'R', 'E', 'C', '1' };
 
     // A revolution with more points than this is not a revolution, it is a corrupt
     // length field. The C1 produces ~500; ten thousand is far past any plausible
