@@ -61,6 +61,28 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+/* ---------------------------------------------------------------------------
+ * BIBO_FAKE_HAL - the host-test seam.
+ *
+ * Defined ONLY by firmware/tests, and off in every image this project flashes.
+ *
+ * It exists because chassis.hxx holds the safety property - the ESC is
+ * disarmed until asked - and could not be tested at all: it includes this
+ * file, this file includes twelve SDK headers, and none of that compiles on a
+ * laptop. The alternative was faking sixty-one SDK symbols; the modules under
+ * test call seven functions between them.
+ *
+ * The substitution has to live HERE rather than in the build script, because
+ * `#include "../hal.hxx"` from lib/chassis/ resolves next to chassis.hxx no
+ * matter what the include path says - and conventions.md requires that
+ * spelling for exactly the reason it now costs us this #ifdef.
+ * ------------------------------------------------------------------------ */
+#ifdef BIBO_FAKE_HAL
+
+#include "../tests/fakes/hal.hxx"
+
+#else
+
 /* pico/stdlib.h FIRST, and on its own line, because it is what drags in the
  * board header - and the board header is what decides, below, whether this
  * build has a wireless chip at all. Everything after it can then ask. */
@@ -302,6 +324,29 @@ namespace bibo
     static UInt32 nowMs(Void)
     {
         return static_cast<UInt32>(to_ms_since_boot(get_absolute_time()));
+    }
+
+    /* ---- deadlines ---------------------------------------------------------
+     *
+     * A point in the future you can ask about. chassis.hxx used to reach past
+     * this file for it - absolute_time_t, make_timeout_time_ms, time_reached -
+     * because timing:: could say how long to WAIT and not when to ACT, and a
+     * slew limiter needs the second.
+     *
+     * Wrapping it is what let the chassis safety test compile on a laptop.
+     * ---------------------------------------------------------------------- */
+    typedef absolute_time_t Deadline;
+
+    /* A deadline `ms` from now. */
+    static Deadline armMs(UInt32 ms)
+    {
+        return make_timeout_time_ms(ms);
+    }
+
+    /* Has it arrived. */
+    static Bool reached(Deadline d)
+    {
+        return time_reached(d);
     }
 
     static UInt64 nowUs(Void)
@@ -1396,3 +1441,5 @@ namespace bibo
   } // namespace board
 
 } // namespace bibo
+
+#endif /* BIBO_FAKE_HAL */
