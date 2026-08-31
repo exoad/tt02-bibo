@@ -6767,8 +6767,34 @@ namespace
   // because there is nothing about the body worth reporting: the shell does not
   // steer, does not drive, and drawing it would be decoration competing with the
   // two things that are actually live.
-  Void drawChassis(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h, Float32 steerN, Float32 powerN, Bool servoLive, Bool armed, const Int32* lamp, const Int32* lampPin)
+  // Where the diagram goes and what it is reporting. Ten parameters was one
+  // rectangle, one drive state and two lamp rows spelled out longhand; the
+  // signature ran to 175 columns and told you nothing the members do not.
+  struct ChassisFrame
   {
+      ImVec2  p0{ 0.0f, 0.0f };
+      Float32 w = 0.0f;
+      Float32 h = 0.0f;
+      Float32 steerN    = 0.0f;   // -1 left, +1 right
+      Float32 powerN    = 0.0f;   // 0..1 of commanded throttle
+      Bool    servoLive = false;
+      Bool    armed     = false;
+  };
+
+  // The lamp model is ten wide on both rows - the level and the pin it is
+  // bound to - so the two are one type rather than two spellings of Int32*.
+  using LampRow = Array<Int32, LAMP_N>;
+
+  Void drawChassis(ImDrawList* dl, const ChassisFrame& f, const LampRow& lamp, const LampRow& pins)
+  {
+      const ImVec2& p0        = f.p0;
+      const Float32 w         = f.w;
+      const Float32 h         = f.h;
+      const Float32 steerN    = f.steerN;
+      const Float32 powerN    = f.powerN;
+      const Bool    servoLive = f.servoLive;
+      const Bool    armed     = f.armed;
+      const Int32* const lampPin = pins.data();
       const ImVec2 p1(p0.x + w, p0.y + h);
 
       // The well the drivetrain sits in. Black and square-cornered: this is a
@@ -7126,9 +7152,10 @@ namespace
           // shows what is actually being given.
           const Float32 power = throttleFraction(driveEscT);
 
-          drawChassis(ImGui::GetWindowDrawList(), cp0, caw, cah,
-                      driveSteerNow, power, driveServoOn, driveArmed,
-                      boardLamp.data(), boardLampPin.data());
+          drawChassis(ImGui::GetWindowDrawList(),
+                      ChassisFrame{ cp0, caw, cah, driveSteerNow, power,
+                                    driveServoOn, driveArmed },
+                      boardLamp, boardLampPin);
 
           ImGui::Dummy(ImVec2(full, cah));
           if(ImGui::IsItemHovered())

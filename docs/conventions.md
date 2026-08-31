@@ -490,7 +490,7 @@ formatting problem, they are a design one — a function taking eleven parameter
 was hard to read wrapped as well, and the wrapping was hiding it. Shortening
 those signatures is real work and is **still not done**.
 
-It is now **41, worst 175**, and held by a RATCHET rather than left to drift:
+It is now **30, worst 138**, and held by a RATCHET rather than left to drift:
 `style_audit.py` records the count as `SIG_BUDGET` and fails if it rises.
 Shortening one lowers the budget with it; adding a twelfth parameter to
 something already over the line does not pass. The debt is not paid, but it
@@ -499,6 +499,19 @@ can no longer quietly grow.
 Two of those columns are self-inflicted: indenting namespace bodies on
 2026-08-30 moved every line inside a namespace two to the right, which pushed
 borderline signatures over. Recorded rather than absorbed.
+
+The eleven that came off the list on 2026-08-31 all came off the same way,
+and it is the way the docs already predicted: **the length was a symptom.**
+Four parameters were one polar scan (`mapgeo::PolarScan`), four were one
+rectangle plus one mapping (`Rect`, `MapScale`), three were one face style
+(`FaceStyle`), three were one point (`Vec3`), and `pushFace`'s point count
+was a number the array already knew. None of them were shortened by
+renaming anything; they were shortened by noticing what the parameters
+actually were.
+
+What is LEFT is mostly not that. `iconMenuItem` is five parameters with
+three defaults, at 138 columns, and there is no concept hiding in it — the
+defaults are the API. Some signatures are just long.
 
 ### Application code uses the library, not libc
 

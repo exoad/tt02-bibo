@@ -666,7 +666,7 @@ print('\n--- signatures over 100 columns ---')
 # 2026-08-30 moved every line inside a namespace two to the right, which pushed
 # borderline signatures over. That is a real cost of that change and is
 # recorded here rather than absorbed quietly.
-SIG_BUDGET = 33
+SIG_BUDGET = 30
 
 SIGNATURE = re.compile(
     r'^\s*(?:\[\[nodiscard\]\]\s*)?'
