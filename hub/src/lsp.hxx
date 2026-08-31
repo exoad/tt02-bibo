@@ -33,6 +33,7 @@
 #pragma once
 
 #include "complete.hxx"
+#include "diagnostics.hxx"
 #include "shared.hxx"
 
 namespace lsp
@@ -118,5 +119,23 @@ namespace lsp
   // "clangd has nothing" and "clangd has not answered yet", which look
   // identical and mean opposite things.
   [[nodiscard]] Bool busy();
+
+  // clangd's own diagnostics for the open file - its parse errors and, where a
+  // .clangd enables them, clang-tidy's checks.
+  //
+  // These arrive on textDocument/publishDiagnostics, which this module already
+  // received and used ONLY as a signal that the AST was ready: the payload was
+  // read for its URI and then dropped. So the Code view underlined build output
+  // and the hub's own linter, and never anything clangd found - including the
+  // narrowing conversions and use-after-move that are the reason to run a
+  // linter at all.
+  //
+  // Replaces whatever was last published for the file rather than appending;
+  // clangd sends the complete set each time, and an empty array is the message
+  // "this file is clean now".
+  //
+  // Returns false when nothing new has arrived since the last call, leaving
+  // `out` untouched.
+  Bool diagnostics(Vec<diag::Item>& out);
 
 }

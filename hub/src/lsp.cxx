@@ -308,6 +308,13 @@ namespace lsp
         Answer answer;                  // serial 0 until the first reply
         Bool   answerFresh = false;
 
+        // clangd's diagnostics for the open file. Replaced wholesale on every
+        // publish, because clangd sends the complete set each time and an empty
+        // array means "clean now" rather than "nothing to say".
+        Mutex           diagMu;
+        Vec<diag::Item> diags;
+        Bool            diagsFresh = false;
+
         UInt64 sentVersion = 0;         // the document version clangd has
         Str    openPath;                // and which file it is
         Int32  docVersion = 1;          // LSP's own counter, must increase
@@ -573,15 +580,67 @@ namespace lsp
             if(msg.at("method").string() == "textDocument/publishDiagnostics")
             {
                 Str mine;
+                Str minePath;
                 {
                     LockGuard<Mutex> lk(s.uriMu);
-                    mine = s.openUri;
+                    mine     = s.openUri;
+                    minePath = s.openPath;
                 }
-                if(!mine.empty() && sameUri(msg.at("params").at("uri").string(), mine)
-                   && !s.parsed.load())
+                if(!mine.empty() && sameUri(msg.at("params").at("uri").string(), mine))
                 {
-                    s.parsedAtMs.store(GetTickCount64());
-                    s.parsed.store(true);
+                    if(!s.parsed.load())
+                    {
+                        s.parsedAtMs.store(GetTickCount64());
+                        s.parsed.store(true);
+                    }
+
+                    // The payload, which used to be dropped on the floor. Every
+                    // parse error clangd found, and every clang-tidy check a
+                    // .clangd turned on, arrives here and nowhere else.
+                    const js::Value& arr = msg.at("params").at("diagnostics");
+                    Vec<diag::Item>  got;
+
+                    for(Size i = 0; i < arr.size(); ++i)
+                    {
+                        const js::Value& d = arr[i];
+
+                        diag::Item it;
+                        it.file = minePath;
+
+                        // LSP counts lines and characters from ZERO; every
+                        // compiler this project talks to counts from one, and
+                        // diag::Item is documented as holding what a compiler
+                        // said. Off by one here puts the underline on the line
+                        // above the mistake, which is worse than no underline.
+                        it.line   = d.at("range").at("start").at("line").integer(0) + 1;
+                        it.column = d.at("range").at("start").at("character").integer(0) + 1;
+
+                        // LSP severity: 1 error, 2 warning, 3 information,
+                        // 4 hint. Anything softer than a warning is a note.
+                        const Int32 sev = d.at("severity").integer(2);
+                        it.severity = (sev == 1) ? diag::Severity::SEVERITY_ERR
+                                    : (sev == 2) ? diag::Severity::SEVERITY_WARN
+                                                 : diag::Severity::SEVERITY_NOTE;
+
+                        it.message = d.at("message").string();
+
+                        // Which check fired, appended the way clang-tidy itself
+                        // prints it. Without this a tidy finding is
+                        // indistinguishable from a compiler warning, and the
+                        // two are fixed differently - one is a mistake, the
+                        // other is a house rule with a name you can look up.
+                        const Str code = d.at("code").string();
+                        if(!code.empty())
+                        {
+                            it.message += " [" + code + "]";
+                        }
+
+                        got.push_back(it);
+                    }
+
+                    LockGuard<Mutex> lk(s.diagMu);
+                    s.diags      = got;
+                    s.diagsFresh = true;
                 }
             }
             return;
@@ -996,6 +1055,25 @@ namespace lsp
       return impl().inFlight.load() >= 0;
   }
 
+  Bool diagnostics(Vec<diag::Item>& out)
+  {
+      Impl& s = impl();
+
+      LockGuard<Mutex> lk(s.diagMu);
+      if(!s.diagsFresh)
+      {
+          return false;
+      }
+
+      // Handed over even when EMPTY, and that is the point: clangd publishes a
+      // complete set every time, so an empty one means the file just became
+      // clean. Returning false there would leave the last errors underlined
+      // after they were fixed.
+      out          = s.diags;
+      s.diagsFresh = false;
+      return true;
+  }
+
   Bool ask(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
   {
       Impl& s = impl();
@@ -1031,12 +1109,15 @@ namespace lsp
                  "\"text\":" + js::quote(text) + "}}}");
 
           {
+              // openPath joins openUri under this lock because the reader
+              // thread needs it now: a diagnostic has to carry the PATH, and
+              // reading it unguarded from there would be a race on a Str.
               LockGuard<Mutex> lk(s.uriMu);
-              s.openUri = uri;
+              s.openUri  = uri;
+              s.openPath = path;
           }
           s.parsed.store(false);     // a new file: nothing is built for it yet
 
-          s.openPath    = path;
           s.docVersion  = 1;
           s.sentVersion = version;
       }
