@@ -35,6 +35,13 @@ export default defineNuxtConfig({
     head: { title: 'bibo firmware' },
   },
 
+  // Straight into the documentation. There is no content/index.md, so without
+  // this `/` has nothing behind it - Docus's landing collection sources that
+  // one file and it no longer exists.
+  routeRules: {
+    '/': { redirect: { to: '/getting-started', statusCode: 302 } },
+  },
+
   nitro: {
     prerender: {
       crawlLinks: true,

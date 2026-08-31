@@ -232,16 +232,13 @@ writeFileSync(join(OUT, '1.getting-started.md'),
   + `# Getting started\n\n`
   + `::note\nGenerated from \`firmware/README.md\`.\n::\n\n${esc(readme)}\n`)
 
-writeFileSync(join(OUT, 'index.md'),
-  `---\ntitle: bibo firmware\ndescription: API reference and subsystem guide for the TT-02 firmware\nnavigation: false\n---\n\n`
-  + `# bibo firmware\n\n`
-  + `The firmware for a self-driving 1/10 RC car on a Tamiya TT-02, running on an RP2350 (Pico 2 W).\n\n`
-  + `Every page under **Reference** is generated from the headers in \`firmware/lib\` at build time, so a signature here cannot drift from the one that compiles. ${files.length} headers, ${total} declarations.\n\n`
-  + `::card-group\n`
-  + `  ::card\n  ---\n  title: Getting started\n  to: /getting-started\n  icon: i-lucide-rocket\n  ---\n  Toolchain, SDK, build and flash.\n  ::\n`
-  + `  ::card\n  ---\n  title: Subsystems\n  to: /subsystems\n  icon: i-lucide-layers\n  ---\n  What each part owns, and what it deliberately does not.\n  ::\n`
-  + `  ::card\n  ---\n  title: Reference\n  to: /api/hal\n  icon: i-lucide-book-open\n  ---\n  Generated API for every header.\n  ::\n`
-  + `::\n`)
+/* NO LANDING PAGE. `/` redirects to the first page of the docs - see the route
+ * rule in nuxt.config.ts.
+ *
+ * A landing page sells something to somebody deciding whether to use it. This
+ * is a reference for one car's firmware, opened by pressing Docs in the hub,
+ * and a card grid between that press and the documentation is a page whose
+ * whole content is three links to the thing you already asked for. */
 
 console.log(`${files.length} header(s), ${total} declaration(s)`)
 for (const s of summaries) console.log(`  ${String(s.count).padStart(4)}  ${s.mod}`)
