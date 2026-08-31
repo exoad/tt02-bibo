@@ -44,8 +44,8 @@ namespace bibo
      * to. Find it by measuring the tightest circle the car can drive and
      * inverting steerFor - a circle of radius R is a curvature of 1/R.
      *
-     * AND IT IS NOT SYMMETRIC ON THIS CAR. cal.hxx has 1230 left, 1484 centre,
-     * 1670 right: 254 us one way and 186 the other. So this is the SMALLER of
+     * AND IT IS NOT SYMMETRIC ON THIS CAR. cal.hxx has 1230 left, 1480 centre,
+     * 1660 right: 250 us one way and 180 the other. So this is the SMALLER of
      * the two, because a controller that assumes it has the larger will ask for
      * a turn it cannot make in one direction and quietly understeer. chassis.hxx
      * scales each side separately when it converts a fraction to microseconds;

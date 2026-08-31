@@ -21,10 +21,10 @@
 #define STEER_CAL_LEFT 1230
 
 /* Wheels straight ahead. Not necessarily 1500, and usually not. */
-#define STEER_CAL_CENTER 1484
+#define STEER_CAL_CENTER 1480
 
 /* Full lock the other way. */
-#define STEER_CAL_RIGHT 1670
+#define STEER_CAL_RIGHT 1660
 
 /* ---- throttle ------------------------------------------------------------
  *
@@ -73,8 +73,8 @@
  * is a setting you have to remember to make again.
  *
  * Microseconds of pulse per 20 ms tick. 8 is 400 us/s, which walks this car's
- * 440 us of steering travel in 1.1 seconds - deliberate on a bench and far too
- * slow to steer around anything.
+ * 430 us of steering travel in about a second - deliberate on a bench and far
+ * too slow to steer around anything.
  */
 #define SLEW_CAL_STEER    8
 
@@ -103,4 +103,4 @@
 
 /* When this car was last calibrated, so a stale set of numbers can be spotted
  * rather than trusted. "defaults" means nobody has calibrated this car yet. */
-#define STEER_CAL_STAMP "measured 2026-08-28"
+#define STEER_CAL_STAMP "measured 2026-08-29"

@@ -181,7 +181,7 @@ namespace
       checkEq(bibo::drive::steerToUs(1.0f), STEER_CAL_RIGHT,
               "+1.0 is full right");
 
-      /* The throw is ASYMMETRIC on this car - centre is 1484, not 1500 - which
+      /* The throw is ASYMMETRIC on this car - centre is 1480, not 1500 - which
        * is the whole reason commands are fractions. Half right must land half
        * way to the RIGHT limit, not half way to 1500 + something. */
       const Int32 halfRight = bibo::drive::steerToUs(0.5f);

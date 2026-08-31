@@ -272,7 +272,7 @@ namespace
   Int32 driveServoC  = 1500;
 
   // How fast the board lets an output move, in microseconds per 20 ms tick.
-  // 8 is 400 us/s, which walks this car's 440 us of travel in 1.1 seconds.
+  // 8 is 400 us/s, which walks this car's 430 us of travel in about a second.
   Int32 driveSlew = 8;
 
   // What the slider shows, and whether it is under the thumb. Same split as the
@@ -6625,6 +6625,7 @@ namespace
           " * Still forward-only. The board refuses anything below 1500 whatever is written\n"
           " * here; reverse needs a brake-then-reverse sequence and is not something to\n"
           " * reach by editing a number.\n"
+          " *\n"
           " * MIN is IDLE. Not the ESC's neutral and not a safety floor, but the pulse at\n"
           " * which this motor sits still and the next microsecond starts it turning. That\n"
           " * is a fact about this car's ESC and motor, found by winding it up until the\n"
@@ -6633,31 +6634,59 @@ namespace
           " * It matters that this is the floor the sliders are built from: a range\n"
           " * starting below idle spends its first stretch doing nothing at all, so the\n"
           " * control feels dead at one end for no reason a driver could work out.\n"
+          " *\n"
+          " * A GEAR CHANGE INVALIDATES THIS. Idle is where the motor overcomes the\n"
+          " * drivetrain, so more reduction breaks static friction at a lower pulse and\n"
+          " * this number goes down. The 17T pinion went on after this was measured at 19T,\n"
+          " * and it has not been re-measured since - so 1541 is an upper bound on idle\n"
+          " * rather than idle.\n"
+          " *\n"
+          " * That is not cosmetic. driveThrottleUs clamps UPWARD to escMin, and the\n"
+          " * deadman calls the car driven when escTargetUs > escMinUs - so a car that\n"
+          " * creeps at what this file calls idle is a car the deadman does not think is\n"
+          " * moving.\n"
           " */\n"
           "#define THROTTLE_CAL_MIN %d\n"
           "#define THROTTLE_CAL_MAX %d\n"
           "\n"
           "/* ---- tuning, not measurement ---------------------------------------------\n"
           " *\n"
-          " * Everything above is a fact about this car that was found by moving it.\n"
-          " * These are not: they are choices about how fast an output may move and\n"
-          " * about where \"moving\" starts, and a different answer is right for a bench\n"
-          " * than for driving.\n"
+          " * Everything above is a fact about this car that was found by moving it. This\n"
+          " * is not: it is a choice about how fast the outputs are allowed to move, and a\n"
+          " * different answer is right for a bench than for driving.\n"
           " *\n"
-          " * They live here anyway for one reason - this is the file that survives a\n"
-          " * reflash - and they are PRINTED here because this generator rewrites the\n"
-          " * whole header. Anything it does not print is deleted, and chassis.h needs\n"
-          " * SLEW_CAL_STEER and SLEW_CAL_THROTTLE to compile.\n"
+          " * It lives here anyway for one reason - this is the file that survives a\n"
+          " * reflash. The throttle range was runtime-only until 2026-08-27 and was\n"
+          " * silently lost every time the board was rewritten, which is not a setting, it\n"
+          " * is a setting you have to remember to make again.\n"
+          " *\n"
+          " * Microseconds of pulse per 20 ms tick. 8 is 400 us/s, which walks this car's\n"
+          " * 430 us of steering travel in about a second - deliberate on a bench and far\n"
+          " * too slow to steer around anything.\n"
           " */\n"
           "#define SLEW_CAL_STEER    %d\n"
           "\n"
-          "/* The throttle's own rate. Separate from the steering because the right\n"
-          " * answer is different: a servo should arrive promptly, an ESC should be\n"
-          " * led there. */\n"
+          "/* The throttle's own rate. Separate from the steering because the right answer\n"
+          " * is different: a servo should arrive promptly, an ESC should be led there.\n"
+          " * Starts equal to the steering, which is what the single shared rate used to\n"
+          " * give - so nothing changes until it is tuned. */\n"
           "#define SLEW_CAL_THROTTLE %d\n"
           "\n"
-          "/* Microseconds past idle at which the car counts as being driven and the\n"
-          " * tail lamps go out. Mirrored below neutral for reverse. */\n"
+          "/* ---- when the tail lamps go out ------------------------------------------\n"
+          " *\n"
+          " * Microseconds ABOVE idle at which the car counts as being driven, and the\n"
+          " * tails extinguish. Below it the motor is turning but barely, and a car\n"
+          " * crawling is a car that has not really pulled away - the lamp should still be\n"
+          " * on.\n"
+          " *\n"
+          " * Also used the other way for reverse: more than this BELOW neutral counts as\n"
+          " * being driven backwards.\n"
+          " *\n"
+          " * Tuning, not measurement, like the slew step above - it is a judgement about\n"
+          " * when \"moving\" starts, and the honest answer is whatever looks right on the\n"
+          " * car. It lives here for the same reason: this is the file that survives a\n"
+          " * reflash.\n"
+          " */\n"
           "#define LIGHT_CAL_OFF_US %d\n"
           "\n"
           "/* When this car was last calibrated, so a stale set of numbers can be spotted\n"
@@ -7686,9 +7715,14 @@ namespace
       // block below expands, and this must not be pushed away by that.
       // ONE status line for the whole steering section.
       //
-      // There were three, and between them 1484 appeared four times in five
-      // lines: the fraction, the raw slider, and this. A number repeated is a
-      // number you stop reading.
+      // There were three, and between them the centre value appeared four times
+      // in five lines: the fraction, the raw slider, and this. A number repeated
+      // is a number you stop reading.
+      //
+      // Said as "the centre value" rather than as the number it was that day.
+      // It was 1484 then and is 1480 now, and a comment that names a measurement
+      // is a comment that goes quietly stale the next time the car is
+      // calibrated - which is the thing this whole pass has been correcting.
       {
           Array<Char, 96> st;
           if(driveServoOn)
@@ -8110,12 +8144,13 @@ namespace
               "a step change draws a spike the BEC feels.\n"
               "\n"
               "The usable range is only %d us wide (%d to %d), so a rate\n"
-              "that feels gentle on the steering's 440 us of travel crosses\n"
+              "that feels gentle on the steering's %d us of travel crosses\n"
               "the whole throttle band in a fraction of the time.\n"
               "\n"
               "Not saved by itself - Write to firmware, under Throttle\n"
               "range, is what keeps it across a reflash.",
-              driveEscMax - driveEscMin, driveEscMin, driveEscMax);
+              driveEscMax - driveEscMin, driveEscMin, driveEscMax,
+              calRight - calLeft);
       }
 
       if(ImGui::TreeNode("Throttle range  -  widen once the car is on a stand"))
