@@ -47,6 +47,7 @@
 #pragma once
 
 #include "../hal.hxx"
+#include "../pins.hxx"
 
 /* The protocol itself - frames, checksums, command numbers - lives next door
  * and needs NOTHING from the SDK, so it can be tested on the host. The one
@@ -102,7 +103,7 @@ namespace bibo
 
         uart::open(port, 9600, tx, rx);
 
-        if(busyPin != -1)
+        if(busyPin != pins::NONE)
         {
             gpio::open(static_cast<Pin>(busyPin), PIN_DIR_IN);
 
@@ -173,6 +174,121 @@ namespace bibo
         send(bus, DFP_CMD_STOP, 0);
     }
 
+    /* ---------------------------------------------------------------------
+     * Asks the module something and waits for the answer.
+     *
+     * THE ONLY PLACE THIS DRIVER READS. Everything else is fire and forget,
+     * which is why ACK is off: a reply nobody reads sits in the FIFO until it
+     * is mistaken for the answer to a later question. A query must read, so it
+     * drains first for exactly that reason.
+     *
+     * Returns false when nothing valid arrives, and leaves `out` alone. That is
+     * a USEFUL answer on a bench rather than a failure: it separates a module
+     * that is alive and listening from a dead one, a missing card, or an RX
+     * wire on the wrong pad - none of which the fire-and-forget path can tell
+     * apart, because none of them talks back.
+     *
+     * FRAMES ARE MATCHED ON THE COMMAND BYTE. The module volunteers a
+     * track-finished frame whenever a track ends, so whatever is sitting in the
+     * FIFO may be about something else entirely; anything that is not the answer
+     * to THIS question is skipped rather than returned as the value.
+     * ------------------------------------------------------------------- */
+    static Bool query(const Bus* bus, UInt8 cmd, UInt16* out)
+    {
+        uart::drain(bus->port);
+
+        UInt8 sent[10];
+        frame(sent, cmd, 0x00u, 0);
+        uart::write(bus->port, sent, sizeof(sent));
+
+        /* A 10-byte reply at 9600 baud is about 10 ms. 40 gives the module
+         * time to think and still fails fast enough that a silent one does not
+         * hang the console. */
+        const UInt32 SLICE_US = 40000u;
+
+        UInt8 f[10];
+        Size  n = 0;
+
+        for(Int32 guard = 0; guard < 64; ++guard)
+        {
+            const Int32 b = uart::readByte(bus->port, SLICE_US);
+            if(b < 0)
+            {
+                return false;   /* silence */
+            }
+
+            /* Resynchronise on the start byte rather than trusting alignment -
+             * half a frame left over from something else would otherwise shift
+             * every byte after it. */
+            if(n == 0 && b != 0x7E)
+            {
+                continue;
+            }
+
+            f[n] = static_cast<UInt8>(b);
+            ++n;
+            if(n < 10)
+            {
+                continue;
+            }
+            n = 0;
+
+            if(f[9] != 0xEF)
+            {
+                continue;   /* not a frame after all */
+            }
+
+            /* The same invariant the host test asserts: the body and the
+             * checksum word cancel in 16 bits. */
+            UInt16 sum = 0;
+            for(Int32 i = 1; i <= 6; ++i)
+            {
+                sum = static_cast<UInt16>(sum + f[i]);
+            }
+            const UInt16 chk = static_cast<UInt16>(
+                (static_cast<UInt16>(f[7]) << 8) | f[8]);
+
+            if(static_cast<UInt16>(sum + chk) != 0u)
+            {
+                continue;   /* corrupted - keep looking */
+            }
+            if(f[3] != cmd)
+            {
+                continue;   /* somebody else's answer */
+            }
+
+            *out = static_cast<UInt16>(
+                (static_cast<UInt16>(f[5]) << 8) | f[6]);
+            return true;
+        }
+        return false;
+    }
+
+    /* How many files the card holds.
+     *
+     * THE CARD IS THE SOURCE OF TRUTH. Nothing in this firmware keeps a list of
+     * tracks, so adding one to the card is the whole of adding one - there is
+     * no table here to keep in step and no build to redo. */
+    static Bool fileCount(const Bus* bus, UInt16* out)
+    {
+        return query(bus, DFP_Q_FILES, out);
+    }
+
+    /* Whether this bus has a BUSY line at all.
+     *
+     * SEPARATE FROM playing(), because "not playing" and "cannot tell" are
+     * different answers and a caller that shows them the same way is lying in
+     * one of the two cases. main.cxx used to ask pins::active().soundBusy to
+     * work this out - the app reaching past the driver for something the Bus
+     * already knows.
+     *
+     * Same shape as tft::hasBacklight(), and for the same reason: the wire is
+     * either there or it is not, and that is the driver's fact to report. */
+    [[nodiscard]] static Bool hasBusy(const Bus* bus)
+    {
+        return bus->busyPin != pins::NONE;
+    }
+
     /* ---------------------------------------------------------------------------
      * True while a track is playing.
      *
@@ -187,7 +303,7 @@ namespace bibo
      * ------------------------------------------------------------------------- */
     [[nodiscard]] static Bool playing(const Bus* bus)
     {
-        if(bus->busyPin == -1)
+        if(!hasBusy(bus))
         {
             return false;
         }
