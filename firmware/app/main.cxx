@@ -1239,11 +1239,36 @@ static Void cmdSound(CharSeq arg)
 
     if(bibo::text::starts(arg, "PLAY"))
     {
-        /* Bare PLAY repeats the last track, which is what a person pressing a
+        /* A NAME OR A NUMBER, and the name is tried first.
+         *
+         * `SOUND PLAY horn` reads as what the car is doing; `SOUND PLAY 2` is a
+         * fact about a filesystem. Both work, because a number is what you have
+         * before a clip has earned a name and there is no reason to make that
+         * awkward.
+         *
+         * Bare PLAY repeats the last track, which is what a person pressing a
          * button on a test view means by it. */
+        CharSeq want = bibo::text::after(arg, "PLAY ");
+
         Int32 n = 0;
-        if(!bibo::text::toInt(bibo::text::after(arg, "PLAY "), &n))
+        const UInt16 named = bibo::sfx::track(want);
+
+        if(named != bibo::sfx::NONE)
         {
+            n = static_cast<Int32>(named);
+        }
+        else if(!bibo::text::toInt(want, &n))
+        {
+            /* Neither a known name nor a number. Said as such rather than
+             * silently playing the last track - a typo in a clip name would
+             * otherwise sound exactly like success. */
+            if(want[0] != '\0')
+            {
+                bibo::serial::printf(
+                    "ERR sound no clip named %s - SOUND LIST for the names\n",
+                    want);
+                return;
+            }
             n = static_cast<Int32>(soundTrack);
         }
         if(n < 1 || n > 3000)
@@ -1258,6 +1283,19 @@ static Void cmdSound(CharSeq arg)
         {
             bibo::serial::printLine(
                 "ERR sound card not mounted - run SOUND RESET first");
+            return;
+        }
+
+        /* A NAME THAT POINTS PAST THE CARD is a table that has drifted from
+         * the filesystem, and it is worth saying so plainly - the sound simply
+         * not happening is the least informative failure available. Only
+         * checked when the count is known; 0 means nobody has asked. */
+        if(soundFiles > 0 && n > static_cast<Int32>(soundFiles))
+        {
+            bibo::serial::printf(
+                "ERR sound track %d but the card holds %u - "
+                "lib/sfx.hxx names a clip that is not there\n",
+                n, static_cast<UInt32>(soundFiles));
             return;
         }
 
@@ -1310,6 +1348,34 @@ static Void cmdSound(CharSeq arg)
 
         soundEq = static_cast<UInt8>(m);
         bibo::dfplayer::eq(&soundBus, soundEq);
+        printSound();
+        return;
+    }
+
+    /* SOUND LIST - the names, what they mean, and which track each is.
+     *
+     * One line each, the way CUE LIST and HELP do it, so nothing has to be kept
+     * in step with a list written somewhere else. */
+    if(bibo::text::eq(arg, "LIST"))
+    {
+        for(Size i = 0; i < bibo::sfx::COUNT; ++i)
+        {
+            bibo::serial::printf("INFO sfx %s track=%u - %s\n",
+                                 bibo::sfx::CLIPS[i].name,
+                                 static_cast<UInt32>(bibo::sfx::CLIPS[i].track),
+                                 bibo::sfx::CLIPS[i].means);
+        }
+
+        /* The table's claim about the card, checked when the card has been
+         * counted. A name pointing past the end is the one failure this table
+         * can have on its own. */
+        if(soundFiles > 0 && bibo::sfx::highest() > soundFiles)
+        {
+            bibo::serial::printf(
+                "ERR sfx names reach track %u but the card holds %u\n",
+                static_cast<UInt32>(bibo::sfx::highest()),
+                static_cast<UInt32>(soundFiles));
+        }
         printSound();
         return;
     }
@@ -1395,7 +1461,7 @@ static Void cmdSound(CharSeq arg)
     }
 
     bibo::serial::printLine(
-        "ERR sound wants RESET|VOL <0-30>|EQ <0-5>|PLAY <n>|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV");
+        "ERR sound wants RESET|VOL <0-30>|EQ <0-5>|PLAY <name|n>|LIST|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV");
 }
 
 static const Command COMMANDS[] =
@@ -1424,7 +1490,7 @@ static const Command COMMANDS[] =
     { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
     { "CUE",         " [LIST|STOP|<name> [OFF]]",     "what the car says, and saying it",      cmdCue },
 
-    { "SOUND",       " [RESET|VOL <0-30>|EQ <0-5>|PLAY <n>|FILES|RX|STOP|...]",
+    { "SOUND",       " [RESET|VOL|EQ|PLAY <name|n>|LIST|FILES|RX|STOP|...]",
                                                 "the speaker",                              cmdSound },
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
