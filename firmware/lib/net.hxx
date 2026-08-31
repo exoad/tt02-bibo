@@ -128,7 +128,7 @@ namespace bibo
     static Utf8 partial[NET_LINE_CAP];
     static Size partialLen = 0;
 
-    static Bool present(Void)
+    [[nodiscard]] static Bool present(Void)
     {
         return true;
     }
@@ -138,7 +138,7 @@ namespace bibo
         return stateNow;
     }
 
-    static Bool peerKnown(Void)
+    [[nodiscard]] static Bool peerKnown(Void)
     {
         return peerKnownNow;
     }
@@ -275,7 +275,7 @@ namespace bibo
      * milliseconds - which on a link that carries hold-to-drive commands means the
      * deadman fires mid-drive and it looks like a fault in the car.
      */
-    static Bool start(Void)
+    [[nodiscard]] static Bool start(Void)
     {
         if(started)
         {
@@ -332,7 +332,7 @@ namespace bibo
      * deadman. A join that freezes the car is a join nobody can make while the car
      * is switched on.
      */
-    static Bool join(CharSeq ssid, CharSeq pass)
+    [[nodiscard]] static Bool join(CharSeq ssid, CharSeq pass)
     {
         if(!started && !start())
         {
@@ -439,7 +439,7 @@ namespace bibo
 
 #else /* no radio on this board */
 
-    static Bool present(Void)
+    [[nodiscard]] static Bool present(Void)
     {
         return false;
     }
@@ -449,7 +449,7 @@ namespace bibo
         return STATE_ABSENT;
     }
 
-    static Bool peerKnown(Void)
+    [[nodiscard]] static Bool peerKnown(Void)
     {
         return false;
     }
@@ -469,12 +469,12 @@ namespace bibo
         return "-";
     }
 
-    static Bool start(Void)
+    [[nodiscard]] static Bool start(Void)
     {
         return false;
     }
 
-    static Bool join(CharSeq ssid, CharSeq pass)
+    [[nodiscard]] static Bool join(CharSeq ssid, CharSeq pass)
     {
         static_cast<Void>(ssid);
         static_cast<Void>(pass);

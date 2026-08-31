@@ -257,6 +257,11 @@ namespace bibo
         Bool   bgSolid;
         Int32  textScale;
 
+        /* Did the panel come up. False means the SPI pads were not a bus - and
+         * that is ALL it can mean, because the panel is write-only and cannot be
+         * asked whether it is there. See tft::open. */
+        Bool opened;
+
         /* ---- the drawing surface ---------------------------------------------
          *
          * Every one of these returns *this, so a frame reads as a sequence of
@@ -290,6 +295,10 @@ namespace bibo
 
         /* Queries - const, and not chainable, because they answer rather than
          * draw. */
+        /* Whether open() succeeded. A canvas that did not open still
+         * draws - into its buffer, harmlessly - so this is the only
+         * way to find out. */
+        Bool  ok() const;
         Int32 width() const;
         Int32 height() const;
         Box   safe() const;
@@ -1000,7 +1009,7 @@ namespace bibo
       * Returns what tft::open returns, which can only tell you the SPI pins were valid
       * - see the note in st77xx.h about the panel being write-only.
       */
-      static Bool open(Canvas* cv, tft::Screen* panel, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+      [[nodiscard]] static Bool open(Canvas* cv, tft::Screen* panel, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
       {
         cv->panel = panel;
 
@@ -1185,6 +1194,11 @@ namespace bibo
         return *this;
     }
 
+    inline Bool Canvas::ok() const
+    {
+        return opened;
+    }
+
     inline Int32 Canvas::width() const
 
     {
@@ -1231,7 +1245,7 @@ namespace bibo
     static Canvas open(tft::Screen* panel, const PanelSize& g)
     {
         Canvas cv;
-        detail::open(&cv, panel, g.w, g.h, g.xoff, g.yoff);
+        cv.opened = detail::open(&cv, panel, g.w, g.h, g.xoff, g.yoff);
         return cv;
     }
 

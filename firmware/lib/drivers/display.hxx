@@ -537,7 +537,7 @@ namespace bibo
      * is write-only and cannot be checked, which is exactly why a first sketch
      * draws a test pattern rather than trusting a return code.
      */
-    static Bool openOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
+    [[nodiscard]] static Bool openOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
     {
         if(s == NULL)
         {
@@ -656,7 +656,7 @@ namespace bibo
     }
 
     /* The same, on this project's pins. What a sketch normally calls. */
-    static Bool open(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+    [[nodiscard]] static Bool open(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
     {
         /* The pads THIS PROGRAM declared, not the defines above. The display's
          * wiring used to be fixed when the firmware was compiled, so a sketch
@@ -724,7 +724,7 @@ namespace bibo
     }
 
     /* Is there a pad to dim? False on every board wired as shipped. */
-    static Bool hasBacklight(const Screen* s)
+    [[nodiscard]] static Bool hasBacklight(const Screen* s)
     {
         return s->blk != pins::NONE;
     }
@@ -737,7 +737,7 @@ namespace bibo
      * call that silently does nothing is indistinguishable from a broken panel,
      * and the fix is a wire rather than a line of code.
      */
-    static Bool brightness(const Screen* s, Float32 level)
+    [[nodiscard]] static Bool brightness(const Screen* s, Float32 level)
     {
         if(!hasBacklight(s))
         {

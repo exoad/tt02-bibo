@@ -185,7 +185,7 @@ namespace bibo
      * command was accepted, which is a different claim from a track still being
      * audible.
      * ------------------------------------------------------------------------- */
-    static Bool playing(const Bus* bus)
+    [[nodiscard]] static Bool playing(const Bus* bus)
     {
         if(bus->busyPin == -1)
         {

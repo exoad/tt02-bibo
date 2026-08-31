@@ -167,7 +167,7 @@ namespace bibo
      * they are the same fact - `kind` stays sd::KIND_NONE and there is nothing to
      * talk to.
      */
-    static Bool openOn(Card* c, Pin sck, Pin mosi, Pin miso, Pin cs)
+    [[nodiscard]] static Bool openOn(Card* c, Pin sck, Pin mosi, Pin miso, Pin cs)
     {
         if(c == NULL)
         {
@@ -343,7 +343,7 @@ namespace bibo
         return true;
     }
 
-    static Bool open(Card* c)
+    [[nodiscard]] static Bool open(Card* c)
     {
         return openOn(c, PIN_SD_SCK, PIN_SD_MOSI, PIN_SD_MISO, PIN_SD_CS);
     }
@@ -374,7 +374,7 @@ namespace bibo
      * `block` is a BLOCK index, always - the byte-versus-block distinction is
      * handled here so no caller has to remember which kind of card it has.
      */
-    static Bool readBlock(const Card* c, UInt32 block, UInt8* out)
+    [[nodiscard]] static Bool readBlock(const Card* c, UInt32 block, UInt8* out)
     {
         if(c->kind == KIND_NONE || out == NULL)
         {
@@ -425,7 +425,7 @@ namespace bibo
      * for a surprisingly long time after a write, and returning early means the
      * next command lands while it is still busy and quietly fails.
      */
-    static Bool writeBlock(const Card* c, UInt32 block, const UInt8* data)
+    [[nodiscard]] static Bool writeBlock(const Card* c, UInt32 block, const UInt8* data)
     {
         if(c->kind == KIND_NONE || data == NULL)
         {
