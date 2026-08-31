@@ -69,7 +69,9 @@ C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 # reason, that lets firmware/lib/text.hxx name strtol. `using Str = std::string`
 # and sleepMs's one-line body naming std::this_thread are the file doing its
 # job, not a file that forgot the vocabulary.
-VOCAB_FILES  = {'shared.hxx'}
+# BOTH vocabulary files. types.hxx names std::uint8_t for the same reason
+# shared.hxx names std::string: it is the file that defines the alias.
+VOCAB_FILES  = {'shared.hxx', 'types.hxx'}
 VOCAB_WAIVES = {'unaliased std type', 'bare builtin type'}
 
 def strip_noise(text):
@@ -186,11 +188,26 @@ RULES = [
      r'\bstd::(?:vector|deque|array|map|set|unordered_map|unordered_set|pair|'
      r'tuple|string|string_view|optional|variant|function|unique_ptr|'
      r'shared_ptr|weak_ptr|mutex|recursive_mutex|lock_guard|unique_lock|'
-     r'thread|atomic|ifstream|ofstream|fstream'
+     r'thread|atomic|condition_variable|ifstream|ofstream|fstream'
      r'|chrono::(?:steady_clock|system_clock|high_resolution_clock|time_point'
      r'|milliseconds|microseconds|nanoseconds|seconds|duration)'
      r'|this_thread::sleep_for)\b',
      'use the shared.hxx alias (Vec, Str, Clock, TimePoint, sleepMs, ...)'),
+
+    # The fixed-width integers, bare or std:: qualified.
+    #
+    # `bare builtin type` above catches int, float, size_t and the rest, and
+    # never caught uint32_t - which was a hole the size of the whole stdint
+    # family in the one rule most likely to be relied on. Int32 and UInt8 are
+    # THE vocabulary of this project; std::int32_t is the thing they alias.
+    #
+    # Zero real uses when this went in. Rules that cost nothing on the day
+    # they are written are the ones worth writing: the alternative is finding
+    # out at 31 uses, which is where std::chrono was.
+    ('unaliased fixed-width integer',
+     r'(?<![A-Za-z0-9_:.])(?:std::)?(?:u?int(?:8|16|32|64)_t|uintptr_t'
+     r'|ptrdiff_t)(?![A-Za-z0-9_])',
+     'use the vocabulary alias - Int32, UInt8, UPtr, ISize'),
 
     # Allman, everywhere. A body on the same line as its head is the one brace
     # style question this project has already answered, and it is the one that
