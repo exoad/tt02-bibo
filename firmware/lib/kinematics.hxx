@@ -77,7 +77,7 @@ namespace bibo
     /* Refuses a shape a car cannot have. A zero or negative wheelbase divides
      * by zero in curvatureFor; a zero maxSteer makes steerFraction meaningless
      * and would report full lock as zero for every input. */
-    static Bool configure(const Config& c)
+    inline Bool configure(const Config& c)
     {
         if(c.wheelbase <= 0.0f || c.maxSteer <= 0.0f)
         {
@@ -92,7 +92,7 @@ namespace bibo
         return tuning;
     }
 
-    static Bool calibrated(Void)
+    inline Bool calibrated(Void)
     {
         return tuning.measured;
     }
@@ -105,7 +105,7 @@ namespace bibo
      * A controller thinks in curvature because that is what a path has; the
      * servo wants an angle. These two functions are the only place the
      * conversion happens. */
-    static Float32 curvatureFor(Float32 steerRad, Float32 wheelbase)
+    inline Float32 curvatureFor(Float32 steerRad, Float32 wheelbase)
     {
         if(wheelbase <= 0.0f)
         {
@@ -114,7 +114,7 @@ namespace bibo
         return tanf(steerRad) / wheelbase;
     }
 
-    static Float32 steerFor(Float32 curvature, Float32 wheelbase)
+    inline Float32 steerFor(Float32 curvature, Float32 wheelbase)
     {
         return atanf(curvature * wheelbase);
     }
@@ -122,7 +122,7 @@ namespace bibo
     /* Clamped to what the linkage can reach, and the CURVATURE clamped with it.
      * A controller handed back an angle it cannot achieve would keep asking for
      * a tighter turn and never notice it was not getting one. */
-    static Float32 clampSteer(Float32 steerRad, Float32 maxRad)
+    inline Float32 clampSteer(Float32 steerRad, Float32 maxRad)
     {
         if(steerRad > maxRad)
         {
@@ -137,7 +137,7 @@ namespace bibo
 
     /* As a fraction of full lock, which is what drive::steer wants. The chassis
      * maps that onto this car's asymmetric microseconds. */
-    static Float32 steerFraction(Float32 steerRad, Float32 maxRad)
+    inline Float32 steerFraction(Float32 steerRad, Float32 maxRad)
     {
         if(maxRad <= 0.0f)
         {
@@ -160,7 +160,7 @@ namespace bibo
      *
      * The straight-line case is kept for near-zero curvature, where the arc
      * form divides by a heading change that is approaching zero. */
-    static geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad,
+    inline geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad,
                                 Float32 wheelbase, Float32 dtS)
     {
         if(dtS <= 0.0f || wheelbase <= 0.0f)
@@ -203,32 +203,32 @@ namespace bibo
      * about a car that is not this one and a planner may reason about a
      * hypothetical. These are what ordinary code calls: threading the same two
      * numbers through every call site is how one of them ends up stale. */
-    static Float32 curvatureFor(Float32 steerRad)
+    inline Float32 curvatureFor(Float32 steerRad)
     {
         return curvatureFor(steerRad, tuning.wheelbase);
     }
 
-    static Float32 steerFor(Float32 curvature)
+    inline Float32 steerFor(Float32 curvature)
     {
         return steerFor(curvature, tuning.wheelbase);
     }
 
-    static Float32 clampSteer(Float32 steerRad)
+    inline Float32 clampSteer(Float32 steerRad)
     {
         return clampSteer(steerRad, tuning.maxSteer);
     }
 
-    static Float32 steerFraction(Float32 steerRad)
+    inline Float32 steerFraction(Float32 steerRad)
     {
         return steerFraction(steerRad, tuning.maxSteer);
     }
 
-    static geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad, Float32 dtS)
+    inline geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad, Float32 dtS)
     {
         return integrate(p, v, steerRad, tuning.wheelbase, dtS);
     }
 
-    static Float32 minTurnRadius(Float32 maxRad, Float32 wheelbase)
+    inline Float32 minTurnRadius(Float32 maxRad, Float32 wheelbase)
     {
         const Float32 k = curvatureFor(maxRad, wheelbase);
         if((k < 1e-6f) && (k > -1e-6f))
@@ -238,7 +238,7 @@ namespace bibo
         return (k < 0.0f) ? (-1.0f / k) : (1.0f / k);
     }
 
-    static Float32 minTurnRadius(Void)
+    inline Float32 minTurnRadius(Void)
     {
         return minTurnRadius(tuning.maxSteer, tuning.wheelbase);
     }

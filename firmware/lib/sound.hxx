@@ -77,7 +77,7 @@ namespace bibo
      *
      * pins::begin() must have run: the map starts empty, and a sound opened
      * before it would bind nothing at all. */
-    static Void open(Void)
+    inline Void open(Void)
     {
         const pins::Map& m = pins::active();
 
@@ -92,7 +92,7 @@ namespace bibo
      * returns the module to its defaults, so without this the console would go
      * on reporting a volume the module is no longer at. A status line that
      * disagrees with the hardware is worse than no status line. */
-    static Bool mount(Void)
+    inline Bool mount(Void)
     {
         if(!up)
         {
@@ -118,37 +118,37 @@ namespace bibo
      * actually sounding. Three questions rather than one, because they fail
      * independently and a caller that got a single Bool could not tell a
      * silent module from an unwired pin. */
-    static Bool ready(Void)
+    inline Bool ready(Void)
     {
         return up && mounted;
     }
 
-    static Bool hasVoice(Void)
+    inline Bool hasVoice(Void)
     {
         return dfplayer::hasBusy(&bus);
     }
 
-    static Bool speaking(Void)
+    inline Bool speaking(Void)
     {
         return dfplayer::playing(&bus);
     }
 
-    static UInt16 count(Void)
+    inline UInt16 count(Void)
     {
         return files;
     }
 
-    static UInt8 volume(Void)
+    inline UInt8 volume(Void)
     {
         return level;
     }
 
-    static UInt8 eq(Void)
+    inline UInt8 eq(Void)
     {
         return tone;
     }
 
-    static UInt16 track(Void)
+    inline UInt16 track(Void)
     {
         return last;
     }
@@ -156,13 +156,13 @@ namespace bibo
     /* ---- settings ---------------------------------------------------------
      *
      * Clamped by the driver, remembered here so a reset can put them back. */
-    static Void setVolume(UInt8 v)
+    inline Void setVolume(UInt8 v)
     {
         level = (v > DFP_VOLUME_MAX) ? DFP_VOLUME_MAX : v;
         dfplayer::volume(&bus, level);
     }
 
-    static Void setEq(UInt8 e)
+    inline Void setEq(UInt8 e)
     {
         tone = (e > DFP_EQ_MAX) ? DFP_EQ_MAX : e;
         dfplayer::eq(&bus, tone);
@@ -188,7 +188,7 @@ namespace bibo
         RESULT_RESERVED    /* track 0 - 0000.mp3 is not a playable file */
     };
 
-    static Result playTrack(UInt16 t)
+    inline Result playTrack(UInt16 t)
     {
         if(!up)
         {
@@ -230,7 +230,7 @@ namespace bibo
 
     /* By NAME. The lookup is sfx's - case-insensitive and whole-string - so a
      * caller never sees a track number unless it wants one. */
-    static Result play(CharSeq clip)
+    inline Result play(CharSeq clip)
     {
         const UInt16 t = sfx::track(clip);
         if(t == sfx::NONE)
@@ -242,7 +242,7 @@ namespace bibo
 
     /* One line each, so a caller can report a refusal without a switch of its
      * own and every place that refuses says the same words. */
-    static CharSeq why(Result r)
+    inline CharSeq why(Result r)
     {
         switch(r)
         {
@@ -256,17 +256,17 @@ namespace bibo
         }
     }
 
-    static Void stop(Void)
+    inline Void stop(Void)
     {
         dfplayer::stop(&bus);
     }
 
-    static Void pause(Void)
+    inline Void pause(Void)
     {
         dfplayer::pause(&bus);
     }
 
-    static Void resume(Void)
+    inline Void resume(Void)
     {
         dfplayer::play(&bus);
     }

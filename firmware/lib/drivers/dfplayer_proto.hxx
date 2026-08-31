@@ -110,7 +110,7 @@ namespace bibo
      * wrap is defined rather than something the compiler is entitled to have
      * opinions about.
      * ------------------------------------------------------------------------- */
-    static Void frame(UInt8* out, UInt8 cmd, UInt8 ack, UInt16 param)
+    inline Void frame(UInt8* out, UInt8 cmd, UInt8 ack, UInt16 param)
     {
         const UInt8 paramHi = static_cast<UInt8>((param >> 8) & 0xFFu);
         const UInt8 paramLo = static_cast<UInt8>(param & 0xFFu);

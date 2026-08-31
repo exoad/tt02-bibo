@@ -82,7 +82,7 @@ namespace bibo
      * immediately by a play, which is the obvious thing to write - drop the second
      * one often enough to look intermittent. The datasheet asks for 20 ms; 40 is
      * cheap and has never been the problem. */
-    static Void send(const Bus* bus, UInt8 cmd, UInt16 param)
+    inline Void send(const Bus* bus, UInt8 cmd, UInt16 param)
     {
         UInt8 buf[10];
         frame(buf, cmd, 0x00u, param);
@@ -96,7 +96,7 @@ namespace bibo
      * `tx` goes to the module's RX and `rx` comes from its TX; either may be
      * pins::NONE. 9600 baud is not configurable on this module.
      * ------------------------------------------------------------------------- */
-    static Void open(Bus* bus, uart_inst_t* port, Pin tx, Pin rx, Int32 busyPin)
+    inline Void open(Bus* bus, uart_inst_t* port, Pin tx, Pin rx, Int32 busyPin)
     {
         bus->port    = port;
         bus->busyPin = busyPin;
@@ -120,7 +120,7 @@ namespace bibo
      * wants to pay them - a sketch that is only sending a volume change does not
      * need the card remounted. Any program that is about to PLAY something after
      * power-on does. */
-    static Void reset(const Bus* bus)
+    inline Void reset(const Bus* bus)
     {
         uart::drain(bus->port);
         send(bus, DFP_CMD_RESET, 0);
@@ -134,13 +134,13 @@ namespace bibo
 
     /* Selects the SD card as the source. The module usually picks it on its own if
      * it is the only thing present, and "usually" is not a thing to build on. */
-    static Void useCard(const Bus* bus)
+    inline Void useCard(const Bus* bus)
     {
         send(bus, DFP_CMD_SOURCE, 0x0002u);
     }
 
     /* 0 to 30, clamped. */
-    static Void volume(const Bus* bus, UInt8 level)
+    inline Void volume(const Bus* bus, UInt8 level)
     {
         send(bus, DFP_CMD_VOLUME,
              static_cast<UInt16>(level > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : level));
@@ -148,36 +148,36 @@ namespace bibo
 
     /* The equaliser, 0-5. See the note in dfplayer_proto.hxx: this changes tone,
      * not level, and 30 remains the loudest this module goes. */
-    static Void eq(const Bus* bus, UInt8 mode)
+    inline Void eq(const Bus* bus, UInt8 mode)
     {
         send(bus, DFP_CMD_EQ,
              static_cast<UInt16>(mode > DFP_EQ_MAX ? DFP_EQ_MAX : mode));
     }
 
     /* Plays mp3/000N.mp3. One-based, matching the filename. */
-    static Void playMp3(const Bus* bus, UInt16 track)
+    inline Void playMp3(const Bus* bus, UInt16 track)
     {
         send(bus, DFP_CMD_MP3, track);
     }
 
     /* Plays NN/TTT.mp3 - folder 1-99, track 1-255. */
-    static Void playFolder(const Bus* bus, UInt8 folder, UInt8 track)
+    inline Void playFolder(const Bus* bus, UInt8 folder, UInt8 track)
     {
         send(bus, DFP_CMD_FOLDER,
              static_cast<UInt16>((static_cast<UInt16>(folder) << 8) | track));
     }
 
-    static Void play(const Bus* bus)
+    inline Void play(const Bus* bus)
     {
         send(bus, DFP_CMD_PLAY, 0);
     }
 
-    static Void pause(const Bus* bus)
+    inline Void pause(const Bus* bus)
     {
         send(bus, DFP_CMD_PAUSE, 0);
     }
 
-    static Void stop(const Bus* bus)
+    inline Void stop(const Bus* bus)
     {
         send(bus, DFP_CMD_STOP, 0);
     }
@@ -201,7 +201,7 @@ namespace bibo
      * FIFO may be about something else entirely; anything that is not the answer
      * to THIS question is skipped rather than returned as the value.
      * ------------------------------------------------------------------- */
-    static Bool query(const Bus* bus, UInt8 cmd, UInt16* out)
+    inline Bool query(const Bus* bus, UInt8 cmd, UInt16* out)
     {
         uart::drain(bus->port);
 
@@ -277,7 +277,7 @@ namespace bibo
      * THE CARD IS THE SOURCE OF TRUTH. Nothing in this firmware keeps a list of
      * tracks, so adding one to the card is the whole of adding one - there is
      * no table here to keep in step and no build to redo. */
-    static Bool fileCount(const Bus* bus, UInt16* out)
+    inline Bool fileCount(const Bus* bus, UInt16* out)
     {
         return query(bus, DFP_Q_FILES, out);
     }

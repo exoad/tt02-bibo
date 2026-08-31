@@ -211,7 +211,7 @@ namespace bibo
 #define CUE_MOTION_US_MIN 0
 #define CUE_MOTION_US_MAX 60
 
-    static Bool setMotionUs(Int32 us)
+    inline Bool setMotionUs(Int32 us)
     {
         if(us < CUE_MOTION_US_MIN || us > CUE_MOTION_US_MAX)
         {
@@ -221,7 +221,7 @@ namespace bibo
         return true;
     }
 
-    static Int32 motionUs(Void)
+    inline Int32 motionUs(Void)
     {
         return motionUsNow;
     }
@@ -421,7 +421,7 @@ namespace bibo
     static Turn   turnWant = TURN_OFF;
     static UInt64 turnHoldUs = 0;
 
-    static Void open(Void)
+    inline Void open(Void)
     {
         lights::open();
 
@@ -439,32 +439,32 @@ namespace bibo
         up         = true;
     }
 
-    static Bool valid(Int32 k)
+    inline Bool valid(Int32 k)
     {
         return k > KIND_NONE && k < KIND_COUNT;
     }
 
-    static Bool on(Kind k)
+    inline Bool on(Kind k)
     {
         return valid(k) && active[k];
     }
 
-    static Bool held(Kind k)
+    inline Bool held(Kind k)
     {
         return valid(k) && latched[k];
     }
 
-    static CharSeq name(Kind k)
+    inline CharSeq name(Kind k)
     {
         return (k >= 0 && k < KIND_COUNT) ? SCRIPT[k].name : "?";
     }
 
-    static CharSeq means(Kind k)
+    inline CharSeq means(Kind k)
     {
         return (k >= 0 && k < KIND_COUNT) ? SCRIPT[k].means : "?";
     }
 
-    static CharSeq playWord(UInt8 p)
+    inline CharSeq playWord(UInt8 p)
     {
         switch(p)
         {
@@ -477,7 +477,7 @@ namespace bibo
 
     /* The kind with this name, or cue::KIND_NONE. Case-insensitive, because every
      * other command word on this link is upper case by the time it arrives. */
-    static Kind find(CharSeq want)
+    inline Kind find(CharSeq want)
     {
         if(want == nullptr)
         {
@@ -520,7 +520,7 @@ namespace bibo
 
     /* ---- raising and lowering ------------------------------------------------ */
 
-    static Void start(Kind k, UInt64 now)
+    inline Void start(Kind k, UInt64 now)
     {
         active[k]   = true;
         stepIx[k]   = 0;
@@ -537,7 +537,7 @@ namespace bibo
      * what hazard is - and two blinkers with independent step clocks would drift
      * apart into an alternating flash within a few seconds.
      */
-    static Bool emit(Kind k)
+    inline Bool emit(Kind k)
     {
         if(!up || !valid(k) || SCRIPT[k].step == nullptr)
         {
@@ -565,7 +565,7 @@ namespace bibo
     }
 
     /* Lowered by a person: stops it AND hands it back to the car's own rules. */
-    static Bool cancel(Kind k)
+    inline Bool cancel(Kind k)
     {
         if(!up || !valid(k))
         {
@@ -577,7 +577,7 @@ namespace bibo
     }
 
     /* Stop mid-sentence and hand every borrowed channel back. */
-    static Void silence(Void)
+    inline Void silence(Void)
     {
         for(Int32 k = 1; k < KIND_COUNT; ++k)
         {
@@ -594,7 +594,7 @@ namespace bibo
      * until they say otherwise, and the car noticing it is no longer braking must
      * not put them out.
      */
-    static Void wants(Kind k, Bool want, UInt64 now)
+    inline Void wants(Kind k, Bool want, UInt64 now)
     {
         if(latched[k])
         {
@@ -619,7 +619,7 @@ namespace bibo
      * with what a person looking at the car would notice first, not with whichever
      * happened to be raised earliest.
      */
-    static Kind speaking(Void)
+    inline Kind speaking(Void)
     {
         for(Int32 k = KIND_COUNT - 1; k > KIND_NONE; --k)
         {
@@ -631,18 +631,18 @@ namespace bibo
         return KIND_NONE;
     }
 
-    static Bool busy(Void)
+    inline Bool busy(Void)
     {
         return speaking() != KIND_NONE;
     }
 
-    static UInt8 step(Void)
+    inline UInt8 step(Void)
     {
         const Kind k = speaking();
         return (k == KIND_NONE) ? 0u : stepIx[k];
     }
 
-    static UInt8 loop(Void)
+    inline UInt8 loop(Void)
     {
         const Kind k = speaking();
         return (k == KIND_NONE) ? 0u : loopIx[k];
@@ -650,7 +650,7 @@ namespace bibo
 
     /* Which way the car is indicating. Derived from the cues rather than kept
      * beside them, so there is one answer and not two that can disagree. */
-    static Turn side(Void)
+    inline Turn side(Void)
     {
         if(active[KIND_HAZARD])
         {
@@ -690,7 +690,7 @@ namespace bibo
      * levels, and front and rear matched on every sample of both cues. Wiring them
      * is a change to the pin table in lights.hxx and nothing else.
      */
-    static Void channelLamps(UInt8 ch, UInt8 level, lights::Set* out)
+    inline Void channelLamps(UInt8 ch, UInt8 level, lights::Set* out)
     {
         if(ch & CUE_CH_HEAD)
         {
@@ -728,7 +728,7 @@ namespace bibo
      * script changes - which is the entire reason the tone is in cue::Step now
      * rather than being added to it later.
      */
-    static Void soundWrite(UInt8 tone)
+    inline Void soundWrite(UInt8 tone)
     {
         toneNow = tone;
     }
@@ -748,7 +748,7 @@ namespace bibo
      * half a second when the host stops draining the port, and a cue should have
      * PLAYED during that, not be waiting to.
      */
-    static Void advance(Int32 k, UInt64 now)
+    inline Void advance(Int32 k, UInt64 now)
     {
         const Script* sc = &SCRIPT[k];
 
@@ -791,7 +791,7 @@ namespace bibo
      * its channels; a higher one writes over them, lit or dark, and the result is
      * the higher cue's opinion in full rather than a blend of two.
      */
-    static Void compose(UInt64 now, lights::Set* out)
+    inline Void compose(UInt64 now, lights::Set* out)
     {
         lights::clear(out);
         UInt8 tone = TONE_NONE;
@@ -832,7 +832,7 @@ namespace bibo
     }
 
     /* Call often. Cheap when there is nothing to do. */
-    static Void tick(const Input* in)
+    inline Void tick(const Input* in)
     {
         if(!up || in == nullptr)
         {
@@ -960,7 +960,7 @@ namespace bibo
 
     /* What the running cue is sounding, for anything that reports it. Always
      * cue::TONE_NONE until a buzzer exists - see cue::soundWrite(). */
-    static UInt8 tone(Void)
+    inline UInt8 tone(Void)
     {
         return toneNow;
     }

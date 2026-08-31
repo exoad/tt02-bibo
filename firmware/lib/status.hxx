@@ -49,7 +49,7 @@ namespace bibo
      * rather than edges. One flash a second is status::blink(1.0f), which is what
      * anybody watching would call it.
      */
-    static UInt64 halfPeriodUs(Float32 hz)
+    inline UInt64 halfPeriodUs(Float32 hz)
     {
         return static_cast<UInt64>(500000.0f / hz);
     }
@@ -59,7 +59,7 @@ namespace bibo
      * worth reporting rather than swallowing: everything here keeps working, it
      * just cannot be seen, and a silent lamp reads as a stopped program.
      */
-    static Bool open(Void)
+    inline Bool open(Void)
     {
         const Bool ok = led::open();
         hzNow  = 0.0f;
@@ -70,7 +70,7 @@ namespace bibo
     }
 
     /* Stops any blink and holds the lamp. */
-    static Void solid(Bool on)
+    inline Void solid(Bool on)
     {
         hzNow = 0.0f;
         lit   = on;
@@ -78,7 +78,7 @@ namespace bibo
     }
 
     /* Blinks at `hz` full cycles per second. Zero or less is solid off. */
-    static Void blink(Float32 hz)
+    inline Void blink(Float32 hz)
     {
         if(hz <= 0.0f)
         {
@@ -90,7 +90,7 @@ namespace bibo
     }
 
     /* Call often. Cheap when there is nothing to do. */
-    static Void tick(Void)
+    inline Void tick(Void)
     {
         if(hzNow <= 0.0f)
         {
@@ -108,7 +108,7 @@ namespace bibo
 
     /* What the lamp is doing this instant, for a program that reports its own
      * state. */
-    static Bool isLit(Void)
+    inline Bool isLit(Void)
     {
         return lit;
     }
@@ -116,7 +116,7 @@ namespace bibo
     /* The blink rate, or 0 when solid. Authoritative over status::isLit(): a
      * non-zero rate means blinking whichever half of the cycle you happened to
      * sample. */
-    static Float32 rate(Void)
+    inline Float32 rate(Void)
     {
         return hzNow;
     }
@@ -128,7 +128,7 @@ namespace bibo
      * moment a blocking flash costs nothing, and the one moment somebody genuinely
      * wants to know the program started.
      */
-    static Void hello(Int32 flashes, UInt32 msEach)
+    inline Void hello(Int32 flashes, UInt32 msEach)
     {
         for(Int32 i = 0; i < flashes; ++i)
         {

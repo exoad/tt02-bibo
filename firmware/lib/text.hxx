@@ -44,19 +44,19 @@ namespace bibo
 
     /* ---- inspecting ---------------------------------------------------------- */
 
-    static Size len(CharSeq s)
+    inline Size len(CharSeq s)
     {
         return (s == nullptr) ? 0 : strlen(s);
     }
 
-    static Bool empty(CharSeq s)
+    inline Bool empty(CharSeq s)
     {
         return (s == nullptr) || (s[0] == '\0');
     }
 
     /* Whole-string equality. The name says what it tests, unlike `strcmp(a,b)==0`
      * where the interesting part is the `== 0` and reads as an accident. */
-    static Bool eq(CharSeq a, CharSeq b)
+    inline Bool eq(CharSeq a, CharSeq b)
     {
         if(a == nullptr || b == nullptr)
         {
@@ -73,7 +73,7 @@ namespace bibo
      * silently stops matching the day the command is renamed, and the failure is a
      * command that quietly does nothing.
      */
-    static Bool starts(CharSeq s, CharSeq prefix)
+    inline Bool starts(CharSeq s, CharSeq prefix)
     {
         if(s == nullptr || prefix == nullptr)
         {
@@ -85,7 +85,7 @@ namespace bibo
 
     /* What follows `prefix`, or nullptr if `s` does not start with it. Pairs with
      * text::starts so the offset is never written out by hand twice. */
-    static CharSeq after(CharSeq s, CharSeq prefix)
+    inline CharSeq after(CharSeq s, CharSeq prefix)
     {
         if(!starts(s, prefix))
         {
@@ -110,7 +110,7 @@ namespace bibo
      * of `s`, NOT nullptr. "matched, nothing after it" and "did not match" are
      * different answers and a dispatcher has to tell them apart.
      */
-    static CharSeq word(CharSeq s, CharSeq word)
+    inline CharSeq word(CharSeq s, CharSeq word)
     {
         if(s == nullptr || word == nullptr)
         {
@@ -144,7 +144,7 @@ namespace bibo
      * it might choose are exactly these. Without this, "PING\r" is not "PING" and
      * the reply is "unknown command" for a command that was typed correctly.
      */
-    static Size trimEnd(Utf8* s)
+    inline Size trimEnd(Utf8* s)
     {
         if(s == nullptr)
         {
@@ -159,7 +159,7 @@ namespace bibo
         return n;
     }
 
-    static Void upper(Utf8* s)
+    inline Void upper(Utf8* s)
     {
         if(s == nullptr)
         {
@@ -185,7 +185,7 @@ namespace bibo
      * refusal. atoi("12abc") is 12 and atoi("abc") is 0, and a console that accepts
      * "SERVO 12abc" as 12 is a console that will one day accept something worse.
      */
-    static Bool toInt(CharSeq s, Int32* out)
+    inline Bool toInt(CharSeq s, Int32* out)
     {
         if(empty(s) || out == nullptr)
         {
@@ -213,7 +213,7 @@ namespace bibo
     }
 
     /* The same contract for a fraction. Accepts "1", "-0.5", ".25". */
-    static Bool toFloat(CharSeq s, Float32* out)
+    inline Bool toFloat(CharSeq s, Float32* out)
     {
         if(empty(s) || out == nullptr)
         {
@@ -247,7 +247,7 @@ namespace bibo
      * "1 2 3 banana", because sscanf stops looking the moment it has what it was
      * asked for. Every argument being consumed is part of the contract.
      */
-    static Bool twoInts(CharSeq s, Int32* a, Int32* b)
+    inline Bool twoInts(CharSeq s, Int32* a, Int32* b)
     {
         if(empty(s) || a == nullptr || b == nullptr)
         {
@@ -298,7 +298,7 @@ namespace bibo
      * wrapper that improved on that return would be a second thing to learn, and
      * the point of the seam is that it costs nothing to cross.
      */
-    static Int32 format(Utf8* buf, Size cap, CharSeq fmt, ...)
+    inline Int32 format(Utf8* buf, Size cap, CharSeq fmt, ...)
     {
         va_list ap;
         va_start(ap, fmt);

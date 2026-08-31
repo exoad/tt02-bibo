@@ -252,7 +252,7 @@ namespace bibo
 
     /* ---- helpers ------------------------------------------------------------- */
 
-    static Int32 clamp(Int32 v, Int32 lo, Int32 hi)
+    inline Int32 clamp(Int32 v, Int32 lo, Int32 hi)
     {
         if(v < lo)
         {
@@ -275,7 +275,7 @@ namespace bibo
      * pulls left every time it is asked for "half" is a bug that hides for a long
      * time because every individual command looks reasonable.
      */
-    static Int32 steerToUs(Float32 n)
+    inline Int32 steerToUs(Float32 n)
     {
         if(n < -1.0f)
         {
@@ -300,7 +300,7 @@ namespace bibo
 
     /* The inverse, in THOUSANDTHS so it can be reported without a float formatter
      * having to survive on a microcontroller. -1000 to +1000. */
-    static Int32 steerFromUs(Int32 us)
+    inline Int32 steerFromUs(Int32 us)
     {
         const Int32 d = us - servoCenterUs;
         if(d == 0)
@@ -318,7 +318,7 @@ namespace bibo
 
     /* ---- lifecycle ----------------------------------------------------------- */
 
-    static Void open(Void)
+    inline Void open(Void)
     {
         servo::open(PIN_SERVO);
         servo::open(PIN_ESC);
@@ -342,7 +342,7 @@ namespace bibo
     }
 
     /* Walks each output toward its target. Call from the main loop, often. */
-    static Void pump(Void)
+    inline Void pump(Void)
     {
         if(!up || !timing::reached(slewNextAt))
         {
@@ -383,7 +383,7 @@ namespace bibo
      *
      * Immediate, not slewed. A stop that eases in is not a stop.
      */
-    static Void stop(Void)
+    inline Void stop(Void)
     {
         escArmed    = false;
         escTarget   = DRIVE_NEUTRAL_US;
@@ -399,7 +399,7 @@ namespace bibo
         }
     }
 
-    static State read(Void)
+    inline State read(Void)
     {
         State s;
         s.servoUs       = servoNow;
@@ -475,7 +475,7 @@ namespace bibo
      * position is unknown, so the first command after engaging is the one most
      * likely to be a surprise.
      */
-    static Void engage(Bool on)
+    inline Void engage(Bool on)
     {
         if(on && !servoLive)
         {
@@ -492,13 +492,13 @@ namespace bibo
     }
 
     /* Steer as a fraction of this car's travel. THE entry point for driving. */
-    static Void steer(Float32 n)
+    inline Void steer(Float32 n)
     {
         servoTarget = clamp(steerToUs(n), servoMin, servoMax);
     }
 
     /* Wheels straight, wherever that measures out to be. */
-    static Void center(Void)
+    inline Void center(Void)
     {
         servoTarget = clamp(servoCenterUs, servoMin, servoMax);
     }
@@ -508,7 +508,7 @@ namespace bibo
      * actually are - not for driving. Clamped rather than refused: a slider that
      * stops moving at the limit is clearer than one that silently does nothing.
      */
-    static Void steerUs(Int32 us)
+    inline Void steerUs(Int32 us)
     {
         servoTarget = clamp(us, servoMin, servoMax);
     }
@@ -520,7 +520,7 @@ namespace bibo
      * the servo can never be commanded to - drive::center() would silently mean
      * something else, which is worse than refusing.
      */
-    static Void trim(Int32 us)
+    inline Void trim(Int32 us)
     {
         servoCenterUs = clamp(us, servoMin, servoMax);
     }
@@ -565,7 +565,7 @@ namespace bibo
 
     /* ---- throttle ------------------------------------------------------------ */
 
-    static Void arm(Bool on)
+    inline Void arm(Bool on)
     {
         escArmed  = on;
         escTarget = DRIVE_NEUTRAL_US;
@@ -583,7 +583,7 @@ namespace bibo
         return true;
     }
 
-    static Void throttleNeutral(Void)
+    inline Void throttleNeutral(Void)
     {
         escTarget = DRIVE_NEUTRAL_US;
     }

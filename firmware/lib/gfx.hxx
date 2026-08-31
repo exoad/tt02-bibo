@@ -97,7 +97,7 @@ namespace bibo
      * the channels would carry into each other and a half-way blend of red and blue
      * would come out an unrelated colour.
      */
-    static UInt16 blend(UInt16 a, UInt16 b, UInt8 t)
+    inline UInt16 blend(UInt16 a, UInt16 b, UInt8 t)
     {
         const UInt32 ar = (a >> 11) & 0x1F;
         const UInt32 ag = (a >> 5)  & 0x3F;
@@ -115,12 +115,12 @@ namespace bibo
         return static_cast<UInt16>((r << 11) | (g << 5) | bl);
     }
 
-    static UInt16 dim(UInt16 c, UInt8 amount)
+    inline UInt16 dim(UInt16 c, UInt8 amount)
     {
         return blend(c, BLACK, amount);
     }
 
-    static UInt16 lighten(UInt16 c, UInt8 amount)
+    inline UInt16 lighten(UInt16 c, UInt8 amount)
     {
         return blend(c, WHITE, amount);
     }
@@ -129,7 +129,7 @@ namespace bibo
      * Hue 0-359, saturation and value 0-255. Integer throughout - no float, no
      * table - so a rainbow sweep costs nothing on a chip that would rather not.
      */
-    static UInt16 hsv(Int32 hue, UInt8 sat, UInt8 val)
+    inline UInt16 hsv(Int32 hue, UInt8 sat, UInt8 val)
     {
         hue = ((hue % 360) + 360) % 360;
 
@@ -335,45 +335,45 @@ namespace bibo
       * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
       * for a frame to check against, then take it out.
       */
-      static Void safeInset(Canvas* cv, Int32 inset)
+      inline Void safeInset(Canvas* cv, Int32 inset)
       {
         const Int32 most = ((cv->panel->width < cv->panel->height) ? cv->panel->width : cv->panel->height) / 3;
         cv->panel->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
       }
 
-      static Int32 safeLeft(const Canvas* cv)
+      inline Int32 safeLeft(const Canvas* cv)
       {
         return cv->panel->safeInset;
       }
 
-      static Int32 safeTop(const Canvas* cv)
+      inline Int32 safeTop(const Canvas* cv)
       {
         return cv->panel->safeInset;
       }
 
-      static Int32 safeRight(const Canvas* cv)
+      inline Int32 safeRight(const Canvas* cv)
       {
         return cv->panel->width - cv->panel->safeInset;
       }
 
-      static Int32 safeBottom(const Canvas* cv)
+      inline Int32 safeBottom(const Canvas* cv)
       {
         return cv->panel->height - cv->panel->safeInset;
       }
 
-      static Int32 safeWidth(const Canvas* cv)
+      inline Int32 safeWidth(const Canvas* cv)
       {
         return cv->panel->width - (2 * cv->panel->safeInset);
       }
 
-      static Int32 safeHeight(const Canvas* cv)
+      inline Int32 safeHeight(const Canvas* cv)
       {
         return cv->panel->height - (2 * cv->panel->safeInset);
       }
 
       /* ---- clipping ------------------------------------------------------------ */
 
-      static Void clip(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h)
+      inline Void clip(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h)
       {
         if(x < 0)
         {
@@ -408,7 +408,7 @@ namespace bibo
         cv->clipH = h;
       }
 
-      static Void clipReset(Canvas* cv)
+      inline Void clipReset(Canvas* cv)
       {
         clip(cv, 0, 0, cv->panel->width, cv->panel->height);
       }
@@ -420,7 +420,7 @@ namespace bibo
       * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
       * and drawn as spans it is thirty.
       */
-      static Void span(Canvas* cv, Int32 x, Int32 y, Int32 len, UInt16 colour)
+      inline Void span(Canvas* cv, Int32 x, Int32 y, Int32 len, UInt16 colour)
       {
         if(len <= 0 || y < cv->clipY || y >= cv->clipY + cv->clipH)
         {
@@ -462,14 +462,14 @@ namespace bibo
         }
       }
 
-      static Void pixel(Canvas* cv, Int32 x, Int32 y, UInt16 colour)
+      inline Void pixel(Canvas* cv, Int32 x, Int32 y, UInt16 colour)
       {
         span(cv, x, y, 1, colour);
       }
 
       /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
       * be read - so this returns black without one rather than lying. */
-      static UInt16 peek(const Canvas* cv, Int32 x, Int32 y)
+      inline UInt16 peek(const Canvas* cv, Int32 x, Int32 y)
       {
         if(cv->buf == nullptr || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
         {
@@ -479,14 +479,14 @@ namespace bibo
       }
 
       /* Alpha, which needs to read what is already there and so needs the buffer. */
-      static Void pixelBlend(Canvas* cv, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
+      inline Void pixelBlend(Canvas* cv, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
       {
         pixel(cv, x, y, blend(peek(cv, x, y), colour, alpha));
       }
 
       /* ---- present ------------------------------------------------------------- */
 
-      static Void present(Canvas* cv)
+      inline Void present(Canvas* cv)
       {
         if(cv->buf == nullptr || cv->dirtyBot < cv->dirtyTop)
         {
@@ -519,7 +519,7 @@ namespace bibo
         cv->dirtyBot = -1;
       }
 
-      static Void clear(Canvas* cv, UInt16 colour)
+      inline Void clear(Canvas* cv, UInt16 colour)
       {
         for(Int32 y = 0; y < cv->panel->height; ++y)
         {
@@ -529,7 +529,7 @@ namespace bibo
 
       /* ---- rectangles ---------------------------------------------------------- */
 
-      static Void rectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      inline Void rectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
       {
         for(Int32 r = 0; r < h; ++r)
         {
@@ -537,7 +537,7 @@ namespace bibo
         }
       }
 
-      static Void rect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      inline Void rect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
       {
         if(w <= 0 || h <= 0)
         {
@@ -554,12 +554,12 @@ namespace bibo
 
       /* ---- lines --------------------------------------------------------------- */
 
-      static Void hLine(Canvas* cv, Int32 x, Int32 y, Int32 w, UInt16 colour)
+      inline Void hLine(Canvas* cv, Int32 x, Int32 y, Int32 w, UInt16 colour)
       {
         span(cv, x, y, w, colour);
       }
 
-      static Void vLine(Canvas* cv, Int32 x, Int32 y, Int32 h, UInt16 colour)
+      inline Void vLine(Canvas* cv, Int32 x, Int32 y, Int32 h, UInt16 colour)
       {
         for(Int32 i = 0; i < h; ++i)
         {
@@ -572,7 +572,7 @@ namespace bibo
       * which is why it has survived since 1962 and is still right on a
       * microcontroller.
       */
-      static Void line(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
+      inline Void line(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
       {
         const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
         const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
@@ -619,7 +619,7 @@ namespace bibo
 
       /* ---- circles ------------------------------------------------------------- */
 
-      static Void circle(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+      inline Void circle(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
       {
         if(r < 0)
         {
@@ -651,7 +651,7 @@ namespace bibo
         }
       }
 
-      static Void circleFill(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+      inline Void circleFill(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
       {
         if(r < 0)
         {
@@ -685,7 +685,7 @@ namespace bibo
       * from each edge cannot reach past it, so the overdraw is free of side effects
       * and the code stays short.
       */
-      static Void roundRectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+      inline Void roundRectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
       {
         if(w <= 0 || h <= 0)
         {
@@ -712,7 +712,7 @@ namespace bibo
         circleFill(cv, x + w - r - 1, y + h - r - 1, r, colour);
       }
 
-      static Void roundRect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+      inline Void roundRect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
       {
         if(w <= 0 || h <= 0)
         {
@@ -764,7 +764,7 @@ namespace bibo
 
       /* ---- triangles ----------------------------------------------------------- */
 
-      static Void triangle(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+      inline Void triangle(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
       {
         line(cv, x0, y0, x1, y1, colour);
         line(cv, x1, y1, x2, y2, colour);
@@ -775,7 +775,7 @@ namespace bibo
       * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
       * that share the middle vertex, filling a span between the active edges.
       */
-      static Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+      inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
       {
         Int32 tx = 0;
         Int32 ty = 0;
@@ -858,47 +858,47 @@ namespace bibo
       * readout that flows down the screen.
       */
 
-      static Void textColour(Canvas* cv, UInt16 fg)
+      inline Void textColour(Canvas* cv, UInt16 fg)
       {
         cv->fg = fg;
       }
 
       /* An opaque background, which is what you want for a value that changes: the
       * new text erases the old as it draws, with no flicker and no clear step. */
-      static Void textBackground(Canvas* cv, UInt16 bg)
+      inline Void textBackground(Canvas* cv, UInt16 bg)
       {
         cv->bg      = bg;
         cv->bgSolid = true;
       }
 
       /* Leave whatever is behind the glyph alone - for text over a picture. */
-      static Void textTransparent(Canvas* cv)
+      inline Void textTransparent(Canvas* cv)
       {
         cv->bgSolid = false;
       }
 
-      static Void textSize(Canvas* cv, Int32 scale)
+      inline Void textSize(Canvas* cv, Int32 scale)
       {
         cv->textScale = (scale < 1) ? 1 : ((scale > 8) ? 8 : scale);
       }
 
-      static Void cursor(Canvas* cv, Int32 x, Int32 y)
+      inline Void cursor(Canvas* cv, Int32 x, Int32 y)
       {
         cv->cursorX = x;
         cv->cursorY = y;
       }
 
-      static Int32 textHeight(const Canvas* cv)
+      inline Int32 textHeight(const Canvas* cv)
       {
         return 8 * cv->textScale;
       }
 
-      static Int32 charWidth(const Canvas* cv)
+      inline Int32 charWidth(const Canvas* cv)
       {
         return 6 * cv->textScale;
       }
 
-      static Int32 textWidth(const Canvas* cv, const Utf8* str)
+      inline Int32 textWidth(const Canvas* cv, const Utf8* str)
       {
         Int32 n = 0;
         while(str != nullptr && str[n] != '\0')
@@ -908,7 +908,7 @@ namespace bibo
         return n * charWidth(cv);
       }
 
-      static Void charAt(Canvas* cv, Int32 x, Int32 y, Utf8 ch)
+      inline Void charAt(Canvas* cv, Int32 x, Int32 y, Utf8 ch)
       {
         Utf8 c = ch;
         if(c >= 'a' && c <= 'z')
@@ -939,7 +939,7 @@ namespace bibo
         }
       }
 
-      static Void textAt(Canvas* cv, Int32 x, Int32 y, const Utf8* str)
+      inline Void textAt(Canvas* cv, Int32 x, Int32 y, const Utf8* str)
       {
         Int32 cx = x;
         while(str != nullptr && *str != '\0')
@@ -953,7 +953,7 @@ namespace bibo
 
       /* `x` is the left edge, the centre or the right edge depending on `align` -
       * which is what makes a value that changes width stay put. */
-      static Void textAligned(Canvas* cv, Int32 x, Int32 y, const Utf8* str, Align align)
+      inline Void textAligned(Canvas* cv, Int32 x, Int32 y, const Utf8* str, Align align)
       {
         const Int32 w  = textWidth(cv, str);
         Int32       at = x;
@@ -969,13 +969,13 @@ namespace bibo
       }
 
       /* Draws at the cursor and advances it, so consecutive calls flow. */
-      static Void print(Canvas* cv, const Utf8* str)
+      inline Void print(Canvas* cv, const Utf8* str)
       {
         textAt(cv, cv->cursorX, cv->cursorY, str);
         cv->cursorX += textWidth(cv, str);
       }
 
-      static Void printLine(Canvas* cv, const Utf8* str)
+      inline Void printLine(Canvas* cv, const Utf8* str)
       {
         textAt(cv, cv->cursorX, cv->cursorY, str);
         cv->cursorY += textHeight(cv) + (2 * cv->textScale);
@@ -983,7 +983,7 @@ namespace bibo
 
       /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
       * screen and forty characters already overflow it at size 1. */
-      static Void printf(Canvas* cv, const Utf8* fmt, ...)
+      inline Void printf(Canvas* cv, const Utf8* fmt, ...)
       {
         Utf8    buf[64];
         va_list ap;
@@ -998,7 +998,7 @@ namespace bibo
       * look at the panel, and change the inset until the frame is fully visible with
       * a little to spare. Then take the call out.
       */
-      static Void safeOutline(Canvas* cv, UInt16 colour)
+      inline Void safeOutline(Canvas* cv, UInt16 colour)
       {
         rect(cv, safeLeft(cv), safeTop(cv),
                 safeWidth(cv), safeHeight(cv), colour);
@@ -1245,7 +1245,7 @@ namespace bibo
         Int32 yoff;
     };
 
-    static Canvas open(tft::Screen* panel, const PanelSize& g)
+    inline Canvas open(tft::Screen* panel, const PanelSize& g)
     {
         Canvas cv;
         cv.opened = detail::open(&cv, panel, g.w, g.h, g.xoff, g.yoff);

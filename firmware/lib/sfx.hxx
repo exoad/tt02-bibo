@@ -84,7 +84,7 @@ namespace bibo
      * Whole-string, not a prefix: `horn` must not match `hornLong`. The test
      * asserts it, because a prefix match is a wrong NOISE rather than an error,
      * and a wrong noise is found by ear months later. */
-    static Bool sameName(CharSeq a, CharSeq b)
+    inline Bool sameName(CharSeq a, CharSeq b)
     {
         if(a == nullptr || b == nullptr)
         {
@@ -109,7 +109,7 @@ namespace bibo
     /* By NAME, returning the track, or NONE when there is no such clip. The
      * caller gets one answer and one test rather than an index it then has to
      * remember to bounds-check. */
-    static UInt16 track(CharSeq name)
+    inline UInt16 track(CharSeq name)
     {
         if(name == nullptr)
         {
@@ -131,7 +131,7 @@ namespace bibo
      * Returns nullptr rather than "?" so a caller can decide how to render an
      * unnamed track - the console prints the number, and inventing a string
      * here would push that decision somewhere it cannot be seen. */
-    static CharSeq nameOf(UInt16 t)
+    inline CharSeq nameOf(UInt16 t)
     {
         for(Size i = 0; i < COUNT; ++i)
         {
@@ -143,7 +143,7 @@ namespace bibo
         return nullptr;
     }
 
-    static CharSeq means(CharSeq name)
+    inline CharSeq means(CharSeq name)
     {
         for(Size i = 0; i < COUNT; ++i)
         {
@@ -158,7 +158,7 @@ namespace bibo
     /* The highest track any clip names. What a caller checks the card's file
      * count against: if the card holds fewer files than this, at least one name
      * in the table points at nothing. */
-    static UInt16 highest(Void)
+    inline UInt16 highest(Void)
     {
         UInt16 top = 0;
         for(Size i = 0; i < COUNT; ++i)

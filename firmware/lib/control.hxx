@@ -70,7 +70,7 @@ namespace bibo
      * So the static term is gated on the target being non-zero, not on the
      * MEASUREMENT being non-zero - gating on measurement would mean a stopped
      * car could never start. */
-    static Float32 predict(const Feedforward* f, Float32 vTarget, Float32 aTarget)
+    inline Float32 predict(const Feedforward* f, Float32 vTarget, Float32 aTarget)
     {
         if(f == nullptr)
         {
@@ -116,7 +116,7 @@ namespace bibo
         Bool    primed    = false;
     };
 
-    static Void reset(Pid* p)
+    inline Void reset(Pid* p)
     {
         if(p == nullptr)
         {
@@ -148,7 +148,7 @@ namespace bibo
      * winds the integral up for as long as it is held, and the car leaps when
      * it comes free. Clamping alone does not fix that; it only bounds how long
      * the leap lasts. */
-    static Float32 step(Pid* p, Float32 setpoint, Float32 measured, Float32 dtS)
+    inline Float32 step(Pid* p, Float32 setpoint, Float32 measured, Float32 dtS)
     {
         if(p == nullptr)
         {
@@ -233,7 +233,7 @@ namespace bibo
     /* Feedforward plus correction, which is the arrangement the whole file is
      * arguing for. Kept as one call so the ORDER cannot be got wrong at a call
      * site - the model first, the correction on top of it. */
-    static Float32 command(const Feedforward* f, Pid* p, Demand d, Float32 v, Float32 dt)
+    inline Float32 command(const Feedforward* f, Pid* p, Demand d, Float32 v, Float32 dt)
     {
         return predict(f, d.v, d.a) + step(p, d.v, v, dt);
     }

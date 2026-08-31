@@ -94,7 +94,7 @@ namespace bibo
      * or zero ticks-per-rev divides by zero and every distance afterwards is
      * inf, which propagates into the pose and is then very hard to trace back
      * to a setter that quietly accepted a bad value. */
-    static Bool configure(const Config& c)
+    inline Bool configure(const Config& c)
     {
         if(c.wheelMm <= 0.0f || c.ticksPerRev <= 0.0f || c.gearRatio <= 0.0f)
         {
@@ -109,14 +109,14 @@ namespace bibo
         return tuning;
     }
 
-    static Bool calibrated(Void)
+    inline Bool calibrated(Void)
     {
         return tuning.measured;
     }
 
     /* Metres of travel per tick. One multiply at the call site instead of a
      * division, and one place that knows the geometry. */
-    static Float32 metresPerTick(Void)
+    inline Float32 metresPerTick(Void)
     {
         const Float32 circumference = 3.14159265f * (tuning.wheelMm / 1000.0f);
         return circumference / (tuning.ticksPerRev * tuning.gearRatio);
@@ -141,7 +141,7 @@ namespace bibo
     /* Called by the counter. Deliberately the smallest thing in this file: an
      * interrupt handler that does more than increment is an interrupt handler
      * that will one day be blamed for a servo glitch. */
-    static Void tick(Wheel* w)
+    inline Void tick(Wheel* w)
     {
         if(w != nullptr)
         {
@@ -149,7 +149,7 @@ namespace bibo
         }
     }
 
-    static Void reset(Wheel* w, UInt64 nowUs)
+    inline Void reset(Wheel* w, UInt64 nowUs)
     {
         if(w == nullptr)
         {
@@ -163,7 +163,7 @@ namespace bibo
     }
 
     /* Total distance since the last reset. */
-    static Float32 distance(const Wheel* w)
+    inline Float32 distance(const Wheel* w)
     {
         if(w == nullptr)
         {
@@ -186,7 +186,7 @@ namespace bibo
      *
      * A caller that wants the raw value can take distance() twice and divide;
      * this is the one for a control loop. */
-    static Float32 update(Wheel* w, UInt64 nowUs, Float32 tauS)
+    inline Float32 update(Wheel* w, UInt64 nowUs, Float32 tauS)
     {
         if(w == nullptr)
         {
@@ -237,7 +237,7 @@ namespace bibo
         return w->speed;
     }
 
-    static Float32 speed(const Wheel* w)
+    inline Float32 speed(const Wheel* w)
     {
         return (w != nullptr) ? w->speed : 0.0f;
     }

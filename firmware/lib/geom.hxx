@@ -61,7 +61,7 @@ namespace bibo
      * negative remainder, so the naive one-liner is wrong for exactly half the
      * inputs, and the loop runs at most a couple of times for any angle a
      * vehicle actually produces. */
-    static Float32 wrapPi(Float32 a)
+    inline Float32 wrapPi(Float32 a)
     {
         while(a > GEOM_PI)
         {
@@ -76,7 +76,7 @@ namespace bibo
 
     /* The SHORT way from `from` to `to`. This is the one a heading controller
      * wants; plain subtraction is the one that drives the long way round. */
-    static Float32 angleDelta(Float32 from, Float32 to)
+    inline Float32 angleDelta(Float32 from, Float32 to)
     {
         return wrapPi(to - from);
     }
@@ -86,14 +86,14 @@ namespace bibo
      * The squared form is offered because most uses COMPARE distances, and a
      * comparison does not need the square root - which on an M33 without a
      * hardware divide is worth avoiding inside a loop over a path. */
-    static Float32 distanceSq(Vec2 a, Vec2 b)
+    inline Float32 distanceSq(Vec2 a, Vec2 b)
     {
         const Float32 dx = b.x - a.x;
         const Float32 dy = b.y - a.y;
         return (dx * dx) + (dy * dy);
     }
 
-    static Float32 distance(Vec2 a, Vec2 b)
+    inline Float32 distance(Vec2 a, Vec2 b)
     {
         return sqrtf(distanceSq(a, b));
     }
@@ -106,7 +106,7 @@ namespace bibo
      * result is the whole answer - a goal with positive y is to the left and
      * the car steers left. Getting the rotation backwards produces a controller
      * that steers away from the path and looks like an unstable gain. */
-    static Vec2 toLocal(Pose p, Vec2 world)
+    inline Vec2 toLocal(Pose p, Vec2 world)
     {
         const Float32 dx = world.x - p.x;
         const Float32 dy = world.y - p.y;
@@ -122,7 +122,7 @@ namespace bibo
 
     /* The inverse, for turning something the car worked out about itself back
      * into a place on the map. */
-    static Vec2 toWorld(Pose p, Vec2 local)
+    inline Vec2 toWorld(Pose p, Vec2 local)
     {
         const Float32 c = cosf(p.heading);
         const Float32 s = sinf(p.heading);
