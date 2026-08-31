@@ -119,7 +119,7 @@ namespace rec
       Vec<Rev> revs;
   };
 
-  // %LOCALAPPDATA%\tt02-auto\recordings, created on demand. Empty if there is no
+  // %LOCALAPPDATA%\bibo\recordings, created on demand. Empty if there is no
   // user profile.
   [[nodiscard]] Str dir();
 
