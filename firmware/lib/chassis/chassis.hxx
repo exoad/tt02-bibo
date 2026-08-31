@@ -114,15 +114,15 @@ namespace bibo
     /*
      * How fast an output is allowed to move: microseconds of pulse per tick.
      *
-     * 8 us every 20 ms is 400 us per second. This car's steering travel is 440 us
-     * (1230 to 1670), so lock to lock takes 1.1 SECONDS.
+     * 8 us every 20 ms is 400 us per second. This car's steering travel is 430 us
+     * (1230 to 1660), so lock to lock takes 1.1 SECONDS.
      *
      * The comment here used to say "about half a second", which was wrong by a
      * factor of two and had been wrong since it was written - 400 us of travel at
      * 400 us per second is one second, not half of one.
      *
      * That is roughly a TENTH of what the servo can do. A Power HD 1501MG is
-     * 0.14 s per 60 degrees, and 440 us is around 44 degrees of shaft, so the
+     * 0.14 s per 60 degrees, and 430 us is around 43 degrees of shaft, so the
      * hardware would place it in about 0.1 s.
      *
      * The limit is deliberate and it is right for a bench: a slider dragged end to
