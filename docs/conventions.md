@@ -350,6 +350,34 @@ A `Char` buffer initialised from a string literal has no clean equivalent:
 but a long literal is better written as an explicit `snprintf` of the fallback
 than as a list of character constants.
 
+### `[[nodiscard]]` on answers that have nowhere else to be found
+
+`hub/` and `shared/` used it 128 times and `firmware/` used it nowhere, so
+adopting it in the firmware library on 2026-08-31 was extending a convention
+rather than inventing one.
+
+**The line is whether the answer can be found any other way.** A device that
+did not open, a block that did not write, a throttle the chassis refused, a
+backlight with no pad to dim — those are reported once and never again, and a
+caller that drops the result has no second chance to learn. Those are marked.
+
+A per-poll helper is NOT that. `tof::clear()` inside a ranging loop reports a
+condition the next iteration reports again, and demanding a check on every
+tick pushes callers into writing `static_cast<Void>(...)`, which is noise that
+teaches people to ignore the attribute everywhere it appears.
+
+Adding it was worth it for what it found on the first build, before any
+call site was changed:
+
+- `tof::open()` returned `true` unconditionally, having thrown away whether
+  the mode and budget writes actually took. A sensor that failed both reported
+  itself open.
+- `gfx::open()` — one hour old at the time — discarded whether the panel came
+  up at all. It records it now, and `Canvas::ok()` is how you ask.
+
+Neither was found by reading the code, including by the person who had just
+written the second one.
+
 ### There is no `Ptr<T>`, deliberately
 
 An alias for a raw pointer was considered and rejected. `template<typename T>

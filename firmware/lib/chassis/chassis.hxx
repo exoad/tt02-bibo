@@ -418,7 +418,7 @@ namespace bibo
      * passing a large number gets the ceiling instead of an error. Returns false
      * only for a value that is not a rate at all.
      */
-    static Bool setSteerSlew(Int32 usPerTick)
+    [[nodiscard]] static Bool setSteerSlew(Int32 usPerTick)
     {
         if(usPerTick <= 0)
         {
@@ -435,7 +435,7 @@ namespace bibo
      * separate from the steering because the right answer is different: a servo
      * wants to arrive promptly and an ESC wants to be led there.
      */
-    static Bool setThrottleSlew(Int32 usPerTick)
+    [[nodiscard]] static Bool setThrottleSlew(Int32 usPerTick)
     {
         if(usPerTick <= 0)
         {
@@ -451,7 +451,7 @@ namespace bibo
      * usually asking for everything to be slow while you watch something - and
      * because a caller that does not care should not have to make two calls.
      */
-    static Bool setSlew(Int32 usPerTick)
+    [[nodiscard]] static Bool setSlew(Int32 usPerTick)
     {
         return setSteerSlew(usPerTick) && setThrottleSlew(usPerTick);
     }
@@ -523,7 +523,7 @@ namespace bibo
      * Clamped to the hard bound, and both the target and the centre are pulled back
      * inside so narrowing can never leave an output sitting outside its own limits.
      */
-    static Bool setSteerLimits(Int32 lo, Int32 hi)
+    [[nodiscard]] static Bool setSteerLimits(Int32 lo, Int32 hi)
     {
         if(lo >= hi)
         {
@@ -564,7 +564,7 @@ namespace bibo
 
     /* False when the ESC is not armed. Rule 2, and it lives here so no caller can
      * forget it. */
-    static Bool throttleUs(Int32 us)
+    [[nodiscard]] static Bool throttleUs(Int32 us)
     {
         if(!escArmed)
         {
@@ -579,7 +579,7 @@ namespace bibo
         escTarget = DRIVE_NEUTRAL_US;
     }
 
-    static Bool setThrottleLimits(Int32 lo, Int32 hi)
+    [[nodiscard]] static Bool setThrottleLimits(Int32 lo, Int32 hi)
     {
         if(lo >= hi)
         {

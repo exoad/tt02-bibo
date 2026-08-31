@@ -308,7 +308,7 @@ namespace bibo
      * The bus must already be open - i2c::open() - because several devices share it
      * and it is not this driver's to configure.
      */
-    static Bool open(Vl53* v, Pin sda, UInt8 addr)
+    [[nodiscard]] static Bool open(Vl53* v, Pin sda, UInt8 addr)
     {
         if(v == NULL)
         {
@@ -410,9 +410,12 @@ namespace bibo
         /* Mode first, then budget - and tof::setMode re-applies the budget anyway,
          * because the two are not independent. 50 ms reaches about 2.5 m, which is
          * a useful indoor default; raise it for more reach at a lower rate. */
-        setMode(v, MODE_LONG);
-        setBudget(v, BUDGET_50MS);
-        return true;
+        /* Both, and then the verdict - not `a && b`, which would skip the
+         * budget write whenever the mode write failed. The sensor is left in
+         * a known state either way and the caller is told whether it took. */
+        const Bool modeSet   = setMode(v, MODE_LONG);
+        const Bool budgetSet = setBudget(v, BUDGET_50MS);
+        return modeSet && budgetSet;
     }
 
     /*
@@ -426,7 +429,7 @@ namespace bibo
      * A high AMBIENT rate with a weak signal means the sensor is being blinded by
      * infrared in the room, which is what short mode exists to fix.
      */
-    static Bool rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
+    [[nodiscard]] static Bool rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
     {
         if(!v->ok)
         {
@@ -479,7 +482,7 @@ namespace bibo
     }
 
     /* True when a new measurement is waiting. Costs one register read. */
-    static Bool ready(const Vl53* v)
+    [[nodiscard]] static Bool ready(const Vl53* v)
     {
         if(!v->ok)
         {
