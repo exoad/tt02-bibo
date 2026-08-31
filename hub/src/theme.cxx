@@ -1,9 +1,9 @@
-// The app's look: Frutiger Aero colour on Unreal/IntelliJ geometry.
+// The app's look: Frutiger Aero color on Unreal/IntelliJ geometry.
 //
 // StyleColorsDark() is called first only to guarantee every ImGuiCol_ has some
 // value; essentially all of them are then overwritten below. The palette IS
 // hand-authored - see the block in applyStyle() for what the three anchor
-// colours are and why chrome is steel rather than neutral grey.
+// colors are and why chrome is steel rather than neutral gray.
 //
 // Geometry (rounding / padding / spacing) is tuned so the look still breathes at
 // the larger font sizes in ui::size.
@@ -12,7 +12,7 @@
 //  - PushFont() takes TWO arguments: PushFont(ImFont*, float base_size), where
 //    base_size is a PRE-SCALE value that ImGui multiplies by
 //    style.FontScaleMain * style.FontScaleDpi. Pass `font->LegacySize` to get
-//    the pre-1.92 "use the size the font was added at" behaviour. Every ImFont
+//    the pre-1.92 "use the size the font was added at" behavior. Every ImFont
 //    handed out below has a positive LegacySize equal to its intended
 //    (already load-time-DPI-multiplied) size.
 //  - AddFontFromFileTTF() asserts on a missing file unless the config carries
@@ -335,7 +335,7 @@ namespace ui
       // opposite of what the app used to do. A pure black ground with near-white
       // text is the highest-contrast pairing available and it is punishing over a
       // long session - which is exactly why every tool in that reference list sits
-      // in a narrow low-contrast band instead. Panels live around 15-22% grey and
+      // in a narrow low-contrast band instead. Panels live around 15-22% gray and
       // the type floats a little way above them rather than blazing off them.
       //
       // The one thing kept from black: the lidar VIEWPORT, which stays darker than
@@ -345,7 +345,7 @@ namespace ui
           // Faintly cool, the way graphite reads under workshop light.
           return ImVec4(v * 0.96f, v * 0.99f, v * 1.06f, a);
       };
-      auto  grey  = [](Float32 v, Float32 a = 1.0f) { return ImVec4(v, v, v, a); };
+      auto  gray  = [](Float32 v, Float32 a = 1.0f) { return ImVec4(v, v, v, a); };
 
       const ImVec4 accent   = ImGui::ColorConvertU32ToFloat4(accent::CYAN);
       const ImVec4 accentHi = ImGui::ColorConvertU32ToFloat4(accent::CYAN_HI);
@@ -361,7 +361,7 @@ namespace ui
       c[ImGuiCol_TitleBgActive]    = slate(0.195f);
       c[ImGuiCol_TitleBgCollapsed] = slate(0.160f);
       c[ImGuiCol_TableRowBg]       = ImVec4(0, 0, 0, 0);
-      c[ImGuiCol_TableRowBgAlt]    = grey(1.0f, 0.022f);
+      c[ImGuiCol_TableRowBgAlt]    = gray(1.0f, 0.022f);
 
       // ---- wells: a field is milled INTO the casing, so it is darker ----
       c[ImGuiCol_FrameBg]          = slate(0.120f);
@@ -386,9 +386,9 @@ namespace ui
       c[ImGuiCol_TabSelectedOverline] = accent;
 
       // ---- edges: a dark seam between parts, as machined panels have ----
-      c[ImGuiCol_Border]           = grey(0.0f, 0.55f);
+      c[ImGuiCol_Border]           = gray(0.0f, 0.55f);
       c[ImGuiCol_BorderShadow]     = ImVec4(0, 0, 0, 0);
-      c[ImGuiCol_Separator]        = grey(0.0f, 0.42f);
+      c[ImGuiCol_Separator]        = gray(0.0f, 0.42f);
       c[ImGuiCol_SeparatorHovered] = accent;
       c[ImGuiCol_SeparatorActive]  = accentHi;
 
@@ -401,13 +401,13 @@ namespace ui
       c[ImGuiCol_ScrollbarGrab]        = slate(0.330f);
       c[ImGuiCol_ScrollbarGrabHovered] = slate(0.410f);
       c[ImGuiCol_ScrollbarGrabActive]  = slate(0.490f);
-      c[ImGuiCol_ResizeGrip]           = grey(1.0f, 0.08f);
-      c[ImGuiCol_ResizeGripHovered]    = grey(1.0f, 0.18f);
-      c[ImGuiCol_ResizeGripActive]     = grey(1.0f, 0.30f);
+      c[ImGuiCol_ResizeGrip]           = gray(1.0f, 0.08f);
+      c[ImGuiCol_ResizeGripHovered]    = gray(1.0f, 0.18f);
+      c[ImGuiCol_ResizeGripActive]     = gray(1.0f, 0.30f);
 
       c[ImGuiCol_TableHeaderBg]     = slate(0.260f);
-      c[ImGuiCol_TableBorderStrong] = grey(0.0f, 0.45f);
-      c[ImGuiCol_TableBorderLight]  = grey(0.0f, 0.25f);
+      c[ImGuiCol_TableBorderStrong] = gray(0.0f, 0.45f);
+      c[ImGuiCol_TableBorderLight]  = gray(0.0f, 0.25f);
       c[ImGuiCol_TextSelectedBg]    = ImVec4(accent.x, accent.y, accent.z, 0.32f);
       c[ImGuiCol_InputTextCursor]   = accentHi;
 
@@ -421,7 +421,7 @@ namespace ui
       c[ImGuiCol_DragDropTarget]       = accentHi;
       c[ImGuiCol_TextLink]             = accentHi;
 
-      // Type sits ABOVE the panels, not blazing off them. #D6DBE0 on ~18% grey is
+      // Type sits ABOVE the panels, not blazing off them. #D6DBE0 on ~18% gray is
       // a comfortable long-session contrast; near-white on black was not.
       c[ImGuiCol_Text]                 = ImVec4(0.839f, 0.859f, 0.878f, 1.00f);
       c[ImGuiCol_TextDisabled]         = ImVec4(0.478f, 0.510f, 0.541f, 1.00f);
@@ -430,12 +430,12 @@ namespace ui
       // Very nearly square. 2px takes the bite off a hard corner without the
       // control reading as a rounded tile; containers are square outright. This is
       // the single change that does the most to move the app from "Material" to
-      // "tool" - a 5px radius reads as a card no matter what colour it is.
+      // "tool" - a 5px radius reads as a card no matter what color it is.
       // SHARP. Every corner in the program, at zero.
       //
       // Two pixels of radius was the tell that this was a modern UI wearing a
       // skeuomorphic coat: rounded corners are a 2010s idiom, and the look this is
-      // after is the decade before that - hard edges, wireframes, and colours out
+      // after is the decade before that - hard edges, wireframes, and colors out
       // of a sixteen-entry palette. Rounding is set in ONE place so there is no
       // second answer anywhere; a widget that rounds itself would stand out
       // immediately now, which is the point.
@@ -507,9 +507,9 @@ namespace ui
   // The bevel
   //
   // This is what makes a control read as a physical key pushed out of the casing
-  // rather than a coloured rectangle: one pixel of light along the TOP edge, one
+  // rather than a colored rectangle: one pixel of light along the TOP edge, one
   // pixel of shadow along the BOTTOM. Both invert when the key is pressed, so it
-  // visibly sinks into the panel instead of merely changing colour.
+  // visibly sinks into the panel instead of merely changing color.
   //
   // Drawn OVER an item ImGui has already submitted, so ImGui::Button stays a real
   // ImGui::Button and keeps its sizing, hover, activation and keyboard nav.
@@ -538,7 +538,7 @@ namespace ui
 
       // GLOSS. Dark Aero's panels are glossy charcoal, not matte, so a raised
       // control carries a soft sheen over its top half - light falling on a
-      // moulded surface. Kept low: this has to read as a finish, never as a
+      // molded surface. Kept low: this has to read as a finish, never as a
       // gradient, and it is the first thing that tips into looking cheap.
       //
       // Clipped rather than rounded because AddRectFilledMultiColor cannot round
@@ -583,10 +583,10 @@ namespace ui
   //
   // Not a filled circle: a lit LED on a dark console throws light onto the panel
   // around it, and that halo is most of what makes it read as EMITTING rather than
-  // as a coloured dot painted on. Unlit ones get a recessed socket instead, so the
+  // as a colored dot painted on. Unlit ones get a recessed socket instead, so the
   // two states differ in more than brightness.
   // ---------------------------------------------------------------------------
-  Void led(ImDrawList* dl, const ImVec2& centre, Float32 radius, ImU32 colour, Bool lit)
+  Void led(ImDrawList* dl, const ImVec2& center, Float32 radius, ImU32 color, Bool lit)
   {
       if(dl == nullptr || radius <= 0.0f)
       {
@@ -594,23 +594,23 @@ namespace ui
       }
 
       // The socket the lamp sits in, always drawn.
-      dl->AddCircleFilled(centre, radius * 1.55f, IM_COL32(0, 0, 0, 110), 16);
+      dl->AddCircleFilled(center, radius * 1.55f, IM_COL32(0, 0, 0, 110), 16);
 
       if(lit)
       {
-          const ImU32 rgb = colour & 0x00FFFFFFu;
-          dl->AddCircleFilled(centre, radius * 2.60f, rgb | (static_cast<ImU32>(26u) << IM_COL32_A_SHIFT), 16);
-          dl->AddCircleFilled(centre, radius * 1.70f, rgb | (static_cast<ImU32>(52u) << IM_COL32_A_SHIFT), 16);
-          dl->AddCircleFilled(centre, radius, colour, 16);
+          const ImU32 rgb = color & 0x00FFFFFFu;
+          dl->AddCircleFilled(center, radius * 2.60f, rgb | (static_cast<ImU32>(26u) << IM_COL32_A_SHIFT), 16);
+          dl->AddCircleFilled(center, radius * 1.70f, rgb | (static_cast<ImU32>(52u) << IM_COL32_A_SHIFT), 16);
+          dl->AddCircleFilled(center, radius, color, 16);
           // The hot spot, offset up-left as a domed lens catches the light.
-          dl->AddCircleFilled(ImVec2(centre.x - radius * 0.28f, centre.y - radius * 0.28f),
+          dl->AddCircleFilled(ImVec2(center.x - radius * 0.28f, center.y - radius * 0.28f),
                               radius * 0.36f, IM_COL32(255, 255, 255, 150), 12);
       }
       else
       {
-          dl->AddCircleFilled(centre, radius, (colour & 0x00FFFFFFu)
+          dl->AddCircleFilled(center, radius, (color & 0x00FFFFFFu)
                                               | (static_cast<ImU32>(60u) << IM_COL32_A_SHIFT), 16);
-          dl->AddCircle(centre, radius, IM_COL32(255, 255, 255, 28), 16, 1.0f);
+          dl->AddCircle(center, radius, IM_COL32(255, 255, 255, 28), 16, 1.0f);
       }
   }
 
@@ -624,7 +624,7 @@ namespace ui
   // opposite mechanisms rather than as two rectangles.
   //
   // The inner shadow is a gradient rather than a line because a milled edge is not
-  // sharp - it falls off over a couple of millimetres, and at screen scale that is
+  // sharp - it falls off over a couple of millimeters, and at screen scale that is
   // a few pixels.
   // ---------------------------------------------------------------------------
   Void screenInset(const ImVec2& pMin, const ImVec2& pMax, Float32 strength)
@@ -690,18 +690,18 @@ namespace ui
   namespace
   {
 
-    // The base colour mixed toward the hue. Hovered and active go further, so a
+    // The base color mixed toward the hue. Hovered and active go further, so a
     // tinted button still brightens under the cursor rather than sitting flat.
     ImVec4 mixToward(const ImVec4& base, ImU32 hue, Float32 k, Float32 lift)
     {
         ImVec4 h = ImGui::ColorConvertU32ToFloat4(hue);
 
-        // Rescale the hue to the base's own brightness FIRST. The semantic colours
-        // are LED colours - picked to be read at a glance against a dark panel - and
+        // Rescale the hue to the base's own brightness FIRST. The semantic colors
+        // are LED colors - picked to be read at a glance against a dark panel - and
         // mixing one in raw does not tint a button, it lights it up: 30% of a
         // 0xFFB02E amber over slate produced a solid tan block with the bevel and
         // the gloss no longer visible on it, which is a painted control, not a
-        // moulded one.
+        // molded one.
         //
         // So change the HUE at (near) constant VALUE, and let `lift` add the small
         // deliberate amount of brightness rather than it arriving by accident.
@@ -767,8 +767,8 @@ namespace ui
       popTint(tint);
 
       // AFTER the pop, so the bevel and gloss are drawn over the tinted fill
-      // rather than being tinted themselves. The highlight on a moulded surface
-      // is the colour of the light, not the colour of the plastic.
+      // rather than being tinted themselves. The highlight on a molded surface
+      // is the color of the light, not the color of the plastic.
       shadeLastItem();
       return clicked;
   }
@@ -811,7 +811,7 @@ namespace ui
       //     checkbox("Nearest", ...); SameLine(); TextUnformatted("|");
       //
       // drew the separator at the TOP of the row while the four checkbox labels
-      // beside it sat centred a few pixels lower. Small, but it is the difference
+      // beside it sat centered a few pixels lower. Small, but it is the difference
       // between a toolbar that looks machined and one that looks assembled.
       //
       // This is the only public way to set it. It is a max(), so on a row that
@@ -837,7 +837,7 @@ namespace ui
       const ImVec2 b0(p.x, p.y + (fh - box) * 0.5f);
       const ImVec2 b1(b0.x + box, b0.y + box);
 
-      // GetColorU32 rather than the raw style colour: it folds in style.Alpha, so
+      // GetColorU32 rather than the raw style color: it folds in style.Alpha, so
       // the box dims correctly inside BeginDisabled() the way a stock widget does.
       const ImU32 fill = ImGui::GetColorU32(act ? ImGuiCol_FrameBgActive
                                            : hov ? ImGuiCol_FrameBgHovered
@@ -890,7 +890,7 @@ namespace ui
   // ImGui fills a combo's arrow area with ImGuiCol_Button, so against a darker
   // FrameBg the drop-down reads as a separate button welded onto the right of a
   // field. Both reference tools draw the arrow INSIDE the field. Pushing the
-  // button colours to match the frame is the whole fix; the widget is otherwise
+  // button colors to match the frame is the whole fix; the widget is otherwise
   // stock, so it keeps its popup, keyboard handling and sizing.
   // ---------------------------------------------------------------------------
   Bool combo(const Char* label, Int32* current, const Char* const items[], Int32 count)
@@ -912,7 +912,7 @@ namespace ui
   // fill and an accent underline along its bottom edge.
   //
   // The underline is the part that matters. Both reference tools mark the active
-  // item with a coloured edge rather than by flooding it, which is what keeps a
+  // item with a colored edge rather than by flooding it, which is what keeps a
   // selected cell from shouting louder than the content it is selecting.
   // ---------------------------------------------------------------------------
   Bool segmentedButton(const Char* label, Bool selected, const ImVec2& size, Mark mark)

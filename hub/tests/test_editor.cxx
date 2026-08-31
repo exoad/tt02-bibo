@@ -355,7 +355,7 @@ namespace
       Vec<syn::Span> spans;
       Bool inBlock = false;
 
-      // A role lookup helper: what colour does byte `at` get?
+      // A role lookup helper: what color does byte `at` get?
       auto roleAt = [&](Int32 at) -> syn::Role
       {
           for(const syn::Span& s : spans)
@@ -387,7 +387,7 @@ namespace
       check(roleAt(3) == syn::Role::ROLE_COMMENT, "// starts a comment");
       check(!inBlock, "a line comment does not open a block");
 
-      // The include line keeps its header in string colour.
+      // The include line keeps its header in string color.
       syn::tokenize("#include \"pico/stdlib.h\"", inBlock, spans);
       check(roleAt(1) == syn::Role::ROLE_PREPROC, "#include is preprocessor");
       check(roleAt(10) == syn::Role::ROLE_STRING, "the header path is a string");
@@ -507,7 +507,7 @@ namespace
       hits.clear();
       check(cmpl::suggest("", hits, 8) == 0, "an empty prefix matches nothing");
 
-      // max is honoured.
+      // max is honored.
       hits.clear();
       check(cmpl::suggest("s", hits, 3) <= 3, "max limits the result count");
 

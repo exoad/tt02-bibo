@@ -128,7 +128,7 @@ namespace autonomy
   // STUB. Will decide one tick's steering and throttle.
   //
   // `out` is untouched on anything but STATUS_OK, so a caller that ignores the
-  // Status gets whatever it initialised - its own value, not one this file
+  // Status gets whatever it initialized - its own value, not one this file
   // invented.
   [[nodiscard]] Status step(const Inputs& in,
                             const bibo::pursuit::Path* path,

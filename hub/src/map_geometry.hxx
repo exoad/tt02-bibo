@@ -6,7 +6,7 @@
 // on it will never produce one - so leaving this inside the renderer meant the
 // only way to exercise it was to hope the room cooperated. It did not.
 //
-// Everything here works in the sensor frame, millimetres, x right and y DOWN -
+// Everything here works in the sensor frame, millimeters, x right and y DOWN -
 // the same orientation the screen uses, so nothing has to be flipped on the way
 // out.
 // ---------------------------------------------------------------------------
@@ -117,10 +117,10 @@ namespace mapgeo
   // Configuration space, in polar form.
   //
   // `in.r[i]` is the free radius on bearing bin i, `in.seen[i]` whether that bin
-  // has evidence. `out[i]` becomes how far the CENTRE of a disc of radius halfW
+  // has evidence. `out[i]` becomes how far the CENTER of a disc of radius halfW
   // could travel along bearing i before touching anything.
   //
-  // For an obstacle at (R, dth) off the bearing, the centre first touches it at
+  // For an obstacle at (R, dth) off the bearing, the center first touches it at
   //
   //     r = R cos(dth) - sqrt(halfW^2 - (R sin(dth))^2)
   //

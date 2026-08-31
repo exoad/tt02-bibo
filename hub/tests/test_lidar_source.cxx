@@ -16,7 +16,7 @@
 namespace
 {
 
-  // Bounds taken from the verified behaviour of this device.
+  // Bounds taken from the verified behavior of this device.
   constexpr Int32   RUN_SECONDS   = 8;
   constexpr Int32   MIN_FRAMES    = 30;
   constexpr Float32 MIN_HZ        = 9.0f;
@@ -26,7 +26,7 @@ namespace
 
   // The motor spins up over the first couple of seconds: it starts fast and
   // sparse (~355 points at ~14Hz) and settles to ~510 points at ~9.8Hz. That
-  // transient is the device's normal behaviour, not a fault, but it sits outside
+  // transient is the device's normal behavior, not a fault, but it sits outside
   // the steady-state bounds above - so the pass/fail statistics are gathered
   // after it, while the spin-up is reported separately rather than hidden.
   constexpr Int32   SPIN_UP_FRAMES = 15;

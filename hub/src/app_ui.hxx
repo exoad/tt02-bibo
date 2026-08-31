@@ -9,7 +9,7 @@
 namespace app
 {
 
-  // Called once after ImGui is initialised and fonts/style are loaded.
+  // Called once after ImGui is initialized and fonts/style are loaded.
   Void init(Float32 dpiScale);
 
   // Called once per frame, between ImGui::NewFrame() and ImGui::Render().

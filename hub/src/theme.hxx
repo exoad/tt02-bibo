@@ -1,5 +1,5 @@
 // Styling for the viewer: stock Dear ImGui dark theme, a readable type scale,
-// and the few data colours the map needs.
+// and the few data colors the map needs.
 //
 // This is deliberately NOT a design system. Widgets are plain ImGui widgets;
 // the only thing customised is font size and a small amount of spacing.
@@ -51,7 +51,7 @@ namespace ui
   // for that: saturated enough to carry meaning, dark enough to sit on an off-white
   // ground without glowing. Every hue below is a Tango stop or one step off it.
   //
-  // Ground is CREAM, not white and not neutral grey. A warm off-white is what makes
+  // Ground is CREAM, not white and not neutral gray. A warm off-white is what makes
   // the chrome read as of that period rather than as a modern flat-white app.
   //
   // Three anchors:
@@ -62,7 +62,7 @@ namespace ui
   //   ORANGE #CE5C00 - Tango Orange, dark stop. Waiting, degraded, out of spec.
   //
   // The dark stops matter: the bright Tango stops (#73D216, #F57900) are display
-  // colours for filled shapes and are illegible as TEXT on cream. Anything that
+  // colors for filled shapes and are illegible as TEXT on cream. Anything that
   // prints as words uses the dark stop.
   // ---------------------------------------------------------------------------
 
@@ -74,7 +74,7 @@ namespace ui
   // gets called Dark Aero or Frutiger Ego: charcoal panels rather than nature and
   // sky, with the accents reading as glowing LEDs set into the casing.
   //
-  // Three properties do the work, and none of them is a colour:
+  // Three properties do the work, and none of them is a color:
   //
   //   LOW CONTRAST GROUND. Graphite, not black. These tools sat in front of people
   //   for ten-hour sessions and a pure black ground with white text is the harshest
@@ -93,24 +93,24 @@ namespace ui
   // into the console, not part of the casing.
   // ---------------------------------------------------------------------------
 
-  // Data colours for the viewport - the map, the board view, the HUD drawn on them.
+  // Data colors for the viewport - the map, the board view, the HUD drawn on them.
   // ---------------------------------------------------------------------------
   // THE TERMINAL PALETTE. Pure xterm ANSI on pure black.
   //
   // This is the LIDAR MAP's palette and nothing else's. The chrome around it stays
   // industrial slate and the board view keeps `plot::`, because that one is a
   // picture of a physical object and a photograph of a PCB has no business being
-  // drawn in sixteen colours.
+  // drawn in sixteen colors.
   //
   // The map is different: it is a readout, and a readout wants maximum separation
   // between its few meanings with no ambiguity about which one you are looking at.
-  // That is precisely the problem sixteen fully saturated colours on black were
+  // That is precisely the problem sixteen fully saturated colors on black were
   // designed for, and it is what a graphite substrate with gradients was working
   // against - every hue had to survive being laid over a tinted, unevenly lit
   // ground, so none of them could be itself.
   //
   // The rule for anything added here: it is one of the sixteen, unmodified. No
-  // blends, no alpha ramps standing in for a colour, no tints of the background.
+  // blends, no alpha ramps standing in for a color, no tints of the background.
   // ---------------------------------------------------------------------------
   namespace ansi
   {
@@ -125,7 +125,7 @@ namespace ui
     inline constexpr ImU32 CYAN      = IM_COL32(0x00, 0xCD, 0xCD, 0xFF);
     inline constexpr ImU32 WHITE     = IM_COL32(0xE5, 0xE5, 0xE5, 0xFF);
 
-    inline constexpr ImU32 GREY      = IM_COL32(0x7F, 0x7F, 0x7F, 0xFF);
+    inline constexpr ImU32 GRAY      = IM_COL32(0x7F, 0x7F, 0x7F, 0xFF);
     inline constexpr ImU32 BRRED     = IM_COL32(0xFF, 0x00, 0x00, 0xFF);
     inline constexpr ImU32 BRGREEN   = IM_COL32(0x00, 0xFF, 0x00, 0xFF);
     inline constexpr ImU32 BRYELLOW  = IM_COL32(0xFF, 0xFF, 0x00, 0xFF);
@@ -138,17 +138,17 @@ namespace ui
 
     // Distance: red near, yellow mid, green far. A traffic light, read the way
     // everybody already reads one, and the reason the ramp no longer ends in cyan -
-    // cyan is the heading marker, and a far wall should not be the same colour as
+    // cyan is the heading marker, and a far wall should not be the same color as
     // the direction the car is pointing.
     inline constexpr ImU32 RAMP_NEAR = BRRED;
     inline constexpr ImU32 RAMP_MID  = BRYELLOW;
     inline constexpr ImU32 RAMP_FAR  = BRGREEN;
 
-    // Furniture. The two greys below are the ONE allowed departure from the sixteen,
+    // Furniture. The two grays below are the ONE allowed departure from the sixteen,
     // because a range grid drawn at full brightness competes with the returns it
     // exists to measure - and they are still neutral, not tinted.
     inline constexpr ImU32 GRID       = IM_COL32(0x3A, 0x3A, 0x3A, 0xFF);
-    inline constexpr ImU32 GRID_MAJOR = GREY;
+    inline constexpr ImU32 GRID_MAJOR = GRAY;
     inline constexpr ImU32 AXIS       = IM_COL32(0x26, 0x26, 0x26, 0xFF);
 
     inline constexpr ImU32 LABEL      = WHITE;
@@ -160,7 +160,7 @@ namespace ui
     inline constexpr ImU32 OK    = BRGREEN;
     inline constexpr ImU32 WARN  = BRYELLOW;
     inline constexpr ImU32 BAD   = BRRED;
-    inline constexpr ImU32 IDLE  = GREY;
+    inline constexpr ImU32 IDLE  = GRAY;
 
   }
 
@@ -168,7 +168,7 @@ namespace ui
   {
 
     // ---------------------------------------------------------------------------
-    // FORWARDS. Every one of these is now a name for an ansi:: colour.
+    // FORWARDS. Every one of these is now a name for an ansi:: color.
     //
     // The names stay because call sites read better for them - plot::OK says what
     // it means where ansi::BRGREEN says only what it looks like - but there is one
@@ -214,7 +214,7 @@ namespace ui
   }
 
   // ---------------------------------------------------------------------------
-  // Pin CATEGORY colours, for the board view.
+  // Pin CATEGORY colors, for the board view.
   //
   // Not statuses, and they must not borrow the status palette - which is what they
   // used to do: an assigned pin took sem::GOOD and a power pin took sem::WARN, so a
@@ -228,22 +228,22 @@ namespace ui
   {
 
     inline constexpr ImU32 ASSIGNED = ansi::BRCYAN;                       // ours: strongest
-    inline constexpr ImU32 POWER    = ansi::GREY;                        // structural: quiet
+    inline constexpr ImU32 POWER    = ansi::GRAY;                        // structural: quiet
     inline constexpr ImU32 FREE     = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);  // unused: quietest
 
   }
 
   // ---------------------------------------------------------------------------
-  // Semantic colours for UI TEXT. This is the whole palette; there is no other.
+  // Semantic colors for UI TEXT. This is the whole palette; there is no other.
   //
-  // The rule: colour means something or it is not used. A readout is drawn in the
-  // default text colour unless its VALUE carries a state — connected, degraded,
+  // The rule: color means something or it is not used. A readout is drawn in the
+  // default text color unless its VALUE carries a state — connected, degraded,
   // failed. Numbers are not tinted to tell them apart; their labels do that.
   //
   // Everything else (buttons, frames, headers, tabs, scrollbars) keeps stock
   // ImGui dark. Do not tint a widget to make it stand out; place it better.
   //
-  // `plot::` above is a different thing: those are DATA colours for the map, where
+  // `plot::` above is a different thing: those are DATA colors for the map, where
   // hue encodes a measured quantity rather than a UI state.
   // ---------------------------------------------------------------------------
   namespace sem
@@ -332,7 +332,7 @@ namespace ui
   // ---------------------------------------------------------------------------
   // A button's semantic tint.
   //
-  // The rule the rest of this palette follows applies here too: COLOUR MEANS
+  // The rule the rest of this palette follows applies here too: COLOR MEANS
   // SOMETHING OR IT IS NOT USED. A tint is not decoration and not a way to make a
   // control stand out - it is a claim about what pressing the thing does.
   //
@@ -345,7 +345,7 @@ namespace ui
   // toward the hue, because a saturated button in an industrial-slate panel reads
   // as a different application, and because the bevel and gloss are drawn OVER
   // this - the tint has to leave room for them or the control stops looking
-  // moulded and starts looking painted.
+  // molded and starts looking painted.
   // ---------------------------------------------------------------------------
   enum class Tint
   {
@@ -356,7 +356,7 @@ namespace ui
       TINT_ACCENT,
   };
 
-  // Pushes the three button colours for `t`. Balanced by popTint(); a no-op pair
+  // Pushes the three button colors for `t`. Balanced by popTint(); a no-op pair
   // for TINT_NONE, so callers do not have to branch.
   Void pushTint(Tint t);
   Void popTint(Tint t);
@@ -378,7 +378,7 @@ namespace ui
   // An indicator lamp. A lit one throws a halo onto the panel around it, which is
   // what makes it read as emitting rather than as a painted dot; an unlit one is a
   // dark lamp in a recessed socket. Use for every state dot in the chrome.
-  Void led(ImDrawList* dl, const ImVec2& centre, Float32 radius, ImU32 colour, Bool lit);
+  Void led(ImDrawList* dl, const ImVec2& center, Float32 radius, ImU32 color, Bool lit);
 
   // Shades an arbitrary rect, for custom-drawn surfaces.
   Void shadeRect(const ImVec2& pMin, const ImVec2& pMax, Float32 strength = 1.0f);

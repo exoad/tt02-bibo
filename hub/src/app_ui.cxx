@@ -7,7 +7,7 @@
 //   right sidebar  one scrollable column holding everything else, as collapsing
 //                  sections: System, Sensors, Vehicle, Firmware, Console
 //
-// There are no workspaces. The old left nav rail swapped the centre pane between
+// There are no workspaces. The old left nav rail swapped the center pane between
 // five screens, which meant the map - the only continuously useful surface -
 // disappeared four times out of five. Now the map is fixed and the panels queue
 // up beside it.
@@ -114,7 +114,7 @@ namespace
   // Angular coverage: fraction of 1-degree bins with at least one in-spec return.
   Float32 coverageDeg = 0.0f;
 
-  // Clearance: distance to the nearest return in each 30 degree sector, in metres.
+  // Clearance: distance to the nearest return in each 30 degree sector, in meters.
   constexpr Int32 SECTORS = 12;
   Array<Float32, SECTORS> sectorM= {};
   constexpr Float32 CLEARANCE_CAP_M = 2.5f;   // beyond this a direction is just "clear"
@@ -264,10 +264,10 @@ namespace
 
   // Whether the board is driving the steering pin at all. Not the same question
   // as "what position is it holding" - a released servo holds nothing, which is
-  // the only state that is safe on a car whose centre is not its centre.
+  // the only state that is safe on a car whose center is not its center.
   Bool  driveServoOn = false;
 
-  // Where the board thinks centre is. Not 1500 in general - see the calibration
+  // Where the board thinks center is. Not 1500 in general - see the calibration
   // block below for why that matters more than it sounds.
   Int32 driveServoC  = 1500;
 
@@ -791,7 +791,7 @@ namespace
   // open Sensors with that readout showing.
   Int32 forceSection    = -1;
   Int32 forceSub        = -1;
-  Int32 forceTabFrames = 0;   // a tab bar only honours SetSelected once laid out
+  Int32 forceTabFrames = 0;   // a tab bar only honors SetSelected once laid out
 
   // Map layers. Only the RPLIDAR exists today; the rest are declared so that
   // wiring one later is filling in a row rather than redesigning the screen.
@@ -978,7 +978,7 @@ namespace
   // device is silent and neither of those looks like a wrong setting.
   //
   // The others are kept, disabled, rather than deleted: somebody who has read
-  // about an A1 at 115200 will come looking for it, and a greyed entry that says
+  // about an A1 at 115200 will come looking for it, and a grayed entry that says
   // why is a better answer than an empty list that looks like a missing feature.
   struct BaudOpt
   {
@@ -1117,7 +1117,7 @@ namespace
       portIndex = -1;
   }
 
-  // True when a port could belong to the lidar. Used to grey out the ones that
+  // True when a port could belong to the lidar. Used to gray out the ones that
   // certainly cannot, rather than hiding them - a port that is missing from the
   // list looks like a driver problem, and a port that is visible and disabled
   // explains itself.
@@ -1338,7 +1338,7 @@ namespace
 
                   // "name [mode]" -> the two of them. A firmware that predates
                   // the modes sends no bracket and lands on an empty play, which
-                  // the board then draws as a plain button - the old behaviour,
+                  // the board then draws as a plain button - the old behavior,
                   // rather than a crash or a guess.
                   const Size br = e.name.find(" [");
                   if(br != Str::npos && e.name.back() == ']')
@@ -1729,9 +1729,9 @@ namespace
       // "OK led on" / "OK led off" / "OK led blink 2.00".
       //
       // Nothing displays the lamp's state any more - the board drawing that did
-      // is gone - so this stores nothing. It still has to RECOGNISE the line and
+      // is gone - so this stores nothing. It still has to RECOGNIZE the line and
       // return, though: dbgAwait is set while a STATUS is outstanding, and
-      // anything unrecognised arriving in that window is read as "this firmware
+      // anything unrecognized arriving in that window is read as "this firmware
       // has no STATUS command" and stops the polling permanently. An LED command
       // sent by hand while a poll was in flight would do exactly that.
       if(t.compare(0, 7, "OK led ") == 0)
@@ -2036,7 +2036,7 @@ namespace
       }
   }
 
-  // The same state in two colours, because it is printed on two grounds: the
+  // The same state in two colors, because it is printed on two grounds: the
   // status strip is light chrome, the map HUD is the dark viewport. See the note
   // on the two palettes in theme.hxx.
   ImU32 lidarStateColor()
@@ -2495,7 +2495,7 @@ namespace
   // WHY THIS DID NOT EXIST, and why the absence was invisible: both port lists
   // were built once at startup and then only ever refreshed by an explicit
   // button, a flash, or a BOOTSEL reboot. Launch the app with nothing attached,
-  // plug a board in, and it was never noticed - Connect stayed greyed out
+  // plug a board in, and it was never noticed - Connect stayed grayed out
   // forever with nothing on screen to suggest what to do about it.
   //
   // Event-driven rather than polled: the answer is almost always "nothing
@@ -2911,9 +2911,9 @@ namespace
 
   // ------------------------------------------------------------ small parts
 
-  // A metric and its label. Deliberately NOT colour-coded: the six Live values
-  // used to be green / blue / green / orange / grey / grey, which looked like it
-  // meant something and did not. The caption says which number it is; colour is
+  // A metric and its label. Deliberately NOT color-coded: the six Live values
+  // used to be green / blue / green / orange / gray / gray, which looked like it
+  // meant something and did not. The caption says which number it is; color is
   // reserved for values that actually carry a state (see ui::sem).
   Void statCell(const Char* value, const Char* caption)
   {
@@ -2961,36 +2961,36 @@ namespace
   // The lamp that used to lead each field is gone. Two reasons, and the second is
   // the one that actually mattered:
   //
-  //   - It was redundant. A lamp AND a colour-coded word said the same thing
+  //   - It was redundant. A lamp AND a color-coded word said the same thing
   //     twice, which is what made the row feel heavy.
   //   - Its halo did not fit. The strip is exactly one text line tall, and a lit
   //     lamp's glow extends about 2.6x its radius - so the top and bottom of every
   //     halo was being clipped by the child, which is what read as "not vertically
-  //     centred". It was centred; it was cropped.
+  //     centered". It was centered; it was cropped.
   //
-  // The icon replaces it and carries something the colour does not: WHICH
-  // subsystem this is. Identity from the icon, state from the colour, one each.
+  // The icon replaces it and carries something the color does not: WHICH
+  // subsystem this is. Identity from the icon, state from the color, one each.
   // ---------------------------------------------------------------------------
   // The status bar's fields.
   //
   // DRAWN, not flowed. The old strip put each piece in with ImGui::Image and
   // TextUnformatted on a SameLine, which aligns items by their TOP edge - so a
   // 16 px icon sat high against 20 px text and every field was a pixel or two off
-  // from its neighbour. There is no way to fix that by nudging padding, because
+  // from its neighbor. There is no way to fix that by nudging padding, because
   // the icon size and the type size move independently with DPI and with the zoom
   // control sitting in the same bar.
   //
-  // So the bar owns a centreline and every element is centred on it. `x` is
+  // So the bar owns a centerline and every element is centered on it. `x` is
   // advanced by each field explicitly. This is more code than a row of SameLine
   // calls and it is the only version that is actually aligned.
   // ---------------------------------------------------------------------------
 
-  // Vertical centre of the bar, and the pen position along it.
+  // Vertical center of the bar, and the pen position along it.
   struct BarPen
   {
       ImDrawList* dl = nullptr;
       Float32     x  = 0.0f;   // advances left to right
-      Float32     cy = 0.0f;   // the centreline, in screen space
+      Float32     cy = 0.0f;   // the centerline, in screen space
   };
 
   Void barText(BarPen& p, const Char* text, ImU32 col)
@@ -3085,7 +3085,7 @@ namespace
   // A- / A+ and the current percentage. Text rather than icons: the Fugue subset
   // vendored in assets/icons does not carry a magnifier, and two letters read as
   // "text size" more directly than a magnifying glass does anyway.
-  // The UI zoom, right-aligned in the bar and centred on its line.
+  // The UI zoom, right-aligned in the bar and centered on its line.
   //
   // Visible rather than shortcut-only. "The UI is too small" is a complaint about
   // the app, and an app whose answer is a key combination nobody is told about has
@@ -3110,10 +3110,10 @@ namespace
       // A SmallButton is NOT GetFrameHeight() tall.
       //
       // ImGui draws it with FramePadding.y forced to zero, so its height is the
-      // text line and nothing more. Centring it on GetFrameHeight() - which is
-      // the line PLUS two paddings - lifted both buttons above the centreline by
-      // one padding, while the percentage beside them was centred correctly and
-      // sat on it. Two things centred by two different rules, a few pixels apart,
+      // text line and nothing more. Centering it on GetFrameHeight() - which is
+      // the line PLUS two paddings - lifted both buttons above the centerline by
+      // one padding, while the percentage beside them was centered correctly and
+      // sat on it. Two things centered by two different rules, a few pixels apart,
       // which is exactly the kind of misalignment that reads as sloppy without
       // being obvious enough to chase.
       const Float32 bh = ImGui::GetTextLineHeight();
@@ -3121,8 +3121,8 @@ namespace
       const Bool atMin = ui::userScale() <= ui::USER_SCALE_MIN + 0.001f;
       const Bool atMax = ui::userScale() >= ui::USER_SCALE_MAX - 0.001f;
 
-      // SmallButton is a real widget, so it is POSITIONED on the centreline
-      // rather than drawn on it: place the cursor at (centre - height/2).
+      // SmallButton is a real widget, so it is POSITIONED on the centerline
+      // rather than drawn on it: place the cursor at (center - height/2).
       ImGui::SetCursorScreenPos(ImVec2(x0, cy - bh * 0.5f));
 
       ImGui::BeginDisabled(atMin);
@@ -3136,9 +3136,9 @@ namespace
           ImGui::SetTooltip("Smaller  (Ctrl -)");
       }
 
-      // The percentage is text, so it centres on the line directly.
+      // The percentage is text, so it centers on the line directly.
       //
-      // Centred inside its OWN slot as well, not left-aligned in it. The slot is
+      // Centered inside its OWN slot as well, not left-aligned in it. The slot is
       // sized for "000%" so the buttons either side never move as the number
       // changes, and left-aligning inside it meant 90% and 110% sat at different
       // distances from the button on their right.
@@ -3192,7 +3192,7 @@ namespace
       BarPen pen;
       pen.dl = ImGui::GetWindowDrawList();
       pen.x  = p0.x;
-      pen.cy = p0.y + av.y * 0.5f;   // the one centreline everything shares
+      pen.cy = p0.y + av.y * 0.5f;   // the one centerline everything shares
 
       // The zoom control first, so the fields know where they have to stop.
       const Float32 stopAt = drawZoomControl(pen.cy, p0.x + av.x);
@@ -3274,7 +3274,7 @@ namespace
 
   // =================================================================== overview
   // Every subsystem's state, and the actions reached for most often. Live rows are
-  // read from the hardware; the rest are labelled with what they are, which is
+  // read from the hardware; the rest are labeled with what they are, which is
   // nothing yet. No status is invented for something that has never been wired.
 
   // name | state | live value. The third column stays empty for anything that has
@@ -3440,7 +3440,7 @@ namespace
       }
       else
       {
-          // Disabled with a REASON on the tooltip, never bare: a greyed control
+          // Disabled with a REASON on the tooltip, never bare: a grayed control
           // with no explanation reads as a broken one.
           const Bool wired = (ps == PicoState::PICO_STATE_CONNECTED
                               || ps == PicoState::PICO_STATE_CONNECTING);
@@ -3552,7 +3552,7 @@ namespace
           }
           else
           {
-              // Greyed out when no board is present - and a greyed-out control
+              // Grayed out when no board is present - and a grayed-out control
               // with no explanation reads as a broken one. It gets a reason.
               const Bool noPico = (picoIndex < 0);
               ImGui::BeginDisabled(noPico);
@@ -3571,7 +3571,7 @@ namespace
                       "Plug the board in - it is detected automatically, and this "
                       "button enables itself\nwithin about a second. Nothing "
                       "needs pressing first.\n\n"
-                      "If it stays greyed: the board is running a sketch that "
+                      "If it stays grayed: the board is running a sketch that "
                       "never called serialOpen(),\nso it never enumerated over "
                       "USB. Hold BOOTSEL while plugging the cable in\nand flash "
                       "it again.");
@@ -3606,7 +3606,7 @@ namespace
       // The result of the last BOOTSEL touch, next to the button that asks for
       // one, so a failure is not silent. Only once one has been attempted: the
       // old unconditional "--" existed to stop a fixed-height panel jumping a
-      // line, and in a column that scrolls it is just an unlabelled dash.
+      // line, and in a column that scrolls it is just an unlabeled dash.
       if(bootselDone)
       {
           colored(bootselOk ? ui::sem::GOOD : ui::sem::BAD,
@@ -3675,7 +3675,7 @@ namespace
                       "The C1M1 datasheet lists 460800 and nothing else - no\n"
                       "minimum, no maximum, no alternative. Other RPLIDAR models\n"
                       "do run at 115200, which is where the expectation comes\n"
-                      "from, and it is why this is greyed rather than absent.\n"
+                      "from, and it is why this is grayed rather than absent.\n"
                       "\n"
                       "Selecting it would open the port and then receive nothing,\n"
                       "which looks like a dead sensor rather than a wrong number.");
@@ -4058,7 +4058,7 @@ namespace
       // The row belongs to the dimension. Range, Trail, Labels and Nearest are all
       // properties of a top-down projection - there is no "range" when you are
       // orbiting, and a trail of past revolutions in 3D is a pile, not a history.
-      // Showing them greyed out would only advertise controls that will never do
+      // Showing them grayed out would only advertise controls that will never do
       // anything here.
       if(centralView == 1)
       {
@@ -4094,7 +4094,7 @@ namespace
           }
           if(ImGui::IsItemHovered())
           {
-              ImGui::SetTooltip("The car stays centred. Orbit and zoom still work; "
+              ImGui::SetTooltip("The car stays centered. Orbit and zoom still work; "
                                 "panning does not, because that is what locked means.");
           }
 
@@ -4236,7 +4236,7 @@ namespace
   // The permanent left region: the map, with the control bar under it. Both are
   // sized by the caller, which owns the split between map and sidebar.
   // --view <map|3d|record|code|range|drive|sound|flash|reference> preselects a central tab at startup. Held for a few frames
-  // because a tab bar only honours SetSelected once it has laid its items out,
+  // because a tab bar only honors SetSelected once it has laid its items out,
 
   // which is not on frame one.
   Int32 forceView        = -1;   // -1 none, 0 = 2D, 1 = 3D, 2+ board index + 2
@@ -4922,13 +4922,13 @@ namespace
       // `label` tints the NAME as well as the glyph. A document and a source
       // file were told apart by two icons that are the same page in two shades,
       // which does not read at sixteen pixels - so the filename carries it too.
-      // Colour is the thing the eye sorts a list by.
+      // Color is the thing the eye sorts a list by.
       const auto row = [](const Str& name, const Str& path, Bool sel, ui::Icon ic,
                           Bool deletable, ImU32 label = 0)
       {
           ImGui::PushID(path.c_str());
 
-          // The icon, centred on the LABEL rather than hung from the top of the
+          // The icon, centered on the LABEL rather than hung from the top of the
           // row.
           //
           // Items put on one line with SameLine are aligned by their top edges,
@@ -5030,7 +5030,7 @@ namespace
           const ImVec2  at = ImGui::GetCursorScreenPos();
           ImDrawList*   dl = ImGui::GetWindowDrawList();
 
-          // Vertically centred on the text line, like ui::icon does.
+          // Vertically centered on the text line, like ui::icon does.
           const Float32 y0 = at.y + ((ImGui::GetTextLineHeight() - sz) * 0.5f);
           const Float32 x0 = at.x;
 
@@ -5124,7 +5124,7 @@ namespace
           // through a listing.
           //
           // Case-insensitive, because "Makefile" sorting above "app" on ASCII is
-          // an artefact of the encoding and not something anybody means.
+          // an artifact of the encoding and not something anybody means.
           const auto fwSort = [](auto&& self, FwNode& node) -> Void
           {
               const auto byName = [](const Str& a, const Str& b)
@@ -5384,7 +5384,7 @@ namespace
 
       // A HEADER is not a translation unit, and Run on one is meaningless.
       //
-      // The source picker already knew this and greyed headers out - but the file
+      // The source picker already knew this and grayed headers out - but the file
       // TREE happily opens one, and Run then offered "Build & Flash: pico_debug,
       // compiles gfx.h", which is three kinds of wrong at once. It would build
       // some unrelated target, flash it, and report success against a file it
@@ -5408,8 +5408,8 @@ namespace
       ImGui::BeginDisabled(busy || onHeader);
 
       // Amber rather than green: this writes to the board. It is the same claim
-      // the Firmware panel's Flash button makes, and it has to be the same colour
-      // or the colour stops meaning anything.
+      // the Firmware panel's Flash button makes, and it has to be the same color
+      // or the color stops meaning anything.
       const Str target = sketch::targetFor(codePath);
 
       // "Run", because that is the verb every IDE uses and the one a person
@@ -5418,7 +5418,7 @@ namespace
       // should not hide that behind a friendly word.
       //
       // Still amber. It is the same claim the Firmware panel's Flash button makes
-      // and it has to be the same colour or the colour stops meaning anything.
+      // and it has to be the same color or the color stops meaning anything.
       if(ui::iconButton(ui::Icon::ICON_PLAY, "Run",
                         ImVec2(120.0f * uiDpiScale, bh), ui::Tint::TINT_WARN))
       {
@@ -5627,7 +5627,7 @@ namespace
   // There was a per-board view between Code and Reference until 2026-08-28,
   // which is why these are named constants rather than literals - the indices
   // have moved before and will again. A saved tab index from an older build can
-  // therefore select the neighbouring view once, which is a preference and not
+  // therefore select the neighboring view once, which is a preference and not
   // data; drawTabbedViews clamps anything out of range.
   constexpr Int32 RANGE_VIEW = 4;
   constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
@@ -5683,13 +5683,13 @@ namespace
       ImGui::SeparatorText("Link");
       if(soundTx >= 0)
       {
-          colored(ui::ansi::GREY, "TX GP%d", soundTx);
+          colored(ui::ansi::GRAY, "TX GP%d", soundTx);
           ImGui::SameLine(0.0f, 16.0f);
-          colored(ui::ansi::GREY, "-> module RX (through 1k)");
+          colored(ui::ansi::GRAY, "-> module RX (through 1k)");
           ImGui::SameLine(0.0f, 24.0f);
-          colored(ui::ansi::GREY, "RX GP%d", soundRx);
+          colored(ui::ansi::GRAY, "RX GP%d", soundRx);
           ImGui::SameLine(0.0f, 16.0f);
-          colored(ui::ansi::GREY, "<- module TX");
+          colored(ui::ansi::GRAY, "<- module TX");
 
           // BUSY's pad, read back like the other two. The whole point of this
           // row is that it is the BOARD's account of its own wiring - a hub
@@ -5698,13 +5698,13 @@ namespace
           // pad.
           if(soundBusyGp >= 0)
           {
-              colored(ui::ansi::GREY, "BUSY GP%d", soundBusyGp);
+              colored(ui::ansi::GRAY, "BUSY GP%d", soundBusyGp);
               ImGui::SameLine(0.0f, 16.0f);
-              colored(ui::ansi::GREY, "<- module BUSY, low while playing");
+              colored(ui::ansi::GRAY, "<- module BUSY, low while playing");
           }
           else
           {
-              colored(ui::ansi::GREY, "BUSY not wired");
+              colored(ui::ansi::GRAY, "BUSY not wired");
           }
       }
       else
@@ -5760,7 +5760,7 @@ namespace
       }
 
       ImGui::SameLine(0.0f, 12.0f);
-      colored(soundVol > (soundVolMax / 2) ? ui::sem::WARN : ui::ansi::GREY,
+      colored(soundVol > (soundVolMax / 2) ? ui::sem::WARN : ui::ansi::GRAY,
                   "%d / %d", soundVol, soundVolMax);
 
       // Named steps rather than a bare number, because "8" means nothing until
@@ -5792,7 +5792,7 @@ namespace
 
       // ---- tone -------------------------------------------------------------
       //
-      // NOT a second volume, and labelled so. It is what everybody reaches for
+      // NOT a second volume, and labeled so. It is what everybody reaches for
       // when 30 is not loud enough, so it is better to have it here and say
       // plainly what it does than to leave people to guess.
       ImGui::SeparatorText("Tone");
@@ -5841,7 +5841,7 @@ namespace
       // arrived.
       if(soundFiles > 0)
       {
-          colored(ui::ansi::GREY, "%d track%s on the card",
+          colored(ui::ansi::GRAY, "%d track%s on the card",
                   soundFiles, (soundFiles == 1) ? "" : "s");
       }
       else
@@ -5878,7 +5878,7 @@ namespace
           soundTrack = highest;
       }
       ImGui::SameLine(0.0f, 12.0f);
-      colored(ui::ansi::GREY, "mp3/%04d.mp3", soundTrack);
+      colored(ui::ansi::GRAY, "mp3/%04d.mp3", soundTrack);
 
       // One button per track, once the count is known and small enough to fit.
       // Typing a number to hear a three-second sound is friction you notice on
@@ -5988,7 +5988,7 @@ namespace
       }
       else
       {
-          colored(ui::ansi::GREY, "idle");
+          colored(ui::ansi::GRAY, "idle");
           ImGui::SameLine(0.0f, 12.0f);
           ImGui::TextDisabled("(BUSY on GP%d reads high)", soundBusyGp);
       }
@@ -6270,10 +6270,10 @@ namespace
           else if(!sensorTof)
           {
               // MUTED, not BAD. Nothing is broken - there is no ToF wired to this
-              // car yet, and the sidebar says exactly that in grey two panels
+              // car yet, and the sidebar says exactly that in gray two panels
               // away. Red here made an accurate report of an empty I2C bus look
-              // like a failure, and a colour that cries wolf about the ordinary
-              // case is a colour nobody reads on the day it matters.
+              // like a failure, and a color that cries wolf about the ordinary
+              // case is a color nobody reads on the day it matters.
               //
               // "no I2C bus" above stays BAD: that one IS a fault. The bus is on
               // the board whether or not anything hangs off it.
@@ -6327,7 +6327,7 @@ namespace
                   "it is steadier, because there is less to confuse it.\n"
                   "\n"
                   "This is the mode a bumper wants. Nothing useful for stopping\n"
-                  "a car is more than a metre away, and daylight is exactly the\n"
+                  "a car is more than a meter away, and daylight is exactly the\n"
                   "condition it has to work in.");
           }
 
@@ -6349,7 +6349,7 @@ namespace
                   "great deal of it.\n"
                   "\n"
                   "Use it when: indoors, away from a window, and you need to see\n"
-                  "past a metre or so.\n"
+                  "past a meter or so.\n"
                   "\n"
                   "The 4 m on the box assumes a white target, a dark room and a\n"
                   "long timing budget. A dark or angled surface returns far less\n"
@@ -6445,7 +6445,7 @@ namespace
 
       // A fixed 2 m scale rather than one fitted to the data. An autoscaling
       // chart looks identical whether the sensor is sweeping a room or jittering
-      // by three millimetres, which is the opposite of what it is for.
+      // by three millimeters, which is the opposite of what it is for.
       constexpr Float32 FULL_MM = 2000.0f;
 
       for(Int32 g = 1; g < 4; ++g)
@@ -6763,7 +6763,7 @@ namespace
   // migration: that file is written by saveCalibration() and by nothing else,
   // so its timestamp is the moment those three numbers were last set.
   //
-  // Falls back to now when it cannot be read, which is the old behaviour and
+  // Falls back to now when it cannot be read, which is the old behavior and
   // the right one for a car that has never been calibrated - there is no
   // measurement date to report because there was no measurement.
   std::time_t calMeasuredAt()
@@ -6812,7 +6812,7 @@ namespace
           " *\n"
           " * These are measurements of one particular car, not a datasheet. A servo's own\n"
           " * range is 1000-2000 us; what a TT-02's steering can actually reach is narrower\n"
-          " * and off-centre, because the horn only fits the spline at whole-tooth\n"
+          " * and off-center, because the horn only fits the spline at whole-tooth\n"
           " * intervals and the linkage is whatever length it is. There is no way to know\n"
           " * these numbers except by moving the servo and watching.\n"
           " *\n"
@@ -6899,7 +6899,7 @@ namespace
           " * Also used the other way for reverse: more than this BELOW neutral counts as\n"
           " * being driven backwards.\n"
           " *\n"
-          " * Tuning, not measurement, like the slew step above - it is a judgement about\n"
+          " * Tuning, not measurement, like the slew step above - it is a judgment about\n"
           " * when \"moving\" starts, and the honest answer is whatever looks right on the\n"
           " * car. It lives here for the same reason: this is the file that survives a\n"
           " * reflash.\n"
@@ -6925,7 +6925,7 @@ namespace
   // Pulls the three numbers back out of a generated header.
   //
   // Not a parser for the file - a parser for what we ourselves printed, used only
-  // to answer "is what is on disk the same three numbers". Anything unrecognised
+  // to answer "is what is on disk the same three numbers". Anything unrecognized
   // reads as "no", which is the safe answer: it prompts a write rather than
   // claiming agreement that was never established.
   Bool readCalNumbers(const Str& text, Int32& l, Int32& c, Int32& r)
@@ -7037,20 +7037,20 @@ namespace
 
   // A state lamp with its label, the way every other indicator in this app is
   // drawn. ui::led throws a halo when lit, which is what makes it read as
-  // emitting rather than as a coloured full stop - and it is the difference
+  // emitting rather than as a colored full stop - and it is the difference
   // between this view looking like the console it lives in and looking like a
   // form.
-  Void driveLamp(Bool lit, ImU32 colour, const Char* label)
+  Void driveLamp(Bool lit, ImU32 color, const Char* label)
   {
       const Float32 r  = 4.0f * uiDpiScale;
       const ImVec2  at = ImGui::GetCursorScreenPos();
       const Float32 mid = at.y + (ImGui::GetTextLineHeight() * 0.5f);
 
-      ui::led(ImGui::GetWindowDrawList(), ImVec2(at.x + r, mid), r, colour, lit);
+      ui::led(ImGui::GetWindowDrawList(), ImVec2(at.x + r, mid), r, color, lit);
 
       ImGui::Dummy(ImVec2(r * 2.0f + (6.0f * uiDpiScale), ImGui::GetTextLineHeight()));
       ImGui::SameLine(0.0f, 0.0f);
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(colour), "%s", label);
+      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color), "%s", label);
   }
 
   // ---- the car, seen from above ---------------------------------------------
@@ -7080,7 +7080,7 @@ namespace
   //
   // A wireframe is a drawing made entirely of lines, so the ONE thing that must
   // not vary is how heavy a line is - vary it and the eye reads the heavier parts
-  // as nearer, which is a depth cue this drawing has no business making. Colour
+  // as nearer, which is a depth cue this drawing has no business making. Color
   // carries the meaning here; weight carries none.
   constexpr Float32 WIRE_W = 1.0f;
 
@@ -7088,7 +7088,7 @@ namespace
   // still occludes it.
   constexpr ImU32 WIRE_VOID = IM_COL32(0x08, 0x08, 0x08, 0xFF);
 
-  // One wheel, rotated about its own centre.
+  // One wheel, rotated about its own center.
   Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 deg, ImU32 fill, ImU32 edge)
   {
       const Float32 r  = deg * 3.14159265f / 180.0f;
@@ -7181,7 +7181,7 @@ namespace
   // Sections were MUTED body text, which is exactly what the captions under them
   // are - so a heading and a footnote were typographically the same thing and the
   // view read as one undifferentiated stack. The rule and the weight are the
-  // whole fix; no colour changes.
+  // whole fix; no color changes.
   Void driveSection(const Char* name, const Char* what)
   {
       ImGui::Spacing();
@@ -7257,7 +7257,7 @@ namespace
       const ImVec2 p1(p0.x + w, p0.y + h);
 
       // The well the drivetrain sits in. Black and square-cornered: this is a
-      // screen the drawing is on, not a moulded recess it sits in.
+      // screen the drawing is on, not a molded recess it sits in.
       dl->AddRectFilled(p0, p1, ui::ansi::BLACK, 0.0f);
 
       const ImVec2 mid((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
@@ -7270,7 +7270,7 @@ namespace
 
       const Float32 axleF = mid.y - (base * 0.5f);
       const Float32 axleR = mid.y + (base * 0.5f);
-      const Float32 track = base * 0.42f;             // centre to wheel centre
+      const Float32 track = base * 0.42f;             // center to wheel center
 
       const Float32 wheelH = base * 0.20f;
       const Float32 wheelW = base * 0.075f;
@@ -7278,8 +7278,8 @@ namespace
       const Float32 beamT  = base * 0.045f;           // half-thickness of a beam
       const Float32 shaftT = base * 0.030f;
 
-      // Structure is one colour and one colour only. Anything that changes
-      // colour in this drawing is reporting something; the frame reports nothing,
+      // Structure is one color and one color only. Anything that changes
+      // color in this drawing is reporting something; the frame reports nothing,
       // so it stays put.
       const ImU32 frame = ui::ansi::CYAN;
 
@@ -7308,7 +7308,7 @@ namespace
 
           // BRYELLOW rather than a true amber, and BRRED for the tails. A real
           // indicator is amber and this is a shade off it, which is the price of
-          // having exactly sixteen colours; next to the rest of the drawing the
+          // having exactly sixteen colors; next to the rest of the drawing the
           // consistency is worth more than the accuracy.
           const ImU32 unwired = ui::ansi::GRID;
 
@@ -7382,7 +7382,7 @@ namespace
       // Front: dark when released, because a released servo holds nothing and the
       // wheels are wherever the ground last left them. Drawing them straight would
       // be the display inventing a fact.
-      // Bright while the servo is holding them, grey while it is released - the
+      // Bright while the servo is holding them, gray while it is released - the
       // steering is either being commanded or it is not, and that is a two-state
       // fact rather than a gradient.
       const ImU32 frontFill = WIRE_VOID;
@@ -7422,7 +7422,7 @@ namespace
                   servoLive ? ui::ansi::BRYELLOW : faint, deglabel.data());
 
       // A hard border rather than the bevelled inset the rest of the panel uses.
-      // The inset is a moulding, and this is a screen.
+      // The inset is a molding, and this is a screen.
       dl->AddRect(p0, p1, ui::ansi::GRID, 0.0f, 0, WIRE_W);
   }
 
@@ -7593,8 +7593,8 @@ namespace
       // What the numbers below already say, in the form somebody standing next to
       // a powered car can read without converting anything.
       {
-          // The well is NARROWER than the panel and centred. Full width left the
-          // car adrift in a metre of empty black, which reads as a rendering
+          // The well is NARROWER than the panel and centered. Full width left the
+          // car adrift in a meter of empty black, which reads as a rendering
           // fault rather than as a diagram - an instrument is the size of the
           // thing it shows, not the size of the space it was given.
           const Float32 full = ImGui::GetContentRegionAvail().x;
@@ -7695,7 +7695,7 @@ namespace
           // It was a two-line placard with a full border, and it is on screen
           // whenever the servo is released - which is most of the time. A notice
           // that is always up and shouts stops being read; the same words at one
-          // line with a coloured edge still catch the eye and stop being the
+          // line with a colored edge still catch the eye and stop being the
           // loudest thing in the panel. The detail moved to the tooltip on the
           // control it is actually about.
           const ImVec2  a  = ImGui::GetCursorScreenPos();
@@ -7739,7 +7739,7 @@ namespace
               "-1 is full lock one way, +1 the other, 0 is wheels straight.\n"
               "\n"
               "The two sides are scaled SEPARATELY, from the calibration. This\n"
-              "car throws %d us one way from centre and %d the other, so half\n"
+              "car throws %d us one way from center and %d the other, so half\n"
               "left and half right are not the same number of microseconds -\n"
               "and anything that added a fixed amount to a midpoint would pull\n"
               "to one side every time it was asked for half.\n"
@@ -7824,7 +7824,7 @@ namespace
       // ---- the calibration -------------------------------------------------
       //
       // Three named points instead of a min/max pair, because a car has three
-      // interesting positions and only two of them are ends. Centre used to be
+      // interesting positions and only two of them are ends. Center used to be
       // assumed to be 1500 and that assumption is what put a servo against a
       // frame - it is a measurement now, like the other two.
       if(ImGui::TreeNode("Calibration  -  the three numbers for THIS car"))
@@ -7850,7 +7850,7 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "1500 us is centre. The range is %d-%d, which the BOARD sets.\n"
+              "1500 us is center. The range is %d-%d, which the BOARD sets.\n"
               "\n"
               "Deliberately narrower than the servo's own 1000-2000: a TT-02's\n"
               "steering binds against its linkage well before the servo's limits,\n"
@@ -7862,7 +7862,7 @@ namespace
       }
 
       ImGui::SameLine();
-      if(ui::button("Centre", ImVec2(-FLT_MIN, 0.0f)))
+      if(ui::button("Center", ImVec2(-FLT_MIN, 0.0f)))
       {
           driveSweep     = false;
           driveServoWant = 1500;
@@ -7932,11 +7932,11 @@ namespace
       // block below expands, and this must not be pushed away by that.
       // ONE status line for the whole steering section.
       //
-      // There were three, and between them the centre value appeared four times
+      // There were three, and between them the center value appeared four times
       // in five lines: the fraction, the raw slider, and this. A number repeated
       // is a number you stop reading.
       //
-      // Said as "the centre value" rather than as the number it was that day.
+      // Said as "the center value" rather than as the number it was that day.
       // It was 1484 then and is 1480 now, and a comment that names a measurement
       // is a comment that goes quietly stale the next time the car is
       // calibrated - which is the thing this whole pass has been correcting.
@@ -7968,7 +7968,7 @@ namespace
                              "not where the servo stops - the linkage binds first,\n"
                              "and the servo will happily keep pushing past it.",
                  &calLeft);
-          calRow("Centre",   "Wheels straight ahead.\n"
+          calRow("Center",   "Wheels straight ahead.\n"
                              "\n"
                              "The one that matters most and the one nobody measures.\n"
                              "1500 us is the middle of the SERVO's range and says\n"
@@ -7984,7 +7984,7 @@ namespace
           if(!ordered)
           {
               ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
-                                 "Left must be below centre, and centre below right.");
+                                 "Left must be below center, and center below right.");
               ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                                  "If your steering runs the other way, swap which end\n"
                                  "you call left - the firmware only needs the order.");
@@ -8048,7 +8048,7 @@ namespace
                                 "board is currently using.\n"
                                 "\n"
                                 "main.c includes it, so these become the limits and\n"
-                                "the centre the board comes up with. Reflash after\n"
+                                "the center the board comes up with. Reflash after\n"
                                 "writing or the board keeps running the old ones.");
           }
 
@@ -8172,7 +8172,7 @@ namespace
 
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                              "The board clamps to 1000-2000 whatever is asked, and\n"
-                             "pulls the current target and centre back inside a\n"
+                             "pulls the current target and center back inside a\n"
                              "narrowed range.\n"
                              "\n"
                              "Widen here to go looking; record what you find in the\n"
@@ -8523,7 +8523,7 @@ namespace
 
       // ---- when the tail lamps go out ------------------------------------
       //
-      // Beside Response because it is the same KIND of thing: a judgement about
+      // Beside Response because it is the same KIND of thing: a judgment about
       // where a boundary sits, found by watching the car rather than measured off
       // it. Idle is the pulse at which the motor sits still; this is how far past
       // that counts as actually going somewhere.
@@ -9460,20 +9460,20 @@ namespace
   }
 
   // ---------------------------------------------------------------------------
-  // ANSI colouring for the build log.
+  // ANSI coloring for the build log.
   //
-  // It used to be ONE COLOUR PER LINE, chosen from the prefix: an [error] line
+  // It used to be ONE COLOR PER LINE, chosen from the prefix: an [error] line
   // was red end to end, an [ok] line green end to end. That is a status light
   // rather than a log. It also meant the two things actually worth finding in a
   // two-hundred-line cmake dump - the verb and the word "error" - were the same
-  // colour as the eighty characters of absolute path sitting next to them.
+  // color as the eighty characters of absolute path sitting next to them.
   //
-  // So: the tag is coloured, and the rest of the line is coloured by TOKEN.
-  // Paths recede to grey because every line has one and none of them is the
+  // So: the tag is colored, and the rest of the line is colored by TOKEN.
+  // Paths recede to gray because every line has one and none of them is the
   // point; ninja's verbs come forward in bright white; error and warning are
   // found wherever they appear rather than only at the start of a line.
   //
-  // Restrained on purpose. Six colours, each meaning one thing, on the black
+  // Restrained on purpose. Six colors, each meaning one thing, on the black
   // ground the serial console next door already uses - this is the other half of
   // the same terminal and the two should not look like different programs.
   // ---------------------------------------------------------------------------
@@ -9501,7 +9501,7 @@ namespace
       return false;
   }
 
-  [[nodiscard]] ImU32 flashTokenColour(const Str& tok, ImU32 fallback)
+  [[nodiscard]] ImU32 flashTokenColor(const Str& tok, ImU32 fallback)
   {
       // Found anywhere, not just at the start of a line. "CMake Warning at ..."
       // and "range.cxx:41:9: error: ..." both carry the word in the middle, and
@@ -9517,7 +9517,7 @@ namespace
 
       // A PATH RECEDES. Nearly every line of a cmake configure carries a full
       // absolute path and it is the least interesting thing on the line - what
-      // matters is the verb in front of it. Grey is what "context, not content"
+      // matters is the verb in front of it. Gray is what "context, not content"
       // already means in the console next door.
       //
       // A separator AND a dot, so "no RP2350/RPI-RP2 drive" stays white: a slash
@@ -9526,7 +9526,7 @@ namespace
       const Bool dot = tok.find('.') != Str::npos;
       if(sep && dot)
       {
-          return ui::ansi::GREY;
+          return ui::ansi::GRAY;
       }
 
       // 'pico2_w', 'rp2350-arm-s' - the VALUE in a cmake status line, which is
@@ -9547,7 +9547,7 @@ namespace
       return fallback;
   }
 
-  // Splits `s` into coloured runs covering it end to end.
+  // Splits `s` into colored runs covering it end to end.
   Void flashRuns(const Str& s, Vec<LogRun>& out)
   {
       out.clear();
@@ -9563,7 +9563,7 @@ namespace
       if(s[0] == '[')
       {
           // The scripts write [conf ], [build], [ok   ], [error]; ninja writes
-          // [1/3]. Both are a bracket at column zero and both want colouring, so
+          // [1/3]. Both are a bracket at column zero and both want coloring, so
           // this handles them together and tells them apart by content.
           const Size close = s.find(']');
           if(close != Str::npos && close <= 12)
@@ -9579,9 +9579,9 @@ namespace
               if(!tag.empty()
                  && tag.find_first_not_of("0123456789/") == Str::npos)
               {
-                  // ninja's progress counter. Grey: it is a COUNTER, not a
+                  // ninja's progress counter. Gray: it is a COUNTER, not a
                   // verdict, and it is the same on every successful build.
-                  head  = ui::ansi::GREY;
+                  head  = ui::ansi::GRAY;
                   first = ui::ansi::BRWHITE;   // ...but "Linking" is worth seeing
               }
               else if(_stricmp(tag.c_str(), "error") == 0
@@ -9613,7 +9613,7 @@ namespace
       {
           // cmake's status prefix. Dim, because there are forty of them and the
           // marker is not the message.
-          out.push_back(LogRun{ 0, 2, ui::ansi::GREY });
+          out.push_back(LogRun{ 0, 2, ui::ansi::GRAY });
           i = 2;
 
           // OURS. The messages this project's CMakeLists prints - which board was
@@ -9648,7 +9648,7 @@ namespace
           }
 
           const Str  tok = s.substr(b, i - b);
-          const ImU32 col = (first != 0) ? first : flashTokenColour(tok, body);
+          const ImU32 col = (first != 0) ? first : flashTokenColor(tok, body);
           first = 0;
           out.push_back(LogRun{ b, i, col });
       }
@@ -9971,8 +9971,8 @@ namespace
       // ---- confirmation -----------------------------------------------------
       // Flashing is destructive and, for anything not in the catalog, permanent.
       // It gets a modal that names the image and says so.
-      const ImVec2 centre = ImGui::GetMainViewport()->GetCenter();
-      ImGui::SetNextWindowPos(centre, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+      const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+      ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
       if(ImGui::BeginPopupModal("Flash this firmware?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
       {
           ImGui::PushTextWrapPos(460.0f * uiDpiScale);
@@ -10049,13 +10049,13 @@ namespace
   // ---- the console's palette ------------------------------------------------
   //
   // A terminal, not a panel. Pure black rather than the skeuomorphic slate the
-  // rest of the hub uses, because this is the one surface that is not a moulded
+  // rest of the hub uses, because this is the one surface that is not a molded
   // object - it is a screen, and a screen in 2010 was black with phosphor on it.
   // The bevels and plates elsewhere are pretending to be plastic; this is
   // pretending to be a CRT, and mixing the two is what made it look like a text
   // box rather than a terminal.
   //
-  // The colours are the ANSI sixteen, which is the palette every serial monitor
+  // The colors are the ANSI sixteen, which is the palette every serial monitor
   // has used for forty years, so a line reads the way it would in any of them.
   namespace ansi
   {
@@ -10068,22 +10068,22 @@ namespace
     constexpr ImU32 MAGENTA = IM_COL32(0xB0, 0x5C, 0xC0, 0xFF);
     constexpr ImU32 CYAN    = IM_COL32(0x35, 0xB5, 0xB5, 0xFF);
     constexpr ImU32 WHITE   = IM_COL32(0xC8, 0xC8, 0xC8, 0xFF);
-    constexpr ImU32 GREY    = IM_COL32(0x66, 0x66, 0x66, 0xFF);
+    constexpr ImU32 GRAY    = IM_COL32(0x66, 0x66, 0x66, 0xFF);
     constexpr ImU32 BRIGHT  = IM_COL32(0xEE, 0xEE, 0xEE, 0xFF);
 
   }
 
-  // What colour a line is, from what the board actually says.
+  // What color a line is, from what the board actually says.
   //
   // The firmware's vocabulary is four words wide - OK, ERR, INFO, and a bare
-  // reply - and it is worth colouring because scanning a console for the one ERR
-  // in three hundred lines is exactly what colour is for.
-  ImU32 consoleColour(const PicoLine& ln)
+  // reply - and it is worth coloring because scanning a console for the one ERR
+  // in three hundred lines is exactly what color is for.
+  ImU32 consoleColor(const PicoLine& ln)
   {
       if(ln.poll)
       {
           // Chatter, when it is shown at all, is dim. It is context, not content.
-          return ansi::GREY;
+          return ansi::GRAY;
       }
       if(ln.outgoing)
       {
@@ -10224,7 +10224,7 @@ namespace
                   // highlighted and copied. Click one, shift-click another for a
                   // run, ctrl-click to add or remove one - the same three
                   // gestures every list in every program uses.
-                  ImGui::PushStyleColor(ImGuiCol_Text, consoleColour(ln));
+                  ImGui::PushStyleColor(ImGuiCol_Text, consoleColor(ln));
                   ImGui::PushID(idx);
                   const Bool wasSel = (logSel.count(idx) != 0);
                   if(ImGui::Selectable(buf.data(), wasSel,
@@ -10389,8 +10389,8 @@ namespace
           openBootsel = false;
       }
 
-      const ImVec2 centre = ImGui::GetMainViewport()->GetCenter();
-      ImGui::SetNextWindowPos(centre, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+      const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+      ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
       if(ImGui::BeginPopupModal("Reboot to BOOTSEL?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
       {
           ImGui::PushTextWrapPos(420.0f * uiDpiScale);
@@ -10584,7 +10584,7 @@ namespace
   // Text entry. Space is a character before it is anything else, and a stop that
   // fired on every word typed in the code editor would be switched off within a
   // minute - and a stop that is off is worth less than one with an exception in
-  // it. Both flavours have to be named: the editor draws an InvisibleButton and
+  // it. Both flavors have to be named: the editor draws an InvisibleButton and
   // reads io.InputQueueCharacters directly, so it sets neither WantTextInput nor
   // an ActiveId.
   //
@@ -10632,9 +10632,9 @@ namespace
               "The ESC to neutral and disarmed, the steering RELEASED, and any\n"
               "lamp being held on by hand handed back to the car.\n"
               "\n"
-              "Released, not centred. Centre is only a safe place to leave a\n"
+              "Released, not centered. Center is only a safe place to leave a\n"
               "servo if 1500 us is where the linkage wants to sit - if the horn\n"
-              "is a tooth off its spline it is not, and centring would just be\n"
+              "is a tooth off its spline it is not, and centering would just be\n"
               "pushing somewhere else. Nothing to push with is the only stop\n"
               "that works on every car.\n"
               "\n"
@@ -10958,8 +10958,8 @@ namespace
   // The drag handle between the Code view's file tree and the editor.
   //
   // Deliberately the same shape as sidebarSplitter() above - same three-dot grip,
-  // same hover colours, same double-click-to-restore. Two resize handles in one
-  // app that behave differently is worse than either behaviour on its own.
+  // same hover colors, same double-click-to-restore. Two resize handles in one
+  // app that behave differently is worse than either behavior on its own.
   //
   // The sign differs because the panel is on the LEFT of this one: dragging right
   // widens the tree, where dragging right narrows the sidebar.
@@ -11184,7 +11184,7 @@ Void app::init(Float32 dpiScale)
             continue;
         }
 
-        // --range <metres> pins the view instead of auto-fitting.
+        // --range <meters> pins the view instead of auto-fitting.
         if(std::strcmp(__argv[i], "--range") == 0 && i + 1 < __argc)
         {
             const Float32 m = static_cast<Float32>(std::atof(__argv[i + 1]));
@@ -11582,7 +11582,7 @@ Void app::frame()
         recView.push(lf);
     }
 
-    // The preselect has to persist a few frames: a tab bar only honours
+    // The preselect has to persist a few frames: a tab bar only honors
     // SetSelected once it has laid its items out, which is not on frame one.
     if(forceTabFrames > 0)
     {

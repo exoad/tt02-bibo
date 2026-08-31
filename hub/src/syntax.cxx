@@ -39,13 +39,13 @@ namespace syn
         "virtual", "volatile", "while",
     };
 
-    // Types get their own colour because in embedded C they carry most of the
+    // Types get their own color because in embedded C they carry most of the
     // meaning of a declaration.
     //
     // The FIRST block is the manbox vocabulary (github.com/exoad/manbox) - the
     // aliases in firmware/src/shared.h and hub/src/shared.hxx. Those are the names
     // this project actually declares things with, so they are the names that have to
-    // light up; a style guide that its own editor does not recognise is a style
+    // light up; a style guide that its own editor does not recognize is a style
     // guide nobody follows. The rest are the underlying spellings and the Pico SDK's
     // own, which still appear at every third-party boundary.
     constexpr const Char* const TYPES[] = {
@@ -130,7 +130,7 @@ namespace syn
           }
       }
 
-      // ---- a preprocessor line is coloured whole -----------------------------
+      // ---- a preprocessor line is colored whole -----------------------------
       // Checked after the block-comment carry so that a `#define` sitting inside
       // an open /* */ stays a comment, which is what the compiler thinks too.
       {
@@ -144,7 +144,7 @@ namespace syn
               push(out, i, k, Role::ROLE_TEXT);
 
               // ... except for a string or angle-bracket header, which keeps the
-              // string colour. `#include "pico/stdlib.h"` reading as one flat run
+              // string color. `#include "pico/stdlib.h"` reading as one flat run
               // loses the only part of the line anybody scans for.
               Int32 q = k;
               while(q < n && p[q] != '"' && p[q] != '<')
@@ -229,7 +229,7 @@ namespace syn
 
           // ---- numbers --------------------------------------------------------
           // A leading digit is enough. `.5` is deliberately not handled: treating
-          // '.' as a number start would miscolour every `a.b` member access, which
+          // '.' as a number start would miscolor every `a.b` member access, which
           // is far more common in this codebase than a bare fractional literal.
           if(digit(c))
           {

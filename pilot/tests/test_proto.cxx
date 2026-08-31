@@ -54,20 +54,20 @@ Int32 main()
     // ---- classifying a line -----------------------------------------------
     {
         const proto::Reply r = proto::read("OK drive servo=1500 esc=1541");
-        check(r.kind == proto::Kind::KIND_OK, "OK is recognised");
+        check(r.kind == proto::Kind::KIND_OK, "OK is recognized");
         checkStr(r.topic, "drive", "and its topic split off");
         checkStr(r.rest, "servo=1500 esc=1541", "and the fields kept");
     }
     {
         const proto::Reply r = proto::read("INFO status up_ms=4210 led=on");
-        check(r.kind == proto::Kind::KIND_INFO, "INFO is recognised");
+        check(r.kind == proto::Kind::KIND_INFO, "INFO is recognized");
         checkStr(r.topic, "status", "and its topic split off");
     }
     {
         // ERR keeps its whole reason. Splitting a topic off the front would
         // produce "blink" as a topic when the sentence is "blink wants a rate".
         const proto::Reply r = proto::read("ERR blink wants a rate in hz");
-        check(r.kind == proto::Kind::KIND_ERR, "ERR is recognised");
+        check(r.kind == proto::Kind::KIND_ERR, "ERR is recognized");
         check(r.topic.empty(), "and has no topic invented for it");
         checkStr(r.rest, "blink wants a rate in hz", "the reason is kept whole");
     }
@@ -75,7 +75,7 @@ Int32 main()
         // Boot banners and a person typing in the same port are NOT errors.
         const proto::Reply r = proto::read("bibo firmware, RP2350");
         check(r.kind == proto::Kind::KIND_OTHER,
-              "an unrecognised line is OTHER, not a fault");
+              "an unrecognized line is OTHER, not a fault");
     }
     check(proto::read("").kind == proto::Kind::KIND_EMPTY, "empty is empty");
     check(proto::read("   \t ").kind == proto::Kind::KIND_EMPTY,
@@ -160,7 +160,7 @@ Int32 main()
     // ---- what we send ------------------------------------------------------
     checkStr(proto::steer(0.25f), "STEER 0.250", "a steering command");
     checkStr(proto::steer(-0.5f), "STEER -0.500", "a negative one");
-    checkStr(proto::steer(0.0f), "STEER 0.000", "centre");
+    checkStr(proto::steer(0.0f), "STEER 0.000", "center");
 
     // Clamped, because the board clamps anyway and a companion sending 4.0 has
     // a bug worth seeing where it happens.

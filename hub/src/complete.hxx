@@ -31,7 +31,7 @@ namespace cmpl
       // The two below come only from clangd - the hand-written table has no
       // entries for them and is not going to grow any.
       //
-      // KIND_FIELD is the one that earns its keep. A designated initialiser is
+      // KIND_FIELD is the one that earns its keep. A designated initializer is
       // the place where you least remember the names and most need them:
       // `pins::Map` has 24 of them, and `{ .servo = 0, .esc = 1, ... }` is
       // twenty-four chances to type `.escPin` at a struct that calls it `.esc`.

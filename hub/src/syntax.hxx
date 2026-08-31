@@ -8,11 +8,11 @@
 //
 // This is a HIGHLIGHTER, not a parser. It does not know types from identifiers
 // in any real sense; it knows a fixed keyword list and a few lexical shapes.
-// That is the correct amount of machinery for colouring text a human is reading.
+// That is the correct amount of machinery for coloring text a human is reading.
 #pragma once
 
 // For IM_COL32 and ImU32. The tokenizer itself needs nothing from ImGui - only
-// the palette below does - but a colour table that cannot be handed straight to
+// the palette below does - but a color table that cannot be handed straight to
 // a draw list would just move the conversion to every call site.
 #include "imgui.h"
 
@@ -21,7 +21,7 @@
 namespace syn
 {
 
-  // What a run of characters is, as far as colour is concerned.
+  // What a run of characters is, as far as color is concerned.
   enum class Role
   {
       ROLE_TEXT = 0,   // identifiers, whitespace, anything unclaimed
@@ -37,7 +37,7 @@ namespace syn
       ROLE_COUNT
   };
 
-  // One coloured run within a single line. [begin, end) are byte offsets.
+  // One colored run within a single line. [begin, end) are byte offsets.
   struct Span
   {
       Int32 begin = 0;
@@ -61,9 +61,9 @@ namespace syn
   // decisions, and carrying the twenty unused ones invites arbitrary picks later.
   //
   // The role assignment follows what gruvbox.vim itself does for C, so a file
-  // looks the way it would in vim rather than merely using the same colours:
+  // looks the way it would in vim rather than merely using the same colors:
   // keywords red, types yellow, strings green, preprocessor aqua, numbers purple,
-  // comments grey, functions bright green.
+  // comments gray, functions bright green.
   // ---------------------------------------------------------------------------
   namespace gruv
   {
@@ -89,7 +89,7 @@ namespace syn
 
   }
 
-  // The colour for a role. Free function rather than a table the caller indexes,
+  // The color for a role. Free function rather than a table the caller indexes,
   // so adding a Role is a compile error here instead of a silent black span.
   [[nodiscard]] ImU32 colorFor(Role r) noexcept;
 

@@ -16,7 +16,7 @@ namespace rec
   namespace
   {
 
-    // The original binary format's magic. Still recognised on load, never
+    // The original binary format's magic. Still recognized on load, never
     // written - see loadBinaryV1.
     constexpr Array<Char, 8> MAGIC_V1= { 'T', 'T', '0', '2', 'R', 'E', 'C', '1' };
 
@@ -133,7 +133,7 @@ namespace rec
       ok = ok && std::fprintf(f,
           "# angle = centidegree delta from the previous point (first from 0)\n") > 0;
       ok = ok && std::fprintf(f,
-          "# dist  = whole millimetres, 0 = no return on that bearing\n") > 0;
+          "# dist  = whole millimeters, 0 = no return on that bearing\n") > 0;
       ok = ok && std::fprintf(f, "# t     = milliseconds from the start\n") > 0;
       ok = ok && std::fprintf(f, "# revolutions %zu\n", revs.size()) > 0;
 

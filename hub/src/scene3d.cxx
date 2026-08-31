@@ -39,8 +39,8 @@ namespace scene3d
     constexpr Float32 EGO_HEIGHT_MM    = vehicle::CAR_HEIGHT_MM;
     constexpr Float32 EGO_WHEELBASE_MM = vehicle::CAR_WHEELBASE_MM;
     constexpr Float32 EGO_TREAD_MM     = vehicle::CAR_TREAD_MM;
-    constexpr Float32 EGO_WHEEL_D_MM   = vehicle::CAR_TYRE_DIA_MM;
-    constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TYRE_WID_MM;
+    constexpr Float32 EGO_WHEEL_D_MM   = vehicle::CAR_TIRE_DIA_MM;
+    constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TIRE_WID_MM;
     constexpr Float32 EGO_SENSOR_AHEAD_MM = vehicle::C1_MOUNT_AHEAD_MM;
 
     // How tall a return stands: up to the SCAN PLANE, and no further.
@@ -231,7 +231,7 @@ namespace scene3d
     // polygons to a sorted queue.
     //
     // Opaque or blended is decided by the fill's own alpha rather than by a flag at
-    // every call site: a translucent colour IS the statement that this surface is
+    // every call site: a translucent color IS the statement that this surface is
     // see-through, and having to say it twice is a way to say it inconsistently.
     // ---------------------------------------------------------------------------
     scenegpu::Vertex vtx(const Vec3& p, ImU32 col, const ImVec2& uv)
@@ -260,8 +260,8 @@ namespace scene3d
         }
     }
 
-    // The same, with a colour per vertex. A gradient needs one: a triangle painted
-    // one flat colour cannot fade, and a ring of them fading in steps reads as
+    // The same, with a color per vertex. A gradient needs one: a triangle painted
+    // one flat color cannot fade, and a ring of them fading in steps reads as
     // wedges - which is exactly how the ride view's ground first came out.
     Void emitTriC(const Vec3& a, const Vec3& b, const Vec3& c, ImU32 ca, ImU32 cb, ImU32 cc)
     {
@@ -325,7 +325,7 @@ namespace scene3d
         Float32 edgeW = 0.0f;
     };
 
-    // Optional texturing. Defaulted, because most faces are flat colour.
+    // Optional texturing. Defaulted, because most faces are flat color.
     struct FaceTex
     {
         ImTextureID   tex = 0;
@@ -382,7 +382,7 @@ namespace scene3d
     }
 
     // ---------------------------------------------------------------------------
-    // A box standing on the ground, centred on (x,y) in scene axes.
+    // A box standing on the ground, centered on (x,y) in scene axes.
     // ---------------------------------------------------------------------------
     Void column(const View& v, Float32 x, Float32 y, Float32 half, Float32 h, ImU32 side, ImU32 top, ImU32 edge, Float32 edgeW)
     {
@@ -426,7 +426,7 @@ namespace scene3d
 
     Void drawGroundSquares(ImDrawList* dl, const View& v, Float32 dpi)
     {
-        constexpr Float32 STEP = 1000.0f;      // one metre
+        constexpr Float32 STEP = 1000.0f;      // one meter
         constexpr Int32   N    = 12;
         const Float32 far2 = STEP * N;
 
@@ -444,7 +444,7 @@ namespace scene3d
             line3(dl, v, Vec3{ -far2, t, 0.0f }, Vec3{ far2, t, 0.0f }, col, w);
         }
 
-        // The heading, in its own colour, so which way is forward survives an orbit.
+        // The heading, in its own color, so which way is forward survives an orbit.
       line3(dl, v, Vec3{ 0.0f, 0.0f, 0.0f }, Vec3{ 0.0f, far2, 0.0f },
               (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT), 1.6f * dpi);
     }
@@ -454,14 +454,14 @@ namespace scene3d
     //
     // Modelled on the display an autonomous car shows its PASSENGERS, which is a
     // different thing from the displays above it. Those are instruments: grids to
-    // measure against, a number per mode, a colour per meaning. This one is a
+    // measure against, a number per mode, a color per meaning. This one is a
     // picture of the situation, and the design rules that follow from that are:
     //
     //   * No wireframe. A grid of lines is how you read a measurement off a plot;
     //     it is not how you show somebody where the car is.
     //   * Almost no text.
-    //   * Few colours. A near-white for real things, one accent for intent, and a
-    //     dark ground. Waymo's screen is essentially two colours and it is legible
+    //   * Few colors. A near-white for real things, one accent for intent, and a
+    //     dark ground. Waymo's screen is essentially two colors and it is legible
     //     from the back seat.
     //   * Soft, rounded, matte. Sharp wireframe boxes read as debug output.
     //
@@ -482,7 +482,7 @@ namespace scene3d
     Void drawRideGround(const View& v, const DrawArgs& a)
     {
         // Everything here is world-space and emitted straight through; the view is
-        // only in the signature so this reads like its neighbours.
+        // only in the signature so this reads like its neighbors.
         static_cast<Void>(v);
         constexpr Int32   SEG   = 64;
         constexpr Float32 R_IN  = 1400.0f;
@@ -493,8 +493,8 @@ namespace scene3d
         const ImU32 c1 = IM_COL32(0x12, 0x18, 0x22, 0xFF);
         const ImU32 c2 = IM_COL32(0x08, 0x0B, 0x10, 0x00);
 
-        // Inner colour on the inner edge, outer on the outer, interpolated across
-        // each triangle. Per-VERTEX, not per-triangle: colouring whole triangles
+        // Inner color on the inner edge, outer on the outer, interpolated across
+        // each triangle. Per-VERTEX, not per-triangle: coloring whole triangles
         // gives a ring of flat wedges, which is what this looked like first time.
         const auto ring = [&](Float32 r0, Float32 r1, ImU32 a0, ImU32 a1) {
             Vec3 p0{ r0, 0.0f, 0.0f }, p1{ r1, 0.0f, 0.0f };
@@ -578,7 +578,7 @@ namespace scene3d
         static_cast<Void>(dpi);
     }
 
-    // Where the car would go. The one saturated colour on the screen, because it is
+    // Where the car would go. The one saturated color on the screen, because it is
     // the one thing here that is an INTENTION rather than an observation.
     Void drawPathRibbon(const View& v, const DrawArgs& a)
     {
@@ -636,7 +636,7 @@ namespace scene3d
             }
         }
 
-        // Radials every 45 deg, and the forward axis in the heading colour so the
+        // Radials every 45 deg, and the forward axis in the heading color so the
         // car's facing survives being orbited behind.
         for(Int32 b = 0; b < 360; b += 45)
         {
@@ -656,14 +656,14 @@ namespace scene3d
     // assets/models/car.obj - "sedan-sports" from Kenney's Car Kit, CC0. Downloaded
     // rather than modelled: a hand-lofted shell got the proportions of a touring car
     // roughly right and never looked like one, and there is no reason to keep
-    // approximating a thing that exists under a public-domain licence.
+    // approximating a thing that exists under a public-domain license.
     //
     // The loader is deliberately small. It reads `v`, `g` and triangular `f`, which
     // is everything this file contains (2088 faces, all triangles, one material) and
     // is not a general OBJ parser - anything it does not understand it skips, so a
     // different model would degrade to a partial mesh rather than to garbage.
     //
-    // Colour comes from the GROUP NAMES, not from the material: the kit textures
+    // Color comes from the GROUP NAMES, not from the material: the kit textures
     // everything from one atlas, and a texture would be the wrong answer here
     // anyway. This is a schematic, and `body` / `wheel-*` / `spoiler` is exactly the
     // distinction a schematic wants.
@@ -744,7 +744,7 @@ namespace scene3d
         {
             if(line[0] == 'v' && line[1] == ' ')
             {
-                // `v x y z [r g b]` - the kit writes vertex colours, all white, and
+                // `v x y z [r g b]` - the kit writes vertex colors, all white, and
                 // they are ignored.
                 Float32 x = 0.0f, y = 0.0f, z = 0.0f;
                 if(std::sscanf(line.data() + 2, "%f %f %f", &x, &y, &z) == 3)
@@ -1017,8 +1017,8 @@ namespace scene3d
                 lit = 1.35f;
             }
 
-            // With the atlas bound, the vertex colour is a LIGHT level, not a
-            // paint: white x lit, so the texture's own colours come through.
+            // With the atlas bound, the vertex color is a LIGHT level, not a
+            // paint: white x lit, so the texture's own colors come through.
             const ImU32 base = (m.tex != 0) ? IM_COL32(0xFF, 0xFF, 0xFF, 0xFF)
                                             : BASE[t.part];
             const auto ch = [&](Int32 shift) {
@@ -1032,8 +1032,8 @@ namespace scene3d
             const ImVec2 uv[3]  = { t.ta, t.tb, t.tc };
 
             // Textured when the atlas is there, shaded-flat when it is not. The
-            // shading multiplies the SAMPLED colour either way - the tint is passed
-            // as the vertex colour, which ImGui multiplies into the texture - so the
+            // shading multiplies the SAMPLED color either way - the tint is passed
+            // as the vertex color, which ImGui multiplies into the texture - so the
             // car keeps its form in both cases rather than turning into a flat
             // sticker the moment a texture appears.
             pushFace(v, tri, { col, 0u, 0.0f }, { m.tex, m.tex != 0 ? uv : nullptr });
@@ -1161,7 +1161,7 @@ namespace scene3d
     // is off makes the car change shape every time it blinks.
     // ---------------------------------------------------------------------------
     // One lamp on the shell: where it is, how big its lens is, which way it
-    // faces, its colour and how hard it is lit.
+    // faces, its color and how hard it is lit.
     //
     // (x, y, z) was three parameters for a point this file already has a type
     // for, which is most of why the signature ran to 139 columns.
@@ -1390,7 +1390,7 @@ namespace scene3d
                 const Int32 k2 = (k + 1) % SECTION_N;
 
                 // The roof panel (the segment across the top) gets the lighter
-                // colour, and the two screen bays get glass - which is the whole
+                // color, and the two screen bays get glass - which is the whole
                 // reason for lofting rather than extruding: those panels only exist
                 // because the sections differ.
                 ImU32 col = shell;
@@ -1412,7 +1412,7 @@ namespace scene3d
         // Caps, so the nose and tail are closed rather than open tubes.
         //
         // The fan triangles carry NO edge. Outlining each one drew a star across
-        // both ends of the car - the spokes of the fan are an artefact of how the
+        // both ends of the car - the spokes of the fan are an artifact of how the
         // cap is triangulated, not lines that exist on the shell. The rim gets its
         // outline separately, from the loop itself.
         for(Int32 e = 0; e < 2; ++e)
@@ -1581,7 +1581,7 @@ namespace scene3d
         {
             const Int32 j = (i + 1) % a.reachN;
 
-            // Bin centres, in the same convention the clearance map uses: bearing 0
+            // Bin centers, in the same convention the clearance map uses: bearing 0
             // is forward, and forward is +y here.
             const Float32 ai = (static_cast<Float32>(i) + 0.5f) * a.reachBinDeg * (PI_F / 180.0f);
             const Float32 aj = (static_cast<Float32>(j) + 0.5f) * a.reachBinDeg * (PI_F / 180.0f);

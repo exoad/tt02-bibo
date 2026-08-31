@@ -585,7 +585,7 @@ namespace refdoc
         }
     }
 
-    ImU32 classColour(const Char* cls)
+    ImU32 classColor(const Char* cls)
     {
         struct Map
         {
@@ -594,10 +594,10 @@ namespace refdoc
         };
 
         // The same sixteen the rest of the app draws in, so a pinout here and a
-        // plot on the next screen mean the same thing by the same colour.
+        // plot on the next screen mean the same thing by the same color.
         static constexpr Map MAP[] = {
             { "power",   ui::ansi::RED      },
-            { "ground",  ui::ansi::GREY     },
+            { "ground",  ui::ansi::GRAY     },
             { "serial",  ui::ansi::BRCYAN   },
             { "digital", ui::ansi::GREEN    },
             { "analog",  ui::ansi::MAGENTA  },
@@ -647,7 +647,7 @@ namespace refdoc
             }
             else if(k.name == "Dim")
             {
-                collect(k, out, ui::ansi::GREY, mono);
+                collect(k, out, ui::ansi::GRAY, mono);
             }
             else if(k.name == "Code")
             {
@@ -662,7 +662,7 @@ namespace refdoc
 
     // Lays runs out word by word, wrapping at `width`.
     //
-    // ImGui has no rich text, so a paragraph that mixes colours cannot be one
+    // ImGui has no rich text, so a paragraph that mixes colors cannot be one
     // TextWrapped call. Emitting a word at a time with SameLine(0,0) is the usual
     // way round it, and the only subtlety is that the trailing space of a run has
     // to survive - "<Bold>x</Bold> and" must not come out as "xand".
@@ -765,7 +765,7 @@ namespace refdoc
     }
 
     // A bar down the left, and the text beside it. Used by Note and Warn, which
-    // differ only in colour and in how much they are asking for your attention.
+    // differ only in color and in how much they are asking for your attention.
     Void banner(const Node& n, Float32 width, ImU32 col)
     {
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -789,8 +789,8 @@ namespace refdoc
     // Gruvbox, line numbers, and the same tokenizer the editor uses.
     //
     // NOT A SECOND HIGHLIGHTER. syn::tokenize and syn::gruv already exist for
-    // the Code view, so a block here colours a snippet exactly the way the
-    // editor colours the file it came from. Writing a small independent one for
+    // the Code view, so a block here colors a snippet exactly the way the
+    // editor colors the file it came from. Writing a small independent one for
     // documents would have been quicker and would have drifted the first time
     // somebody taught the editor a new keyword.
     //
@@ -926,11 +926,11 @@ namespace refdoc
             const Char* cls   = p.attr("class", "");
             const Bool  check = p.hasAttr("check");
 
-            const ImU32 col32 = classColour(cls);
+            const ImU32 col32 = classColor(cls);
 
             // The pad number is always dim and always first: it is the thing you
             // count along the package with, and it is never the interesting part.
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GREY),
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                                "%3s", num);
             ImGui::SameLine(0.0f, 8.0f);
 
@@ -999,7 +999,7 @@ namespace refdoc
         Float32 width = 1.0f;
         Float32 text  = 12.0f;
 
-        // -1 left, 0 centred, +1 right. The x in drawText is the ANCHOR, and this
+        // -1 left, 0 centered, +1 right. The x in drawText is the ANCHOR, and this
         // says which part of the string lands on it.
         //
         // Added because the first real drawing needed it: a pinout has a column of
@@ -1074,13 +1074,13 @@ namespace refdoc
         return out;
     }
 
-    // A colour by name, by pin class, or as #RRGGBB.
+    // A color by name, by pin class, or as #RRGGBB.
     //
     // The names are the sixteen the whole app draws in, so a drawing cannot invent
-    // a colour that means nothing anywhere else. #RRGGBB is allowed because a
+    // a color that means nothing anywhere else. #RRGGBB is allowed because a
     // drawing sometimes depicts a real-world thing - a resistor band, a connector's
-    // keying - whose colour is a fact rather than a choice.
-    Bool colourByName(const Str& name, ImU32& out)
+    // keying - whose color is a fact rather than a choice.
+    Bool colorByName(const Str& name, ImU32& out)
     {
         struct Map
         {
@@ -1096,8 +1096,8 @@ namespace refdoc
             { "magenta", ui::ansi::MAGENTA   },
             { "cyan",    ui::ansi::CYAN      },
             { "white",   ui::ansi::WHITE     },
-            { "grey",    ui::ansi::GREY      },
-            { "gray",    ui::ansi::GREY      },
+            { "grey",    ui::ansi::GRAY      },
+            { "grey",    ui::ansi::GRAY      },
             { "brRed",   ui::ansi::BRRED     },
             { "brGreen", ui::ansi::BRGREEN   },
             { "brYellow",ui::ansi::BRYELLOW  },
@@ -1121,7 +1121,7 @@ namespace refdoc
            || name == "digital" || name == "analog" || name == "usb"
            || name == "audio" || name == "unused")
         {
-            out = classColour(name.c_str());
+            out = classColor(name.c_str());
             return true;
         }
 
@@ -1224,10 +1224,10 @@ namespace refdoc
 
             if(cmd == "setColor" && a.count() >= 2)
             {
-                if(!colourByName(a.str(1), pen.col))
+                if(!colorByName(a.str(1), pen.col))
                 {
                     errs.push_back("line " + std::to_string(lineNo)
-                                   + ": no colour called " + a.str(1));
+                                   + ": no color called " + a.str(1));
                 }
             }
             else if(cmd == "setWidth" && a.count() >= 2)
@@ -1245,7 +1245,7 @@ namespace refdoc
                 {
                     pen.align = -1;
                 }
-                else if(w == "centre" || w == "center")
+                else if(w == "centre" || w == "centre")
                 {
                     pen.align = 0;
                 }
@@ -1256,7 +1256,7 @@ namespace refdoc
                 else
                 {
                     errs.push_back("line " + std::to_string(lineNo)
-                                   + ": setTextAlign wants left, centre or right");
+                                   + ": setTextAlign wants left, center or right");
                 }
             }
             else if(cmd == "drawLine" && a.count() >= 5)
@@ -1344,9 +1344,9 @@ namespace refdoc
     //     <Row><Cell class="serial">SCL</Cell><Cell>GP18</Cell><Cell>clock</Cell></Row>
     //   </Table>
     //
-    // A cell takes inline markup like anything else, and a `class` colours it with
+    // A cell takes inline markup like anything else, and a `class` colors it with
     // the same pin palette the pinouts use - so a row about a serial pin is the
-    // same colour as that pin in the diagram above it.
+    // same color as that pin in the diagram above it.
     Void table(const Node& n)
     {
         Int32 cols = 0;
@@ -1400,7 +1400,7 @@ namespace refdoc
 
                     const Char* cls = cell.attr("class", "");
                     const ImU32 col = head ? ui::ansi::BRWHITE
-                                           : (cls[0] != '\0' ? classColour(cls)
+                                           : (cls[0] != '\0' ? classColor(cls)
                                                              : ui::ansi::WHITE);
 
                     Vec<Run> runs;
@@ -1432,7 +1432,7 @@ namespace refdoc
 
         if(pkg[0] != '\0' || pitch[0] != '\0')
         {
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GREY),
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                                "%s%s%s", pkg,
                                (pkg[0] != '\0' && pitch[0] != '\0') ? "   " : "",
                                pitch);
@@ -1472,7 +1472,7 @@ namespace refdoc
             {
                 ImGui::TableNextColumn();
                 const Char* s = c->attr("side", "");
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GREY),
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                                    "%s  %s - %s", s, c->attr("from", ""),
                                    c->attr("to", ""));
                 ImGui::Spacing();
@@ -1485,7 +1485,7 @@ namespace refdoc
             for(const Node* c : cols)
             {
                 const Char* s = c->attr("side", "");
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GREY),
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                                    "%s  %s - %s", s, c->attr("from", ""),
                                    c->attr("to", ""));
                 ImGui::Spacing();
@@ -1584,7 +1584,7 @@ namespace refdoc
                 // An element the renderer does not know. Drawn as its text rather
                 // than dropped, so a typo in a tag name loses the styling and not
                 // the sentence.
-                paragraph(k, width, ui::ansi::GREY, 0.0f);
+                paragraph(k, width, ui::ansi::GRAY, 0.0f);
             }
         }
     }
@@ -1909,7 +1909,7 @@ namespace refdoc
       // 322 while its left edge sat at 623 in every one of them.
       //
       // So X goes through the INDENT, which is the thing those per-item resets
-      // read from. It folds in with the centring pad because they are the same
+      // read from. It folds in with the centering pad because they are the same
       // quantity: how far right the content starts.
       //
       // Both are unbounded and negative values are the point - ImGui clips
@@ -1948,7 +1948,7 @@ namespace refdoc
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::WHITE),
                              "line %d: %s", d.errorLine, d.error.c_str());
           ImGui::Spacing();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GREY),
+          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                              "Switch to Source above to see it.");
           return;
       }
@@ -1985,7 +1985,7 @@ namespace refdoc
           }
           if(sub[0] != '\0')
           {
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GREY),
+              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                                  "%s", sub);
           }
 

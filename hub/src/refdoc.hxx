@@ -34,7 +34,7 @@
 namespace refdoc
 {
 
-  // The extension, in one place. Anything that has to recognise one of these -
+  // The extension, in one place. Anything that has to recognize one of these -
   // the tree, the icon, the toggle, the linter's exemption - asks here.
   inline constexpr const Char* EXT = ".bdoc";
 

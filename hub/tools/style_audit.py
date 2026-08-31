@@ -118,7 +118,7 @@ def strip_noise(text):
 # in lidar_source.cxx for as long as they existed, because those three names
 # were not on the list, and no list is ever finished.
 #
-# What makes a cast recognisable instead is the SHAPE: an opening paren that
+# What makes a cast recognizable instead is the SHAPE: an opening paren that
 # does not follow an identifier (which would make it a call), a TYPE, a closing
 # paren, and an operand. The type is the hard part, and the project's own
 # naming convention settles it - types are PascalCase here, so a capitalised
@@ -536,7 +536,7 @@ LAYER_EXTRA = {
     # it compiles on the host and its table can be tested without a board.
     'firmware/lib/sfx.hxx': {'types.hxx'},
     # control.hxx is arithmetic - PID and feedforward - and odom.hxx turns
-    # ticks into metres. Neither touches hardware, which is the property that
+    # ticks into meters. Neither touches hardware, which is the property that
     # lets both be tested on the host against invented inputs instead of by
     # driving a car at something.
     'firmware/lib/control.hxx': {'types.hxx'},

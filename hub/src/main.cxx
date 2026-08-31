@@ -47,7 +47,7 @@ static constexpr Int32 MIN_HEIGHT     = 600;
 static constexpr LONG FLOOR_WIDTH   = 320;
 static constexpr LONG FLOOR_HEIGHT  = 240;
 
-// Fallback only. The real clear colour is taken from ImGui's own WindowBg each
+// Fallback only. The real clear color is taken from ImGui's own WindowBg each
 // frame, so the backbuffer can never seam against the UI drawn on top of it.
 // Fallback only - the frame normally clears to ImGuiCol_WindowBg. It still has
 // to match the theme: anything the UI does not cover (the sliver during a
@@ -107,7 +107,7 @@ static Void saveUiScale()
 // system timer resolution is 15.6 ms, so a plain Sleep(1) between frames would
 // have produced something closer to 60 Hz by luck than by design - and on a
 // machine where someone else had raised the global timer resolution it would
-// have silently changed behaviour. The timer is a hard fallback to Sleep when
+// have silently changed behavior. The timer is a hard fallback to Sleep when
 // the flag is unsupported (pre-1803), which caps at roughly the right rate and
 // says so here rather than pretending.
 // ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_DPICHANGED:
     {
         // Windows hands us the rect that keeps the window the same physical
-        // size on the new monitor; honouring it is required for v2 awareness.
+        // size on the new monitor; honoring it is required for v2 awareness.
         const RECT* suggested = reinterpret_cast<const RECT*>(lparam);
         ::SetWindowPos(hwnd, nullptr,
                        suggested->left, suggested->top,
@@ -663,7 +663,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     LONG winH = rc.bottom - rc.top;
     clampToWorkArea(nullptr, &winW, &winH);
 
-    // If we know the work area, centre in it so the whole window is on-screen;
+    // If we know the work area, center in it so the whole window is on-screen;
     // otherwise let the shell cascade it.
     Int32 winX = CW_USEDEFAULT;
     Int32 winY = CW_USEDEFAULT;
@@ -842,7 +842,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         ImGui::Render();
 
         // Track ImGui's own window background, so restyling the UI can never
-        // leave the backbuffer showing a different colour behind it.
+        // leave the backbuffer showing a different color behind it.
         const ImVec4 bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
         const Array<Float32, 4> clear= { bg.x, bg.y, bg.z, 1.0f };
 

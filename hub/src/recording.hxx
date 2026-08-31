@@ -31,7 +31,7 @@
 //               revolution is measured from 0. The C1 steps ~0.72 deg but the
 //               real spacing wanders between 0.49 and 1.05, so these are MEASURED
 //               and kept, not assumed uniform and thrown away.
-//   dist        whole millimetres. 0 means no return on that bearing, which is a
+//   dist        whole millimeters. 0 means no return on that bearing, which is a
 //               fact about that bearing and is preserved as one.
 //   t_ms        milliseconds from the start of the recording.
 //   hz_centi    the device's reported rotation rate x100.
@@ -51,7 +51,7 @@
 // 165,696 bytes.)
 //
 // Text WINS against the binary form it replaced, because the device reports
-// whole millimetres - so "6789" carries exactly what a float32 did, in four
+// whole millimeters - so "6789" carries exactly what a float32 did, in four
 // bytes instead of four with none of the ambiguity. Delta-coding the ranges
 // would save another 8 points and cost the one property this format exists for:
 // you can open it, read it, and see that 6789 is a wall 6.8 m away. On an SD

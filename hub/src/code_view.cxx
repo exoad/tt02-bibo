@@ -19,7 +19,7 @@ namespace ui
     Vec<syn::Span> spans;
 
     // Whether a /* was open at the START of each line. Rebuilt whenever the buffer
-    // changes, because a block comment opened at line 3 changes the colour of line
+    // changes, because a block comment opened at line 3 changes the color of line
     // 400 and the renderer only ever sees the forty lines that are on screen.
     Vec<Bool> blockAt;
 
@@ -104,7 +104,7 @@ namespace ui
 
     // ---- diagnostics -----------------------------------------------------
     //
-    // Three places drew this colour from the same ternary and a fourth was
+    // Three places drew this color from the same ternary and a fourth was
     // about to. One function, so a note can never come out yellow in the
     // gutter and blue under the text.
     ImU32 severityColor(diag::Severity s) noexcept
@@ -734,7 +734,7 @@ namespace ui
                   {
                       Str text = clip;
 
-                      // CRLF in, LF held internally - the same normalisation
+                      // CRLF in, LF held internally - the same normalization
                       // sketch::load() does, and for the same reason: every line
                       // ending in this editor is one byte.
                       Str lf;
@@ -1002,7 +1002,7 @@ namespace ui
               }
           }
 
-          // The text itself, one draw per coloured run.
+          // The text itself, one draw per colored run.
           Bool open = (l < static_cast<Int32>(blockAt.size())) ? blockAt[static_cast<Size>(l)]
                                                               : false;
           syn::tokenize(src, open, spans);
@@ -1445,8 +1445,8 @@ namespace ui
       const Float32 pad = 6.0f * dpiScale();
       const Float32 ty  = sy + 3.0f * dpiScale();
 
-      // The mode badge, in the mode's own colour. Reversed like vim's, so it is
-      // legible at a glance rather than being one more word on a grey bar.
+      // The mode badge, in the mode's own color. Reversed like vim's, so it is
+      // legible at a glance rather than being one more word on a gray bar.
       {
           const Char*   mn = modeName(e.mode());
           const Float32 mw = ImGui::CalcTextSize(mn).x;

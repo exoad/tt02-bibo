@@ -49,7 +49,7 @@ namespace proto
 
       // A line that is none of the above. NOT an error: the board prints banner
       // text at boot and a person may be typing into the same port. A companion
-      // that treats every unrecognised line as a fault is a companion that stops
+      // that treats every unrecognized line as a fault is a companion that stops
       // when somebody opens a terminal.
       KIND_OTHER,
 

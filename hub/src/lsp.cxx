@@ -184,7 +184,7 @@ namespace lsp
     // clangd sends it as plain text, but it still includes the parenthesis for
     // a function - and a completion that types the `(` for you is a completion
     // that fights you every time you wanted the function's address or a
-    // designated initialiser's name.
+    // designated initializer's name.
     Str insertionFor(const js::Value& item)
     {
         const Str filter = item.at("filterText").string();

@@ -291,7 +291,7 @@ namespace
       }
 
       // Starts `body` on the worker. Rejects (and says so) while one is running,
-      // which is the documented behaviour and also the only safe one: two things
+      // which is the documented behavior and also the only safe one: two things
       // touching the board's USB at once is how you end up with a brick.
       Void start(const Str& desc, Fn<Int32()> body)
       {
@@ -410,7 +410,7 @@ Str PicoFlash::repoRoot()
         // Markers are `firmware\` (what we shell out to) and `hub\` (our own
         // home). Deliberately not `lidar\`: that is one sensor's directory and
         // the app no longer lives inside it, so keying the repo root off it
-        // would break the moment the tree is reorganised again.
+        // would break the moment the tree is reorganized again.
         if(dirExists(dir + "\\firmware") && dirExists(dir + "\\hub"))
         {
             cached = dir;

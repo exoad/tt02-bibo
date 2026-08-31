@@ -281,7 +281,7 @@ namespace ui
       // apartment we are already in; WIC is happy either way for decoding.
       if(FAILED(::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)))
       {
-          // Already initialised on this thread is fine and not an error for us.
+          // Already initialized on this thread is fine and not an error for us.
       }
       if(FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                    IID_PPV_ARGS(&wic))))
@@ -492,11 +492,11 @@ namespace ui
       // margin for a glyph to sit in and the fit test below rejected every one -
       // which it silently did for as long as this function has existed. Widen the
       // auto case, and push the label flush RIGHT so all of the new space lands on
-      // the left where the icon goes. Centring it instead would split the space in
+      // the left where the icon goes. Centering it instead would split the space in
       // two and the icon would still not fit.
       //
       // Only the auto case. A caller who passed a width meant that width, and the
-      // wide buttons that pass one look right with a centred label and the icon
+      // wide buttons that pass one look right with a centered label and the icon
       // out at the frame padding, which is the branch below.
       const Bool  autoW = (size.x == 0.0f) && iconsReady();
       ImVec2      sz2   = size;
@@ -521,7 +521,7 @@ namespace ui
           const Float32 y = a.y + ((b.y - a.y) - sz) * 0.5f;
 
           // Auto-width already reserved the room above. Otherwise only if the
-          // glyph clears the centred label: on a narrow button it would sit on top
+          // glyph clears the centered label: on a narrow button it would sit on top
           // of the text, and the text is the part that has to survive.
           const Bool fits = autoW
               || (x + sz < (a.x + b.x) * 0.5f - ImGui::CalcTextSize(label).x * 0.5f);
@@ -562,7 +562,7 @@ namespace ui
           const Float32 y  = a.y + ((b.y - a.y) - sz) * 0.5f;
 
           // Dimmed with the label when the entry is disabled, or the icon would
-          // be the one bright thing on a greyed-out row.
+          // be the one bright thing on a grayed-out row.
           const ImU32 tint = enabled
               ? IM_COL32_WHITE
               : ImGui::GetColorU32(ImGuiCol_TextDisabled);
@@ -584,7 +584,7 @@ namespace ui
           const Float32 gap  = ImGui::GetStyle().ItemInnerSpacing.x;
           const Float32 half = ImGui::CalcTextSize(label).x * 0.5f;
 
-          // Immediately left of the CENTRED label, not out at the frame padding.
+          // Immediately left of the CENTERED label, not out at the frame padding.
           // These cells are wide, and an icon pinned to the far margin reads as
           // unrelated to the word in the middle of the same button.
           const Float32 x = (a.x + b.x) * 0.5f - half - gap - sz;
