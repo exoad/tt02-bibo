@@ -70,7 +70,7 @@ namespace ui
         ed::Special sp;
     };
 
-    const SpecialKey SPECIALS[] = {
+    constexpr SpecialKey SPECIALS[] = {
         { ImGuiKey_Escape,     ed::Special::SPECIAL_ESC       },
         { ImGuiKey_Enter,      ed::Special::SPECIAL_ENTER     },
         { ImGuiKey_KeypadEnter,ed::Special::SPECIAL_ENTER     },

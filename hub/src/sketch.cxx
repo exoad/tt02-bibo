@@ -106,7 +106,7 @@ namespace sketch
   // if a folder appears that is not here, that is a decision somebody made and it
   // should be a decision somebody writes down, not something a scan quietly
   // absorbs.
-  const Char* const FW_DIRS[] = {
+  constexpr const Char* const FW_DIRS[] = {
       "lib",
       "lib\\drivers",
       "lib\\chassis",
@@ -134,7 +134,7 @@ namespace sketch
           // documents and they are edited here like anything else. See
           // hub/src/refdoc.hxx - the Code view renders them, and the toggle above
           // the editor swaps between the page and the source that made it.
-          const Char* const PATTERNS[] = { "\\*.cxx", "\\*.hxx",
+          constexpr const Char* const PATTERNS[] = { "\\*.cxx", "\\*.hxx",
                                            "\\*.c", "\\*.h",
                                            "\\*.bdoc" };
           for(const Char* pat : PATTERNS)

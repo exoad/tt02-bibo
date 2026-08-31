@@ -265,7 +265,7 @@ namespace
       }
 
       // Rotate it by a whole number of bins and see if the shift comes back.
-      const Int32 SHIFT = 17;
+      constexpr Int32 SHIFT = 17;
       for(Int32 i = 0; i < BINS; ++i)
       {
           cur[(i + SHIFT) % BINS] = ref[i];

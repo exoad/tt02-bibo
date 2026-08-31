@@ -980,7 +980,7 @@ namespace scene3d
             }
         }
 
-        const ImU32 BASE[CAR_PART_COUNT] = {
+        constexpr ImU32 BASE[CAR_PART_COUNT] = {
             IM_COL32(0x4A, 0x58, 0x68, 0xFF),   // body
             IM_COL32(0x1C, 0x1E, 0x21, 0xFF),   // wheels
             IM_COL32(0x30, 0x3A, 0x46, 0xFF),   // spoiler
@@ -1652,7 +1652,7 @@ namespace scene3d
         va_end(ap);
     }
 
-    const SceneModeInfo SCENE_INFO[static_cast<Size>(SceneMode::SCENE_MODE_COUNT)] = {
+    constexpr SceneModeInfo SCENE_INFO[static_cast<Size>(SceneMode::SCENE_MODE_COUNT)] = {
         { "Cloud",
           "Every in-spec return as a pin standing on the ground plane.",
           "The scan, in the space it was taken in. The pins are all the same "

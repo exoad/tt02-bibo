@@ -3315,7 +3315,7 @@ namespace
       //
       // Front is -y. Fractions are of the half-width and half-length.
       struct Rib { Float32 y, w; };
-      const Rib RIBS[7] = {
+      constexpr Rib RIBS[7] = {
           { -1.00f, 0.34f },   // nose
           { -0.90f, 0.62f },
           { -0.72f, 0.88f },

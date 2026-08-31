@@ -595,7 +595,7 @@ namespace refdoc
 
         // The same sixteen the rest of the app draws in, so a pinout here and a
         // plot on the next screen mean the same thing by the same colour.
-        static const Map MAP[] = {
+        static constexpr Map MAP[] = {
             { "power",   ui::ansi::RED      },
             { "ground",  ui::ansi::GREY     },
             { "serial",  ui::ansi::BRCYAN   },
