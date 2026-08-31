@@ -64,9 +64,8 @@ namespace lsp
     Str toUri(const Str& path)
     {
         Str out = "file:///";
-        for(Size i = 0; i < path.size(); ++i)
+        for(const Char c : path)
         {
-            const Char c = path[i];
             if(c == '\\')
             {
                 out.push_back('/');
