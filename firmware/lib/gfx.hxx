@@ -10,11 +10,11 @@
  *
  *     while(true)
  *     {
- *         gfx::clear(&screen, GFX_NAVY);
- *         gfx::rectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
- *         gfx::circleFill(&screen, 120, 120, 30, GFX_CYAN);
+ *         gfx::clear(&screen, NAVY);
+ *         gfx::rectFill(&screen, 10, 10, 100, 40, ORANGE);
+ *         gfx::circleFill(&screen, 120, 120, 30, CYAN);
  *
- *         gfx::textColour(&screen, GFX_WHITE);
+ *         gfx::textColour(&screen, WHITE);
  *         gfx::textSize(&screen, 2);
  *         gfx::textAt(&screen, 10, 60, "HELLO");
  *
@@ -71,22 +71,25 @@ namespace bibo
      *
      * 16-bit 5-6-5, the panel's own format.
      */
-#define GFX_RGB(r, g, b) TFT_RGB(r, g, b)
+    /* The same packing, named for the layer a sketch is working in. */
+    constexpr UInt16 rgb(UInt32 r, UInt32 g, UInt32 b)
+    {
+        return tft::rgb(r, g, b);
+    }
 
-#define GFX_BLACK    TFT_RGB(0, 0, 0)
-#define GFX_WHITE    TFT_RGB(255, 255, 255)
-#define GFX_RED      TFT_RGB(255, 0, 0)
-#define GFX_GREEN    TFT_RGB(0, 255, 0)
-#define GFX_BLUE     TFT_RGB(0, 0, 255)
-#define GFX_YELLOW   TFT_RGB(255, 255, 0)
-#define GFX_CYAN     TFT_RGB(0, 255, 255)
-#define GFX_MAGENTA  TFT_RGB(255, 0, 255)
-#define GFX_ORANGE   TFT_RGB(255, 140, 0)
-#define GFX_GREY     TFT_RGB(128, 128, 128)
-#define GFX_DARKGREY TFT_RGB(64, 64, 64)
-#define GFX_NAVY     TFT_RGB(12, 16, 32)
-#define GFX_PURPLE   TFT_RGB(160, 90, 220)
-
+    constexpr UInt16 BLACK     = rgb(0, 0, 0);
+    constexpr UInt16 WHITE     = rgb(255, 255, 255);
+    constexpr UInt16 RED       = rgb(255, 0, 0);
+    constexpr UInt16 GREEN     = rgb(0, 255, 0);
+    constexpr UInt16 BLUE      = rgb(0, 0, 255);
+    constexpr UInt16 YELLOW    = rgb(255, 255, 0);
+    constexpr UInt16 CYAN      = rgb(0, 255, 255);
+    constexpr UInt16 MAGENTA   = rgb(255, 0, 255);
+    constexpr UInt16 ORANGE    = rgb(255, 140, 0);
+    constexpr UInt16 GREY      = rgb(128, 128, 128);
+    constexpr UInt16 DARKGREY  = rgb(64, 64, 64);
+    constexpr UInt16 NAVY      = rgb(12, 16, 32);
+    constexpr UInt16 PURPLE    = rgb(160, 90, 220);
     /*
      * Mixes two colours. `t` is 0 for all of `a`, 255 for all of `b`.
      *
@@ -114,12 +117,12 @@ namespace bibo
 
     static UInt16 dim(UInt16 c, UInt8 amount)
     {
-        return blend(c, GFX_BLACK, amount);
+        return blend(c, BLACK, amount);
     }
 
     static UInt16 lighten(UInt16 c, UInt8 amount)
     {
-        return blend(c, GFX_WHITE, amount);
+        return blend(c, WHITE, amount);
     }
 
     /*
@@ -149,7 +152,7 @@ namespace bibo
         case 4:  r = t;   g = p;   b = val; break;
         default: r = val; g = p;   b = q;   break;
         }
-        return GFX_RGB(static_cast<UInt8>(r), static_cast<UInt8>(g), static_cast<UInt8>(b));
+        return rgb(r, g, b);
     }
 
     /* ---- the back buffer -----------------------------------------------------
@@ -212,8 +215,8 @@ namespace bibo
 
     struct Paint
     {
-        UInt16 fg      = GFX_WHITE;
-        UInt16 bg      = GFX_BLACK;
+        UInt16 fg      = WHITE;
+        UInt16 bg      = BLACK;
         Bool   bgSolid = false;  /* false: glyph only, leave the background */
         Int32  size    = 1;      /* integer scale of the 5x7 font, >= 1 */
     };
@@ -470,7 +473,7 @@ namespace bibo
       {
         if(cv->buf == nullptr || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
         {
-            return GFX_BLACK;
+            return BLACK;
         }
         return cv->buf[(y * PANEL_MAX_W) + x];
       }
@@ -1025,8 +1028,8 @@ namespace bibo
         cv->clipH     = h;
         cv->cursorX   = 0;
         cv->cursorY   = 0;
-        cv->fg        = GFX_WHITE;
-        cv->bg        = GFX_BLACK;
+        cv->fg        = WHITE;
+        cv->bg        = BLACK;
         cv->bgSolid   = true;
         cv->textScale = 1;
 
@@ -1045,7 +1048,7 @@ namespace bibo
         }
 
         clipReset(cv);
-        clear(cv, GFX_BLACK);
+        clear(cv, BLACK);
         present(cv);
         return true;
       }

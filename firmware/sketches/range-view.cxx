@@ -124,10 +124,10 @@ int main(Void)
     const Int32 wide  = safe.w;
 
     /* The four appearances this screen uses, named once. */
-    const gfx::Paint TITLE { .fg = GFX_ORANGE,   .size = 2 };
-    const gfx::Paint ALERT { .fg = GFX_RED      };
-    const gfx::Paint MUTED { .fg = GFX_GREY     };
-    const gfx::Paint FAINT { .fg = GFX_DARKGREY };
+    const gfx::Paint TITLE { .fg = gfx::ORANGE,   .size = 2 };
+    const gfx::Paint ALERT { .fg = gfx::RED      };
+    const gfx::Paint MUTED { .fg = gfx::GREY     };
+    const gfx::Paint FAINT { .fg = gfx::DARKGREY };
 
     const Bool haveBus = i2c::open(pins::active().i2cSda,
                                    pins::active().i2cScl, I2C_HZ);
@@ -179,7 +179,7 @@ int main(Void)
 
         Int32 y = safe.y;
 
-        c.clear(GFX_NAVY)
+        c.clear(gfx::NAVY)
          .text({ left, y }, "RANGE", TITLE);
         y += 26;
 
@@ -205,7 +205,7 @@ int main(Void)
         /* ---- the number -------------------------------------------------- */
         const Bool good = (status == 0);
 
-        const gfx::Paint BIG { .fg = good ? GFX_WHITE : GFX_DARKGREY, .size = 4 };
+        const gfx::Paint BIG { .fg = good ? gfx::WHITE : gfx::DARKGREY, .size = 4 };
         if(good)
         {
             c.printf({ left, y }, BIG, "%u", mm);
@@ -219,7 +219,7 @@ int main(Void)
         c.text({ left, y }, "MM", MUTED);
         y += 18;
 
-        const gfx::Paint METRES { .fg = good ? GFX_CYAN : GFX_DARKGREY, .size = 2 };
+        const gfx::Paint METRES { .fg = good ? gfx::CYAN : gfx::DARKGREY, .size = 2 };
         if(good)
         {
             /* One decimal, done in integers - a float here would pull in the
@@ -234,7 +234,7 @@ int main(Void)
 
         /* ---- the bar ----------------------------------------------------- */
         const Int32 barH = 16;
-        c.rect({ left, y, wide, barH }, GFX_DARKGREY);
+        c.rect({ left, y, wide, barH }, gfx::DARKGREY);
 
         if(good)
         {
@@ -247,9 +247,9 @@ int main(Void)
 
             /* Green far, amber near, red very near - the colours a bumper
              * wants, so the same view is useful once this is on the car. */
-            const UInt16 bar = (mm < 150) ? GFX_RED
-                           : (mm < 400) ? GFX_ORANGE
-                           : GFX_GREEN;
+            const UInt16 bar = (mm < 150) ? gfx::RED
+                           : (mm < 400) ? gfx::ORANGE
+                           : gfx::GREEN;
             c.rectFill({ left + 1, y + 1, fill, barH - 2 }, bar);
         }
         y += barH + 6;
@@ -259,7 +259,7 @@ int main(Void)
         y += 22;
 
         /* ---- status ------------------------------------------------------ */
-        const gfx::Paint STATUS { .fg = good ? GFX_GREEN : GFX_YELLOW };
+        const gfx::Paint STATUS { .fg = good ? gfx::GREEN : gfx::YELLOW };
         c.text({ left, y }, tof::statusName(status), STATUS);
         y += 20;
 

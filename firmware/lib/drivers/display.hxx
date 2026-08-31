@@ -8,7 +8,7 @@
  *
  *     tft::Screen screen;
  *     tft::open(&screen, 240, 280, 0, 20);      the panel is now yours
- *     tft::fill(&screen, TFT_YELLOW);
+ *     tft::fill(&screen, YELLOW);
  *
  * Every call takes the screen it acts on, so nothing is implicit and the
  * panel's size, pins and state live in one visible place rather than in file
@@ -20,7 +20,7 @@
  *
  *     tft::Screen screen;
  *     gfx::open(&screen, 240, 280, 0, 20);      panel + back buffer + context
- *     gfx::rectFill(&screen, 10, 10, 100, 40, GFX_ORANGE);
+ *     gfx::rectFill(&screen, 10, 10, 100, 40, ORANGE);
  *     gfx::present(&screen);
  *
  * ---------------------------------------------------------------------------
@@ -118,21 +118,30 @@ namespace bibo
 #define PANEL_HZ      24000000u
 
     /* 16 bits per pixel, 5 red / 6 green / 5 blue, which is what COLMOD is set to
-     * below. Green gets the spare bit because the eye resolves most detail there. */
-#define TFT_RGB(r, g, b) \
-        (static_cast<UInt16>((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
+     * below. Green gets the spare bit because the eye resolves most detail there.
+     *
+     * constexpr rather than a macro. It was `#define TFT_RGB(r, g, b)` and the
+     * colours below are still computed at compile time either way - what a
+     * function adds is argument types, a return type, and evaluating each
+     * argument exactly once. A macro doing arithmetic evaluates whatever you
+     * hand it as many times as its body mentions it. */
+    constexpr UInt16 rgb(UInt32 r, UInt32 g, UInt32 b)
+    {
+        return static_cast<UInt16>(((r & 0xF8u) << 8)
+                                 | ((g & 0xFCu) << 3)
+                                 | (b >> 3));
+    }
 
-#define TFT_BLACK   TFT_RGB(0, 0, 0)
-#define TFT_WHITE   TFT_RGB(255, 255, 255)
-#define TFT_RED     TFT_RGB(255, 0, 0)
-#define TFT_GREEN   TFT_RGB(0, 255, 0)
-#define TFT_BLUE    TFT_RGB(0, 0, 255)
-#define TFT_YELLOW  TFT_RGB(255, 255, 0)
-#define TFT_CYAN    TFT_RGB(0, 255, 255)
-#define TFT_MAGENTA TFT_RGB(255, 0, 255)
-#define TFT_GREY    TFT_RGB(128, 128, 128)
-#define TFT_ORANGE  TFT_RGB(255, 140, 0)
-
+    constexpr UInt16 BLACK = rgb(0, 0, 0);
+    constexpr UInt16 WHITE = rgb(255, 255, 255);
+    constexpr UInt16 RED = rgb(255, 0, 0);
+    constexpr UInt16 GREEN = rgb(0, 255, 0);
+    constexpr UInt16 BLUE = rgb(0, 0, 255);
+    constexpr UInt16 YELLOW = rgb(255, 255, 0);
+    constexpr UInt16 CYAN = rgb(0, 255, 255);
+    constexpr UInt16 MAGENTA = rgb(255, 0, 255);
+    constexpr UInt16 GREY = rgb(128, 128, 128);
+    constexpr UInt16 ORANGE = rgb(255, 140, 0);
     /* ---- the tft::Screen -----------------------------------------------------------
      *
      * Everything about one panel, in one place. Passed to every call in this file
@@ -651,7 +660,7 @@ namespace bibo
         cmd(s, 0x29);              /* DISPON */
         timing::ms(120);
 
-        detail::fill(s, TFT_BLACK);
+        detail::fill(s, BLACK);
         return true;
     }
 
