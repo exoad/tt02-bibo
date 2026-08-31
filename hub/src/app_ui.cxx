@@ -4081,7 +4081,7 @@ namespace
 
   // The permanent left region: the map, with the control bar under it. Both are
   // sized by the caller, which owns the split between map and sidebar.
-  // --view <map|3d|record|code|range|drive|sound|reference> preselects a central tab at startup. Held for a few frames
+  // --view <map|3d|record|code|range|drive|sound|flash|reference> preselects a central tab at startup. Held for a few frames
   // because a tab bar only honours SetSelected once it has laid its items out,
 
   // which is not on frame one.
@@ -5394,7 +5394,12 @@ namespace
   // holding a view index would otherwise open on a different tab the day this
   // one leaves.
   constexpr Int32 SOUND_VIEW = CUE_VIEW + 1;
-  constexpr Int32 VIEW_COUNT = SOUND_VIEW + 1;
+
+  // The firmware catalog. APPENDED rather than slotted in beside the other
+  // board views, for the reason the comment above gives: a settings file
+  // holding a view index would otherwise open on a different tab.
+  constexpr Int32 FLASH_VIEW = SOUND_VIEW + 1;
+  constexpr Int32 VIEW_COUNT = FLASH_VIEW + 1;
 
   // ================================================ the cue board ==
   //
@@ -8414,6 +8419,11 @@ namespace
       ImGui::EndChild();
   }
 
+  // Defined with the rest of the firmware UI, several hundred lines below,
+  // because it belongs beside the board state and the backup path it shares a
+  // subject with rather than beside the views it is dispatched from.
+  Void drawFlashCatalog();
+
   Void drawViewBody(Int32 view, Float32 w, Float32 h)
   {
       const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -8537,6 +8547,10 @@ namespace
           pollSoundState();
           drawSoundBody(w, h);
       }
+      else if(view == FLASH_VIEW)
+      {
+          drawFlashCatalog();
+      }
       else
       {
           // Range is the terminal branch, so an index from a stale settings file
@@ -8582,6 +8596,10 @@ namespace
       {
           return "Sound";
       }
+      if(view == FLASH_VIEW)
+      {
+          return "Flash";
+      }
       return "Range";
   }
 
@@ -8610,6 +8628,10 @@ namespace
       if(view == SOUND_VIEW)
       {
           return ui::Icon::ICON_SIGNAL;
+      }
+      if(view == FLASH_VIEW)
+      {
+          return ui::Icon::ICON_FLASH;
       }
       return ui::Icon::ICON_TOF;
   }
@@ -9470,6 +9492,61 @@ namespace
           ImGui::TextDisabled("Idle");
       }
 
+      // ---- backup -----------------------------------------------------------
+      ImGui::SeparatorText("Backup");
+
+      ImGui::SetNextItemWidth(-FLT_MIN);
+      ImGui::InputTextWithHint("##backupout", "output .uf2 path",
+                               backupBuf.data(), backupBuf.size());
+
+      ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
+      if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
+      {
+          startBackup();
+      }
+      ImGui::EndDisabled();
+
+      // ---- reboot -----------------------------------------------------------
+      ImGui::Spacing();
+      ImGui::SeparatorText("Reboot");
+
+      const Float32 half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
+
+      ImGui::BeginDisabled(busy);
+      if(ui::iconButton(ui::Icon::ICON_REBOOT, "To BOOTSEL", ImVec2(half, bh),
+                        ui::Tint::TINT_WARN))
+      {
+          picoLink.disconnect();
+          releasePicoPortForBoardOp();
+          picoFlash.rebootBootsel();
+      }
+      ImGui::SameLine();
+      if(ui::iconButton(ui::Icon::ICON_REBOOT, "Normally", ImVec2(half, bh)))
+          releasePicoPortForBoardOp();
+          picoFlash.rebootNormal();
+      ImGui::EndDisabled();
+
+  }
+
+  // ============================================== the flash view ==
+  //
+  // The catalog, full width, as a central view.
+  //
+  // It lived in the sidebar until 2026-08-31, in a 360px column beside
+  // the board state, the backup path and the reboot buttons. Each row is
+  // a title, a size, a build date, a board name and two buttons, and the
+  // descriptions are paragraphs - it was the one thing in that section
+  // that wanted width, and it was squeezing the four things that did not.
+  //
+  // The modal comes WITH it. A popup's identity is its ID stack, so the
+  // OpenPopup and the BeginPopupModal have to be drawn by the same
+  // function or the modal never appears.
+  Void drawFlashCatalog()
+  {
+      const ImGuiStyle& sty  = ImGui::GetStyle();
+      const Bool        busy = picoFlash.busy();
+      const Float32     bh   = ImGui::GetFrameHeight() * 1.2f;
+
       // ---- catalog ----------------------------------------------------------
       ImGui::Spacing();
       ImGui::SeparatorText("Firmware");
@@ -9554,39 +9631,6 @@ namespace
           ImGui::OpenPopup("Flash this firmware?");
       }
 
-      // ---- backup -----------------------------------------------------------
-      ImGui::SeparatorText("Backup");
-
-      ImGui::SetNextItemWidth(-FLT_MIN);
-      ImGui::InputTextWithHint("##backupout", "output .uf2 path",
-                               backupBuf.data(), backupBuf.size());
-
-      ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
-      if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
-      {
-          startBackup();
-      }
-      ImGui::EndDisabled();
-
-      // ---- reboot -----------------------------------------------------------
-      ImGui::Spacing();
-      ImGui::SeparatorText("Reboot");
-
-      const Float32 half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
-
-      ImGui::BeginDisabled(busy);
-      if(ui::iconButton(ui::Icon::ICON_REBOOT, "To BOOTSEL", ImVec2(half, bh),
-                        ui::Tint::TINT_WARN))
-      {
-          picoLink.disconnect();
-          releasePicoPortForBoardOp();
-          picoFlash.rebootBootsel();
-      }
-      ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_REBOOT, "Normally", ImVec2(half, bh)))
-          releasePicoPortForBoardOp();
-          picoFlash.rebootNormal();
-      ImGui::EndDisabled();
 
       // ---- confirmation -----------------------------------------------------
       // Flashing is destructive and, for anything not in the catalog, permanent.
@@ -9641,8 +9685,14 @@ namespace
       }
   }
 
-  // Board state, the catalog, backup and reboot. What the scripts PRINT while
-  // doing any of it is in the Console section - one log, one place.
+  // Board state, backup and reboot. Status and one-shot actions, which is what
+  // a narrow column is good for.
+  //
+  // THE CATALOG IS NOT HERE any more - it is the Flash view. Each of its rows
+  // is a title, a size, a build date, a board name and two buttons, with a
+  // paragraph of description behind it, and none of that fits in 360px beside
+  // three other things. What the scripts PRINT while doing any of it is still
+  // in the Console section - one log, one place.
   Void sectionFirmware()
   {
       drawFlashControls();
@@ -10681,6 +10731,13 @@ Void app::init(Float32 dpiScale)
                      _stricmp(v, "dfplayer") == 0)
                      {
                          forceView = SOUND_VIEW;
+                         forceViewFrames = 4;
+                     }
+            else if(_stricmp(v, "flash") == 0 ||
+                     _stricmp(v, "firmware") == 0 ||
+                     _stricmp(v, "catalog") == 0)
+                     {
+                         forceView = FLASH_VIEW;
                          forceViewFrames = 4;
                      }
 
