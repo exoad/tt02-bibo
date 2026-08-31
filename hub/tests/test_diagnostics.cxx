@@ -148,7 +148,7 @@ namespace
       // The compiler says firmware/src/sketch.c; the editor has the same bytes
       // open from the sketch library. It must still mark them.
       const Vec<diag::Item> mine = diag::forFile(
-          all, "C:\\Users\\error\\AppData\\Local\\tt02-auto\\sketches\\sketch.c");
+          all, "C:\\Users\\dev\\AppData\\Local\\tt02-auto\\sketches\\sketch.c");
       check(mine.size() == 2, "matched by file NAME, not by full path");
 
       const Vec<diag::Item> other = diag::forFile(all, "somewhere/main.c");
