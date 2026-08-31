@@ -1648,16 +1648,39 @@ namespace refdoc
       return out;
   }
 
-  Void drawPage(const Doc& d, const ImVec2& size, Float32& zoom, Float32 dpiScale)
+  Void drawPage(const Doc& d, const ImVec2& size, View& view, Float32 dpiScale)
   {
-      // Horizontal scrolling is on, or a drawing zoomed past the panel puts half
-      // of itself somewhere unreachable.
+      // ---------------------------------------------------------------------
+      // NO SCROLLING. The pan is an offset applied to the content, and it is
+      // deliberately unbounded.
+      //
+      // This used to drag with SetScrollX/SetScrollY, and ImGui CLAMPS those to
+      // [0, ScrollMax] by definition - so the page hit a wall at the top-left
+      // and could never be pushed past its own edges. That is right for a
+      // scrolled column of prose and wrong for these: a .bdoc is mostly a
+      // diagram, and a diagram is a canvas. Wanting to drag the corner of a
+      // pinout into the middle of the panel to look at it is an ordinary thing
+      // to want, and the scroll range forbade it.
+      //
+      // So the child does not scroll at all - the content is drawn from a
+      // cursor offset by the pan, which can be any value in any direction. The
+      // scrollbars go with it, which is the right trade: a scrollbar on an
+      // infinite canvas is measuring nothing.
+      //
+      // THE COST is that you can pan the page entirely out of sight, and an
+      // empty panel looks like a broken renderer. Double-click puts it back -
+      // see below - and that is the whole reason this is not just an unclamped
+      // number.
+      // ---------------------------------------------------------------------
       ImGui::BeginChild("##bdocpage", size, ImGuiChildFlags_None,
-                        ImGuiWindowFlags_HorizontalScrollbar);
+                        ImGuiWindowFlags_NoScrollbar
+                        | ImGuiWindowFlags_NoScrollWithMouse);
 
       const Bool over = ImGui::IsWindowHovered(
           ImGuiHoveredFlags_ChildWindows
           | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+      const ImVec2 origin = ImGui::GetCursorScreenPos();
 
       // THE WHEEL ZOOMS, and dragging pans. No modifier.
       //
@@ -1670,16 +1693,81 @@ namespace refdoc
           const Float32 wheel = ImGui::GetIO().MouseWheel;
           if(wheel != 0.0f)
           {
-              zoom = std::min(4.0f,
-                              std::max(0.4f, zoom * std::pow(1.15f, wheel)));
+              // ZOOM ABOUT THE CURSOR, not about the top-left corner.
+              //
+              // With an unbounded pan this stops being a nicety. Zooming about
+              // the corner moves whatever you were looking at away from the
+              // pointer, and on a canvas you have already dragged somewhere
+              // that means chasing the diagram across the panel with a wheel.
+              // Holding the point under the mouse still is what makes zoom and
+              // pan feel like one gesture rather than two that fight.
+              //
+              // The page is not a pure scale - text reflows against `measure` -
+              // so this is exact for drawings and an approximation for
+              // paragraphs. The approximation is invisible; the alternative was
+              // not.
+              const Float32 was = view.zoom;
+              const Float32 now = std::min(4.0f,
+                                           std::max(0.4f,
+                                                    was * std::pow(1.15f, wheel)));
+
+              if(now != was)
+              {
+                  const ImVec2 m = ImGui::GetIO().MousePos;
+
+                  // Where the cursor is over the CONTENT, in unzoomed units.
+                  const Float32 cx = (m.x - origin.x - view.panX) / was;
+                  const Float32 cy = (m.y - origin.y - view.panY) / was;
+
+                  // Put that same content point back under the cursor.
+                  view.panX = m.x - origin.x - (cx * now);
+                  view.panY = m.y - origin.y - (cy * now);
+                  view.zoom = now;
+              }
           }
-          if(ImGui::IsMouseDragging(ImGuiMouseButton_Left, 3.0f))
+
+          // A drag STARTS here, but it does not end here - see below.
+          if(ImGui::IsMouseClicked(ImGuiMouseButton_Left))
           {
-              ImGui::SetScrollX(ImGui::GetScrollX()
-                                - ImGui::GetIO().MouseDelta.x);
-              ImGui::SetScrollY(ImGui::GetScrollY()
-                                - ImGui::GetIO().MouseDelta.y);
+              view.panning = true;
           }
+
+          // THE WAY HOME. An unbounded pan can put the page somewhere with no
+          // edge to find it by, and an empty panel is indistinguishable from a
+          // renderer that failed. Double-click is the gesture every canvas uses
+          // for this and it costs nothing to offer.
+          if(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+          {
+              view = View();
+          }
+      }
+
+      // ---------------------------------------------------------------------
+      // THE DRAG CONTINUES OUTSIDE THE PANEL, and this is deliberately not
+      // inside the `over` test above.
+      //
+      // It was, and the pan stopped dead the moment the cursor crossed the
+      // panel edge mid-drag - which is precisely when you are dragging a
+      // diagram in from off-screen and have the furthest to go. Measured: a
+      // 720-pixel drag to the upper left moved the page 262 and then stopped,
+      // because the cursor had left the pane and `over` went false.
+      //
+      // Latched on the press and held until the release, so where the mouse
+      // wanders in between does not matter. That is what every map, canvas and
+      // image viewer does, and the reason it is the convention is that a hand
+      // dragging paper does not let go when it passes the edge of the desk.
+      //
+      // `+=`, not `-=`: the content follows the hand rather than running away
+      // from it. A scrollbar is the one that moves the other way.
+      // ---------------------------------------------------------------------
+      if(!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+      {
+          view.panning = false;
+      }
+      else if(view.panning)
+      {
+          view.panX += ImGui::GetIO().MouseDelta.x;
+          view.panY += ImGui::GetIO().MouseDelta.y;
       }
 
       // PushFont, not SetWindowFontScale.
@@ -1691,7 +1779,7 @@ namespace refdoc
       //
       // NULL keeps the current face and changes only the size.
       const Float32 baseSize = ImGui::GetFontSize();
-      ImGui::PushFont(nullptr, baseSize * zoom);
+      ImGui::PushFont(nullptr, baseSize * view.zoom);
 
       // ONE SCALE FOR EVERYTHING, and this line is the whole fix.
       //
@@ -1716,17 +1804,42 @@ namespace refdoc
       const Float32 avail   = ImGui::GetContentRegionAvail().x;
       const Float32 base    = std::min(std::max(avail - 24.0f, 200.0f),
                                        780.0f * dpiScale);
-      const Float32 measure = base * zoom;
+      const Float32 measure = base * view.zoom;
       const Float32 pad     = std::max(0.0f, (avail - measure) * 0.5f);
 
-      if(pad > 1.0f)
+      // THE PAN IS APPLIED HERE, and the two axes need DIFFERENT mechanisms.
+      //
+      // Y is a cursor move: vertical position accumulates down the window, so
+      // placing the first item lower carries everything after it.
+      //
+      // X IS NOT. After every item ImGui resets CursorPos.x to the window's
+      // indent, so setting the cursor's X moves only the FIRST thing drawn and
+      // every line after it snaps back. That is exactly what happened on the
+      // first attempt here: vertical panning worked, horizontal did nothing at
+      // all, and the page looked like it was obeying one axis out of stubborn-
+      // ness. Measured across four frames - the title's top edge moved 122 ->
+      // 322 while its left edge sat at 623 in every one of them.
+      //
+      // So X goes through the INDENT, which is the thing those per-item resets
+      // read from. It folds in with the centring pad because they are the same
+      // quantity: how far right the content starts.
+      //
+      // Both are unbounded and negative values are the point - ImGui clips
+      // items to the window rather than refusing to place them, so a page
+      // dragged up and left simply has its corner off-panel. That is what the
+      // old SetScroll pair could not express.
+      const Float32 shift = view.panX + ((pad > 1.0f) ? pad : 0.0f);
+
+      ImGui::SetCursorPosY(ImGui::GetCursorPosY() + view.panY);
+
+      if(shift != 0.0f)
       {
-          ImGui::Indent(pad);
+          ImGui::Indent(shift);
       }
       draw(d, measure);
-      if(pad > 1.0f)
+      if(shift != 0.0f)
       {
-          ImGui::Unindent(pad);
+          ImGui::Unindent(shift);
       }
 
       // Popped before the child closes. A font left pushed across EndChild is

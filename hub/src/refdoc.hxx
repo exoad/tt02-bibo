@@ -103,15 +103,36 @@ namespace refdoc
   // Scrolling is the caller's child window, not ours.
   Void draw(const Doc& d, Float32 width);
 
-  // The whole page, with its own frame: scrolling, Ctrl+wheel zoom, drag to pan,
-  // and a reading measure that stays a sensible number of words wide.
+  // Where the reader is on the page: how far in, and how far across.
   //
-  // Here rather than at each call site because there are two - the Code view and
-  // the Reference - and a document that scrolled differently depending on which
-  // screen you opened it from would be two documents.
+  // ONE VALUE rather than a zoom and two loose floats, because they are only
+  // ever meaningful together - a pan means nothing without the zoom it was made
+  // at, and resetting one without the other leaves the page somewhere nobody
+  // asked for.
+  struct View
+  {
+      Float32 zoom = 1.0f;
+      Float32 panX = 0.0f;
+      Float32 panY = 0.0f;
+
+      // Mid-drag. Latched when the press lands on the page and held until the
+      // button comes up, so a pan that wanders off the panel keeps going - see
+      // drawPage.
+      Bool    panning = false;
+  };
+
+  // The whole page, with its own frame: wheel zoom, drag to pan, and a reading
+  // measure that stays a sensible number of words wide.
   //
-  // `zoom` is the caller's, so each surface keeps its own and neither resets the
-  // other.
-  Void drawPage(const Doc& d, const ImVec2& size, Float32& zoom, Float32 dpiScale);
+  // Here rather than at the call site so that a document behaves identically
+  // wherever it is opened from.
+  //
+  // THE PAN IS UNBOUNDED. A document is a canvas, not a scrolled column, so it
+  // can be pushed off any edge in any direction - see the long note in
+  // drawPage for why the old scroll-based version could not. Double-click puts
+  // it back, which is the only way home once it is off-panel.
+  //
+  // `view` is the caller's, so each surface keeps its own place on the page.
+  Void drawPage(const Doc& d, const ImVec2& size, View& view, Float32 dpiScale);
 
 } // namespace refdoc
