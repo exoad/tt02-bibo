@@ -37,6 +37,17 @@ build/
 # Dear ImGui writes window layout here at runtime.
 imgui.ini
 
+# Python bytecode caches, from hub/tools.
+#
+# NOT MERELY NOISE. A .pyc embeds the ABSOLUTE PATH of the source it was
+# compiled from, so hub/tools/__pycache__/livery.cpython-313.pyc carried this
+# machine's home directory - and carried it past three separate sweeps for
+# exactly that, because `git grep -I` skips binary files and every one of those
+# sweeps used it. A file nothing can read is a file nothing can check.
+__pycache__/
+*.pyc
+*.pyo
+
 # Go
 /host/bin/
 
