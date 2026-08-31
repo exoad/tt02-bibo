@@ -100,7 +100,7 @@
 #include "text.hxx"
 
 /* The car's pin map. Included before anything that binds a pin, so a subsystem
- * can name pins::HEAD_L rather than 11 - and so the conflict static_asserts in
+ * can name pins::LAMP_HEAD_L rather than 11 - and so the conflict static_asserts in
  * it fire on every build rather than only when somebody happens to include it. */
 #include "pins.hxx"
 
@@ -117,6 +117,7 @@
 #include "geom.hxx"
 #include "kinematics.hxx"
 #include "pursuit.hxx"
+#include "plan.hxx"
 #include "control.hxx"
 #include "chassis/odom.hxx"
 #include "boot.hxx"

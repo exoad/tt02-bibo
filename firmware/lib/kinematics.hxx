@@ -52,6 +52,51 @@ namespace bibo
      * this constant is the honest limit for a controller reasoning in angles. */
     #define KIN_MAX_STEER_RAD 0.42f
 
+    /* ---- the car's shape, as a value -------------------------------------
+     *
+     * The defines above are the DEFAULTS. These are the numbers you get by
+     * driving the car and measuring what it did - the tightest circle it can
+     * turn, the distance between its axle centres - and that is a loop of
+     * measure, adjust, measure again. A rebuild in the middle of that loop is
+     * why it does not get run a second time.
+     *
+     * So a sketch or the console can set them, and everything above that reads
+     * them takes effect on the next call. */
+    struct Config
+    {
+        Float32 wheelbase = KIN_WHEELBASE_M;
+        Float32 maxSteer  = KIN_MAX_STEER_RAD;
+
+        /* As with odometry: a claim the person who measured makes, not
+         * something this file can work out. */
+        Bool    measured  = false;
+    };
+
+    static Config tuning;
+
+    /* Refuses a shape a car cannot have. A zero or negative wheelbase divides
+     * by zero in curvatureFor; a zero maxSteer makes steerFraction meaningless
+     * and would report full lock as zero for every input. */
+    static Bool configure(const Config& c)
+    {
+        if(c.wheelbase <= 0.0f || c.maxSteer <= 0.0f)
+        {
+            return false;
+        }
+        tuning = c;
+        return true;
+    }
+
+    static const Config& config(Void)
+    {
+        return tuning;
+    }
+
+    static Bool calibrated(Void)
+    {
+        return tuning.measured;
+    }
+
     /* ---- steering angle and curvature are the same fact ------------------
      *
      * curvature = tan(steer) / wheelbase
@@ -152,6 +197,37 @@ namespace bibo
 
     /* The tightest circle this car can drive, in metres. Useful for refusing a
      * path before following it into a wall rather than after. */
+    /* ---- the same four, on the INSTALLED shape ---------------------------
+     *
+     * The explicit-wheelbase forms above stay, because a test wants to ask
+     * about a car that is not this one and a planner may reason about a
+     * hypothetical. These are what ordinary code calls: threading the same two
+     * numbers through every call site is how one of them ends up stale. */
+    static Float32 curvatureFor(Float32 steerRad)
+    {
+        return curvatureFor(steerRad, tuning.wheelbase);
+    }
+
+    static Float32 steerFor(Float32 curvature)
+    {
+        return steerFor(curvature, tuning.wheelbase);
+    }
+
+    static Float32 clampSteer(Float32 steerRad)
+    {
+        return clampSteer(steerRad, tuning.maxSteer);
+    }
+
+    static Float32 steerFraction(Float32 steerRad)
+    {
+        return steerFraction(steerRad, tuning.maxSteer);
+    }
+
+    static geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad, Float32 dtS)
+    {
+        return integrate(p, v, steerRad, tuning.wheelbase, dtS);
+    }
+
     static Float32 minTurnRadius(Float32 maxRad, Float32 wheelbase)
     {
         const Float32 k = curvatureFor(maxRad, wheelbase);
@@ -160,6 +236,11 @@ namespace bibo
             return 1e6f;   /* effectively straight */
         }
         return (k < 0.0f) ? (-1.0f / k) : (1.0f / k);
+    }
+
+    static Float32 minTurnRadius(Void)
+    {
+        return minTurnRadius(tuning.maxSteer, tuning.wheelbase);
     }
 
   } /* namespace kin */
