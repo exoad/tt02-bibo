@@ -6532,6 +6532,29 @@ namespace
       settings::write("steering.txt", Str(buf.data()));
   }
 
+  // When the three numbers were MEASURED, which is not when this file is
+  // written.
+  //
+  // The stamp used to take time(nullptr) at write time and label it "measured".
+  // Those dates differ whenever a calibration is taken and written on separate
+  // days - this car's were measured on the 29th and were still unwritten on the
+  // 31st - so the field that exists SO STALE NUMBERS CAN BE SPOTTED was the one
+  // thing guaranteed to look fresh. A record that always agrees with today is
+  // not a record.
+  //
+  // steering.txt's mtime is the honest answer and needs no format change or
+  // migration: that file is written by saveCalibration() and by nothing else,
+  // so its timestamp is the moment those three numbers were last set.
+  //
+  // Falls back to now when it cannot be read, which is the old behaviour and
+  // the right one for a car that has never been calibrated - there is no
+  // measurement date to report because there was no measurement.
+  std::time_t calMeasuredAt()
+  {
+      const Int64 secs = sketch::modifiedAtUnix(settings::path("steering.txt"));
+      return (secs > 0) ? static_cast<std::time_t>(secs) : std::time(nullptr);
+  }
+
   // The generated header, built as text so the view can SHOW it before anything
   // is written. A file that appears on disk with no preview is a file nobody
   // reads until it is wrong.
@@ -6540,7 +6563,7 @@ namespace
       // The fallback when localtime_s below fails; normally overwritten.
       Array<Char, 64> when{};
       std::snprintf(when.data(), when.size(), "unknown date");
-      const std::time_t now = std::time(nullptr);
+      const std::time_t now = calMeasuredAt();
       std::tm           tm{};
       if(localtime_s(&tm, &now) == 0)
       {
