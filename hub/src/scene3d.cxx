@@ -294,12 +294,41 @@ namespace scene3d
         ribbon(v, a, b, col, w);
     }
 
+    // How a face is painted: the fill, the outline, and how wide the outline
+    // is. These three travelled together to every one of the 25 call sites.
+    struct FaceStyle
+    {
+        ImU32   fill  = 0u;
+        ImU32   edge  = 0u;
+        Float32 edgeW = 0.0f;
+    };
+
+    // Optional texturing. Defaulted, because most faces are flat colour.
+    struct FaceTex
+    {
+        ImTextureID   tex = 0;
+        const ImVec2* uv  = nullptr;
+    };
+
     // A convex face, optionally outlined. The outline is nudged toward the eye by a
     // fraction of its depth so it cannot z-fight with the face it belongs to.
-    Void pushFace(const View& v, const Vec3* w, Int32 n, ImU32 fill, ImU32 edge, Float32 edgeW, ImTextureID tex = 0, const ImVec2* uv = nullptr)
+    //
+    // Templated on the point count rather than taking it as a parameter: every
+    // caller passed a literal 3 or 4 beside a fixed-size array, which is a
+    // length the array already knew. Taking Array<Vec3, N> means the two can
+    // no longer disagree, and the runtime `n < 3 || n > 4` guard becomes a
+    // static_assert that fires at the call site instead.
+    template<Size N>
+    Void pushFace(const View& v, const Array<Vec3, N>& w, const FaceStyle& st, FaceTex tx = {})
     {
-        if(n < 3 || n > 4)
-            return;
+        static_assert(N >= 3 && N <= 4, "a face is a triangle or a quad");
+
+        const Int32         n     = static_cast<Int32>(N);
+        const ImU32         fill  = st.fill;
+        const ImU32         edge  = st.edge;
+        const Float32       edgeW = st.edgeW;
+        const ImTextureID   tex   = tx.tex;
+        const ImVec2* const uv    = tx.uv;
 
         if((fill >> IM_COL32_A_SHIFT) != 0u)
         {
@@ -345,18 +374,18 @@ namespace scene3d
         // economy; the depth buffer hides the far ones for free and correctly, and
         // guessing which two are visible is exactly the kind of per-primitive
         // visibility decision this renderer stopped making.
-        const Vec3 sN[4] = { b01, b11, t11, t01 };
-        const Vec3 sS[4] = { b00, b10, t10, t00 };
-        const Vec3 sE[4] = { b10, b11, t11, t10 };
-        const Vec3 sW[4] = { b00, b01, t01, t00 };
+        const Array<Vec3, 4> sN = { b01, b11, t11, t01 };
+        const Array<Vec3, 4> sS = { b00, b10, t10, t00 };
+        const Array<Vec3, 4> sE = { b10, b11, t11, t10 };
+        const Array<Vec3, 4> sW = { b00, b01, t01, t00 };
 
-        pushFace(v, sN, 4, side, edge, edgeW);
-        pushFace(v, sS, 4, side, edge, edgeW);
-        pushFace(v, sE, 4, side, edge, edgeW);
-        pushFace(v, sW, 4, side, edge, edgeW);
+        pushFace(v, sN, { side, edge, edgeW });
+        pushFace(v, sS, { side, edge, edgeW });
+        pushFace(v, sE, { side, edge, edgeW });
+        pushFace(v, sW, { side, edge, edgeW });
 
-        const Vec3 tp[4] = { t00, t10, t11, t01 };
-        pushFace(v, tp, 4, top, edge, edgeW);
+        const Array<Vec3, 4> tp = { t00, t10, t11, t01 };
+        pushFace(v, tp, { top, edge, edgeW });
     }
 
     // ---------------------------------------------------------------------------
@@ -492,7 +521,8 @@ namespace scene3d
         const Array<Float32, 8> ow = { -hw,     -hw + k,  hw - k, hw,
                                         hw,      hw - k, -hw + k, -hw };
 
-        Vec3 lo[8], hi[8];
+        Array<Vec3, 8> lo;
+        Array<Vec3, 8> hi;
         for(Int32 i = 0; i < 8; ++i)
         {
             const Float32 x = d.cx + d.ux * ol[i] + px * ow[i];
@@ -511,8 +541,8 @@ namespace scene3d
         for(Int32 i = 0; i < 8; ++i)
         {
             const Int32 j = (i + 1) % 8;
-            const Vec3 q[4] = { lo[i], lo[j], hi[j], hi[i] };
-            pushFace(v, q, 4, side, 0u, 0.0f);
+            const Array<Vec3, 4> q = { lo[i], lo[j], hi[j], hi[i] };
+            pushFace(v, q, { side, 0u, 0.0f });
         }
 
         const Vec3 mid{ toScene(d.cx, d.cy, RIDE_BOX_H_MM) };
@@ -891,7 +921,7 @@ namespace scene3d
             {
                 const Float32 t = static_cast<Float32>(i) * (2.0f * PI_F / SEG);
                 const Vec3 cur{ rx * std::cos(t), ry * std::sin(t), 2.0f };
-                const Vec3 tri[3] = { Vec3{ 0.0f, 0.0f, 2.0f }, prev, cur };
+                const Array<Vec3, 3> tri = { Vec3{ 0.0f, 0.0f, 2.0f }, prev, cur };
                 emitTri(tri[0], tri[1], tri[2], IM_COL32(0, 0, 0, 0x66), nullptr, 0);
                 prev = cur;
             }
@@ -945,7 +975,7 @@ namespace scene3d
             const ImU32 col = IM_COL32(ch(IM_COL32_R_SHIFT), ch(IM_COL32_G_SHIFT),
                                        ch(IM_COL32_B_SHIFT), 0xFF);
 
-            const Vec3   tri[3] = { t.a, t.b, t.c };
+            const Array<Vec3, 3> tri = { t.a, t.b, t.c };
             const ImVec2 uv[3]  = { t.ta, t.tb, t.tc };
 
             // Textured when the atlas is there, shaded-flat when it is not. The
@@ -953,7 +983,7 @@ namespace scene3d
             // as the vertex colour, which ImGui multiplies into the texture - so the
             // car keeps its form in both cases rather than turning into a flat
             // sticker the moment a texture appears.
-            pushFace(v, tri, 3, col, 0u, 0.0f, m.tex, m.tex != 0 ? uv : nullptr);
+            pushFace(v, tri, { col, 0u, 0.0f }, { m.tex, m.tex != 0 ? uv : nullptr });
         }
     }
 
@@ -1024,7 +1054,8 @@ namespace scene3d
     {
         constexpr Int32 SEG = 10;
 
-        Vec3 in[SEG], out[SEG];
+        Array<Vec3, SEG> in;
+        Array<Vec3, SEG> out;
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Float32 a = static_cast<Float32>(i) * (2.0f * PI_F / SEG);
@@ -1037,27 +1068,27 @@ namespace scene3d
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Int32 j = (i + 1) % SEG;
-            const Vec3 q[4] = { in[i], in[j], out[j], out[i] };
-            pushFace(v, q, 4, tread, 0u, 0.0f);
+            const Array<Vec3, 4> q = { in[i], in[j], out[j], out[i] };
+            pushFace(v, q, { tread, 0u, 0.0f });
         }
 
         // The outboard face. The inboard one is inside the bodywork and the depth
         // buffer would discard it anyway, so it is simply not generated.
-        const Vec3* side = (cx > 0.0f) ? out : in;
+        const Vec3* side = (cx > 0.0f) ? out.data() : in.data();
         const Vec3 hub{ (cx > 0.0f) ? cx + halfW : cx - halfW, cy, r };
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Int32 j = (i + 1) % SEG;
-            const Vec3 t[3] = { hub, side[i], side[j] };
-            pushFace(v, t, 3, rim, 0u, 0.0f);
+            const Array<Vec3, 3> t = { hub, side[i], side[j] };
+            pushFace(v, t, { rim, 0u, 0.0f });
         }
 
         // The rim's edge, so a wheel has an outline like everything else.
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Int32 j = (i + 1) % SEG;
-            const Vec3 e[3] = { side[i], side[j], side[j] };
-            pushFace(v, e, 3, 0u, IM_COL32(0xB0, 0xB4, 0xB8, 0xC0), 1.0f * dpi);
+            const Array<Vec3, 3> e = { side[i], side[j], side[j] };
+            pushFace(v, e, { 0u, IM_COL32(0xB0, 0xB4, 0xB8, 0xC0), 1.0f * dpi });
         }
     }
 
@@ -1082,7 +1113,7 @@ namespace scene3d
         // the lens against the panel it is set into.
         const Float32 out = facingFront ? 1.5f : -1.5f;
 
-        const Vec3 q[4] = {
+        const Array<Vec3, 4> q = {
             Vec3{ x - halfW, y + out, z - halfH },
             Vec3{ x + halfW, y + out, z - halfH },
             Vec3{ x + halfW, y + out, z + halfH },
@@ -1090,7 +1121,7 @@ namespace scene3d
         };
 
         // The lens: always drawn, always dark.
-        pushFace(v, q, 4, IM_COL32(0x14, 0x16, 0x1A, 0xFF), 0u, 0.0f);
+        pushFace(v, q, { IM_COL32(0x14, 0x16, 0x1A, 0xFF), 0u, 0.0f });
 
         if(level <= 0.01f)
             return;
@@ -1099,25 +1130,25 @@ namespace scene3d
         const Int32 g = static_cast<Int32>(((hue >> IM_COL32_G_SHIFT) & 0xFFu) * level);
         const Int32 b = static_cast<Int32>(((hue >> IM_COL32_B_SHIFT) & 0xFFu) * level);
 
-        const Vec3 lit[4] = {
+        const Array<Vec3, 4> lit = {
             Vec3{ x - halfW, y + out * 1.6f, z - halfH },
             Vec3{ x + halfW, y + out * 1.6f, z - halfH },
             Vec3{ x + halfW, y + out * 1.6f, z + halfH },
             Vec3{ x - halfW, y + out * 1.6f, z + halfH },
         };
-        pushFace(v, lit, 4, IM_COL32(r, g, b, 0xFF), 0u, 0.0f);
+        pushFace(v, lit, { IM_COL32(r, g, b, 0xFF), 0u, 0.0f });
 
         // A soft bloom in front of the lens, so a lit lamp reads at a distance the
         // way a real one does - by spilling, not by being a brighter rectangle.
         const Float32 gw = halfW * 2.1f, gh = halfH * 2.4f;
-        const Vec3 glow[4] = {
+        const Array<Vec3, 4> glow = {
             Vec3{ x - gw, y + out * 2.2f, z - gh },
             Vec3{ x + gw, y + out * 2.2f, z - gh },
             Vec3{ x + gw, y + out * 2.2f, z + gh },
             Vec3{ x - gw, y + out * 2.2f, z + gh },
         };
         const Int32 ga = static_cast<Int32>(70.0f * level);
-        pushFace(v, glow, 4, IM_COL32(r, g, b, ga), 0u, 0.0f);
+        pushFace(v, glow, { IM_COL32(r, g, b, ga), 0u, 0.0f });
     }
 
     // The whole cluster set, front and rear.
@@ -1179,21 +1210,24 @@ namespace scene3d
         const Vec3 t0 = at(-hb, -hb, PLINTH_H), t1 = at(hb, -hb, PLINTH_H);
         const Vec3 t2 = at( hb,  hb, PLINTH_H), t3 = at(-hb, hb, PLINTH_H);
 
-        const Vec3 sides[4][4] = {
+        // Double-braced: the outer pair is the Array of faces, the inner one
+        // each face's four points. A single pair is one initializer too few.
+        const Array<Array<Vec3, 4>, 4> sides = {{
             { b0, b1, t1, t0 }, { b1, b2, t2, t1 },
             { b2, b3, t3, t2 }, { b3, b0, t0, t3 },
-        };
+        }};
         for(Int32 i = 0; i < 4; ++i)
-            pushFace(v, sides[i], 4, body, edge, 1.0f * dpi);
+            pushFace(v, sides[i], { body, edge, 1.0f * dpi });
 
-        const Vec3 cap[4] = { t0, t1, t2, t3 };
-        pushFace(v, cap, 4, top, edge, 1.0f * dpi);
+        const Array<Vec3, 4> cap = { t0, t1, t2, t3 };
+        pushFace(v, cap, { top, edge, 1.0f * dpi });
 
         // The head, as a short cylinder. This is the part that actually turns, and
         // drawing it as its own piece is the only visual cue this view gives that
         // the device is a rotating scanner rather than a box.
         constexpr Int32 SEG = 16;
-        Vec3 lo[SEG], hi[SEG];
+        Array<Vec3, SEG> lo;
+        Array<Vec3, SEG> hi;
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Float32 a = static_cast<Float32>(i) * (2.0f * PI_F / SEG);
@@ -1205,8 +1239,8 @@ namespace scene3d
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Int32 j = (i + 1) % SEG;
-            const Vec3 q[4] = { lo[i], lo[j], hi[j], hi[i] };
-            pushFace(v, q, 4, head, 0u, 0.0f);
+            const Array<Vec3, 4> q = { lo[i], lo[j], hi[j], hi[i] };
+            pushFace(v, q, { head, 0u, 0.0f });
         }
 
         const Vec3 crown = at(0.0f, 0.0f, TALL_MM);
@@ -1218,8 +1252,8 @@ namespace scene3d
         const Vec3 w1 = at( 10.0f, HEAD_R * 0.98f, PLINTH_H + 6.0f);
         const Vec3 w2 = at( 10.0f, HEAD_R * 0.98f, TALL_MM - 6.0f);
         const Vec3 w3 = at(-10.0f, HEAD_R * 0.98f, TALL_MM - 6.0f);
-        const Vec3 win[4] = { w0, w1, w2, w3 };
-        pushFace(v, win, 4, IM_COL32(0x8A, 0x1E, 0x1E, 0xFF), 0u, 0.0f);
+        const Array<Vec3, 4> win = { w0, w1, w2, w3 };
+        pushFace(v, win, { IM_COL32(0x8A, 0x1E, 0x1E, 0xFF), 0u, 0.0f });
     }
 
     Void drawCarFallback(const View& v, Float32 dpi)
@@ -1274,9 +1308,9 @@ namespace scene3d
                     col = glass;
                 }
 
-                const Vec3 q[4] = { loop[i][k], loop[i][k2],
+                const Array<Vec3, 4> q = { loop[i][k], loop[i][k2],
                                     loop[i + 1][k2], loop[i + 1][k] };
-                pushFace(v, q, 4, col, edge, ew);
+                pushFace(v, q, { col, edge, ew });
             }
         }
 
@@ -1294,14 +1328,14 @@ namespace scene3d
             for(Int32 k = 0; k < SECTION_N; ++k)
             {
                 const Int32 k2 = (k + 1) % SECTION_N;
-                const Vec3 t[3] = { mid, L[k], L[k2] };
-                pushFace(v, t, 3, shell, 0u, 0.0f);
+                const Array<Vec3, 3> t = { mid, L[k], L[k2] };
+                pushFace(v, t, { shell, 0u, 0.0f });
             }
             for(Int32 k = 0; k < SECTION_N; ++k)
             {
                 const Int32 k2 = (k + 1) % SECTION_N;
-                const Vec3 o2[3] = { L[k], L[k2], L[k2] };
-                pushFace(v, o2, 3, 0u, edge, ew);
+                const Array<Vec3, 3> o2 = { L[k], L[k2], L[k2] };
+                pushFace(v, o2, { 0u, edge, ew });
             }
         }
 
@@ -1310,11 +1344,11 @@ namespace scene3d
         // matters more here than on the flat map because the map always faced up.
         const auto lamp = [&](Float32 x, Float32 y, Float32 z, ImU32 col) {
             const Float32 s = 22.0f;
-            const Vec3 q[4] = { Vec3{ x - s, y, z - s * 0.6f },
+            const Array<Vec3, 4> q = { Vec3{ x - s, y, z - s * 0.6f },
                                 Vec3{ x + s, y, z - s * 0.6f },
                                 Vec3{ x + s, y, z + s * 0.6f },
                                 Vec3{ x - s, y, z + s * 0.6f } };
-            pushFace(v, q, 4, col, 0u, 0.0f);
+            pushFace(v, q, { col, 0u, 0.0f });
         };
         lamp(-hw * 0.42f, hl * 0.99f, hz * 0.22f, IM_COL32(0xFF, 0xE0, 0x90, 0xFF));
         lamp( hw * 0.42f, hl * 0.99f, hz * 0.22f, IM_COL32(0xFF, 0xE0, 0x90, 0xFF));
@@ -1327,16 +1361,16 @@ namespace scene3d
             const Float32 y  = -hl * 0.92f;
             const Float32 z  = hz * 0.78f;
             const Float32 sw = hw * 0.86f;
-            const Vec3 q[4] = { Vec3{ -sw, y - 26.0f, z }, Vec3{ sw, y - 26.0f, z },
+            const Array<Vec3, 4> q = { Vec3{ -sw, y - 26.0f, z }, Vec3{ sw, y - 26.0f, z },
                                 Vec3{  sw, y + 26.0f, z }, Vec3{ -sw, y + 26.0f, z } };
-            pushFace(v, q, 4, upper, edge, ew);
+            pushFace(v, q, { upper, edge, ew });
 
             for(Int32 sx = -1; sx <= 1; sx += 2)
             {
                 const Float32 px = static_cast<Float32>(sx) * sw * 0.7f;
-                const Vec3 p[4] = { Vec3{ px, y, hz * 0.52f }, Vec3{ px, y, z },
+                const Array<Vec3, 4> p = { Vec3{ px, y, hz * 0.52f }, Vec3{ px, y, z },
                                     Vec3{ px, y + 10.0f, z }, Vec3{ px, y + 10.0f, hz * 0.52f } };
-                pushFace(v, p, 4, shell, edge, ew * 0.8f);
+                pushFace(v, p, { shell, edge, ew * 0.8f });
             }
         }
     }
@@ -1399,9 +1433,9 @@ namespace scene3d
                 const Float32 hr = v.pxToWorld(t, 3.0f * a.dpi) * 0.5f;
                 const Vec3 hx = mul(v.right, hr);
                 const Vec3 hy = mul(v.up, hr);
-                const Vec3 head[4] = { sub(sub(t, hx), hy), add(sub(t, hy), hx),
+                const Array<Vec3, 4> head = { sub(sub(t, hx), hy), add(sub(t, hy), hx),
                                        add(add(t, hx), hy), sub(add(t, hy), hx) };
-                pushFace(v, head, 4, IM_COL32(0xFF, 0xFF, 0xFF, 0xFF), 0u, 0.0f);
+                pushFace(v, head, { IM_COL32(0xFF, 0xFF, 0xFF, 0xFF), 0u, 0.0f });
             }
         }
         return n;
@@ -1422,8 +1456,8 @@ namespace scene3d
             const Vec3 a1 = toScene(w.a.x, w.a.y, WALL_H_MM);
             const Vec3 b1 = toScene(w.b.x, w.b.y, WALL_H_MM);
 
-            const Vec3 q[4] = { a0, b0, b1, a1 };
-            pushFace(v, q, 4, face, edge, 1.6f * a.dpi);
+            const Array<Vec3, 4> q = { a0, b0, b1, a1 };
+            pushFace(v, q, { face, edge, 1.6f * a.dpi });
         }
         return static_cast<Int32>(a.walls->size());
     }
@@ -1450,11 +1484,11 @@ namespace scene3d
             const Vec3 pi{ a.reach[i] * std::sin(ai), a.reach[i] * std::cos(ai), 1.0f };
             const Vec3 pj{ a.reach[j] * std::sin(aj), a.reach[j] * std::cos(aj), 1.0f };
 
-            const Vec3 t[3] = { hub, pi, pj };
-            pushFace(v, t, 3, face, 0u, 0.0f);
+            const Array<Vec3, 3> t = { hub, pi, pj };
+            pushFace(v, t, { face, 0u, 0.0f });
 
-            const Vec3 e[3] = { pi, pj, pj };
-            pushFace(v, e, 3, 0u, edge, 1.6f * a.dpi);
+            const Array<Vec3, 3> e = { pi, pj, pj };
+            pushFace(v, e, { 0u, edge, 1.6f * a.dpi });
         }
     }
 
