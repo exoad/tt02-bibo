@@ -114,6 +114,9 @@
 
 /* Drivetrain maths - PID, feedforward, and ticks to metres. Pure arithmetic,
  * no SDK, so both are tested on the host. */
+#include "geom.hxx"
+#include "kinematics.hxx"
+#include "pursuit.hxx"
 #include "control.hxx"
 #include "chassis/odom.hxx"
 #include "boot.hxx"

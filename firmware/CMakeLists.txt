@@ -86,6 +86,9 @@ set(BIBO_LIB
     lib/pins.hxx
     lib/sfx.hxx
     lib/sound.hxx
+    lib/geom.hxx
+    lib/kinematics.hxx
+    lib/pursuit.hxx
     lib/control.hxx
     lib/text.hxx
     lib/hal.hxx

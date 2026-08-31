@@ -431,7 +431,14 @@ LAYERS = {
                               '../lib/pins.hxx',
                               '../lib/sfx.hxx',
                               '../lib/control.hxx',
+                              '../lib/geom.hxx',
+                              '../lib/kinematics.hxx',
+                              '../lib/pursuit.hxx',
                               '../lib/chassis/odom.hxx',
+                              # The safety property, tested on the host through
+                              # tests/fakes/hal.hxx. This is the first test of a
+                              # module that includes hal.hxx at all.
+                              '../lib/chassis/chassis.hxx',
                               '../lib/drivers/dfplayer_proto.hxx'},
 }
 
@@ -446,6 +453,11 @@ LAYER_EXTRA = {
     'firmware/lib/pins.hxx': {'types.hxx', 'text.hxx'},
     # boot.hxx is serial + the pin map + a visible refusal, so it names
     # both. It is the one lib-root file that legitimately needs pins.
+    # hal.hxx names the host-test fake, behind #ifdef BIBO_FAKE_HAL, which is
+    # off in every image this project flashes. It is the one place the library
+    # reaches into tests/ and it is what let the chassis safety property be
+    # tested at all.
+    'firmware/lib/hal.hxx': {'types.hxx', '../tests/fakes/hal.hxx'},
     'firmware/lib/boot.hxx': {'hal.hxx', 'pins.hxx'},
     # sfx.hxx is names and numbers - what the clips on the card MEAN. A leaf
     # like pins: types for the vocabulary, text to compare a name. No SDK, so
@@ -456,6 +468,12 @@ LAYER_EXTRA = {
     # lets both be tested on the host against invented inputs instead of by
     # driving a car at something.
     'firmware/lib/control.hxx': {'types.hxx'},
+    # The autonomy maths, all pure and all portable: geom is the frame, kin is
+    # the bicycle model on top of it, pursuit is the follower on top of that.
+    # A strict stack, each naming only the one below.
+    'firmware/lib/geom.hxx': {'types.hxx'},
+    'firmware/lib/kinematics.hxx': {'geom.hxx'},
+    'firmware/lib/pursuit.hxx': {'geom.hxx', 'kinematics.hxx'},
     'firmware/lib/chassis/odom.hxx': {'../types.hxx'},
     # sound.hxx owns the speaker and names what comes out of it, so it reaches
     # down to the driver and sideways to the clip table and the pin map. The
@@ -473,6 +491,7 @@ LAYER_EXTRA = {
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
                             'pins.hxx', 'sfx.hxx', 'sound.hxx', 'boot.hxx',
                             'control.hxx', 'chassis/odom.hxx',
+                            'geom.hxx', 'kinematics.hxx', 'pursuit.hxx',
                             'drivers/dfplayer.hxx', 'drivers/display.hxx',
                             'drivers/range.hxx', 'drivers/storage.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
