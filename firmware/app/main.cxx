@@ -263,7 +263,7 @@ static Void sensorsOpen(Void)
         return;
     }
 
-    tofUp = bibo::tof::open(&tofFront, SENSOR_SDA, VL53_ADDR_DEFAULT);
+    tofUp = bibo::tof::open(&tofFront, VL53_ADDR_DEFAULT);
     if(tofUp)
     {
         /* Checked, because a sensor that opened but never STARTED reports "not
@@ -1151,6 +1151,11 @@ static UInt16 soundTrack  = 1;
  * board is running. */
 static UInt16 soundFiles  = 0;
 
+/* The equaliser, remembered like the volume so SOUND can report it and the hub
+ * can show which one is on. Re-applied after a reset, because a reset returns
+ * the module to Normal. */
+static UInt8  soundEq     = DFP_EQ_NORMAL;
+
 /* Whether RESET has been run since power-on.
  *
  * The card takes 1.5-3 s to mount and a play sent before that is LOST - no
@@ -1163,10 +1168,11 @@ static Bool soundReady = false;
 static Void printSound(Void)
 {
     bibo::serial::printf(
-        "OK sound ready=%s vol=%u max=%u track=%u files=%u busy=%s tx=%d rx=%d busyGp=%d\n",
+        "OK sound ready=%s vol=%u max=%u eq=%u track=%u files=%u busy=%s tx=%d rx=%d busyGp=%d\n",
         soundReady ? "yes" : "no",
         static_cast<UInt32>(soundVolume),
         static_cast<UInt32>(DFP_VOLUME_MAX),
+        static_cast<UInt32>(soundEq),
         static_cast<UInt32>(soundTrack),
         static_cast<UInt32>(soundFiles),
         !bibo::dfplayer::hasBusy(&soundBus)
@@ -1193,6 +1199,10 @@ static Void cmdSound(CharSeq arg)
         bibo::dfplayer::reset(&soundBus);
         bibo::dfplayer::useCard(&soundBus);
         bibo::dfplayer::volume(&soundBus, soundVolume);
+
+        /* A reset returns the module to Normal, so the setting has to be put
+         * back or it silently reverts and the console still claims it is on. */
+        bibo::dfplayer::eq(&soundBus, soundEq);
         soundReady = true;
 
         /* Asked here because a reset is exactly when the card is remounted and
@@ -1281,6 +1291,29 @@ static Void cmdSound(CharSeq arg)
      * A silent module is reported as such rather than as zero files. Zero is a
      * legitimate answer from an empty card and must not be confused with no
      * answer at all. */
+    /* SOUND EQ <0-5> - tone, NOT level.
+     *
+     * Here because it is what everybody reaches for when 30 is not loud enough,
+     * and it is worth being able to try rather than guess about. It cannot
+     * raise the ceiling: 30 is the top of the protocol's range and the module
+     * clamps there. */
+    if(bibo::text::starts(arg, "EQ"))
+    {
+        Int32 m = 0;
+        if(!bibo::text::toInt(bibo::text::after(arg, "EQ "), &m)
+           || m < 0 || m > static_cast<Int32>(DFP_EQ_MAX))
+        {
+            bibo::serial::printLine(
+                "ERR sound EQ wants 0-5: normal pop rock jazz classic bass");
+            return;
+        }
+
+        soundEq = static_cast<UInt8>(m);
+        bibo::dfplayer::eq(&soundBus, soundEq);
+        printSound();
+        return;
+    }
+
     if(bibo::text::eq(arg, "FILES"))
     {
         UInt16 n = 0;
@@ -1305,7 +1338,7 @@ static Void cmdSound(CharSeq arg)
         Size  at = 0;
         Int32 n  = 0;
 
-        line[0] = ' ';
+        line[0] = '\0';
 
         while(bibo::uart::readable(uart0) && n < 24)
         {
@@ -1362,7 +1395,7 @@ static Void cmdSound(CharSeq arg)
     }
 
     bibo::serial::printLine(
-        "ERR sound wants RESET|VOL <0-30>|PLAY <n>|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV");
+        "ERR sound wants RESET|VOL <0-30>|EQ <0-5>|PLAY <n>|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV");
 }
 
 static const Command COMMANDS[] =
@@ -1391,7 +1424,7 @@ static const Command COMMANDS[] =
     { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
     { "CUE",         " [LIST|STOP|<name> [OFF]]",     "what the car says, and saying it",      cmdCue },
 
-    { "SOUND",       " [RESET|VOL <0-30>|PLAY <n>|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV]",
+    { "SOUND",       " [RESET|VOL <0-30>|EQ <0-5>|PLAY <n>|FILES|RX|STOP|...]",
                                                 "the speaker",                              cmdSound },
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
@@ -1488,10 +1521,7 @@ int main(Void)
      * silently ran with no pins would be a very confusing hour. */
     if(!bibo::pins::begin(bibo::pins::car()))
     {
-        bibo::serial::printf("ERR pins %s and %s both want GP%d\n",
-                             bibo::pins::conflictFirst(),
-                             bibo::pins::conflictSecond(),
-                             bibo::pins::conflictPin());
+        bibo::serial::printf("ERR %s\n", bibo::pins::conflictText());
     }
 
     /* Sensors come up at boot so SENSORS and TOF can answer immediately. A

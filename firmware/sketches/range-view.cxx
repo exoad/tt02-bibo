@@ -100,10 +100,7 @@ int main(Void)
 
     if(!pins::begin(wiring))
     {
-        serial::printf("ERR pins %s and %s both want GP%d\n",
-                       pins::conflictFirst(),
-                       pins::conflictSecond(),
-                       pins::conflictPin());
+        serial::printf("ERR %s\n", pins::conflictText());
         return 1;
     }
 
@@ -142,8 +139,7 @@ int main(Void)
      * while haveTof still says yes. Short-circuiting is right here - there
      * is nothing to start on a sensor that did not open. */
     const Bool haveTof = haveBus
-                      && tof::open(&tof, pins::active().i2cSda,
-                                   VL53_ADDR_DEFAULT)
+                      && tof::open(&tof, VL53_ADDR_DEFAULT)
                       && tof::startRanging(&tof);
 
     UInt16 mm     = 0;

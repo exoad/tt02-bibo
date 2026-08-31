@@ -437,6 +437,10 @@ LAYERS = {
 # silence.
 LAYER_EXTRA = {
     'firmware/lib/gfx.hxx':  {'drivers/display.hxx'},
+    # pins.hxx formats its own conflict message, so it names text.hxx.
+    # text.hxx is a leaf - types.hxx and the C headers - so this is a
+    # sideways reach that cannot cycle, the same shape as gfx -> display.
+    'firmware/lib/pins.hxx': {'types.hxx', 'text.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
     'firmware/lib/lights.hxx': {'hal.hxx'},
     'firmware/lib/net.hxx': {'hal.hxx'},
