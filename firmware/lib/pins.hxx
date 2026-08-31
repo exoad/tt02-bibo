@@ -105,11 +105,34 @@ namespace bibo
         Int32 revL      = NONE;
         Int32 revR      = NONE;
 
+        /* the SPI display.
+         *
+         * SCK and MOSI are fixed by the silicon for a given SPI block - GP18
+         * and GP19 are SPI0 - while CS, DC and RES are plain GPIOs and are free
+         * choices. Both kinds live here anyway: a caller should not have to
+         * know which of the five it is allowed to move.
+         *
+         * A SHARED BUS IS TWO ROLES ON ONE PAD and begin() would reject it. The
+         * MicroSD card is meant to sit on this same SCK/MOSI with its own chip
+         * select, so when it goes on it wants a bus concept rather than another
+         * pair of pin fields. Not solved here; written down so it is not a
+         * surprise the day somebody adds sdSck and the map refuses to load. */
+        Int32 tftSck    = NONE;
+        Int32 tftMosi   = NONE;
+        Int32 tftCs     = NONE;
+        Int32 tftDc     = NONE;
+        Int32 tftRes    = NONE;
+
+        /* The panel's backlight. NONE means it is tied to 3V3 and always on,
+         * which is how these boards ship - tft::brightness() then says so
+         * rather than pretending to dim a pad nothing is driving. */
+        Int32 tftBlk    = NONE;
+
         /* sensors */
         Int32 encoder   = NONE;
     } Map;
 
-    constexpr Size FIELD_COUNT = 18;
+    constexpr Size FIELD_COUNT = 24;
 
     static_assert(sizeof(Map) == FIELD_COUNT * sizeof(Int32),
                   "pins::Map must be exactly FIELD_COUNT Int32 fields - a role "
@@ -123,6 +146,7 @@ namespace bibo
         "headL", "headR", "tailL", "tailR",
         "indFL", "indFR", "indRL", "indRR",
         "revL", "revR",
+        "tftSck", "tftMosi", "tftCs", "tftDc", "tftRes", "tftBlk",
         "encoder"
     };
 
@@ -166,6 +190,12 @@ namespace bibo
         m.tailR     = NONE; /* was 14, now soundTx */
         m.indFL     = 13;
         m.indFR     = 12;
+
+        m.tftSck    = 18;   /* SPI0 SCK, fixed by the silicon */
+        m.tftMosi   = 19;   /* SPI0 TX                        */
+        m.tftCs     = 17;
+        m.tftDc     = 21;
+        m.tftRes    = 20;
 
         m.encoder   = NONE; /* GP15 was earmarked; sound has it */
 
@@ -289,6 +319,7 @@ namespace bibo
         14, 15, 9,        /* sound tx, rx, busy */
         11, 10,           /* headlights        */
         13, 12,           /* front indicators  */
+        18, 19, 17, 21, 20, /* display sck, mosi, cs, dc, res */
     };
 
     constexpr Size CAR_PAD_COUNT = sizeof(CAR_PADS) / sizeof(CAR_PADS[0]);

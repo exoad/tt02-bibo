@@ -169,62 +169,200 @@ namespace bibo
     static UInt16 buf[PANEL_MAX_W * PANEL_MAX_H];
     static Bool   bufTaken = false;
 
-    /* ---- the safe area -------------------------------------------------------
+    /* ===========================================================================
+     * THE VALUE TYPES.
      *
-     * Rounded corners are cut into the glass, so the outermost pixels of a panel
-     * are addressable and invisible. Anything at a corner is lost, and text along
-     * an edge vanishes into the curve.
+     * A point is a point and a rectangle is a rectangle. These existed as loose
+     * Int32 parameters - x, y, w, h - four at a time through forty signatures,
+     * which is how `triangleFill` came to take seven numbers in a row where a
+     * transposed pair is a silent bug rather than a compile error.
+     * ======================================================================== */
+    typedef struct Point
+    {
+        Int32 x;
+        Int32 y;
+    } Point;
+
+    typedef struct Box
+    {
+        Int32 x;
+        Int32 y;
+        Int32 w;
+        Int32 h;
+    } Box;
+
+    /* ---------------------------------------------------------------------------
+     * Paint - how a thing is drawn, as a VALUE.
      *
-     * Set the inset once and lay out against these instead of against 0 and
-     * width/height. The full rectangle is still reachable - gfx::clear() fills it,
-     * and a background should - but anything that has to be READ belongs inside.
+     * Flutter's idea, and it earns its place here for the same reason it does
+     * there: style used to be sticky state on the screen, so `textColour()` set a
+     * colour that stayed set, and a function that drew red text left the next
+     * caller drawing red text. That is a bug you find by looking at the screen
+     * rather than at the code.
      *
-     *     gfx::safeInset(&screen, 12);
-     *     gfx::textAt(&screen, gfx::safeLeft(&screen), gfx::safeTop(&screen), "HELLO");
+     * A Paint is passed, used, and forgotten. Two paints side by side describe two
+     * appearances without either one leaking into the other.
+     * ------------------------------------------------------------------------ */
+    typedef enum Align
+    {
+        ALIGN_LEFT = 0,
+        ALIGN_CENTRE,
+        ALIGN_RIGHT
+    } Align;
+
+    typedef struct Paint
+    {
+        UInt16 fg;
+        UInt16 bg;
+        Bool   bgSolid;   /* false: draw the glyph only, leave the background */
+        Int32  size;      /* integer scale of the 5x7 font, >= 1 */
+    } Paint;
+
+    /* ---------------------------------------------------------------------------
+     * Canvas - the thing you draw on.
      *
-     * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
-     * for a frame to check against, then take it out.
-     */
-    static Void safeInset(tft::Screen* s, Int32 inset)
+     * Holds a panel and the state that BELONGS TO DRAWING: the back buffer, which
+     * rows are dirty, the clip rectangle, and the text cursor. All of that used to
+     * live in tft::Screen under a comment that said "gfx.h's business", which is
+     * a fair description of a field in the wrong struct.
+     *
+     * The panel keeps what is a fact about the HARDWARE - its size, its pins, and
+     * the safe inset, which is a property of the glass. A Canvas is passed one and
+     * does not own it: open two canvases on one panel and they share it, which is
+     * the same thing two painters sharing a wall would mean.
+     * ------------------------------------------------------------------------ */
+    typedef struct Canvas
     {
-        const Int32 most = ((s->width < s->height) ? s->width : s->height) / 3;
-        s->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
-    }
+        tft::Screen* panel;
 
-    static Int32 safeLeft(const tft::Screen* s)
+        /* The back buffer, or NULL to draw straight at the panel. */
+        UInt16* buf;
+
+        /* Rows touched since the last present. Pushing only these is what makes a
+         * small update cheap - a clock ticking in a corner sends twenty rows. */
+        Int32 dirtyTop;
+        Int32 dirtyBot;
+
+        Int32 clipX;
+        Int32 clipY;
+        Int32 clipW;
+        Int32 clipH;
+
+        /* Sticky only for print()/printLine(), which are a stream and need a
+         * position to continue from. Everything else takes a Paint. */
+        Int32  cursorX;
+        Int32  cursorY;
+        UInt16 fg;
+        UInt16 bg;
+        Bool   bgSolid;
+        Int32  textScale;
+
+        /* ---- the drawing surface ---------------------------------------------
+         *
+         * Every one of these returns *this, so a frame reads as a sequence of
+         * things drawn rather than forty repetitions of the canvas's name. The
+         * implementations are in detail:: below; these are the API.
+         * ------------------------------------------------------------------- */
+        Canvas& clear(UInt16 colour);
+        Canvas& present();
+
+        Canvas& pixel(Point p, UInt16 colour);
+        Canvas& line(Point a, Point b, UInt16 colour);
+        Canvas& rect(const Box& b, UInt16 colour);
+        Canvas& rectFill(const Box& b, UInt16 colour);
+        Canvas& roundRect(const Box& b, Int32 radius, UInt16 colour);
+        Canvas& roundRectFill(const Box& b, Int32 radius, UInt16 colour);
+        Canvas& circle(Point centre, Int32 radius, UInt16 colour);
+        Canvas& circleFill(Point centre, Int32 radius, UInt16 colour);
+        Canvas& triangle(Point a, Point b, Point cc, UInt16 colour);
+        Canvas& triangleFill(Point a, Point b, Point cc, UInt16 colour);
+
+        /* Text takes a Paint rather than leaving a colour set behind it. */
+        Canvas& text(Point at, const Utf8* str, const Paint& paint);
+        Canvas& text(Point at, const Utf8* str, const Paint& paint, Align align);
+        Canvas& printf(Point at, const Paint& paint, const Utf8* fmt, ...);
+
+        /* Clipping and the safe area. */
+        Canvas& clip(const Box& b);
+        Canvas& clipReset();
+        Canvas& safeInset(Int32 px);
+        Canvas& safeOutline(UInt16 colour);
+
+        /* Queries - const, and not chainable, because they answer rather than
+         * draw. */
+        Int32 width() const;
+        Int32 height() const;
+        Box   safe() const;
+        Int32 textWidth(const Utf8* str, const Paint& paint) const;
+        Int32 textHeight(const Paint& paint) const;
+    } Canvas;
+
+    /* ===========================================================================
+     * detail - the implementations.
+     *
+     * These are the functions this file has always had, still taking their
+     * canvas as a first parameter. They are not the API: Canvas's methods are,
+     * and they are the only thing a sketch should name.
+     * ======================================================================== */
+    namespace detail
     {
-        return s->safeInset;
-    }
 
-    static Int32 safeTop(const tft::Screen* s)
-    {
-        return s->safeInset;
-    }
+      /* ---- the safe area -------------------------------------------------------
+      *
+      * Rounded corners are cut into the glass, so the outermost pixels of a panel
+      * are addressable and invisible. Anything at a corner is lost, and text along
+      * an edge vanishes into the curve.
+      *
+      * Set the inset once and lay out against these instead of against 0 and
+      * width/height. The full rectangle is still reachable - gfx::clear() fills it,
+      * and a background should - but anything that has to be READ belongs inside.
+      *
+      *     gfx::safeInset(&screen, 12);
+      *     gfx::textAt(&screen, gfx::safeLeft(&screen), gfx::safeTop(&screen), "HELLO");
+      *
+      * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
+      * for a frame to check against, then take it out.
+      */
+      static Void safeInset(Canvas* cv, Int32 inset)
+      {
+        const Int32 most = ((cv->panel->width < cv->panel->height) ? cv->panel->width : cv->panel->height) / 3;
+        cv->panel->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
+      }
 
-    static Int32 safeRight(const tft::Screen* s)
-    {
-        return s->width - s->safeInset;
-    }
+      static Int32 safeLeft(const Canvas* cv)
+      {
+        return cv->panel->safeInset;
+      }
 
-    static Int32 safeBottom(const tft::Screen* s)
-    {
-        return s->height - s->safeInset;
-    }
+      static Int32 safeTop(const Canvas* cv)
+      {
+        return cv->panel->safeInset;
+      }
 
-    static Int32 safeWidth(const tft::Screen* s)
-    {
-        return s->width - (2 * s->safeInset);
-    }
+      static Int32 safeRight(const Canvas* cv)
+      {
+        return cv->panel->width - cv->panel->safeInset;
+      }
 
-    static Int32 safeHeight(const tft::Screen* s)
-    {
-        return s->height - (2 * s->safeInset);
-    }
+      static Int32 safeBottom(const Canvas* cv)
+      {
+        return cv->panel->height - cv->panel->safeInset;
+      }
 
-    /* ---- clipping ------------------------------------------------------------ */
+      static Int32 safeWidth(const Canvas* cv)
+      {
+        return cv->panel->width - (2 * cv->panel->safeInset);
+      }
 
-    static Void clip(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
-    {
+      static Int32 safeHeight(const Canvas* cv)
+      {
+        return cv->panel->height - (2 * cv->panel->safeInset);
+      }
+
+      /* ---- clipping ------------------------------------------------------------ */
+
+      static Void clip(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h)
+      {
         if(x < 0)
         {
             w += x;
@@ -235,13 +373,13 @@ namespace bibo
             h += y;
             y = 0;
         }
-        if(x + w > s->width)
+        if(x + w > cv->panel->width)
         {
-            w = s->width - x;
+            w = cv->panel->width - x;
         }
-        if(y + h > s->height)
+        if(y + h > cv->panel->height)
         {
-            h = s->height - y;
+            h = cv->panel->height - y;
         }
         if(w < 0)
         {
@@ -252,178 +390,178 @@ namespace bibo
             h = 0;
         }
 
-        s->clipX = x;
-        s->clipY = y;
-        s->clipW = w;
-        s->clipH = h;
-    }
+        cv->clipX = x;
+        cv->clipY = y;
+        cv->clipW = w;
+        cv->clipH = h;
+      }
 
-    static Void clipReset(tft::Screen* s)
-    {
-        clip(s, 0, 0, s->width, s->height);
-    }
+      static Void clipReset(Canvas* cv)
+      {
+        clip(cv, 0, 0, cv->panel->width, cv->panel->height);
+      }
 
-    /* ---- the two primitives everything is built from -------------------------
-     *
-     * A horizontal run is the fast path in both modes: a memory fill when buffered,
-     * and ONE address window when not. Every shape below is expressed as runs for
-     * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
-     * and drawn as spans it is thirty.
-     */
-    static Void span(tft::Screen* s, Int32 x, Int32 y, Int32 len, UInt16 colour)
-    {
-        if(len <= 0 || y < s->clipY || y >= s->clipY + s->clipH)
+      /* ---- the two primitives everything is built from -------------------------
+      *
+      * A horizontal run is the fast path in both modes: a memory fill when buffered,
+      * and ONE address window when not. Every shape below is expressed as runs for
+      * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
+      * and drawn as spans it is thirty.
+      */
+      static Void span(Canvas* cv, Int32 x, Int32 y, Int32 len, UInt16 colour)
+      {
+        if(len <= 0 || y < cv->clipY || y >= cv->clipY + cv->clipH)
         {
             return;
         }
-        if(x < s->clipX)
+        if(x < cv->clipX)
         {
-            len -= (s->clipX - x);
-            x = s->clipX;
+            len -= (cv->clipX - x);
+            x = cv->clipX;
         }
-        if(x + len > s->clipX + s->clipW)
+        if(x + len > cv->clipX + cv->clipW)
         {
-            len = (s->clipX + s->clipW) - x;
+            len = (cv->clipX + cv->clipW) - x;
         }
         if(len <= 0)
         {
             return;
         }
 
-        if(s->buf != NULL)
+        if(cv->buf != NULL)
         {
-            UInt16* p = &s->buf[(y * PANEL_MAX_W) + x];
+            UInt16* p = &cv->buf[(y * PANEL_MAX_W) + x];
             for(Int32 i = 0; i < len; ++i)
             {
                 p[i] = colour;
             }
-            if(y < s->dirtyTop)
+            if(y < cv->dirtyTop)
             {
-                s->dirtyTop = y;
+                cv->dirtyTop = y;
             }
-            if(y > s->dirtyBot)
+            if(y > cv->dirtyBot)
             {
-                s->dirtyBot = y;
+                cv->dirtyBot = y;
             }
         }
         else
         {
-            tft::rect(s, x, y, len, 1, colour);
+            tft::detail::rect(cv->panel, x, y, len, 1, colour);
         }
-    }
+      }
 
-    static Void pixel(tft::Screen* s, Int32 x, Int32 y, UInt16 colour)
-    {
-        span(s, x, y, 1, colour);
-    }
+      static Void pixel(Canvas* cv, Int32 x, Int32 y, UInt16 colour)
+      {
+        span(cv, x, y, 1, colour);
+      }
 
-    /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
-     * be read - so this returns black without one rather than lying. */
-    static UInt16 peek(const tft::Screen* s, Int32 x, Int32 y)
-    {
-        if(s->buf == NULL || x < 0 || y < 0 || x >= s->width || y >= s->height)
+      /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
+      * be read - so this returns black without one rather than lying. */
+      static UInt16 peek(const Canvas* cv, Int32 x, Int32 y)
+      {
+        if(cv->buf == NULL || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
         {
             return GFX_BLACK;
         }
-        return s->buf[(y * PANEL_MAX_W) + x];
-    }
+        return cv->buf[(y * PANEL_MAX_W) + x];
+      }
 
-    /* Alpha, which needs to read what is already there and so needs the buffer. */
-    static Void pixelBlend(tft::Screen* s, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
-    {
-        pixel(s, x, y, blend(peek(s, x, y), colour, alpha));
-    }
+      /* Alpha, which needs to read what is already there and so needs the buffer. */
+      static Void pixelBlend(Canvas* cv, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
+      {
+        pixel(cv, x, y, blend(peek(cv, x, y), colour, alpha));
+      }
 
-    /* ---- present ------------------------------------------------------------- */
+      /* ---- present ------------------------------------------------------------- */
 
-    static Void present(tft::Screen* s)
-    {
-        if(s->buf == NULL || s->dirtyBot < s->dirtyTop)
+      static Void present(Canvas* cv)
+      {
+        if(cv->buf == NULL || cv->dirtyBot < cv->dirtyTop)
         {
             return;                     /* nothing changed; do not touch the panel */
         }
 
-        const Int32 y = s->dirtyTop;
-        const Int32 h = (s->dirtyBot - s->dirtyTop) + 1;
-        const Int32 w = s->width;
+        const Int32 y = cv->dirtyTop;
+        const Int32 h = (cv->dirtyBot - cv->dirtyTop) + 1;
+        const Int32 w = cv->panel->width;
 
         /* The buffer holds native-endian UInt16 and the panel wants big-endian, so
          * this cannot be one memcpy of the frame - the bytes go out a row at a time
          * through a swap. Still one address window and ONE transaction for the lot,
          * which is where nearly all of the win is. */
         UInt8 row[PANEL_MAX_W * 2];
-        tft::beginPixels(s, 0, y, w, h);
+        tft::beginPixels(cv->panel, 0, y, w, h);
         for(Int32 r = 0; r < h; ++r)
         {
-            const UInt16* src = &s->buf[((y + r) * PANEL_MAX_W)];
+            const UInt16* src = &cv->buf[((y + r) * PANEL_MAX_W)];
             for(Int32 i = 0; i < w; ++i)
             {
                 row[i * 2]     = static_cast<UInt8>(src[i] >> 8);
                 row[i * 2 + 1] = static_cast<UInt8>(src[i] & 0xFF);
             }
-            spi::write(s->sck, row, static_cast<Size>(w * 2));
+            spi::write(cv->panel->sck, row, static_cast<Size>(w * 2));
         }
-        tft::endPixels(s);
+        tft::endPixels(cv->panel);
 
-        s->dirtyTop = s->height;
-        s->dirtyBot = -1;
-    }
+        cv->dirtyTop = cv->panel->height;
+        cv->dirtyBot = -1;
+      }
 
-    static Void clear(tft::Screen* s, UInt16 colour)
-    {
-        for(Int32 y = 0; y < s->height; ++y)
+      static Void clear(Canvas* cv, UInt16 colour)
+      {
+        for(Int32 y = 0; y < cv->panel->height; ++y)
         {
-            span(s, 0, y, s->width, colour);
+            span(cv, 0, y, cv->panel->width, colour);
         }
-    }
+      }
 
-    /* ---- rectangles ---------------------------------------------------------- */
+      /* ---- rectangles ---------------------------------------------------------- */
 
-    static Void rectFill(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
-    {
+      static Void rectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      {
         for(Int32 r = 0; r < h; ++r)
         {
-            span(s, x, y + r, w, colour);
+            span(cv, x, y + r, w, colour);
         }
-    }
+      }
 
-    static Void rect(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
-    {
+      static Void rect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      {
         if(w <= 0 || h <= 0)
         {
             return;
         }
-        span(s, x, y, w, colour);
-        span(s, x, y + h - 1, w, colour);
+        span(cv, x, y, w, colour);
+        span(cv, x, y + h - 1, w, colour);
         for(Int32 r = 1; r < h - 1; ++r)
         {
-            pixel(s, x, y + r, colour);
-            pixel(s, x + w - 1, y + r, colour);
+            pixel(cv, x, y + r, colour);
+            pixel(cv, x + w - 1, y + r, colour);
         }
-    }
+      }
 
-    /* ---- lines --------------------------------------------------------------- */
+      /* ---- lines --------------------------------------------------------------- */
 
-    static Void hLine(tft::Screen* s, Int32 x, Int32 y, Int32 w, UInt16 colour)
-    {
-        span(s, x, y, w, colour);
-    }
+      static Void hLine(Canvas* cv, Int32 x, Int32 y, Int32 w, UInt16 colour)
+      {
+        span(cv, x, y, w, colour);
+      }
 
-    static Void vLine(tft::Screen* s, Int32 x, Int32 y, Int32 h, UInt16 colour)
-    {
+      static Void vLine(Canvas* cv, Int32 x, Int32 y, Int32 h, UInt16 colour)
+      {
         for(Int32 i = 0; i < h; ++i)
         {
-            pixel(s, x, y + i, colour);
+            pixel(cv, x, y + i, colour);
         }
-    }
+      }
 
-    /*
-     * Bresenham. Integer only - no division and no floating point in the loop -
-     * which is why it has survived since 1962 and is still right on a
-     * microcontroller.
-     */
-    static Void line(tft::Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
-    {
+      /*
+      * Bresenham. Integer only - no division and no floating point in the loop -
+      * which is why it has survived since 1962 and is still right on a
+      * microcontroller.
+      */
+      static Void line(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
+      {
         const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
         const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
         const Int32 sx = x0 < x1 ? 1 : -1;
@@ -433,12 +571,12 @@ namespace bibo
          * worth the span path instead of stepping pixel by pixel. */
         if(dy == 0)
         {
-            span(s, (x0 < x1) ? x0 : x1, y0, dx + 1, colour);
+            span(cv, (x0 < x1) ? x0 : x1, y0, dx + 1, colour);
             return;
         }
         if(dx == 0)
         {
-            vLine(s, x0, (y0 < y1) ? y0 : y1, dy + 1, colour);
+            vLine(cv, x0, (y0 < y1) ? y0 : y1, dy + 1, colour);
             return;
         }
 
@@ -448,7 +586,7 @@ namespace bibo
 
         while(true)
         {
-            pixel(s, x, y, colour);
+            pixel(cv, x, y, colour);
             if(x == x1 && y == y1)
             {
                 break;
@@ -465,12 +603,12 @@ namespace bibo
                 y   += sy;
             }
         }
-    }
+      }
 
-    /* ---- circles ------------------------------------------------------------- */
+      /* ---- circles ------------------------------------------------------------- */
 
-    static Void circle(tft::Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
-    {
+      static Void circle(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+      {
         if(r < 0)
         {
             return;
@@ -480,14 +618,14 @@ namespace bibo
         Int32 d = 1 - r;
         while(x <= y)
         {
-            pixel(s, cx + x, cy + y, colour);
-            pixel(s, cx - x, cy + y, colour);
-            pixel(s, cx + x, cy - y, colour);
-            pixel(s, cx - x, cy - y, colour);
-            pixel(s, cx + y, cy + x, colour);
-            pixel(s, cx - y, cy + x, colour);
-            pixel(s, cx + y, cy - x, colour);
-            pixel(s, cx - y, cy - x, colour);
+            pixel(cv, cx + x, cy + y, colour);
+            pixel(cv, cx - x, cy + y, colour);
+            pixel(cv, cx + x, cy - y, colour);
+            pixel(cv, cx - x, cy - y, colour);
+            pixel(cv, cx + y, cy + x, colour);
+            pixel(cv, cx - y, cy + x, colour);
+            pixel(cv, cx + y, cy - x, colour);
+            pixel(cv, cx - y, cy - x, colour);
             ++x;
             if(d < 0)
             {
@@ -499,10 +637,10 @@ namespace bibo
                 d += (2 * (x - y)) + 1;
             }
         }
-    }
+      }
 
-    static Void circleFill(tft::Screen* s, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
-    {
+      static Void circleFill(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+      {
         if(r < 0)
         {
             return;
@@ -512,10 +650,10 @@ namespace bibo
         Int32 d = 1 - r;
         while(x <= y)
         {
-            span(s, cx - x, cy + y, (2 * x) + 1, colour);
-            span(s, cx - x, cy - y, (2 * x) + 1, colour);
-            span(s, cx - y, cy + x, (2 * y) + 1, colour);
-            span(s, cx - y, cy - x, (2 * y) + 1, colour);
+            span(cv, cx - x, cy + y, (2 * x) + 1, colour);
+            span(cv, cx - x, cy - y, (2 * x) + 1, colour);
+            span(cv, cx - y, cy + x, (2 * y) + 1, colour);
+            span(cv, cx - y, cy - x, (2 * y) + 1, colour);
             ++x;
             if(d < 0)
             {
@@ -527,16 +665,16 @@ namespace bibo
                 d += (2 * (x - y)) + 1;
             }
         }
-    }
+      }
 
-    /* ---- rounded rectangles --------------------------------------------------
-     *
-     * Filled as three bands plus four corner discs. A disc of radius r centred r in
-     * from each edge cannot reach past it, so the overdraw is free of side effects
-     * and the code stays short.
-     */
-    static Void roundRectFill(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
-    {
+      /* ---- rounded rectangles --------------------------------------------------
+      *
+      * Filled as three bands plus four corner discs. A disc of radius r centred r in
+      * from each edge cannot reach past it, so the overdraw is free of side effects
+      * and the code stays short.
+      */
+      static Void roundRectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+      {
         if(w <= 0 || h <= 0)
         {
             return;
@@ -548,22 +686,22 @@ namespace bibo
         }
         if(r <= 0)
         {
-            rectFill(s, x, y, w, h, colour);
+            rectFill(cv, x, y, w, h, colour);
             return;
         }
 
-        rectFill(s, x + r, y, w - (2 * r), h, colour);
-        rectFill(s, x, y + r, r, h - (2 * r), colour);
-        rectFill(s, x + w - r, y + r, r, h - (2 * r), colour);
+        rectFill(cv, x + r, y, w - (2 * r), h, colour);
+        rectFill(cv, x, y + r, r, h - (2 * r), colour);
+        rectFill(cv, x + w - r, y + r, r, h - (2 * r), colour);
 
-        circleFill(s, x + r,         y + r,         r, colour);
-        circleFill(s, x + w - r - 1, y + r,         r, colour);
-        circleFill(s, x + r,         y + h - r - 1, r, colour);
-        circleFill(s, x + w - r - 1, y + h - r - 1, r, colour);
-    }
+        circleFill(cv, x + r,         y + r,         r, colour);
+        circleFill(cv, x + w - r - 1, y + r,         r, colour);
+        circleFill(cv, x + r,         y + h - r - 1, r, colour);
+        circleFill(cv, x + w - r - 1, y + h - r - 1, r, colour);
+      }
 
-    static Void roundRect(tft::Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
-    {
+      static Void roundRect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+      {
         if(w <= 0 || h <= 0)
         {
             return;
@@ -575,29 +713,29 @@ namespace bibo
         }
         if(r <= 0)
         {
-            rect(s, x, y, w, h, colour);
+            rect(cv, x, y, w, h, colour);
             return;
         }
 
-        span(s, x + r, y, w - (2 * r), colour);
-        span(s, x + r, y + h - 1, w - (2 * r), colour);
-        vLine(s, x, y + r, h - (2 * r), colour);
-        vLine(s, x + w - 1, y + r, h - (2 * r), colour);
+        span(cv, x + r, y, w - (2 * r), colour);
+        span(cv, x + r, y + h - 1, w - (2 * r), colour);
+        vLine(cv, x, y + r, h - (2 * r), colour);
+        vLine(cv, x + w - 1, y + r, h - (2 * r), colour);
 
         Int32 cx = 0;
         Int32 cy = r;
         Int32 d  = 1 - r;
         while(cx <= cy)
         {
-            pixel(s, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
-            pixel(s, x + r - cx,         y + h - r - 1 + cy, colour);
-            pixel(s, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
-            pixel(s, x + r - cy,         y + h - r - 1 + cx, colour);
+            pixel(cv, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
+            pixel(cv, x + r - cx,         y + h - r - 1 + cy, colour);
+            pixel(cv, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
+            pixel(cv, x + r - cy,         y + h - r - 1 + cx, colour);
 
-            pixel(s, x + w - r - 1 + cx, y + r - cy, colour);
-            pixel(s, x + r - cx,         y + r - cy, colour);
-            pixel(s, x + w - r - 1 + cy, y + r - cx, colour);
-            pixel(s, x + r - cy,         y + r - cx, colour);
+            pixel(cv, x + w - r - 1 + cx, y + r - cy, colour);
+            pixel(cv, x + r - cx,         y + r - cy, colour);
+            pixel(cv, x + w - r - 1 + cy, y + r - cx, colour);
+            pixel(cv, x + r - cy,         y + r - cx, colour);
 
             ++cx;
             if(d < 0)
@@ -610,23 +748,23 @@ namespace bibo
                 d += (2 * (cx - cy)) + 1;
             }
         }
-    }
+      }
 
-    /* ---- triangles ----------------------------------------------------------- */
+      /* ---- triangles ----------------------------------------------------------- */
 
-    static Void triangle(tft::Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
-    {
-        line(s, x0, y0, x1, y1, colour);
-        line(s, x1, y1, x2, y2, colour);
-        line(s, x2, y2, x0, y0, colour);
-    }
+      static Void triangle(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+      {
+        line(cv, x0, y0, x1, y1, colour);
+        line(cv, x1, y1, x2, y2, colour);
+        line(cv, x2, y2, x0, y0, colour);
+      }
 
-    /*
-     * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
-     * that share the middle vertex, filling a span between the active edges.
-     */
-    static Void triangleFill(tft::Screen* s, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
-    {
+      /*
+      * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
+      * that share the middle vertex, filling a span between the active edges.
+      */
+      static Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+      {
         Int32 tx = 0;
         Int32 ty = 0;
 
@@ -670,7 +808,7 @@ namespace bibo
             {
                 hi = x2;
             }
-            span(s, lo, y0, (hi - lo) + 1, colour);
+            span(cv, lo, y0, (hi - lo) + 1, colour);
             return;
         }
 
@@ -697,69 +835,69 @@ namespace bibo
 
             const Int32 lo = (ax < bx) ? ax : bx;
             const Int32 hi = (ax < bx) ? bx : ax;
-            span(s, lo, y, (hi - lo) + 1, colour);
+            span(cv, lo, y, (hi - lo) + 1, colour);
         }
-    }
+      }
 
-    /* ---- text ----------------------------------------------------------------
-     *
-     * Set the colour and size on the screen once, then draw. Two ways to place it:
-     * gfx::textAt() for an absolute position, or a cursor with gfx::print() for a
-     * readout that flows down the screen.
-     */
+      /* ---- text ----------------------------------------------------------------
+      *
+      * Set the colour and size on the screen once, then draw. Two ways to place it:
+      * gfx::textAt() for an absolute position, or a cursor with gfx::print() for a
+      * readout that flows down the screen.
+      */
 
-    static Void textColour(tft::Screen* s, UInt16 fg)
-    {
-        s->fg = fg;
-    }
+      static Void textColour(Canvas* cv, UInt16 fg)
+      {
+        cv->fg = fg;
+      }
 
-    /* An opaque background, which is what you want for a value that changes: the
-     * new text erases the old as it draws, with no flicker and no clear step. */
-    static Void textBackground(tft::Screen* s, UInt16 bg)
-    {
-        s->bg      = bg;
-        s->bgSolid = true;
-    }
+      /* An opaque background, which is what you want for a value that changes: the
+      * new text erases the old as it draws, with no flicker and no clear step. */
+      static Void textBackground(Canvas* cv, UInt16 bg)
+      {
+        cv->bg      = bg;
+        cv->bgSolid = true;
+      }
 
-    /* Leave whatever is behind the glyph alone - for text over a picture. */
-    static Void textTransparent(tft::Screen* s)
-    {
-        s->bgSolid = false;
-    }
+      /* Leave whatever is behind the glyph alone - for text over a picture. */
+      static Void textTransparent(Canvas* cv)
+      {
+        cv->bgSolid = false;
+      }
 
-    static Void textSize(tft::Screen* s, Int32 scale)
-    {
-        s->textScale = (scale < 1) ? 1 : ((scale > 8) ? 8 : scale);
-    }
+      static Void textSize(Canvas* cv, Int32 scale)
+      {
+        cv->textScale = (scale < 1) ? 1 : ((scale > 8) ? 8 : scale);
+      }
 
-    static Void cursor(tft::Screen* s, Int32 x, Int32 y)
-    {
-        s->cursorX = x;
-        s->cursorY = y;
-    }
+      static Void cursor(Canvas* cv, Int32 x, Int32 y)
+      {
+        cv->cursorX = x;
+        cv->cursorY = y;
+      }
 
-    static Int32 textHeight(const tft::Screen* s)
-    {
-        return 8 * s->textScale;
-    }
+      static Int32 textHeight(const Canvas* cv)
+      {
+        return 8 * cv->textScale;
+      }
 
-    static Int32 charWidth(const tft::Screen* s)
-    {
-        return 6 * s->textScale;
-    }
+      static Int32 charWidth(const Canvas* cv)
+      {
+        return 6 * cv->textScale;
+      }
 
-    static Int32 textWidth(const tft::Screen* s, const Utf8* str)
-    {
+      static Int32 textWidth(const Canvas* cv, const Utf8* str)
+      {
         Int32 n = 0;
         while(str != NULL && str[n] != '\0')
         {
             ++n;
         }
-        return n * charWidth(s);
-    }
+        return n * charWidth(cv);
+      }
 
-    static Void charAt(tft::Screen* s, Int32 x, Int32 y, Utf8 ch)
-    {
+      static Void charAt(Canvas* cv, Int32 x, Int32 y, Utf8 ch)
+      {
         Utf8 c = ch;
         if(c >= 'a' && c <= 'z')
         {
@@ -770,7 +908,7 @@ namespace bibo
             c = '?';
         }
 
-        const UInt8* const glyph = tft::FONT5X7[c - 32];
+        const UInt8* const glyph = tft::detail::FONT5X7[c - 32];
 
         for(Int32 col = 0; col < 6; ++col)
         {
@@ -779,39 +917,33 @@ namespace bibo
             for(Int32 row = 0; row < 8; ++row)
             {
                 const Bool on = (row < 7) && (((bits >> row) & 1u) != 0u);
-                if(!on && !s->bgSolid)
+                if(!on && !cv->bgSolid)
                 {
                     continue;                   /* see through to what is behind */
                 }
-                rectFill(s, x + (col * s->textScale), y + (row * s->textScale),
-                            s->textScale, s->textScale, on ? s->fg : s->bg);
+                rectFill(cv, x + (col * cv->textScale), y + (row * cv->textScale),
+                            cv->textScale, cv->textScale, on ? cv->fg : cv->bg);
             }
         }
-    }
+      }
 
-    static Void textAt(tft::Screen* s, Int32 x, Int32 y, const Utf8* str)
-    {
+      static Void textAt(Canvas* cv, Int32 x, Int32 y, const Utf8* str)
+      {
         Int32 cx = x;
         while(str != NULL && *str != '\0')
         {
-            charAt(s, cx, y, *str);
-            cx += charWidth(s);
+            charAt(cv, cx, y, *str);
+            cx += charWidth(cv);
             ++str;
         }
-    }
+      }
 
-    typedef enum Align
-    {
-        ALIGN_LEFT = 0,
-        ALIGN_CENTRE,
-        ALIGN_RIGHT
-    } Align;
 
-    /* `x` is the left edge, the centre or the right edge depending on `align` -
-     * which is what makes a value that changes width stay put. */
-    static Void textAligned(tft::Screen* s, Int32 x, Int32 y, const Utf8* str, Align align)
-    {
-        const Int32 w  = textWidth(s, str);
+      /* `x` is the left edge, the centre or the right edge depending on `align` -
+      * which is what makes a value that changes width stay put. */
+      static Void textAligned(Canvas* cv, Int32 x, Int32 y, const Utf8* str, Align align)
+      {
+        const Int32 w  = textWidth(cv, str);
         Int32       at = x;
         if(align == ALIGN_CENTRE)
         {
@@ -821,56 +953,75 @@ namespace bibo
         {
             at = x - w;
         }
-        textAt(s, at, y, str);
-    }
+        textAt(cv, at, y, str);
+      }
 
-    /* Draws at the cursor and advances it, so consecutive calls flow. */
-    static Void print(tft::Screen* s, const Utf8* str)
-    {
-        textAt(s, s->cursorX, s->cursorY, str);
-        s->cursorX += textWidth(s, str);
-    }
+      /* Draws at the cursor and advances it, so consecutive calls flow. */
+      static Void print(Canvas* cv, const Utf8* str)
+      {
+        textAt(cv, cv->cursorX, cv->cursorY, str);
+        cv->cursorX += textWidth(cv, str);
+      }
 
-    static Void printLine(tft::Screen* s, const Utf8* str)
-    {
-        textAt(s, s->cursorX, s->cursorY, str);
-        s->cursorY += textHeight(s) + (2 * s->textScale);
-    }
+      static Void printLine(Canvas* cv, const Utf8* str)
+      {
+        textAt(cv, cv->cursorX, cv->cursorY, str);
+        cv->cursorY += textHeight(cv) + (2 * cv->textScale);
+      }
 
-    /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
-     * screen and forty characters already overflow it at size 1. */
-    static Void printf(tft::Screen* s, const Utf8* fmt, ...)
-    {
+      /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
+      * screen and forty characters already overflow it at size 1. */
+      static Void printf(Canvas* cv, const Utf8* fmt, ...)
+      {
         Utf8    buf[64];
         va_list ap;
         va_start(ap, fmt);
         vsnprintf(buf, sizeof(buf), fmt, ap);
         va_end(ap);
-        print(s, buf);
-    }
+        print(cv, buf);
+      }
 
-    /*
-     * Draws the safe area's boundary. A calibration aid, not decoration: run it,
-     * look at the panel, and change the inset until the frame is fully visible with
-     * a little to spare. Then take the call out.
-     */
-    static Void safeOutline(tft::Screen* s, UInt16 colour)
-    {
-        rect(s, safeLeft(s), safeTop(s),
-                safeWidth(s), safeHeight(s), colour);
-    }
+      /*
+      * Draws the safe area's boundary. A calibration aid, not decoration: run it,
+      * look at the panel, and change the inset until the frame is fully visible with
+      * a little to spare. Then take the call out.
+      */
+      static Void safeOutline(Canvas* cv, UInt16 colour)
+      {
+        rect(cv, safeLeft(cv), safeTop(cv),
+                safeWidth(cv), safeHeight(cv), colour);
+      }
 
-    /* ---- start --------------------------------------------------------------- */
+      /* ---- start --------------------------------------------------------------- */
 
-    /*
-     * Brings up the panel AND attaches the back buffer.
-     *
-     * Returns what tft::open returns, which can only tell you the SPI pins were valid
-     * - see the note in st77xx.h about the panel being write-only.
-     */
-    static Bool open(tft::Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
-    {
-        if(!tft::open(s, w, h, xoff, yoff))
+      /*
+      * Brings up the panel AND attaches the back buffer.
+      *
+      * Returns what tft::open returns, which can only tell you the SPI pins were valid
+      * - see the note in st77xx.h about the panel being write-only.
+      */
+      static Bool open(Canvas* cv, tft::Screen* panel, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+      {
+        cv->panel = panel;
+
+        /* The drawing state starts here rather than in the driver. tft::openOn
+         * used to zero these, which meant a panel arrived pre-loaded with a text
+         * colour and a clip rectangle it had no business having an opinion on. */
+        cv->buf       = NULL;
+        cv->dirtyTop  = h;
+        cv->dirtyBot  = -1;
+        cv->clipX     = 0;
+        cv->clipY     = 0;
+        cv->clipW     = w;
+        cv->clipH     = h;
+        cv->cursorX   = 0;
+        cv->cursorY   = 0;
+        cv->fg        = GFX_WHITE;
+        cv->bg        = GFX_BLACK;
+        cv->bgSolid   = true;
+        cv->textScale = 1;
+
+        if(!tft::open(cv->panel, w, h, xoff, yoff))
         {
             return false;
         }
@@ -881,13 +1032,207 @@ namespace bibo
         if(!bufTaken)
         {
             bufTaken = true;
-            s->buf      = buf;
+            cv->buf      = buf;
         }
 
-        clipReset(s);
-        clear(s, GFX_BLACK);
-        present(s);
+        clipReset(cv);
+        clear(cv, GFX_BLACK);
+        present(cv);
         return true;
+      }
+
+    } /* namespace detail */
+
+    /* ===========================================================================
+     * Canvas, the API.
+     *
+     * Thin, and deliberately so: each one forwards to detail:: and returns *this.
+     * The value is not in what they do, it is in what a frame LOOKS like once
+     * they exist - see the header comment at the top of this file.
+     * ======================================================================== */
+    inline Canvas& Canvas::clear(UInt16 colour)
+    {
+        detail::clear(this, colour);
+        return *this;
+    }
+    inline Canvas& Canvas::present()
+    {
+        detail::present(this);
+        return *this;
+    }
+    inline Canvas& Canvas::clipReset()
+    {
+        detail::clipReset(this);
+        return *this;
+    }
+    inline Canvas& Canvas::safeInset(Int32 px)
+    {
+        detail::safeInset(this, px);
+        return *this;
+    }
+    inline Canvas& Canvas::safeOutline(UInt16 colour)
+    {
+        detail::safeOutline(this, colour);
+        return *this;
+    }
+    inline Canvas& Canvas::clip(const Box& b)
+    {
+        detail::clip(this, b.x, b.y, b.w, b.h);
+        return *this;
+    }
+
+    inline Canvas& Canvas::pixel(Point p, UInt16 colour)
+    {
+        detail::pixel(this, p.x, p.y, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::line(Point a, Point b, UInt16 colour)
+    {
+        detail::line(this, a.x, a.y, b.x, b.y, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::rect(const Box& b, UInt16 colour)
+    {
+        detail::rect(this, b.x, b.y, b.w, b.h, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::rectFill(const Box& b, UInt16 colour)
+    {
+        detail::rectFill(this, b.x, b.y, b.w, b.h, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::roundRect(const Box& b, Int32 radius, UInt16 colour)
+    {
+        detail::roundRect(this, b.x, b.y, b.w, b.h, radius, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::roundRectFill(const Box& b, Int32 radius, UInt16 colour)
+    {
+        detail::roundRectFill(this, b.x, b.y, b.w, b.h, radius, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::circle(Point centre, Int32 radius, UInt16 colour)
+    {
+        detail::circle(this, centre.x, centre.y, radius, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::circleFill(Point centre, Int32 radius, UInt16 colour)
+    {
+        detail::circleFill(this, centre.x, centre.y, radius, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::triangle(Point a, Point b, Point cc, UInt16 colour)
+    {
+        detail::triangle(this, a.x, a.y, b.x, b.y, cc.x, cc.y, colour);
+        return *this;
+    }
+
+    inline Canvas& Canvas::triangleFill(Point a, Point b, Point cc, UInt16 colour)
+    {
+        detail::triangleFill(this, a.x, a.y, b.x, b.y, cc.x, cc.y, colour);
+        return *this;
+    }
+
+    /* A Paint is applied and then left behind: the sticky fields still exist
+     * because print()/printLine() stream from a cursor, but nothing OUTSIDE this
+     * file can observe them, so two paints cannot leak into each other. */
+    inline Void applyPaint(Canvas* cv, const Paint& p)
+    {
+        detail::textColour(cv, p.fg);
+        detail::textSize(cv, (p.size > 0) ? p.size : 1);
+        if(p.bgSolid)
+        {
+            detail::textBackground(cv, p.bg);
+        }
+        else
+        {
+            detail::textTransparent(cv);
+        }
+    }
+
+    inline Canvas& Canvas::text(Point at, const Utf8* str, const Paint& paint)
+    {
+        applyPaint(this, paint);
+        detail::textAt(this, at.x, at.y, str);
+        return *this;
+    }
+
+    inline Canvas& Canvas::text(Point at, const Utf8* str, const Paint& paint, Align align)
+    {
+        applyPaint(this, paint);
+        detail::textAligned(this, at.x, at.y, str, align);
+        return *this;
+    }
+
+    inline Canvas& Canvas::printf(Point at, const Paint& paint, const Utf8* fmt, ...)
+    {
+        Utf8    buf[64];
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
+
+        applyPaint(this, paint);
+        detail::textAt(this, at.x, at.y, buf);
+        return *this;
+    }
+
+    inline Int32 Canvas::width() const
+
+    {
+
+        return panel->width;
+
+    }
+    inline Int32 Canvas::height() const
+    {
+        return panel->height;
+    }
+    inline Box Canvas::safe() const
+    {
+        return Box{ detail::safeLeft(this), detail::safeTop(this),
+                    detail::safeWidth(this), detail::safeHeight(this) };
+    }
+
+    inline Int32 Canvas::textWidth(const Utf8* str, const Paint& paint) const
+    {
+        const Int32 scale = (paint.size > 0) ? paint.size : 1;
+        return (str == NULL) ? 0 : static_cast<Int32>(text::len(str)) * 6 * scale;
+    }
+
+    inline Int32 Canvas::textHeight(const Paint& paint) const
+    {
+        return 8 * ((paint.size > 0) ? paint.size : 1);
+    }
+
+    /* ---------------------------------------------------------------------------
+     * Bring a canvas up on a panel.
+     *
+     * The panel is PASSED IN and not owned: gfx is the drawing layer and tft is
+     * the hardware, and this is the one line where they meet. A sketch that wants
+     * the panel's own controls - brightness, inversion, sleep - still has it.
+     * ------------------------------------------------------------------------ */
+    typedef struct PanelSize
+    {
+        Int32 w;
+        Int32 h;
+        Int32 xoff;
+        Int32 yoff;
+    } PanelSize;
+
+    static Canvas open(tft::Screen* panel, const PanelSize& g)
+    {
+        Canvas cv;
+        detail::open(&cv, panel, g.w, g.h, g.xoff, g.yoff);
+        return cv;
     }
 
 
