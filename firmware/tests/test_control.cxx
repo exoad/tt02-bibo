@@ -71,7 +71,7 @@ int main(void)
     check(near(control::predict(&ff, -1.0f, 0.0f), -140.0f, 0.001f),
           "the static term takes the sign of the demand");
 
-    check(control::predict(NULL, 1.0f, 0.0f) == 0.0f,
+    check(control::predict(nullptr, 1.0f, 0.0f) == 0.0f,
           "a null model is 0, not a crash");
 
     printf("\ncontrol: PID\n\n");
@@ -158,7 +158,7 @@ int main(void)
     check(back.integral < wound,
           "an error pointing back into range unwinds the integral");
 
-    check(control::step(NULL, 1.0f, 0.0f, 0.02f) == 0.0f,
+    check(control::step(nullptr, 1.0f, 0.0f, 0.02f) == 0.0f,
           "a null controller is 0, not a crash");
 
     printf("\nodom\n\n");
@@ -210,7 +210,7 @@ int main(void)
     check(lagged > 0.0f && lagged <= odom::metresPerTick() + 0.0001f,
           "the filter approaches the raw value without overshooting it");
 
-    check(odom::distance(NULL) == 0.0f, "a null wheel is 0, not a crash");
+    check(odom::distance(nullptr) == 0.0f, "a null wheel is 0, not a crash");
 
     printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

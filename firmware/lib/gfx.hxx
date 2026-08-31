@@ -177,19 +177,19 @@ namespace bibo
      * which is how `triangleFill` came to take seven numbers in a row where a
      * transposed pair is a silent bug rather than a compile error.
      * ======================================================================== */
-    typedef struct Point
+    struct Point
     {
         Int32 x;
         Int32 y;
-    } Point;
+    };
 
-    typedef struct Box
+    struct Box
     {
         Int32 x;
         Int32 y;
         Int32 w;
         Int32 h;
-    } Box;
+    };
 
     /* ---------------------------------------------------------------------------
      * Paint - how a thing is drawn, as a VALUE.
@@ -203,20 +203,20 @@ namespace bibo
      * A Paint is passed, used, and forgotten. Two paints side by side describe two
      * appearances without either one leaking into the other.
      * ------------------------------------------------------------------------ */
-    typedef enum Align
+    enum Align
     {
         ALIGN_LEFT = 0,
         ALIGN_CENTRE,
         ALIGN_RIGHT
-    } Align;
+    };
 
-    typedef struct Paint
+    struct Paint
     {
         UInt16 fg      = GFX_WHITE;
         UInt16 bg      = GFX_BLACK;
         Bool   bgSolid = false;  /* false: glyph only, leave the background */
         Int32  size    = 1;      /* integer scale of the 5x7 font, >= 1 */
-    } Paint;
+    };
 
     /* ---------------------------------------------------------------------------
      * Canvas - the thing you draw on.
@@ -231,11 +231,11 @@ namespace bibo
      * does not own it: open two canvases on one panel and they share it, which is
      * the same thing two painters sharing a wall would mean.
      * ------------------------------------------------------------------------ */
-    typedef struct Canvas
+    struct Canvas
     {
         tft::Screen* panel;
 
-        /* The back buffer, or NULL to draw straight at the panel. */
+        /* The back buffer, or nullptr to draw straight at the panel. */
         UInt16* buf;
 
         /* Rows touched since the last present. Pushing only these is what makes a
@@ -304,7 +304,7 @@ namespace bibo
         Box   safe() const;
         Int32 textWidth(const Utf8* str, const Paint& paint) const;
         Int32 textHeight(const Paint& paint) const;
-    } Canvas;
+    };
 
     /* ===========================================================================
      * detail - the implementations.
@@ -437,7 +437,7 @@ namespace bibo
             return;
         }
 
-        if(cv->buf != NULL)
+        if(cv->buf != nullptr)
         {
             UInt16* p = &cv->buf[(y * PANEL_MAX_W) + x];
             for(Int32 i = 0; i < len; ++i)
@@ -468,7 +468,7 @@ namespace bibo
       * be read - so this returns black without one rather than lying. */
       static UInt16 peek(const Canvas* cv, Int32 x, Int32 y)
       {
-        if(cv->buf == NULL || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
+        if(cv->buf == nullptr || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
         {
             return GFX_BLACK;
         }
@@ -485,7 +485,7 @@ namespace bibo
 
       static Void present(Canvas* cv)
       {
-        if(cv->buf == NULL || cv->dirtyBot < cv->dirtyTop)
+        if(cv->buf == nullptr || cv->dirtyBot < cv->dirtyTop)
         {
             return;                     /* nothing changed; do not touch the panel */
         }
@@ -898,7 +898,7 @@ namespace bibo
       static Int32 textWidth(const Canvas* cv, const Utf8* str)
       {
         Int32 n = 0;
-        while(str != NULL && str[n] != '\0')
+        while(str != nullptr && str[n] != '\0')
         {
             ++n;
         }
@@ -939,7 +939,7 @@ namespace bibo
       static Void textAt(Canvas* cv, Int32 x, Int32 y, const Utf8* str)
       {
         Int32 cx = x;
-        while(str != NULL && *str != '\0')
+        while(str != nullptr && *str != '\0')
         {
             charAt(cv, cx, y, *str);
             cx += charWidth(cv);
@@ -1016,7 +1016,7 @@ namespace bibo
         /* The drawing state starts here rather than in the driver. tft::openOn
          * used to zero these, which meant a panel arrived pre-loaded with a text
          * colour and a clip rectangle it had no business having an opinion on. */
-        cv->buf       = NULL;
+        cv->buf       = nullptr;
         cv->dirtyTop  = h;
         cv->dirtyBot  = -1;
         cv->clipX     = 0;
@@ -1219,7 +1219,7 @@ namespace bibo
     inline Int32 Canvas::textWidth(const Utf8* str, const Paint& paint) const
     {
         const Int32 scale = (paint.size > 0) ? paint.size : 1;
-        return (str == NULL) ? 0 : static_cast<Int32>(text::len(str)) * 6 * scale;
+        return (str == nullptr) ? 0 : static_cast<Int32>(text::len(str)) * 6 * scale;
     }
 
     inline Int32 Canvas::textHeight(const Paint& paint) const
@@ -1234,13 +1234,13 @@ namespace bibo
      * the hardware, and this is the one line where they meet. A sketch that wants
      * the panel's own controls - brightness, inversion, sleep - still has it.
      * ------------------------------------------------------------------------ */
-    typedef struct PanelSize
+    struct PanelSize
     {
         Int32 w;
         Int32 h;
         Int32 xoff;
         Int32 yoff;
-    } PanelSize;
+    };
 
     static Canvas open(tft::Screen* panel, const PanelSize& g)
     {

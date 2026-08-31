@@ -69,11 +69,11 @@ namespace bibo
      * header: uart_inst_t is the SDK's, and dragging it next door would
      * cost that header the one property it exists for - compiling on the
      * host, with no board and no SDK. */
-    typedef struct Bus
+    struct Bus
     {
         uart_inst_t* port;
         Int32        busyPin;   /* pins::NONE if not wired */
-    } Bus;
+    };
 
     /* Sends one command.
      *

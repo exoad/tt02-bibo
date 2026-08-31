@@ -144,7 +144,7 @@ namespace bibo
      * part of "the thing being drawn on" as its width is. They sit inert until
      * gfx::open() claims them.
      */
-    typedef struct Screen
+    struct Screen
     {
         /* geometry, in pixels */
         Int32 width;
@@ -177,16 +177,16 @@ namespace bibo
          * with square corners and wrong for every one of these.
          */
         Int32 safeInset;
-    } Screen;
+    };
 
     static Int32 width(const Screen* s)
     {
-        return (s != NULL) ? s->width : 0;
+        return (s != nullptr) ? s->width : 0;
     }
 
     static Int32 height(const Screen* s)
     {
-        return (s != NULL) ? s->height : 0;
+        return (s != nullptr) ? s->height : 0;
     }
 
     /* ---- the wire ------------------------------------------------------------
@@ -221,7 +221,7 @@ namespace bibo
         gpio::write(s->dc, false);              /* low = this byte is a command */
         spi::writeByte(s->sck, cmd);
 
-        if(params != NULL && n > 0)
+        if(params != nullptr && n > 0)
         {
             gpio::write(s->dc, true);           /* high = these are its parameters */
             spi::write(s->sck, params, n);
@@ -232,7 +232,7 @@ namespace bibo
 
     static Void cmd(const Screen* s, UInt8 c)
     {
-        write(s, c, NULL, 0);
+        write(s, c, nullptr, 0);
     }
 
     static Void cmd1(const Screen* s, UInt8 c, UInt8 p)
@@ -518,7 +518,7 @@ namespace bibo
       static Void text(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
       {
         Int32 cx = x;
-        while(str != NULL && *str != '\0')
+        while(str != nullptr && *str != '\0')
         {
             drawChar(s, cx, y, *str, fg, bg, scale);
             cx += 6 * scale;
@@ -539,7 +539,7 @@ namespace bibo
      */
     [[nodiscard]] static Bool openOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
     {
-        if(s == NULL)
+        if(s == nullptr)
         {
             return false;
         }

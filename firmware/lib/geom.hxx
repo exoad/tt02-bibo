@@ -39,21 +39,21 @@ namespace bibo
     #define GEOM_PI  3.14159265358979f
     #define GEOM_TAU 6.28318530717959f
 
-    typedef struct Vec2
+    struct Vec2
     {
         Float32 x = 0.0f;   /* metres */
         Float32 y = 0.0f;
-    } Vec2;
+    };
 
     /* Where the car is and which way it faces. Heading is radians, zero along
      * +x, increasing toward +y - the ordinary mathematical convention rather
      * than a compass bearing, so that cos/sin work without a sign flip. */
-    typedef struct Pose
+    struct Pose
     {
         Float32 x       = 0.0f;
         Float32 y       = 0.0f;
         Float32 heading = 0.0f;
-    } Pose;
+    };
 
     /* ---- angles -----------------------------------------------------------
      *

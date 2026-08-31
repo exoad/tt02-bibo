@@ -100,14 +100,14 @@ namespace bibo
      * sound and revising every script that exists by then. A field that is always
      * cue::TONE_NONE costs one byte per step and keeps the shape honest.
      */
-    typedef enum
+    enum Tone
     {
         TONE_NONE = 0,
         TONE_LOW,
         TONE_MID,
         TONE_HIGH,
         TONE_COUNT
-    } Tone;
+    };
 
     /* ---- the continuous rules' constants ------------------------------------ */
 
@@ -173,16 +173,16 @@ namespace bibo
     static_assert(CUE_BLINK_ON_MS >= CUE_BLINK_OFF_MS,
                   "on-time shorter than off-time - outside the J945 Figure 1 envelope");
 
-    typedef enum
+    enum Turn
     {
         TURN_OFF = 0,
         TURN_LEFT,
         TURN_RIGHT,
         TURN_HAZARD
-    } Turn;
+    };
 
     /* What the continuous rules read. */
-    typedef struct
+    struct Input
     {
         Int32 steerMilli;   /* -1000..1000 of this car's travel, ACTUAL            */
         Int32 throttleUs;   /* what the ESC is actually being given                */
@@ -190,7 +190,7 @@ namespace bibo
         Int32 neutralUs;    /* the pulse that is neither forward nor back          */
         Bool  armed;
         Bool  headOn;       /* nothing the car knows implies this; a human sets it */
-    } Input;
+    };
 
     /*
      * How far past idle the throttle has to go before the car counts as being
@@ -244,12 +244,12 @@ namespace bibo
      * could name and trigger and one you could not, and the second one grew every
      * time the car learned to say something. Everything is a cue now.
      */
-    typedef enum
+    enum Play
     {
         PLAY_ONCE = 0,
         PLAY_LOOP,
         PLAY_HOLD
-    } Play;
+    };
 
     /*
      * One step of an utterance: hold these channels, at this brightness, for this
@@ -263,15 +263,15 @@ namespace bibo
      * the same bulb: one is LAMP_DIM and one is LAMP_FULL, and which of them you
      * see is decided by priority rather than by an if inside a rule.
      */
-    typedef struct
+    struct Step
     {
         UInt16 ms;
         UInt8  lamps;   /* CUE_CH_* bitmask lit during this step */
         UInt8  level;   /* LAMP_OFF..LAMP_FULL for the lamps above */
         UInt8  tone;    /* a Tone. Not driven yet - see above */
-    } Step;
+    };
 
-    typedef struct
+    struct Script
     {
         CharSeq     name;    /* what to type at the console                     */
         CharSeq     means;   /* what the car is SAYING, in words                */
@@ -279,7 +279,7 @@ namespace bibo
         UInt8       steps;
         UInt8       repeats; /* PLAY_ONCE only: how many times it runs          */
         UInt8       play;    /* a Play                                          */
-    } Script;
+    };
 
     /* ---- the scripts ---------------------------------------------------------
      *
@@ -370,7 +370,7 @@ namespace bibo
      * BRAKE is later, so braking shows FULL over the DIM the running lamps were
      * holding. No rule anywhere has to know about the other.
      */
-    typedef enum
+    enum Kind
     {
         KIND_NONE = 0,
         KIND_HEAD,
@@ -383,13 +383,13 @@ namespace bibo
         KIND_FLASH,
         KIND_ALERT,
         KIND_COUNT
-    } Kind;
+    };
 
     /* IN cue::Kind ORDER. The enum indexes this table directly, so a row added in
      * the wrong place silently renames two cues at once. */
     static const Script SCRIPT[KIND_COUNT] =
     {
-        { "none",    "nothing",                      NULL,          0u, 0u, PLAY_HOLD },
+        { "none",    "nothing",                      nullptr,          0u, 0u, PLAY_HOLD },
         { "head",    "my headlights are on",         STEPS_HEAD,    1u, 0u, PLAY_HOLD },
         { "running", "I am lit but not braking",     STEPS_RUNNING, 1u, 0u, PLAY_HOLD },
         { "brake",   "I am not being driven",        STEPS_BRAKE,   1u, 0u, PLAY_HOLD },
@@ -479,7 +479,7 @@ namespace bibo
      * other command word on this link is upper case by the time it arrives. */
     static Kind find(CharSeq want)
     {
-        if(want == NULL)
+        if(want == nullptr)
         {
             return KIND_NONE;
         }
@@ -539,7 +539,7 @@ namespace bibo
      */
     static Bool emit(Kind k)
     {
-        if(!up || !valid(k) || SCRIPT[k].step == NULL)
+        if(!up || !valid(k) || SCRIPT[k].step == nullptr)
         {
             return false;
         }
@@ -694,28 +694,28 @@ namespace bibo
     {
         if(ch & CUE_CH_HEAD)
         {
-            out->level[lights::HEAD_L] = level;
-            out->level[lights::HEAD_R] = level;
+            out->level[lights::LAMP_HEAD_L] = level;
+            out->level[lights::LAMP_HEAD_R] = level;
         }
         if(ch & CUE_CH_TAIL)
         {
-            out->level[lights::TAIL_L] = level;
-            out->level[lights::TAIL_R] = level;
+            out->level[lights::LAMP_TAIL_L] = level;
+            out->level[lights::LAMP_TAIL_R] = level;
         }
         if(ch & CUE_CH_IND_L)
         {
-            out->level[lights::IND_FL] = level;
-            out->level[lights::IND_RL] = level;
+            out->level[lights::LAMP_IND_FL] = level;
+            out->level[lights::LAMP_IND_RL] = level;
         }
         if(ch & CUE_CH_IND_R)
         {
-            out->level[lights::IND_FR] = level;
-            out->level[lights::IND_RR] = level;
+            out->level[lights::LAMP_IND_FR] = level;
+            out->level[lights::LAMP_IND_RR] = level;
         }
         if(ch & CUE_CH_REV)
         {
-            out->level[lights::REV_L] = level;
-            out->level[lights::REV_R] = level;
+            out->level[lights::LAMP_REV_L] = level;
+            out->level[lights::LAMP_REV_R] = level;
         }
     }
 
@@ -834,7 +834,7 @@ namespace bibo
     /* Call often. Cheap when there is nothing to do. */
     static Void tick(const Input* in)
     {
-        if(!up || in == NULL)
+        if(!up || in == nullptr)
         {
             return;
         }

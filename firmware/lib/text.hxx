@@ -46,19 +46,19 @@ namespace bibo
 
     static Size len(CharSeq s)
     {
-        return (s == NULL) ? 0 : strlen(s);
+        return (s == nullptr) ? 0 : strlen(s);
     }
 
     static Bool empty(CharSeq s)
     {
-        return (s == NULL) || (s[0] == '\0');
+        return (s == nullptr) || (s[0] == '\0');
     }
 
     /* Whole-string equality. The name says what it tests, unlike `strcmp(a,b)==0`
      * where the interesting part is the `== 0` and reads as an accident. */
     static Bool eq(CharSeq a, CharSeq b)
     {
-        if(a == NULL || b == NULL)
+        if(a == nullptr || b == nullptr)
         {
             return a == b;
         }
@@ -75,7 +75,7 @@ namespace bibo
      */
     static Bool starts(CharSeq s, CharSeq prefix)
     {
-        if(s == NULL || prefix == NULL)
+        if(s == nullptr || prefix == nullptr)
         {
             return false;
         }
@@ -83,20 +83,20 @@ namespace bibo
         return strncmp(s, prefix, n) == 0;
     }
 
-    /* What follows `prefix`, or NULL if `s` does not start with it. Pairs with
+    /* What follows `prefix`, or nullptr if `s` does not start with it. Pairs with
      * text::starts so the offset is never written out by hand twice. */
     static CharSeq after(CharSeq s, CharSeq prefix)
     {
         if(!starts(s, prefix))
         {
-            return NULL;
+            return nullptr;
         }
         return s + strlen(prefix);
     }
 
     /*
      * Matches `word` as a WHOLE word at the start of `s`, and returns whatever
-     * follows it with the separating spaces skipped. NULL if it does not match.
+     * follows it with the separating spaces skipped. nullptr if it does not match.
      *
      * The difference from text::starts() is the whole word, and it is the difference
      * between a command table that works and one that works by accident:
@@ -107,24 +107,24 @@ namespace bibo
      * makes a table safe to add to.
      *
      * A command with no argument returns a pointer to the empty string at the end
-     * of `s`, NOT NULL. "matched, nothing after it" and "did not match" are
+     * of `s`, NOT nullptr. "matched, nothing after it" and "did not match" are
      * different answers and a dispatcher has to tell them apart.
      */
     static CharSeq word(CharSeq s, CharSeq word)
     {
-        if(s == NULL || word == NULL)
+        if(s == nullptr || word == nullptr)
         {
-            return NULL;
+            return nullptr;
         }
 
         const Size n = strlen(word);
         if(strncmp(s, word, n) != 0)
         {
-            return NULL;
+            return nullptr;
         }
         if(s[n] != '\0' && s[n] != ' ')
         {
-            return NULL;
+            return nullptr;
         }
 
         CharSeq arg = s + n;
@@ -146,7 +146,7 @@ namespace bibo
      */
     static Size trimEnd(Utf8* s)
     {
-        if(s == NULL)
+        if(s == nullptr)
         {
             return 0;
         }
@@ -161,7 +161,7 @@ namespace bibo
 
     static Void upper(Utf8* s)
     {
-        if(s == NULL)
+        if(s == nullptr)
         {
             return;
         }
@@ -187,12 +187,12 @@ namespace bibo
      */
     static Bool toInt(CharSeq s, Int32* out)
     {
-        if(empty(s) || out == NULL)
+        if(empty(s) || out == nullptr)
         {
             return false;
         }
 
-        Utf8* end = NULL;
+        Utf8* end = nullptr;
         const Int64 v = strtol(s, &end, 10);
 
         if(end == s)
@@ -215,12 +215,12 @@ namespace bibo
     /* The same contract for a fraction. Accepts "1", "-0.5", ".25". */
     static Bool toFloat(CharSeq s, Float32* out)
     {
-        if(empty(s) || out == NULL)
+        if(empty(s) || out == nullptr)
         {
             return false;
         }
 
-        Utf8* end = NULL;
+        Utf8* end = nullptr;
         const Float64 v = strtod(s, &end);
 
         if(end == s)
@@ -249,12 +249,12 @@ namespace bibo
      */
     static Bool twoInts(CharSeq s, Int32* a, Int32* b)
     {
-        if(empty(s) || a == NULL || b == NULL)
+        if(empty(s) || a == nullptr || b == nullptr)
         {
             return false;
         }
 
-        Utf8* end = NULL;
+        Utf8* end = nullptr;
         const Int64 first = strtol(s, &end, 10);
         if(end == s)
         {

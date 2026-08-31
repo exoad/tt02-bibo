@@ -53,12 +53,12 @@ namespace bibo
      * All three are in the caller's output units. For this car that is
      * MICROSECONDS ABOVE IDLE, not raw pulse - see chassis.hxx, where idle is
      * a measured property of this ESC and motor rather than 1500. */
-    typedef struct Feedforward
+    struct Feedforward
     {
         Float32 gainS = 0.0f;
         Float32 gainV = 0.0f;
         Float32 gainA = 0.0f;
-    } Feedforward;
+    };
 
     /* THE SIGN OF gainS IS THE TARGET'S, AND ZERO MEANS ZERO.
      *
@@ -72,7 +72,7 @@ namespace bibo
      * car could never start. */
     static Float32 predict(const Feedforward* f, Float32 vTarget, Float32 aTarget)
     {
-        if(f == NULL)
+        if(f == nullptr)
         {
             return 0.0f;
         }
@@ -95,7 +95,7 @@ namespace bibo
      *
      * Correcting what the model got wrong, which is a much smaller job than
      * producing the output. */
-    typedef struct Pid
+    struct Pid
     {
         Float32 kp = 0.0f;
         Float32 ki = 0.0f;
@@ -114,11 +114,11 @@ namespace bibo
         Float32 integral  = 0.0f;
         Float32 lastMeas  = 0.0f;
         Bool    primed    = false;
-    } Pid;
+    };
 
     static Void reset(Pid* p)
     {
-        if(p == NULL)
+        if(p == nullptr)
         {
             return;
         }
@@ -150,7 +150,7 @@ namespace bibo
      * the leap lasts. */
     static Float32 step(Pid* p, Float32 setpoint, Float32 measured, Float32 dtS)
     {
-        if(p == NULL)
+        if(p == nullptr)
         {
             return 0.0f;
         }
@@ -224,11 +224,11 @@ namespace bibo
      * demand - they are always set together and always mean the same instant -
      * and passing them separately made a six-argument signature out of four
      * things. */
-    typedef struct Demand
+    struct Demand
     {
         Float32 v = 0.0f;   /* metres per second        */
         Float32 a = 0.0f;   /* metres per second squared */
-    } Demand;
+    };
 
     /* Feedforward plus correction, which is the arrangement the whole file is
      * arguing for. Kept as one call so the ORDER cannot be got wrong at a call

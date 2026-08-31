@@ -71,15 +71,15 @@ namespace bibo
 
 #define SD_BLOCK_SIZE 512
 
-    typedef enum Kind
+    enum Kind
     {
         KIND_NONE = 0,
         KIND_V1,        /* SDSC, byte addressed */
         KIND_V2,        /* SDSC v2, byte addressed */
         KIND_HC         /* SDHC/SDXC, BLOCK addressed - the common case */
-    } Kind;
+    };
 
-    typedef struct Card
+    struct Card
     {
         Pin sck;
         Pin mosi;
@@ -94,7 +94,7 @@ namespace bibo
         Bool blockAddressed;
 
         UInt32 blocks;      /* capacity in 512-byte blocks, 0 if unknown */
-    } Card;
+    };
 
     /* ---- the wire ------------------------------------------------------------ */
 
@@ -170,7 +170,7 @@ namespace bibo
      */
     [[nodiscard]] static Bool openOn(Card* c, Pin sck, Pin mosi, Pin miso, Pin cs)
     {
-        if(c == NULL)
+        if(c == nullptr)
         {
             return false;
         }
@@ -378,7 +378,7 @@ namespace bibo
      */
     [[nodiscard]] static Bool readBlock(const Card* c, UInt32 block, UInt8* out)
     {
-        if(c->kind == KIND_NONE || out == NULL)
+        if(c->kind == KIND_NONE || out == nullptr)
         {
             return false;
         }
@@ -429,7 +429,7 @@ namespace bibo
      */
     [[nodiscard]] static Bool writeBlock(const Card* c, UInt32 block, const UInt8* data)
     {
-        if(c->kind == KIND_NONE || data == NULL)
+        if(c->kind == KIND_NONE || data == nullptr)
         {
             return false;
         }

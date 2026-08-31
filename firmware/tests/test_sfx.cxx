@@ -56,11 +56,11 @@ int main(void)
         {
             ++badTrack;
         }
-        if(sfx::CLIPS[i].name == NULL || sfx::CLIPS[i].name[0] == '\0')
+        if(sfx::CLIPS[i].name == nullptr || sfx::CLIPS[i].name[0] == '\0')
         {
             ++badTrack;
         }
-        if(sfx::CLIPS[i].means == NULL || sfx::CLIPS[i].means[0] == '\0')
+        if(sfx::CLIPS[i].means == nullptr || sfx::CLIPS[i].means[0] == '\0')
         {
             ++badTrack;
         }
@@ -118,7 +118,7 @@ int main(void)
     check(sfx::track("definitelyNotAClip") == sfx::NONE,
           "an unknown name is NONE, not a track");
     check(sfx::track("") == sfx::NONE, "the empty name is NONE");
-    check(sfx::track(NULL) == sfx::NONE, "a null name is NONE, not a crash");
+    check(sfx::track(nullptr) == sfx::NONE, "a null name is NONE, not a crash");
 
     /* PREFIXES MUST NOT MATCH. text::eq is whole-string, and this is the check
      * that says so - a prefix match would make `clip1` and `clip12` the same
@@ -132,10 +132,10 @@ int main(void)
     }
 
     /* ---- the reverse direction ------------------------------------------ */
-    check(sfx::nameOf(sfx::CLIPS[0].track) != NULL,
+    check(sfx::nameOf(sfx::CLIPS[0].track) != nullptr,
           "a known track has a name");
-    check(sfx::nameOf(60000u) == NULL,
-          "an unknown track has no name, and says so with NULL");
+    check(sfx::nameOf(60000u) == nullptr,
+          "an unknown track has no name, and says so with nullptr");
 
     /* ---- zero is the sentinel and must never BE a clip -------------------
      *
@@ -151,7 +151,7 @@ int main(void)
         }
     }
     check(zero == 0, "no clip claims track 0, which is the NONE sentinel");
-    check(sfx::nameOf(0u) == NULL, "track 0 has no name");
+    check(sfx::nameOf(0u) == nullptr, "track 0 has no name");
 
     /* ---- highest() is what the card is checked against ------------------- */
     UInt16 top = 0;

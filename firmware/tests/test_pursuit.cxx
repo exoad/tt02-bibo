@@ -222,8 +222,8 @@ int main(void)
     pursuit::Path empty;
     check(!pursuit::follow(&f, &empty, on, 1.0f).valid,
           "an empty path is not valid, and does not crash");
-    check(!pursuit::follow(&f, NULL, on, 1.0f).valid, "nor is a null path");
-    check(!pursuit::follow(NULL, &path, on, 1.0f).valid, "nor a null follower");
+    check(!pursuit::follow(&f, nullptr, on, 1.0f).valid, "nor is a null path");
+    check(!pursuit::follow(nullptr, &path, on, 1.0f).valid, "nor a null follower");
 
     /* A path entirely BEHIND the car. Aiming at it would spin the car round. */
     pursuit::reset(&f);

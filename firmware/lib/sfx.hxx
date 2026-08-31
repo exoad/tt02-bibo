@@ -50,12 +50,12 @@ namespace bibo
      * "no such clip" and every caller can test it without a second flag. */
     constexpr UInt16 NONE = 0;
 
-    typedef struct Clip
+    struct Clip
     {
         CharSeq name;    /* what a caller asks for       */
         UInt16  track;   /* mp3/000N.mp3 on the card     */
         CharSeq means;   /* what it is, in plain English */
-    } Clip;
+    };
 
     static const Clip CLIPS[] =
     {
@@ -86,7 +86,7 @@ namespace bibo
      * and a wrong noise is found by ear months later. */
     static Bool sameName(CharSeq a, CharSeq b)
     {
-        if(a == NULL || b == NULL)
+        if(a == nullptr || b == nullptr)
         {
             return false;
         }
@@ -111,7 +111,7 @@ namespace bibo
      * remember to bounds-check. */
     static UInt16 track(CharSeq name)
     {
-        if(name == NULL)
+        if(name == nullptr)
         {
             return NONE;
         }
@@ -128,7 +128,7 @@ namespace bibo
     /* The other direction, for REPORTING. A status line that says track 2 makes
      * a person open this file; one that says `clip2` does not.
      *
-     * Returns NULL rather than "?" so a caller can decide how to render an
+     * Returns nullptr rather than "?" so a caller can decide how to render an
      * unnamed track - the console prints the number, and inventing a string
      * here would push that decision somewhere it cannot be seen. */
     static CharSeq nameOf(UInt16 t)
@@ -140,7 +140,7 @@ namespace bibo
                 return CLIPS[i].name;
             }
         }
-        return NULL;
+        return nullptr;
     }
 
     static CharSeq means(CharSeq name)
@@ -152,7 +152,7 @@ namespace bibo
                 return CLIPS[i].means;
             }
         }
-        return NULL;
+        return nullptr;
     }
 
     /* The highest track any clip names. What a caller checks the card's file

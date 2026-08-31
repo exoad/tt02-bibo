@@ -71,7 +71,7 @@ namespace bibo
      * what lets the checks below walk the struct as an array instead of keeping
      * a hand-written list that goes stale the day a role is added. The
      * static_assert on sizeof enforces it. */
-    typedef struct Map
+    struct Map
     {
         /* chassis */
         Int32 servo     = NONE;
@@ -143,7 +143,7 @@ namespace bibo
         Int32 sdCs      = NONE;
 
         Int32 encoder   = NONE;
-    } Map;
+    };
 
     constexpr Size FIELD_COUNT = 28;
 

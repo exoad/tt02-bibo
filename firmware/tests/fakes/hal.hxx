@@ -49,7 +49,7 @@ namespace bibo
 
     constexpr Size MAX_EVENTS = 256;
 
-    typedef enum
+    enum EventKind
     {
       EVENT_NONE = 0,
       EVENT_SERVO_OPEN,
@@ -57,14 +57,14 @@ namespace bibo
       EVENT_SERVO_US,
       EVENT_GPIO_OPEN,
       EVENT_GPIO_WRITE
-    } EventKind;
+    };
 
-    typedef struct
+    struct Event
     {
       EventKind kind;
       Int32     pin;
       Int32     value;   /* microseconds, or 0/1 for a gpio level */
-    } Event;
+    };
 
     static Event  events[MAX_EVENTS];
     static Size   count   = 0;
