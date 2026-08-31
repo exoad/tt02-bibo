@@ -3,6 +3,7 @@
 #include "shared.hxx"
 
 #include "refdoc.hxx"
+#include "syntax.hxx"
 #include "theme.hxx"
 
 #include <algorithm>
@@ -783,6 +784,23 @@ namespace refdoc
         ImGui::Spacing();
     }
 
+    // ---- <Code> as a BLOCK ------------------------------------------------
+    //
+    // Gruvbox, line numbers, and the same tokenizer the editor uses.
+    //
+    // NOT A SECOND HIGHLIGHTER. syn::tokenize and syn::gruv already exist for
+    // the Code view, so a block here colours a snippet exactly the way the
+    // editor colours the file it came from. Writing a small independent one for
+    // documents would have been quicker and would have drifted the first time
+    // somebody taught the editor a new keyword.
+    //
+    // IT DOES NOT WRAP. Code is a shape, and a wrapped line is a different
+    // shape - an 80-column table of pins folded at 62 stops being a table. The
+    // page pans in both directions without limit now, so a long line is
+    // reachable rather than lost, which is what makes not-wrapping affordable.
+    //
+    // Inline <Code> is untouched and still a cyan run inside a sentence; only
+    // the block form is a panel.
     Void codeBlock(const Node& n, Float32 width)
     {
         Str body;
@@ -794,32 +812,102 @@ namespace refdoc
             }
         }
 
-        // A block keeps its newlines, unlike every other text in this format. It is
-        // showing the shape of something, and the shape is the point.
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        // Split first: the number of lines decides the gutter width, and the
+        // gutter width decides where everything else starts.
+        Vec<Str> lines;
+        {
+            Str cur;
+            for(const Char c : body)
+            {
+                if(c == '\n')
+                {
+                    lines.push_back(cur);
+                    cur.clear();
+                }
+                else if(c != '\r')
+                {
+                    cur.push_back(c);
+                }
+            }
+            lines.push_back(cur);
+        }
+        while(lines.size() > 1 && lines.back().empty())
+        {
+            lines.pop_back();
+        }
 
         if(ui::fonts.mono != nullptr)
         {
             ImGui::PushFont(ui::fonts.mono, 0.0f);
         }
-        ImGui::Indent(10.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text,
-                              ImGui::ColorConvertU32ToFloat4(ui::ansi::BRCYAN));
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width - 20.0f);
-        ImGui::TextUnformatted(body.c_str());
-        ImGui::PopTextWrapPos();
-        ImGui::PopStyleColor();
-        ImGui::Unindent(10.0f);
+
+        const Float32 lineH = ImGui::GetTextLineHeight();
+        const Float32 charW = ImGui::CalcTextSize("0").x;
+        const Float32 pad   = 6.0f;
+
+        // Wide enough for the largest number it will actually print, so a
+        // 9-line block does not carry the gutter of a 900-line one.
+        Int32 digits = 1;
+        for(Size t = lines.size(); t >= 10; t /= 10)
+        {
+            ++digits;
+        }
+        const Float32 gutter = (static_cast<Float32>(digits) * charW) + pad * 2.0f;
+
+        const ImVec2   p0 = ImGui::GetCursorScreenPos();
+        const Float32  h  = (static_cast<Float32>(lines.size()) * lineH)
+                          + pad * 2.0f;
+        ImDrawList*    dl = ImGui::GetWindowDrawList();
+
+        // Painted before the text, in one pass, because the height is known
+        // from the line count rather than discovered by drawing.
+        dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG0_H);
+        dl->AddRectFilled(p0, ImVec2(p0.x + gutter, p0.y + h), syn::gruv::BG1);
+        dl->AddRect(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG3,
+                    0.0f, 0, 1.0f);
+
+        // `inBlock` carries a /* that opened on an earlier line, which is why
+        // the tokenizer takes it by reference and why it lives out here rather
+        // than inside the loop.
+        Bool       inBlock = false;
+        Vec<syn::Span> spans;
+
+        for(Size i = 0; i < lines.size(); ++i)
+        {
+            const Str&    ln = lines[i];
+            const Float32 y  = p0.y + pad + (static_cast<Float32>(i) * lineH);
+
+            Array<Char, 16> num;
+            std::snprintf(num.data(), num.size(), "%*d", digits,
+                          static_cast<Int32>(i + 1));
+            dl->AddText(ImVec2(p0.x + pad, y), syn::gruv::FG4, num.data());
+
+            syn::tokenize(ln, inBlock, spans);
+
+            Float32 x = p0.x + gutter + pad;
+            for(const syn::Span& sp : spans)
+            {
+                if(sp.end <= sp.begin)
+                {
+                    continue;
+                }
+                const Char* b = ln.c_str() + sp.begin;
+                const Char* e = ln.c_str() + sp.end;
+
+                dl->AddText(ImVec2(x, y), syn::colorFor(sp.role), b, e);
+                x += ImGui::CalcTextSize(b, e).x;
+            }
+        }
+
         if(ui::fonts.mono != nullptr)
         {
             ImGui::PopFont();
         }
 
-        const ImVec2 p1 = ImGui::GetCursorScreenPos();
-        ImGui::GetWindowDrawList()->AddRect(
-            ImVec2(p0.x, p0.y - 2.0f), ImVec2(p0.x + width, p1.y),
-            ui::ansi::GRID, 0.0f, 0, 1.0f);
-
+        // Claim the space. The block was drawn straight onto the draw list, so
+        // without this the layout has no idea it happened and the next
+        // paragraph lands on top of it.
+        ImGui::Dummy(ImVec2(width, h));
         ImGui::Spacing();
     }
 

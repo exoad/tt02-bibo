@@ -1,54 +1,30 @@
 # bibo
 
-Self-driving 1/10 scale RC car on a Tamiya TT-02. Teach-and-repeat: map an
-environment once by driving it manually, then localize against that map and
-drive it autonomously.
-
-**Current gate: phase 2** — the Pico replaces the receiver and drives servo and
-ESC over USB serial. Everything else waits on it.
-
-Full context, hardware and architecture: **[docs/conventions.md](docs/conventions.md)**
-
-## Layout
-
-```
-hub/        the application - bibo.exe. Map, Pico link, firmware flashing, console
-firmware/   Pico SDK C++ - runs on the car
-lidar/      RPLIDAR C1 notes and a standalone CLI
-host/       Go - laptop-side command + telemetry
-sim/        bicycle model, no hardware
-docs/       wiring, calibration, build log
-vendor/     upstream clones (gitignored)
-```
-
-## Build
-
-`vendor/` is gitignored, so clone the SDK first:
-
-```bash
-git clone https://github.com/Slamtec/rplidar_sdk.git vendor/rplidar_sdk
-```
+A self-driving 1/10 RC car on a Tamiya TT-02. Drive a route once, then let it
+drive itself.
 
 ```bat
+:: vendor/ is gitignored, so fetch the SDK first
+git clone https://github.com/Slamtec/rplidar_sdk.git vendor/rplidar_sdk
+
 hub\build.bat && hub\build\bibo.exe
 ```
 
-It auto-detects and connects both devices on launch. Firmware toolchain and the
-one-time install: [firmware/README.md](firmware/README.md).
+It finds the lidar and the Pico on its own. Firmware toolchain:
+[firmware/README.md](firmware/README.md). Everything else — hardware, wiring,
+architecture, the build log — is [docs/conventions.md](docs/conventions.md).
 
-## Safety
+## Before you power the car
 
-- The car goes **on a stand, wheels off the ground**, for every first run of new code.
-- Common ground between Pico and ESC is **mandatory**. Its absence looks like a
+- **On a stand, wheels off the ground**, for the first run of any new code.
+- **Common ground between the Pico and the ESC.** Its absence looks like a
   software bug and is not one.
-- Never connect BEC 5V to the Pico while USB is attached.
-- The Flysky radio is the independent kill switch, on a separate band.
+- **Never connect the BEC 5 V to the Pico while USB is attached.**
+- The Flysky radio is the kill switch, on its own band.
 
 ## Licence
 
-**Not open source.** Copyright (c) 2026 Jiaming Meng, all rights reserved. See
-[COPYRIGHT](COPYRIGHT).
+**Not open source.** Copyright (c) 2026 Jiaming Meng. See [COPYRIGHT](COPYRIGHT).
 
-Two dependencies bind any distributed **binary**: Fugue Icons (CC BY 3.0,
-attribution must stay visible) and Slamtec rplidar_driver (BSD-2-Clause, notice
-must ship). Full inventory: [THIRD_PARTY.md](THIRD_PARTY.md).
+A distributed binary must carry two notices: Fugue Icons (CC BY 3.0) and Slamtec
+rplidar_driver (BSD-2-Clause). [THIRD_PARTY.md](THIRD_PARTY.md).
