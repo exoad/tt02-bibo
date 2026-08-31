@@ -556,7 +556,7 @@ namespace
       checkStr(cmpl::wordAtEnd("foo("),      "",      "wordAtEnd stops at punctuation");
   }
 
-} // namespace
+}
 
 // The register is what the host copies to the system clipboard, so what lands
 // in it matters beyond this file now. gg+yG in particular: it reported "N lines

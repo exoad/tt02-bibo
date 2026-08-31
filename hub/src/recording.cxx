@@ -32,7 +32,7 @@ namespace rec
         return std::fread(&out, sizeof(T), 1, f) == 1;
     }
 
-  } // namespace
+  }
 
   Void Recording::clear()
   {
@@ -446,4 +446,4 @@ namespace rec
       return Str(buf.data());
   }
 
-} // namespace rec
+}

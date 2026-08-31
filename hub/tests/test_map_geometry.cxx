@@ -347,7 +347,7 @@ namespace
       checkNear(mapgeo::polarArea(r.data(), BINS, STEP), 0.0f, 1e-4f, "empty polygon");
   }
 
-} // namespace
+}
 
 Int32 main()
 {

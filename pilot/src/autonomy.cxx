@@ -9,7 +9,7 @@ namespace autonomy
 
     Config current;
 
-  } // namespace
+  }
 
   CharSeq why(Status s)
   {
@@ -68,4 +68,4 @@ namespace autonomy
       return Status::STATUS_NOT_IMPLEMENTED;
   }
 
-} // namespace autonomy
+}

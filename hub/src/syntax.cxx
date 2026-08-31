@@ -98,7 +98,7 @@ namespace syn
         out.push_back(s);
     }
 
-  } // namespace
+  }
 
   Void tokenize(const Str& line, Bool& inBlock, Vec<Span>& out)
   {
@@ -313,4 +313,4 @@ namespace syn
       }
   }
 
-} // namespace syn
+}

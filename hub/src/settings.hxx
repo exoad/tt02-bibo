@@ -28,4 +28,4 @@ namespace settings
   [[nodiscard]] Str read(const Char* name);
   Void write(const Char* name, const Str& text);
 
-} // namespace settings
+}

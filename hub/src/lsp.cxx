@@ -794,7 +794,7 @@ namespace lsp
         return Str();
     }
 
-  } // namespace
+  }
 
   // ------------------------------------------------------------------ public --
 
@@ -1102,4 +1102,4 @@ namespace lsp
       return true;
   }
 
-} // namespace lsp
+}

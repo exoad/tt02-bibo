@@ -93,4 +93,4 @@ namespace js
   // that can contain anything is a file's text.
   [[nodiscard]] Str quote(const Str& raw);
 
-} // namespace js
+}

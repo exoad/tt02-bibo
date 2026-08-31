@@ -87,10 +87,10 @@ namespace syn
     inline constexpr ImU32 AQUA    = IM_COL32(0x8E, 0xC0, 0x7C, 0xFF);
     inline constexpr ImU32 ORANGE  = IM_COL32(0xFE, 0x80, 0x19, 0xFF);
 
-  } // namespace gruv
+  }
 
   // The colour for a role. Free function rather than a table the caller indexes,
   // so adding a Role is a compile error here instead of a silent black span.
   [[nodiscard]] ImU32 colorFor(Role r) noexcept;
 
-} // namespace syn
+}

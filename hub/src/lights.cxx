@@ -153,4 +153,4 @@ namespace lights
       return in;
   }
 
-} // namespace lights
+}

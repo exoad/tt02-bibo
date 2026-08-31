@@ -66,4 +66,4 @@ namespace scenegpu
   // row-vector: the shader computes mul(float4(pos, 1), mvp).
   [[nodiscard]] ImTextureID end(const Float32* mvp);
 
-} // namespace scenegpu
+}

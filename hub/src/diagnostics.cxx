@@ -97,7 +97,7 @@ namespace diag
         return true;
     }
 
-  } // namespace
+  }
 
   Bool parseLine(const Str& text, Item& out)
   {
@@ -278,4 +278,4 @@ namespace diag
       return worst;
   }
 
-} // namespace diag
+}

@@ -62,7 +62,7 @@ namespace applog
   // The directory, created on demand.
   [[nodiscard]] Str dir();
 
-} // namespace applog
+}
 
 // The tag is a short subsystem name - "lidar", "pico", "flash", "code". It is
 // what makes a log greppable, which is the only property that matters when you

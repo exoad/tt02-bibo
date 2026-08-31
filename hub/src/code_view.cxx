@@ -444,7 +444,7 @@ namespace ui
         return h;
     }
 
-  } // namespace
+  }
 
   Void setNote(CodeView& v, const Str& text, Float64 nowS)
   {
@@ -1598,4 +1598,4 @@ namespace ui
       return changed;
   }
 
-} // namespace ui
+}

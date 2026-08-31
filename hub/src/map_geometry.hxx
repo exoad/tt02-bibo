@@ -170,4 +170,4 @@ namespace mapgeo
   // Shoelace area of a polar polygon, in m^2 given radii in mm.
   [[nodiscard]] Float32 polarArea(const Float32* r, Int32 bins, Float32 binDeg);
 
-} // namespace mapgeo
+}

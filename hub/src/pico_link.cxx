@@ -493,7 +493,7 @@ namespace
       SetupDiDestroyDeviceInfoList(set);
   }
 
-}  // namespace
+}
 
 // ---------------------------------------------------------------------------
 //  worker thread
@@ -1049,7 +1049,7 @@ namespace
       state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
   }
 
-}  // namespace
+}
 
 // ---------------------------------------------------------------------------
 //  PicoLink

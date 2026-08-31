@@ -134,4 +134,4 @@ namespace autonomy
                             const bibo::pursuit::Path* path,
                             Outputs* out);
 
-} // namespace autonomy
+}

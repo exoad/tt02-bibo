@@ -126,4 +126,4 @@ namespace dev
   // hardware rather than about a handle.
   [[nodiscard]] Str describe(Loss why, const Str& what, const Str& port);
 
-} // namespace dev
+}

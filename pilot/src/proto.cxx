@@ -52,7 +52,7 @@ namespace proto
         return s.substr(0, n);
     }
 
-  } // namespace
+  }
 
   Reply read(const Str& line)
   {
@@ -207,7 +207,7 @@ namespace proto
         return Str(buf.data());
     }
 
-  } // namespace
+  }
 
   Str steer(Float32 fraction)
   {
@@ -249,4 +249,4 @@ namespace proto
       return out;
   }
 
-} // namespace proto
+}

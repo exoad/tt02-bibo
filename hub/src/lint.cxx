@@ -598,7 +598,7 @@ namespace lint
         }
     }
 
-  } // namespace
+  }
 
   Lang langOf(const Str& path)
   {
@@ -645,4 +645,4 @@ namespace lint
       return out;
   }
 
-} // namespace lint
+}

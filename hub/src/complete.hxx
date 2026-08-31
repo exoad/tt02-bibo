@@ -71,4 +71,4 @@ namespace cmpl
   // signal to close the popup rather than show all forty entries.
   [[nodiscard]] Str wordAtEnd(const Str& line);
 
-} // namespace cmpl
+}

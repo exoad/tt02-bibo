@@ -1589,7 +1589,7 @@ namespace refdoc
         }
     }
 
-  } // namespace
+  }
 
   // ---------------------------------------------------------------------------
 
@@ -1676,7 +1676,7 @@ namespace refdoc
         return true;
     }
 
-  } // namespace
+  }
 
   Doc parse(const Str& text, const Str& baseDir)
   {
@@ -1724,7 +1724,7 @@ namespace refdoc
         }
     }
 
-  } // namespace
+  }
 
   Vec<Str> check(const Doc& d)
   {
@@ -2000,4 +2000,4 @@ namespace refdoc
       body(d.root, width);
   }
 
-} // namespace refdoc
+}

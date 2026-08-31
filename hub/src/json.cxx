@@ -389,7 +389,7 @@ namespace js
         }
     }
 
-  } // namespace
+  }
 
   const Value& Value::at(const Char* key) const
   {
@@ -485,4 +485,4 @@ namespace js
       return out;
   }
 
-} // namespace js
+}

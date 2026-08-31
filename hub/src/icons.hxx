@@ -210,4 +210,4 @@ namespace ui
   // icon() followed by SameLine(), which is nearly every call site.
   Void iconLabel(Icon ic);
 
-} // namespace ui
+}

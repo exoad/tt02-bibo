@@ -48,7 +48,7 @@ namespace ed
         return (a.line != b.line) ? (a.line < b.line) : (a.col < b.col);
     }
 
-  } // namespace
+  }
 
   // ---------------------------------------------------------------------------
 
@@ -1196,7 +1196,7 @@ namespace ed
         return best;
     }
 
-  } // namespace
+  }
 
   Bool Editor::searchFrom(const Str& pat, Bool forward, Cursor from, Cursor& out) const
   {
@@ -2693,4 +2693,4 @@ namespace ed
       }
   }
 
-} // namespace ed
+}

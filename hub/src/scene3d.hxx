@@ -192,4 +192,4 @@ namespace scene3d
 
   Void draw(const Camera& cam, const DrawArgs& a);
 
-} // namespace scene3d
+}

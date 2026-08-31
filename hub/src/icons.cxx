@@ -211,7 +211,7 @@ namespace ui
                      static_cast<Float32>(cy + SRC) / static_cast<Float32>(atlasH));
     }
 
-  } // namespace
+  }
 
   Bool assetPath(const Char* relative, Char* out, Size cap)
   {
@@ -623,4 +623,4 @@ namespace ui
       }
   }
 
-} // namespace ui
+}

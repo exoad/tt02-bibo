@@ -118,4 +118,4 @@ namespace proto
   // Any other command, assembled without a format string.
   [[nodiscard]] Str command(const Char* verb, const Char* args = "");
 
-} // namespace proto
+}

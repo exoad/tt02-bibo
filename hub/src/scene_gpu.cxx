@@ -195,7 +195,7 @@ namespace scenegpu
         return true;
     }
 
-  } // namespace
+  }
 
   Void init(ID3D11Device* device, ID3D11DeviceContext* context)
   {
@@ -552,4 +552,4 @@ namespace scenegpu
       return reinterpret_cast<ImTextureID>(colorSrv);
   }
 
-} // namespace scenegpu
+}

@@ -3925,7 +3925,7 @@ namespace
       dl->AddText(font, fs, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), EMPTY_COL, txt);
   }
 
-} // namespace
+}
 
 // ------------------------------------------------------------------ state ---
 
@@ -3965,7 +3965,7 @@ namespace
       return d[k];
   }
 
-} // namespace
+}
 
 // One row per mode. Kept as a table rather than a switch because every entry
 // has to answer the same three questions, and a table makes a missing answer

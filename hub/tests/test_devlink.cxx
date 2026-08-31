@@ -242,7 +242,7 @@ namespace
             "an unplug message carries no error code and does not shout");
   }
 
-} // namespace
+}
 
 Int32 main()
 {

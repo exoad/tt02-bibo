@@ -365,4 +365,4 @@ namespace ed
       Bool                  dirtyFlag = false;
   };
 
-} // namespace ed
+}

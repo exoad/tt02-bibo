@@ -129,4 +129,4 @@ namespace sketch
   // A name that does not collide with an existing sketch: sketch.cxx, sketch-2.c...
   [[nodiscard]] Str makeName();
 
-} // namespace sketch
+}

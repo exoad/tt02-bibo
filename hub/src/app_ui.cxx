@@ -10071,7 +10071,7 @@ namespace
     constexpr ImU32 GREY    = IM_COL32(0x66, 0x66, 0x66, 0xFF);
     constexpr ImU32 BRIGHT  = IM_COL32(0xEE, 0xEE, 0xEE, 0xFF);
 
-  } // namespace ansi
+  }
 
   // What colour a line is, from what the board actually says.
   //
@@ -11002,7 +11002,7 @@ namespace
       }
   }
 
-} // namespace
+}
 
 // ------------------------------------------------------------------- public
 

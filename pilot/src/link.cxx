@@ -17,7 +17,7 @@ namespace link
     // the sequence - open, fail, still closed - instead of a constant.
     Bool opened = false;
 
-  } // namespace
+  }
 
   CharSeq why(Result r)
   {
@@ -75,4 +75,4 @@ namespace link
       return -1;
   }
 
-} // namespace link
+}
