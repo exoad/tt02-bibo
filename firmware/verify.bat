@@ -60,6 +60,7 @@ REM ---- 2. the host tests, by EXIT CODE --------------------------------------
 call :suite text     "%HERE%tests\build_text_test.bat"
 call :suite pins     "%HERE%tests\build_pins_test.bat"
 call :suite dfplayer "%HERE%tests\build_dfplayer_test.bat"
+call :suite chassis  "%HERE%tests\build_chassis_test.bat"
 
 REM ---- 3. the style audit --------------------------------------------------
 python "%ROOT%\hub\tools\style_audit.py" >nul 2>&1

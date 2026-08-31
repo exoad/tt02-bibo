@@ -248,7 +248,7 @@ namespace bibo
     /* When the slew limiter may next take a step. The only symbol in this module
      * that carried no module prefix, which is exactly the kind of thing the
      * prefix rule in tools/style_audit.py exists to stop drifting in. */
-    static absolute_time_t slewNextAt;
+    static timing::Deadline slewNextAt;
 
     /* ---- helpers ------------------------------------------------------------- */
 
@@ -328,18 +328,27 @@ namespace bibo
         servoLive = false;
         servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
 
-        slewNextAt = make_timeout_time_ms(SLEW_TICK_MS);
+        /* Rule 2, and open() has to say it too. escArmed was only ever cleared
+         * by its initialiser and by stop(), so a SECOND open() - a re-init, a
+         * mode change - parked the ESC at neutral while leaving it armed, and
+         * the next throttleUs() was accepted by something that reads like a
+         * fresh bring-up. Found by the first test this module ever had. */
+        escArmed  = false;
+        escTarget = DRIVE_NEUTRAL_US;
+        escNow    = DRIVE_NEUTRAL_US;
+
+        slewNextAt = timing::armMs(SLEW_TICK_MS);
         up  = true;
     }
 
     /* Walks each output toward its target. Call from the main loop, often. */
     static Void pump(Void)
     {
-        if(!up || !time_reached(slewNextAt))
+        if(!up || !timing::reached(slewNextAt))
         {
             return;
         }
-        slewNextAt = make_timeout_time_ms(SLEW_TICK_MS);
+        slewNextAt = timing::armMs(SLEW_TICK_MS);
 
         if(servoLive && servoNow != servoTarget)
         {
