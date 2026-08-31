@@ -127,8 +127,32 @@ CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
              r'(?:\s+(?:int|long|char))?'
              r')\s*\**\s*')
 
+# Rules that match the RAW line instead of the stripped one.
+#
+# strip_noise blanks comments and string-literal CONTENTS, which is correct for
+# every rule about code and fatal for a rule about text. A hardcoded home path
+# is always inside a literal or a comment, so matching the stripped line finds
+# nothing, forever, while reporting a clean tree.
+RAW_RULES = {'absolute user path'}
+
 RULES = [
     # (name, regex, note)
+
+    # A home directory in the tree names the machine it was written on. Proposed
+    # by the other session after we each missed one: a sweep for this user's
+    # name found neither file, because a Windows path in a C++ literal doubles
+    # its backslashes and both of our greps looked for one.
+    #
+    # So it is not spelled with a name in it. `[A-Za-z]:\Users\<anybody>`
+    # keeps working for the next contributor and after the repo is public,
+    # which a pattern containing `error` would not.
+    #
+    # The username must START alphanumeric. Without that, `file:///C:/Users/...`
+    # in lsp.cxx matches on the ellipsis - a generic comment about URI shape,
+    # naming nobody.
+    ('absolute user path',
+     r'[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[A-Za-z0-9_][A-Za-z0-9_.-]*',
+     'derive the path - a home directory in the tree names the machine'),
     #
     # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out: that is
     # a named cast whose RESULT is multiplied, not a cast of `(SRC)`. Without
@@ -354,13 +378,21 @@ def audit(paths):
         if os.path.basename(path) in VOCAB_FILES:
             waived_here = waived_here | VOCAB_WAIVES
         for i, l in enumerate(lines):
-            if not l.strip():
+            r = raw[i] if i < len(raw) else ''
+            # Both, not just the stripped one. A comment-only line is blank
+            # AFTER stripping, so testing `l` alone hides every raw-rule hit
+            # that lives in a comment - which is where one of the two paths
+            # that prompted this rule actually sat.
+            if not l.strip() and not r.strip():
                 continue
-            why = exempt(raw[i] if i < len(raw) else '')
+            why = exempt(r)
             for name, pat, note in RULES:
                 if name in waived_here:
                     continue
-                for m in re.finditer(pat, l):
+                subject = r if name in RAW_RULES else l
+                if not subject.strip():
+                    continue
+                for m in re.finditer(pat, subject):
                     if why:
                         continue
                     hits.setdefault(name, []).append(
