@@ -49,6 +49,7 @@
 #pragma once
 
 #include "../hal.hxx"
+#include "../pins.hxx"
 
 namespace bibo
 {
@@ -345,7 +346,8 @@ namespace bibo
 
     [[nodiscard]] static Bool open(Card* c)
     {
-        return openOn(c, PIN_SD_SCK, PIN_SD_MOSI, PIN_SD_MISO, PIN_SD_CS);
+        const pins::Map& m = pins::active();
+        return openOn(c, m.sdSck, m.sdMosi, m.sdMiso, m.sdCs);
     }
 
     /* Capacity in megabytes, for showing a person. */

@@ -146,6 +146,14 @@ namespace bibo
              static_cast<UInt16>(level > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : level));
     }
 
+    /* The equaliser, 0-5. See the note in dfplayer_proto.hxx: this changes tone,
+     * not level, and 30 remains the loudest this module goes. */
+    static Void eq(const Bus* bus, UInt8 mode)
+    {
+        send(bus, DFP_CMD_EQ,
+             static_cast<UInt16>(mode > DFP_EQ_MAX ? DFP_EQ_MAX : mode));
+    }
+
     /* Plays mp3/000N.mp3. One-based, matching the filename. */
     static Void playMp3(const Bus* bus, UInt16 track)
     {

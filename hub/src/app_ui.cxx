@@ -508,6 +508,7 @@ namespace
   // The card is the source of truth - the hub keeps no list, so adding a track
   // to the card is the whole of adding a track.
   Int32   soundFiles     = 0;
+  Int32   soundEq        = 0;
   Float64 soundLastPoll = 0.0;
 
   Str     cueSpeaking  = "none";
@@ -1396,6 +1397,7 @@ namespace
           soundRx     = num("rx=", -1);
           soundBusyGp = num("busyGp=", -1);
           soundFiles  = num("files=", soundFiles);
+          soundEq     = num("eq=", soundEq);
 
           // The volume follows the board EXCEPT while the slider is held. See
           // above: the reply is older than the drag.
@@ -5536,7 +5538,50 @@ namespace
       ImGui::SameLine();
       vol("Half", 15,  "15 of 30. Loud in a room.");
       ImGui::SameLine();
-      vol("Max", 30,   "30 of 30. Do not press this to find out.");
+      vol("Max", 30,   "30 of 30, and there is nothing above it - the\n"
+                       "protocol range is 0-30, and the module clamps.");
+
+      // ---- tone -------------------------------------------------------------
+      //
+      // NOT a second volume, and labelled so. It is what everybody reaches for
+      // when 30 is not loud enough, so it is better to have it here and say
+      // plainly what it does than to leave people to guess.
+      ImGui::SeparatorText("Tone");
+
+      static const Char* const EQ_NAME[6] =
+      {
+          "Normal", "Pop", "Rock", "Jazz", "Classic", "Bass"
+      };
+
+      for(Int32 e = 0; e < 6; ++e)
+      {
+          if(e > 0)
+          {
+              ImGui::SameLine();
+          }
+          ImGui::PushID(100 + e);
+
+          const Bool on = (soundEq == e);
+          if(on)
+          {
+              ImGui::PushStyleColor(ImGuiCol_Button,
+                                    ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD));
+          }
+          if(ImGui::Button(EQ_NAME[e], ImVec2(74.0f * uiDpiScale, 0.0f)))
+          {
+              Array<Char, 32> cmd;
+              std::snprintf(cmd.data(), cmd.size(), "SOUND EQ %d", e);
+              sendPico(cmd.data());
+          }
+          if(on)
+          {
+              ImGui::PopStyleColor();
+          }
+          ImGui::PopID();
+      }
+
+      ImGui::TextDisabled("Tone, not level. Bass can read as louder on a small");
+      ImGui::TextDisabled("speaker - or quieter, if it clips a cone with no box.");
 
       // ---- the track --------------------------------------------------------
       ImGui::SeparatorText("Track");

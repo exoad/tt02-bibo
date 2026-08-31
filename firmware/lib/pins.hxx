@@ -42,6 +42,10 @@
 
 #include "types.hxx"
 
+/* For conflictText() only. text.hxx is a leaf - types.hxx and the C
+ * headers - so this adds no cycle and no hardware dependency. */
+#include "text.hxx"
+
 namespace bibo
 {
 
@@ -129,10 +133,19 @@ namespace bibo
         Int32 tftBlk    = NONE;
 
         /* sensors */
+        /* The MicroSD module. Its own SPI pads, NOT the panel's - the two
+         * would be one bus shared by two devices at different clocks, and
+         * begin() would reject the shared pads as two roles anyway. When a
+         * bus becomes a first-class thing here, this is what changes. */
+        Int32 sdSck     = NONE;
+        Int32 sdMosi    = NONE;
+        Int32 sdMiso    = NONE;
+        Int32 sdCs      = NONE;
+
         Int32 encoder   = NONE;
     } Map;
 
-    constexpr Size FIELD_COUNT = 24;
+    constexpr Size FIELD_COUNT = 28;
 
     static_assert(sizeof(Map) == FIELD_COUNT * sizeof(Int32),
                   "pins::Map must be exactly FIELD_COUNT Int32 fields - a role "
@@ -147,6 +160,7 @@ namespace bibo
         "indFL", "indFR", "indRL", "indRR",
         "revL", "revR",
         "tftSck", "tftMosi", "tftCs", "tftDc", "tftRes", "tftBlk",
+        "sdSck", "sdMosi", "sdMiso", "sdCs",
         "encoder"
     };
 
@@ -196,6 +210,15 @@ namespace bibo
         m.tftCs     = 17;
         m.tftDc     = 21;
         m.tftRes    = 20;
+
+        /* Where the module GOES. Its headers are unsoldered, so nothing is
+         * on these pads yet and sd::open() will fail honestly until they
+         * are - which beats the four #defines this replaced, which named
+         * the same pads and could not be seen or checked from here. */
+        m.sdSck     = 26;
+        m.sdMosi    = 27;
+        m.sdMiso    = 28;
+        m.sdCs      = 22;
 
         m.encoder   = NONE; /* GP15 was earmarked; sound has it */
 
@@ -287,6 +310,43 @@ namespace bibo
     static CharSeq conflictSecond(Void)
     {
         return (clashPin == NONE) ? "" : NAMES[clashB];
+    }
+
+    /*
+     * The whole complaint, as one sentence, ready to print.
+     *
+     * The three accessors above are the parts, and every caller was assembling
+     * them the same way - three calls into one printf, copied into main.cxx and
+     * into each sketch. Copied WRONG, too: they all read
+     *
+     *     "pins %s and %s both want GP%d"
+     *
+     * which is a lie in the out-of-range case, where clashA and clashB are the
+     * same role and the pad is simply not a pad. That message named one role
+     * twice and blamed it for clashing with itself.
+     *
+     * One call, one sentence, both cases. The parts stay for a caller that
+     * wants to say it differently.
+     */
+    static CharSeq conflictText(Void)
+    {
+        static Utf8 buf[96];
+
+        if(clashPin == NONE)
+        {
+            return "";
+        }
+        if(clashA == clashB)
+        {
+            text::format(buf, sizeof(buf), "pin %s is GP%d, which is not a pad",
+                         NAMES[clashA], clashPin);
+        }
+        else
+        {
+            text::format(buf, sizeof(buf), "pins %s and %s both want GP%d",
+                         NAMES[clashA], NAMES[clashB], clashPin);
+        }
+        return buf;
     }
 
     /* The installed map. Every subsystem reads its pads from here. */

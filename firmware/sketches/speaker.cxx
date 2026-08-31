@@ -123,10 +123,7 @@ int main(Void)
         /* Said out loud and then STOPPED. Carrying on with no map would open a
          * UART on nothing and sit there looking like a wiring fault, which is
          * the exact confusion this file is trying to avoid. */
-        serial::printf("ERR pins %s and %s both want GP%d\n",
-                       pins::conflictFirst(),
-                       pins::conflictSecond(),
-                       pins::conflictPin());
+        serial::printf("ERR %s\n", pins::conflictText());
         while(true)
         {
             led::write(true);

@@ -59,6 +59,7 @@
 #pragma once
 
 #include "../hal.hxx"
+#include "../pins.hxx"
 
 namespace bibo
 {
@@ -308,7 +309,11 @@ namespace bibo
      * The bus must already be open - i2c::open() - because several devices share it
      * and it is not this driver's to configure.
      */
-    [[nodiscard]] static Bool open(Vl53* v, Pin sda, UInt8 addr)
+    /*
+     * On a pad the caller names. For a sensor that is not on the installed
+     * map - a second one on another bus, or a bench rig.
+     */
+    [[nodiscard]] static Bool openOn(Vl53* v, Pin sda, UInt8 addr)
     {
         if(v == NULL)
         {
@@ -416,6 +421,23 @@ namespace bibo
         const Bool modeSet   = setMode(v, MODE_LONG);
         const Bool budgetSet = setBudget(v, BUDGET_50MS);
         return modeSet && budgetSet;
+    }
+
+    /*
+     * On the pads this program declared.
+     *
+     * The other four drivers already worked this way and this one did not: the
+     * caller passed `pins::active().i2cSda` into it, which is the sketch
+     * reading the map on the driver's behalf and then handing it back. The
+     * point of pins::begin() is that a driver knows where it is.
+     *
+     * The BUS is still the caller's to open - i2c::open() - and deliberately
+     * so. Several devices share one bus and each opening it would be each one
+     * deciding the clock for all of them.
+     */
+    [[nodiscard]] static Bool open(Vl53* v, UInt8 addr)
+    {
+        return openOn(v, pins::active().i2cSda, addr);
     }
 
     /*

@@ -68,6 +68,26 @@ namespace bibo
      * that out with your head next to the speaker. Everything here clamps. */
 #define DFP_VOLUME_MAX      30u
 
+    /* ---- equaliser ------------------------------------------------------
+     *
+     * NOT a volume control, and worth saying because it is the thing people
+     * reach for when 30 is not loud enough. It cannot make the amplifier louder
+     * - 30 is the top of the protocol's range and the module clamps there. What
+     * it changes is the TONE, and BASS in particular reads as louder on a small
+     * speaker because it puts energy where a tiny cone has none.
+     *
+     * On a speaker with no enclosure the opposite can happen: bass boost costs
+     * headroom that the driver cannot turn into sound anyway, so the amp clips
+     * sooner and the whole thing gets quieter and dirtier. Worth trying both
+     * ways rather than assuming. */
+#define DFP_EQ_NORMAL       0u
+#define DFP_EQ_POP          1u
+#define DFP_EQ_ROCK         2u
+#define DFP_EQ_JAZZ         3u
+#define DFP_EQ_CLASSIC      4u
+#define DFP_EQ_BASS         5u
+#define DFP_EQ_MAX          5u
+
     /* Where a track lives, which decides which command plays it.
      *
      *     mp3/0001.mp3    DFP_CMD_MP3 with 1
