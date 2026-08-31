@@ -473,7 +473,7 @@ static Void handleSteer(CharSeq arg)
 static Void handleSlew(CharSeq arg)
 {
     CharSeq rest = bibo::text::word(arg, "STEER");
-    if(rest != NULL)
+    if(rest != nullptr)
     {
         Int32 us = 0;
         if(!bibo::text::toInt(rest, &us) || !bibo::drive::setSteerSlew(us))
@@ -487,7 +487,7 @@ static Void handleSlew(CharSeq arg)
     }
 
     rest = bibo::text::word(arg, "THROTTLE");
-    if(rest != NULL)
+    if(rest != nullptr)
     {
         Int32 us = 0;
         if(!bibo::text::toInt(rest, &us) || !bibo::drive::setThrottleSlew(us))
@@ -680,7 +680,7 @@ static Void handleEsc(CharSeq arg)
  * running rather than the LED merely being on.
  * ------------------------------------------------------------------------- */
 /* The lamp names, in Lamp order, so the reply reads the way the model does. */
-static CharSeq LAMP_NAME[bibo::lights::COUNT] =
+static CharSeq LAMP_NAME[bibo::lights::LAMP_COUNT] =
 {
     "headL", "headR", "tailL", "tailR",
     "indFL", "indFR", "indRL", "indRR",
@@ -715,7 +715,7 @@ static Void printLights(CharSeq arg)
                  (t == bibo::cue::TURN_LEFT)  ? "left"
                      : (t == bibo::cue::TURN_RIGHT)  ? "right"
                      : (t == bibo::cue::TURN_HAZARD) ? "hazard" : "off",
-                 (f == bibo::lights::COUNT) ? "no" : LAMP_NAME[f],
+                 (f == bibo::lights::LAMP_COUNT) ? "no" : LAMP_NAME[f],
                  bibo::cue::motionUs(),
                  static_cast<UInt32>(s.level[0]), static_cast<UInt32>(s.level[1]),
                  static_cast<UInt32>(s.level[2]), static_cast<UInt32>(s.level[3]),
@@ -750,7 +750,7 @@ static Void handleLights(CharSeq arg)
     }
     if(bibo::text::eq(arg, "AUTO"))
     {
-        bibo::lights::forceLamp(bibo::lights::COUNT);
+        bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);
         printLights(arg);
         return;
     }
@@ -777,7 +777,7 @@ static Void handleLights(CharSeq arg)
 
     /* Matched case-insensitively because handleLine has already uppercased the
      * whole line, and the table above is spelled the way the model spells it. */
-    for(Int32 i = 0; i < bibo::lights::COUNT; ++i)
+    for(Int32 i = 0; i < bibo::lights::LAMP_COUNT; ++i)
     {
         Utf8 up[12];
         Size n = 0;
@@ -821,13 +821,13 @@ static Void handleLights(CharSeq arg)
  */
 typedef Void (*CmdRun)(CharSeq arg);
 
-typedef struct
+struct Command
 {
     CharSeq name;
     CharSeq usage;
     CharSeq what;
     CmdRun  run;
-} Command;
+};
 
 /* Defined below the table, which it walks. */
 static Void printHelp(CharSeq arg);
@@ -838,7 +838,7 @@ static Void printHelp(CharSeq arg);
 static Void cmdTof(CharSeq arg)
 {
     CharSeq mode = bibo::text::word(arg, "MODE");
-    if(mode != NULL)
+    if(mode != nullptr)
     {
         handleTofMode(mode);
         return;
@@ -879,7 +879,7 @@ static Void cmdStop(CharSeq arg)
     static_cast<Void>(arg);
 
     bibo::drive::stop();
-    bibo::lights::forceLamp(bibo::lights::COUNT);
+    bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);
 
     /* Mid-sentence is still an output being commanded, and a stop that leaves
      * an output commanded is not a stop. */
@@ -911,7 +911,7 @@ static Void cmdWifi(CharSeq arg)
     }
 
     CharSeq rest = bibo::text::word(arg, "JOIN");
-    if(rest == NULL)
+    if(rest == nullptr)
     {
         bibo::serial::printf("INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
                      bibo::net::stateWord(bibo::net::status()),
@@ -1157,7 +1157,7 @@ static Void printSound(Void)
         static_cast<UInt32>(DFP_VOLUME_MAX),
         static_cast<UInt32>(bibo::sound::eq()),
         static_cast<UInt32>(bibo::sound::track()),
-        (clip != NULL) ? clip : "-",
+        (clip != nullptr) ? clip : "-",
         static_cast<UInt32>(bibo::sound::count()),
         !bibo::sound::hasVoice()
             ? "unwired"
@@ -1492,7 +1492,7 @@ static Void handleLine(Utf8* line)
     for(Size i = 0; i < COMMAND_COUNT; ++i)
     {
         CharSeq arg = bibo::text::word(line, COMMANDS[i].name);
-        if(arg != NULL)
+        if(arg != nullptr)
         {
             /* Same offset, other buffer - see rawLine above. */
             cmdRawArg = rawLine + (arg - static_cast<CharSeq>(line));
@@ -1655,7 +1655,7 @@ int main(Void)
             if(driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
             {
                 bibo::drive::stop();
-                bibo::lights::forceLamp(bibo::lights::COUNT);
+                bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);
 
                 /* And it SAYS so, on the car, where somebody standing next to
                  * it can see. By definition this fires when the host has

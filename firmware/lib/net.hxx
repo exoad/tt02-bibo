@@ -81,14 +81,14 @@ namespace bibo
      */
 #define NET_QUEUE_LINES 8
 
-    typedef enum
+    enum State
     {
         STATE_ABSENT = 0,  /* no radio on this board */
         STATE_OFF,         /* radio up, not joined to anything */
         STATE_JOINING,
         STATE_UP,
         STATE_FAILED
-    } State;
+    };
 
     typedef Void (*LineHandler)(Utf8* line);
 
@@ -102,8 +102,8 @@ namespace bibo
      */
     static State       stateNow  = STATE_OFF;
     static Bool           started   = false;
-    static LineHandler handler   = NULL;
-    static struct udp_pcb* pcb      = NULL;
+    static LineHandler handler   = nullptr;
+    static struct udp_pcb* pcb      = nullptr;
 
     /* The last host that said anything. Replies go here - including replies to
      * commands that arrived over USB, which is deliberate: a console watching
@@ -161,7 +161,7 @@ namespace bibo
      */
     static CharSeq address(Void)
     {
-        if(stateNow != STATE_UP || netif_default == NULL)
+        if(stateNow != STATE_UP || netif_default == nullptr)
         {
             return "-";
         }
@@ -248,7 +248,7 @@ namespace bibo
         static_cast<Void>(arg);
         static_cast<Void>(pcb);
 
-        if(p == NULL)
+        if(p == nullptr)
         {
             return;
         }
@@ -259,7 +259,7 @@ namespace bibo
 
         /* pbufs can be chained; walking the chain is not optional even for small
          * packets, because "small" is the sender's decision and not ours. */
-        for(struct pbuf* q = p; q != NULL; q = q->next)
+        for(struct pbuf* q = p; q != nullptr; q = q->next)
         {
             feed(static_cast<const Utf8*>(q->payload), static_cast<Size>(q->len));
         }
@@ -302,7 +302,7 @@ namespace bibo
         cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
 
         pcb = udp_new();
-        if(pcb == NULL)
+        if(pcb == nullptr)
         {
             stateNow = STATE_FAILED;
             return false;
@@ -311,12 +311,12 @@ namespace bibo
         if(udp_bind(pcb, IP_ANY_TYPE, NET_PORT) != ERR_OK)
         {
             udp_remove(pcb);
-            pcb      = NULL;
+            pcb      = nullptr;
             stateNow = STATE_FAILED;
             return false;
         }
 
-        udp_recv(pcb, onPacket, NULL);
+        udp_recv(pcb, onPacket, nullptr);
 
         started  = true;
         stateNow = STATE_OFF;
@@ -341,15 +341,15 @@ namespace bibo
 
         /* Copies, because the async connect keeps pointers to these. */
         snprintf(joinSsid, sizeof(joinSsid), "%s", ssid);
-        snprintf(joinPass, sizeof(joinPass), "%s", (pass != NULL) ? pass : "");
+        snprintf(joinPass, sizeof(joinPass), "%s", (pass != nullptr) ? pass : "");
 
         const UInt32 auth = (joinPass[0] == '\0')
                                 ? CYW43_AUTH_OPEN
                                 : CYW43_AUTH_WPA2_AES_PSK;
 
-        /* NULL rather than an empty string for an open network: the SDK tests the
+        /* nullptr rather than an empty string for an open network: the SDK tests the
          * pointer, not what it points at. */
-        CharSeq key = (joinPass[0] == '\0') ? NULL : joinPass;
+        CharSeq key = (joinPass[0] == '\0') ? nullptr : joinPass;
 
         if(cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
         {
@@ -364,7 +364,7 @@ namespace bibo
     /* One line out to whoever last spoke. Silently does nothing if nobody has. */
     static Void sendLine(CharSeq text)
     {
-        if(stateNow != STATE_UP || !peerKnownNow || pcb == NULL)
+        if(stateNow != STATE_UP || !peerKnownNow || pcb == nullptr)
         {
             return;
         }
@@ -376,7 +376,7 @@ namespace bibo
         }
 
         struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(len), PBUF_RAM);
-        if(p == NULL)
+        if(p == nullptr)
         {
             return;   /* out of buffers: dropping a reply beats blocking the loop */
         }
@@ -430,7 +430,7 @@ namespace bibo
             queueHead = (queueHead + 1) % NET_QUEUE_LINES;
             queueCount--;
 
-            if(handler != NULL)
+            if(handler != nullptr)
             {
                 handler(line);
             }

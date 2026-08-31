@@ -53,26 +53,26 @@ static Void testInspect(Void)
 
     check(bibo::text::len("PING") == 4, "bibo::text::len counts");
     check(bibo::text::len("") == 0, "bibo::text::len of empty");
-    check(bibo::text::len(NULL) == 0, "bibo::text::len of NULL does not crash");
+    check(bibo::text::len(nullptr) == 0, "bibo::text::len of nullptr does not crash");
 
     check(bibo::text::empty(""), "empty is empty");
-    check(bibo::text::empty(NULL), "NULL is empty");
+    check(bibo::text::empty(nullptr), "nullptr is empty");
     check(!bibo::text::empty("x"), "one character is not empty");
 
     check(bibo::text::eq("STEER", "STEER"), "equal strings are equal");
     check(!bibo::text::eq("STEER", "STEEP"), "one letter apart is not equal");
     check(!bibo::text::eq("STEER", "STEE"), "a prefix is not equal");
-    check(bibo::text::eq(NULL, NULL), "two NULLs are equal");
-    check(!bibo::text::eq("x", NULL), "a string is not NULL");
+    check(bibo::text::eq(nullptr, nullptr), "two NULLs are equal");
+    check(!bibo::text::eq("x", nullptr), "a string is not nullptr");
 
     check(bibo::text::starts("STEER 0.5", "STEER "), "prefix matches");
     check(!bibo::text::starts("STEER", "STEER "), "prefix longer than the string");
     check(bibo::text::starts("STEER", ""), "the empty prefix always matches");
-    check(!bibo::text::starts(NULL, "X"), "NULL starts with nothing");
+    check(!bibo::text::starts(nullptr, "X"), "nullptr starts with nothing");
 
     check(bibo::text::eq(bibo::text::after("STEER 0.5", "STEER "), "0.5"),
           "bibo::text::after returns the argument");
-    check(bibo::text::after("STOP", "STEER ") == NULL,
+    check(bibo::text::after("STOP", "STEER ") == nullptr,
           "bibo::text::after refuses a non-match");
 }
 
@@ -126,7 +126,7 @@ static Void testInt(Void)
 
     check(!bibo::text::toInt("12abc", &v), "trailing rubbish is refused (atoi said 12)");
     check(!bibo::text::toInt("", &v), "empty is refused");
-    check(!bibo::text::toInt(NULL, &v), "NULL is refused");
+    check(!bibo::text::toInt(nullptr, &v), "nullptr is refused");
     check(!bibo::text::toInt("1.5", &v), "a fraction is not an integer");
     check(!bibo::text::toInt("- 5", &v), "a detached sign is refused");
 }
@@ -160,7 +160,7 @@ static Void testFloat(Void)
 
     check(!bibo::text::toFloat("0.5x", &f), "trailing rubbish is refused");
     check(!bibo::text::toFloat("", &f), "empty is refused");
-    check(!bibo::text::toFloat(NULL, &f), "NULL is refused");
+    check(!bibo::text::toFloat(nullptr, &f), "nullptr is refused");
 }
 
 /* ---- pairs --------------------------------------------------------------- */
@@ -201,7 +201,7 @@ static Void testWord(Void)
 {
     printf("\n-- bibo::text::word --\n");
 
-    check(bibo::text::word("PING", "PING") != NULL, "a bare command matches");
+    check(bibo::text::word("PING", "PING") != nullptr, "a bare command matches");
     check(bibo::text::eq(bibo::text::word("PING", "PING"), ""), "and its argument is empty");
 
     check(bibo::text::eq(bibo::text::word("LED ON", "LED"), "ON"), "the argument follows");
@@ -209,23 +209,23 @@ static Void testWord(Void)
     check(bibo::text::eq(bibo::text::word("SLEW 8", "SLEW"), "8"), "a number argument");
 
     /* The whole point. */
-    check(bibo::text::word("SERVOTRIM 1500", "SERVO") == NULL,
+    check(bibo::text::word("SERVOTRIM 1500", "SERVO") == nullptr,
           "SERVO does not match SERVOTRIM");
-    check(bibo::text::word("SERVOLIMITS 1 2", "SERVO") == NULL,
+    check(bibo::text::word("SERVOLIMITS 1 2", "SERVO") == nullptr,
           "SERVO does not match SERVOLIMITS");
     check(bibo::text::eq(bibo::text::word("SERVOTRIM 1500", "SERVOTRIM"), "1500"),
           "SERVOTRIM matches itself");
     check(bibo::text::eq(bibo::text::word("SERVO 1500", "SERVO"), "1500"),
           "SERVO still matches SERVO");
-    check(bibo::text::word("ESCLIMITS 1 2", "ESC") == NULL,
+    check(bibo::text::word("ESCLIMITS 1 2", "ESC") == nullptr,
           "ESC does not match ESCLIMITS");
 
-    check(bibo::text::word("PIN", "PING") == NULL, "a truncated command does not match");
-    check(bibo::text::word("", "PING") == NULL, "empty matches nothing");
-    check(bibo::text::word("PINGING", "PING") == NULL, "a longer word does not match");
+    check(bibo::text::word("PIN", "PING") == nullptr, "a truncated command does not match");
+    check(bibo::text::word("", "PING") == nullptr, "empty matches nothing");
+    check(bibo::text::word("PINGING", "PING") == nullptr, "a longer word does not match");
 
-    check(bibo::text::word(NULL, "PING") == NULL, "NULL input is refused");
-    check(bibo::text::word("PING", NULL) == NULL, "NULL word is refused");
+    check(bibo::text::word(nullptr, "PING") == nullptr, "nullptr input is refused");
+    check(bibo::text::word("PING", nullptr) == nullptr, "nullptr word is refused");
 
     /* TOF's subcommand goes through the same function a second time. */
     check(bibo::text::eq(bibo::text::word(bibo::text::word("TOF MODE LONG", "TOF"), "MODE"), "LONG"),

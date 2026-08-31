@@ -120,18 +120,18 @@ namespace bibo
    */
   typedef Int32 Pin;
 
-  typedef enum PinDir
+  enum PinDir
   {
       PIN_DIR_IN = 0,
       PIN_DIR_OUT = 1
-  } PinDir;
+  };
 
-  typedef enum PinPull
+  enum PinPull
   {
       PIN_PULL_NONE = 0,
       PIN_PULL_UP,
       PIN_PULL_DOWN
-  } PinPull;
+  };
 
   /* ---- constants ----------------------------------------------------------- */
 
@@ -403,7 +403,7 @@ namespace bibo
      */
     typedef Void (*Mirror)(CharSeq);
 
-    static Mirror mirrorFn = NULL;
+    static Mirror mirrorFn = nullptr;
 
     static Void setMirror(Mirror fn)
     {
@@ -414,7 +414,7 @@ namespace bibo
     {
         fputs(text, stdout);
 
-        if(mirrorFn != NULL)
+        if(mirrorFn != nullptr)
         {
             mirrorFn(text);
         }
@@ -1040,7 +1040,7 @@ namespace bibo
      * simpler to reason about and what nearly every driver does.
      */
 
-    /* Which controller a SCK pin belongs to, or NULL if it is not a SCK pin. */
+    /* Which controller a SCK pin belongs to, or nullptr if it is not a SCK pin. */
 
   } // namespace watchdog
 
@@ -1052,7 +1052,7 @@ namespace bibo
         {
         case 2: case 6: case 18: case 22: return spi0;
         case 10: case 14: case 26: return spi1;
-        default: return NULL;
+        default: return nullptr;
         }
     }
 
@@ -1075,7 +1075,7 @@ namespace bibo
         {
         case 0: case 4: case 16: case 20: return spi0;
         case 8: case 12: case 24: case 28: return spi1;
-        default: return NULL;
+        default: return nullptr;
         }
     }
 
@@ -1090,7 +1090,7 @@ namespace bibo
     static Bool open(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
     {
         spi_inst_t* const bus = forSck(sck);
-        if(bus == NULL)
+        if(bus == nullptr)
         {
             return false;
         }
@@ -1120,7 +1120,7 @@ namespace bibo
         spi_inst_t* const bus  = forSck(sck);
         spi_inst_t* const rxBus = forMiso(miso);
 
-        if(bus == NULL || rxBus == NULL || bus != rxBus)
+        if(bus == nullptr || rxBus == nullptr || bus != rxBus)
         {
             return false;
         }
@@ -1157,7 +1157,7 @@ namespace bibo
     static Void mode(Pin sck, Bool cpol, Bool cpha)
     {
         spi_inst_t* const bus = forSck(sck);
-        if(bus == NULL)
+        if(bus == nullptr)
         {
             return;
         }
@@ -1172,14 +1172,14 @@ namespace bibo
     static UInt32 baud(Pin sck, UInt32 hz)
     {
         spi_inst_t* const bus = forSck(sck);
-        return (bus == NULL) ? 0u : static_cast<UInt32>(spi_set_baudrate(bus, hz));
+        return (bus == nullptr) ? 0u : static_cast<UInt32>(spi_set_baudrate(bus, hz));
     }
 
     /* Blocking write. Returns the number of bytes sent, or 0 for a bad SCK pin. */
     static Size write(Pin sck, const UInt8* data, Size n)
     {
         spi_inst_t* const bus = forSck(sck);
-        if(bus == NULL || data == NULL || n == 0)
+        if(bus == nullptr || data == nullptr || n == 0)
         {
             return 0;
         }
@@ -1196,7 +1196,7 @@ namespace bibo
     static Size transfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
     {
         spi_inst_t* const bus = forSck(sck);
-        if(bus == NULL || tx == NULL || rx == NULL || n == 0)
+        if(bus == nullptr || tx == nullptr || rx == nullptr || n == 0)
         {
             return 0;
         }
@@ -1250,7 +1250,7 @@ namespace bibo
   } // namespace spi
 #define I2C_TIMEOUT_US 10000u
 
-  /* Which controller an SDA pin belongs to, or NULL if it is not an SDA pin. */
+  /* Which controller an SDA pin belongs to, or nullptr if it is not an SDA pin. */
 
   namespace i2c
   {
@@ -1260,7 +1260,7 @@ namespace bibo
         {
         case 0: case 4: case 8: case 12: case 16: case 20: return i2c0;
         case 2: case 6: case 10: case 14: case 18: case 26: return i2c1;
-        default: return NULL;
+        default: return nullptr;
         }
     }
 
@@ -1279,7 +1279,7 @@ namespace bibo
     static Bool open(Pin sda, Pin scl, UInt32 hz)
     {
         i2c_inst_t* const bus = forSda(sda);
-        if(bus == NULL)
+        if(bus == nullptr)
         {
             return false;
         }
@@ -1302,7 +1302,7 @@ namespace bibo
     static Bool present(Pin sda, UInt8 addr)
     {
         i2c_inst_t* const bus = forSda(sda);
-        if(bus == NULL)
+        if(bus == nullptr)
         {
             return false;
         }
@@ -1317,7 +1317,7 @@ namespace bibo
     static Size write(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
     {
         i2c_inst_t* const bus = forSda(sda);
-        if(bus == NULL || data == NULL || n == 0)
+        if(bus == nullptr || data == nullptr || n == 0)
         {
             return 0;
         }
@@ -1329,7 +1329,7 @@ namespace bibo
     static Size read(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
     {
         i2c_inst_t* const bus = forSda(sda);
-        if(bus == NULL || data == NULL || n == 0)
+        if(bus == nullptr || data == nullptr || n == 0)
         {
             return 0;
         }

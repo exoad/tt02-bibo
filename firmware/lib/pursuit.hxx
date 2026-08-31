@@ -57,13 +57,13 @@ namespace bibo
     /* A path is somebody else's array. Not owned, not copied - this runs on a
      * microcontroller and on a single-board computer, and neither wants a
      * follower that allocates. */
-    typedef struct Path
+    struct Path
     {
-        const geom::Vec2* pts = NULL;
+        const geom::Vec2* pts = nullptr;
         Size              n   = 0u;
-    } Path;
+    };
 
-    typedef struct Follower
+    struct Follower
     {
         /* Lookahead = clamp(perMs * speed, minM, maxM). */
         Float32 minM  = 0.35f;
@@ -78,9 +78,9 @@ namespace bibo
 
         /* How far along the path the follower has committed. Only increases. */
         Size    at = 0u;
-    } Follower;
+    };
 
-    typedef struct Aim
+    struct Aim
     {
         Bool       valid     = false;  /* false: nothing to steer toward */
         Bool       arrived   = false;  /* the end is within arriveM      */
@@ -90,11 +90,11 @@ namespace bibo
         Float32    steer     = 0.0f;   /* radians, clamped to maxSteer   */
         Float32    fraction  = 0.0f;   /* -1..1, what drive::steer wants */
         Float32    crossTrack = 0.0f;  /* metres, + is left of the path  */
-    } Aim;
+    };
 
     static Void reset(Follower* f)
     {
-        if(f != NULL)
+        if(f != nullptr)
         {
             f->at = 0u;
         }
@@ -107,7 +107,7 @@ namespace bibo
     {
         Aim aim;
 
-        if(f == NULL || path == NULL || path->pts == NULL || path->n == 0u)
+        if(f == nullptr || path == nullptr || path->pts == nullptr || path->n == 0u)
         {
             return aim;
         }

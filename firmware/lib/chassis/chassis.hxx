@@ -175,7 +175,7 @@ namespace bibo
      * `servoNow` from one moment and `servoTarget` from the next and report a car
      * that never existed.
      */
-    typedef struct
+    struct State
     {
         Int32 servoUs;       /* what is being OUTPUT, which lags the target       */
         Int32 servoTargetUs; /* what it is heading toward                         */
@@ -200,7 +200,7 @@ namespace bibo
         Int32 escMaxUs;
         Int32 steerSlewUs;    /* us of pulse per 20 ms tick, steering */
         Int32 throttleSlewUs; /* ...and throttle. They are separate settings.  */
-    } State;
+    };
 
     /* ---- state --------------------------------------------------------------- */
 

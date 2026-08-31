@@ -105,7 +105,7 @@ namespace bibo
      * and they DIFFER BY DISTANCE MODE - which is why changing the mode has to
      * re-apply the budget, and why tof::setMode() does.
      */
-    typedef enum Budget
+    enum Budget
     {
         BUDGET_20MS = 0,
         BUDGET_33MS,
@@ -113,7 +113,7 @@ namespace bibo
         BUDGET_100MS,
         BUDGET_200MS,
         BUDGET_500MS
-    } Budget;
+    };
 
     /* Registers 0x005E and 0x0061, indexed [budget][0..1]. */
     static const UInt16 BUDGET_LONG[6][2] = {
@@ -138,7 +138,7 @@ namespace bibo
         { 0x0591, 0x05C1 }    /* 500 ms */
     };
 
-    typedef enum Mode
+    enum Mode
     {
         /* Up to about 1.3 m, and much better in bright light. The right default for
          * a bumper: the ambient infrared in daylight is what limits this sensor,
@@ -147,9 +147,9 @@ namespace bibo
 
         /* Up to about 4 m indoors, and easily blinded outdoors. */
         MODE_LONG
-    } Mode;
+    };
 
-    typedef struct Vl53
+    struct Vl53
     {
         Pin   sda;
         UInt8 addr;
@@ -166,7 +166,7 @@ namespace bibo
          * compares against it, and reading it back rather than assuming is what
          * makes the check work on a module wired either way round. */
         UInt8 intPolarity;
-    } Vl53;
+    };
 
     /*
      * ST's published default configuration, registers 0x2D through 0x87.
@@ -315,7 +315,7 @@ namespace bibo
      */
     [[nodiscard]] static Bool openOn(Vl53* v, Pin sda, UInt8 addr)
     {
-        if(v == NULL)
+        if(v == nullptr)
         {
             return false;
         }
@@ -478,11 +478,11 @@ namespace bibo
             return false;
         }
 
-        if(signalOut != NULL)
+        if(signalOut != nullptr)
         {
             *signalOut = sig;
         }
-        if(ambientOut != NULL)
+        if(ambientOut != nullptr)
         {
             *ambientOut = amb;
         }

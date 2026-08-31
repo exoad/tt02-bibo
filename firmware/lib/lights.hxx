@@ -64,20 +64,20 @@ namespace bibo
   {
 
     /* ---- the lamps a car has ------------------------------------------------ */
-    typedef enum
+    enum Lamp
     {
-        HEAD_L = 0,
-        HEAD_R,
-        TAIL_L,
-        TAIL_R,
-        IND_FL,
-        IND_FR,
-        IND_RL,
-        IND_RR,
-        REV_L,
-        REV_R,
-        COUNT
-    } Lamp;
+        LAMP_HEAD_L = 0,
+        LAMP_HEAD_R,
+        LAMP_TAIL_L,
+        LAMP_TAIL_R,
+        LAMP_IND_FL,
+        LAMP_IND_FR,
+        LAMP_IND_RL,
+        LAMP_IND_RR,
+        LAMP_REV_L,
+        LAMP_REV_R,
+        LAMP_COUNT
+    };
 
     /*
      * Brightness, 0 dark to 255 full.
@@ -93,10 +93,10 @@ namespace bibo
 #define LAMP_DRL   115u   /* 45%: daytime running */
 #define LAMP_FULL  255u
 
-    typedef struct
+    struct Set
     {
-        UInt8 level[COUNT];
-    } Set;
+        UInt8 level[LAMP_COUNT];
+    };
 
     /* ===========================================================================
      * THE BINDING. Temporary - see the banner.
@@ -114,7 +114,7 @@ namespace bibo
      * Now the program says what is wired where - pins::begin() - and this table
      * is a copy taken when the lamps are opened. Same ten entries, same order
      * as the Lamp enum, and still NONE for anything with no LED on it. */
-    static Int32 pin[COUNT] =
+    static Int32 pin[LAMP_COUNT] =
     {
         pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE,
         pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE
@@ -126,7 +126,7 @@ namespace bibo
     static Set now;          /* what was last written                  */
 
     /*
-     * A lamp held on by hand, ignoring every rule and every cue. lights::COUNT means
+     * A lamp held on by hand, ignoring every rule and every cue. lights::LAMP_COUNT means
      * "no override", which is the normal state.
      *
      * This exists because "the lamp does not work" has three unrelated causes - the
@@ -138,11 +138,11 @@ namespace bibo
      * forced lamp survives whatever the cue layer is doing - including a one-shot
      * cue that would otherwise take the channel back off you mid-test.
      */
-    static Int32 forced = COUNT;
+    static Int32 forced = LAMP_COUNT;
 
     static Void clear(Set* s)
     {
-        for(Int32 i = 0; i < COUNT; ++i)
+        for(Int32 i = 0; i < LAMP_COUNT; ++i)
         {
             s->level[i] = LAMP_OFF;
         }
@@ -152,7 +152,7 @@ namespace bibo
      * is exactly one place that touches a GPIO. */
     static Void push(const Set* s)
     {
-        for(Int32 i = 0; i < COUNT; ++i)
+        for(Int32 i = 0; i < LAMP_COUNT; ++i)
         {
             if(pin[i] != LIGHT_PIN_NONE)
             {
@@ -169,18 +169,18 @@ namespace bibo
          * table that could change underneath it is a race nobody needs. */
         const pins::Map& m = pins::active();
 
-        pin[HEAD_L] = m.headL;
-        pin[HEAD_R] = m.headR;
-        pin[TAIL_L] = m.tailL;
-        pin[TAIL_R] = m.tailR;
-        pin[IND_FL] = m.indFL;
-        pin[IND_FR] = m.indFR;
-        pin[IND_RL] = m.indRL;
-        pin[IND_RR] = m.indRR;
-        pin[REV_L]  = m.revL;
-        pin[REV_R]  = m.revR;
+        pin[LAMP_HEAD_L] = m.headL;
+        pin[LAMP_HEAD_R] = m.headR;
+        pin[LAMP_TAIL_L] = m.tailL;
+        pin[LAMP_TAIL_R] = m.tailR;
+        pin[LAMP_IND_FL] = m.indFL;
+        pin[LAMP_IND_FR] = m.indFR;
+        pin[LAMP_IND_RL] = m.indRL;
+        pin[LAMP_IND_RR] = m.indRR;
+        pin[LAMP_REV_L]  = m.revL;
+        pin[LAMP_REV_R]  = m.revR;
 
-        for(Int32 i = 0; i < COUNT; ++i)
+        for(Int32 i = 0; i < LAMP_COUNT; ++i)
         {
             if(pin[i] != LIGHT_PIN_NONE)
             {
@@ -189,7 +189,7 @@ namespace bibo
         }
 
         up     = true;
-        forced = COUNT;
+        forced = LAMP_COUNT;
 
         clear(&now);
         push(&now);
@@ -204,12 +204,12 @@ namespace bibo
      */
     static Void write(const Set* s)
     {
-        if(!up || !on || s == NULL)
+        if(!up || !on || s == nullptr)
         {
             return;
         }
 
-        if(forced != COUNT)
+        if(forced != LAMP_COUNT)
         {
             Set one;
             clear(&one);
@@ -254,7 +254,7 @@ namespace bibo
         return now.level[l] > LAMP_OFF;
     }
 
-    /* Hold ONE lamp lit, or lights::COUNT to hand it back to the cue layer. */
+    /* Hold ONE lamp lit, or lights::LAMP_COUNT to hand it back to the cue layer. */
     static Void forceLamp(Int32 lamp)
     {
         forced = lamp;

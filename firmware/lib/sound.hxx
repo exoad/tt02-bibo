@@ -178,7 +178,7 @@ namespace bibo
      * the name is there and points past the end of the card. A single false
      * would send somebody to a bench to work out which - and every one of them
      * SOUNDS the same, which is to say like nothing at all. */
-    typedef enum Result
+    enum Result
     {
         RESULT_OK = 0,
         RESULT_CLOSED,     /* open() has not run                        */
@@ -186,7 +186,7 @@ namespace bibo
         RESULT_NO_CLIP,    /* no clip by that name in sfx::CLIPS        */
         RESULT_PAST_END,   /* the clip names a track the card lacks     */
         RESULT_RESERVED    /* track 0 - 0000.mp3 is not a playable file */
-    } Result;
+    };
 
     static Result playTrack(UInt16 t)
     {

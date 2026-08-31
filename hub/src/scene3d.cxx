@@ -1221,7 +1221,7 @@ namespace scene3d
         constexpr Float32 BASE_MM  = vehicle::C1_BASE_MM;
         constexpr Float32 TALL_MM  = vehicle::C1_TALL_MM;
         constexpr Float32 PLINTH_H = 16.0f;    // the fixed lower half
-        constexpr Float32 HEAD_R   = 24.0f;    // the spinning head
+        constexpr Float32 LAMP_HEAD_R   = 24.0f;    // the spinning head
 
         const Float32 hb = BASE_MM * 0.5f;
 
@@ -1261,8 +1261,8 @@ namespace scene3d
         for(Int32 i = 0; i < SEG; ++i)
         {
             const Float32 a = static_cast<Float32>(i) * (2.0f * PI_F / SEG);
-            const Float32 x = HEAD_R * std::cos(a);
-            const Float32 y = HEAD_R * std::sin(a);
+            const Float32 x = LAMP_HEAD_R * std::cos(a);
+            const Float32 y = LAMP_HEAD_R * std::sin(a);
             lo[i] = at(x, y, PLINTH_H);
             hi[i] = at(x, y, TALL_MM);
         }
@@ -1278,10 +1278,10 @@ namespace scene3d
             emitTri(crown, hi[i], hi[(i + 1) % SEG], top, nullptr, 0);
 
         // The emitter window, marking which way bearing 0 points.
-        const Vec3 w0 = at(-10.0f, HEAD_R * 0.98f, PLINTH_H + 6.0f);
-        const Vec3 w1 = at( 10.0f, HEAD_R * 0.98f, PLINTH_H + 6.0f);
-        const Vec3 w2 = at( 10.0f, HEAD_R * 0.98f, TALL_MM - 6.0f);
-        const Vec3 w3 = at(-10.0f, HEAD_R * 0.98f, TALL_MM - 6.0f);
+        const Vec3 w0 = at(-10.0f, LAMP_HEAD_R * 0.98f, PLINTH_H + 6.0f);
+        const Vec3 w1 = at( 10.0f, LAMP_HEAD_R * 0.98f, PLINTH_H + 6.0f);
+        const Vec3 w2 = at( 10.0f, LAMP_HEAD_R * 0.98f, TALL_MM - 6.0f);
+        const Vec3 w3 = at(-10.0f, LAMP_HEAD_R * 0.98f, TALL_MM - 6.0f);
         const Array<Vec3, 4> win = { w0, w1, w2, w3 };
         pushFace(v, win, { IM_COL32(0x8A, 0x1E, 0x1E, 0xFF), 0u, 0.0f });
     }
