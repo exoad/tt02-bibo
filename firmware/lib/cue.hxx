@@ -967,7 +967,9 @@ namespace bibo::cue
 
             const Step* st = &sc->step[stepIx[k]];
 
-            channelLamps(static_cast<UInt8>(owned & ~st->lamps), LAMP_OFF, out);
+            channelLamps(static_cast<UInt8>(static_cast<UInt32>(owned)
+                                            & ~static_cast<UInt32>(st->lamps)),
+                         LAMP_OFF, out);
             channelLamps(st->lamps, st->level, out);
 
             if(st->tone != TONE_NONE)

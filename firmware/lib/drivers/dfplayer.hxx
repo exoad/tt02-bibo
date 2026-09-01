@@ -237,7 +237,8 @@ namespace bibo::dfplayer
     inline Void playFolder(const Bus* bus, const UInt8 folder, const UInt8 track)
     {
         send(bus, DFP_CMD_FOLDER,
-             static_cast<UInt16>((static_cast<UInt16>(folder) << 8) | track));
+             static_cast<UInt16>((static_cast<UInt32>(folder) << 8u)
+                                 | static_cast<UInt32>(track)));
     }
 
     /**
@@ -354,7 +355,7 @@ namespace bibo::dfplayer
                 sum = static_cast<UInt16>(sum + f[i]);
             }
             const auto chk = static_cast<UInt16>(
-                (static_cast<UInt16>(f[7]) << 8) | f[8]);
+                (static_cast<UInt32>(f[7]) << 8u) | static_cast<UInt32>(f[8]));
 
             if(static_cast<UInt16>(sum + chk) != 0u)
             {
@@ -366,7 +367,7 @@ namespace bibo::dfplayer
             }
 
             *out = static_cast<UInt16>(
-                (static_cast<UInt16>(f[5]) << 8) | f[6]);
+                (static_cast<UInt32>(f[5]) << 8u) | static_cast<UInt32>(f[6]));
             return true;
         }
         return false;
