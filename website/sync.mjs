@@ -51,6 +51,57 @@ function unframe(lines) {
     .trim()
 }
 
+/* Split a doc comment into its Doxygen tags and the prose around them.
+ *
+ * BOTH SHAPES HAVE TO WORK, and that is the whole design. The firmware is
+ * being converted to `@brief`/`@param`/`@return` a header at a time, so on any
+ * given day some declarations carry tags and the rest are the prose paragraphs
+ * this project has always written. A generator that only understood one of
+ * them would blank half the reference until the conversion finished.
+ *
+ * Untagged text is the description, which is what an unconverted comment
+ * becomes - so a file that has never been touched still renders exactly as it
+ * did before this existed.
+ */
+function doxygen(text) {
+  const out = { brief: '', body: [], params: [], returns: '', notes: [], warns: [] }
+  if (!text) return out
+
+  let cur = null                    // the tag currently collecting continuation lines
+
+  for (const raw of text.split('\n')) {
+    const m = raw.match(/^\s*[@\\](brief|param|return|returns|note|warning|see)\b\s*(.*)$/)
+    if (m) {
+      const [, tag, rest] = m
+      if (tag === 'brief') { out.brief = rest; cur = { push: s => (out.brief += ' ' + s) } }
+      else if (tag === 'param') {
+        /* `@param name description`, and the name may carry a direction
+         * prefix - [in], [out], [in,out] - which Doxygen allows before it. */
+        const pm = rest.match(/^(\[[^\]]*\]\s*)?(\S+)\s*(.*)$/)
+        const p = { name: pm ? pm[2] : rest, dir: (pm && pm[1] || '').trim(), text: pm ? pm[3] : '' }
+        out.params.push(p)
+        cur = { push: s => (p.text += ' ' + s) }
+      }
+      else if (tag === 'return' || tag === 'returns') {
+        out.returns = rest
+        cur = { push: s => (out.returns += ' ' + s) }
+      }
+      else if (tag === 'note') { out.notes.push(rest); cur = { push: s => (out.notes[out.notes.length - 1] += ' ' + s) } }
+      else if (tag === 'warning') { out.warns.push(rest); cur = { push: s => (out.warns[out.warns.length - 1] += ' ' + s) } }
+      else { cur = null }
+      continue
+    }
+
+    /* A blank line ends a tag; anything else continues the one in progress. */
+    if (!raw.trim()) { cur = null; out.body.push(''); continue }
+    if (cur) { cur.push(raw.trim()); continue }
+    out.body.push(raw)
+  }
+
+  out.body = out.body.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  return out
+}
+
 const DECL = [
   /* Order matters: a function whose return type is `struct X` must not be read
    * as a struct declaration, so the more specific patterns come first. */
@@ -113,7 +164,12 @@ function parse(path) {
       continue
     }
 
-    const nsm = line.match(/^\s*namespace\s+([A-Za-z_]\w*)/)
+    /* `[\w:]*` so a CONCATENATED namespace keeps all of itself. The firmware
+     * moved to `namespace bibo::lights` on 2026-08-31, and matching only the
+     * first segment made every page in the reference claim its declarations
+     * lived in plain `bibo` - the pages stayed generated and every namespace
+     * line on them was wrong, which is worse than an empty page. */
+    const nsm = line.match(/^\s*namespace\s+([A-Za-z_][\w:]*)/)
     if (nsm) { ns.push({ name: nsm[1], at: depth }); pending = null; continue }
 
     /* declarations, only where a declaration can be: inside a namespace, and
@@ -161,7 +217,9 @@ function parse(path) {
 
 /* ---- writing the pages --------------------------------------------------- */
 
-const esc = s => s.replace(/\{\{/g, '&#123;&#123;')   // Vue would eat these
+/* Vue would eat a `{{`. Coerces first: an unmatched regex group comes back
+ * undefined, and `@param name` with no description is a legal thing to write. */
+const esc = s => String(s ?? '').replace(/\{\{/g, '&#123;&#123;')
 
 function apiPage(path, mod, order) {
   const p = parse(path)
@@ -181,10 +239,30 @@ function apiPage(path, mod, order) {
     if (!items.length) continue
     md += `## ${label}\n\n`
     for (const d of items) {
+      const dx = doxygen(d.doc)
+
       md += `### ${d.name}\n\n`
+      if (dx.brief) md += `${esc(dx.brief)}\n\n`
       md += '```cpp\n' + d.sig + '\n```\n\n'
       if (d.ns) md += `*Namespace* \`${d.ns}\` · *line ${d.line}*\n\n`
-      if (d.doc) md += `${esc(d.doc)}\n\n`
+
+      if (dx.body) md += `${esc(dx.body)}\n\n`
+
+      if (dx.params.length) {
+        md += '| Parameter | Description |\n|---|---|\n'
+        for (const p of dx.params) {
+          const nm = p.dir ? `\`${p.name}\` *${p.dir}*` : `\`${p.name}\``
+          md += `| ${nm} | ${esc(p.text.trim()).replace(/\n/g, ' ')} |\n`
+        }
+        md += '\n'
+      }
+
+      if (dx.returns) md += `**Returns** — ${esc(dx.returns.trim())}\n\n`
+
+      /* Docus renders these as coloured callouts, which is the point: a
+       * warning about hardware should not read like another paragraph. */
+      for (const n of dx.notes) md += `::note\n${esc(n.trim())}\n::\n\n`
+      for (const w of dx.warns) md += `::warning\n${esc(w.trim())}\n::\n\n`
     }
   }
   return { md, count: p.decls.length, banner: p.banner, mod }
