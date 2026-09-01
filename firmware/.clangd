@@ -49,6 +49,43 @@ CompileFlags:
     - -mfpu=*
     - --specs=*
 
+  # THE STANDARD LIBRARY, SPELLED OUT, and this is what made every sketch show
+  # `Int32` as an unknown type.
+  #
+  # The compile database names arm-none-eabi-g++, so clangd goes looking for
+  # ITS system headers - and guesses the layout of the LLVM embedded toolchain
+  # for Arm:
+  #
+  #     C:\msys64\mingw64\lib\clang-runtimes\arm-none-eabi\include
+  #
+  # That directory does not exist. This is GNU arm-none-eabi-gcc 13.3.0, whose
+  # headers live somewhere else entirely, so `#include <cstddef>` failed - and
+  # types.hxx includes it before defining anything, so Int32, UInt32 and every
+  # other name in the vocabulary came back undefined. One missing directory,
+  # and the whole file reads as broken.
+  #
+  # clangd will not run the compiler to ask (--query-driver is a command-line
+  # flag and off by default), so the answer is written down. These are exactly
+  # what `arm-none-eabi-g++ -x c++ -E -v` prints, in its order.
+  #
+  # HARDCODED, including the 13.3.0. So is ARMBIN in build.bat, and this file
+  # already hardcodes the build directory - it is the fallback for an editor
+  # with no project loaded, not a portable toolchain description. If the MSYS2
+  # toolchain moves or updates, re-run that command and paste the new list.
+  Add:
+    - -isystem
+    - C:/msys64/mingw64/arm-none-eabi/include/c++/13.3.0
+    - -isystem
+    - C:/msys64/mingw64/arm-none-eabi/include/c++/13.3.0/arm-none-eabi
+    - -isystem
+    - C:/msys64/mingw64/arm-none-eabi/include/c++/13.3.0/backward
+    - -isystem
+    - C:/msys64/mingw64/lib/gcc/arm-none-eabi/13.3.0/include
+    - -isystem
+    - C:/msys64/mingw64/lib/gcc/arm-none-eabi/13.3.0/include-fixed
+    - -isystem
+    - C:/msys64/mingw64/arm-none-eabi/include
+
 Diagnostics:
   # The SDK's own headers are not ours to fix, and every one of their warnings
   # would sit in the same list as a genuine mistake in a sketch.
