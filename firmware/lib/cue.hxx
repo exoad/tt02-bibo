@@ -170,6 +170,7 @@ namespace bibo::cue
     static_assert(CUE_BLINK_ON_MS >= CUE_BLINK_OFF_MS,
                   "on-time shorter than off-time - outside the J945 Figure 1 envelope");
 
+    /* Which way the car is indicating, or wants to. */
     enum Turn
     {
         TURN_OFF = 0,
@@ -208,6 +209,15 @@ namespace bibo::cue
 #define CUE_MOTION_US_MIN 0
 #define CUE_MOTION_US_MAX 60
 
+    /**
+     * @brief Sets the runtime threshold for counting the car as moving.
+     *
+     * @param us the new threshold, in microseconds past idle (forward) or
+     *           neutral (reverse)
+     * @return true when accepted; false when outside
+     *         [CUE_MOTION_US_MIN, CUE_MOTION_US_MAX], leaving the
+     *         threshold unchanged
+     */
     inline Bool setMotionUs(const Int32 us)
     {
         if(us < CUE_MOTION_US_MIN || us > CUE_MOTION_US_MAX)
@@ -218,6 +228,11 @@ namespace bibo::cue
         return true;
     }
 
+    /**
+     * @brief The threshold currently used to decide the car is moving.
+     *
+     * @return the value last accepted by setMotionUs(), in microseconds
+     */
     inline Int32 motionUs(Void)
     {
         return motionUsNow;
@@ -317,8 +332,8 @@ namespace bibo::cue
     };
 
     /*
-     * The indicators. 400 on, 267 off - not 50/50, because a slightly longer on
-     * than off is what a real flasher can does and what the eye expects.
+     * The indicators. 360 on, 240 off - not 50/50, because a slightly longer on
+     * than off is what a real flasher does and what the eye expects.
      *
      * HAZARD IS ITS OWN CUE rather than left and right together, and that is not
      * tidiness. Two cues have two step clocks, and two clocks started a
@@ -418,6 +433,9 @@ namespace bibo::cue
     inline Turn   turnWant = TURN_OFF;
     inline UInt64 turnHoldUs = 0;
 
+    /**
+     * @brief Opens the lamps and resets every cue's state to idle.
+     */
     inline Void open(Void)
     {
         lights::open();
@@ -436,31 +454,67 @@ namespace bibo::cue
         up         = true;
     }
 
+    /**
+     * @brief Whether a value names a real cue, not KIND_NONE and in range.
+     *
+     * @param k the value to check, typically a cue::Kind
+     * @return true when it names an actual cue
+     */
     inline Bool valid(const Int32 k)
     {
         return k > KIND_NONE && k < KIND_COUNT;
     }
 
+    /**
+     * @brief Whether a cue is currently playing.
+     *
+     * @param k the cue to check
+     * @return true when it is active this tick
+     */
     inline Bool on(const Kind k)
     {
         return valid(k) && active[k];
     }
 
+    /**
+     * @brief Whether a cue is latched by a person rather than by the car.
+     *
+     * @param k the cue to check
+     * @return true when a person raised it and has not lowered it
+     */
     inline Bool held(const Kind k)
     {
         return valid(k) && latched[k];
     }
 
+    /**
+     * @brief The console word for a cue.
+     *
+     * @param k the cue to name
+     * @return the name a person types to raise it, or "?" out of range
+     */
     inline CharSeq name(const Kind k)
     {
         return k >= 0 && k < KIND_COUNT ? SCRIPT[k].name : "?";
     }
 
+    /**
+     * @brief What a cue is saying, in words.
+     *
+     * @param k the cue to describe
+     * @return the meaning shown beside its name, or "?" out of range
+     */
     inline CharSeq means(const Kind k)
     {
         return k >= 0 && k < KIND_COUNT ? SCRIPT[k].means : "?";
     }
 
+    /**
+     * @brief The console word for a play mode.
+     *
+     * @param p a cue::Play value
+     * @return "once", "loop", "hold", or "?" for anything else
+     */
     inline CharSeq playWord(const UInt8 p)
     {
         switch(p)
@@ -472,8 +526,15 @@ namespace bibo::cue
         }
     }
 
-    /* The kind with this name, or cue::KIND_NONE. Case-insensitive, because every
-     * other command word on this link is upper case by the time it arrives. */
+    /**
+     * @brief Looks up a cue by its console name.
+     *
+     * Case-insensitive, because every other command word on this link is
+     * upper case by the time it arrives.
+     *
+     * @param want the name to match, or nullptr
+     * @return the matching cue, or cue::KIND_NONE when nothing matches
+     */
     inline Kind find(const CharSeq want)
     {
         if(want == nullptr)
@@ -517,6 +578,12 @@ namespace bibo::cue
 
     /* ---- raising and lowering ------------------------------------------------ */
 
+    /**
+     * @brief Begins playing a cue's script from its first step.
+     *
+     * @param k the cue to start
+     * @param now the current time, used to schedule the first step's end
+     */
     inline Void start(const Kind k, const UInt64 now)
     {
         active[k]   = true;
@@ -525,14 +592,21 @@ namespace bibo::cue
         stepAtUs[k] = now + static_cast<UInt64>(SCRIPT[k].step[0].ms) * 1000u;
     }
 
-    /*
-     * Raised BY A PERSON, so it latches: the car's own rules will not lower it
-     * again. That is what makes "headlights on" a switch rather than a suggestion
-     * the next tick overrules.
+    /**
+     * @brief Raises a cue on a person's command, and latches it.
      *
-     * Left and right cancel each other. A car cannot indicate both ways - that is
-     * what hazard is - and two blinkers with independent step clocks would drift
-     * apart into an alternating flash within a few seconds.
+     * Raised BY A PERSON, so it latches: the car's own rules will not lower
+     * it again. That is what makes "headlights on" a switch rather than a
+     * suggestion the next tick overrules.
+     *
+     * Left and right cancel each other. A car cannot indicate both ways -
+     * that is what hazard is - and two blinkers with independent step
+     * clocks would drift apart into an alternating flash within a few
+     * seconds.
+     *
+     * @param k the cue to raise
+     * @return true when raised; false for an invalid kind, KIND_NONE, or a
+     *         cue with no steps
      */
     inline Bool emit(const Kind k)
     {
@@ -561,7 +635,14 @@ namespace bibo::cue
         return true;
     }
 
-    /* Lowered by a person: stops it AND hands it back to the car's own rules. */
+    /**
+     * @brief Lowers a cue on a person's command.
+     *
+     * Stops it AND hands it back to the car's own rules.
+     *
+     * @param k the cue to lower
+     * @return true when lowered; false for an invalid kind
+     */
     inline Bool cancel(const Kind k)
     {
         if(!up || !valid(k))
@@ -573,7 +654,9 @@ namespace bibo::cue
         return true;
     }
 
-    /* Stop mid-sentence and hand every borrowed channel back. */
+    /**
+     * @brief Stops every cue mid-sentence and hands every channel back.
+     */
     inline Void silence(Void)
     {
         for(Int32 k = 1; k < KIND_COUNT; ++k)
@@ -584,12 +667,17 @@ namespace bibo::cue
         toneNow = TONE_NONE;
     }
 
-    /*
-     * What the CAR wants, which a latched cue overrules.
+    /**
+     * @brief States what the CAR wants a cue to be doing, this tick.
      *
-     * The asymmetry is the point: a person switching the headlights on means it
-     * until they say otherwise, and the car noticing it is no longer braking must
-     * not put them out.
+     * A latched cue overrules this. The asymmetry is the point: a person
+     * switching the headlights on means it until they say otherwise, and
+     * the car noticing it is no longer braking must not put them out.
+     *
+     * @param k the cue the car has an opinion about
+     * @param want true to start the cue if it is not already active, false
+     *             to stop it, unless a person has latched it
+     * @param now the current time, used to schedule the cue if it starts
      */
     inline Void wants(const Kind k, const Bool want, const UInt64 now)
     {
@@ -609,12 +697,15 @@ namespace bibo::cue
 
     /* ---- reporting ----------------------------------------------------------- */
 
-    /*
-     * The most important thing being said, for a one-line status.
+    /**
+     * @brief The most important thing the car is saying, for a one-line
+     *        status.
      *
-     * The LAST active kind, because the enum is in priority order - so this answers
-     * with what a person looking at the car would notice first, not with whichever
-     * happened to be raised earliest.
+     * Returns the LAST active kind, because the enum is in priority order
+     * - so this answers with what a person looking at the car would
+     * notice first, not with whichever happened to be raised earliest.
+     *
+     * @return the highest-priority active cue, or cue::KIND_NONE
      */
     inline Kind speaking(Void)
     {

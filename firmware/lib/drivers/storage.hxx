@@ -477,6 +477,6 @@ namespace bibo
     }
 
 
-  } // namespace sd
+  }
 
-} // namespace bibo
+}

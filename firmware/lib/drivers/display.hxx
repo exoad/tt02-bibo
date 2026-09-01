@@ -1,5 +1,6 @@
-/*
- * The ST7789 / ST7735 panel driver: pins, commands, and one tft::Screen.
+/**
+ * @file display.hxx
+ * @brief The ST7789 / ST7735 panel driver: pins, commands, and one tft::Screen.
  *
  * ---------------------------------------------------------------------------
  * HOW THE TWO LAYERS FIT TOGETHER
@@ -82,49 +83,77 @@ namespace bibo
   {
 
     /* ===== the one line to change ============================================= */
+    /**
+     * @brief Selects the panel controller this file drives.
+     *
+     * Set exactly one of PANEL_ST7789 / PANEL_ST7735 to 1 and the other to 0.
+     */
 #define PANEL_ST7789 1
 #define PANEL_ST7735 0
     /* ========================================================================== */
 
 #if PANEL_ST7789
-      /* ST7789 panels are wired inverted at the glass, so "invert on" is what
-       * produces correct colours. This looks backwards and is not. */
+      /**
+       * @brief Whether the controller must invert colors for this panel's glass.
+       *
+       * ST7789 panels are wired inverted at the glass, so "invert on" is what
+       * produces correct colors. This looks backwards and is not.
+       */
   #define PANEL_INVERT  1
 #else
   #define PANEL_INVERT  0
 #endif
 
-    /*
-     * The CEILING, not the size. It bounds the one stack buffer below and gfx.h's
-     * frame buffer, both of which must be sized when the program is compiled rather
-     * than when it runs. 240x320 is the largest this controller drives.
+    /**
+     * @brief The largest panel this driver can address, not the panel's actual
+     * size.
+     *
+     * It bounds the one stack buffer below and gfx.h's frame buffer, both of
+     * which must be sized when the program is compiled rather than when it
+     * runs. 240x320 is the largest this controller drives.
      */
 #define PANEL_MAX_W   240
 #define PANEL_MAX_H   320
 
-    /* Default pins. tft::openOn() takes them explicitly if a board differs. */
+    /**
+     * @brief Default SPI and control pins for the panel.
+     *
+     * tft::openOn() takes them explicitly if a board differs.
+     */
 #define PIN_TFT_SCK   18
 #define PIN_TFT_MOSI  19
 #define PIN_TFT_CS    17
 #define PIN_TFT_DC    21
 #define PIN_TFT_RES   20
 
-    /*
-     * 24 MHz. Comfortably inside what these panels manage and slow enough that a
-     * long jumper wire is not the reason it fails. Raise it once it works, never
-     * before - a display that has never worked and one that is too fast look
-     * identical.
+    /**
+     * @brief SPI clock rate for the panel, in Hz.
+     *
+     * 24 MHz. Comfortably inside what these panels manage and slow enough
+     * that a long jumper wire is not the reason it fails. Raise it once it
+     * works, never before - a display that has never worked and one that is
+     * too fast look identical.
      */
 #define PANEL_HZ      24000000u
 
-    /* 16 bits per pixel, 5 red / 6 green / 5 blue, which is what COLMOD is set to
-     * below. Green gets the spare bit because the eye resolves most detail there.
+    /**
+     * @brief Packs 8-bit red, green and blue into one RGB565 pixel value.
      *
-     * constexpr rather than a macro. It was `#define TFT_RGB(r, g, b)` and the
-     * colours below are still computed at compile time either way - what a
-     * function adds is argument types, a return type, and evaluating each
+     * 16 bits per pixel, 5 red / 6 green / 5 blue, which is what COLMOD is
+     * set to below. Green gets the spare bit because the eye resolves most
+     * detail there.
+     *
+     * constexpr rather than a macro. It was `#define TFT_RGB(r, g, b)` and
+     * the colors below are still computed at compile time either way - what
+     * a function adds is argument types, a return type, and evaluating each
      * argument exactly once. A macro doing arithmetic evaluates whatever you
-     * hand it as many times as its body mentions it. */
+     * hand it as many times as its body mentions it.
+     *
+     * @param r red, 0-255; only the top 5 bits are kept
+     * @param g green, 0-255; only the top 6 bits are kept
+     * @param b blue, 0-255; only the top 5 bits are kept
+     * @return the packed RGB565 pixel value
+     */
     constexpr UInt16 rgb(const UInt32 r, const UInt32 g, const UInt32 b)
     {
         return static_cast<UInt16>(((r & 0xF8u) << 8)
@@ -132,6 +161,7 @@ namespace bibo
                                  | (b >> 3));
     }
 
+    /** @brief Common colors, in RGB565, computed at compile time. */
     constexpr UInt16 BLACK = rgb(0, 0, 0);
     constexpr UInt16 WHITE = rgb(255, 255, 255);
     constexpr UInt16 RED = rgb(255, 0, 0);
@@ -142,16 +172,16 @@ namespace bibo
     constexpr UInt16 MAGENTA = rgb(255, 0, 255);
     constexpr UInt16 GREY = rgb(128, 128, 128);
     constexpr UInt16 ORANGE = rgb(255, 140, 0);
-    /* ---- the tft::Screen -----------------------------------------------------------
+    /**
+     * @brief Everything about one physical panel, in one place.
      *
-     * Everything about one panel, in one place. Passed to every call in this file
-     * and in gfx.h, which is what lets a sketch say what it has rather than inherit
-     * it from a header.
+     * Passed to every call in this file and in gfx.h, which is what lets a
+     * sketch say what it has rather than inherit it from a header.
      *
-     * The gfx fields live here rather than in gfx.h because they belong to the
-     * SCREEN, not to the library: a clip rectangle and a text colour are as much
-     * part of "the thing being drawn on" as its width is. They sit inert until
-     * gfx::open() claims them.
+     * This holds PANEL facts only - geometry, pins, safe area. The drawing
+     * state (back buffer, clip rectangle, text color) is not here: it belongs
+     * to gfx::Canvas, so this struct stays the hardware and gfx.h stays what
+     * draws on it.
      */
     struct Screen
     {
@@ -171,28 +201,41 @@ namespace bibo
         /* The backlight, or PIN_NONE when it is tied to 3V3. */
         Pin blk;
 
-        /* ---- the safe area --------------------------------------------------
+        /**
+         * @brief How far in from each edge is actually visible.
          *
-         * These panels have ROUNDED CORNERS cut into the glass. The controller
-         * still addresses the full rectangle and will happily accept pixels for
-         * the corners; you simply cannot see them, and text placed near an edge
-         * disappears into the curve.
+         * These panels have ROUNDED CORNERS cut into the glass. The
+         * controller still addresses the full rectangle and will happily
+         * accept pixels for the corners; you simply cannot see them, and
+         * text placed near an edge disappears into the curve.
          *
-         * `safeInset` is how far in from each edge is actually visible. It is a
-         * property of the GLASS, not of the driver, so it lives on the screen
-         * beside the size and offsets - the same category of fact.
+         * This is a property of the GLASS, not of the driver, so it lives on
+         * the screen beside the size and offsets - the same category of
+         * fact.
          *
-         * Zero means "the whole rectangle is visible", which is right for a panel
-         * with square corners and wrong for every one of these.
+         * Zero means "the whole rectangle is visible", which is right for a
+         * panel with square corners and wrong for every one of these.
          */
         Int32 safeInset;
     };
 
+    /**
+     * @brief The panel's width in pixels.
+     *
+     * @param s the screen to ask, or nullptr
+     * @return s->width, or 0 when s is nullptr
+     */
     inline Int32 width(const Screen* s)
     {
         return s != nullptr ? s->width : 0;
     }
 
+    /**
+     * @brief The panel's height in pixels.
+     *
+     * @param s the screen to ask, or nullptr
+     * @return s->height, or 0 when s is nullptr
+     */
     inline Int32 height(const Screen* s)
     {
         return s != nullptr ? s->height : 0;
@@ -212,17 +255,36 @@ namespace bibo
      * but COLMOD, MADCTL, CASET, RASET and RAMWR all lose their data and nothing is
      * ever drawn. A lit blank screen and a dead wire look identical.
      */
+    /**
+     * @brief Pulls CS low, claiming the SPI bus for this panel's transaction.
+     *
+     * @param s the screen whose CS pin is asserted
+     */
     inline Void select(const Screen* s)
     {
         gpio::write(s->cs, false);
     }
 
+    /**
+     * @brief Raises CS, ending the current transaction.
+     *
+     * @param s the screen whose CS pin is released
+     */
     inline Void deselect(const Screen* s)
     {
         gpio::write(s->cs, true);
     }
 
-    /* A command and its parameters, as one transaction. `n` may be 0. */
+    /**
+     * @brief Sends one command and its parameter bytes as a single SPI
+     * transaction.
+     *
+     * @param s the screen to write to
+     * @param cmd the controller command byte
+     * @param params the command's parameter bytes, or nullptr when it takes
+     *        none
+     * @param n how many bytes `params` holds; may be 0
+     */
     inline Void write(const Screen* s, const UInt8 cmd, const UInt8* params, const Size n)
     {
         select(s);
@@ -239,20 +301,42 @@ namespace bibo
         deselect(s);
     }
 
+    /**
+     * @brief Sends a command with no parameters.
+     *
+     * @param s the screen to write to
+     * @param c the controller command byte
+     */
     inline Void cmd(const Screen* s, const UInt8 c)
     {
         write(s, c, nullptr, 0);
     }
 
+    /**
+     * @brief Sends a command with a single parameter byte.
+     *
+     * @param s the screen to write to
+     * @param c the controller command byte
+     * @param p the one parameter byte
+     */
     inline Void cmd1(const Screen* s, const UInt8 c, const UInt8 p)
     {
         write(s, c, &p, 1);
     }
 
-    /*
-     * The write window. Every pixel push is "set a rectangle, then stream pixels
-     * into it", which is why there is no per-pixel addressing anywhere below - the
+    /**
+     * @brief Sets the panel's write window, the rectangle the next pixel
+     * burst fills.
+     *
+     * Every pixel push is "set a rectangle, then stream pixels into it",
+     * which is why there is no per-pixel addressing anywhere below - the
      * controller advances its own cursor and wraps at the right edge.
+     *
+     * @param s the screen to address
+     * @param x left edge of the window, in panel pixels before offset
+     * @param y top edge of the window, in panel pixels before offset
+     * @param w window width in pixels
+     * @param h window height in pixels
      */
     inline Void window(const Screen* s, const Int32 x, const Int32 y, const Int32 w, const Int32 h)
     {
@@ -276,11 +360,21 @@ namespace bibo
         write(s, 0x2B, buf, 4);            /* RASET - row address */
     }
 
-    /*
-     * Opens a pixel write: sets the window, issues RAMWR, and LEAVES CS low with DC
-     * high so pixels can follow in the same transaction. Close with tft::endPixels().
-     * RAMWR is exactly the command whose data must not be separated from it, since
-     * its "parameters" are the whole image.
+    /**
+     * @brief Opens a pixel write: sets the window, issues RAMWR, and leaves
+     * CS low with DC high so pixels can follow in the same transaction.
+     *
+     * RAMWR is exactly the command whose data must not be separated from it,
+     * since its "parameters" are the whole image.
+     *
+     * @param s the screen to address
+     * @param x left edge of the region to fill, in panel pixels before offset
+     * @param y top edge of the region to fill, in panel pixels before offset
+     * @param w region width in pixels
+     * @param h region height in pixels
+     *
+     * @note Must be closed with tft::endPixels() once the pixels have been
+     * streamed.
      */
     inline Void beginPixels(const Screen* s, const Int32 x, const Int32 y, const Int32 w, const Int32 h)
     {
@@ -293,6 +387,11 @@ namespace bibo
         /* CS stays LOW; the caller streams pixels now. */
     }
 
+    /**
+     * @brief Closes a pixel write opened by tft::beginPixels(), releasing CS.
+     *
+     * @param s the screen to address
+     */
     inline Void endPixels(const Screen* s)
     {
         deselect(s);
@@ -305,21 +404,32 @@ namespace bibo
      * gfx.h is the layer that buffers.
      */
 
-    /*
-     * Filled rectangle, streamed from a small buffer rather than a framebuffer.
-     * Clipped rather than trusted: an off-screen rectangle draws nothing instead of
-     * wrapping around and corrupting the far edge.
-     */
-    /* ---- detail: drawing, which is gfx's job -------------------------------
+    /**
+     * @brief Internal drawing primitives that predate gfx.hxx; NOT the
+     * interface.
      *
      * These predate gfx.hxx and are what it was built on top of. They stay
-     * because gfx::span still pushes a run through rect(), but they are NOT the
-     * way to draw: every one of them has a gfx:: counterpart that clips, buffers
-     * and batches, and calling these instead bypasses all three.
-     * --------------------------------------------------------------------- */
+     * because gfx::span still pushes a run through rect(), but they are NOT
+     * the way to draw: every one of them has a gfx:: counterpart that clips,
+     * buffers and batches, and calling these instead bypasses all three.
+     */
     namespace detail
     {
 
+      /**
+       * @brief Fills a rectangle directly, streamed from a small buffer
+       * rather than a framebuffer.
+       *
+       * Clipped rather than trusted: an off-screen rectangle draws nothing
+       * instead of wrapping around and corrupting the far edge.
+       *
+       * @param s the screen to draw on
+       * @param x left edge, in screen pixels; may be negative or off-screen
+       * @param y top edge, in screen pixels; may be negative or off-screen
+       * @param w rectangle width in pixels
+       * @param h rectangle height in pixels
+       * @param colour the RGB565 fill color
+       */
       inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, const UInt16 colour)
       {
         if(w <= 0 || h <= 0)
@@ -366,25 +476,42 @@ namespace bibo
         endPixels(s);
       }
 
+      /**
+       * @brief Fills the entire screen with one color.
+       *
+       * @param s the screen to draw on
+       * @param colour the RGB565 fill color
+       */
       inline Void fill(const Screen* s, const UInt16 colour)
       {
         rect(s, 0, 0, s->width, s->height, colour);
       }
 
+      /**
+       * @brief Sets one pixel.
+       *
+       * @param s the screen to draw on
+       * @param x pixel column, in screen pixels
+       * @param y pixel row, in screen pixels
+       * @param colour the RGB565 pixel color
+       */
       inline Void pixel(const Screen* s, const Int32 x, const Int32 y, const UInt16 colour)
       {
         rect(s, x, y, 1, 1, colour);
       }
 
       /* ---- text ----------------------------------------------------------------
-      *
-      * A 5x7 font, five bytes per glyph, one byte per column, bit 0 at the top.
-      *
-      * Covers space through Z: digits, capitals and the punctuation a status readout
-      * needs. Lowercase folds to uppercase rather than shipping a second set of
-      * glyphs - this is for labels on a 240 pixel screen, not for prose, and half a
-      * font that is CORRECT beats a whole one that is guessed at.
       */
+      /**
+       * @brief A 5x7 pixel font, five bytes per glyph, one byte per column,
+       * bit 0 at the top.
+       *
+       * Covers space through Z: digits, capitals and the punctuation a
+       * status readout needs. Lowercase folds to uppercase rather than
+       * shipping a second set of glyphs - this is for labels on a 240 pixel
+       * screen, not for prose, and half a font that is CORRECT beats a whole
+       * one that is guessed at.
+       */
       static const UInt8 FONT5X7[59][5] = {
         { 0x00, 0x00, 0x00, 0x00, 0x00 },   /* 32 space */
         { 0x00, 0x00, 0x5F, 0x00, 0x00 },   /* !  */
@@ -447,19 +574,32 @@ namespace bibo
         { 0x61, 0x51, 0x49, 0x45, 0x43 },   /* Z  */
       };
 
-      /* Biggest text the driver will draw. Bounds the stack buffer below, which is
-      * what lets a glyph go out in ONE transfer. */
+      /**
+       * @brief Largest text scale factor the driver will draw.
+       *
+       * Bounds the stack buffer below, which is what lets a glyph go out in
+       * ONE transfer.
+       */
 #define TFT_MAX_SCALE 4
 
-      /*
-      * One character, streamed as a single window.
-      *
-      * The obvious implementation calls tft::rect once per pixel block: 48 transfers a
-      * character, each two commands, eight address bytes and a pair of GPIO toggles
-      * to move as little as four bytes of colour. Building the glyph into a buffer
-      * costs at most 1536 bytes of stack and turns a character into one address
-      * setup and one burst.
-      */
+      /**
+       * @brief Draws one character, streamed as a single window.
+       *
+       * The obvious implementation calls tft::rect once per pixel block: 48
+       * transfers a character, each two commands, eight address bytes and a
+       * pair of GPIO toggles to move as little as four bytes of color.
+       * Building the glyph into a buffer costs at most 1536 bytes of stack
+       * and turns a character into one address setup and one burst.
+       *
+       * @param s the screen to draw on
+       * @param x left edge of the character cell, in screen pixels
+       * @param y top edge of the character cell, in screen pixels
+       * @param ch the character to draw; lowercase folds to uppercase and
+       *        anything outside space-Z draws as '?'
+       * @param fg foreground (glyph) color, RGB565
+       * @param bg background (cell) color, RGB565
+       * @param scale size multiplier, clamped to 1..TFT_MAX_SCALE
+       */
       inline Void drawChar(const Screen* s, const Int32 x, const Int32 y, const Utf8 ch, const UInt16 fg, const UInt16 bg, Int32 scale)
       {
         if(scale < 1)
@@ -524,6 +664,18 @@ namespace bibo
         endPixels(s);
       }
 
+      /**
+       * @brief Draws a string, one drawChar() per character, left to right.
+       *
+       * @param s the screen to draw on
+       * @param x left edge of the first character, in screen pixels
+       * @param y top edge of the text, in screen pixels
+       * @param str the NUL-terminated string to draw, or nullptr to draw
+       *        nothing
+       * @param fg foreground (glyph) color, RGB565
+       * @param bg background (cell) color, RGB565
+       * @param scale size multiplier, clamped to 1..TFT_MAX_SCALE
+       */
       inline Void text(const Screen* s, const Int32 x, const Int32 y, const Utf8* str, const UInt16 fg, const UInt16 bg, const Int32 scale)
       {
         Int32 cx = x;
@@ -535,16 +687,33 @@ namespace bibo
         }
       }
 
-    } /* namespace detail */
+    }
 
     /* ---- bring-up ------------------------------------------------------------ */
 
-    /*
-     * Brings up a panel on the given pins and fills `s` in.
+    /**
+     * @brief Brings up a panel on the given pins and fills `s` in.
      *
-     * Returns false only if the SPI pins do not form a bus. Everything after that
-     * is write-only and cannot be checked, which is exactly why a first sketch
-     * draws a test pattern rather than trusting a return code.
+     * Returns false only if the SPI pins do not form a bus. Everything after
+     * that is write-only and cannot be checked, which is exactly why a first
+     * sketch draws a test pattern rather than trusting a return code.
+     *
+     * @param s the screen to initialize; must not be null
+     * @param w panel width in pixels; clamped to PANEL_MAX_W
+     * @param h panel height in pixels; clamped to PANEL_MAX_H
+     * @param xoff column where the visible glass begins within controller RAM
+     * @param yoff row where the visible glass begins within controller RAM
+     * @param sck the SPI clock pin
+     * @param mosi the SPI data-out pin
+     * @param cs the chip-select pin for this panel
+     * @param dc the data/command pin
+     * @param res the hardware reset pin
+     * @return true once the panel has been reset and configured; false only
+     *         when the SPI pins do not form a valid bus
+     *
+     * @note Performs a hardware reset with datasheet-specified delays;
+     * talking to the controller before it finishes resetting produces a
+     * panel that works only every other power-up.
      */
     [[nodiscard]] static Bool openOn(Screen* s, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff, const Pin sck, const Pin mosi, const Pin cs, const Pin dc, const Pin res)
     {
@@ -664,7 +833,22 @@ namespace bibo
         return true;
     }
 
-    /* The same, on this project's pins. What a sketch normally calls. */
+    /**
+     * @brief Brings up the panel on this project's pins from pins::active().
+     *
+     * What a sketch normally calls.
+     *
+     * @param s the screen to initialize; must not be null
+     * @param w panel width in pixels; clamped to PANEL_MAX_W
+     * @param h panel height in pixels; clamped to PANEL_MAX_H
+     * @param xoff column where the visible glass begins within controller RAM
+     * @param yoff row where the visible glass begins within controller RAM
+     * @return true once the panel has been reset and configured; false only
+     *         when the SPI pins do not form a valid bus
+     *
+     * @note pins::begin() must have run first, so pins::active() has a real
+     * map to read.
+     */
     [[nodiscard]] static Bool open(Screen* s, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff)
     {
         /* The pads THIS PROGRAM declared, not the defines above. The display's
@@ -708,43 +892,80 @@ namespace bibo
      * hardware itself.
      * ======================================================================== */
 
-    /* Colour inversion at the controller. ST7789 glass is wired inverted, which
-     * is why PANEL_INVERT exists and why open() already sets this - flipping it
-     * afterwards is for looking at a panel you are not sure about. */
+    /**
+     * @brief Turns color inversion at the controller on or off.
+     *
+     * ST7789 glass is wired inverted, which is why PANEL_INVERT exists and
+     * why open() already sets this - flipping it afterwards is for looking
+     * at a panel you are not sure about.
+     *
+     * @param s the screen to address
+     * @param on true to invert colors, false for normal
+     */
     inline Void invert(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x21 : 0x20);   /* INVON / INVOFF */
     }
 
-    /* Sleep is the controller's own low-power state. It does NOT turn the
-     * backlight off: on a board with BLK tied to 3V3 a sleeping panel is a lit
-     * rectangle of nothing, which looks like a crash. Turn the backlight down
-     * too if there is one. */
+    /**
+     * @brief Puts the controller into or out of its own low-power sleep
+     * state.
+     *
+     * Sleep is the controller's own low-power state. It does NOT turn the
+     * backlight off: on a board with BLK tied to 3V3 a sleeping panel is a
+     * lit rectangle of nothing, which looks like a crash. Turn the backlight
+     * down too if there is one.
+     *
+     * @param s the screen to address
+     * @param on true to sleep the panel, false to wake it
+     *
+     * @note Waking (SLPOUT) needs a 120 ms settle before the panel responds;
+     * sleeping (SLPIN) needs only 5 ms.
+     */
     inline Void sleep(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x10 : 0x11);   /* SLPIN / SLPOUT */
         timing::ms(on ? 5u : 120u);         /* SLPOUT needs the long wait */
     }
 
-    /* Blanks the output without sleeping. Faster to come back from than sleep. */
+    /**
+     * @brief Blanks the panel's output without sleeping the controller.
+     *
+     * Faster to come back from than sleep().
+     *
+     * @param s the screen to address
+     * @param on true to show the display, false to blank it
+     */
     inline Void display(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x29 : 0x28);   /* DISPON / DISPOFF */
     }
 
-    /* Is there a pad to dim? False on every board wired as shipped. */
+    /**
+     * @brief Whether this screen has a backlight pin to control.
+     *
+     * False on every board wired as shipped, where BLK is tied to 3V3.
+     *
+     * @param s the screen to ask
+     * @return true when brightness() can actually change the backlight
+     */
     [[nodiscard]] static Bool hasBacklight(const Screen* s)
     {
         return s->blk != pins::NONE;
     }
 
-    /*
-     * 0.0 dark to 1.0 full, and it returns whether it did anything.
+    /**
+     * @brief Sets the backlight brightness.
      *
-     * FALSE means BLK is tied to 3V3 - the panel is at full brightness and there
-     * is no pad to change it. Reported rather than ignored, because a brightness
-     * call that silently does nothing is indistinguishable from a broken panel,
-     * and the fix is a wire rather than a line of code.
+     * FALSE means BLK is tied to 3V3 - the panel is at full brightness and
+     * there is no pad to change it. Reported rather than ignored, because a
+     * brightness call that silently does nothing is indistinguishable from a
+     * broken panel, and the fix is a wire rather than a line of code.
+     *
+     * @param s the screen to address
+     * @param level 0.0 dark to 1.0 full; clamped into that range
+     * @return true when a backlight pin exists and was written; false when
+     *         there is no pad to dim
      */
     [[nodiscard]] static Bool brightness(const Screen* s, const Float32 level)
     {
@@ -756,6 +977,6 @@ namespace bibo
         return true;
     }
 
-  } // namespace tft
+  }
 
-} // namespace bibo
+}

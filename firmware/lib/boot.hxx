@@ -31,12 +31,21 @@
 namespace bibo::boot
 {
 
-    /*
-     * Opens the serial console and installs the pin map.
+    /**
+     * @brief Opens the serial console and installs the pin map.
      *
-     * Returns false when the map was refused, having already said why on the
-     * serial line - so a caller that only wants to stop can ignore the string
-     * and a caller that wants to add to it still can.
+     * The first call an image makes. Everything in lib/ reads its GPIO numbers
+     * from the map installed here, so nothing below this line works until it
+     * has run.
+     *
+     * On refusal it has already printed the reason on the serial line, so a
+     * caller that only wants to stop can ignore the text, and one that wants to
+     * add to it still can.
+     *
+     * @param wiring the pin map this image is claiming - pins::car() for the
+     *               car, or one the image builds itself
+     * @return true when the map was installed; false when it was refused for a
+     *         pin conflict, with the reason already on the serial line
      */
     [[nodiscard]] static Bool begin(const pins::Map& wiring)
     {
@@ -50,8 +59,8 @@ namespace bibo::boot
         return true;
     }
 
-    /*
-     * Stops, visibly, forever.
+    /**
+     * @brief Stops, visibly, forever.
      *
      * NEVER RETURNS, and that is the point. `return 1` from main on an RP2350
      * leaves the board powered and doing nothing, which looks exactly like a
@@ -59,8 +68,9 @@ namespace bibo::boot
      * toolchain when the problem is a wire. A blink says the firmware ran, got
      * as far as checking, and refused.
      *
-     * 120 ms is deliberately not the status:: heartbeat: this is not a health
-     * signal, it is a stop, and it should not be mistaken for one.
+     * @note The 120 ms period is deliberately NOT the status:: heartbeat. This
+     *       is not a health signal, it is a stop, and it must not be mistaken
+     *       for one at a glance.
      */
     inline Void halt(Void)
     {

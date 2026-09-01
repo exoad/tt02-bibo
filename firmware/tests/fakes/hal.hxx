@@ -137,7 +137,7 @@ namespace bibo
       return n;
     }
 
-  } // namespace fake
+  }
 
   /* ---- the seven functions the modules under test actually call ----------- */
 
@@ -159,7 +159,7 @@ namespace bibo
       fake::record(fake::EVENT_SERVO_US, pin, static_cast<Int32>(us));
     }
 
-  } // namespace servo
+  }
 
   namespace gpio
   {
@@ -177,7 +177,7 @@ namespace bibo
       fake::record(fake::EVENT_GPIO_WRITE, pin, level ? 1 : 0);
     }
 
-  } // namespace gpio
+  }
 
   namespace timing
   {
@@ -222,7 +222,7 @@ namespace bibo
       return fake::nowUs >= d;
     }
 
-  } // namespace timing
+  }
 
   namespace serial
   {
@@ -234,6 +234,6 @@ namespace bibo
       static_cast<Void>(fmt);
     }
 
-  } // namespace serial
+  }
 
-} // namespace bibo
+}

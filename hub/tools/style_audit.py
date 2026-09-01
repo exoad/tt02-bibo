@@ -139,7 +139,7 @@ CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
 # every rule about code and fatal for a rule about text. A hardcoded home path
 # is always inside a literal or a comment, so matching the stripped line finds
 # nothing, forever, while reporting a clean tree.
-RAW_RULES = {'absolute user path'}
+RAW_RULES = {'absolute user path', 'namespace trailer comment'}
 
 RULES = [
     # (name, regex, note)
@@ -171,6 +171,27 @@ RULES = [
     ('bare builtin type',
      r'(?<![A-Za-z_>:.])(?:unsigned\s+(?:int|char|short|long)|signed\s+char|\bint\b|\bfloat\b|\bdouble\b|\bbool\b|\bchar\b|\bsize_t\b|\bunsigned\b)(?![A-Za-z_0-9])',
      'use the shared.hxx alias'),
+
+    # `} // namespace foo` on a closing brace.
+    #
+    # A trailer naming what a brace closes is a workaround for not being able
+    # to see the opening line. Nothing verifies it, it is written once, and it
+    # survives a rename - at which point it is confidently wrong.
+    ('namespace trailer comment',
+     r'^\s*\}\s*//\s*namespace\b',
+     'delete it - a closing brace does not need to say what it closes'),
+
+    # `struct Foo f;` - the C89 elaborated type specifier.
+    #
+    # C++ injects a struct's name as a type name, so the keyword adds nothing.
+    # A NAME must follow the type, which is what separates a use from a
+    # definition (`struct Foo` then `{`) or a forward declaration (`struct X;`).
+    ('elaborated type specifier',
+     # The separator between the type and the name must be real - whitespace or
+     # a star. Without that, `\w*\s*\w*` happily splits ONE identifier into two
+     # and `struct ID3D11Device;`, a forward declaration, matched as `Devic` `e`.
+     r'(?<![A-Za-z0-9_])struct\s+[A-Za-z_]\w*(?:\s+|\s*\*+\s*)[A-Za-z_]\w*\s*[,;=)]',
+     'drop the struct keyword - in C++ the name alone is the type'),
 
     ('if with space',   r'\bif\s+\(',      'if(cond)'),
     ('for with space',  r'\bfor\s+\(',     'for(...)'),

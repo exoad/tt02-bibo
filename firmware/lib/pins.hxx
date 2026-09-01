@@ -49,25 +49,40 @@
 namespace bibo::pins
 {
 
-    /* Not wired. A subsystem holding this skips the pad entirely rather than
-     * driving GPIO -1, which the SDK would do something undefined with. */
+    /**
+     * @brief Marks a role as not wired to any pad.
+     *
+     * A subsystem holding this skips the pad entirely rather than driving
+     * GPIO -1, which the SDK would do something undefined with.
+     */
     constexpr Int32 NONE = -1;
 
-    /* The highest GPIO this package brings out. A number past it is a typo, and
-     * a typo in a pin number is invisible on a bench: the wire does nothing. */
+    /**
+     * @brief The highest GPIO this package brings out.
+     *
+     * A number past it is a typo, and a typo in a pin number is invisible on
+     * a bench: the wire does nothing.
+     */
     constexpr Int32 MAX_GPIO = 29;
 
-    /* ---- the map ---------------------------------------------------------
+    /**
+     * @brief Every GPIO role the firmware knows about, whether or not a given
+     *        program uses it.
      *
-     * Every role the firmware knows about, whether or not a given program uses
-     * it. A field left at NONE is NOT WIRED, and that is a normal answer rather
+     * A field left at NONE is NOT WIRED, and that is a normal answer rather
      * than an incomplete one - the rear indicators have been NONE since they
      * were added and cue::solve() computes them regardless.
      *
      * Every member is an Int32 and nothing else. That is load-bearing: it is
-     * what lets the checks below walk the struct as an array instead of keeping
-     * a hand-written list that goes stale the day a role is added. The
-     * static_assert on sizeof enforces it. */
+     * what lets the checks below walk the struct as an array instead of
+     * keeping a hand-written list that goes stale the day a role is added.
+     * The static_assert on sizeof enforces it.
+     *
+     * @note Nothing in lib/ hardcodes a GPIO number - every subsystem reads
+     *       its pads from the map that was installed with pins::begin(), and
+     *       pins::car() is only a named default an image opts into rather
+     *       than a binding this library imposes.
+     */
     struct Map
     {
         /* chassis */
@@ -161,17 +176,27 @@ namespace bibo::pins
         "encoder"
     };
 
-    /* The map as a flat array. Legal because every member is an Int32 and the
-     * static_assert above says so. */
+    /**
+     * @brief Views a map as a flat array of FIELD_COUNT GPIO numbers.
+     *
+     * Legal because every member of Map is an Int32 and the static_assert
+     * above says so.
+     *
+     * @param m the map to view
+     * @return a pointer to the first field, aliasing m's own storage
+     */
     static const Int32* fields(const Map* m)
     {
         return &m->servo;
     }
 
-    /* ---- the car ----------------------------------------------------------
+    /**
+     * @brief A named default: how THIS vehicle is wired today.
      *
-     * How THIS vehicle is wired today. A sketch may ignore it entirely, and
-     * should read it first anyway so it borrows a pad that is free.
+     * A sketch may ignore this entirely, and should read it first anyway so
+     * it borrows a pad that is free. This function is a default an image
+     * opts into by calling pins::begin(pins::car()); nothing in lib/ calls
+     * it for you.
      *
      * EVERY LAMP IS ON A BORROWED PAD. GP10 to GP13 are the four ToF XSHUT
      * lines, free only because no ToF is fitted, and they stop being free the
@@ -180,7 +205,10 @@ namespace bibo::pins
      *
      * THE TAIL LAMPS GAVE UP GP14 AND GP15 to the DFPlayer, which needed a
      * UART. Those two are the only pads carrying UART0 that cost neither
-     * GP0/GP1 - the servo and the ESC - nor GP12/GP13, the front indicators. */
+     * GP0/GP1 - the servo and the ESC - nor GP12/GP13, the front indicators.
+     *
+     * @return the car's map, ready to hand to pins::begin()
+     */
     inline Map car(Void)
     {
         Map m;
@@ -242,17 +270,34 @@ namespace bibo::pins
     inline Size  clashA   = 0;
     inline Size  clashB   = 0;
 
-    /* ---- validate and install ---------------------------------------------
+    /**
+     * @brief Validates a map and, if it is sound, installs it as the pins
+     *        every subsystem reads from.
      *
-     * Returns false and installs NOTHING if two roles claim one pad, or a
-     * number is not a GPIO. Refusing rather than applying a broken map is the
-     * point: a half-applied wiring is worse than none, because the half that
-     * worked makes it look like the map took.
+     * Installs NOTHING if two roles claim one pad, or a number is not a
+     * GPIO. Refusing rather than applying a broken map is the point: a
+     * half-applied wiring is worse than none, because the half that worked
+     * makes it look like the map took.
      *
-     * The car's own map is ALSO proved at compile time - see carIsSound() at
-     * the bottom - so the vehicle can never ship a conflict. This runtime check
-     * is what covers a SKETCH, whose map is written fresh against a breadboard
-     * and is the one most likely to be wrong. */
+     * The car's own map is ALSO checked at compile time - see carIsSound()
+     * at the bottom. This runtime check is what covers a SKETCH, whose map
+     * is written fresh against a breadboard and is the one most likely to be
+     * wrong.
+     *
+     * @param m the map to validate and, on success, install
+     * @return true once m is installed and active() returns it; false if a
+     *         pad is out of range or shared, in which case conflictText()
+     *         describes why and nothing was installed
+     *
+     * @note This must run before any subsystem's open() call - see the file
+     *       banner. A subsystem opened first binds to whatever installed
+     *       held before, which starts out entirely NONE.
+     * @note The car's own map is ALSO proved sound at compile time, by
+     *       carIsSound() over CAR_PADS, so pins::car() cannot ship a conflict.
+     *       That cover was incomplete until 2026-08-31 - the four MicroSD pads
+     *       were assigned by car() and missing from CAR_PADS, so a clash on
+     *       them would have reached this runtime check instead.
+     */
     inline Bool begin(const Map& m)
     {
         clashPin = NONE;
@@ -286,26 +331,46 @@ namespace bibo::pins
         return true;
     }
 
-    /* What the last begin() refused. NONE and empty strings when it succeeded.
-     * When clashA equals clashB the pad is out of range rather than doubly
-     * claimed. */
+    /**
+     * @brief The GPIO number the last begin() refused, if any.
+     *
+     * When clashA equals clashB the pad was out of range rather than doubly
+     * claimed.
+     *
+     * @return the offending GPIO number, or NONE when the last begin()
+     *         succeeded
+     */
     inline Int32 conflictPin(Void)
     {
         return clashPin;
     }
 
+    /**
+     * @brief The name of the first role that claimed the conflicting pad.
+     *
+     * @return a role name from NAMES, or "" when the last begin() succeeded
+     */
     inline CharSeq conflictFirst(Void)
     {
         return clashPin == NONE ? "" : NAMES[clashA];
     }
 
+    /**
+     * @brief The name of the second role that claimed the conflicting pad.
+     *
+     * Equal to conflictFirst() when the pad itself was out of range rather
+     * than shared between two roles.
+     *
+     * @return a role name from NAMES, or "" when the last begin() succeeded
+     */
     inline CharSeq conflictSecond(Void)
     {
         return clashPin == NONE ? "" : NAMES[clashB];
     }
 
-    /*
-     * The whole complaint, as one sentence, ready to print.
+    /**
+     * @brief The whole complaint from the last begin(), as one sentence,
+     *        ready to print.
      *
      * The three accessors above are the parts, and every caller was assembling
      * them the same way - three calls into one printf, copied into main.cxx and
@@ -319,6 +384,9 @@ namespace bibo::pins
      *
      * One call, one sentence, both cases. The parts stay for a caller that
      * wants to say it differently.
+     *
+     * @return the complaint as one sentence, or "" when the last begin()
+     *         succeeded
      */
     inline CharSeq conflictText(Void)
     {
@@ -341,29 +409,47 @@ namespace bibo::pins
         return buf;
     }
 
-    /* The installed map. Every subsystem reads its pads from here. */
+    /**
+     * @brief The installed map. Every subsystem reads its pads from here.
+     *
+     * @return the map given to the last successful begin()
+     */
     static const Map& active(Void)
     {
         return installed;
     }
 
-    /* False until begin() has succeeded. */
+    /**
+     * @brief Whether a map has been installed yet.
+     *
+     * @return false until begin() has succeeded
+     */
     inline Bool ready(Void)
     {
         return up;
     }
 
-    /* ---- the car's map, proved at compile time ----------------------------
+    /**
+     * @brief The car's map, restated as a flat list so it can be checked at
+     *        compile time.
      *
      * begin() catches a bad map when it runs. The VEHICLE'S map should never
-     * get that far, so it is proved here too, where a conflict is a build error
-     * naming this file rather than something found on a bench.
+     * get that far, so it is checked here too, where a conflict is a build
+     * error naming this file rather than something found on a bench.
      *
-     * A separate constexpr list, because car() has to stay an ordinary function
-     * - it is what a sketch calls at runtime to start from. The two are kept in
-     * step by hand, which is a real cost; the alternative was making car()
-     * constexpr and losing the ability to build a map at runtime at all, and
-     * that is the thing this file exists to allow. */
+     * A separate constexpr list, because car() has to stay an ordinary
+     * function - it is what a sketch calls at runtime to start from. The two
+     * are kept in step by hand, which is a real cost; the alternative was
+     * making car() constexpr and losing the ability to build a map at
+     * runtime at all, and that is the thing this file exists to allow.
+     *
+     * @warning THIS LIST IS KEPT IN STEP WITH car() BY HAND, and it has gone
+     *          stale once already. Until 2026-08-31 it omitted the four
+     *          MicroSD pads that car() assigns (26, 27, 28, 22), so the
+     *          compile-time proof quietly covered fifteen of the car's
+     *          nineteen pads while reading as though it covered all of them.
+     *          Add a pad to car() and it must be added here in the same edit.
+     */
     constexpr Int32 CAR_PADS[] =
     {
         0, 1,             /* servo, esc        */
@@ -372,10 +458,17 @@ namespace bibo::pins
         11, 10,           /* headlights        */
         13, 12,           /* front indicators  */
         18, 19, 17, 21, 20, /* display sck, mosi, cs, dc, res */
+        26, 27, 28, 22,   /* microSD sck, mosi, miso, cs */
     };
 
     constexpr Size CAR_PAD_COUNT = sizeof(CAR_PADS) / sizeof(CAR_PADS[0]);
 
+    /**
+     * @brief Whether CAR_PADS has no out-of-range pad and no pad claimed
+     *        twice.
+     *
+     * @return true when every entry in CAR_PADS is 0-MAX_GPIO and unique
+     */
     constexpr Bool carIsSound(Void)
     {
         for(Size a = 0; a < CAR_PAD_COUNT; ++a)

@@ -215,6 +215,6 @@ namespace bibo
         return aim;
     }
 
-  } /* namespace pursuit */
+  }
 
-} /* namespace bibo */
+}

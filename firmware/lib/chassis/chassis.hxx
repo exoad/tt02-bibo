@@ -11,7 +11,7 @@
  *
  * Fractions, not microseconds. drive::steer(-1..+1) maps through the measured
  * calibration in cal.h, with each side scaled separately, so nothing above this
- * file needs to know that this car throws 254 us one way from centre and 186
+ * file needs to know that this car throws 250 us one way from centre and 180
  * the other. The raw microsecond entry points exist for calibrating and are
  * named so it is obvious you are below the abstraction.
  *
@@ -65,7 +65,11 @@ namespace bibo::drive
 
     /* ---- pins ---------------------------------------------------------------- */
 
-    /* Read from the map THIS PROGRAM installed, not spelled here. These two
+    /**
+     * @brief GPIO pin driving the steering servo, and the ESC, from the
+     *        active pin map.
+     *
+     * Read from the map THIS PROGRAM installed, not spelled here. These two
      * were the last literal GPIO numbers in the chassis, and they had to move
      * because "which pins are taken" was a question you answered by grepping -
      * which is how the DFPlayer nearly landed on the tail lamps.
@@ -73,42 +77,66 @@ namespace bibo::drive
      * A read rather than a constant, so a sketch driving a servo on a different
      * pad is pins::begin() and nothing else. Both resolve to NONE until begin()
      * has run, and drive::open() then binds nothing rather than binding pad 0
-     * because that is what an uninitialised map used to say. */
+     * because that is what an uninitialised map used to say.
+     */
 #define PIN_SERVO (pins::active().servo)
 #define PIN_ESC   (pins::active().esc)
 
     /* ---- bounds -------------------------------------------------------------- */
 
-    /*
+    /**
+     * @brief Startup steering limits, in microseconds of servo pulse.
+     *
      * Defaults come from the calibration, which is a measurement of THIS car.
      * If nobody has calibrated yet, cal.h carries a guess and says so in its stamp.
      */
 #define SERVO_DEFAULT_MIN STEER_CAL_LEFT
 #define SERVO_DEFAULT_MAX STEER_CAL_RIGHT
 
-    /*
+    /**
+     * @brief The servo's absolute pulse-width limits, in microseconds.
+     *
      * The HARD bound. Nothing widens past this, whatever is asked - it is the
      * servo's own specification, and beyond it the pulse means nothing at all.
+     *
+     * @warning setSteerLimits() clamps into this range; nothing above this
+     *          file can command the steering pulse outside it.
      */
 #define SERVO_HARD_MIN 1000
 #define SERVO_HARD_MAX 2000
 
-    /*
+    /**
+     * @brief Startup and absolute throttle limits, in microseconds of ESC
+     *        pulse.
+     *
      * Forward only, and barely. 1500 is neutral; 1600 is a crawl on a bench. The
      * reverse half is not offered - a Hobbywing QuicRun needs a brake-then-reverse
      * sequence and getting that wrong on a stand is how a gearbox meets a
      * workbench. Reverse stays unreachable even by widening: finding a steering end
      * stop is careful work, discovering reverse by accident is not the same kind of
      * experiment.
+     *
+     * @warning ESC_HARD_MIN/ESC_HARD_MAX are the absolute ceiling; nothing
+     *          above this file can command the ESC outside them, and that is
+     *          what keeps a stray value from ever reaching reverse.
      */
 #define ESC_DEFAULT_MIN THROTTLE_CAL_MIN
 #define ESC_DEFAULT_MAX THROTTLE_CAL_MAX
 #define ESC_HARD_MIN    1500
 #define ESC_HARD_MAX    1700
 
+    /**
+     * @brief The neutral ESC pulse, in microseconds.
+     *
+     * @warning Sent immediately at open() and by stop(), whether or not the
+     *          ESC is armed - an ESC left with no pulse at all sits there
+     *          beeping about a lost signal.
+     */
 #define DRIVE_NEUTRAL_US 1500
 
-    /*
+    /**
+     * @brief How often the slew limiter takes a step, in milliseconds.
+     *
      * How fast an output is allowed to move: microseconds of pulse per tick.
      *
      * 8 us every 20 ms is 400 us per second. This car's steering travel is 430 us
@@ -128,10 +156,17 @@ namespace bibo::drive
      * make an avoidance correction, and the reactive layer will need this raised -
      * probably to a value set at runtime rather than baked in here, since bench
      * work and driving want different answers and neither is a bug.
+     *
+     * @warning Governs how fast the wheels and the throttle can physically
+     *          move; raising it makes the car respond faster to every
+     *          command.
      */
 #define SLEW_TICK_MS 20
 
-    /*
+    /**
+     * @brief Default slew rates, in microseconds of pulse per SLEW_TICK_MS
+     *        tick.
+     *
      * TWO rates, not one. The steering and the throttle want different answers and
      * always did.
      *
@@ -149,7 +184,9 @@ namespace bibo::drive
 #define STEER_SLEW_US    SLEW_CAL_STEER
 #define THROTTLE_SLEW_US SLEW_CAL_THROTTLE
 
-    /*
+    /**
+     * @brief Valid range for a slew rate, in microseconds of pulse per tick.
+     *
      * The bounds on that rate.
      *
      * 1 us/tick is 50 us/s - a full traverse in nine seconds, which is slower than
@@ -165,8 +202,8 @@ namespace bibo::drive
 
     /* ---- what the caller can see -------------------------------------------- */
 
-    /*
-     * A snapshot, taken all at once.
+    /**
+     * @brief A snapshot of the chassis, taken all at once.
      *
      * Returned by value rather than exposed as globals so a caller cannot read
      * `servoNow` from one moment and `servoTarget` from the next and report a car
@@ -174,29 +211,31 @@ namespace bibo::drive
      */
     struct State
     {
-        Int32 servoUs;       /* what is being OUTPUT, which lags the target       */
-        Int32 servoTargetUs; /* what it is heading toward                         */
-        Int32 escUs;
-        Int32 escTargetUs;
-        Bool  escArmed;
-        Bool  servoLive;     /* is the steering pin being driven at all           */
-        Int32 centerUs;      /* where the wheels point straight, measured         */
-        Int32 steerMilli;    /* the target as -1000..1000 of this car's travel    */
+        Int32 servoUs;       ///< Steering pulse being OUTPUT now, microseconds; lags the target.
+        Int32 servoTargetUs; ///< Steering pulse the output is heading toward, microseconds.
+        Int32 escUs;         ///< ESC pulse being output now, microseconds.
+        Int32 escTargetUs;   ///< ESC pulse the output is heading toward, microseconds.
+        Bool  escArmed;      ///< True when throttleUs() is allowed through.
+        Bool  servoLive;     ///< True while the steering pin is being driven at all.
+        Int32 centerUs;      ///< Where the wheels point straight, measured, microseconds.
+        Int32 steerMilli;    ///< Target steering as -1000..1000 of this car's travel.
 
-        /* Where the wheels ACTUALLY are, on the same scale.
+        /**
+         * Where the wheels ACTUALLY are, on the same scale.
          *
          * Not the same thing as steerMilli and the difference is the slew limiter:
          * a full-lock command arrives at once and the servo takes about a second to
          * walk there, so for a whole second these two disagree. Anything watching
          * the car - an indicator lamp, a controller - wants this one; anything
-         * reporting what was asked for wants the other. */
+         * reporting what was asked for wants the other.
+         */
         Int32 steerNowMilli;
-        Int32 servoMinUs;
-        Int32 servoMaxUs;
-        Int32 escMinUs;
-        Int32 escMaxUs;
-        Int32 steerSlewUs;    /* us of pulse per 20 ms tick, steering */
-        Int32 throttleSlewUs; /* ...and throttle. They are separate settings.  */
+        Int32 servoMinUs;      ///< Working lower steering bound, microseconds.
+        Int32 servoMaxUs;      ///< Working upper steering bound, microseconds.
+        Int32 escMinUs;        ///< Working lower throttle bound, microseconds.
+        Int32 escMaxUs;        ///< Working upper throttle bound, microseconds.
+        Int32 steerSlewUs;    ///< us of pulse per 20 ms tick, steering.
+        Int32 throttleSlewUs; ///< ...and throttle. They are separate settings.
     };
 
     /* ---- state --------------------------------------------------------------- */
@@ -249,6 +288,14 @@ namespace bibo::drive
 
     /* ---- helpers ------------------------------------------------------------- */
 
+    /**
+     * @brief Clamps a value to an inclusive range.
+     *
+     * @param v  the value to clamp
+     * @param lo the inclusive lower bound
+     * @param hi the inclusive upper bound
+     * @return v itself if already in range, otherwise the nearer bound
+     */
     inline Int32 clamp(const Int32 v, const Int32 lo, const Int32 hi)
     {
         if(v < lo)
@@ -262,7 +309,9 @@ namespace bibo::drive
         return v;
     }
 
-    /*
+    /**
+     * @brief Converts a steering fraction to a servo pulse width.
+     *
      * Steering as a fraction of THIS car's travel: -1 is full lock one way, +1 is
      * full lock the other, 0 is wheels straight.
      *
@@ -271,6 +320,11 @@ namespace bibo::drive
      * to a midpoint therefore steers further one way than the other, and a car that
      * pulls left every time it is asked for "half" is a bug that hides for a long
      * time because every individual command looks reasonable.
+     *
+     * @param n steering fraction, clamped to -1.0 (full lock one way) through
+     *          +1.0 (full lock the other); 0.0 is straight ahead
+     * @return the servo pulse width, in microseconds, before the working
+     *         range is applied
      */
     inline Int32 steerToUs(Float32 n)
     {
@@ -295,8 +349,16 @@ namespace bibo::drive
         return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>(hi > 0 ? hi : 0));
     }
 
-    /* The inverse, in THOUSANDTHS so it can be reported without a float formatter
-     * having to survive on a microcontroller. -1000 to +1000. */
+    /**
+     * @brief Converts a servo pulse width back to a steering fraction.
+     *
+     * The inverse, in THOUSANDTHS so it can be reported without a float formatter
+     * having to survive on a microcontroller.
+     *
+     * @param us a servo pulse width, in microseconds
+     * @return steering as -1000 (full lock one way) to +1000 (full lock the
+     *         other), 0 for straight ahead
+     */
     inline Int32 steerFromUs(const Int32 us)
     {
         const Int32 d = us - servoCenterUs;
@@ -315,6 +377,19 @@ namespace bibo::drive
 
     /* ---- lifecycle ----------------------------------------------------------- */
 
+    /**
+     * @brief Opens the servo and ESC pins and brings the chassis up disarmed.
+     *
+     * Rule 1: the steering is released, not driven to neutral, at boot. The
+     * ESC is driven to DRIVE_NEUTRAL_US immediately, disarmed, because it is
+     * listening for exactly that to come up rather than beeping about a lost
+     * signal.
+     *
+     * @note pins::begin() must have run first, or PIN_SERVO/PIN_ESC resolve
+     *       to no pin at all and nothing is opened.
+     * @warning Writes the ESC pulse immediately. Put the car on a stand
+     *          before calling this, per docs/wiring.md.
+     */
     inline Void open(Void)
     {
         servo::open(PIN_SERVO);
@@ -338,7 +413,19 @@ namespace bibo::drive
         up  = true;
     }
 
-    /* Walks each output toward its target. Call from the main loop, often. */
+    /**
+     * @brief Walks each output one step closer to its target.
+     *
+     * Call from the main loop, often - the slew limiter only advances once
+     * per SLEW_TICK_MS, so calling less often than that makes the car slower
+     * to respond, not smoother.
+     *
+     * @note A disarmed ESC is walked back to neutral rather than snapped
+     *       there: a step to neutral from a moving throttle is itself a jolt.
+     * @warning This is what actually moves the servo and the ESC. Nothing
+     *          the caller commands takes effect at the pins until pump()
+     *          runs.
+     */
     inline Void pump(Void)
     {
         if(!up || !timing::reached(slewNextAt))
@@ -368,7 +455,9 @@ namespace bibo::drive
         }
     }
 
-    /*
+    /**
+     * @brief Disarms the ESC to neutral and releases the steering, at once.
+     *
      * The ESC disarmed and neutral, and the steering RELEASED.
      *
      * Released rather than centred, and that distinction is the whole point.
@@ -378,6 +467,11 @@ namespace bibo::drive
      * with is the only stop that is a stop on every car.
      *
      * Immediate, not slewed. A stop that eases in is not a stop.
+     *
+     * @warning This is the emergency stop. It writes the ESC pulse and
+     *          releases the servo directly, bypassing the slew limiter, and
+     *          disarms the ESC so a later throttleUs() is refused until
+     *          arm(true) is called again.
      */
     inline Void stop(Void)
     {
@@ -395,6 +489,12 @@ namespace bibo::drive
         }
     }
 
+    /**
+     * @brief Reads a snapshot of the chassis state.
+     *
+     * @return a State with every output, target and bound in microseconds,
+     *         and steerMilli/steerNowMilli in thousandths of full travel
+     */
     inline State read(Void)
     {
         State s{};
@@ -416,12 +516,20 @@ namespace bibo::drive
         return s;
     }
 
-    /*
+    /**
+     * @brief Sets how fast the steering may move.
+     *
      * How fast the STEERING may move, in microseconds of pulse per 20 ms tick.
      *
      * Clamped rather than refused, so a caller asking for "as fast as possible" by
      * passing a large number gets the ceiling instead of an error. Returns false
      * only for a value that is not a rate at all.
+     *
+     * @param usPerTick microseconds of pulse per SLEW_TICK_MS tick; clamped
+     *                   into [SLEW_MIN_STEP, SLEW_MAX_STEP]
+     * @return false only when usPerTick is zero or negative
+     * @warning Raising this makes the wheels turn faster in response to the
+     *          same steer() command.
      */
     [[nodiscard]] static Bool setSteerSlew(const Int32 usPerTick)
     {
@@ -433,12 +541,20 @@ namespace bibo::drive
         return true;
     }
 
-    /*
+    /**
+     * @brief Sets how fast the throttle may move.
+     *
      * How fast the THROTTLE may move. Same units, same bounds, different setting.
      *
      * This is the one that decides whether the car pulls away or lurches. It is
      * separate from the steering because the right answer is different: a servo
      * wants to arrive promptly and an ESC wants to be led there.
+     *
+     * @param usPerTick microseconds of pulse per SLEW_TICK_MS tick; clamped
+     *                   into [SLEW_MIN_STEP, SLEW_MAX_STEP]
+     * @return false only when usPerTick is zero or negative
+     * @warning Raising this makes the car accelerate and brake harder for
+     *          the same throttleUs() command.
      */
     [[nodiscard]] static Bool setThrottleSlew(const Int32 usPerTick)
     {
@@ -450,11 +566,18 @@ namespace bibo::drive
         return true;
     }
 
-    /*
+    /**
+     * @brief Sets the steering and throttle slew rates to the same value.
+     *
      * Both at once, which is what "the response rate" meant when there was only
      * one. Kept because it is genuinely the common case on a bench - you are
      * usually asking for everything to be slow while you watch something - and
      * because a caller that does not care should not have to make two calls.
+     *
+     * @param usPerTick microseconds of pulse per SLEW_TICK_MS tick, applied
+     *                   to both outputs; clamped into [SLEW_MIN_STEP,
+     *                   SLEW_MAX_STEP]
+     * @return false only when usPerTick is zero or negative
      */
     [[nodiscard]] static Bool setSlew(const Int32 usPerTick)
     {
@@ -463,13 +586,17 @@ namespace bibo::drive
 
     /* ---- steering ------------------------------------------------------------ */
 
-    /*
-     * Starts or stops driving the steering pin.
+    /**
+     * @brief Starts or stops driving the steering pin.
      *
      * Engaging picks up from the CAR's centre and slews to wherever the target
      * already is, rather than jumping: the servo has been limp and its actual
      * position is unknown, so the first command after engaging is the one most
      * likely to be a surprise.
+     *
+     * @param on true to drive the steering pin, false to release it
+     * @warning Engaging writes the pulse for the car's measured centre
+     *          immediately, without waiting for pump().
      */
     inline Void engage(const Bool on)
     {
@@ -487,46 +614,88 @@ namespace bibo::drive
         }
     }
 
-    /* Steer as a fraction of this car's travel. THE entry point for driving. */
+    /**
+     * @brief Sets the steering target as a fraction of this car's travel.
+     *
+     * THE entry point for driving.
+     *
+     * @param n steering fraction, -1.0 (full lock one way) through +1.0
+     *          (full lock the other); 0.0 is straight ahead
+     * @note The output moves toward this target only as pump() is called,
+     *       at the rate set by setSteerSlew().
+     * @warning Steers the car. Has no effect on a released steering pin;
+     *          call engage(true) first.
+     */
     inline Void steer(const Float32 n)
     {
         servoTarget = clamp(steerToUs(n), servoMin, servoMax);
     }
 
-    /* Wheels straight, wherever that measures out to be. */
+    /**
+     * @brief Sets the steering target to straight ahead.
+     *
+     * Wheels straight, wherever that measures out to be.
+     *
+     * @note Uses the measured centre (servoCenterUs / trim()), not the pulse
+     *       midpoint.
+     */
     inline Void center(Void)
     {
         servoTarget = clamp(servoCenterUs, servoMin, servoMax);
     }
 
-    /*
+    /**
+     * @brief Sets the steering target as a raw servo pulse width.
+     *
      * Raw microseconds. For CALIBRATING - finding where the ends and the centre
      * actually are - not for driving. Clamped rather than refused: a slider that
      * stops moving at the limit is clearer than one that silently does nothing.
+     *
+     * @param us the target pulse width, in microseconds; clamped into
+     *           [servoMin, servoMax]
+     * @warning Moves the steering servo. Use steer() for driving; this is
+     *          for finding the end stops with the car on a stand.
      */
     inline Void steerUs(const Int32 us)
     {
         servoTarget = clamp(us, servoMin, servoMax);
     }
 
-    /*
-     * Moves where "centre" is.
+    /**
+     * @brief Moves where "centre" is.
      *
      * Clamped into the working range, because a centre outside the limits is one
      * the servo can never be commanded to - drive::center() would silently mean
      * something else, which is worse than refusing.
+     *
+     * @param us the new centre pulse width, in microseconds; clamped into
+     *           [servoMin, servoMax]
+     * @note Does not move the servo by itself; center() and steer() read
+     *       this value on their next call.
      */
     inline Void trim(const Int32 us)
     {
         servoCenterUs = clamp(us, servoMin, servoMax);
     }
 
-    /*
+    /**
+     * @brief Widens or narrows the working steering range.
+     *
      * Widens or narrows the working range. False if the two are the wrong way
      * round; the caller decides what to say about that.
      *
      * Clamped to the hard bound, and both the target and the centre are pulled back
      * inside so narrowing can never leave an output sitting outside its own limits.
+     *
+     * @param lo the new lower bound, in microseconds; must be less than hi
+     * @param hi the new upper bound, in microseconds; must be greater than lo
+     * @return false when lo is not strictly less than hi, either before or
+     *         after clamping to [SERVO_HARD_MIN, SERVO_HARD_MAX]
+     * @note Checked after clamping too - see the comment inside - or two
+     *       in-order but out-of-hardware-range values collapse to a
+     *       zero-width steering range.
+     * @warning Also re-clamps the current target and centre, which can move
+     *          the steering the next time pump() runs.
      */
     [[nodiscard]] static Bool setSteerLimits(const Int32 lo, const Int32 hi)
     {
@@ -561,14 +730,36 @@ namespace bibo::drive
 
     /* ---- throttle ------------------------------------------------------------ */
 
+    /**
+     * @brief Arms or disarms the ESC.
+     *
+     * Rule 2: every throttle command is refused until this is called with
+     * true, and disarming walks the target back to neutral.
+     *
+     * @param on true to arm the ESC and allow throttleUs() through, false
+     *           to disarm it
+     * @warning One deliberate act between a slider and a moving car. This
+     *          does not itself move the throttle; any prior throttleUs()
+     *          target is replaced with neutral.
+     */
     inline Void arm(const Bool on)
     {
         escArmed  = on;
         escTarget = DRIVE_NEUTRAL_US;
     }
 
-    /* False when the ESC is not armed. Rule 2, and it lives here so no caller can
-     * forget it. */
+    /**
+     * @brief Sets the throttle target, in raw ESC pulse width.
+     *
+     * False when the ESC is not armed. Rule 2, and it lives here so no caller can
+     * forget it.
+     *
+     * @param us the target pulse width, in microseconds; clamped into
+     *           [escMin, escMax]
+     * @return false when the ESC is not armed; the target is left unchanged
+     * @warning Sets the throttle target the car will accelerate toward as
+     *          pump() runs. Requires arm(true) first.
+     */
     [[nodiscard]] static Bool throttleUs(const Int32 us)
     {
         if(!escArmed)
@@ -579,11 +770,29 @@ namespace bibo::drive
         return true;
     }
 
+    /**
+     * @brief Sets the throttle target back to neutral.
+     *
+     * @note Does not disarm the ESC; use stop() or arm(false) for that.
+     */
     inline Void throttleNeutral(Void)
     {
         escTarget = DRIVE_NEUTRAL_US;
     }
 
+    /**
+     * @brief Widens or narrows the working throttle range.
+     *
+     * @param lo the new lower bound, in microseconds; must be less than hi
+     * @param hi the new upper bound, in microseconds; must be greater than lo
+     * @return false when lo is not strictly less than hi, either before or
+     *         after clamping to [ESC_HARD_MIN, ESC_HARD_MAX]
+     * @note The throttle's hard band is only 200 us wide (ESC_HARD_MIN to
+     *       ESC_HARD_MAX), so this collapses to a zero-width range more
+     *       easily than setSteerLimits() does - see the comment inside.
+     * @warning Also re-clamps the current throttle target, which can change
+     *          the ESC pulse the next time pump() runs.
+     */
     [[nodiscard]] static Bool setThrottleLimits(const Int32 lo, const Int32 hi)
     {
         if(lo >= hi)
