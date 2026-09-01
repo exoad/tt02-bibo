@@ -184,12 +184,36 @@ namespace bibo::gfx
         UInt32 b = 0;
         switch(region)
         {
-            case 0:  r = val; g = t;   b = p;   break;
-            case 1:  r = q;   g = val; b = p;   break;
-            case 2:  r = p;   g = val; b = t;   break;
-            case 3:  r = p;   g = q;   b = val; break;
-            case 4:  r = t;   g = p;   b = val; break;
-            default: r = val; g = p;   b = q;   break;
+            case 0:
+                r = val;
+                g = t;
+                b = p;
+                break;
+            case 1:
+                r = q;
+                g = val;
+                b = p;
+                break;
+            case 2:
+                r = p;
+                g = val;
+                b = t;
+                break;
+            case 3:
+                r = p;
+                g = q;
+                b = val;
+                break;
+            case 4:
+                r = t;
+                g = p;
+                b = val;
+                break;
+            default:
+                r = val;
+                g = p;
+                b = q;
+                break;
         }
         return rgb(r, g, b);
     }
@@ -1057,18 +1081,30 @@ namespace bibo::gfx
        * one is what splits the triangle into its two scanline halves. */
           if(y0 > y1)
           {
-              tx = x0; x0 = x1; x1 = tx;
-              ty = y0; y0 = y1; y1 = ty;
+              tx = x0;
+              x0 = x1;
+              x1 = tx;
+              ty = y0;
+              y0 = y1;
+              y1 = ty;
           }
           if(y1 > y2)
           {
-              tx = x1; x1 = x2; x2 = tx;
-              ty = y1; y1 = y2; y2 = ty;
+              tx = x1;
+              x1 = x2;
+              x2 = tx;
+              ty = y1;
+              y1 = y2;
+              y2 = ty;
           }
           if(y0 > y1)
           {
-              tx = x0; x0 = x1; x1 = tx;
-              ty = y0; y0 = y1; y1 = ty;
+              tx = x0;
+              x0 = x1;
+              x1 = tx;
+              ty = y0;
+              y0 = y1;
+              y1 = ty;
           }
 
           if(y0 == y2)

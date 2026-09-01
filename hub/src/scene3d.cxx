@@ -237,9 +237,12 @@ namespace scene3d
     scenegpu::Vertex vtx(const Vec3& p, ImU32 col, const ImVec2& uv)
     {
         scenegpu::Vertex v;
-        v.x = p.x; v.y = p.y; v.z = p.z;
+        v.x = p.x;
+        v.y = p.y;
+        v.z = p.z;
         v.col = col;
-        v.u = uv.x; v.v = uv.y;
+        v.u = uv.x;
+        v.v = uv.y;
         return v;
     }
 
@@ -505,7 +508,8 @@ namespace scene3d
                 const Vec3 q1{ r1 * std::cos(t), r1 * std::sin(t), 0.0f };
                 emitTriC(p0, q0, q1, a0, a0, a1);
                 emitTriC(p0, q1, p1, a0, a1, a1);
-                p0 = q0; p1 = q1;
+                p0 = q0;
+                p1 = q1;
             }
         };
 

@@ -46,6 +46,13 @@ namespace bibo::plan
         STATUS_FULL
     };
 
+    /**
+     * @brief A human-readable reason for a Status.
+     *
+     * @param s the status to describe
+     * @return a short, static, null-terminated string; "?" for an unknown
+     *         value
+     */
     inline CharSeq why(const Status s)
     {
         switch(s)
@@ -59,11 +66,11 @@ namespace bibo::plan
         }
     }
 
-    /* =======================================================================
+    /* =========================================================================
      * HOW FAST - a speed limit for the point on the path the car is at.
      *
      * The shape it will take: slow for curvature, slow for the approach to the
-     * end, and never accelerate or brake harder than the tyres will take. On a
+     * end, and never accelerate or brake harder than the tires will take. On a
      * rear-wheel-drive car with no differential lock the cornering limit is the
      * interesting one - too fast into a bend and the front washes out, and the
      * follower's steering demand is then met by a car that is not turning.
@@ -72,21 +79,35 @@ namespace bibo::plan
      * sqrt(latAccel / curvature), which falls out of the same circle pursuit
      * already computes. It is why this file includes pursuit rather than
      * duplicating the geometry.
-     * ==================================================================== */
+     * ========================================================================= */
+
+    /**
+     * @brief The speed and acceleration limits for one route.
+     */
     struct Limits
     {
         Float32 vMax     = 1.5f;    /* m/s, the fastest this route allows   */
         Float32 aMax     = 1.0f;    /* m/s^2 accelerating                   */
         Float32 aBrake   = 2.0f;    /* m/s^2 slowing - larger, brakes beat  */
         /* the motor on this drivetrain         */
-        Float32 latAccel = 2.5f;    /* m/s^2 the tyres hold in a corner     */
-        Float32 vMin     = 0.15f;   /* below this the car does not move at  */
-        /* all, so asking for less is asking    */
-        /* for a stall - see THROTTLE_CAL_MIN   */
+        Float32 latAccel = 2.5f;    /* m/s^2 the tires hold in a corner     */
+        Float32 vMin     = 0.15f;   /* m/s. below this the car does not     */
+        /* move at all, so asking for less is   */
+        /* asking for a stall - see             */
+        /* THROTTLE_CAL_MIN                     */
     };
 
     inline Limits limits;
 
+    /**
+     * @brief Installs a new set of speed and acceleration limits.
+     *
+     * @param l the limits to install; vMax, aMax, aBrake, latAccel in their
+     *          documented units, vMin in metres per second
+     * @return false, leaving the previous limits in place, when vMax, aMax,
+     *         aBrake, or latAccel is not positive, or vMin is negative or
+     *         exceeds vMax
+     */
     inline Bool configure(const Limits& l)
     {
         if(l.vMax <= 0.0f || l.aMax <= 0.0f || l.aBrake <= 0.0f
@@ -98,16 +119,29 @@ namespace bibo::plan
         return true;
     }
 
+    /**
+     * @brief The speed limits currently installed.
+     *
+     * @return a reference to the live Limits
+     */
     static const Limits& tuning(Void)
     {
         return limits;
     }
 
-    /* STUB. Will return the speed to hold at `pose` on `path`.
+    /**
+     * @brief STUB. Will return the speed to hold at `pose` on `path`.
      *
      * `out` is untouched on anything but STATUS_OK, so a caller that ignores
-     * the Status gets whatever it initialised - which is its own value, not a
-     * number this file invented. */
+     * the Status gets whatever it initialized - which is its own value, not
+     * a number this file invented.
+     *
+     * @param path the path the car is following, in world metres
+     * @param pose where the car is and which way it faces
+     * @param out set to the speed to hold, metres per second, only when the
+     *            return is STATUS_OK
+     * @return STATUS_NOT_IMPLEMENTED always, for now
+     */
     inline Status speedFor(const pursuit::Path* path, geom::Pose pose,
                            Float32* out)
     {
@@ -117,7 +151,7 @@ namespace bibo::plan
         return STATUS_NOT_IMPLEMENTED;
     }
 
-    /* =======================================================================
+    /* =========================================================================
      * WHETHER TO GO - the obstacle gate.
      *
      * A cap on speed from whatever the car can see. The lidar is the eventual
@@ -128,20 +162,32 @@ namespace bibo::plan
      * at full speed until it slams to a halt, which is both alarming and worse
      * at avoiding anything - by the time it reacts it has no room. slowM starts
      * the taper, stopM ends it.
-     * ==================================================================== */
+     * ========================================================================= */
+
+    /**
+     * @brief The stop/slow distances and the width the obstacle gate watches.
+     */
     struct Guard
     {
-        Float32 stopM = 0.30f;   /* nearer than this: stop                  */
-        Float32 slowM = 1.20f;   /* between the two: taper toward stop      */
+        Float32 stopM = 0.30f;   /* metres, nearer than this: stop          */
+        Float32 slowM = 1.20f;   /* metres, between the two: taper to stop  */
 
         /* How far to either side counts as in the way. Narrower than the car
          * is optimistic; wider makes it flinch at doorframes. Half the track
          * plus a margin is the honest starting point. */
-        Float32 widthM = 0.22f;
+        Float32 widthM = 0.22f;  /* metres */
     };
 
     inline Guard guard;
 
+    /**
+     * @brief Installs a new obstacle gate.
+     *
+     * @param g the gate to install; stopM, slowM, widthM all in metres
+     * @return false, leaving the previous gate in place, when stopM is
+     *         negative, slowM does not exceed stopM, or widthM is not
+     *         positive
+     */
     inline Bool configure(const Guard& g)
     {
         if(g.stopM < 0.0f || g.slowM <= g.stopM || g.widthM <= 0.0f)
@@ -152,13 +198,24 @@ namespace bibo::plan
         return true;
     }
 
+    /**
+     * @brief The obstacle gate currently installed.
+     *
+     * @return a reference to the live Guard
+     */
     static const Guard& guardTuning(Void)
     {
         return guard;
     }
 
-    /* STUB. Will return a speed cap in metres per second given the nearest
-     * obstacle ahead. */
+    /**
+     * @brief STUB. Will return a speed cap given the nearest obstacle ahead.
+     *
+     * @param nearestM distance to the nearest obstacle ahead, metres
+     * @param out set to the speed cap, metres per second, only when the
+     *            return is STATUS_OK
+     * @return STATUS_NOT_IMPLEMENTED always, for now
+     */
     inline Status capFor(const Float32 nearestM, Float32* out)
     {
         static_cast<Void>(nearestM);
@@ -166,7 +223,7 @@ namespace bibo::plan
         return STATUS_NOT_IMPLEMENTED;
     }
 
-    /* =======================================================================
+    /* =========================================================================
      * WHERE THE PATH CAME FROM - teach.
      *
      * Drive the route by hand once and keep the poses. The whole project is
@@ -177,22 +234,34 @@ namespace bibo::plan
      * with a hundred chances to decide it has arrived. Spacing by distance
      * makes the density of the path a property of the ROUTE rather than of how
      * long the driver dithered.
-     * ==================================================================== */
+     * ========================================================================= */
+
+    /**
+     * @brief The spacing rules teach uses to decide which poses to keep.
+     */
     struct Recorder
     {
         /* Metres between kept points. Too fine wastes memory and adds nothing;
          * too coarse cuts corners on the replay because the follower is
          * interpolating between things that were never adjacent. */
-        Float32 spacingM = 0.10f;
+        Float32 spacingM = 0.10f;   /* metres */
 
         /* And a heading change worth keeping even when the car has barely
          * moved - a tight corner taken slowly would otherwise be recorded as
          * two points and replayed as a straight line through the wall. */
-        Float32 headingRad = 0.15f;
+        Float32 headingRad = 0.15f; /* radians */
     };
 
     inline Recorder recorder;
 
+    /**
+     * @brief Installs new recording spacing rules.
+     *
+     * @param r the rules to install; spacingM in metres, headingRad in
+     *          radians
+     * @return false, leaving the previous rules in place, when spacingM or
+     *         headingRad is not positive
+     */
     inline Bool configure(const Recorder& r)
     {
         if(r.spacingM <= 0.0f || r.headingRad <= 0.0f)
@@ -203,14 +272,27 @@ namespace bibo::plan
         return true;
     }
 
+    /**
+     * @brief The recording spacing rules currently installed.
+     *
+     * @return a reference to the live Recorder
+     */
     static const Recorder& recorderTuning(Void)
     {
         return recorder;
     }
 
-    /* STUB. Will append `pose` to `into` if it is far enough from the last
-     * point, and report STATUS_FULL rather than overwriting when the buffer
-     * is exhausted. */
+    /**
+     * @brief STUB. Will append `pose` to `into` if it is far enough from the
+     *        last point kept.
+     *
+     * @param pose the pose to consider keeping
+     * @param into the buffer of kept points, world metres
+     * @param cap the capacity of `into`, in points
+     * @param count the number of points kept so far; incremented on a keep
+     * @return STATUS_NOT_IMPLEMENTED always, for now; once implemented,
+     *         STATUS_FULL rather than an overwrite when `into` is exhausted
+     */
     inline Status keep(geom::Pose pose, geom::Vec2* into, const Size cap, Size* count)
     {
         static_cast<Void>(pose);

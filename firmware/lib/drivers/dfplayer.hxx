@@ -1,5 +1,13 @@
-/* ---------------------------------------------------------------------------
- * dfplayer - the DFPlayer Mini, a serial MP3 player on a DIP-16 module.
+/**
+ * @file dfplayer.hxx
+ * @brief Drives the DFPlayer Mini over UART: the second link in the sound
+ * chain.
+ *
+ * dfplayer_proto.hxx (below this file) encodes the wire format; this file
+ * sends and receives it; sound.hxx (above this file) is what a program
+ * actually calls to make a sound; sfx.hxx names which numbered file on the
+ * card is which clip. Land here to see how a command frame goes out and a
+ * query's answer comes back.
  *
  * It plays a file off a microSD card when you send it a ten-byte frame at 9600
  * baud. That is the entire interface: there is no filesystem to drive, no
@@ -43,7 +51,11 @@
  * ACK asks the module to answer. Left at 0 by default: this driver is fire and
  * forget, and a reply that nobody reads sits in the receive FIFO until it is
  * mistaken for the answer to a later question.
- * ------------------------------------------------------------------------- */
+ *
+ * @note On this project's pin map the module's TX/RX live on GP14/GP15 -
+ * the same pads that carried the tail lamps before sound needed a UART. See
+ * the pin-map banner in lights.hxx for why they moved.
+ */
 #pragma once
 
 #include "../hal.hxx"
@@ -55,30 +67,44 @@
  * can only be exercised by flashing a microcontroller is a checksum nobody
  * exercises. Same split, and the same reason, as lib/text.hxx.
  *
- * firmware	estsuild_dfplayer_test.bat run
+ * firmware\tests\build_dfplayer_test.bat run
  */
 #include "dfplayer_proto.hxx"
 
 namespace bibo::dfplayer
 {
 
-    /* The port and the BUSY pin. STAYS HERE rather than in the protocol
-     * header: uart_inst_t is the SDK's, and dragging it next door would
-     * cost that header the one property it exists for - compiling on the
-     * host, with no board and no SDK. */
+    /**
+     * @brief One DFPlayer connection: the UART port and its optional BUSY
+     * pin.
+     *
+     * STAYS HERE rather than in the protocol header: uart_inst_t is the
+     * SDK's, and dragging it next door would cost that header the one
+     * property it exists for - compiling on the host, with no board and no
+     * SDK.
+     */
     struct Bus
     {
         uart_inst_t* port;
         Int32        busyPin;   /* pins::NONE if not wired */
     };
 
-    /* Sends one command.
+    /**
+     * @brief Encodes and sends one command frame, then waits out the
+     * module's processing time.
      *
-     * The 40 ms afterwards is not politeness. The module processes a frame before
-     * it will look at the next one, and back-to-back commands - a volume followed
-     * immediately by a play, which is the obvious thing to write - drop the second
-     * one often enough to look intermittent. The datasheet asks for 20 ms; 40 is
-     * cheap and has never been the problem. */
+     * The 40 ms afterwards is not politeness. The module processes a frame
+     * before it will look at the next one, and back-to-back commands - a
+     * volume followed immediately by a play, which is the obvious thing to
+     * write - drop the second one often enough to look intermittent.
+     *
+     * @param bus the connection to send on
+     * @param cmd the command byte, one of the DFP_CMD_* values
+     * @param param the command's parameter; meaning depends on cmd
+     *
+     * @note The datasheet asks for a 20 ms gap between commands; 40 ms is
+     * cheap and has never been the problem.
+     */
     inline Void send(const Bus* bus, const UInt8 cmd, const UInt16 param)
     {
         UInt8 buf[10];
@@ -87,12 +113,21 @@ namespace bibo::dfplayer
         timing::ms(40);
     }
 
-    /* ---------------------------------------------------------------------------
-     * Brings the link up. Does NOT reset the module - see below.
+    /**
+     * @brief Opens the UART link and the BUSY pin, if any. Does NOT reset
+     * the module - see reset().
      *
-     * `tx` goes to the module's RX and `rx` comes from its TX; either may be
-     * pins::NONE. 9600 baud is not configurable on this module.
-     * ------------------------------------------------------------------------- */
+     * @param bus the connection to fill in
+     * @param port the SDK UART instance to use
+     * @param tx goes to the module's RX; pins::NONE to leave it unconnected
+     * @param rx comes from the module's TX; pins::NONE to leave it
+     *        unconnected and lose the replies, not the sound
+     * @param busyPin the module's BUSY output, or pins::NONE if not wired
+     *
+     * @note 9600 baud is not configurable on this module.
+     * @note On this project's pin map, tx/rx are GP14/GP15 - the pads that
+     * carried the tail lamps before sound needed a UART.
+     */
     inline Void open(Bus* bus, uart_inst_t* port, const Pin tx, const Pin rx, const Int32 busyPin)
     {
         bus->port    = port;
@@ -111,12 +146,19 @@ namespace bibo::dfplayer
         }
     }
 
-    /* Resets the module and waits for the card to mount.
+    /**
+     * @brief Resets the module and waits for the card to mount.
      *
-     * Separate from open() because it costs two seconds and not every program
-     * wants to pay them - a sketch that is only sending a volume change does not
-     * need the card remounted. Any program that is about to PLAY something after
-     * power-on does. */
+     * Separate from open() because it costs two seconds and not every
+     * program wants to pay them - a sketch that is only sending a volume
+     * change does not need the card remounted. Any program that is about
+     * to PLAY something after power-on does.
+     *
+     * @param bus the connection to reset
+     *
+     * @note Blocks for DFP_BOOT_MS (about two seconds) while the card
+     * mounts.
+     */
     inline Void reset(const Bus* bus)
     {
         uart::drain(bus->port);
@@ -129,75 +171,125 @@ namespace bibo::dfplayer
         uart::drain(bus->port);
     }
 
-    /* Selects the SD card as the source. The module usually picks it on its own if
-     * it is the only thing present, and "usually" is not a thing to build on. */
+    /**
+     * @brief Selects the SD card as the playback source.
+     *
+     * The module usually picks it on its own if it is the only thing
+     * present, and "usually" is not a thing to build on.
+     *
+     * @param bus the connection to send on
+     */
     inline Void useCard(const Bus* bus)
     {
         send(bus, DFP_CMD_SOURCE, 0x0002u);
     }
 
-    /* 0 to 30, clamped. */
+    /**
+     * @brief Sets the playback volume.
+     *
+     * @param bus the connection to send on
+     * @param level 0 to 30, clamped to that range
+     */
     inline Void volume(const Bus* bus, const UInt8 level)
     {
         send(bus, DFP_CMD_VOLUME,
              static_cast<UInt16>(level > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : level));
     }
 
-    /* The equaliser, 0-5. See the note in dfplayer_proto.hxx: this changes tone,
-     * not level, and 30 remains the loudest this module goes. */
+    /**
+     * @brief Sets the equaliser preset.
+     *
+     * See the note in dfplayer_proto.hxx: this changes tone, not level,
+     * and 30 remains the loudest this module goes.
+     *
+     * @param bus the connection to send on
+     * @param mode the equaliser preset, 0-5, clamped to that range
+     */
     inline Void eq(const Bus* bus, const UInt8 mode)
     {
         send(bus, DFP_CMD_EQ,
              static_cast<UInt16>(mode > DFP_EQ_MAX ? DFP_EQ_MAX : mode));
     }
 
-    /* Plays mp3/000N.mp3. One-based, matching the filename. */
+    /**
+     * @brief Plays mp3/000N.mp3 by number.
+     *
+     * @param bus the connection to send on
+     * @param track the file number, one-based, matching the filename
+     */
     inline Void playMp3(const Bus* bus, const UInt16 track)
     {
         send(bus, DFP_CMD_MP3, track);
     }
 
-    /* Plays NN/TTT.mp3 - folder 1-99, track 1-255. */
+    /**
+     * @brief Plays NN/TTT.mp3 by folder and track number.
+     *
+     * @param bus the connection to send on
+     * @param folder the folder number, 1-99
+     * @param track the track number within that folder, 1-255
+     */
     inline Void playFolder(const Bus* bus, const UInt8 folder, const UInt8 track)
     {
         send(bus, DFP_CMD_FOLDER,
              static_cast<UInt16>((static_cast<UInt16>(folder) << 8) | track));
     }
 
+    /**
+     * @brief Resumes or starts playback of the current track.
+     *
+     * @param bus the connection to send on
+     */
     inline Void play(const Bus* bus)
     {
         send(bus, DFP_CMD_PLAY, 0);
     }
 
+    /**
+     * @brief Pauses playback.
+     *
+     * @param bus the connection to send on
+     */
     inline Void pause(const Bus* bus)
     {
         send(bus, DFP_CMD_PAUSE, 0);
     }
 
+    /**
+     * @brief Stops playback.
+     *
+     * @param bus the connection to send on
+     */
     inline Void stop(const Bus* bus)
     {
         send(bus, DFP_CMD_STOP, 0);
     }
 
-    /* ---------------------------------------------------------------------
-     * Asks the module something and waits for the answer.
+    /**
+     * @brief Asks the module something and waits for the answer.
      *
-     * THE ONLY PLACE THIS DRIVER READS. Everything else is fire and forget,
-     * which is why ACK is off: a reply nobody reads sits in the FIFO until it
-     * is mistaken for the answer to a later question. A query must read, so it
-     * drains first for exactly that reason.
-     *
-     * Returns false when nothing valid arrives, and leaves `out` alone. That is
-     * a USEFUL answer on a bench rather than a failure: it separates a module
-     * that is alive and listening from a dead one, a missing card, or an RX
-     * wire on the wrong pad - none of which the fire-and-forget path can tell
-     * apart, because none of them talks back.
+     * THE ONLY PLACE THIS DRIVER READS. Everything else is fire and
+     * forget, which is why ACK is off: a reply nobody reads sits in the
+     * FIFO until it is mistaken for the answer to a later question. A
+     * query must read, so it drains first for exactly that reason.
      *
      * FRAMES ARE MATCHED ON THE COMMAND BYTE. The module volunteers a
-     * track-finished frame whenever a track ends, so whatever is sitting in the
-     * FIFO may be about something else entirely; anything that is not the answer
-     * to THIS question is skipped rather than returned as the value.
-     * ------------------------------------------------------------------- */
+     * track-finished frame whenever a track ends, so whatever is sitting
+     * in the FIFO may be about something else entirely; anything that is
+     * not the answer to THIS question is skipped rather than returned as
+     * the value.
+     *
+     * @param bus the connection to query
+     * @param cmd the query command byte, DFP_Q_FILES or DFP_Q_TRACK
+     * @param out receives the answer's parameter; left untouched on
+     *        failure
+     * @return true when a valid, matching reply arrived; false when
+     *         nothing valid arrived, which is a USEFUL answer on a bench
+     *         rather than a failure - it separates a module that is alive
+     *         and listening from a dead one, a missing card, or an RX
+     *         wire on the wrong pad, none of which the fire-and-forget
+     *         path can tell apart, because none of them talks back
+     */
     inline Bool query(const Bus* bus, const UInt8 cmd, UInt16* out)
     {
         uart::drain(bus->port);
@@ -269,43 +361,59 @@ namespace bibo::dfplayer
         return false;
     }
 
-    /* How many files the card holds.
+    /**
+     * @brief Asks how many files the card holds.
      *
-     * THE CARD IS THE SOURCE OF TRUTH. Nothing in this firmware keeps a list of
-     * tracks, so adding one to the card is the whole of adding one - there is
-     * no table here to keep in step and no build to redo. */
+     * THE CARD IS THE SOURCE OF TRUTH. Nothing in this firmware keeps a
+     * list of tracks, so adding one to the card is the whole of adding one
+     * - there is no table here to keep in step and no build to redo.
+     *
+     * @param bus the connection to query
+     * @param out receives the file count; left untouched on failure
+     * @return true when the module answered; false otherwise
+     */
     inline Bool fileCount(const Bus* bus, UInt16* out)
     {
         return query(bus, DFP_Q_FILES, out);
     }
 
-    /* Whether this bus has a BUSY line at all.
+    /**
+     * @brief Whether this bus has a BUSY line at all.
      *
      * SEPARATE FROM playing(), because "not playing" and "cannot tell" are
-     * different answers and a caller that shows them the same way is lying in
-     * one of the two cases. main.cxx used to ask pins::active().soundBusy to
-     * work this out - the app reaching past the driver for something the Bus
-     * already knows.
+     * different answers and a caller that shows them the same way is
+     * lying in one of the two cases. main.cxx used to ask
+     * pins::active().soundBusy to work this out - the app reaching past
+     * the driver for something the Bus already knows.
      *
-     * Same shape as tft::hasBacklight(), and for the same reason: the wire is
-     * either there or it is not, and that is the driver's fact to report. */
+     * Same shape as tft::hasBacklight(), and for the same reason: the
+     * wire is either there or it is not, and that is the driver's fact to
+     * report.
+     *
+     * @param bus the connection to ask
+     * @return true when a BUSY pin was given to open()
+     */
     [[nodiscard]] static Bool hasBusy(const Bus* bus)
     {
         return bus->busyPin != pins::NONE;
     }
 
-    /* ---------------------------------------------------------------------------
-     * True while a track is playing.
+    /**
+     * @brief Whether a track is playing right now.
      *
-     * Reads the BUSY pin, which is the module telling the truth about itself. With
-     * no BUSY pin wired this returns false - "not playing" - and says so here
-     * because a caller that waits on it would otherwise hang forever on a wire
-     * that was never fitted.
+     * Reads the BUSY pin, which is the module telling the truth about
+     * itself. With no BUSY pin wired this returns false - "not playing" -
+     * and says so here because a caller that waits on it would otherwise
+     * hang forever on a wire that was never fitted.
      *
-     * The serial reply is NOT used for this even when RX is connected: it says a
-     * command was accepted, which is a different claim from a track still being
-     * audible.
-     * ------------------------------------------------------------------------- */
+     * The serial reply is NOT used for this even when RX is connected: it
+     * says a command was accepted, which is a different claim from a
+     * track still being audible.
+     *
+     * @param bus the connection to ask
+     * @return true while BUSY reports the module is playing; false when
+     *         idle or when no BUSY pin is wired
+     */
     [[nodiscard]] static Bool playing(const Bus* bus)
     {
         if(!hasBusy(bus))

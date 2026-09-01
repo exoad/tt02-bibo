@@ -79,7 +79,9 @@ Int32 main(Void)
 
     /* Round trip. */
     geom::Pose odd;
-    odd.x = 1.5f; odd.y = -2.0f; odd.heading = 0.9f;
+    odd.x = 1.5f;
+    odd.y = -2.0f;
+    odd.heading = 0.9f;
     const geom::Vec2 there{ 3.0f, 4.0f };
     const geom::Vec2 back = geom::toWorld(odd, geom::toLocal(odd, there));
     check(near(back.x, there.x, 1e-3f) && near(back.y, there.y, 1e-3f),

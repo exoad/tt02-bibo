@@ -190,7 +190,8 @@ Int32 main(Int32 argc, Char** argv)
                 {
                     ptsMax = n;
                 }
-                hzSum += frame.hz; ++hzN;
+                hzSum += frame.hz;
+                ++hzN;
                 validPctSum += vp;
             }
 

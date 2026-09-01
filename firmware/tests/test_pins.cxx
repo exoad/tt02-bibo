@@ -35,13 +35,16 @@ Int32 main(Void)
 
     /* A sketch's map: three roles, everything else NONE. */
     pins::Map sk;
-    sk.soundTx = 14; sk.soundRx = 15; sk.soundBusy = 9;
+    sk.soundTx = 14;
+    sk.soundRx = 15;
+    sk.soundBusy = 9;
     check(pins::begin(sk), "a sketch map installs");
     check(pins::active().servo == pins::NONE, "and does not inherit the car");
 
     /* The clash. */
     pins::Map bad;
-    bad.soundTx = 14; bad.soundBusy = 14;
+    bad.soundTx = 14;
+    bad.soundBusy = 14;
     check(!pins::begin(bad), "two roles on one pad is refused");
     check(pins::conflictPin() == 14, "the clashing pad is reported");
     printf("        refused: %s and %s both want GP%d\n",

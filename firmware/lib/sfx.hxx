@@ -1,5 +1,13 @@
-/* ---------------------------------------------------------------------------
- * sfx - what the sounds on the card MEAN.
+/**
+ * @file sfx.hxx
+ * @brief The clip catalog: names which numbered file on the card is which
+ * sound - the fourth piece of the sound chain, alongside sound.hxx.
+ *
+ * sound.hxx is the layer a program calls to make noise, and it calls this
+ * table to turn a name into a track. Beneath both, dfplayer.hxx drives the
+ * DFPlayer Mini over UART and dfplayer_proto.hxx encodes what goes out on
+ * the wire. Land here to rename a clip or find out what track a name
+ * points at.
  *
  * The DFPlayer plays a number. mp3/0002.mp3 is track 2 and the module has no
  * idea what is in it, which means every caller either remembers or guesses -
@@ -35,7 +43,7 @@
  * Rename them for what they SOUND like, not for where they are used: a clip
  * called `startup` can be reused as a greeting, and one called `cueBrake` is
  * stuck the day the brake cue wants a different noise.
- * ------------------------------------------------------------------------- */
+ */
 #pragma once
 
 #include "types.hxx"
@@ -43,10 +51,19 @@
 namespace bibo::sfx
 {
 
-    /* Not a track. The DFPlayer numbers files from 1, so 0 is free to mean
-     * "no such clip" and every caller can test it without a second flag. */
+    /**
+     * @brief Sentinel meaning "no such clip".
+     *
+     * Not a track. The DFPlayer numbers files from 1, so 0 is free to
+     * mean "no such clip" and every caller can test it without a second
+     * flag.
+     */
     constexpr UInt16 NONE = 0;
 
+    /**
+     * @brief One named clip: what a caller asks for, which file it is,
+     * and what it sounds like.
+     */
     struct Clip
     {
         CharSeq name;    /* what a caller asks for       */
@@ -54,6 +71,12 @@ namespace bibo::sfx
         CharSeq means;   /* what it is, in plain English */
     };
 
+    /**
+     * @brief The clip table: one row per named sound.
+     *
+     * @warning The names below are PLACEHOLDERS. Rename each for what it
+     * actually sounds like once someone has heard the file on the card.
+     */
     static constexpr Clip CLIPS[] =
     {
         { .name = "clip1", .track = 1u, .means = "PLACEHOLDER - rename for what it sounds like" },
@@ -61,26 +84,36 @@ namespace bibo::sfx
         { .name = "clip3", .track = 3u, .means = "PLACEHOLDER - rename for what it sounds like" }
     };
 
+    /** @brief How many rows CLIPS holds. */
     constexpr Size COUNT = sizeof(CLIPS) / sizeof(CLIPS[0]);
 
-    /* ---- lookup -----------------------------------------------------------
+    /* ---- lookup -------------------------------------------------------
      *
      * CASE-INSENSITIVE, and that is not politeness - it is required.
      *
-     * The console upper-cases a whole command line before dispatching it, which
-     * is why every keyword in main.cxx is written SHORT, LONG, RESET. A clip
-     * named `horn` in this table therefore arrives as HORN and a case-sensitive
-     * compare misses every single time. Found on the board: `SOUND PLAY clip2`
-     * came back "no clip named CLIP2", which reads like a missing clip and is
-     * actually a missing fold.
+     * The console upper-cases a whole command line before dispatching it,
+     * which is why every keyword in main.cxx is written SHORT, LONG,
+     * RESET. A clip named `horn` in this table therefore arrives as HORN
+     * and a case-sensitive compare misses every single time. Found on the
+     * board: `SOUND PLAY clip2` came back "no clip named CLIP2", which
+     * reads like a missing clip and is actually a missing fold.
      *
-     * Folding here rather than upper-casing the table keeps the names readable
-     * as names. `hazardChirp` says what it is; HAZARDCHIRP is shouting a
-     * filename.
+     * Folding here rather than upper-casing the table keeps the names
+     * readable as names. `hazardChirp` says what it is; HAZARDCHIRP is
+     * shouting a filename.
      *
-     * Whole-string, not a prefix: `horn` must not match `hornLong`. The test
-     * asserts it, because a prefix match is a wrong NOISE rather than an error,
-     * and a wrong noise is found by ear months later. */
+     * Whole-string, not a prefix: `horn` must not match `hornLong`. The
+     * test asserts it, because a prefix match is a wrong NOISE rather
+     * than an error, and a wrong noise is found by ear months later.
+     */
+    /**
+     * @brief Compares two names, folding ASCII case and requiring a full
+     * match.
+     *
+     * @param a the first name; nullptr never matches
+     * @param b the second name; nullptr never matches
+     * @return true when a and b are the same name, ignoring letter case
+     */
     inline Bool sameName(const CharSeq a, const CharSeq b)
     {
         if(a == nullptr || b == nullptr)
@@ -103,9 +136,16 @@ namespace bibo::sfx
         return a[i] == '\0' && b[i] == '\0';
     }
 
-    /* By NAME, returning the track, or NONE when there is no such clip. The
-     * caller gets one answer and one test rather than an index it then has to
-     * remember to bounds-check. */
+    /**
+     * @brief Looks up a clip's track number by name.
+     *
+     * The caller gets one answer and one test rather than an index it
+     * then has to remember to bounds-check.
+     *
+     * @param name the clip name to look up; nullptr returns NONE
+     * @return the matching track number, or NONE when there is no such
+     *         clip
+     */
     inline UInt16 track(const CharSeq name)
     {
         if(name == nullptr)
@@ -122,12 +162,17 @@ namespace bibo::sfx
         return NONE;
     }
 
-    /* The other direction, for REPORTING. A status line that says track 2 makes
-     * a person open this file; one that says `clip2` does not.
+    /**
+     * @brief Looks up a clip's name by track number, for REPORTING.
      *
-     * Returns nullptr rather than "?" so a caller can decide how to render an
-     * unnamed track - the console prints the number, and inventing a string
-     * here would push that decision somewhere it cannot be seen. */
+     * The other direction from track(). A status line that says track 2
+     * makes a person open this file; one that says `clip2` does not.
+     *
+     * @param t the track number to look up
+     * @return the matching clip name, or nullptr when no clip names this
+     *         track - returned rather than "?" so a caller can decide
+     *         how to render an unnamed track
+     */
     inline CharSeq nameOf(const UInt16 t)
     {
         for(const auto i : CLIPS)
@@ -140,6 +185,13 @@ namespace bibo::sfx
         return nullptr;
     }
 
+    /**
+     * @brief Looks up what a clip sounds like, in plain English.
+     *
+     * @param name the clip name to look up
+     * @return the matching Clip::means text, or nullptr when no clip has
+     *         this name
+     */
     inline CharSeq means(const CharSeq name)
     {
         for(const auto i : CLIPS)
@@ -152,9 +204,15 @@ namespace bibo::sfx
         return nullptr;
     }
 
-    /* The highest track any clip names. What a caller checks the card's file
-     * count against: if the card holds fewer files than this, at least one name
-     * in the table points at nothing. */
+    /**
+     * @brief The highest track number any clip in CLIPS names.
+     *
+     * What a caller checks the card's file count against: if the card
+     * holds fewer files than this, at least one name in the table points
+     * at nothing.
+     *
+     * @return the highest track number in CLIPS, or 0 if CLIPS is empty
+     */
     inline UInt16 highest(Void)
     {
         UInt16 top = 0;

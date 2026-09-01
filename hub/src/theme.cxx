@@ -710,7 +710,9 @@ namespace ui
         if(lh > 0.001f)
         {
             const Float32 s = (lb * lift) / lh;
-            h.x *= s; h.y *= s; h.z *= s;
+            h.x *= s;
+            h.y *= s;
+            h.z *= s;
         }
 
         return ImVec4(base.x + (h.x - base.x) * k,

@@ -744,7 +744,9 @@ namespace
           ringHead = 0;
           for(Int32 i = 0; i < CLR_BINS; ++i)
           {
-              clr[i] = 0.0f; clrSeen[i] = false; clrMiss[i] = 0;
+              clr[i] = 0.0f;
+              clrSeen[i] = false;
+              clrMiss[i] = 0;
           }
       }
   };
@@ -1649,7 +1651,8 @@ namespace
           // The faint tier only applies while the sensor is on screen and the
           // compass ring is therefore meaningful; once it has been panned or
           // zoomed away, every visible ring is carrying the reading.
-          ImU32 col; Float32 th;
+          ImU32 col;
+          Float32 th;
           if(!g.centered)       { col = ((i % 5) == 0) ? RING_MAJOR : RING_COL;
                                        th  = ((i % 5) == 0) ? 1.3f : 1.0f; }
           else if(i == g.compassI)
@@ -3026,13 +3029,16 @@ namespace
           mx += p[i].x;
           my += p[i].y;
       }
-      mx /= fm; my /= fm;
+      mx /= fm;
+      my /= fm;
 
       Float32 sxx = 0.0f, sxy = 0.0f, syy = 0.0f;
       for(Int32 i = 0; i < m; ++i)
       {
           const Float32 dx = p[i].x - mx, dy = p[i].y - my;
-          sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+          sxx += dx * dx;
+          sxy += dx * dy;
+          syy += dy * dy;
       }
 
       const Float32 th = 0.5f * std::atan2(2.0f * sxy, sxx - syy);
@@ -4408,10 +4414,14 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
             o2.inPath = (o2.cy < 0.0f) && (std::fabs(o2.cx) - ex <= corridorHalfW);
 
             scene3d::Detection d;
-            d.cx = o2.cx; d.cy = o2.cy;
-            d.ux = o2.ux; d.uy = o2.uy;
-            d.halfL = o2.halfL; d.halfW = o2.halfW;
-            d.nearMm = o2.nearMm; d.inPath = o2.inPath;
+            d.cx = o2.cx;
+            d.cy = o2.cy;
+            d.ux = o2.ux;
+            d.uy = o2.uy;
+            d.halfL = o2.halfL;
+            d.halfW = o2.halfW;
+            d.nearMm = o2.nearMm;
+            d.inPath = o2.inPath;
             dets.push_back(d);
         }
     }
@@ -4743,18 +4753,38 @@ Void RadarView::draw(const ImVec2& size)
         // return, the measurement, every label and readout) is mode-blind.
         switch(mode)
         {
-        case MapMode::MAP_MODE_DENSITY:   drawMarksDensity(mc, map); break;
-        case MapMode::MAP_MODE_MOTION:    drawMarksMotion(mc, map, trail); break;
-        case MapMode::MAP_MODE_CLEARANCE: drawMarksClearance(mc, map, trail); break;
-        case MapMode::MAP_MODE_GAPS:      drawMarksGaps(mc, map, trail); break;
-        case MapMode::MAP_MODE_WALLS:     drawMarksWalls(mc, trail); break;
-        case MapMode::MAP_MODE_CORNERS:   drawMarksCorners(mc, trail); break;
-        case MapMode::MAP_MODE_FIT:       drawMarksFit(mc, map, trail); break;
-        case MapMode::MAP_MODE_FULL:      drawMarksFull(mc, map, trail, lastHz); break;
-        case MapMode::MAP_MODE_MINIMAL:   drawMarksMinimal(mc, map, trail); break;
+        case MapMode::MAP_MODE_DENSITY:
+            drawMarksDensity(mc, map);
+            break;
+        case MapMode::MAP_MODE_MOTION:
+            drawMarksMotion(mc, map, trail);
+            break;
+        case MapMode::MAP_MODE_CLEARANCE:
+            drawMarksClearance(mc, map, trail);
+            break;
+        case MapMode::MAP_MODE_GAPS:
+            drawMarksGaps(mc, map, trail);
+            break;
+        case MapMode::MAP_MODE_WALLS:
+            drawMarksWalls(mc, trail);
+            break;
+        case MapMode::MAP_MODE_CORNERS:
+            drawMarksCorners(mc, trail);
+            break;
+        case MapMode::MAP_MODE_FIT:
+            drawMarksFit(mc, map, trail);
+            break;
+        case MapMode::MAP_MODE_FULL:
+            drawMarksFull(mc, map, trail, lastHz);
+            break;
+        case MapMode::MAP_MODE_MINIMAL:
+            drawMarksMinimal(mc, map, trail);
+            break;
         case MapMode::MAP_MODE_POINTS:
         case MapMode::MAP_MODE_COUNT:
-        default:                          drawMarksPoints(mc, trail, showTrail); break;
+        default:
+            drawMarksPoints(mc, trail, showTrail);
+            break;
         }
 
         // ---- nearest return -----------------------------------------------

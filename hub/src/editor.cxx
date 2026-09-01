@@ -70,7 +70,10 @@ namespace ed
           }
           if(c == '\n')
           {
-              lines.push_back(acc); acc.clear(); continue;;
+              lines.push_back(acc);
+              acc.clear();
+              continue;
+              ;
           }
           acc.push_back(c);
       }
@@ -702,7 +705,8 @@ namespace ed
                   {
                       break;
                   }
-                  ++p.line; p.col = 0;
+                  ++p.line;
+                  p.col = 0;
                   continue;
               }
               const Bool startWord = wordChar(s[static_cast<Size>(p.col)]);
@@ -717,7 +721,8 @@ namespace ed
               }
               if(p.col >= len && p.line + 1 < lineCount())
               {
-                  ++p.line; p.col = 0;
+                  ++p.line;
+                  p.col = 0;
               }
           }
           break;
@@ -921,7 +926,8 @@ namespace ed
               if(c == '\n')
               {
                   add.push_back(acc);
-                  acc.clear(); continue;
+                  acc.clear();
+                  continue;
               }
               acc.push_back(c);
           }
@@ -991,12 +997,20 @@ namespace ed
 
       switch(md)
       {
-      case Mode::MODE_INSERT:       applyInsertKey(k);  break;
+      case Mode::MODE_INSERT:
+          applyInsertKey(k);
+          break;
       case Mode::MODE_VISUAL:
-      case Mode::MODE_VISUAL_LINE:  applyVisualKey(k);  break;
-      case Mode::MODE_COMMAND:      applyCommandKey(k); break;
+      case Mode::MODE_VISUAL_LINE:
+          applyVisualKey(k);
+          break;
+      case Mode::MODE_COMMAND:
+          applyCommandKey(k);
+          break;
       case Mode::MODE_NORMAL:
-      default:                      applyNormalKey(k);  break;
+      default:
+          applyNormalKey(k);
+          break;
       }
 
       clampCursor();
@@ -1384,12 +1398,30 @@ namespace ed
       Bool       fwd  = true;
       switch(open)
       {
-      case '(': want = ')'; fwd = true;  break;
-      case '[': want = ']'; fwd = true;  break;
-      case '{': want = '}'; fwd = true;  break;
-      case ')': want = '('; fwd = false; break;
-      case ']': want = '['; fwd = false; break;
-      case '}': want = '{'; fwd = false; break;
+      case '(':
+          want = ')';
+          fwd = true;
+          break;
+      case '[':
+          want = ']';
+          fwd = true;
+          break;
+      case '{':
+          want = '}';
+          fwd = true;
+          break;
+      case ')':
+          want = '(';
+          fwd = false;
+          break;
+      case ']':
+          want = '[';
+          fwd = false;
+          break;
+      case '}':
+          want = '{';
+          fwd = false;
+          break;
       default: return false;
       }
 
@@ -1505,10 +1537,22 @@ namespace ed
       Char closeCh = 0;
       switch(obj)
       {
-      case '(': case ')': case 'b': openCh = '('; closeCh = ')'; break;
-      case '[': case ']':           openCh = '['; closeCh = ']'; break;
-      case '{': case '}': case 'B': openCh = '{'; closeCh = '}'; break;
-      case '<': case '>':           openCh = '<'; closeCh = '>'; break;
+      case '(':
+          case ')': case 'b': openCh = '(';
+          closeCh = ')';
+          break;
+      case '[':
+          case ']':           openCh = '[';
+          closeCh = ']';
+          break;
+      case '{':
+          case '}': case 'B': openCh = '{';
+          closeCh = '}';
+          break;
+      case '<':
+          case '>':           openCh = '<';
+          closeCh = '>';
+          break;
       default: break;
       }
 
@@ -2252,11 +2296,20 @@ namespace ed
       // ---- everything else -----------------------------------------------------
       switch(c)
       {
-      case 'i': setMode(Mode::MODE_INSERT); break;
-      case 'a': setMode(Mode::MODE_INSERT); ++cur.col; break;
-      case 'I': setMode(Mode::MODE_INSERT); cur.col = indentOf(cur.line); break;
+      case 'i':
+          setMode(Mode::MODE_INSERT);
+          break;
+      case 'a':
+          setMode(Mode::MODE_INSERT);
+          ++cur.col;
+          break;
+      case 'I':
+          setMode(Mode::MODE_INSERT);
+          cur.col = indentOf(cur.line);
+          break;
       case 'A': setMode(Mode::MODE_INSERT);
-                cur.col = static_cast<Int32>(line(cur.line).size()); break;
+                cur.col = static_cast<Int32>(line(cur.line).size());
+                break;
 
       case 'o':
       {
@@ -2367,12 +2420,24 @@ namespace ed
           }
           break;
 
-      case 'p': put(false); break;
-      case 'P': put(true);  break;
-      case 'u': undo();     break;
+      case 'p':
+          put(false);
+          break;
+      case 'P':
+          put(true);
+          break;
+      case 'u':
+          undo();
+          break;
 
-      case 'v': visAnchor = cur; setMode(Mode::MODE_VISUAL);      break;
-      case 'V': visAnchor = cur; setMode(Mode::MODE_VISUAL_LINE); break;
+      case 'v':
+          visAnchor = cur;
+          setMode(Mode::MODE_VISUAL);
+          break;
+      case 'V':
+          visAnchor = cur;
+          setMode(Mode::MODE_VISUAL_LINE);
+          break;
 
       // ---- search ----------------------------------------------------------
       case '/':
@@ -2443,10 +2508,18 @@ namespace ed
           {
               switch(cmd)
               {
-              case 'f': cmd = 'F'; break;
-              case 'F': cmd = 'f'; break;
-              case 't': cmd = 'T'; break;
-              case 'T': cmd = 't'; break;
+              case 'f':
+                  cmd = 'F';
+                  break;
+              case 'F':
+                  cmd = 'f';
+                  break;
+              case 't':
+                  cmd = 'T';
+                  break;
+              case 'T':
+                  cmd = 't';
+                  break;
               default: break;
               }
           }

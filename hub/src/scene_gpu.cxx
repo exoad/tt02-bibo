@@ -239,7 +239,10 @@ namespace scenegpu
          || FAILED(dev->CreatePixelShader(psBlob->GetBufferPointer(),
                                           psBlob->GetBufferSize(), nullptr, &ps)))
       {
-          release(vsBlob); release(psBlob); shutdown(); return;
+          release(vsBlob);
+          release(psBlob);
+          shutdown();
+          return;
       }
 
       constexpr D3D11_INPUT_ELEMENT_DESC elems[] = {
@@ -250,7 +253,10 @@ namespace scenegpu
       if(FAILED(dev->CreateInputLayout(elems, 3, vsBlob->GetBufferPointer(),
                                        vsBlob->GetBufferSize(), &layout)))
       {
-          release(vsBlob); release(psBlob); shutdown(); return;
+          release(vsBlob);
+          release(psBlob);
+          shutdown();
+          return;
       }
       release(vsBlob);
       release(psBlob);
@@ -398,7 +404,9 @@ namespace scenegpu
           return;
       }
       Tri t;
-      t.v[0] = a; t.v[1] = b; t.v[2] = c;
+      t.v[0] = a;
+      t.v[1] = b;
+      t.v[2] = c;
       t.tex  = tex;
       opaqueTris.push_back(t);
   }
@@ -410,7 +418,9 @@ namespace scenegpu
           return;
       }
       Tri t;
-      t.v[0] = a; t.v[1] = b; t.v[2] = c;
+      t.v[0] = a;
+      t.v[1] = b;
+      t.v[2] = c;
       t.tex  = tex;
       blendedTris.push_back(t);
   }

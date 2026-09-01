@@ -2959,8 +2959,10 @@ namespace
       va_end(ap);
 
       ImGui::TableNextRow();
-      ImGui::TableNextColumn(); ImGui::TextDisabled("%s", k);
-      ImGui::TableNextColumn(); ImGui::TextUnformatted(buf.data());
+      ImGui::TableNextColumn();
+      ImGui::TextDisabled("%s", k);
+      ImGui::TableNextColumn();
+      ImGui::TextUnformatted(buf.data());
   }
 
   Void colored(ImU32 col, const Char* fmt, ...)
@@ -3848,9 +3850,12 @@ namespace
       if(ImGui::BeginTable("stats", 3, ImGuiTableFlags_SizingStretchSame))
       {
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); statCell(hz.data(),     "Hz");
-          ImGui::TableNextColumn(); statCell(pts.data(),    "pts/rev");
-          ImGui::TableNextColumn(); statCell(valid.data(),  "in-spec");
+          ImGui::TableNextColumn();
+          statCell(hz.data(),     "Hz");
+          ImGui::TableNextColumn();
+          statCell(pts.data(),    "pts/rev");
+          ImGui::TableNextColumn();
+          statCell(valid.data(),  "in-spec");
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
@@ -3868,9 +3873,12 @@ namespace
           }
 
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); statCell(nearS.data(), "near (m)");
-          ImGui::TableNextColumn(); statCell(meanS.data(), "mean (m)");
-          ImGui::TableNextColumn(); statCell(maxS.data(),  "max (m)");
+          ImGui::TableNextColumn();
+          statCell(nearS.data(), "near (m)");
+          ImGui::TableNextColumn();
+          statCell(meanS.data(), "mean (m)");
+          ImGui::TableNextColumn();
+          statCell(maxS.data(),  "max (m)");
           ImGui::EndTable();
       }
 
@@ -4006,7 +4014,8 @@ namespace
            // the datasheet states TOF and a fusion algorithm and goes no finer.
            // That is a value, not a lecture.
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); ImGui::TextDisabled("Pre-heat");
+          ImGui::TableNextColumn();
+          ImGui::TextDisabled("Pre-heat");
           ImGui::TableNextColumn();
           if(st.uptimeS <= 0.0)
           {
@@ -4167,9 +4176,12 @@ namespace
       ImGui::TextUnformatted("|");
       ImGui::SameLine();
 
-      ui::checkbox("Grid", &radarView.showGrid);          ImGui::SameLine();
-      ui::checkbox("Trail", &radarView.showTrail);        ImGui::SameLine();
-      ui::checkbox("Labels", &radarView.showLabels);      ImGui::SameLine();
+      ui::checkbox("Grid", &radarView.showGrid);
+      ImGui::SameLine();
+      ui::checkbox("Trail", &radarView.showTrail);
+      ImGui::SameLine();
+      ui::checkbox("Labels", &radarView.showLabels);
+      ImGui::SameLine();
       ui::checkbox("Nearest", &radarView.showNearest);
 
       ImGui::SameLine();
@@ -4632,7 +4644,9 @@ namespace
       if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear"))
       {
           recording.clear();
-          recIndex = 0; recPlayS = 0.0; recPlaying = false;
+          recIndex = 0;
+          recPlayS = 0.0;
+          recPlaying = false;
           recStatus.clear();
       }
       ImGui::SameLine();
@@ -4696,7 +4710,9 @@ namespace
           const Str path = rec::dir() + "\\" + recFiles[static_cast<Size>(recFileIndex)];
           if(recording.load(path, err))
           {
-              recIndex = 0; recPlayS = 0.0; recPlaying = false;
+              recIndex = 0;
+              recPlayS = 0.0;
+              recPlaying = false;
               recPendingSeek = true;
               recView.clear();
               // A partial load still reports its error - "kept what was readable"
@@ -9115,8 +9131,10 @@ namespace
       if(ImGui::BeginTable("picostat", 2, ImGuiTableFlags_SizingStretchProp))
       {
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); ImGui::TextDisabled("State");
-          ImGui::TableNextColumn(); colored(picoStateColor(st), "%s", picoStateText(st));
+          ImGui::TableNextColumn();
+          ImGui::TextDisabled("State");
+          ImGui::TableNextColumn();
+          colored(picoStateColor(st), "%s", picoStateText(st));
 
           const Str p = picoLink.port();
           keyValue("Port",    "%s",   p.empty() ? "--" : p.c_str());
@@ -9131,7 +9149,8 @@ namespace
           picoAgeText(ageS.data(), ageS.size(), age);
 
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); ImGui::TextDisabled("Last line");
+          ImGui::TableNextColumn();
+          ImGui::TextDisabled("Last line");
           ImGui::TableNextColumn();
           colored((age >= 0.0 && age < 2.0) ? ui::sem::GOOD
                   : (live ? ui::sem::WARN : ui::sem::MUTED), "%s", ageS.data());
@@ -9236,8 +9255,10 @@ namespace
                             ImVec2(tableW, 0.0f)))
       {
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); statCell(servo.data(), "servo GP0  us");
-          ImGui::TableNextColumn(); statCell(esc.data(),   "ESC GP1  us");
+          ImGui::TableNextColumn();
+          statCell(servo.data(), "servo GP0  us");
+          ImGui::TableNextColumn();
+          statCell(esc.data(),   "ESC GP1  us");
           ImGui::EndTable();
       }
 
@@ -9253,7 +9274,8 @@ namespace
           keyValue("Program", "%s", brd.program.empty() ? "--" : brd.program.c_str());
 
           ImGui::TableNextRow();
-          ImGui::TableNextColumn(); ImGui::TextDisabled("? reply");
+          ImGui::TableNextColumn();
+          ImGui::TextDisabled("? reply");
           ImGui::TableNextColumn();
           if(vehicleStatus.have)
           {

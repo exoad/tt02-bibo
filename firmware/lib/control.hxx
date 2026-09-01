@@ -28,9 +28,11 @@
 namespace bibo::control
 {
 
-    /* ---- feedforward ------------------------------------------------------
-     *
-     * output = gainS*sign(v) + gainV*v + gainA*a
+    /* ---- feedforward -------------------------------------------------------- */
+
+    /**
+     * @brief The three feedforward gains: output = gainS*sign(v) + gainV*v +
+     *        gainA*a.
      *
      * Named gainS/gainV/gainA rather than the literature's kS/kV/kA, which the
      * style rule reserves for SCREAMING_SNAKE constants. Same three terms.
@@ -47,9 +49,11 @@ namespace bibo::control
      *          safe at zero until the rest is tuned - it matters when a target
      *          CHANGES quickly rather than when it is held.
      *
-     * All three are in the caller's output units. For this car that is
-     * MICROSECONDS ABOVE IDLE, not raw pulse - see chassis.hxx, where idle is
-     * a measured property of this ESC and motor rather than 1500. */
+     * @note All three are in the caller's output units. For this car that is
+     *       MICROSECONDS ABOVE IDLE, not raw pulse - see chassis.hxx, where
+     *       idle is a measured property of this ESC and motor rather than
+     *       1500.
+     */
     struct Feedforward
     {
         Float32 gainS = 0.0f;
@@ -57,16 +61,27 @@ namespace bibo::control
         Float32 gainA = 0.0f;
     };
 
-    /* THE SIGN OF gainS IS THE TARGET'S, AND ZERO MEANS ZERO.
+    /**
+     * @brief Predicts the output needed to hold a target speed and
+     *        acceleration, before any correction is added.
      *
-     * The static term at a target of zero is a car that creeps - asking for the
-     * pulse that just barely moves it while being told to stand still.
-     * That is not a tuning mistake anybody would spot in a log; it is a car
-     * that will not hold still on a bench and looks like a calibration fault.
+     * @param f the gains to predict with; does nothing (returns 0.0) when
+     *          null
+     * @param vTarget the target speed, metres per second; its SIGN, not its
+     *                measured value, decides which way gainS is applied
+     * @param aTarget the target acceleration, metres per second squared
+     * @return the predicted output, in the caller's units (see Feedforward)
      *
-     * So the static term is gated on the target being non-zero, not on the
-     * MEASUREMENT being non-zero - gating on measurement would mean a stopped
-     * car could never start. */
+     * @note THE SIGN OF gainS IS THE TARGET'S, AND ZERO MEANS ZERO. The
+     *       static term at a target of zero is a car that creeps - asking
+     *       for the pulse that just barely moves it while being told to
+     *       stand still. That is not a tuning mistake anybody would spot in
+     *       a log; it is a car that will not hold still on a bench and
+     *       looks like a calibration fault. So the static term is gated on
+     *       the target being non-zero, not on the MEASUREMENT being
+     *       non-zero - gating on measurement would mean a stopped car could
+     *       never start.
+     */
     inline Float32 predict(const Feedforward* f, const Float32 vTarget, const Float32 aTarget)
     {
         if(f == nullptr)
@@ -88,10 +103,14 @@ namespace bibo::control
         return out;
     }
 
-    /* ---- PID --------------------------------------------------------------
+    /* ---- PID ------------------------------------------------------------- */
+
+    /**
+     * @brief One PID's gains, output limits, and running state.
      *
      * Correcting what the model got wrong, which is a much smaller job than
-     * producing the output. */
+     * producing the output.
+     */
     struct Pid
     {
         Float32 kp = 0.0f;
@@ -102,10 +121,11 @@ namespace bibo::control
          * thing whatever ki is. A limit expressed in error-seconds changes
          * meaning every time the gain is retuned, which is how an anti-windup
          * clamp quietly stops clamping. */
-        Float32 iMax = 0.0f;
+        Float32 iMax = 0.0f;   /* output units; 0 disables the clamp */
 
-        Float32 outMin = 0.0f;
-        Float32 outMax = 0.0f;
+        Float32 outMin = 0.0f; /* output units */
+        Float32 outMax = 0.0f; /* output units; outMax <= outMin disables
+                                 * output clamping                        */
 
         /* ---- state ---- */
         Float32 integral  = 0.0f;
@@ -113,6 +133,12 @@ namespace bibo::control
         Bool    primed    = false;
     };
 
+    /**
+     * @brief Clears a Pid's running state, without touching its gains or
+     *        limits.
+     *
+     * @param p the controller to reset; does nothing when null
+     */
     inline Void reset(Pid* p)
     {
         if(p == nullptr)
@@ -124,7 +150,8 @@ namespace bibo::control
         p->primed   = false;
     }
 
-    /* One step. `dtS` is seconds since the last call.
+    /**
+     * @brief One PID step.
      *
      * THREE THINGS THIS DOES THAT A TEXTBOOK PID DOES NOT, each because the
      * textbook version misbehaves on a real vehicle:
@@ -144,7 +171,21 @@ namespace bibo::control
      * Without that, a target the car cannot reach - a wheel against a kerb -
      * winds the integral up for as long as it is held, and the car leaps when
      * it comes free. Clamping alone does not fix that; it only bounds how long
-     * the leap lasts. */
+     * the leap lasts.
+     *
+     * @param p the controller to step; returns 0.0 when null
+     * @param setpoint the target value, in the measurement's units
+     * @param measured the current measured value, same units as setpoint
+     * @param dtS seconds since the last call to step() for this controller;
+     *            must be positive
+     * @return the controller's output, in the caller's output units,
+     *         clamped to [outMin, outMax] when outMax > outMin
+     *
+     * @note A zero or negative dtS is a caller bug or a clock that wrapped.
+     *       The proportional term alone is returned in that case: it uses no
+     *       history, so it cannot be corrupted by a bad dt, and it does not
+     *       silently freeze the loop.
+     */
     inline Float32 step(Pid* p, const Float32 setpoint, const Float32 measured, const Float32 dtS)
     {
         if(p == nullptr)
@@ -152,10 +193,6 @@ namespace bibo::control
             return 0.0f;
         }
 
-        /* A zero or negative timestep is a caller bug or a clock that wrapped.
-         * Returning the proportional term alone is the safe answer: it uses no
-         * history, so it cannot be corrupted by a bad dt, and it does not
-         * silently freeze the loop. */
         const Float32 error = setpoint - measured;
 
         if(dtS <= 0.0f)
@@ -217,19 +254,33 @@ namespace bibo::control
         return out;
     }
 
-    /* What the caller WANTS, as one value. Speed and acceleration are a single
-     * demand - they are always set together and always mean the same instant -
-     * and passing them separately made a six-argument signature out of four
-     * things. */
+    /**
+     * @brief What the caller WANTS, as one value.
+     *
+     * Speed and acceleration are a single demand - they are always set
+     * together and always mean the same instant - and passing them
+     * separately made a six-argument signature out of four things.
+     */
     struct Demand
     {
         Float32 v = 0.0f;   /* metres per second        */
         Float32 a = 0.0f;   /* metres per second squared */
     };
 
-    /* Feedforward plus correction, which is the arrangement the whole file is
-     * arguing for. Kept as one call so the ORDER cannot be got wrong at a call
-     * site - the model first, the correction on top of it. */
+    /**
+     * @brief Feedforward plus correction: the full command for one step.
+     *
+     * Kept as one call so the ORDER cannot be got wrong at a call site - the
+     * model first, the correction on top of it.
+     *
+     * @param f the feedforward gains; see predict()
+     * @param p the PID state to correct with and update; see step()
+     * @param d the demand: target speed (m/s) and acceleration (m/s^2)
+     * @param v the current measured speed, metres per second
+     * @param dt seconds since the last call to command() for this `p`
+     * @return the output to send to the actuator, in the caller's output
+     *         units - predict()'s result plus step()'s correction
+     */
     inline Float32 command(const Feedforward* f, Pid* p, const Demand d, const Float32 v, const Float32 dt)
     {
         return predict(f, d.v, d.a) + step(p, d.v, v, dt);

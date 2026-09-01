@@ -38,11 +38,13 @@ namespace
       if(!ok)
       {
           ++failures;
-          std::printf("  FAIL  %s\n", what);;
+          std::printf("  FAIL  %s\n", what);
+          ;
       }
       else
       {
-          std::printf("  ok    %s\n", what);;
+          std::printf("  ok    %s\n", what);
+          ;
       }
   }
 
