@@ -55,7 +55,7 @@ jobs:
             firmware/lib firmware/app shared lidar/bridge \
             2>&1 | tee cppcheck.log
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cppcheck-report
@@ -99,7 +99,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: clang-tidy-report
