@@ -1,9 +1,6 @@
 @echo off
 REM Builds and (with "run") executes the LidarSource hardware test.
-REM
-REM   tests\build_test.bat        - compile only
-REM   tests\build_test.bat run    - compile then run against COM7 @ 460800
-REM
+REM   tests\build_test.bat [run]   - compile, optionally run against COM7 @ 460800
 REM The \\.\ device prefix is applied inside LidarSource, so only the bare port
 REM name is passed here - which also keeps Git Bash from mangling backslashes.
 
@@ -25,8 +22,8 @@ if errorlevel 1 (
 
 if not exist "%HERE%build" mkdir "%HERE%build"
 
-REM /MT matches the MultiThreaded static CRT the prebuilt driver lib was
-REM compiled with; anything else fails at link time with CRT conflicts.
+REM /MT matches the prebuilt driver lib's static CRT; anything else fails at
+REM link time with CRT conflicts.
 cl /nologo /EHsc /O2 /MT /W3 /std:c++20 ^
   /I"%HERE%..\..\shared" ^
   /I "%ROOT%\vendor\rplidar_sdk\sdk\include" ^
@@ -44,13 +41,9 @@ if errorlevel 1 (
 
 echo [test] built -^> %HERE%build\test_lidar_source.exe
 
-REM An EARLY RETURN, not an if-block, and the reason is a cmd.exe
-REM parsing rule that cost every one of these scripts its exit code:
-REM `exit /b %errorlevel%` inside `if ... ( ... )` is expanded when
-REM cmd parses the BLOCK, which is before the test has run. All 11
-REM scripts exited 0 while printing OVERALL: FAIL, so not one of them
-REM could ever have gated a commit. Out here the expansion happens
-REM when the line is reached.
+REM An EARLY RETURN, not an if-block: `exit /b %errorlevel%` inside
+REM `if ... ( ... )` expands when cmd PARSES the block, before the test has run.
+REM All 11 scripts once exited 0 while printing OVERALL: FAIL.
 if /i not "%~1"=="run" exit /b 0
 echo.
 "%HERE%build\test_lidar_source.exe" %PORT% %BAUD%

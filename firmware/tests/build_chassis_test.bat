@@ -1,13 +1,8 @@
 @echo off
 REM Builds and (with "run") executes the chassis safety test on the HOST.
-REM
-REM   tests\build_chassis_test.bat        - compile only
-REM   tests\build_chassis_test.bat run    - compile then run
-REM
-REM No board involved. BIBO_FAKE_HAL swaps hal.hxx's SDK half for
-REM tests/fakes/hal.hxx, which records what would have reached the pins - so
-REM the assertions are about the servo and the ESC rather than about what the
-REM module says it did.
+REM   tests\build_chassis_test.bat [run]   - compile, optionally run
+REM No board involved: BIBO_FAKE_HAL swaps hal.hxx's SDK half for
+REM tests/fakes/hal.hxx, which records what would have reached the pins.
 
 setlocal
 set HERE=%~dp0
@@ -37,8 +32,7 @@ echo [test] built -^> %HERE%build\test_chassis.exe
 
 REM An EARLY RETURN, not an if-block: `exit /b %errorlevel%` inside
 REM `if ... ( ... )` expands when cmd PARSES the block, before the test has
-REM run, which is how all eleven of these scripts used to exit 0 while
-REM printing OVERALL: FAIL.
+REM run - which is how these scripts used to exit 0 printing OVERALL: FAIL.
 if /i not "%~1"=="run" exit /b 0
 echo.
 "%HERE%build\test_chassis.exe"

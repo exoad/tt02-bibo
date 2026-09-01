@@ -18,24 +18,20 @@ namespace lsp
   namespace
   {
 
-    // Where clangd usually is on this machine, in the order worth trying.
-    //
-    // The PATH lookup is second, not first: a PATH clangd could be any version
-    // and any bitness, whereas the LLVM installer's path is the one that came
-    // with the toolchain the firmware is actually built with.
+    // Tried before the PATH lookup: a PATH clangd could be any version or
+    // bitness, where the LLVM installer's came with the firmware's toolchain.
     constexpr const Char* const CLANGD_PATHS[] = {
         "C:\\Program Files\\LLVM\\bin\\clangd.exe",
         "C:\\Program Files (x86)\\LLVM\\bin\\clangd.exe",
     };
 
-    // More than the popup shows, on purpose. The popup displays ten and scrolls;
-    // holding a few hundred means the local filter below has something to filter
-    // as the user keeps typing, instead of an empty list and a round trip.
+    // More than the popup's ten, so the local filter has something to filter as
+    // the user keeps typing rather than needing a round trip.
     constexpr Size MAX_ITEMS = 400;
 
-    // How long after the file's first diagnostics before the first question is
-    // worth asking. See Impl::parsedAtMs - 500 ms was where the answer went
-    // from 5 items to 20 on this machine, and this is that with margin.
+    // How long after the file's first diagnostics a question is worth asking. See
+    // Impl::parsedAtMs - 500 ms was where the answer went from 5 items to 20 on
+    // this machine; this is that with margin.
     constexpr UInt64 SETTLE_MS = 750;
 
     // ------------------------------------------------------------- plumbing ---
@@ -55,12 +51,9 @@ namespace lsp
         h = nullptr;
     }
 
-    // file:///C%3A/Users/... - the spelling clangd's own logs use.
-    //
-    // The colon after the drive letter MUST be escaped. clangd tolerates the
-    // unescaped form for didOpen and then hands back completion items keyed to
-    // the escaped one, and the mismatch shows up as a document that is open and
-    // has no completions - which reads exactly like a parse failure.
+    // file:///C%3A/Users/... - the spelling clangd's own logs use. The drive
+    // letter's colon MUST be escaped: clangd accepts the unescaped form for
+    // didOpen, then keys its items to the escaped one.
     Str toUri(const Str& path)
     {
         Str out = "file:///";
@@ -86,16 +79,10 @@ namespace lsp
         return out;
     }
 
-    // Whether two URIs name the same file.
-    //
-    // NOT strcmp, and this is not theoretical. We send
-    // `file:///C%3A/Users/...` because that is the form clangd's own logs use,
-    // and clangd sends `file:///C:/Users/...` back in its notifications. Both
-    // are the same file and the same server; only the escaping of one colon
-    // differs. Comparing them literally means the "the AST is ready" signal
-    // never matches the document it is about, and the completion popup stays
-    // permanently on its fallback - working, plausible, and never once asking
-    // the language server.
+    // Whether two URIs name the same file. NOT strcmp: we send
+    // `file:///C%3A/Users/...` and clangd sends `file:///C:/Users/...` back.
+    // Comparing literally means the "AST is ready" signal never matches its
+    // document, and the popup stays permanently on its fallback.
     Bool sameUri(const Str& a, const Str& b)
     {
         Size i = 0;
@@ -118,8 +105,8 @@ namespace lsp
                 j += 2;
             }
 
-            // Case-insensitively, because Windows paths are and clangd may hand
-            // back a different capitalisation of the drive than we sent.
+            // Case-insensitive: clangd may hand back a different capitalisation of
+            // the drive than we sent.
             if(std::tolower(static_cast<UInt8>(x)) != std::tolower(static_cast<UInt8>(y)))
             {
                 return false;
@@ -130,11 +117,8 @@ namespace lsp
         return i == a.size() && j == b.size();
     }
 
-    // LSP CompletionItemKind -> the popup's four-and-two.
-    //
-    // The mapping is lossy and deliberately so: the protocol has 25 kinds and a
-    // popup that shows 25 different two-letter tags is a popup nobody reads.
-    // What matters to somebody typing is "is this a call, a name, or a field".
+    // LSP CompletionItemKind -> the popup's six. Deliberately lossy: the protocol
+    // has 25 kinds, and 25 two-letter tags is a popup nobody reads.
     cmpl::Kind kindOf(Int32 lspKind)
     {
         switch(lspKind)
@@ -172,18 +156,10 @@ namespace lsp
         }
     }
 
-    // What to actually type when an item is accepted.
-    //
-    // clangd's `label` is for HUMANS: it carries a leading decoration character
-    // (a bullet, not ASCII) and often a trailing signature, and inserting it
-    // verbatim puts a bullet in the source. `filterText` is the plain
-    // identifier and is what belongs in the buffer.
-    //
-    // insertText is ignored on purpose. With snippet support declared off,
-    // clangd sends it as plain text, but it still includes the parenthesis for
-    // a function - and a completion that types the `(` for you is a completion
-    // that fights you every time you wanted the function's address or a
-    // designated initializer's name.
+    // What to actually type when an item is accepted. clangd's `label` is for
+    // HUMANS - a leading non-ASCII decoration character and often a signature - so
+    // `filterText`, the plain identifier, is what belongs in the buffer.
+    // insertText is ignored: even with snippets off it includes a function's `(`.
     Str insertionFor(const js::Value& item)
     {
         const Str filter = item.at("filterText").string();
@@ -192,8 +168,8 @@ namespace lsp
             return filter;
         }
 
-        // No filterText: strip the decoration off the label by hand. Everything
-        // before the first identifier character is ornament.
+        // No filterText: everything before the first identifier character is
+        // ornament.
         const Str label = item.at("label").string();
         Size      begin = 0;
         while(begin < label.size())
@@ -223,11 +199,8 @@ namespace lsp
         return label.substr(begin, end - begin);
     }
 
-    // The first line of the documentation, and only the first.
-    //
-    // A doc comment on a firmware header can be forty lines - pins.hxx's are -
-    // and the popup has one row for it. The first line of a well-written
-    // comment is the summary, which is the only part that fits anyway.
+    // The first line of the documentation, and only the first: the popup has one
+    // row for it, and a firmware header's doc comment can be forty lines.
     Str firstLine(const js::Value& doc)
     {
         Str text = doc.string();
@@ -274,30 +247,15 @@ namespace lsp
         Atomic<Int64>  inFlight{-1};    // request id, or -1
         Atomic<UInt64> nextId{2};       // 1 is initialize
 
-        // Whether clangd has finished building an AST for the open document.
-        //
-        // THIS IS NOT PEDANTRY, it is the difference between the feature working
-        // and the feature being noise. Asked before the preamble is built,
-        // clangd answers anyway - from an identifier index, not the AST - and
-        // `dfplayer::` comes back with `printf`, `define` and `serial` in it.
-        // Fifty-seven plausible wrong answers rather than twenty right ones, and
-        // nothing in the reply says which kind it is.
-        //
-        // The signal is publishDiagnostics for our URI, which clangd sends when
-        // the AST is done and sends even when there is nothing to report.
+        // Whether clangd has finished building an AST. Asked before the preamble
+        // exists it answers ANYWAY, from an identifier index, and nothing in the
+        // reply says so. The signal is publishDiagnostics for our URI, which clangd
+        // sends when the AST is done even with nothing to report.
         Atomic<Bool> parsed{false};
 
-        // When that happened, because being parsed is not quite being ready.
-        //
-        // MEASURED, not guessed. Asking at the instant the diagnostics arrive
-        // gives 5 items for `dfplayer::`; a quarter of a second later, still 5;
-        // half a second later, all 20. The AST is built by the time diagnostics
-        // are published but the preamble index is not, and clangd answers from
-        // what it has rather than waiting or saying so.
-        //
-        // So the first question waits out the gap. Nothing is lost by it: the
-        // hand-written table answers during those few hundred milliseconds, and
-        // they are spent on the keystrokes right after a file is opened.
+        // When that happened - parsed is not quite ready. MEASURED: asking as the
+        // diagnostics arrive gives 5 items for `dfplayer::`, half a second later
+        // all 20. The AST is built by publish time; the preamble index is not.
         Atomic<UInt64> parsedAtMs{0};
 
         mutable Mutex uriMu;    // openUri is written by ask(), read by the reader
@@ -307,9 +265,8 @@ namespace lsp
         Answer answer;                  // serial 0 until the first reply
         Bool   answerFresh = false;
 
-        // clangd's diagnostics for the open file. Replaced wholesale on every
-        // publish, because clangd sends the complete set each time and an empty
-        // array means "clean now" rather than "nothing to say".
+        // Replaced wholesale on every publish: clangd sends the complete set each
+        // time, and an empty array means "clean now", not "nothing to say".
         Mutex           diagMu;
         Vec<diag::Item> diags;
         Bool            diagsFresh = false;
@@ -334,8 +291,7 @@ namespace lsp
             say(buf.data());
         }
 
-        // Queues one JSON-RPC message. The framing is added here so no caller
-        // has to remember it.
+        // Queues one JSON-RPC message; the framing is added here.
         Void send(const Str& body)
         {
             Array<Char, 64> head;
@@ -381,10 +337,8 @@ namespace lsp
                 s.outbox.pop_front();
             }
 
-            // A partial write is possible on a pipe and is not an error; loop
-            // until the whole frame is out or the pipe dies. Half a frame is
-            // worse than none: clangd would then read the next message's bytes
-            // as this one's body and never resynchronise.
+            // A partial write on a pipe is not an error, and half a frame leaves
+            // clangd permanently desynchronised - so loop until it is all out.
             Size written = 0;
             while(written < msg.size())
             {
@@ -418,12 +372,9 @@ namespace lsp
         return true;
     }
 
-    // One header line, up to and including the \r\n, which is discarded.
-    //
-    // Byte at a time, which looks wasteful and is not: header lines are short,
-    // and the alternative is buffering ahead of the body and then having to
-    // hand the leftovers to readExact. That bookkeeping is where framing bugs
-    // live.
+    // One header line, up to and including the \r\n, which is discarded. Byte at a
+    // time on purpose: the alternative buffers ahead of the body and has to hand
+    // the leftovers to readExact, which is where framing bugs live.
     Bool readLine(HANDLE h, Str& out)
     {
         out.clear();
@@ -479,8 +430,7 @@ namespace lsp
                     break;             // end of headers
                 }
 
-                // Case-insensitive: the spec says the header name is fixed, but
-                // reading it strictly is free and misreading it is silent.
+                // Case-insensitive: misreading the header name fails silently.
                 if(line.size() > 15 && _strnicmp(line.c_str(), "Content-Length:", 15) == 0)
                 {
                     length = static_cast<Size>(std::strtoull(line.c_str() + 15,
@@ -491,8 +441,7 @@ namespace lsp
 
             if(!sawLen || length == 0 || length > (64u * 1024u * 1024u))
             {
-                // No length, or an absurd one. Cannot resynchronise a stream
-                // whose framing is wrong, so stop rather than read garbage.
+                // A stream whose framing is wrong cannot be resynchronised.
                 s.running.store(false);
                 s.st.store(State::STATE_FAILED);
                 s.sayf("clangd: bad frame header (length %llu)",
@@ -512,15 +461,9 @@ namespace lsp
                 return;
             }
 
-            // Every frame clangd sends, to a file, when BIBO_LSP_DUMP is set.
-            //
-            // Kept because it is what settled the one bug this file had that
-            // could not be reasoned about: the popup was showing 5 completions
-            // where a Python probe of the same server got 20, and the only way
-            // to know whether the client was dropping items or the server was
-            // sending five was to look at the bytes. It was sending five.
-            //
-            // Off unless asked for, and writes only into the working directory.
+            // Every frame clangd sends, dumped to lspdump_NNN.json when
+            // BIBO_LSP_DUMP is set - the only way to tell a client dropping items
+            // from a server sending fewer.
             if(std::getenv("BIBO_LSP_DUMP") != nullptr)
             {
                 static Int32 nth = 0;
@@ -540,9 +483,8 @@ namespace lsp
             js::Value msg     = js::parse(body, ok, stopped);
             if(!ok)
             {
-                // Report it and carry on: one unreadable message is not a
-                // reason to lose the session, and the framing is still sound
-                // because the length told us exactly where it ended.
+                // Carry on: the framing is still sound, because the length told us
+                // exactly where the message ended.
                 s.sayf("clangd: unreadable reply at byte %llu",
                        static_cast<unsigned long long>(stopped));
                 continue;
@@ -556,9 +498,8 @@ namespace lsp
     {
         Impl& s = impl();
 
-        // A request FROM clangd - it has both an id and a method. Answer it,
-        // even with null: clangd blocks waiting for a reply to one it sent, and
-        // a server waiting on us looks exactly like a server that is slow.
+        // A request FROM clangd - both an id and a method. Answer it, even with
+        // null: clangd BLOCKS waiting for the reply.
         if(!msg.at("method").isNull() && !msg.at("id").isNull())
         {
             Array<Char, 96> buf;
@@ -572,9 +513,7 @@ namespace lsp
         // A notification: diagnostics, logs, progress.
         if(msg.at("id").isNull())
         {
-            // The one that matters. Not for the diagnostics themselves - the
-            // build's are better and diagnostics.cxx already has them - but
-            // because its arrival is clangd saying the AST is ready, which is
+            // The one that matters - its ARRIVAL is clangd saying the AST is ready,
             // the earliest moment a completion is worth asking for.
             if(msg.at("method").string() == "textDocument/publishDiagnostics")
             {
@@ -593,8 +532,7 @@ namespace lsp
                         s.parsed.store(true);
                     }
 
-                    // The payload, which used to be dropped on the floor. Every
-                    // parse error clangd found, and every clang-tidy check a
+                    // Every parse error clangd found, and every clang-tidy check a
                     // .clangd turned on, arrives here and nowhere else.
                     const js::Value& arr = msg.at("params").at("diagnostics");
                     Vec<diag::Item>  got;
@@ -606,11 +544,8 @@ namespace lsp
                         diag::Item it;
                         it.file = minePath;
 
-                        // LSP counts lines and characters from ZERO; every
-                        // compiler this project talks to counts from one, and
-                        // diag::Item is documented as holding what a compiler
-                        // said. Off by one here puts the underline on the line
-                        // above the mistake, which is worse than no underline.
+                        // LSP counts lines and characters from ZERO; diag::Item
+                        // holds what a compiler said, and those count from one.
                         it.line   = d.at("range").at("start").at("line").integer(0) + 1;
                         it.column = d.at("range").at("start").at("character").integer(0) + 1;
 
@@ -623,11 +558,8 @@ namespace lsp
 
                         it.message = d.at("message").string();
 
-                        // Which check fired, appended the way clang-tidy itself
-                        // prints it. Without this a tidy finding is
-                        // indistinguishable from a compiler warning, and the
-                        // two are fixed differently - one is a mistake, the
-                        // other is a house rule with a name you can look up.
+                        // Which check fired, the way clang-tidy prints it - without
+                        // it a tidy finding looks like a compiler warning.
                         const Str code = d.at("code").string();
                         if(!code.empty())
                         {
@@ -710,25 +642,14 @@ namespace lsp
 
     // ------------------------------------------------------------- starting ---
 
-    // The compiler the build actually invokes, read out of the first entry of
-    // compile_commands.json.
+    // The compiler the build invokes, from the first entry of
+    // compile_commands.json, to feed --query-driver.
     //
-    // WHAT THIS IS FOR. clangd sees `arm-none-eabi-g++` in the compile command
-    // and targets arm-none-eabi, but it does NOT ask that compiler where its
-    // headers are - running an executable named by a file in the workspace is a
-    // thing it refuses to do unless told which ones are allowed. Without being
-    // told, `#include <cstddef>` does not resolve, types.hxx fails, and every
-    // Int32 in the firmware is an unknown type name.
-    //
-    // The visible symptom is not an error, which is what makes it worth this
-    // much code: the file still "parses", clangd still answers, and the answers
-    // come from an identifier index instead of the AST. `dfplayer::` returns
-    // `printf`, `define` and `serial` - twenty right answers replaced by
-    // fifty-seven plausible wrong ones, with nothing in the reply to say so.
-    //
-    // The EXACT path, not a glob over the directory. --query-driver makes
-    // clangd execute what it matches, so the only thing worth allowing is the
-    // one compiler this project's own build already runs.
+    // clangd will NOT ask that compiler where its headers are unless
+    // --query-driver allows it, and without them `#include <cstddef>` does not
+    // resolve. The symptom is NOT an error: the file still "parses" and clangd
+    // still answers, from an identifier index instead of the AST. The EXACT path,
+    // not a glob - --query-driver makes clangd EXECUTE what it matches.
     Str driverFromDatabase(const Str& ccPath)
     {
         std::FILE* f = std::fopen(ccPath.c_str(), "rb");
@@ -737,8 +658,7 @@ namespace lsp
             return Str();
         }
 
-        // The first entry is at the top; a few tens of kilobytes is plenty and
-        // the whole file can be tens of megabytes.
+        // The first entry is at the top, and the whole file can be tens of MB.
         Str head;
         head.resize(64u * 1024u);
         const Size got = std::fread(head.data(), 1, head.size(), f);
@@ -775,8 +695,7 @@ namespace lsp
         }
 
         // The first token, unescaping as we go. The driver may itself be quoted
-        // inside the JSON string when its path has spaces, which is why the
-        // \" case both unescapes and toggles.
+        // inside the JSON string, so the \" case both unescapes and toggles.
         Str  out;
         Bool quoted = false;
         while(at < head.size())
@@ -820,8 +739,8 @@ namespace lsp
             ++at;
         }
 
-        // Only if it is really there. A stale database naming a compiler that
-        // has been uninstalled would otherwise hand clangd a path to run.
+        // Only if it is really there: a stale database naming an uninstalled
+        // compiler would otherwise hand clangd a path to run.
         if(out.empty() || GetFileAttributesA(out.c_str()) == INVALID_FILE_ATTRIBUTES)
         {
             return Str();
@@ -880,9 +799,8 @@ namespace lsp
 
       if(GetFileAttributesA(ccPath.c_str()) == INVALID_FILE_ATTRIBUTES)
       {
-          // Not fatal. clangd still completes from the file's own includes; it
-          // just cannot see the SDK's flags, so half the firmware headers will
-          // not resolve. Worth saying out loud rather than looking broken.
+          // Not fatal: clangd still completes from the file's own includes, but
+          // without the SDK's flags half the firmware headers will not resolve.
           s.say("clangd: no compile_commands.json - run firmware\\build.bat once");
       }
 
@@ -918,9 +836,8 @@ namespace lsp
       si.hStdOutput  = out.wr;
       si.hStdError   = nullptr;   // clangd's log; we do not read it, so drop it
 
-      // --log=error, not the default: clangd's info log is a few hundred lines
-      // per parse and it all goes to a handle nobody drains, which eventually
-      // blocks the process that is writing it.
+      // --log=error, not the default: the info log is a few hundred lines per
+      // parse into a handle nobody drains, which eventually blocks clangd.
       Str cmd = "\"" + exe + "\""
               + " --compile-commands-dir=\"" + ccDir + "\""
               + " --background-index=false"
@@ -960,9 +877,8 @@ namespace lsp
       s.toChild = in.wr;
       s.frChild = out.rd;
 
-      // A restart must not inherit the previous session's unsent tail, or the
-      // first thing the new clangd reads is the middle of a conversation it
-      // was not part of.
+      // A restart must not inherit the previous session's unsent tail, or the new
+      // clangd starts reading the middle of a conversation it was not part of.
       {
           LockGuard<Mutex> lk(s.outMu);
           s.outbox.clear();
@@ -990,9 +906,8 @@ namespace lsp
              "\"rootUri\":" + js::quote(rootUri) + ","
              "\"capabilities\":{\"textDocument\":{\"completion\":{"
                "\"completionItem\":{"
-                 // Snippets OFF. clangd would otherwise send `${1:x}` placeholder
-                 // syntax, which this editor has no machinery to expand and would
-                 // insert literally.
+                 // Snippets OFF: clangd would otherwise send `${1:x}` placeholder
+                 // syntax, which this editor would insert literally.
                  "\"snippetSupport\":false,"
                  "\"documentationFormat\":[\"plaintext\"]}}}}}}");
 
@@ -1010,10 +925,8 @@ namespace lsp
       s.running.store(false);
       s.outCv.notify_one();
 
-      // Close our write end first: clangd sees EOF on stdin and exits cleanly,
-      // which closes its stdout and unblocks the reader's ReadFile. Terminating
-      // it outright would leave the reader parked on a pipe with a live handle
-      // at the other end.
+      // Close our write end FIRST: clangd sees EOF on stdin, exits, and closes its
+      // stdout, which is what unblocks the reader's ReadFile.
       closeHandle(s.toChild);
 
       if(s.proc != nullptr && WaitForSingleObject(s.proc, 2000) == WAIT_TIMEOUT)
@@ -1064,10 +977,8 @@ namespace lsp
           return false;
       }
 
-      // Handed over even when EMPTY, and that is the point: clangd publishes a
-      // complete set every time, so an empty one means the file just became
-      // clean. Returning false there would leave the last errors underlined
-      // after they were fixed.
+      // Handed over even when EMPTY: clangd publishes a complete set every time,
+      // so an empty one means the file just became clean.
       out          = s.diags;
       s.diagsFresh = false;
       return true;
@@ -1084,13 +995,9 @@ namespace lsp
       const Str uri = toUri(path);
 
       // ---- keep clangd's copy of the file current ----
-      //
-      // Full-text sync rather than incremental ranges. Incremental is what a
-      // serious editor does and it is also where the subtle bugs are: a single
-      // dropped or misordered change and the server's copy silently diverges
-      // from ours, after which every completion is about a file that does not
-      // exist. Sending the whole buffer is a few tens of kilobytes on a
-      // keystroke that only happens when the text actually changed.
+      // FULL-TEXT sync, not incremental ranges: one dropped or misordered change
+      // and the server's copy silently diverges, after which every completion is
+      // about a file that does not exist.
       if(path != s.openPath)
       {
           if(!s.openPath.empty())
@@ -1108,9 +1015,8 @@ namespace lsp
                  "\"text\":" + js::quote(text) + "}}}");
 
           {
-              // openPath joins openUri under this lock because the reader
-              // thread needs it now: a diagnostic has to carry the PATH, and
-              // reading it unguarded from there would be a race on a Str.
+              // openPath joins openUri under this lock: the reader thread needs
+              // the PATH for a diagnostic, and reading it unguarded races on a Str.
               LockGuard<Mutex> lk(s.uriMu);
               s.openUri  = uri;
               s.openPath = path;
@@ -1132,11 +1038,9 @@ namespace lsp
       }
 
       // ---- the question ----
-      //
-      // Not before the AST exists. The didOpen/didChange above still went out -
-      // that is what gets the AST built - but the question waits, and the caller
-      // is told it was not taken so it asks again rather than treating the
-      // silence as an answer.
+      // Not before the AST exists. The didOpen/didChange above still went out, but
+      // the question waits and the caller is told it was not taken, so it asks
+      // again rather than reading silence as an answer.
       if(!s.parsed.load()
          || GetTickCount64() - s.parsedAtMs.load() < SETTLE_MS)
       {

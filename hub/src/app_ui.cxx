@@ -1,26 +1,13 @@
 // Application layout: a dashboard, not a set of pages.
 //
 //   status strip   full width, one line, always visible
-//   the map        the whole left region, permanently. Never replaced, never
-//                  hidden - it is the thing this app is for.
+//   the map        the whole left region, permanently
 //   control bar    under the map: range, overlays, reset view
-//   right sidebar  one scrollable column holding everything else, as collapsing
-//                  sections: System, Sensors, Vehicle, Firmware, Console
+//   right sidebar  one scrollable column of collapsing sections
 //
-// There are no workspaces. The old left nav rail swapped the center pane between
-// five screens, which meant the map - the only continuously useful surface -
-// disappeared four times out of five. Now the map is fixed and the panels queue
-// up beside it.
-//
-// The sidebar scrolls; that is what a sidebar is. The two logs get their own
-// fixed-height inner scroll regions, because a scrolling log inside a scrolling
-// column cannot be used.
-//
-// The screen shows live state and offers actions. It does not explain itself in
-// prose: a readout is a short label and a value, absence is "--" or a muted
-// label, and a warning belongs in the confirm modal at the moment of risk, not
-// parked permanently on screen. Project background lives in docs/conventions.md and
-// docs/log.md, which is where it can actually be read.
+// The two logs need their own fixed-height inner scroll regions: a scrolling log
+// inside a scrolling column cannot be used. Project background lives in
+// docs/conventions.md and docs/log.md.
 #include "shared.hxx"
 #include "app_ui.hxx"
 
@@ -36,8 +23,7 @@
 #include "imgui.h"
 
 // For SetKeyOwner only. Space has to be taken AWAY from ImGui's own keyboard
-// navigation, which activates whatever the nav cursor is sitting on - see
-// updateEmergencyKey().
+// navigation, which activates whatever the nav cursor is on - updateEmergencyKey().
 #include "imgui_internal.h"
 
 #include "lidar_source.hxx"
@@ -76,17 +62,14 @@ namespace
   LidarFrame latestFrame;
   Bool       haveFrame = false;
 
-  // The C1 is specified over 0.05 - 12 m. Returns outside that window are the
-  // housing (below) or unreliable long-range noise (above). The same window
-  // governs what the map draws, so nothing is ever shown that is not also
-  // counted.
+  // The C1 is specified over 0.05 - 12 m: below is the housing, above is noise.
+  // The same window governs what the map draws, so nothing is shown uncounted.
   constexpr Float32 MIN_VALID_MM = 50.0f;
   constexpr Float32 MAX_VALID_MM = 12000.0f;
 
   // ---------------------------------------------------------------- derived ---
-  // Recomputed once per revolution, not per UI frame. LidarFrame's own
-  // validCount / maxDistMm are deliberately raw (every return the device
-  // sent), so everything spec-bounded is derived here.
+  // Recomputed once per revolution, not per UI frame. LidarFrame's own counts are
+  // raw, so everything spec-bounded is derived here.
 
   Float32 meanMm   = 0.0f;
   Float32 maxRangeMm = 0.0f;
@@ -120,14 +103,10 @@ namespace
   constexpr Float32 CLEARANCE_CAP_M = 2.5f;   // beyond this a direction is just "clear"
 
   // ------------------------------------------------------------- pico link ---
-  // The debug/bring-up channel to the Pico 2 W over USB CDC. Ports, the drained
-  // line log, and the console's own view state.
-  //
-  // If a connected board ever appears to swallow writes: TinyUSB CDC refuses OUT
-  // data until the host asserts DTR, and a write without it blocks until the
-  // driver gives up with "the semaphore timeout period has expired". That reads
-  // exactly like dead hardware and is not. pico_link.cxx asserts DTR; do not
-  // remove it.
+  // The debug/bring-up channel to the Pico 2 W over USB CDC.
+  // TRAP: TinyUSB CDC refuses OUT data until the host asserts DTR, and a write
+  // without it blocks until "the semaphore timeout period has expired" - which
+  // reads exactly like dead hardware. pico_link.cxx asserts DTR; do not remove.
 
   Vec<Str> picoPorts;
   Vec<const Char*> picoItems;
@@ -139,8 +118,7 @@ namespace
   Vec<PicoLine> picoLog;
 
   // Console view state. The selection is by INDEX into picoLog, so it survives
-  // the filter being retyped - selecting five lines, filtering, and clearing the
-  // filter should give you back the same five.
+  // the filter being retyped.
   Set<Int32> logSel;
   Int32      logSelAnchor = -1;   // for shift-click runs. -1 = nothing anchored
   Bool       logShowPoll  = false;
@@ -158,22 +136,15 @@ namespace
   Bool bootselDone = false;
   Bool bootselOk   = false;
 
-  // Opened from more than one workspace now, so the modal lives at the root of
-  // the frame and this is the request to raise it. A popup's identity comes from
-  // the ID stack, so OpenPopup and BeginPopupModal must sit at the same level.
+  // The modal lives at the root of the frame and this raises it: a popup's
+  // identity is its ID stack, so OpenPopup and BeginPopupModal sit at one level.
   Bool openBootsel = false;
 
   // ------------------------------------------------------- controller state ---
-  // What the board says about the car, as opposed to what the serial port says
-  // about the board.
-  //
+  // What the board says about the car, not what the port says about the board.
   // tt02_control answers `?` with "S <uptimeMs> <a> <b> <servoUs> <escUs> <t>"
-  // then "OK"; fields 4 and 5 are the servo and ESC pulse widths in microseconds
-  // (1500 = neutral). pico_debug, which is what is flashed right now, answers
-  // PING/ID/STATUS/HELP/LED and returns "ERR bad command" to `?`.
-  //
-  // Both are handled by observing what actually arrives. Nothing here guesses a
-  // pulse width; when the firmware does not report one, the readout says so.
+  // then "OK"; fields 4 and 5 are servo and ESC pulse widths in us (1500 =
+  // neutral). pico_debug answers PING/ID/STATUS/HELP/LED and "ERR bad command".
 
   struct VehicleStatus
   {
@@ -193,56 +164,37 @@ namespace
   Str   lastCmd;                  // last line we sent, trimmed
 
   // ---- what pico_debug reports about itself ---------------------------------
-  //
-  // Parsed out of `INFO status` / `INFO id` / `OK led ...`, which is the
-  // vocabulary in firmware/app/main.c. Kept separate from VehicleStatus above
-  // because the two come from DIFFERENT firmware: pico_debug answers STATUS,
-  // tt02_control answers `?`, and neither understands the other's command. A
-  // board runs one of them, so at most one of these two structs is ever live.
+  // Parsed out of `INFO status` / `INFO id` / `OK led ...` (firmware/app/main.c).
+  // Separate from VehicleStatus because the two come from DIFFERENT firmware; at
+  // most one of the two structs is ever live.
   struct DebugStatus
   {
-      // Which board is on the other end - "pico2_w" or "pico2" - straight from
-      // INFO id's board= field.
-      //
-      // This matters more than it looks. There are two RP2350 boards in this
-      // project now, the mule and the car's, and over USB they are indis-
-      // tinguishable: same VID, same chip, same bootloader, adjacent COM numbers
-      // that swap around on replug. The firmware is the only thing that knows,
-      // because it was COMPILED for one of them, so this is the one authoritative
-      // answer available and it belongs on screen rather than in a log line.
+      // Which board is on the other end - "pico2_w" or "pico2" - from INFO id.
+      // The two RP2350 boards are indistinguishable over USB; only the firmware
+      // knows, because it was COMPILED for one of them.
       Str boardName;
   };
 
   DebugStatus debugStatus;
 
-  // STATUS polling. tt02_control answers `ERR bad command`, so a board running it
-  // must not be asked again every two seconds forever - one refusal is enough.
+  // STATUS polling. tt02_control answers `ERR bad command`, so one refusal stops
+  // the polling - do not ask a board running it every two seconds forever.
   // ---- what the board says is attached ------------------------------------
-  //
-  // The hub cannot see the Pico's pins. It can only ask, which is why these are
-  // answers rather than assumptions - the difference between a row that reads
-  // "not wired" because nothing is wired and one that reads it because nobody
-  // ever checked.
-  //
-  // `tofAsked` separates "no" from "not yet". Before the first reply the honest
-  // state is unknown, and drawing that as absent would be a guess.
+  // The hub cannot see the Pico's pins; these are answers, and `tofAsked`
+  // separates "no" from "not yet".
   Bool   sensorsAsked  = false;
   Bool   sensorI2c     = false;
   Bool   sensorTof     = false;
 
-  // The newest range, and whether it is worth believing. A distance that arrived
-  // with a bad status is not a shorter distance - it is not a distance - so the
-  // two are kept together and never separated.
+  // The newest range and its status. A distance that arrived with a bad status
+  // is not a shorter distance - it is not a distance - so the two never separate.
   Int32   tofMm        = 0;
   Int32   tofStatus    = 255;
 
   // The rates that came with the newest reading, in the sensor's own 16.16 fixed
-  // point, or -1 when the firmware did not send them.
-  //
-  // These are what make a wrong-looking number diagnosable rather than merely
-  // wrong: a STRONG signal at a short distance means something really is that
-  // close - a protective film on the lens is the classic - while a weak signal
-  // with a high ambient means the sensor is being blinded by room infrared.
+  // point, or -1 when the firmware did not send them. Strong signal at short
+  // range means something really is that close (lens film is the classic); weak
+  // signal with a high ambient means it is blinded by room infrared.
   Int32   tofSignal    = -1;
   Int32   tofAmbient   = -1;
 
@@ -251,10 +203,8 @@ namespace
   Bool    tofModeShort = false;
 
   // ---- the drive channels -------------------------------------------------
-  //
-  // Mirrors of the BOARD's state, not requests. The board owns the limits and
-  // the arming, because it is the thing holding the wires - a hub that decided
-  // those would be a hub whose safety evaporates the moment it disconnects.
+  // Mirrors of the BOARD's state, not requests: it owns the limits and the arming,
+  // so safety survives the hub disconnecting.
   Bool  driveKnown   = false;
   Int32 driveServo   = 1500;   // what the board is outputting
   Int32 driveServoT  = 1500;   // what it is heading toward
@@ -262,9 +212,8 @@ namespace
   Int32 driveEscT    = 1500;
   Bool  driveArmed   = false;
 
-  // Whether the board is driving the steering pin at all. Not the same question
-  // as "what position is it holding" - a released servo holds nothing, which is
-  // the only state that is safe on a car whose center is not its center.
+  // Whether the board is driving the steering pin at all - not the same as what
+  // position it holds. A released servo holds nothing, which is the safe state.
   Bool  driveServoOn = false;
 
   // Where the board thinks center is. Not 1500 in general - see the calibration
@@ -275,46 +224,29 @@ namespace
   // 8 is 400 us/s, which walks this car's 430 us of travel in about a second.
   Int32 driveSlew = 8;
 
-  // What the slider shows, and whether it is under the thumb. Same split as the
-  // steering: a reply arriving mid-drag must not yank the handle out from under
-  // the person moving it.
+  // What the slider shows, and whether it is under the thumb: a reply arriving
+  // mid-drag must not yank the handle out from under the person moving it.
   Int32 driveSlewWant = 8;
   Bool  driveSlewHeld = false;
 
   // The throttle's own response rate, separate from the steering's.
-  //
-  // They shared one number until the firmware split them, so tuning the steering
-  // quick made the throttle violent and gentling the throttle made the steering
-  // vague. Neither is a setting anybody would choose - it was the only shape
-  // available.
   // ---- keyboard drive -------------------------------------------------------
-  //
-  // Hold-to-drive on WASD. Off by default and it stays off until asked, because
-  // this turns a text-editing application into something that moves a vehicle.
+  // Hold-to-drive on WASD. Off by default: this turns a text-editing application
+  // into something that moves a vehicle.
   Bool  wasdOn = false;
 
-  // The forward cap, in microseconds. Deliberately a crawl to begin with: six
-  // microseconds above the measured idle, about a tenth of this car's 59 us band.
-  // A slider, because the right number is found by driving and the first one
-  // should be too slow rather than too fast.
+  // The forward cap, in microseconds. Six us above the measured idle, about a
+  // tenth of this car's 59 us band - deliberately a crawl.
   Int32 wasdCapUs = 1547;
 
-  // The hard ceiling on that cap, in microseconds. Not a default somebody can
-  // slide past - the slider itself stops here.
-  //
-  // Nine microseconds over the measured idle of 1541, about a sixth of this car's
-  // 59 us band. The point of driving it from a keyboard is that the keyboard is
-  // digital: W is either fully on or fully off, there is no feathering the way a
-  // trigger lets you, so the only thing keeping it sane is the number it slams
-  // to. A speed you can walk beside is that number.
-  //
-  // The ceiling itself is wasdCapCeil(), further down: it needs the calibration
-  // and clampInt, both of which are declared after this.
+  // The hard ceiling on that cap, in microseconds - the slider itself stops here.
+  // Nine us over the measured idle of 1541, about a sixth of this car's 59 us
+  // band: W is digital, so the number it slams to is all that keeps it sane. The
+  // ceiling is wasdCapCeil(), below - it needs the calibration and clampInt.
 #define WASD_CAP_HARD 1550
 
-  // What was last SENT, so a command only goes out when the answer changes. At
-  // 60 fps the naive version is sixty commands a second per axis, which the link
-  // carries and the console does not survive.
+  // What was last SENT, so a command only goes out when the answer changes: at
+  // 60 fps the naive version is sixty commands a second per axis.
   Int32   wasdSentSteer = 0;      // -1, 0, +1
   Int32   wasdSentEsc   = 0;      // 0 = neutral, else the cap
   Float64 wasdFedAt     = 0.0;    // last keepalive, for the board's deadman
@@ -324,44 +256,30 @@ namespace
   Bool  driveEscSlewHeld = false;
 
   // How far past idle the throttle must go before the tail lamps go out, in
-  // microseconds. The board owns it; this follows unless the slider is being
-  // dragged, the same deal every other control here makes.
+  // microseconds. The board owns it; this follows unless the slider is dragged.
   Int32 lightsOffWant = 10;
   Bool  lightsOffHeld = false;
   Int32 boardLightsOff = 10;
 
-  // Steering as a fraction of this car's travel, -1 to +1. What the board
-  // reports, and what the slider shows.
-  //
-  // The board sends it in thousandths so no float has to survive a printf on a
-  // microcontroller; it becomes a fraction here, where floats are free.
+  // Steering as a fraction of this car's travel, -1 to +1. The board sends it in
+  // thousandths so no float has to survive a printf on a microcontroller.
   Float32 driveSteer     = 0.0f;
 
   // Where the wheels ACTUALLY are, as against driveSteer which is where they were
-  // told to go. The board reports both; the slew limiter is the difference.
-  //
-  // The drawing uses THIS one. It used to use the target, and that made the Drive
-  // view tell two stories at once: with the servo released, dragging the slider
-  // turned the wheels on screen while the indicator stayed dark - correctly, since
-  // drivePump only moves servoNow while the servo is live - and the obvious
-  // reading of that is "the light is broken" rather than "the wheels have not
-  // moved". One number for both, and the picture cannot disagree with the lamp.
+  // told to go; the slew limiter is the difference. The drawing must use THIS
+  // one - drivePump only moves servoNow while the servo is live, so the target
+  // would turn the on-screen wheels while the indicator stayed dark.
   Float32 driveSteerNow  = 0.0f;
   Float32 driveSteerWant = 0.0f;
   Bool    driveSteerHeld = false;
 
   // ---- the calibration ----------------------------------------------------
-  //
-  // Three measurements of ONE car: the two ends its steering can actually reach,
-  // and where its wheels point straight. None of them are derivable. A servo's
-  // range is 1000-2000 us and says nothing about linkage length, and the horn
-  // only meets its spline at whole-tooth intervals, so straight-ahead lands
-  // wherever it lands.
-  //
-  // Held here as the working copy, saved to settings so a session does not lose
-  // them, and written out to firmware/lib/chassis/cal.hxx when the user commits -
-  // three places on purpose. Settings is what survives a restart; the header is
-  // what survives a reflash and what other code can actually read.
+  // Three measurements of ONE car: the two ends its steering can reach, and where
+  // its wheels point straight. None are derivable - a servo's 1000-2000 us range
+  // says nothing about linkage length, and the horn meets its spline only at
+  // whole-tooth intervals. Three places on purpose: the working copy here,
+  // settings (survives a restart) and firmware/lib/chassis/cal.hxx on commit
+  // (survives a reflash, and is what other code can read).
   Int32 calLeft   = 1300;
   Int32 calCenter = 1500;
   Int32 calRight  = 1700;
@@ -372,16 +290,11 @@ namespace
   // has drifted from what the firmware would actually be built with.
   Str calWritten;
 
-  // The limits the BOARD reports. Sliders are built from these rather than from
-  // constants here, so tightening them in firmware tightens the UI too and the
-  // two can never disagree about what is safe.
+  // The limits the BOARD reports. Sliders are built from these, not constants
+  // here, so tightening firmware tightens the UI.
   // ---- the indicator scaffolding. TEMPORARY - see firmware/lib/lights.h ----
-  //
-  // What the BOARD says its lamps are doing, not what this hub would have
-  // decided. The rule runs in the firmware, because the car has to indicate when
-  // no laptop is attached; this only draws the answer. lights::detect() in the
-  // hub is the same rule for the 3D view and the two are deliberately separate -
-  // one is the car, the other is a picture of it.
+  // What the BOARD says its lamps are doing: the rule runs in the firmware (the
+  // car must indicate with no laptop attached) and this only draws the answer.
   Int32   boardTurn     = 0;       // -1 left, 0 off, +1 right
   Bool    boardLightsOn = true;
   Float64 lightsLastPoll = 0.0;
@@ -391,14 +304,9 @@ namespace
   //   4 indFL  5 indFR  6 indRL  7 indRR
   //   8 revL   9 revR
   //
-  // Ten, not eight: the car gets front AND rear indicators. The rear pair has no
-  // LED yet and the firmware computes it anyway, so this array carries it too.
-  //
-  // Levels 0..255, straight from the board. A lamp with no LED soldered to it
-  // still has a correct level - the rule computes all eight whether or not the
-  // wiring shows them - so the drawing can display the whole car's lighting while
-  // only two of them exist in copper. That is the point of the split: wiring the
-  // next LED changes a table in the firmware and nothing here.
+  // Ten, not eight: the car gets front AND rear indicators, and the rear pair has
+  // no LED yet. Levels 0..255 straight from the board, so a lamp with no LED
+  // still has a correct level - wiring one changes a firmware table, not this.
   constexpr Int32 LAMP_N = 10;
   Array<Int32, LAMP_N> boardLamp= {};
   Array<Int32, LAMP_N> boardLampPin= { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
@@ -409,23 +317,19 @@ namespace
   Int32 driveEscMax   = 1600;
 
   // What the sliders are showing. Separate from the board's value so dragging is
-  // smooth - snapping the handle to a reply that arrives every 200 ms would make
-  // the control feel broken.
+  // smooth - the replies arrive every 200 ms and would snap the handle.
   Int32 driveServoWant = 1500;
   Int32 driveEscWant   = 1500;
 
   // ---- the sweep ----------------------------------------------------------
-  //
-  // Driven from the hub rather than the board: it is a testing convenience, and
-  // putting it in firmware would mean a car that can start moving on its own
-  // because of something left running in a UI.
+  // Driven from the hub, not the board: in firmware it would be a car that can
+  // start moving on its own because of something left running in a UI.
   Bool    driveSweep     = false;
   Float64 driveSweepNext = 0.0;
   Int32   driveSweepDir  = 1;
 
   // The limits the user is editing, separate from what the board has accepted.
-  // Widening is a two-step act - type it, then apply it - because a limit that
-  // moved as you dragged would be no limit at all.
+  // Widening is two steps - type it, then apply it - or it is no limit at all.
   Int32 driveLimitLo = 1300;
   Int32 driveLimitHi = 1700;
   Bool  driveLimitsDirty = false;
@@ -438,9 +342,8 @@ namespace
   // asking happens from a draw and a draw happens sixty times a second.
   Float64 driveAskedAt = -1.0;
 
-  // Whether a slider handle is under the user's thumb RIGHT NOW. The board's
-  // replies must not move a handle being dragged, but they must move everything
-  // else - so this is per-slider rather than "is anything in the app active".
+  // Whether a slider handle is under the user's thumb RIGHT NOW. Per-slider, not
+  // "is anything active": replies must move everything except the handle held.
   Bool driveServoHeld = false;
   Bool driveEscHeld   = false;
   Float64 tofLastReply = 0.0;
@@ -453,19 +356,14 @@ namespace
   Int32   tofHistoryAt = 0;
   Bool    tofHistoryWrapped = false;
 
-  // Extremes since connect. Sweeping the sensor and reading these off is the
-  // honest answer to "how far does it reach" for THIS sensor in THIS light,
-  // which no datasheet figure can give.
+  // Extremes since connect. Sweeping the sensor and reading these off answers
+  // "how far does it reach" for THIS sensor in THIS light.
   Int32 tofSeenMin = 0;
   Int32 tofSeenMax = 0;
 
-  // ---- the cue board --------------------------------------------------------
-  //
-  // THE BOARD IS THE SOURCE OF TRUTH. This list is not written here and not kept
-  // in step by hand: it comes from CUE LIST, once per connection, so a cue added
-  // to firmware/lib/cue.hxx appears on this screen with nothing changed on this
-  // side. A hardcoded grid would be a second list to forget to update, and the
-  // failure mode is a button that does nothing or a cue nobody can reach.
+  // ---- the cue board ------------------------------------------------------
+  // THE BOARD IS THE SOURCE OF TRUTH: the list comes from CUE LIST once per
+  // connection, so a cue added to firmware/lib/cue.hxx appears here unchanged.
   struct CueEntry
   {
       Str  name;      // what CUE <name> takes
@@ -475,26 +373,16 @@ namespace
       Bool latched = false; // ...and a person put it there, not the car
   };
 
-  // WHY THE PLAY MODE MATTERS HERE and not only in the firmware: it is the
-  // difference between a button and a switch. A "once" cue plays and ends, so
-  // pressing it again just plays it again. A "hold" or "loop" cue stays up until
-  // something lowers it, so its button has to be a TOGGLE - and a board that drew
-  // them all the same would leave you pressing "left" twice and wondering why the
-  // indicator would not stop.
+  // The play mode decides button or switch: a "once" cue plays and ends, while a
+  // "hold" or "loop" cue stays up until lowered, so its button must be a TOGGLE.
 
   Vec<CueEntry> cueList;
   Bool          cueListAsked = false;
 
-  // What the board says it is doing RIGHT NOW. A cue is a few hundred
-  // milliseconds long, so this is worth watching rather than inferring from the
-  // button that was pressed.
+  // What the board says it is doing RIGHT NOW - a cue is a few hundred ms long.
   // ---- the Sound view. TEMPORARY -----------------------------------------
-  //
-  // Scaffolding for bringing the DFPlayer up on a breadboard, and it says so on
-  // the tab. Sound BELONGS in the cue system - a car that says "reversing"
-  // should not care whether that comes out as a lamp or a chime, and cue.hxx
-  // already carries a `tone` field waiting for it. This view is a person
-  // pressing buttons, which is a different thing and a temporary one.
+  // Scaffolding for bringing the DFPlayer up on a breadboard. Sound belongs in
+  // the cue system - cue.hxx already carries a `tone` field waiting for it.
   Bool    soundReady    = false;
   Int32   soundVol      = 8;
   Int32   soundVolMax   = 30;
@@ -504,9 +392,8 @@ namespace
   Int32   soundRx       = -1;
   Int32   soundBusyGp   = -1;
 
-  // How many tracks the CARD holds, 0 for "not asked yet or did not answer".
-  // The card is the source of truth - the hub keeps no list, so adding a track
-  // to the card is the whole of adding a track.
+  // How many tracks the CARD holds, 0 for "not asked yet or did not answer". The
+  // hub keeps no list, so adding a track to the card is the whole of adding one.
   Int32   soundFiles     = 0;
   Int32   soundEq        = 0;
   Float64 soundLastPoll = 0.0;
@@ -527,9 +414,8 @@ namespace
       dbgUnsupported = false;
       sensorsAsked   = false;
 
-      // Asked again on the next connection. The list belongs to the firmware
-      // that is running, and a reflash between connections is the ordinary case
-      // here, not an exotic one.
+      // Asked again on the next connection: the list belongs to the running
+      // firmware, and a reflash between connections is the ordinary case here.
       cueList.clear();
       cueListAsked = false;
       cueSpeaking  = "none";
@@ -566,10 +452,8 @@ namespace
   }
 
   // ----------------------------------------------------------------- flash ---
-  // The firmware suite: catalog, board state, and the output of whichever script
-  // is running. PicoFlash does the work on a worker thread; everything here is
-  // display plus the one confirmation that stands between a click and an
-  // irreversible overwrite.
+  // Catalog, board state, and the running script's output. PicoFlash works on a
+  // worker thread; everything here is display plus the one confirm.
 
   constexpr Size FLASH_LOG_MAX = 3000;
   Vec<Str> flashLog;
@@ -586,13 +470,11 @@ namespace
   FlashState flashPrev = FlashState::FLASH_STATE_IDLE;
 
   // --------------------------------------------------------------- sidebar ---
-  // The right column's sections. Order is the order they are drawn in; System and
-  // Sensors are open by default because they are the two you read, the rest are
-  // things you go and do.
+  // The right column's sections, in draw order. System and Sensors open by
+  // default: they are the two you read.
 
   // Unscoped on purpose. SECTION_COUNT is an array bound and the rest are array
-  // indices at two dozen sites; `enum class` would add a static_cast to every one
-  // of them and change nothing about what the code means.
+  // indices at two dozen sites; `enum class` would add a static_cast to each.
   enum Section
   {
       SECTION_SYSTEM = 0,
@@ -602,20 +484,12 @@ namespace
       SECTION_COUNT,
   };
 
-  // ---------------------------------------------------------------------------
-  // Panel layout: what order the sections are in, which ones have been torn off
-  // into their own windows, and how wide the column is.
-  //
-  // All three are the user's, not the app's, so all three persist. The floating
-  // windows' positions and sizes are ImGui's own business - it writes them to
-  // layout.ini - and what is kept here is only the fact that they ARE floating,
-  // which ImGui has no way of knowing.
-  // ---------------------------------------------------------------------------
-  // The console is NOT here. It was, until it moved to its own column on the
-  // left - see drawConsoleColumn(). A settings file written before that has five
-  // records; the loader bounds-checks each id against SECTION_COUNT and only
-  // accepts a complete permutation, so the stale fifth is dropped and the other
-  // four load normally.
+  // Panel layout: section order, which sections are torn off into their own
+  // windows, and the column width. All three persist. Floating windows' geometry
+  // is ImGui's own business (layout.ini); only the fact that they ARE floating is
+  // kept here, which ImGui has no way of knowing. The console is NOT here - see
+  // drawConsoleColumn(). A settings file written before that has five records;
+  // the loader accepts only a complete permutation, so the stale fifth is dropped.
   Array<Int32, SECTION_COUNT> sectionOrder = { SECTION_SYSTEM, SECTION_SENSORS,
                                                SECTION_VEHICLE, SECTION_FIRMWARE };
   Array<Bool, SECTION_COUNT> sectionFloating= {};
@@ -625,14 +499,8 @@ namespace
   Float32 sidebarLogicalW = 400.0f;
 
   // ---- the console column, on the LEFT ------------------------------------
-  //
-  // Its own column rather than a section in the right-hand sidebar, because it is
-  // the one panel you read WHILE doing something else. Sharing the sidebar meant
-  // it competed for height with System and Sensors and got about a fifth of a
-  // screen, which is four lines of a log that produces hundreds.
-  //
-  // On the left because the sidebar is on the right and a console between the two
-  // would put the thing you glance at in the middle of the thing you work in.
+  // Its own column, not a sidebar section: it is the one panel you read WHILE
+  // doing something else, and the sidebar left it four lines tall.
   Float32 consoleLogicalW = 380.0f;
   Bool    consoleOpen     = false;
 
@@ -650,22 +518,13 @@ namespace
   Float32 codeTreeLogicalW  = CODE_TREE_DEF_W;
   Bool    codeTreeCollapsed = false;
 
-  // The reference library's browsing state - which page, the drawer width, the
-  // zoom. Held here rather than inside the module so the panel stays re-entrant.
   // ---- the Reference view is gone ------------------------------------------
-  //
-  // It was seven pages of hardcoded C++: a drawing function each, a page table,
-  // and a drawer with its own filter, zoom and pan. Every one of those pages is
-  // now a .bdoc in firmware/docs, opened from the Code tree like any other file.
-  //
-  // That is a straight win and not only a tidy-up. A page was a rebuild; a
-  // document is a file. The pinouts and the wiring notes are the things most
-  // likely to be corrected with the wires actually in your hands, and they were
-  // the things that needed a compiler.
+  // Its seven hardcoded C++ pages are now .bdoc files in firmware/docs, opened
+  // from the Code tree like any other file. A page was a rebuild; a document is
+  // a file, and pinouts get corrected with the wires in your hands.
 
-  // Which view the bottom control bar belongs to. The same thing as the open tab
-  // now that tabs are the only layout, and kept as its own name because the bar
-  // asks "which view am I configuring" rather than "which tab is open".
+  // Which view the bottom control bar belongs to. The same thing as the open tab,
+  // named separately because the bar asks "which view am I configuring".
   Int32 wsFocused = 0;
 
   Bool  panelLayoutDirty = false;             // written out at the end of a frame
@@ -786,9 +645,8 @@ namespace
       settings::write("panels.txt", out);
   }
 
-  // --tab <name> opens one section at startup, for screenshots and for launching
-  // straight into the thing you care about. The lidar sub-tab names still work and
-  // open Sensors with that readout showing.
+  // --tab <name> opens one section at startup, for screenshots. The lidar sub-tab
+  // names still work and open Sensors with that readout showing.
   Int32 forceSection    = -1;
   Int32 forceSub        = -1;
   Int32 forceTabFrames = 0;   // a tab bar only honors SetSelected once laid out
@@ -799,51 +657,27 @@ namespace
   Bool layerLidarPrev = true;
   Int32  selSensor      = 0;    // which sensor the telemetry sub-tabs describe
 
-  // ---------------------------------------------------------------------------
-  // The recorder.
-  //
-  // A second RadarView, so the recorder's trail, mode and accumulated map are its
-  // own - scrubbing a recording must not disturb the live map you were watching,
-  // and the live map must not scribble over a recording you are studying.
-  // ---------------------------------------------------------------------------
+  // The recorder. A second RadarView, so its trail, mode and accumulated map are
+  // its own - scrubbing must not disturb the live map, nor the reverse.
   RadarView recView;
   rec::Recording recording;
 
   // ---- the Code view ---------------------------------------------------------
   // A file is edited here, saved where it already lives, and built and flashed by
-  // the SAME scripts the Firmware panel uses. There is one toolchain path in this
-  // project and this is a front-end to it.
-  //
-  // Each firmware/sketches/*.cxx has its own CMake target named after the file,
-  // so Build & Flash writes the image containing the file on screen. It used to
-  // copy whatever was open into a single firmware/scratch/sketch.cxx slot first,
-  // which meant the file being compiled was never quite the file you had open.
+  // the SAME scripts the Firmware panel uses. Each firmware/sketches/*.cxx has its
+  // own CMake target named after the file, so Build & Flash writes the image
+  // containing the file on screen.
   // ---- .bdoc: the page, or the source that made it -------------------------
-  //
-  // One flag and the file it belongs to, rather than a map of every document ever
-  // opened. This view holds exactly one file at a time - there is no tab bar and
-  // no buffer list - so a per-file map would be a container with one live entry
-  // and a lifetime nobody manages. Switching documents starts on the PAGE, which
-  // is what somebody opening a pinout wants to see.
+  // One flag and the file it belongs to; switching documents starts on the PAGE.
   Str  docModeFor;        // the path the flag below is about
   Bool docModeSource = false;
 
-  // Where the reader is on the page - zoom and pan together. One value for the
-  // VIEW rather than one per file: it is a property of how you are reading right
-  // now, not of the document.
-  //
-  // Reset when the file changes, which the pan makes necessary rather than
-  // merely tidy. A zoom carried between documents is at worst a surprise you can
-  // see; a pan carried between documents can open the next one entirely
-  // off-panel, which looks like a renderer that failed.
+  // Where the reader is on the page - zoom and pan, one value for the VIEW. Reset
+  // when the file changes: a carried pan can open the next one entirely off-panel.
   refdoc::View docView;
 
-  // The parsed document, cached against the text it came from.
-  //
-  // Reparsed only when the text changes, which is both the optimisation and the
-  // feature: editing the source and watching the page redraw is the whole reason
-  // the toggle exists, and it costs nothing because a parse is a few hundred
-  // microseconds on a document this size.
+  // The parsed document, cached against the text it came from. Reparsed only when
+  // the text changes; a parse is a few hundred microseconds at this size.
   refdoc::Doc docParsed;
   Str         docParsedFrom;
 
@@ -854,10 +688,9 @@ namespace
   Str          codeMessage;     // last save/build note, shown on the toolbar
   Bool         codeLoaded = false;
 
-  // ---- IDE state -------------------------------------------------------------
-  // Diagnostics from the last build, for the file on screen. Rebuilt when a build
-  // finishes; NOT cleared when you type, because a stale mark that says where the
-  // error was is more use than no mark at all until you ask again.
+  // ---- IDE state -----------------------------------------------------------
+  // Diagnostics from the last build, for the file on screen. NOT cleared when you
+  // type - a stale mark beats no mark at all.
   Vec<diag::Item> codeDiags;
 
   // Last-write time of the open file, for noticing an edit made outside the app.
@@ -866,8 +699,7 @@ namespace
   Int32  codeWatchIn   = 0;      // frames until the next stat
 
   // Autosave. Counted in frames from the last edit rather than on a wall clock,
-  // so it fires a moment after you STOP typing rather than in the middle of a
-  // word.
+  // so it fires a moment after you STOP typing rather than mid-word.
   Bool  codeAutosave     = true;
   Int32 codeAutosaveIn   = 0;
 
@@ -875,11 +707,8 @@ namespace
   // entry while iterating the list that drew it is how a tree crashes.
   Str codePendingDelete;
 
-  // Build & Flash is TWO operations, and which one is in flight decides what a
-  // failure means. One boolean could say "a flash is queued" but not "the flash
-  // itself just failed", which is why a failed flash used to leave the Code view
-  // still saying "flashing" while the status bar said OP FAILED and neither said
-  // why.
+  // Build & Flash is TWO operations, and which is in flight decides what a failure
+  // means: one boolean cannot tell "queued" from "the flash itself just failed".
   enum class CodeOp
   {
       CODE_OP_NONE = 0,
@@ -887,18 +716,15 @@ namespace
       CODE_OP_FLASHING,
   };
 
-  // Set when an operation made us drop the Pico link, so it can be restored when
-  // the board comes back. Counts down in frames because the board re-enumerates a
-  // second or two AFTER the flash script exits.
+  // Set when an operation made us drop the Pico link, so it can be restored.
+  // Frame-counted: the board re-enumerates a second or two AFTER the script exits.
   Bool  picoRelinkWanted = false;
   Int32 picoRelinkIn     = 0;
   Str   picoRelinkPort;
 
   CodeOp codeOp         = CodeOp::CODE_OP_NONE;
   // Which image the last Build was for, so the Flash that follows writes the same
-  // one. "pico_debug" is the default because it is the only target guaranteed to
-  // exist: there used to be a single `sketch` target and naming it here was safe,
-  // and now the sketch targets are named after files that may not be there.
+  // one. "pico_debug" is the only target guaranteed to exist.
   Str    codeFlashTarget = "pico_debug";
 
   Bool    recArmed   = false;   // capturing
@@ -910,13 +736,11 @@ namespace
   Bool    recStatusBad = false;
 
   // Set when the scrub moves, so the pump re-renders that frame once even though
-  // playback is paused. Without it, dragging the scrub while paused changes the
-  // index and nothing on screen moves.
+  // playback is paused - without it, scrubbing while paused moves nothing.
   Bool    recPendingSeek = false;
 
   // Files on disk, refreshed on demand rather than every frame - a directory
-  // listing per frame is a syscall per frame for a list that changes when the
-  // user asks it to.
+  // listing per frame is a syscall per frame for a list that rarely changes.
   Vec<Str> recFiles;
   Int32            recFileIndex = 0;
 
@@ -930,36 +754,17 @@ namespace
   }
 
   // Which central view is on screen. 0 is the flat map, 1 is the 3D scene,
-  // 2 is the recorder, and 3 + boardIndex is a board.
-  //
-  // The dimension is a TAB, not a control inside the map, because 2D and 3D are
-  // two viewers of the same data with different overlays - the same relationship
-  // the board view already has to the map. It was a segmented switch on the
-  // overlay strip first, which put the thing that decides which overlays exist
-  // inside the strip of overlays it decides.
-  //
-  // Persisted across frames because the bottom bar belongs to the VIEW, and the
-  // layout has to reserve that bar's height before the tab bar has had a chance to
-  // tell us which tab is selected. Switching tabs therefore sizes the bar from the
-  // outgoing view for exactly one frame, which at these frame rates is invisible.
+  // 2 is the recorder, and 3 + boardIndex is a board. Persisted across frames
+  // because the bottom bar belongs to the VIEW and the layout must reserve its
+  // height before the tab bar has said which tab is selected.
   Int32 centralView = 0;
 
-  // ---------------------------------------------------------------------------
-  // Vehicle lighting, driven by hand.
-  //
-  // NOTHING IS WIRED. No LED exists, the board has no lighting firmware, and this
-  // switch reaches exactly as far as the 3D view. It is here so the rules in
-  // docs/conventions.md can be watched running - particularly the indicator-overrides-brake
-  // asymmetry, which is the one that has to be seen to be believed - before there
-  // is hardware to get it wrong on.
+  // Vehicle lighting, driven by hand. NOTHING IS WIRED: this reaches exactly as
+  // far as the 3D view, so docs/conventions.md's rules can be watched running.
   lights::Input& lightInput = radarView.lighting;
 
-  // Automatic lighting: the lamps worked out from what the car is doing rather
-  // than from the buttons below them.
-  //
-  // Off by default, because the bench panel exists to exercise one lamp at a time
-  // and an automatic mode that overwrites your choice every frame would make that
-  // impossible. On, the buttons go read-only and show what was decided.
+  // Automatic lighting: the lamps worked out from what the car is doing. Off by
+  // default, or it would overwrite the bench panel's choices every frame.
   Bool              autoLights = false;
   lights::AutoState autoLightState;
 
@@ -968,18 +773,10 @@ namespace
   Array<Float32, HISTORY> hzHist= {};
   Int32   hzCount = 0;
 
-  // The C1M1 datasheet rev 1.1 lists exactly ONE rate: Figure 2-1 gives
-  // "Communication Speed 460800" and Figure 2-8 gives 460800 with no minimum and
-  // no maximum. There is no 115200 mode and no 256000 mode to fall back to.
-  //
-  // Those two were offered here for years, defaulted past, and could only ever
-  // have produced a connection that opens and then returns nothing - which is
-  // among the worst failures to hand somebody, because the port is open and the
-  // device is silent and neither of those looks like a wrong setting.
-  //
-  // The others are kept, disabled, rather than deleted: somebody who has read
-  // about an A1 at 115200 will come looking for it, and a grayed entry that says
-  // why is a better answer than an empty list that looks like a missing feature.
+  // The C1M1 datasheet rev 1.1 lists exactly ONE rate: Figures 2-1 and 2-8 both
+  // give 460800, with no minimum and no maximum. There is no 115200 or 256000
+  // mode to fall back to - picking one opens the port and returns nothing, which
+  // does not look like a wrong setting. Kept disabled rather than deleted.
   struct BaudOpt
   {
       Int32       rate;
@@ -1018,11 +815,8 @@ namespace
 
   Void refreshPorts()
   {
-      // Captured BEFORE the list is replaced, and restored by NAME rather than by
-      // index. The enumeration reorders and shrinks as things are plugged and
-      // unplugged, so an index that meant COM7 a second ago can mean COM3 now -
-      // and silently retargeting somebody's Connect button at a different device
-      // is the worst outcome available here.
+      // Captured BEFORE the list is replaced, and restored by NAME, not by index:
+      // the enumeration reorders, so an index that meant COM7 can mean COM3 now.
       const Str wasSelected =
           (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
               ? lidarPorts[static_cast<Size>(portIndex)]
@@ -1030,10 +824,8 @@ namespace
 
       lidarPorts = LidarSource::listPorts();
 
-      // A port that vanished while it was selected STAYS in the list. After an
-      // unplug the combo should still read COM7: that is the thing you are going
-      // to reconnect to when the cable goes back in, and dropping it makes the
-      // app look like it has forgotten what it was talking to.
+      // A port that vanished while it was selected STAYS in the list: after an
+      // unplug the combo should still read COM7, which is what you reconnect to.
       if(!wasSelected.empty())
       {
           Bool present = false;
@@ -1077,9 +869,8 @@ namespace
           }
       }
 
-      // Identify the CP210x bridge outright where we can - the remaining ports on
-      // a typical machine are Bluetooth links, and connecting to one of those just
-      // produces a confusing timeout.
+      // Identify the CP210x bridge outright where we can - the other ports on a
+      // typical machine are Bluetooth links, which just time out confusingly.
       const Str preferred = LidarSource::preferredPort();
       if(!preferred.empty())
       {
@@ -1094,33 +885,15 @@ namespace
       }
 
       // ---- and if it cannot be identified, SELECT NOTHING --------------------
-      //
-      // There used to be a fallback here: "a USB bridge normally enumerates above
-      // the built-in ports", so pick the highest number. It is a reasonable guess
-      // and it caused a genuinely confusing failure.
-      //
-      // Serial ports are EXCLUSIVE. With the lidar unplugged there was no CP210x
-      // to find, so the guess picked the highest port on the machine - which was
-      // COM10, the Pico. The lidar then opened the Pico's port, the Pico could
-      // not, and the app reported an error about a board that was sitting there
-      // working perfectly. Two subsystems, one port, and the one that was RIGHT
-      // lost it to the one that was guessing.
-      //
-      // So: no guess. If nothing here is a CP210x, nothing is selected, Connect
-      // is disabled and the panel says why. "I do not know which port your lidar
-      // is on" is a true and useful thing to say; picking one at random and
-      // failing on it is neither.
-      //
-      // A Bluetooth port would have been the other bad outcome - the machine has
-      // six - and connecting to one produces a timeout that looks like a broken
-      // lidar rather than like a wrong port.
+      // Do NOT reinstate a "pick the highest COM number" fallback. Serial ports
+      // are EXCLUSIVE: with the lidar unplugged that guess picked COM10, the Pico,
+      // so the lidar stole the port from a board that was working. A Bluetooth
+      // port - this machine has six - times out like a broken lidar.
       portIndex = -1;
   }
 
-  // True when a port could belong to the lidar. Used to gray out the ones that
-  // certainly cannot, rather than hiding them - a port that is missing from the
-  // list looks like a driver problem, and a port that is visible and disabled
-  // explains itself.
+  // True when a port could belong to the lidar. Grays out the ones that cannot
+  // rather than hiding them - a missing port looks like a driver problem.
   Bool portCouldBeLidar(const Str& port)
   {
       return dev::couldBeLidar(dev::portKind(port));
@@ -1139,32 +912,21 @@ namespace
   Atomic<Bool> deviceChangePending{false};
 
   // Frames until the rescan runs. The notification arrives BEFORE the COM port
-  // exists - it is about the device NODE, and the serial driver registers its
-  // port a moment later - so rescanning immediately finds nothing and the app
-  // concludes the board is still absent. Which is the bug, arriving by a
-  // slightly different road.
+  // exists - it is about the device NODE - so rescanning at once finds nothing.
   Int32 deviceScanIn = 0;
 
   // Backstop, in frames. A notification that never arrives - or arrives while the
-  // window is not pumping messages - would otherwise leave the app permanently
-  // convinced nothing is attached, and that is precisely the failure this exists
-  // to fix. It should not be reachable by a different route.
+  // window is not pumping messages - would leave the app permanently deaf.
   Int32 deviceScanIdle = 0;
 
   // Set when the user presses Disconnect, cleared when they press Connect. A
-  // device reappearing should reconnect, EXCEPT when they deliberately let go of
-  // it: an app that grabs the port straight back makes Disconnect useless.
+  // device reappearing reconnects EXCEPT after a deliberate Disconnect.
   Bool picoUserDisconnected  = false;
 
   // ---- the car's address on the network -------------------------------------
-  //
-  // Typed once and remembered, because a router hands the same board the same
-  // address for weeks and re-typing four numbers before every drive is the sort
-  // of friction that makes a feature go unused.
-  //
-  // The ADDRESS only. The network password never reaches the hub at all - it goes
-  // from the person to the board over the USB console and lives in the board's
-  // RAM until it is reset. See firmware/lib/net.h.
+  // Typed once and remembered. The ADDRESS only: the network password never
+  // reaches the hub, it goes person -> board over the USB console and lives in
+  // the board's RAM until reset. See firmware/lib/net.h.
   Array<Char, 64> wifiHost{};
   Bool wifiHostLoaded  = false;
 
@@ -1235,12 +997,8 @@ namespace
       picoLink.send(line);            // the link logs it; drain() gives it back to us
   }
 
-  // The same thing, for traffic the hub generates on a timer rather than because
-  // somebody asked. Marked so the console can hide it - see PicoLine::poll.
-  //
-  // A separate function rather than a defaulted argument, so that every polling
-  // call site READS as polling at the point of call. The distinction is easy to
-  // forget and the cost of forgetting is a console nobody can use.
+  // The same thing for timer-driven traffic, marked so the console can hide it.
+  // A separate function, not a default argument, so a call site reads as polling.
   Void pollPico(const Char* line)
   {
       if(!line || !line[0])
@@ -1264,13 +1022,10 @@ namespace
       return s.substr(a, b - a);
   }
 
-  // Reads meaning out of a line without assuming which firmware produced it.
-  //
-  // The test is the SHAPE of the reply to `?`, not a particular error string. On
-  // the bench, pico_debug answers `?` with its HELP listing rather than the
-  // documented "ERR bad command" - so keying off "ERR" would have silently
-  // reported nothing at all. Anything that is not an S line means this firmware
-  // does not report servo and ESC state, whatever it chose to say instead.
+  // Reads meaning out of a line without assuming which firmware produced it. The
+  // test is the SHAPE of the reply to `?`, not an error string: pico_debug answers
+  // `?` with its HELP listing, so keying off "ERR" reports nothing at all. Not an
+  // S line means no servo/ESC state is reported.
   Void observeLine(const PicoLine& ln)
   {
       const Str t = trimLine(ln.text);
@@ -1296,12 +1051,8 @@ namespace
       // ---- pico_debug ------------------------------------------------------
       // "INFO status up_ms=... led=on blink_hz=2.00 lamp=gpio25 lamp_up=yes"
       // "INFO id board=pico2 sdk=... uid=... lamp=gpio25 lamp_up=yes"
-      //
-      // cyw43= is present ONLY on a board that has the chip, so its absence is
-      // not a failure to report - it is a plain Pico 2 correctly declining to
-      // mention a peripheral it does not have.
-      // Scanned for the fields rather than parsed positionally: the two lines
-      // carry an overlapping subset and the order is the firmware's business.
+      // cyw43= appears ONLY on a board that has the chip; its absence is a plain
+      // Pico 2. Scanned for fields rather than parsed positionally.
       if(t.compare(0, 5, "INFO ") == 0)
       {
           const Char* s = t.c_str();
@@ -1322,10 +1073,8 @@ namespace
               debugStatus.boardName = word(q + 6);
           }
 
-          // "INFO cue flash [once] - I have seen you - after you"
-          //
-          // Split at the FIRST " - " only: the meaning is allowed to contain the
-          // same separator, and this one does.
+          // "INFO cue flash [once] - I have seen you - after you". Split at the
+          // FIRST " - " only: the meaning may contain the same separator.
           if(t.compare(0, 9, "INFO cue ") == 0)
           {
               const Str rest = t.substr(9);
@@ -1335,10 +1084,8 @@ namespace
                   e.name  = rest.substr(0, cut);
                   e.means = rest.substr(cut + 3);
 
-                  // "name [mode]" -> the two of them. A firmware that predates
-                  // the modes sends no bracket and lands on an empty play, which
-                  // the board then draws as a plain button - the old behavior,
-                  // rather than a crash or a guess.
+                  // "name [mode]" -> the two of them. Firmware predating the
+                  // modes sends no bracket, and an empty play draws as a button.
                   if(const Size br = e.name.find(" [");
                      br != Str::npos && e.name.back() == ']')
                   {
@@ -1373,10 +1120,8 @@ namespace
       {
           const Char* p = t.c_str();
 
-          // Read into a local first and only then commit. A slider that is
-          // being dragged must not be yanked back by a reply that was in
-          // flight when the drag started - the value fights the mouse and the
-          // control feels broken rather than merely laggy.
+          // Read into a local first and only then commit: a slider being dragged
+          // must not be yanked back by a reply that was already in flight.
           const auto num = [p](const Char* key, Int32 fallback)
           {
               const Char* q = std::strstr(p, key);
@@ -1438,9 +1183,7 @@ namespace
           }
 
           // "active=head*,brake,left*" - everything up, with a * on the ones a
-          // PERSON raised. Both facts matter: "the car is braking" and "somebody
-          // is holding the brake lamps on" look identical on the lamps and are
-          // completely different situations.
+          // PERSON raised. Both matter, and they look identical on the lamps.
           for(CueEntry& c : cueList)
           {
               c.on      = false;
@@ -1504,10 +1247,8 @@ namespace
           return;
       }
 
-      // "OK drive servo=1500 servo_t=1500 esc=1500 esc_t=1500 armed=0 ..."
-      //
-      // Read by NAME, like the sensor line, so a field added later is ignored
-      // rather than shifting everything after it.
+      // "OK drive servo=1500 servo_t=1500 esc=1500 esc_t=1500 armed=0 ...", read
+      // by NAME so a field added later is ignored rather than shifting the rest.
       if(t.compare(0, 9, "OK drive ") == 0)
       {
           const Char* p = t.c_str();
@@ -1553,9 +1294,8 @@ namespace
           field("steer_m=", milli);
           driveSteer = static_cast<Float32>(milli) / 1000.0f;
 
-          // Absent from a board running firmware older than this field; the
-          // default of 0 then means the drawing shows straight-ahead, which is
-          // the safe thing to show when nobody has said otherwise.
+          // Absent on firmware older than this field; the default of 0 then
+          // draws straight-ahead, which is the safe thing to show.
           Int32 milliNow = 0;
           field("steer_now=", milliNow);
           driveSteerNow = static_cast<Float32>(milliNow) / 1000.0f;
@@ -1595,8 +1335,7 @@ namespace
           }
 
           // Two comma lists, read the same way. Short lists leave the tail of the
-          // array alone rather than zeroing it: a board running older firmware
-          // says less, and saying less should not read as "every lamp is dark".
+          // array alone: older firmware says less, not "every lamp is dark".
           const auto commas = [](const Char* q, Int32* out, Int32 n)
           {
               if(q == nullptr)
@@ -1645,9 +1384,7 @@ namespace
       }
 
       // "OK sensors i2c=1 tof=1 tof_addr=0x29" - what the board found at boot.
-      //
-      // Read as key=value pairs rather than by position, so a sensor added to the
-      // firmware later is ignored by an older hub instead of breaking the parse.
+      // Read as key=value pairs, so a sensor added later does not break the parse.
       if(t.compare(0, 11, "OK sensors ") == 0)
       {
           const Char* p = t.c_str();
@@ -1667,8 +1404,7 @@ namespace
       }
 
       // "OK tof <mm> <status>", or "OK tof busy" when the measurement is not
-      // finished. Busy is NOT an error: the sensor takes tens of milliseconds and
-      // the hub is entitled to ask more often than that.
+      // finished. Busy is NOT an error: the sensor takes tens of milliseconds.
       if(t.compare(0, 7, "OK tof ") == 0)
       {
           const Char* a = t.c_str() + 7;
@@ -1677,9 +1413,8 @@ namespace
               return;
           }
 
-          // Signal and ambient are optional: an older firmware sends two fields
-          // and a newer one sends four, and reading however many arrived means
-          // the hub works with both rather than refusing the older one.
+          // Signal and ambient are optional: older firmware sends two fields and
+          // newer sends four, so read however many arrived.
           Int32 mm  = 0;
           Int32 st  = 0;
           Int32 sig = -1;
@@ -1725,14 +1460,9 @@ namespace
           return;
       }
 
-      // "OK led on" / "OK led off" / "OK led blink 2.00".
-      //
-      // Nothing displays the lamp's state any more - the board drawing that did
-      // is gone - so this stores nothing. It still has to RECOGNIZE the line and
-      // return, though: dbgAwait is set while a STATUS is outstanding, and
-      // anything unrecognized arriving in that window is read as "this firmware
-      // has no STATUS command" and stops the polling permanently. An LED command
-      // sent by hand while a poll was in flight would do exactly that.
+      // "OK led on" / "OK led off" / "OK led blink 2.00". Stores nothing, but MUST
+      // recognize the line: anything unrecognized while dbgAwait is set stops the
+      // STATUS polling permanently.
       if(t.compare(0, 7, "OK led ") == 0)
       {
           return;
@@ -1751,8 +1481,7 @@ namespace
       Int32  servo = 0, esc = 0;
 
       // sscanf_s rather than sscanf: no %s or %c here, so it needs no extra size
-      // arguments, and it keeps this file warning-clean at /W4 without relying on
-      // _CRT_SECURE_NO_WARNINGS being defined by the build.
+      // arguments, and it keeps /W4 clean without _CRT_SECURE_NO_WARNINGS.
       if(sscanf_s(t.c_str(), "S %llu %ld %ld %d %d %llu",
                    &up, &a, &b, &servo, &esc, &last) == 6)
       {
@@ -1783,13 +1512,8 @@ namespace
       const Size before = picoLog.size();
       picoLink.drain(picoLog);
 
-      // A reply inherits the flag from the request it answers.
-      //
-      // The link cannot know this - it sees bytes, not a protocol - and it is the
-      // whole difference between hiding the chatter and hiding half of it. The
-      // board answers in order, so the last thing SENT is what any arriving line
-      // is a reply to. That also means a STATUS somebody types by hand shows its
-      // answer normally, which a content match on "INFO status" could never do.
+      // A reply inherits the flag from the request it answers - the link sees bytes,
+      // not a protocol. The board answers in order, so the last SENT line is it.
       for(Size i = before; i < picoLog.size(); ++i)
       {
           if(picoLog[i].outgoing)
@@ -1813,13 +1537,8 @@ namespace
       }
   }
 
-  // Asks the board what it is doing, at most every couple of seconds.
-  //
-  // This used to run only while the board view was on screen, on the grounds that
-  // polling a link nobody is looking at is traffic nobody asked for. That view is
-  // gone, and the argument went with it: the System panel in the sidebar is
-  // ALWAYS visible and shows what the reply carries - the board name, whether the
-  // firmware is running - so there is now always somebody looking.
+  // Asks the board what it is doing, at most every couple of seconds. Runs
+  // unconditionally: the System panel is always visible and shows the reply.
   Void pollBoardStatus()
   {
       if(dbgUnsupported)
@@ -1841,13 +1560,8 @@ namespace
       pollPico("STATUS");
   }
 
-  // Asks the board what its indicator lamps are doing.
-  //
-  // Fast, because the point is to WATCH it blink: at 1.5 Hz the lamp changes
-  // every 267 ms, so a two-second poll would show a still frame of a flashing
-  // light. 120 ms is comfortably inside the shorter half-cycle.
-  //
-  // TEMPORARY, with the rest of the indicator scaffolding.
+  // Asks the board what its indicator lamps are doing. Fast, to WATCH it blink: at
+  // 1.5 Hz the lamp changes every 267 ms, so 120 ms fits. TEMPORARY scaffolding.
   Void pollLights()
   {
       if(dbgUnsupported)
@@ -1869,12 +1583,8 @@ namespace
       pollPico("LIGHTS");
   }
 
-  // Asks the board WHICH CUES IT HAS, once per connection.
-  //
-  // Once, because the answer cannot change while the board is running - the table
-  // is compiled in. A reflash gives a new connection, and resetBoardStatus()
-  // clears the flag, so a cue added and flashed appears without anybody pressing
-  // anything.
+  // Asks the board WHICH CUES IT HAS, once per connection: the table is compiled
+  // in. A reflash gives a new connection and resetBoardStatus() clears the flag.
   Void pollCueList()
   {
       if(dbgUnsupported || cueListAsked)
@@ -1889,11 +1599,8 @@ namespace
       pollPico("CUE LIST");
   }
 
-  // And what it is saying right now.
-  //
-  // Fast for the same reason the lamp poll is: a cue is a few hundred
-  // milliseconds end to end, so a two-second poll would show a still frame of
-  // something that has already finished. Only while the board is on screen.
+  // And what it is saying right now. Fast for the same reason the lamp poll is:
+  // a cue is a few hundred milliseconds end to end.
   Void pollCueState()
   {
       if(dbgUnsupported)
@@ -1915,9 +1622,8 @@ namespace
       pollPico("CUE");
   }
 
-  // Slower than the cue poll on purpose: nothing here changes on its own
-  // except BUSY, and the board answers a full status line to every command
-  // anyway, so a fast poll would be traffic for its own sake.
+  // Slower than the cue poll on purpose: nothing here changes on its own except
+  // BUSY, and the board answers a full status line to every command anyway.
   Void pollSoundState()
   {
       if(dbgUnsupported)
@@ -1939,12 +1645,8 @@ namespace
       pollPico("SOUND");
   }
 
-  // Asks the board what is attached, once per connection.
-  //
-  // Separate from the range poll because the answer does not change while the
-  // board is running - a sensor cannot be plugged into a Pico that is already
-  // powered without it being reset - so asking repeatedly would be noise on a
-  // link that is also carrying the readings.
+  // Asks the board what is attached, once per connection: the answer cannot
+  // change while the board runs, and this link also carries the readings.
   Void pollSensorList()
   {
       if(dbgUnsupported || sensorsAsked)
@@ -1958,11 +1660,8 @@ namespace
       pollPico("SENSORS");
   }
 
-  // Asks for a range reading, at a rate the sensor can actually sustain.
-  //
-  // Only while the Range view is on screen. Polling a sensor nobody is looking at
-  // fills the console log and the link with traffic to no purpose, and this link
-  // is also how firmware gets flashed.
+  // Asks for a range reading, at a rate the sensor can sustain. Only while the
+  // Range view is on screen - this link is also how firmware is flashed.
   Void pollTof(Bool wanted)
   {
       if(!wanted || !sensorTof || dbgUnsupported)
@@ -1994,9 +1693,8 @@ namespace
       case PicoState::PICO_STATE_CONNECTED:  return "Connected";
       case PicoState::PICO_STATE_ERROR:      return "Error";
 
-      // A Pico that rebooted into BOOTSEL drops its CDC port BY DESIGN, and that
-      // happens on every single flash. Calling it an error made the normal path
-      // through this app look like a failure.
+      // A Pico that rebooted into BOOTSEL drops its CDC port BY DESIGN, on every
+      // single flash. Calling that an error makes the normal path look broken.
       case PicoState::PICO_STATE_UNPLUGGED:  return "Not connected";
       default:                    return "Not connected";
       }
@@ -2022,22 +1720,19 @@ namespace
       case LidarState::LIDAR_STATE_SCANNING:   return "Scanning";
       case LidarState::LIDAR_STATE_ERROR:      return "Error";
 
-      // Spelled out rather than left to the default, because it is a DECISION:
-      // a device somebody unplugged reads as not connected, which is what it is.
-      // "Error" is reserved for the cases where something is actually wrong.
+      // Spelled out rather than left to the default, because it is a DECISION: an
+      // unplugged device is not connected, and "Error" means something is wrong.
       case LidarState::LIDAR_STATE_UNPLUGGED:  return "Not connected";
 
       default:
-          // "Not connected" would be a lie while the port is open and the motor
-          // is simply parked. Those are different situations and the operator
-          // needs to be able to tell them apart at a glance.
+          // "Not connected" would be a lie while the port is open and the motor is
+          // simply parked, and the operator has to tell those apart at a glance.
           return lidarSource.connected() ? "Motor off" : "Not connected";
       }
   }
 
-  // The same state in two colors, because it is printed on two grounds: the
-  // status strip is light chrome, the map HUD is the dark viewport. See the note
-  // on the two palettes in theme.hxx.
+  // The same state in two colors, because it is printed on two grounds: the strip
+  // is light chrome, the map HUD the dark viewport. See theme.hxx.
   ImU32 lidarStateColor()
   {
       switch(lidarSource.state())
@@ -2065,9 +1760,8 @@ namespace
       }
   }
 
-  // A silent board is the expected state right now - the flashed firmware only
-  // speaks when spoken to - so this says so in words rather than showing an empty
-  // readout.
+  // A silent board is the expected state - the flashed firmware only speaks when
+  // spoken to - so this says so in words rather than showing an empty readout.
   Void picoAgeText(Char* buf, Size n, Float64 ageS)
   {
       if(ageS < 0.0)
@@ -2243,8 +1937,7 @@ namespace
   // ----------------------------------------------------------------- flash ---
 
   // vendor/ is where the existing backup lives, so restores are all in one place.
-  // The date is in the name because the only thing you ever want to know about a
-  // backup is which one is newer.
+  // The date is in the name: the only thing you want to know is which is newer.
   Void defaultBackupName()
   {
       const Str root = PicoFlash::repoRoot();
@@ -2260,12 +1953,8 @@ namespace
                     root.empty() ? "." : root.c_str(), stamp.data());
   }
 
-  // The most useful line of the flash/build log: the last one the script marked
-  // as an error, or failing that the last line it printed at all.
-  //
-  // The scripts are disciplined about prefixing real failures with "[error]", so
-  // this nearly always finds the sentence a person actually needs - "no Pico
-  // found: ... Either plug it in, or hold BOOTSEL while connecting USB."
+  // The most useful line of the flash/build log: the last one the script marked as
+  // an error, else the last line printed. Real failures are prefixed "[error]".
   Str lastFlashError()
   {
       for(Size i = flashLog.size(); i > 0; --i)
@@ -2293,20 +1982,11 @@ namespace
   }
 
   // Drops the Pico serial link before an operation that needs the port ITSELF.
-  //
-  // flash.ps1 reboots a running board by opening its port at 1200 baud - that is
-  // the whole mechanism that saves you reaching for the BOOTSEL button. Windows
-  // gives serial ports exclusively, so it cannot do that while the hub has the
-  // same port open: the touch fails with "Access to the port 'COM10' is denied",
-  // no bootloader ever appears, and the script reports
-  //
-  //     [error] RPI-RP2 never appeared.
-  //
-  // while the status bar cheerfully says PICO Connected. Those two facts together
-  // read as a broken board rather than as a busy port, which is what makes this
-  // worth an explicit release rather than a note in a README.
-  //
-  // The link is restored once the board has re-enumerated - see pumpPicoRelink().
+  // flash.ps1 reboots a running board by opening its port at 1200 baud, and
+  // Windows gives serial ports exclusively - so with the hub holding the same
+  // port the touch fails with "Access to the port 'COM10' is denied" and the
+  // script reports "[error] RPI-RP2 never appeared." while the status bar says
+  // PICO Connected. Restored once the board re-enumerates - see pumpPicoRelink().
   Void releasePicoPortForBoardOp()
   {
       if(picoLink.state() == PicoState::PICO_STATE_DISCONNECTED)
@@ -2323,25 +2003,16 @@ namespace
       picoLink.disconnect();
   }
 
-  // Reconnects after a board operation, once the port is back.
-  //
-  // Frame-counted rather than immediate: flashing reboots the board, so the port
-  // vanishes and returns a second or two after the script exits. Reconnecting the
-  // instant the operation ends just fails.
+  // Reconnects after a board operation, once the port is back. Frame-counted
+  // rather than immediate: flashing reboots the board, so the port vanishes and
+  // returns a second or two after the script exits.
   // Defined further down; the per-frame pumps below need them and sit above them.
   Bool   saveSketch();
 
-  // Notices a file edited outside the app, and reloads it.
-  //
-  // Reloads SILENTLY when the buffer is clean, and refuses when it is dirty -
-  // throwing away edits you have not saved to take edits from elsewhere is the
-  // one outcome nobody wants. A dirty buffer gets told instead, and the choice is
-  // left where it belongs.
-  //
-  // Polled rather than watched with ReadDirectoryChangesW: one GetFileAttributesEx
-  // twice a second costs nothing measurable, and a directory watch would need a
-  // thread, a handle to close, and a story about what happens when the sketch
-  // library moves.
+  // Notices a file edited outside the app and reloads it, SILENTLY when the buffer
+  // is clean and never when it is dirty. Polled rather than watched with
+  // ReadDirectoryChangesW: one GetFileAttributesEx twice a second costs nothing,
+  // and a watch would need a thread and a handle to close.
   Void pumpCodeWatch()
   {
       if(codePath.empty() || centralView != 3)
@@ -2386,32 +2057,20 @@ namespace
   // replaces one without discarding the other. They are merged for display.
   Vec<diag::Item> codeLintDiags;
 
-  // clangd's, kept apart from both for the same reason: it republishes the
-  // whole set on every keystroke, and merging it into either would let one
-  // source clear the other's marks.
-  //
-  // This is where clang-tidy shows up. clangd runs it in-process and publishes
-  // its findings on the same channel as its parse errors, so a narrowing
-  // conversion and a missing semicolon arrive together and are told apart by
-  // the check name the message carries.
+  // clangd's, kept apart from both for the same reason: it republishes the whole
+  // set on every keystroke, and merging would let one source clear the other's
+  // marks. Also where clang-tidy shows up - clangd runs it in-process and
+  // publishes on the same channel, told apart by the check name.
   Vec<diag::Item> codeLspDiags;
 
   // Frames until the buffer is re-linted. Counted from the last EDIT, like
-  // autosave, so it never fires mid-word - and re-linting on every keystroke
-  // would re-scan the file dozens of times while a single line is typed.
+  // autosave, so it never fires mid-word and never re-scans on every keystroke.
   Int32 codeLintIn = 0;
 
-  // Keeps clangd running and pointed at the open file.
-  //
-  // STARTED LAZILY, not at boot. clangd parses a Pico translation unit on its
-  // first question and holds the result, which is worth several seconds and a
-  // few hundred megabytes - and most sessions of this app never open the Code
-  // view at all. It starts when the view is first shown and stays up after,
-  // because the expensive part is the first parse and paying it twice would be
-  // the only thing worse than paying it once.
-  //
-  // start() is idempotent and cheap after the first call, so this is a plain
-  // per-frame call rather than a latch with its own "did we already" flag.
+  // Keeps clangd running and pointed at the open file. STARTED LAZILY, not at
+  // boot: clangd parses a Pico translation unit on its first question and holds
+  // the result, worth several seconds and a few hundred megabytes. start() is
+  // idempotent and cheap after the first call, so this is a plain per-frame call.
   Void refreshCodeDiags();      // defined just below; pumpCodeIntel calls it
 
   Void pumpCodeIntel()
@@ -2423,26 +2082,20 @@ namespace
 
       static_cast<Void>(lsp::start());
 
-      // The view asks about whatever this says. Empty for an unsaved buffer,
-      // which is correct: a file with no path has no entry in
-      // compile_commands.json, so clangd could only guess at its flags.
+      // The view asks about whatever this says. Empty for an unsaved buffer, which
+      // is correct: with no compile_commands.json entry clangd can only guess.
       codeView.lspPath = codePath;
 
-      // clangd republishes the whole set whenever it reparses, which is a few
-      // hundred milliseconds after a keystroke - so this is polled rather than
-      // recomputed, and only redraws the marks when something actually
-      // arrived. diagnostics() reports false on every frame in between.
+      // clangd republishes the whole set whenever it reparses, a few hundred ms
+      // after a keystroke, so this is polled - diagnostics() is false in between.
       if(lsp::diagnostics(codeLspDiags))
       {
           refreshCodeDiags();
       }
   }
 
-  // Merges the compiler's opinion with the linter's, compiler first.
-  //
-  // Order matters where both land on one line: the gutter shows the WORST
-  // severity, and a build error must not be hidden behind a style warning about
-  // the same line.
+  // Merges the compiler's opinion with the linter's, compiler first: the gutter
+  // shows the WORST severity, and a build error must not hide behind a warning.
   Void refreshCodeDiags()
   {
       codeView.diags = codeDiags;
@@ -2453,15 +2106,9 @@ namespace
   }
 
   // Re-checks the buffer against docs/conventions.md a moment after typing stops.
-  //
-  // WHY THIS IS SEPARATE FROM THE COMPILER. diagnostics.hxx reports what the
-  // build said, which is exact and only exists after a build. This reports what
-  // the style audit will say at commit time, which is worth knowing while the
-  // line is still under the cursor rather than an hour later.
-  //
-  // The rules are tools/style_audit.py's, deliberately the same set - a linter
-  // that disagrees with the gate either passes what the commit rejects or flags
-  // what the project has decided is fine, and both teach people to ignore it.
+  // SEPARATE FROM THE COMPILER: diagnostics.hxx reports what the build said, this
+  // reports what the style audit will say at commit time. The rules are
+  // tools/style_audit.py's, deliberately the same set.
   Void pumpCodeLint()
   {
       if(codePath.empty())
@@ -2485,12 +2132,8 @@ namespace
       }
   }
 
-  // Saves a few seconds after you stop typing.
-  //
-  // Counted from the last EDIT, not on a wall clock, so it never fires mid-word.
-  // Only ever writes a file that is already named - autosave must not invent a
-  // path, because a file you did not choose the name of is a file you will not
-  // find again.
+  // Saves a few seconds after you stop typing, counted from the last EDIT so it
+  // never fires mid-word. Only writes a file already named; it invents no path.
   Void pumpCodeAutosave()
   {
       if(!codeAutosave || codePath.empty() || !codeEditor.dirty())
@@ -2515,17 +2158,10 @@ namespace
   // because the rescan below may want to reconnect a device that just appeared.
   Void connect();
 
-  // Rescans the ports after something was plugged in or unplugged.
-  //
-  // WHY THIS DID NOT EXIST, and why the absence was invisible: both port lists
-  // were built once at startup and then only ever refreshed by an explicit
-  // button, a flash, or a BOOTSEL reboot. Launch the app with nothing attached,
-  // plug a board in, and it was never noticed - Connect stayed grayed out
-  // forever with nothing on screen to suggest what to do about it.
-  //
-  // Event-driven rather than polled: the answer is almost always "nothing
-  // changed", and asking Windows for the port list every frame to learn that
-  // would be sixty registry walks a second for nothing.
+  // Rescans the ports after something was plugged in or unplugged. Without this,
+  // both lists were built once at startup and a board plugged in later was never
+  // noticed. Event-driven rather than polled: the answer is almost always
+  // "nothing changed", and asking Windows every frame is 60 registry walks a sec.
   Void pumpDeviceScan()
   {
       // ~2 s at 60 fps. Only fires when a notification did not.
@@ -2563,10 +2199,9 @@ namespace
       refreshPorts();
 
       // ---- a board that has just appeared -----------------------------------
-      //
       // Reconnecting matches what the app does at startup, so plugging a board in
-      // behaves the same as having it plugged in already - which is the whole
-      // point. It does NOT override an explicit Disconnect.
+      // behaves the same as having it plugged in already. It does NOT override an
+      // explicit Disconnect.
       if(!hadPico && picoIndex >= 0)
       {
           LOG_INFO("pico", "board appeared on %s",
@@ -2629,19 +2264,16 @@ namespace
 
   Void pumpFlash()
   {
-      // Mirror the scripts' output into the session log. This is the single most
-      // useful thing in the file: it is the toolchain's own account of what it
-      // tried, and it is otherwise lost when the panel is cleared.
+      // Mirror the scripts' output into the session log: it is the toolchain's own
+      // account of what it tried, and is otherwise lost when the panel is cleared.
       const Size before = flashLog.size();
       picoFlash.drainLog(flashLog);
       for(Size i = before; i < flashLog.size(); ++i)
       {
           const Str& ln = flashLog[i];
 
-          // picotool draws a progress bar with carriage returns, which arrives
-          // here as enormous lines of "Saving file: [====] 47%". One backup put
-          // twelve of them in the log and buried everything else. The bar is for
-          // a person watching; the log wants the outcome.
+          // picotool draws a progress bar with carriage returns, arriving here as
+          // enormous "Saving file: [====] 47%" lines. The log wants the outcome.
           if(ln.find("Saving file:") != Str::npos
              || ln.find("Loading into") != Str::npos)
           {
@@ -2659,9 +2291,8 @@ namespace
                             flashLog.begin() + (flashLog.size() - FLASH_LOG_MAX));
       }
 
-      // An operation ending changes the world: a build makes a .uf2 appear, a
-      // flash changes what the board is running and takes its COM port away and
-      // gives it back. Re-scan once on the transition rather than polling.
+      // An operation ending changes the world - a build makes a .uf2 appear, a
+      // flash takes the COM port away. Re-scan once on the transition, not polled.
       const FlashState s = picoFlash.state();
       if(s != flashPrev)
       {
@@ -2678,9 +2309,8 @@ namespace
                   picoRelinkIn = 120;
               }
 
-              // The compiler's own opinion of the file on screen. Parsed from the
-              // build output rather than from a second parser of our own, so what
-              // the editor marks and what the build failed on cannot disagree.
+              // The compiler's own opinion of the file on screen, parsed from the
+              // build output so the marks and the failure cannot disagree.
               {
                   const Vec<diag::Item> all = diag::parseAll(flashLog);
                   codeDiags       = diag::forFile(all, codePath);
@@ -2693,15 +2323,10 @@ namespace
                   }
               }
 
-              // The second half of the Code view's Build & Flash. Chained on the
-              // transition rather than started alongside the build, because the
-              // two cannot overlap - PicoFlash runs one operation at a time and
-              // would simply reject the flash.
-              // A failure has to say WHY where the person is looking. "OP FAILED"
-              // in the status bar with the reason buried in another panel's log
-              // is a failure report that costs more time than it saves - the
-              // commonest cause by far is simply that the board is not plugged
-              // in, and the script says exactly that.
+              // The second half of the Code view's Build & Flash, chained on the
+              // transition rather than started alongside it: PicoFlash runs one
+              // operation at a time. A failure has to say WHY where the person is
+              // looking - usually the board is simply not plugged in.
               if(codeOp == CodeOp::CODE_OP_BUILDING)
               {
                   if(s == FlashState::FLASH_STATE_SUCCESS)
@@ -2752,16 +2377,14 @@ namespace
           recomputeDerived();
 
           // The recorder. Captured from the SAME frame the live map got, so a
-          // recording is exactly what was on screen and not a second sampling of
-          // the device with its own timing.
+          // recording is what was on screen, not a second sampling of the device.
           if(recArmed)
           {
               recording.append(latestFrame, ImGui::GetTime() - recStartS);
           }
 
           // Its view follows the live feed unless a recording is being played or
-          // scrubbed - otherwise the tab would sit black until you pressed
-          // something, and you could not frame a shot before capturing it.
+          // scrubbed - otherwise the tab sits black until you press something.
           if(recArmed || (!recPlaying && recording.empty()))
           {
               recView.push(latestFrame);
@@ -2910,11 +2533,9 @@ namespace
                   ui::plot::LABEL, zoom.data());
 
       // ---- second line, top left: the active mode and its reading ----------
-      //
       // A mode is a picture until it produces a number. This is where the number
-      // goes - the widest gap, the tightest sector, how much of the revolution
-      // came back unusable - so the view and its measurement are read together
-      // rather than the measurement living in a panel on the other side.
+      // goes - the widest gap, the tightest sector, how much came back unusable -
+      // so the view and its measurement are read together.
       {
           const Float32 my = y + px + 6.0f * uiDpiScale;
           Float32 mx = p0.x + pad;
@@ -2936,10 +2557,8 @@ namespace
 
   // ------------------------------------------------------------ small parts
 
-  // A metric and its label. Deliberately NOT color-coded: the six Live values
-  // used to be green / blue / green / orange / gray / gray, which looked like it
-  // meant something and did not. The caption says which number it is; color is
-  // reserved for values that actually carry a state (see ui::sem).
+  // A metric and its label. Deliberately NOT color-coded: the caption says which
+  // number it is, and color is reserved for values that carry a state (ui::sem).
   Void statCell(const Char* value, const Char* caption)
   {
       {
@@ -2979,38 +2598,17 @@ namespace
   }
 
   // ====================================================================== strip
-  // Always visible, whatever workspace is up, because "is it connected" is the
-  // question you ask constantly and the answer must never be one click away.
+  // Always visible: "is it connected" must never be one click away.
 
   // One field of the status strip: an icon, a dim name, the state, and whatever
-  // detail belongs with it.
+  // detail belongs with it. No lamp: the strip is exactly one text line tall and
+  // a lit lamp's glow extends about 2.6x its radius, so every halo was clipped by
+  // the child. Identity comes from the icon, state from the color.
   //
-  // The lamp that used to lead each field is gone. Two reasons, and the second is
-  // the one that actually mattered:
-  //
-  //   - It was redundant. A lamp AND a color-coded word said the same thing
-  //     twice, which is what made the row feel heavy.
-  //   - Its halo did not fit. The strip is exactly one text line tall, and a lit
-  //     lamp's glow extends about 2.6x its radius - so the top and bottom of every
-  //     halo was being clipped by the child, which is what read as "not vertically
-  //     centered". It was centered; it was cropped.
-  //
-  // The icon replaces it and carries something the color does not: WHICH
-  // subsystem this is. Identity from the icon, state from the color, one each.
-  // ---------------------------------------------------------------------------
-  // The status bar's fields.
-  //
-  // DRAWN, not flowed. The old strip put each piece in with ImGui::Image and
-  // TextUnformatted on a SameLine, which aligns items by their TOP edge - so a
-  // 16 px icon sat high against 20 px text and every field was a pixel or two off
-  // from its neighbor. There is no way to fix that by nudging padding, because
-  // the icon size and the type size move independently with DPI and with the zoom
-  // control sitting in the same bar.
-  //
-  // So the bar owns a centerline and every element is centered on it. `x` is
-  // advanced by each field explicitly. This is more code than a row of SameLine
-  // calls and it is the only version that is actually aligned.
-  // ---------------------------------------------------------------------------
+  // The status bar's fields are DRAWN rather than flowed. SameLine aligns items by
+  // their TOP edge, so a 16 px icon sits high against 20 px text, and padding
+  // cannot fix it because the two sizes move independently with DPI. So the bar
+  // owns a centerline and `x` advances explicitly.
 
   // Vertical center of the bar, and the pen position along it.
   struct BarPen
@@ -3068,12 +2666,7 @@ namespace
   }
 
   // Builds a label with enough leading spaces to clear an icon drawn in the frame
-  // padding.
-  //
-  // COMPUTED, not guessed. The first attempt hard-coded three spaces and the icons
-  // sat on top of their labels the moment the type scale changed - the icon size
-  // and the space width move independently, so the only stable answer is to
-  // measure both.
+  // padding. COMPUTED: a hard-coded count breaks the moment the type scale does.
   const Char* iconTabLabel(Char* buf, Size cap, const Char* name)
   {
       const Float32 spaceW = ImGui::CalcTextSize(" ").x;
@@ -3109,16 +2702,10 @@ namespace
                         a.y + ((b.y - a.y) - sz) * 0.5f));
   }
 
-  // A- / A+ and the current percentage. Text rather than icons: the Fugue subset
-  // vendored in assets/icons does not carry a magnifier, and two letters read as
-  // "text size" more directly than a magnifying glass does anyway.
-  // The UI zoom, right-aligned in the bar and centered on its line.
-  //
-  // Visible rather than shortcut-only. "The UI is too small" is a complaint about
-  // the app, and an app whose answer is a key combination nobody is told about has
-  // not answered it. The keys work too - Ctrl +/-/0.
-  //
-  // Returns the x it started at, so the caller knows where the fields must stop.
+  // The UI zoom: A- / A+ and the current percentage, right-aligned in the bar and
+  // centered on its line. Text rather than icons - the Fugue subset in
+  // assets/icons carries no magnifier. Ctrl +/-/0 work too. Returns the x it
+  // started at, so the caller knows where the fields must stop.
   Float32 drawZoomControl(Float32 cy, Float32 rightEdge)
   {
       const ImGuiStyle& sty = ImGui::GetStyle();
@@ -3134,15 +2721,8 @@ namespace
 
       const Float32 x0 = rightEdge - need;
 
-      // A SmallButton is NOT GetFrameHeight() tall.
-      //
-      // ImGui draws it with FramePadding.y forced to zero, so its height is the
-      // text line and nothing more. Centering it on GetFrameHeight() - which is
-      // the line PLUS two paddings - lifted both buttons above the centerline by
-      // one padding, while the percentage beside them was centered correctly and
-      // sat on it. Two things centered by two different rules, a few pixels apart,
-      // which is exactly the kind of misalignment that reads as sloppy without
-      // being obvious enough to chase.
+      // A SmallButton is NOT GetFrameHeight() tall: ImGui forces FramePadding.y to
+      // zero, so centering on GetFrameHeight() lifts it by one padding.
       const Float32 bh = ImGui::GetTextLineHeight();
 
       const Bool atMin = ui::userScale() <= ui::USER_SCALE_MIN + 0.001f;
@@ -3163,12 +2743,8 @@ namespace
           ImGui::SetTooltip("Smaller  (Ctrl -)");
       }
 
-      // The percentage is text, so it centers on the line directly.
-      //
-      // Centered inside its OWN slot as well, not left-aligned in it. The slot is
-      // sized for "000%" so the buttons either side never move as the number
-      // changes, and left-aligning inside it meant 90% and 110% sat at different
-      // distances from the button on their right.
+      // The percentage is text, so it centers on the line directly - and inside
+      // its OWN slot, sized for "000%" so the buttons never move.
       const ImVec2   psz  = ImGui::CalcTextSize(pct.data());
       const Float32  slot = x0 + btnW + gap;
       const Float32  px   = slot + ((pctW - psz.x) * 0.5f);
@@ -3176,10 +2752,8 @@ namespace
                                           ImGui::GetColorU32(ImGuiCol_TextDisabled),
                                           pct.data());
 
-      // An invisible hit box over it, so the click-to-reset and the tooltip still
-      // work now that the text is drawn rather than submitted.
-      // Over the whole SLOT rather than the glyphs, so the click target does not
-      // shrink when the number does.
+      // An invisible hit box, so click-to-reset and the tooltip still work now the
+      // text is drawn. Over the whole SLOT, so the target does not shrink.
       ImGui::SetCursorScreenPos(ImVec2(slot, cy - psz.y * 0.5f));
       ImGui::InvisibleButton("##zoompct", ImVec2(pctW, psz.y));
       if(ImGui::IsItemHovered())
@@ -3206,11 +2780,8 @@ namespace
       return x0;
   }
 
-  // The bottom status bar: what every subsystem is doing, in one line.
-  //
-  // At the BOTTOM because that is where a status bar belongs - it is ambient
-  // information you glance at, not a header you read first. Along the top it
-  // competed with the tab bar for the eye and pushed the actual work down.
+  // The bottom status bar: what every subsystem is doing, in one line. At the
+  // BOTTOM because it is ambient information you glance at, not a header.
   Void drawStatusBar()
   {
       const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -3270,9 +2841,7 @@ namespace
       }
 
       // ---- long-running operation ------------------------------------------
-      // Dropped rather than overlapped when the window is too narrow to hold it
-      // clear of the zoom control. A status bar that runs into its own controls
-      // is worse than one that shows three fields instead of four.
+      // Dropped, not overlapped, when the window cannot clear the zoom control.
       const FlashState fs = picoFlash.state();
       if(pen.x + ImGui::GetFontSize() * 8.0f < stopAt)
       {
@@ -3300,12 +2869,11 @@ namespace
   }
 
   // =================================================================== overview
-  // Every subsystem's state, and the actions reached for most often. Live rows are
-  // read from the hardware; the rest are labeled with what they are, which is
-  // nothing yet. No status is invented for something that has never been wired.
+  // Every subsystem's state and the actions reached for most often. No status is
+  // invented for something that has never been wired.
 
-  // name | state | live value. The third column stays empty for anything that has
-  // no live value to report - an empty cell is the honest reading.
+  // name | state | live value. The third column stays empty when there is no live
+  // value - an empty cell is the honest reading.
   Void subsystemRow(ui::Icon ic, const Char* name, ImU32 col, const Char* state, const Char* value, Bool lit = true)
   {
       ImGui::TableNextRow();
@@ -3344,10 +2912,8 @@ namespace
           return;
       }
 
-      // The RPLIDAR deliberately has no row here. The Sensors section sits a few
-      // lines below in this same column and is open by default, so a row saying
-      // "RPLIDAR C1  Scanning  COM7 9.8 Hz" would be the same fact twice on one
-      // screen. The strip at the top carries it too.
+      // The RPLIDAR deliberately has no row here: the Sensors section below in
+      // this same column, and the strip at the top, already carry it.
       const PicoState ps = picoLink.state();
       subsystemRow(ui::Icon::ICON_LINK, "Pico link", picoStateColor(ps), picoStateText(ps),
                    picoLink.port().c_str(), ps != PicoState::PICO_STATE_DISCONNECTED);
@@ -3360,13 +2926,8 @@ namespace
       }
       else if(brd.present)
       {
-          // The board NAME in the right column once the firmware has answered
-          // ID, falling back to the chip until it does.
-          //
-          // "RP2350" is true of both boards in this project and so distinguishes
-          // neither. With the mule and the car's board both plugged in - which is
-          // the normal state now - the only thing that tells them apart is what
-          // the firmware was compiled for, and that is precisely what board= is.
+          // The board NAME once the firmware has answered ID, else the chip.
+          // "RP2350" is true of both boards here and distinguishes neither.
           subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::GOOD,
                        brd.program.empty() ? "running" : brd.program.c_str(),
                        debugStatus.boardName.empty()
@@ -3381,10 +2942,8 @@ namespace
       // Nothing below is connected, so nothing below reports a value.
       subsystemRow(ui::Icon::ICON_SERVO,   "Servo (GP0)",           ui::sem::MUTED, "not driven", "", false);
       subsystemRow(ui::Icon::ICON_SERVO,   "ESC (GP1)",             ui::sem::MUTED, "not driven", "", false);
-      // "not wired" was a lie from 2026-08-28: all four of those XSHUT pins have
-      // an LED on them now - GP11/GP10 the headlights, GP13/GP12 the front
-      // indicators. The row still describes where the SENSORS are going, so it
-      // stays; what it says about the pins does not.
+      // All four XSHUT pins have an LED on them now - GP11/GP10 the headlights,
+      // GP13/GP12 the front indicators. The row says where the SENSORS are going.
       subsystemRow(ui::Icon::ICON_TOF,     "ToF bumpers (GP10-13)", ui::sem::WARN,  "lamps on those pins", "", false);
       subsystemRow(ui::Icon::ICON_ENCODER, "Wheel encoder (GP15)",  ui::sem::MUTED, "not wired",  "", false);
       subsystemRow(ui::Icon::ICON_IMU,     "IMU (I2C)",             ui::sem::MUTED, "not wired",  "", false);
@@ -3405,22 +2964,12 @@ namespace
       ImGui::EndTable();
   }
 
-  // ---------------------------------------------------------------------------
-  // Linking to the car over Wi-Fi.
-  //
-  // Two steps, and they are deliberately in different places, because they are
-  // two different kinds of secret:
-  //
+  // Linking to the car over Wi-Fi, in two deliberately separate steps:
   //   1. On the USB console, once:  WIFI JOIN <ssid> <password>
-  //      The board answers with its address. The password goes from a person to
-  //      a board and is never stored anywhere.
+  //      The board answers with its address. The password is never stored.
   //   2. Here: that address, and a button.
-  //
-  // After that the wireless link IS the link. The console, the drive polls, the
-  // keyboard controller and the emergency stop all run over it unchanged - they
-  // are written against PicoLink::send(), which no longer cares whether it is
-  // holding a serial port or a socket.
-  // ---------------------------------------------------------------------------
+  // After that the wireless link IS the link - everything is written against
+  // PicoLink::send(), which does not care whether it holds a port or a socket.
   Void drawWifiLink(Float32 bh)
   {
       loadWifiHost();
@@ -3523,15 +3072,12 @@ namespace
           ImGui::TableNextRow();
 
           ImGui::TableNextColumn();
-          // Keyed on the LINK, not on scanning. A paused lidar is still attached,
-          // and keying this off isBusy() meant pausing the motor replaced the very
-          // button that would start it again with "Connect lidar".
+          // Keyed on the LINK, not on scanning: off isBusy(), pausing the motor
+          // replaced the very button that would start it again.
           if(lidarSource.connected())
           {
-              // Spin control, not link control. Stopping the motor is the thing
-              // you actually want most of the time - the noise and the bearing
-              // wear come from the rotor, not from the serial port - and it keeps
-              // the device open so it comes straight back.
+              // Spin control, not link control: the noise and the bearing wear
+              // come from the rotor, and this keeps the device open.
               const Bool spinning = lidarSource.motorEnabled();
               // Amber to stop a spinning rotor, green to start one: the tint is
               // the claim about what pressing it does, and it flips with the verb.
@@ -3563,13 +3109,8 @@ namespace
                                 ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
               {
                   // Deliberate, so a rescan must not grab the port straight back.
-                  // Only the button sets this - the disconnects around a flash or
-                  // a BOOTSEL touch are ours and transient, and treating those as
-                  // intent would stop a board ever reconnecting after a reflash.
-                  //
-                  // Logged because it was NOT, and that made a report of "it
-                  // crashes when I press disconnect" impossible to confirm from
-                  // the log afterwards: the press left no trace at all.
+                  // ONLY the button sets this: a flash or BOOTSEL touch is not
+                  // intent and must not stop the board reconnecting.
                   LOG_INFO("pico", "disconnect requested by user (state=%s)",
                            picoStateText(ps));
                   picoUserDisconnected = true;
@@ -3631,9 +3172,7 @@ namespace
       }
 
       // The result of the last BOOTSEL touch, next to the button that asks for
-      // one, so a failure is not silent. Only once one has been attempted: the
-      // old unconditional "--" existed to stop a fixed-height panel jumping a
-      // line, and in a column that scrolls it is just an unlabeled dash.
+      // one, so a failure is not silent. Only once one has been attempted.
       if(bootselDone)
       {
           colored(bootselOk ? ui::sem::GOOD : ui::sem::BAD,
@@ -3643,11 +3182,8 @@ namespace
 
   Void sectionSystem()
   {
-      // The board's own report drives the rows below - the board name in
-      // particular - so the ask lives with the display. This section is always on
-      // screen, which is what makes polling from here reasonable rather than
-      // chatter; pollBoardStatus() rate-limits itself and gives up entirely on
-      // firmware that has no STATUS command.
+      // The board's own report drives the rows below, so the ask lives with the
+      // display. pollBoardStatus() rate-limits itself and gives up on old firmware.
       pollBoardStatus();
 
       drawSubsystems();
@@ -3660,9 +3196,8 @@ namespace
   }
 
   // ==================================================================== sensors
-  // The fused world view. One rotating scanner today; a ToF ring, an encoder and
-  // an IMU are named here so that wiring one later fills in a row instead of
-  // forcing a redesign.
+  // The fused world view. One rotating scanner today; the ToF ring, encoder and
+  // IMU are named so wiring one later fills in a row.
 
   Void drawConnection()
   {
@@ -3744,9 +3279,8 @@ namespace
       }
       else if(!err.empty() && ls == LidarState::LIDAR_STATE_UNPLUGGED)
       {
-          // Muted, not red. A pulled cable is a thing somebody did on purpose and
-          // already knows about; the line is here to confirm the app noticed, not
-          // to raise an alarm about it.
+          // Muted, not red: a pulled cable is deliberate and already known. The
+          // line confirms the app noticed, it does not raise an alarm.
           ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::MUTED);
           ImGui::TextWrapped("%s", err.c_str());
           ImGui::PopStyleColor();
@@ -3764,8 +3298,7 @@ namespace
   }
 
   // One row of the layer list: a visibility box, the sensor's name, and what it
-  // is actually doing. Unwired sensors are disabled rather than hidden - the
-  // point of the list is that the shape of the finished thing is visible now.
+  // is doing. Unwired sensors are disabled rather than hidden.
   Void sensorRow(Int32 index, Bool wired, Bool* vis, const Char* name, ImU32 col, const Char* state)
   {
       static Bool never = false;
@@ -3777,8 +3310,7 @@ namespace
       ImGui::SameLine();
 
       // A list row, not a control: only the selected one is drawn, marked down its
-      // left edge. Outlining every row would make the list read as a column of
-      // text fields, which is exactly what it is not.
+      // left edge. Outlining every row would read as a column of text fields.
       const Bool selected = (selSensor == index);
       const ImVec2 rowSz(ImGui::GetContentRegionAvail().x * 0.52f, 0.0f);
 
@@ -3895,8 +3427,7 @@ namespace
   Void tabSignal()
   {
       // Return classification. These four sum to the revolution's sample count,
-      // which is what makes the in-spec percentage interpretable rather than
-      // just low.
+      // which is what makes the in-spec percentage interpretable.
       const Int32 total = haveFrame ? static_cast<Int32>(latestFrame.points.size()) : 0;
 
       ImGui::TextDisabled("Returns this revolution (%d samples)", total);
@@ -4010,9 +3541,7 @@ namespace
                    st.uptimeS > 1.0 ? static_cast<Float64>(st.frames) / st.uptimeS : 0.0);
 
           // The time-of-flight core drifts with die temperature, so ranges are
-           // not trustworthy for the first two minutes. Measured on this unit -
-           // the datasheet states TOF and a fusion algorithm and goes no finer.
-           // That is a value, not a lecture.
+           // not trustworthy for the first two minutes. Measured on this unit.
           ImGui::TableNextRow();
           ImGui::TableNextColumn();
           ImGui::TextDisabled("Pre-heat");
@@ -4034,22 +3563,13 @@ namespace
       }
   }
 
-  // Car or bare sensor, at the origin. Shared by both dimensions, because it is a
-  // claim about the machine rather than about a projection.
-  //
-  // Worth a control rather than a constant: right now SENSOR is the honest
-  // picture. The C1 is on a desk and there is no car, so a 430 mm shell drawn
-  // round a 56 mm puck is a statement about the future, and there should be a way
-  // to ask what is actually there.
+  // Car or bare sensor, at the origin. Shared by both dimensions: a claim about
+  // the machine, not a projection. A control because SENSOR is honest today - a
+  // 430 mm shell round a 56 mm puck is a statement about the future.
   Void drawEgoSwitch()
   {
-      // A SCOPE, because ImGui derives a widget's identity from its LABEL, and
-      // this bar has two buttons called "Car" - one here, one in the camera Lock
-      // pair beside it. Without a scope they are literally the same widget: ImGui
-      // reports the conflict, and clicking one can drive the other.
-      //
-      // Named rather than an index, so the two scopes cannot collide with each
-      // other the way the labels did.
+      // A SCOPE, because ImGui identifies a widget by its LABEL and this bar has
+      // two buttons called "Car" - without one they are literally the same widget.
       ImGui::PushID("ego-switch");
 
       const ImGuiStyle& sty = ImGui::GetStyle();
@@ -4089,11 +3609,8 @@ namespace
 
   Void drawControlBar()
   {
-      // The row belongs to the dimension. Range, Trail, Labels and Nearest are all
-      // properties of a top-down projection - there is no "range" when you are
-      // orbiting, and a trail of past revolutions in 3D is a pile, not a history.
-      // Showing them grayed out would only advertise controls that will never do
-      // anything here.
+      // The row belongs to the dimension: Range, Trail, Labels and Nearest are all
+      // properties of a top-down projection and mean nothing while orbiting.
       if(centralView == 1)
       {
           ImGui::AlignTextToFramePadding();
@@ -4209,9 +3726,8 @@ namespace
       ImGui::SeparatorText("RPLIDAR C1 link");
       drawConnection();
 
-      // The readouts below describe the SELECTED sensor, not the app. Today
-      // that is always the RPLIDAR - saying so keeps the four tab names from
-      // reading as global.
+      // The readouts below describe the SELECTED sensor, not the app - saying so
+      // keeps the four tab names from reading as global.
       ImGui::SeparatorText("Telemetry - RPLIDAR C1");
 
       if(ImGui::BeginTabBar("##lidartabs"))
@@ -4270,20 +3786,17 @@ namespace
       }
   }
 
-  // The permanent left region: the map, with the control bar under it. Both are
-  // sized by the caller, which owns the split between map and sidebar.
-  // --view <map|3d|record|code|range|drive|sound|flash|reference> preselects a central tab at startup. Held for a few frames
-  // because a tab bar only honors SetSelected once it has laid its items out,
-
-  // which is not on frame one.
+  // The permanent left region: the map, with the control bar under it, both sized
+  // by the caller. --view <map|3d|record|code|range|drive|sound|flash|reference>
+  // preselects a central tab at startup, held a few frames because a tab bar only
+  // honors SetSelected once it has laid its items out.
   Int32 forceView        = -1;   // -1 none, 0 = 2D, 1 = 3D, 2+ board index + 2
   Int32 forceViewFrames = 0;
 
   Int32 modeToggleRows();
 
   // True when the mode strip has to scroll sideways at this content width. The
-  // layout and the strip itself both ask, so they cannot disagree about whether a
-  // scrollbar is going to appear and how tall the bar therefore is.
+  // layout and the strip both ask, so they cannot disagree about the bar height.
   Bool  modeToggleScrolls(Float32 contentW);
 
   // Rows of controls the given view puts under itself. Zero is a legitimate
@@ -4308,15 +3821,13 @@ namespace
           return modeToggleRows() + 1;   // render modes, then the map controls
       }
 
-      // The board views have nothing to configure yet. When one of them grows a
-      // control - a pin filter, a package outline toggle - it declares its rows
-      // here and draws them in drawCentralControls(), and no other code changes.
+      // The board views have nothing to configure yet. One that grows a control
+      // declares its rows here and draws them in drawCentralControls().
       return 0;
   }
 
-  // Height of that bar, or 0 when the view has no controls. `contentW` is the
-  // width the bar will be laid out in, which the map view needs because its mode
-  // strip grows a scrollbar once the cells would be too narrow to read.
+  // Height of that bar, or 0 when the view has no controls. `contentW` is needed
+  // because the map's mode strip grows a scrollbar once the cells get too narrow.
   [[nodiscard]] Float32 centralControlHeight(Int32 view, Float32 contentW)
   {
       const Int32 rows = centralControlRows(view);
@@ -4344,18 +3855,12 @@ namespace
   // squeezing the cells until the labels clip.
   constexpr Int32 MODE_TOGGLE_MAX_PER_ROW = 5;
 
-  // The render-mode toggle. A segmented row rather than a combo: the modes are
-  // few, switching between them is the point, and a combo hides four of the five
-  // behind a click.
-  // How many rows the mode toggle occupies. Callers size the control bar from
-  // this, so the two cannot disagree about how tall it is.
-  // How many overlay buttons the strip is carrying, which depends on which
-  // dimension is selected: the flat map has nine, the scene has four.
+  // The render-mode toggle: a segmented row rather than a combo, because switching
+  // is the point. Nine buttons flat, four in the scene; see modeToggleRows().
   Int32 activeModeCount()
   {
-      // Keyed on centralView rather than radarView.is3D on purpose: the bar's
-      // HEIGHT is computed before the tab bar has run and its CONTENTS after, and
-      // centralView is the value that is stable across both.
+      // Keyed on centralView, not radarView.is3D: the bar's HEIGHT is computed
+      // before the tab bar runs and its CONTENTS after; only this is stable.
       return (centralView == 1)
            ? static_cast<Int32>(scene3d::SceneMode::SCENE_MODE_COUNT)
            : static_cast<Int32>(MapMode::MAP_MODE_COUNT);
@@ -4366,18 +3871,10 @@ namespace
       return (activeModeCount() > MODE_TOGGLE_MAX_PER_ROW) ? 2 : 1;
   }
 
-  // The tooltip that makes a mode legible. Without this the toggle is twelve
-  // one-word labels, several of which ("Density", "Sweep", "Validity") do not say
-  // what they mean to anyone who has not read the source.
-  //
-  // Plain IsItemHovered, no ImGuiHoveredFlags_DelayNormal. A delay would be nicer
-  // - it stops a tooltip storm while the cursor crosses the strip - but that flag
-  // also implies Stationary, and it never fired for a cursor placed by
-  // SetCursorPos, which is how this is verified. An unverifiable nicety loses to a
-  // tooltip that provably appears.
-  // One tooltip body for both mode families - they carry the same three fields
-  // and there is no reason for the flat map and the scene to explain themselves
-  // differently.
+  // The tooltip that makes a mode legible - "Density", "Sweep" and "Validity" do
+  // not say what they mean to anyone who has not read the source. One body for
+  // both mode families. Plain IsItemHovered, NOT ImGuiHoveredFlags_DelayNormal:
+  // that flag implies Stationary and never fires for a SetCursorPos cursor.
   Void modeTooltipBody(const Char* name, const Char* what, const Char* read)
   {
       ImGui::BeginTooltip();
@@ -4466,10 +3963,8 @@ namespace
       const Float32 gap  = sty.ItemSpacing.x;
       const Int32   rows = modeToggleRows();
 
-      // Rows follow the mode count now: the flat map's nine wrap to two, the
-      // scene's four sit on one. What gives instead of shrinking is the WIDTH -
-      // below a legible minimum the strip scrolls sideways, because a cell narrow
-      // enough to clip "Clearance" has stopped being a label.
+      // Rows follow the mode count: the flat map's nine wrap to two, the scene's
+      // four sit on one. Below a legible width the strip scrolls sideways.
       const Float32 avail   = ImGui::GetContentRegionAvail().x;
       const Int32   topN    = (n + rows - 1) / rows;
       const Bool    scrolls = modeToggleScrolls(avail);
@@ -4531,8 +4026,7 @@ namespace
               const MapMode m = static_cast<MapMode>(i);
 
               // The mode icons live in a contiguous block that mirrors MapMode, so
-              // the mapping is arithmetic rather than a second table to keep in
-              // step.
+              // the mapping is arithmetic rather than a second table to maintain.
               const ui::Icon ic = static_cast<ui::Icon>(
                   static_cast<Int32>(ui::Icon::ICON_MODE_POINTS) + i);
 
@@ -4551,17 +4045,9 @@ namespace
   }
 
   // The bottom bar for whichever view is on screen. Must agree with
-  // centralControlRows() about how many rows it draws, or the bar clips.
-  // Transport and playback for the recorder tab.
-  //
-  // The view itself is deliberately Points and nothing else. Every other mode is
-  // an interpretation, and what a recording has to preserve - and show you it has
-  // preserved - is the returns. If you want Density over a recording, that is a
-  // question for the mapper this file exists to make possible, not for the
-  // recorder.
-  // One line over the recorder's map, saying which frame you are looking at and
-  // where it came from. Without it a paused playback and a live feed are
-  // indistinguishable, which is the single most confusing thing a recorder can do.
+  // centralControlRows() about how many rows it draws, or the bar clips. The
+  // recorder view is deliberately Points and nothing else, and its one HUD line
+  // says which frame you are looking at.
   Void drawRecorderHud(const ImVec2& p0, const ImVec2& size)
   {
       ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -4621,9 +4107,8 @@ namespace
           if(ui::iconButton(ui::Icon::ICON_RECORD, "Record", ImVec2(0, 0),
                             ui::Tint::TINT_BAD))
           {
-              // A new take replaces the old one. Anything worth keeping should
-              // have been saved, and silently appending two runs into one file
-              // would be worse than losing the first.
+              // A new take replaces the old one: silently appending two runs into
+              // one file would be worse than losing the first.
               recording.clear();
               recIndex   = 0;
               recPlayS   = 0.0;
@@ -4809,14 +4294,8 @@ namespace
 
   // ================================================================= code view
 
-  // Writes the buffer to the file it came from. One write, one file.
-  //
-  // It used to be two: the sketch library in %LOCALAPPDATA% AND a copy into
-  // firmware/scratch/sketch.cxx, because that slot was what CMake compiled.
-  // Every sketch was therefore saved twice and built from neither of the places
-  // it appeared to live, and the slot's previous contents were destroyed by the
-  // save. sketches/*.cxx each have their own target now, so the file on screen is
-  // the file that compiles.
+  // Writes the buffer to the file it came from. One write, one file: sketches
+  // each have their own target, so the file on screen is the file that compiles.
   Bool saveSketch()
   {
       if(codeName.empty())
@@ -4840,9 +4319,8 @@ namespace
       codeEditor.clearDirty();
       codeMessage = "saved " + codeName;
 
-      // Our OWN write must not look like somebody else's. Without this the
-      // watcher below would see the file change a frame later and offer to
-      // reload the buffer we just wrote.
+      // Our OWN write must not look like somebody else's, or the watcher below
+      // would offer to reload the buffer we just wrote.
       codeFileStamp = sketch::stamp(codePath);
 
       ui::setNote(codeView, "saved " + codeName, ImGui::GetTime());
@@ -4859,10 +4337,8 @@ namespace
           saveSketch();
       }
 
-      // Marks the view as loaded even though it may never have been drawn. Its
-      // first draw otherwise runs a lazy init that picks the first sketch in the
-      // library, which would replace whatever was just opened - the view would
-      // switch, announce "opened cal.hxx", and show a different file.
+      // Marks the view as loaded even though it may never have been drawn: its
+      // first draw otherwise lazy-inits and replaces whatever was just opened.
       codeLoaded = true;
 
       codePath = path;
@@ -4871,9 +4347,8 @@ namespace
       codeView.scrollY = 0.0f;
       codeView.diags.clear();      // a new file has not been compiled yet
 
-      // The PAGE's view too, not just the editor's. A pan carried from the last
-      // document can open this one entirely off-panel, and an empty panel reads
-      // as a renderer that failed rather than as a page parked somewhere.
+      // The PAGE's view too, not just the editor's: a pan carried from the last
+      // document can open this one entirely off-panel.
       docView = refdoc::View();
       codeDiags.clear();
 
@@ -4887,24 +4362,19 @@ namespace
       ui::setNote(codeView, "opened " + name, ImGui::GetTime());
   }
 
-  // Defined down with sidebarSplitter(), so the two drag handles sit together and
-  // stay the same as each other. Declared here because the Code tab is laid out
-  // long before that point in the file.
+  // Defined down with sidebarSplitter() so the two drag handles stay the same;
+  // declared here because the Code tab is laid out long before that point.
   Void codeTreeSplitter(const ImVec2& at, Float32 h, Float32 thickness);
 
-  // The file tree down the left of the Code view.
-  //
-  // Two roots, because there are genuinely two kinds of file here and conflating
-  // them would hide the one distinction that matters: a sketch is scratch space
-  // that Build & Flash overwrites, and firmware/src is the real thing.
+  // The file tree down the left of the Code view. Two roots: a sketch is scratch
+  // space that Build & Flash overwrites, firmware/src is the real thing.
   Void drawCodeTree(Float32 w, Float32 h)
   {
       ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0x28, 0x28, 0x28, 0xFF));
       ImGui::BeginChild("##codetree", ImVec2(w, h), ImGuiChildFlags_None);
 
       // ---- collapsed: a strip with the way back, and nothing else -----------
-      // A collapsed panel that leaves no handle is a panel the user has lost. The
-      // arrow is the whole width of the strip so it is hard to miss.
+      // A collapsed panel that leaves no handle is a panel the user has lost.
       if(codeTreeCollapsed)
       {
           if(ImGui::ArrowButton("##treeopen", ImGuiDir_Right))
@@ -4937,8 +4407,7 @@ namespace
       ImGui::Separator();
 
       // Re-scanned on a timer, not every frame: it is two directory enumerations,
-      // and a file can appear behind our back - a sketch saved by the editor, or
-      // one dropped into the folder from Explorer.
+      // and a file can appear behind our back.
       static Vec<Str> libFiles;
       static Vec<Str> fwFiles;
       static Int32    rescanIn = 0;
@@ -4951,35 +4420,17 @@ namespace
       --rescanIn;
 
       // One row, plus the right-click menu that belongs to it.
-      //
-      // The menu is opened with BeginPopupContextItem, which scopes it to THIS
-      // row's ID - so it acts on the file you right-clicked rather than on
-      // whichever one happens to be selected. Those are different files often
-      // enough to matter.
-      //
-      // Destructive entries do not act here. They record what was asked and the
-      // caller resolves it after the tree has finished drawing: deleting a file
-      // while iterating the list that drew it is how a tree crashes.
-      // `label` tints the NAME as well as the glyph. A document and a source
-      // file were told apart by two icons that are the same page in two shades,
-      // which does not read at sixteen pixels - so the filename carries it too.
-      // Color is the thing the eye sorts a list by.
+      // BeginPopupContextItem scopes the menu to THIS row's ID, so it acts on the
+      // file you right-clicked, not the selected one. Destructive entries do not
+      // act here: deleting a file while iterating the list that drew it is how a
+      // tree crashes. `label` tints the NAME as well as the glyph.
       const auto row = [](const Str& name, const Str& path, Bool sel, ui::Icon ic,
                           Bool deletable, ImU32 label = 0)
       {
           ImGui::PushID(path.c_str());
 
-          // The icon, centered on the LABEL rather than hung from the top of the
-          // row.
-          //
-          // Items put on one line with SameLine are aligned by their top edges,
-          // so the shorter of the two sits high - and the icon is shorter than a
-          // line of text whenever the icon set and the font disagree, which is
-          // most DPI settings. Half the difference, applied to the icon only,
-          // because the label is already where it should be.
-          //
-          // Guarded rather than assumed positive: an icon TALLER than the text
-          // would otherwise be pushed up out of its own row.
+          // The icon, centered on the LABEL, not hung from the top: SameLine aligns
+          // by top edges. Guarded, or an icon TALLER than the text is pushed out.
           const Float32 iconH = ui::iconSize();
           const Float32 textH = ImGui::GetTextLineHeight();
           if(textH > iconH)
@@ -5032,9 +4483,8 @@ namespace
 
               ImGui::Separator();
 
-              // firmware/src files are NOT deletable from here. They are the real
-              // firmware and are in git; losing one to a stray right-click would
-              // be a genuinely bad afternoon.
+              // firmware/src files are NOT deletable from here: they are the real
+              // firmware and are in git.
               ImGui::BeginDisabled(!deletable);
               ui::pushTint(ui::Tint::TINT_BAD);
               if(ui::iconMenuItem(ui::Icon::ICON_CLEAR, "Delete"))
@@ -5056,15 +4506,8 @@ namespace
           return hit;
       };
 
-      // A folder glyph, DRAWN rather than sprited.
-      //
-      // The icon set is Fugue and this project ships 69 of its files; a folder is
-      // not among them. Pressing one of the others into service - a card, a table,
-      // a server - would put a symbol on screen that means something else, and the
-      // one thing a file tree must not do is lie about what a row is.
-      //
-      // Two shapes: a tab, and a body. An open folder leans its lid back, which is
-      // the only difference a person needs to see at 16 pixels.
+      // A folder glyph, DRAWN rather than sprited: the vendored Fugue subset has no
+      // folder. Two shapes, a tab and a body; an open folder leans its lid back.
       const auto folderGlyph = [](Bool open)
       {
           const Float32 sz = ui::iconSize();
@@ -5094,12 +4537,8 @@ namespace
           ImGui::Dummy(ImVec2(sz, ImGui::GetTextLineHeight()));
       };
 
-      // One node of the firmware tree: a directory and what is directly in it.
-      //
-      // Built from the relative paths listFirmware() returns ("lib\\drivers\\
-      // display.h"), rather than walking the disk again - the list is already the
-      // architecture, in dependency order, and re-deriving it here would be a
-      // second opinion about the same thing.
+      // One node of the firmware tree: a directory and what is directly in it,
+      // built from listFirmware()'s relative paths rather than walking the disk.
       struct FwNode
       {
           Str          name;                 // the folder's own name
@@ -5132,22 +4571,11 @@ namespace
       };
 
       // ---- there is no sketch library any more ----------------------------
-      //
-      // There was one, in %LOCALAPPDATA%, holding numbered teaching sketches that
-      // were copied into a firmware/scratch slot to be built. It was scaffolding
-      // from the first week, and it outlived its purpose: a second copy of some
-      // of the firmware in a folder the repository does not track was somewhere
-      // for edits to get lost.
-      //
-      // Sketches are firmware/sketches/*.cxx now - in the tree, in git, each with
-      // its own build target. The tree shows the REPOSITORY, which is the only
-      // place a change survives.
+      // Sketches are firmware/sketches/*.cxx - in the tree, in git, each with its
+      // own build target. The tree shows the REPOSITORY.
 
       // ---- firmware, as the folders it actually is -------------------------
-      //
-      // It used to be a flat list of paths - "lib\\drivers\\display.h" printed as
-      // text - which is a tree written down rather than a tree. The layering IS
-      // the architecture here, so the view that shows the files should show it.
+      // The layering IS the architecture, so this shows folders, not flat paths.
       {
         FwNode root{ "firmware", {}, {} };
           for(const Str& n : fwFiles)
@@ -5156,16 +4584,9 @@ namespace
           }
 
           // Folders first, then files, each group alphabetical, at every level.
-          //
-          // The insertion order was listFirmware()'s, which is the library's
-          // DEPENDENCY order - hal before drivers before chassis. That is the
-          // right order to read the library in and the wrong order to find a file
-          // in, and a tree is for finding. Anyone wanting the dependency order has
-          // docs/conventions.md, which states it as a rule rather than implying it
-          // through a listing.
-          //
-          // Case-insensitive, because "Makefile" sorting above "app" on ASCII is
-          // an artifact of the encoding and not something anybody means.
+          // listFirmware()'s own order is DEPENDENCY order, right for reading the
+          // library and wrong for finding a file. Case-insensitive, because
+          // "Makefile" above "app" is an artifact of ASCII.
           const auto fwSort = [](auto&& self, FwNode& node) -> Void
           {
               const auto byName = [](const Str& a, const Str& b)
@@ -5223,9 +4644,7 @@ namespace
                   const Str p   = dir + "\\" + rel;
 
                   // A document is not code and should not look like it. The
-                  // header test also has to know about .hxx: it checked the last
-                  // two characters, which stopped being right the day the
-                  // library became C++.
+                  // header test has to know about .hxx as well as .h.
                   const auto ends = [](const Str& x, const Char* suf)
                   {
                       const Size n = std::strlen(suf);
@@ -5235,9 +4654,8 @@ namespace
                   const Bool doc = refdoc::isDocPath(f);
                   const Bool hdr = ends(f, ".h") || ends(f, ".hxx");
 
-                  // The LEAF name in the tree, the RELATIVE path everywhere else -
-                  // two files called main.c in different folders must not look
-                  // like one row, and the editor's title should still say which.
+                  // The LEAF name in the tree, the RELATIVE path everywhere else:
+                  // two main.c in different folders must not look like one row.
                   if(row(f, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
                          doc ? ui::Icon::ICON_DOC
                              : (hdr ? ui::Icon::ICON_FIRMWARE
@@ -5275,9 +4693,7 @@ namespace
       ImGui::PopStyleColor();
 
       // ---- destructive actions, resolved AFTER the tree has drawn ----------
-      // Never during it. Deleting a file while iterating the list that drew it is
-      // how a tree crashes, and the popup that asked for it is a child of the row
-      // that would disappear.
+      // Deleting a file while iterating the list that drew it is how a tree crashes.
       if(!codePendingDelete.empty())
       {
           const Str victim = codePendingDelete;
@@ -5364,22 +4780,16 @@ namespace
       }
 
       // ---- there is no "New" any more --------------------------------------
-      //
-      // It made a file in the sketch library, and the library is gone. What it
-      // would mean now is "create a file in the repository", and that is a thing
-      // with a right answer per folder - a new driver is not a new document is
-      // not a new scratch program - which a single button cannot have.
-      //
-      // Starting over on the scratch program is what it was mostly used for, and
-      // that is selecting all and typing.
+      // "Create a file in the repository" has a different right answer per folder
+      // - a driver is not a document is not a scratch program - and one button
+      // cannot have all of them.
 
       ImGui::SameLine();
       ImGui::TextUnformatted("|");
       ImGui::SameLine();
 
-      // The path, not just the name. Two files with the same leaf name exist all
-      // over the firmware tree, and knowing which one is open is the difference
-      // between editing a driver and editing the one beside it.
+      // The path, not just the name: the firmware tree is full of repeated leaf
+      // names, and which one is open is the whole question.
       ImGui::TextDisabled("%s", codePath.empty() ? "(unsaved)" : codePath.c_str());
 
       if(codeEditor.dirty())
@@ -5388,17 +4798,9 @@ namespace
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN), "modified");
       }
 
-      // ---- the firmware reference ------------------------------------------
-      //
-      // ON THIS ROW rather than in the tab strip, where it was first put. A
-      // trailing tab-bar button is visible from every view, so it offered the
-      // firmware API to somebody looking at a point cloud or a recording. The
-      // reference documents the code, so it belongs to the view with the code
-      // in it.
-      //
-      // Right-aligned, and on row 1 with the file operations rather than row 2
-      // with Run and Build. Those two write to the board; this opens a page,
-      // and putting it in that group would make it look like it is one of them.
+      // ---- the firmware reference ----------------------------------------
+      // ON THIS ROW rather than the tab strip: the reference documents the code,
+      // and row 1 with the file operations, not row 2 with Run and Build.
       {
           const Float32 dw = 92.0f * uiDpiScale;
           ImGui::SameLine();
@@ -5423,20 +4825,10 @@ namespace
       // ---- row 2: the round trip -------------------------------------------
       const Float32 bh = ImGui::GetFrameHeight();
 
-      // A HEADER is not a translation unit, and Run on one is meaningless.
-      //
-      // The source picker already knew this and grayed headers out - but the file
-      // TREE happily opens one, and Run then offered "Build & Flash: pico_debug,
-      // compiles gfx.h", which is three kinds of wrong at once. It would build
-      // some unrelated target, flash it, and report success against a file it
-      // never compiled.
-      // ".hxx" AND ".h". This tested the last two characters only, which stopped
-      // being right the day the firmware library became C++: bibo.hxx does not
-      // end in ".h", so every library header was enabled in this button and Run
-      // on one would build pico_debug while claiming to compile that file. That
-      // is precisely the failure the note above says this check exists to stop.
-      //
-      // A .bdoc is not buildable either, for a different reason: it is not code.
+      // A HEADER is not a translation unit, and Run on one is meaningless: it
+      // would build some unrelated target, flash it, and report success against a
+      // file it never compiled. Test ".hxx" AND ".h" - bibo.hxx does not end in
+      // ".h". A .bdoc is not buildable either: it is not code.
       const auto endsWith = [](const Str& p, const Char* suf)
       {
           const Size n = std::strlen(suf);
@@ -5448,18 +4840,10 @@ namespace
 
       ImGui::BeginDisabled(busy || onHeader);
 
-      // Amber rather than green: this writes to the board. It is the same claim
-      // the Firmware panel's Flash button makes, and it has to be the same color
-      // or the color stops meaning anything.
       const Str target = sketch::targetFor(codePath);
 
-      // "Run", because that is the verb every IDE uses and the one a person
-      // reaches for. What it ACTUALLY does - compile, then overwrite the board's
-      // flash - is in the tooltip, because a button that writes to hardware
-      // should not hide that behind a friendly word.
-      //
-      // Still amber. It is the same claim the Firmware panel's Flash button makes
-      // and it has to be the same color or the color stops meaning anything.
+      // "Run", the verb every IDE uses; what it ACTUALLY does - compile, then
+      // overwrite the board's flash - is in the tooltip. Amber, not green.
       if(ui::iconButton(ui::Icon::ICON_PLAY, "Run",
                         ImVec2(120.0f * uiDpiScale, bh), ui::Tint::TINT_WARN))
       {
@@ -5493,15 +4877,9 @@ namespace
       }
 
       // ---- the split-button arrow ------------------------------------------
-      //
-      // Run acts on the file that is OPEN, which is right nearly always and
-      // impossible to be sure of at a glance. This is the "nearly": one click to
-      // see exactly which source is about to be compiled, and to pick another.
-      //
-      // A built-in picker rather than the OS dialog. What is worth choosing here
-      // is a small known set - the sketch library and firmware/src - and a native
-      // dialog would happily let you pick a .png from the desktop and then fail
-      // somewhere much less obvious.
+      // Run acts on the file that is OPEN; this is one click to see which source
+      // is about to be compiled, and to pick another. A built-in picker rather
+      // than the OS dialog: the choosable set is small and known.
       ImGui::SameLine(0.0f, 1.0f);
       if(ui::button("v", ImVec2(bh, bh), ui::Tint::TINT_WARN))
       {
@@ -5526,16 +4904,8 @@ namespace
           ImGui::Separator();
           ImGui::TextDisabled("firmware");
 
-          // ONE LIST NOW. There were two - a "Sketches" group read out of
-          // %LOCALAPPDATA% and a "firmware" group read out of the repo - and a
-          // menu entry takes its ID from its label, so a saved sketch.cxx and
-          // firmware/scratch/sketch.cxx were literally the same widget to ImGui.
-          // The clash was a symptom: the same program genuinely did appear in two
-          // places, one of which git had never heard of.
-          //
-          // Sketches live in firmware/sketches/ and arrive through listFirmware()
-          // like every other source. The path is still the ID, because two
-          // folders can hold the same filename.
+          // ONE LIST. Sketches arrive through listFirmware() like every other
+          // source. The PATH is the ID: two folders can hold the same filename.
           auto entry = [](ui::Icon ic, const Str& name, const Str& path,
                           const Char* note, Bool enabled)
           {
@@ -5555,9 +4925,8 @@ namespace
               const Bool doc = refdoc::isDocPath(n);
               const Str  p   = fwd + "\\" + n;
 
-              // Which image this file ends up in, said out loud. It is the thing
-              // Build & Flash is about to act on and it is not guessable from a
-              // filename - so a row that will build `range-view` says so.
+              // Which image this file ends up in, said out loud: it is what Build
+              // & Flash acts on and it is not guessable from a filename.
               const Str tgt = (hdr || doc) ? Str() : sketch::targetFor(p);
 
               // A header is not a translation unit. Listed so this matches the
@@ -5654,57 +5023,31 @@ namespace
       // Board views: nothing. See centralControlRows().
   }
 
-  // The central region. The map is one view among several rather than the only
-  // one, but it is still the default and still where the app lands.
-  // ---------------------------------------------------------------------------
-  // ONE view's content, at the current cursor, filling w x h.
-  //
-  // Shared by both layouts. A tab and a floating panel showing "2D" must be the
-  // same picture, and the only way to guarantee that is for there to be one
-  // function that draws it.
-  // ---------------------------------------------------------------------------
-  // Views 0-3 are the fixed ones, then the rest in tab order.
-  //
-  // There was a per-board view between Code and Reference until 2026-08-28,
-  // which is why these are named constants rather than literals - the indices
-  // have moved before and will again. A saved tab index from an older build can
-  // therefore select the neighboring view once, which is a preference and not
-  // data; drawTabbedViews clamps anything out of range.
+  // The central region. The map is one view among several, and still the default.
+  // ONE view's content, at the current cursor, filling w x h. Shared by both
+  // layouts, so a tab and a floating panel showing "2D" are the same picture.
+  // Views 0-3 are the fixed ones, then the rest in tab order. Named constants
+  // because the indices have moved before; drawTabbedViews clamps out of range.
   constexpr Int32 RANGE_VIEW = 4;
   constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
   constexpr Int32 CUE_VIEW   = DRIVE_VIEW + 1;
 
-  // TEMPORARY. Goes when sound moves into the cue system, and it is last in the
-  // order so that removing it cannot renumber anything else - a settings file
-  // holding a view index would otherwise open on a different tab the day this
-  // one leaves.
+  // TEMPORARY. Goes when sound moves into the cue system, and it is LAST in the
+  // order so removing it cannot renumber anything else.
   constexpr Int32 SOUND_VIEW = CUE_VIEW + 1;
 
-  // The firmware catalog. APPENDED rather than slotted in beside the other
-  // board views, for the reason the comment above gives: a settings file
-  // holding a view index would otherwise open on a different tab.
+  // The firmware catalog. APPENDED rather than slotted in beside the other board
+  // views: a settings file holding a view index would open on a different tab.
   constexpr Int32 FLASH_VIEW = SOUND_VIEW + 1;
   constexpr Int32 VIEW_COUNT = FLASH_VIEW + 1;
 
   // ================================================ the cue board ==
-  //
-  // A button per cue, laid out as a grid, and the grid comes FROM THE BOARD.
-  //
-  // CUE LIST is asked once per connection and every row it answers becomes a
-  // button. Nothing about which cues exist is written on this side, which is the
-  // whole point: a cue added to firmware/lib/cue.hxx and flashed appears here
-  // with no hub change at all. The alternative - a list in this file kept in step
-  // by hand - fails in one of two ways, a button that does nothing or a cue
-  // nobody can reach, and both of them fail silently.
-  //
-  // This is a REMOTE CONTROL, not a status screen. Everything on it either sends
-  // something or says why it cannot.
-  // ---------------------------------------------------------------------------
+  // A button per cue, and the grid comes FROM THE BOARD: CUE LIST is asked once
+  // per connection and every row it answers becomes a button, so a cue added to
+  // firmware/lib/cue.hxx and flashed appears here with no hub change at all.
   // =========================================================== the Sound view
-  //
-  // TEMPORARY, and the tab says so. Everything here is a person pressing a
-  // button - nothing reacts to the car. When sound moves into the cue system
-  // this view goes and the Cues board grows a column.
+  // TEMPORARY, and the tab says so. Nothing here reacts to the car; when sound
+  // moves into the cue system this view goes and the Cues board grows a column.
   Void drawSoundBody(Float32 w, Float32 h)
   {
       static_cast<Void>(w);
@@ -5716,11 +5059,8 @@ namespace
       ImGui::BeginDisabled(!linkUp);
 
       // ---- what is wired, said out loud -------------------------------------
-      //
-      // The pins are read back FROM THE BOARD rather than printed from a
-      // constant here. The whole failure mode this view exists to debug is a
-      // wire on the wrong pad, and a hub that confidently displayed its own
-      // idea of the pinout would be the least useful thing on the screen.
+      // The pins are read back FROM THE BOARD, not printed from a constant: the
+      // failure this view debugs is a wire on the wrong pad.
       ImGui::SeparatorText("Link");
       if(soundTx >= 0)
       {
@@ -5732,11 +5072,8 @@ namespace
           ImGui::SameLine(0.0f, 16.0f);
           colored(ui::ansi::GRAY, "<- module TX");
 
-          // BUSY's pad, read back like the other two. The whole point of this
-          // row is that it is the BOARD's account of its own wiring - a hub
-          // printing its own idea of the pinout would be the least useful thing
-          // on the screen when the fault you are chasing is a wire on the wrong
-          // pad.
+          // BUSY's pad, read back like the other two: this row is the BOARD's
+          // account of its own wiring.
           if(soundBusyGp >= 0)
           {
               colored(ui::ansi::GRAY, "BUSY GP%d", soundBusyGp);
@@ -5753,13 +5090,9 @@ namespace
           ImGui::TextDisabled("the board has not answered SOUND yet");
       }
 
-      // ---- the card ---------------------------------------------------------
-      //
-      // FIRST, and prominent, because it is the one step whose absence is
-      // silent: the SD card takes 1.5-3 s to mount and a play sent before that
-      // is discarded with no error and no sound. Every other failure on this
-      // screen looks the same, so the one that can be ruled out with a button
-      // gets the button.
+      // ---- the card -------------------------------------------------------
+      // FIRST and prominent, because its absence is silent: the SD card takes
+      // 1.5-3 s to mount and a play sent before that is discarded with no sound.
       ImGui::SeparatorText("Card");
 
       if(soundReady)
@@ -5787,10 +5120,8 @@ namespace
       // ---- volume -----------------------------------------------------------
       ImGui::SeparatorText("Volume");
 
-      // Sent on RELEASE, not every frame. A slider dragged across its range at
-      // 60 fps would put a hundred frames on a 9600 baud link, and the module
-      // needs 20-40 ms between commands - so most of them would be dropped and
-      // the last one, the one that matters, would be among them.
+      // Sent on RELEASE, not every frame: the link is 9600 baud and the module
+      // needs 20-40 ms between commands, so a drag would drop most of them.
       ImGui::SetNextItemWidth(320.0f * uiDpiScale);
       ImGui::SliderInt("##soundvol", &soundVol, 0, soundVolMax, "%d");
       if(ImGui::IsItemDeactivatedAfterEdit())
@@ -5804,9 +5135,8 @@ namespace
       colored(soundVol > (soundVolMax / 2) ? ui::sem::WARN : ui::ansi::GRAY,
                   "%d / %d", soundVol, soundVolMax);
 
-      // Named steps rather than a bare number, because "8" means nothing until
-      // you have already been deafened once. These modules are reported as
-      // painful well below half.
+      // Named steps rather than a bare number: "8" means nothing until you have
+      // been deafened once, and these modules are painful well below half.
       const auto vol = [](const Char* label, Int32 level, const Char* why)
       {
           if(ui::iconButton(ui::Icon::ICON_SIGNAL, label,
@@ -5832,10 +5162,7 @@ namespace
                        "protocol range is 0-30, and the module clamps.");
 
       // ---- tone -------------------------------------------------------------
-      //
-      // NOT a second volume, and labeled so. It is what everybody reaches for
-      // when 30 is not loud enough, so it is better to have it here and say
-      // plainly what it does than to leave people to guess.
+      // NOT a second volume, and labeled so - it is what people reach for at 30.
       ImGui::SeparatorText("Tone");
 
       static constexpr const Char* const EQ_NAME[6] =
@@ -5876,10 +5203,8 @@ namespace
       // ---- the track --------------------------------------------------------
       ImGui::SeparatorText("Track");
 
-      // WHAT IS ON THE CARD, asked of the module rather than assumed. The hub
-      // keeps no list of tracks and neither does the firmware: adding an mp3 to
-      // the card is the whole of adding one, and this is how you find out it
-      // arrived.
+      // WHAT IS ON THE CARD, asked of the module rather than assumed. Neither the
+      // hub nor the firmware keeps a list: adding an mp3 is the whole of adding.
       if(soundFiles > 0)
       {
           colored(ui::ansi::GRAY, "%d track%s on the card",
@@ -5906,9 +5231,8 @@ namespace
       ImGui::SetNextItemWidth(120.0f * uiDpiScale);
       ImGui::InputInt("##soundtrack", &soundTrack);
 
-      // Clamped to what is ACTUALLY THERE when the card has been counted.
-      // Offering track 7 on a card holding three is offering silence, and
-      // silence is the one failure on this screen with too many causes already.
+      // Clamped to what is ACTUALLY THERE once the card has been counted: track
+      // 7 on a card holding three is silence, which has too many causes already.
       const Int32 highest = (soundFiles > 0) ? soundFiles : 3000;
       if(soundTrack < 1)
       {
@@ -5922,8 +5246,7 @@ namespace
       colored(ui::ansi::GRAY, "mp3/%04d.mp3", soundTrack);
 
       // One button per track, once the count is known and small enough to fit.
-      // Typing a number to hear a three-second sound is friction you notice on
-      // the tenth time; above a dozen the row stops being quicker than the box.
+      // Above a dozen the row stops being quicker than the box.
       if(soundFiles > 0 && soundFiles <= 12)
       {
           for(Int32 t = 1; t <= soundFiles; ++t)
@@ -5994,15 +5317,10 @@ namespace
 
       if(soundBusy == "unwired")
       {
-          // Said plainly rather than shown as "not playing", which would be a
-          // claim this car cannot make. BUSY is the module's own output and the
-          // only honest answer - the serial reply says a command was ACCEPTED,
-          // which is a different thing from a track still being audible.
-          //
-          // The symbol named here used to be pins::SOUND_BUSY, which stopped
-          // existing when the pin map became a value. A UI that tells you to
-          // edit something that is not there is worse than one that says
-          // nothing, because it is confidently wrong and you go looking.
+          // Said plainly rather than shown as "not playing", which this car cannot
+          // claim: BUSY is the module's own output, while a serial reply only says
+          // a command was ACCEPTED. The symbol named below must stay in step with
+          // the firmware - it was pins::SOUND_BUSY until the pin map became a value.
           ImGui::TextDisabled("BUSY is not wired, so the board cannot tell.");
           ImGui::TextDisabled("Wire it and set");
           ImGui::SameLine(0.0f, 4.0f);
@@ -6014,9 +5332,8 @@ namespace
       }
       else if(soundBusy == "yes")
       {
-          // A FILLED BAR, not just a word. This is the one live thing on the
-          // screen and the reason BUSY was wired at all: while a track sounds
-          // you want to see it from across the bench without reading.
+          // A FILLED BAR, not just a word: this is the one live thing on the
+          // screen, readable from across the bench.
           colored(ui::sem::GOOD, "playing");
           ImGui::SameLine(0.0f, 12.0f);
 
@@ -6052,10 +5369,8 @@ namespace
       const Bool   linkUp = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
 
       // ---- what the car is saying right now --------------------------------
-      //
-      // At the top and always present, because a cue is a few hundred
-      // milliseconds long: press a button, look away, and the only evidence it
-      // did anything is a line in a console. This is that evidence.
+      // Always present, because a cue is only a few hundred milliseconds long and
+      // the only other evidence is a line in a console.
       const Bool speaking = linkUp && !cueSpeaking.empty()
                          && cueSpeaking != "none" && cueSpeaking != "-";
 
@@ -6139,12 +5454,8 @@ namespace
               // firmware says which, so this does not have to guess.
               const Bool sticky = (c.play == "hold" || c.play == "loop");
 
-              // Tinted while it is up, so the board and the screen agree about
-              // what is happening without anybody reading a word.
-              //
-              // GREEN for a cue a person is holding, AMBER for one the car raised
-              // by itself. They are not the same claim: amber is the car telling
-              // you what it is doing and green is you telling the car.
+              // Tinted while it is up. GREEN for a cue a person is holding, AMBER
+              // for one the car raised by itself.
               const ui::Tint tint = !c.on          ? ui::Tint::TINT_NONE
                                    : c.latched     ? ui::Tint::TINT_GOOD
                                                    : ui::Tint::TINT_WARN;
@@ -6161,10 +5472,8 @@ namespace
               {
                   Array<Char, 80> cmd;
 
-                  // Pressing a sticky cue that a PERSON is holding lowers it.
-                  // Pressing one the CAR raised takes it over rather than
-                  // fighting it - the alternative is a button that appears to do
-                  // nothing because the next tick puts it straight back.
+                  // Pressing a sticky cue a PERSON is holding lowers it; pressing
+                  // one the CAR raised takes it over rather than fighting it.
                   if(sticky && c.on && c.latched)
                   {
                       std::snprintf(cmd.data(), cmd.size(), "CUE %s OFF", c.name.c_str());
@@ -6228,10 +5537,8 @@ namespace
       ImGui::Spacing();
 
       // ---- stop -------------------------------------------------------------
-      //
-      // NOT disabled when the link is down, for the same reason the emergency
-      // stop is not: a stop you cannot press because the program decided it would
-      // not work is worse than one that presses and does nothing.
+      // NOT disabled when the link is down: a stop you cannot press is worse than
+      // one that presses and does nothing.
       ui::pushTint(ui::Tint::TINT_WARN);
       if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop the cue",
                         ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.4f)))
@@ -6267,13 +5574,9 @@ namespace
   }
 
   // ============================================== the range view ==
-  //
-  // What the ToF sensor on the car's nose is seeing, live.
-  //
-  // The hub cannot see the Pico's pins, so everything here is an ANSWER from the
-  // board rather than an assumption about it. That distinction is the whole point
-  // of the top strip: "not detected" and "never asked" look the same on screen if
-  // you let them, and they are completely different problems.
+  // What the ToF sensor on the car's nose is seeing, live. Everything here is an
+  // ANSWER from the board, not an assumption: "not detected" and "never asked"
+  // are different problems, and the top strip keeps them apart.
   Void drawRangeBody(Float32 w, Float32 h)
   {
       ImGui::BeginChild("##range", ImVec2(w, h), ImGuiChildFlags_None,
@@ -6310,14 +5613,8 @@ namespace
           }
           else if(!sensorTof)
           {
-              // MUTED, not BAD. Nothing is broken - there is no ToF wired to this
-              // car yet, and the sidebar says exactly that in gray two panels
-              // away. Red here made an accurate report of an empty I2C bus look
-              // like a failure, and a color that cries wolf about the ordinary
-              // case is a color nobody reads on the day it matters.
-              //
-              // "no I2C bus" above stays BAD: that one IS a fault. The bus is on
-              // the board whether or not anything hangs off it.
+              // MUTED, not BAD: nothing is broken, there is simply no ToF wired to
+              // this car yet. "no I2C bus" above stays BAD - that one IS a fault.
               what = "no VL53L1X wired - nothing at 0x29";
               col  = ui::sem::MUTED;
           }
@@ -6336,10 +5633,8 @@ namespace
       }
 
       // ---- the mode switch ------------------------------------------------
-      //
       // SHORT reaches about 1.3 m and rejects ambient infrared well; LONG reaches
-      // about 4 m and is easily blinded. Which one is right depends on the room,
-      // so it belongs on screen rather than in a #define.
+      // about 4 m and is easily blinded. Which is right depends on the room.
       if(live && sensorTof)
       {
           ImGui::SetCursorScreenPos(ImVec2(p0.x + w - 190.0f * uiDpiScale,
@@ -6411,9 +5706,8 @@ namespace
               !live ? "Connect the Pico from the sidebar."
                     : "Flash pico_debug - it is the image that reports sensors.\n"
                       "Then check the wiring: VIN to 3V3, SDA to GP4, SCL to GP5.";
-          // Aligned with the LABEL above it rather than with the status lamp,
-          // so the block has one left edge. It was set to the panel padding,
-          // which put it a lamp's width left of the line it explains.
+          // Aligned with the LABEL above it rather than with the status lamp, so
+          // the block has one left edge.
           const Float32 textX = p0.x + pad + ui::iconSize() + 8.0f * uiDpiScale;
           dl->AddText(ImVec2(textX, top + 8.0f * uiDpiScale),
                       ui::sem::MUTED, hint);
@@ -6470,10 +5764,8 @@ namespace
       }
 
       // ---- the strip chart -------------------------------------------------
-      //
-      // A number alone is hard to WATCH. Moving a hand and seeing the trace
-      // follow says the sensor is tracking; a digit flickering between 812 and
-      // 809 says almost nothing.
+      // A number alone is hard to WATCH: a hand moved and a trace following it
+      // says the sensor is tracking.
       const Float32 chartTop = top + 92.0f * uiDpiScale;
       const Float32 chartH   = std::max(60.0f, (p0.y + h) - chartTop - 62.0f * uiDpiScale);
       const Float32 chartW   = w - (2.0f * pad);
@@ -6484,9 +5776,8 @@ namespace
       dl->AddRectFilled(c0, c1, IM_COL32(0x14, 0x16, 0x1A, 0xFF));
       dl->AddRect(c0, c1, IM_COL32(0x30, 0x32, 0x38, 0xFF));
 
-      // A fixed 2 m scale rather than one fitted to the data. An autoscaling
-      // chart looks identical whether the sensor is sweeping a room or jittering
-      // by three millimeters, which is the opposite of what it is for.
+      // A fixed 2 m scale rather than one fitted to the data: an autoscaling
+      // chart looks identical sweeping a room and jittering by three millimeters.
       constexpr Float32 FULL_MM = 2000.0f;
 
       for(Int32 g = 1; g < 4; ++g)
@@ -6539,10 +5830,8 @@ namespace
           Array<Char, 96> buf;
           if(tofSeenMax > 0)
           {
-              // Raw, in the sensor's own fixed point. Scaling them into
-              // "mega-counts per second" would be a unit nobody can check and
-              // would suggest a precision that is not there - the RATIO is the
-              // whole diagnostic and it is scale-free.
+              // Raw, in the sensor's own fixed point: the RATIO is the whole
+              // diagnostic and it is scale-free.
               if(tofSignal >= 0)
               {
                   std::snprintf(buf.data(), buf.size(),
@@ -6566,43 +5855,26 @@ namespace
           }
           dl->AddText(ImVec2(c0.x, c1.y + 8.0f * uiDpiScale), ui::sem::MUTED, buf.data());
 
-          // How stale the number is. A link that has gone quiet leaves the last
-          // reading on screen looking perfectly current, which is the one way a
-          // display like this can actively mislead.
+          // How stale the number is: a quiet link leaves the last reading looking
+          // perfectly current.
           // ---- why the reading is what it is -----------------------------
-          //
-          // The DISTANCE pattern alone cannot tell you. A first version of this
-          // guessed "protective film" from short-and-steady readings and was
-          // wrong on the real sensor: the rates said signal 5, ambient 511, which
-          // is not a close object at all.
-          //
-          // The RATIO is the diagnosis:
-          //
-          //   ambient >> signal    the sensor is blinded by infrared in the room.
-          //                        Sunlight, halogen and incandescent lamps all
-          //                        pour out the wavelength it listens on. Short
-          //                        mode exists for exactly this.
-          //
-          //   signal very high     something really is that close - which
-          //   at a short range      includes the protective film every one of
-          //                         these ships with, nearly invisible and stuck
-          //                         over the lens.
+          // The DISTANCE pattern alone cannot tell you - short-and-steady reads as
+          // "protective film" while the rates say signal 5, ambient 511. The RATIO
+          // is the diagnosis: ambient >> signal means blinded by room infrared,
+          // what Short mode is for; high signal at short range really is that close.
           if(tofSignal >= 0 && tofReplies > 30)
           {
               const Char* why = nullptr;
 
-              // Blinded: the room's infrared drowns the return. The threshold
-              // is deliberately high - signal and ambient are COMPARABLE in
-              // normal use, so "ambient exceeds signal" on its own means nothing.
+              // Blinded: the room's infrared drowns the return. The threshold is
+              // deliberately high - the two are COMPARABLE in normal use.
               if(tofAmbient > (tofSignal * 6) && tofSignal < 300)
               {
                   why = "Ambient light is swamping the signal - try Short mode, "
                         "or move away from a window or lamp.";
               }
-              // A STRONG return from a FIXED short distance, whatever is in
-              // front. That is not a room; it is something on the lens. Every one
-              // of these sensors ships with a protective film that is nearly
-              // invisible and reflects the laser straight back.
+              // A STRONG return from a FIXED short distance whatever is in front
+              // is not a room; it is the protective film on the lens.
               else if(tofSeenMax > 0 && tofSeenMax < 250 && tofSignal > 200
                       && (tofSeenMax - tofSeenMin) < (tofSeenMax / 2))
               {
@@ -6645,10 +5917,8 @@ namespace
     { "+1",    1 }, { "+10",  10 }, { "+50", 50 },
   };
 
-  // Throttle steps are smaller. A motor that jumps 50 us has already spun up by
-  // the time you decide it was too much. The "##esc" suffixes keep these distinct
-  // from the steering row - ImGui derives a widget's identity from its label, so
-  // two buttons called "-10" would be one button.
+  // Throttle steps are smaller: a motor that jumps 50 us has already spun up. The
+  // "##esc" suffixes are required - ImGui identifies a widget by its LABEL.
   constexpr Step ESC_STEPS[] =
   {
     { "-10##esc", -10 }, { "-5##esc", -5 }, { "-1##esc", -1 },
@@ -6675,8 +5945,7 @@ namespace
   }
 
   // The real ceiling on the WASD forward cap: the hard limit, but never outside
-  // the calibration, and never inverted if a recalibration ever put the idle
-  // above WASD_CAP_HARD.
+  // the calibration, and never inverted if a recalibration put idle above it.
   Int32 wasdCapCeil()
   {
       return std::max(driveEscMin, std::min(driveEscMax, WASD_CAP_HARD));
@@ -6688,10 +5957,8 @@ namespace
       return clampInt(wasdCapUs, driveEscMin, wasdCapCeil());
   }
 
-  // Offers the image this view actually needs. Shared by both of the ways a
-  // board can fail to answer - the port that will not open, and the port that
-  // opens and then says nothing - because they have the same cause and the same
-  // fix, and two copies of a button drift.
+  // Offers the image this view actually needs. Shared by both ways a board can
+  // fail to answer, because they have the same cause and the same fix.
   Void drawDriveFlashButton()
   {
       if(picoFlash.busy())
@@ -6725,36 +5992,22 @@ namespace
   Str steeringCalPath()
   {
       const Str d = sketch::firmwareDir();
-      // .hxx, and it was ".h" until now - which was not a cosmetic mistake.
-      //
-      // The firmware library became C++ and chassis.hxx now includes "cal.hxx".
-      // This kept writing cal.h, so every "Write to firmware" since the
-      // conversion has been putting the measured numbers into a file NOTHING
-      // COMPILES: recalibrate, write, flash, and the board keeps the old numbers
-      // with no error anywhere. A generator writing to a path that no longer
-      // exists is worse than one that fails, because it looks like it worked.
+      // .hxx, NOT ".h": chassis.hxx includes "cal.hxx", so writing cal.h puts the
+      // measured numbers into a file nothing compiles, with no error anywhere.
       return d.empty() ? Str() : (d + "\\lib\\chassis\\cal.hxx");
   }
 
   Bool readThrottleNumbers(const Str& text, Int32& lo, Int32& hi);
 
-  // The STEERING is loaded from settings, not from the header. The header is
-  // generated output - parsing back what we printed would make the two silently
-  // diverge the moment somebody hand-edits it, and the file itself says not to.
+  // The STEERING is loaded from settings, not the header: the header is generated
+  // output, and parsing back what we printed would let the two silently diverge.
   Void loadCalibration()
   {
       calLoaded = true;
       calWritten = sketch::load(steeringCalPath());
 
-      // The THROTTLE is different, and does come from the header.
-      //
-      // Not inconsistency: the steering has a working copy in settings and the
-      // throttle has none. driveEscMin/Max are otherwise set only by the board's
-      // DRIVE reply, so a hub that has not connected yet sits on the compile-time
-      // defaults - and "Write to firmware" from that state would put 1500 back
-      // over a measured idle of 1541 without anyone having touched a slider. The
-      // header is what the firmware would actually be built with, which makes it
-      // the right answer in the gap before a board has spoken.
+      // The THROTTLE does come from the header: with no working copy in settings,
+      // "Write to firmware" would put 1500 back over a measured idle of 1541.
       Int32 tlo = 0;
       Int32 thi = 0;
       if(!calWritten.empty()
@@ -6790,23 +6043,10 @@ namespace
       settings::write("steering.txt", Str(buf.data()));
   }
 
-  // When the three numbers were MEASURED, which is not when this file is
-  // written.
-  //
-  // The stamp used to take time(nullptr) at write time and label it "measured".
-  // Those dates differ whenever a calibration is taken and written on separate
-  // days - this car's were measured on the 29th and were still unwritten on the
-  // 31st - so the field that exists SO STALE NUMBERS CAN BE SPOTTED was the one
-  // thing guaranteed to look fresh. A record that always agrees with today is
-  // not a record.
-  //
-  // steering.txt's mtime is the honest answer and needs no format change or
-  // migration: that file is written by saveCalibration() and by nothing else,
-  // so its timestamp is the moment those three numbers were last set.
-  //
-  // Falls back to now when it cannot be read, which is the old behavior and
-  // the right one for a car that has never been calibrated - there is no
-  // measurement date to report because there was no measurement.
+  // When the three numbers were MEASURED, which is NOT when the header is
+  // written: time(nullptr) at write time makes the field that exists so stale
+  // numbers can be spotted the one thing guaranteed to look fresh. steering.txt's
+  // mtime is honest - it is written by saveCalibration() and nothing else.
   std::time_t calMeasuredAt()
   {
       const Int64 secs = sketch::modifiedAtUnix(settings::path("steering.txt"));
@@ -6814,8 +6054,7 @@ namespace
   }
 
   // The generated header, built as text so the view can SHOW it before anything
-  // is written. A file that appears on disk with no preview is a file nobody
-  // reads until it is wrong.
+  // is written - a file with no preview is one nobody reads until it is wrong.
   Str steeringCalText()
   {
       // The fallback when localtime_s below fails; normally overwritten.
@@ -6829,18 +6068,11 @@ namespace
       }
 
       /*
-       * Big enough, and CHECKED - because it was neither.
-       *
-       * This was 2048 and the header grew past it. snprintf truncates silently
-       * and returns what it WOULD have written, which nothing looked at, so the
-       * Drive view wrote a cal.hxx that stopped mid-comment. The firmware then
-       * would not compile, and the failure surfaced three steps away from the
-       * button that caused it.
-       *
-       * A fixed buffer holding generated source is always one edit from this. The
-       * size is generous now, but the guard below is the part that matters: if it
-       * ever does not fit, this returns nothing and the caller refuses to write,
-       * because no file at all is a better outcome than half of one.
+       * Big enough, and CHECKED. snprintf truncates silently and returns what it
+       * WOULD have written: at 2048 the header outgrew the buffer and the Drive
+       * view wrote a cal.hxx that stopped mid-comment. The guard below is the
+       * part that matters - if it does not fit, this returns nothing and the
+       * caller refuses to write, because no file beats half of one.
        */
       Array<Char, 8192> buf;
       const Int32 need = std::snprintf(buf.data(), buf.size(),
@@ -6963,12 +6195,8 @@ namespace
       return Str(buf.data());
   }
 
-  // Pulls the three numbers back out of a generated header.
-  //
-  // Not a parser for the file - a parser for what we ourselves printed, used only
-  // to answer "is what is on disk the same three numbers". Anything unrecognized
-  // reads as "no", which is the safe answer: it prompts a write rather than
-  // claiming agreement that was never established.
+  // Pulls the three numbers back out of a generated header - a parser for what we
+  // printed. Anything unrecognized reads as "no", which prompts a write.
   Bool readCalNumbers(const Str& text, Int32& l, Int32& c, Int32& r)
   {
       const auto one = [&text](const Char* key, Int32& out)
@@ -6988,8 +6216,7 @@ namespace
   }
 
   // The throttle pair, separately: a header written before the throttle was
-  // persisted has the three steering numbers and not these, and that file is
-  // still readable - it just needs writing again.
+  // persisted has the steering numbers and not these, and is still readable.
   Bool readThrottleNumbers(const Str& text, Int32& lo, Int32& hi)
   {
       const Char* p = text.c_str();
@@ -7008,12 +6235,8 @@ namespace
           && one("#define THROTTLE_CAL_MAX ", hi);
   }
 
-  // One row of the calibration: what it is, where it is, and the two things you
-  // ever want to do with it.
-  //
-  // "Set to here" captures the TARGET rather than the output, deliberately. The
-  // output is mid-slew half the time, and capturing a number the servo is merely
-  // passing through would record a position nobody ever looked at.
+  // One row of the calibration. "Set to here" captures the TARGET, not the
+  // output: the output is mid-slew half the time and nobody looked at it.
   Void calRow(const Char* label, const Char* help, Int32* value)
   {
       ImGui::PushID(label);
@@ -7076,11 +6299,8 @@ namespace
       ImGui::PopID();
   }
 
-  // A state lamp with its label, the way every other indicator in this app is
-  // drawn. ui::led throws a halo when lit, which is what makes it read as
-  // emitting rather than as a colored full stop - and it is the difference
-  // between this view looking like the console it lives in and looking like a
-  // form.
+  // A state lamp with its label, the way every other indicator here is drawn.
+  // ui::led throws a halo when lit, so it reads as emitting.
   Void driveLamp(Bool lit, ImU32 color, const Char* label)
   {
       const Float32 r  = 4.0f * uiDpiScale;
@@ -7095,34 +6315,16 @@ namespace
   }
 
   // ---- the car, seen from above ---------------------------------------------
-  //
-  // A wireframe rather than a picture. The point is not to look like a TT-02 -
-  // it is to answer, at a glance and from across the bench, the two questions
-  // somebody standing next to a powered car actually has: WHICH WAY ARE THE
-  // FRONT WHEELS POINTING, and IS THE MOTOR LIVE.
-  //
-  // Both are things the numbers already say and nobody reads in time. "steering
-  // +0.42" is a fact you have to convert; a wheel turned forty-two percent of the
-  // way to full lock is a thing you see. That conversion is the whole job.
-  //
-  // Drawn in the console's own language: a bevelled plate for the chassis, lamps
-  // for state, and a recessed well behind it all so it reads as an instrument set
-  // into the panel rather than a diagram printed on it.
+  // A wireframe rather than a picture. It answers, at a glance, the two questions
+  // somebody next to a powered car has: WHICH WAY ARE THE FRONT WHEELS POINTING,
+  // and IS THE MOTOR LIVE. The numbers say both and nobody converts them in time.
 
-  // How far the front wheels swing on screen at full lock.
-  //
-  // A TT-02's actual steering is around 28 degrees and drawing it true looks
-  // timid at this size - the wheel barely moves and the display fails at its one
-  // job. Exaggerated to 34, which is legible and still plainly a steering angle
-  // rather than a caster wheel spinning.
+  // How far the front wheels swing on screen at full lock. A TT-02's real
+  // steering is around 28 degrees, which looks timid here; exaggerated to 34.
   constexpr Float32 CHASSIS_LOCK_DEG = 34.0f;
 
-  // One stroke weight for the whole drivetrain.
-  //
-  // A wireframe is a drawing made entirely of lines, so the ONE thing that must
-  // not vary is how heavy a line is - vary it and the eye reads the heavier parts
-  // as nearer, which is a depth cue this drawing has no business making. Color
-  // carries the meaning here; weight carries none.
+  // One stroke weight for the whole drivetrain: vary it and the eye reads the
+  // heavier parts as nearer. Color carries the meaning here, weight carries none.
   constexpr Float32 WIRE_W = 1.0f;
 
   // The unfilled interior. Not quite the panel black, so a wheel crossing a beam
@@ -7147,12 +6349,8 @@ namespace
                         c.y + (corner[i].x * sn) + (corner[i].y * cs));
       }
 
-      // Outline over a near-black fill, not a solid.
-      //
-      // The fill is there only to stop the beam behind a wheel showing through it
-      // - a wireframe still needs to say which part is in front - and it is dark
-      // enough to read as unfilled. Everything that carries information is in the
-      // stroke.
+      // Outline over a near-black fill, not a solid: the fill only stops the beam
+      // behind a wheel showing through. All the information is in the stroke.
       dl->AddQuadFilled(p[0], p[1], p[2], p[3], fill);
       dl->AddQuad(p[0], p[1], p[2], p[3], edge, WIRE_W);
 
@@ -7163,47 +6361,18 @@ namespace
       dl->AddLine(t0, t1, edge, WIRE_W);
   }
 
-  // ---------------------------------------------------------------------------
-  // The Drive view's layout grid.
-  //
-  // ONE right-hand column, for the whole view. Every slider stops at the same x
-  // and whatever sits beside it - a button, a reading - starts at the same x, so
+  // The Drive view's layout grid: ONE right-hand column for the whole view, so
   // the controls form a column instead of a staircase.
-  //
-  // They did not before: the two tuning sliders reserved 260 px for their
-  // readings and the steering and throttle ones reserved 120 for their buttons,
-  // so three different right edges ran down a panel that is one column wide. That
-  // is most of what made this look like a pile rather than a page.
-  // ---------------------------------------------------------------------------
   constexpr Float32 DRIVE_TAIL_W = 120.0f;
 
   // One width for every nudge button - the servo steps and the throttle steps -
   // so the two rows line up with each other as well as with everything else.
-  //
-  // It used to be a local in the steering block that the THROTTLE block also
-  // read, which worked only because the two happened to be in the same scope. The
-  // moment the steering steps moved into the Calibration fold, the throttle
-  // stopped compiling - which is the good version of that mistake.
   constexpr Float32 DRIVE_STEP_W = 46.0f;
 
-  // How far into its working range the throttle is, 0..1.
-  //
-  // ONE function, because there were three copies and two of them were wrong.
-  // They measured from a hardcoded 1500 rather than from the calibrated idle:
-  //
-  //     span = escMax - 1500          frac = (us - 1500) / span
-  //
-  // which was correct while idle WAS 1500 and silently stopped being correct the
-  // day it was measured at 1541. From then on the bar read 41% - four of ten
-  // blocks lit - with the motor standing still, and disagreed with the percentage
-  // printed above it, which had been written later and got it right.
-  //
-  // That is the whole argument for not having three of these. A number computed
-  // in one place can be wrong; a number computed in three places is wrong in two
-  // of them eventually, and the disagreement is the only symptom.
-  //
-  // Clamped, because a disarmed ESC sits at neutral - BELOW idle - and a negative
-  // fraction would draw a bar going the other way.
+  // How far into its working range the throttle is, 0..1. ONE function: three
+  // copies measured from a hardcoded 1500 rather than from the CALIBRATED idle,
+  // so once idle was measured at 1541 the bar read 41% with the motor standing
+  // still. Clamped: a disarmed ESC sits at neutral, BELOW idle.
   Float32 throttleFraction(Int32 us)
   {
       const Int32 span = driveEscMax - driveEscMin;
@@ -7217,12 +6386,8 @@ namespace
       return (f < 0.0f) ? 0.0f : ((f > 1.0f) ? 1.0f : f);
   }
 
-  // A section head: a rule, the name in the title face, and what it is for.
-  //
-  // Sections were MUTED body text, which is exactly what the captions under them
-  // are - so a heading and a footnote were typographically the same thing and the
-  // view read as one undifferentiated stack. The rule and the weight are the
-  // whole fix; no color changes.
+  // A section head: a rule, the name in the title face, and what it is for. The
+  // captions under it are MUTED body text, so the heading needs the weight.
   Void driveSection(const Char* name, const Char* what)
   {
       ImGui::Spacing();
@@ -7241,15 +6406,12 @@ namespace
       }
   }
 
-  // A reading pushed to the right-hand edge of the current line.
-  //
-  // Right-aligned rather than trailing the label, so a number that changes width
-  // - "8 us/tick" against "200 us/tick" - does not shuffle everything after it.
+  // A reading pushed to the right-hand edge of the current line, so a number that
+  // changes width does not shuffle everything after it.
   Void driveReading(ImU32 col, const Char* text)
   {
-      // One spacing in from the edge. Flush against it, the last glyph is clipped
-      // by the panel's own clip rect - "lock to lock 1.10 s" lost its s - and a
-      // reading that touches the frame reads as overflowing whether it is or not.
+      // One spacing in from the edge. Flush against it the last glyph is clipped
+      // by the panel's own clip rect - "lock to lock 1.10 s" lost its s.
       const Float32 pad = ImGui::GetStyle().ItemSpacing.x;
       const Float32 w   = ImGui::CalcTextSize(text).x;
       const Float32 x   = ImGui::GetCursorPosX()
@@ -7261,15 +6423,9 @@ namespace
   }
 
   // steerN is -1..+1 of THIS car's travel; powerN is 0..1 of its throttle range.
-  //
-  // A DRIVETRAIN, not a car. Two axle beams and the shaft between them - the "I"
-  // - with a wheel on each end and nothing else. There is no bodywork here
-  // because there is nothing about the body worth reporting: the shell does not
-  // steer, does not drive, and drawing it would be decoration competing with the
-  // two things that are actually live.
-  // Where the diagram goes and what it is reporting. Ten parameters was one
-  // rectangle, one drive state and two lamp rows spelled out longhand; the
-  // signature ran to 175 columns and told you nothing the members do not.
+  // A DRIVETRAIN, not a car: two axle beams and the shaft between them, a wheel
+  // on each end, no bodywork - the shell neither steers nor drives. A struct
+  // rather than parameters because the longhand signature ran to 175 columns.
   struct ChassisFrame
   {
       ImVec2  p0{ 0.0f, 0.0f };
@@ -7319,38 +6475,23 @@ namespace
       const Float32 beamT  = base * 0.045f;           // half-thickness of a beam
       const Float32 shaftT = base * 0.030f;
 
-      // Structure is one color and one color only. Anything that changes
-      // color in this drawing is reporting something; the frame reports nothing,
-      // so it stays put.
+      // Structure is one color and one color only: anything that changes color in
+      // this drawing is reporting something, and the frame reports nothing.
       const ImU32 frame = ui::ansi::CYAN;
 
-      // ---- the shaft, drawn first so the axles sit on top ------------------
-      //
-      // Warms with throttle along its whole length: this is the one part that
-      // carries power from the motor to the rear axle, and it is the honest place
-      // to show that something is being asked of it.
       // ---- the lamps --------------------------------------------------------
-      //
-      // All four corners, from the board's own answer. Indicators outboard of the
-      // FRONT wheels and tails outboard of the REAR ones, where they are on a car.
-      //
-      // Drawn before the drivetrain so a beam crossing one reads as the lamp being
-      // behind the axle rather than painted over it.
-      //
-      // A lamp with no LED soldered to it is drawn as an EMPTY ring rather than a
-      // dark one. The firmware computes all eight either way, so "this lamp is off"
-      // and "this lamp does not exist yet" are different facts and the drawing
-      // should not merge them - the whole reason the pin list is reported at all.
+      // All four corners, from the board's own answer, indicators outboard of the
+      // FRONT wheels and tails outboard of the REAR. Drawn BEFORE the drivetrain
+      // so a beam crossing one reads as behind the axle. A lamp with no LED is an
+      // EMPTY ring, not a dark one - which is why the pin list is reported.
       {
           const Float32 lampR = base * 0.055f;
           const Float32 lampX = track + wheelW * 2.6f;
           const Float32 lampFY = axleF - wheelH * 0.35f;
           const Float32 lampRY = axleR + wheelH * 0.35f;
 
-          // BRYELLOW rather than a true amber, and BRRED for the tails. A real
-          // indicator is amber and this is a shade off it, which is the price of
-          // having exactly sixteen colors; next to the rest of the drawing the
-          // consistency is worth more than the accuracy.
+          // BRYELLOW rather than a true amber, and BRRED for the tails: the price
+          // of a sixteen-color palette, and consistency beats accuracy here.
           const ImU32 unwired = ui::ansi::GRID;
 
           const auto oneLamp = [&](Float32 x, Float32 y, Int32 idx, ImU32 col)
@@ -7376,12 +6517,8 @@ namespace
 
       const Float32 g = armed ? powerN : 0.0f;
 
-      // The shaft: an outline, and a fill that grows from the bottom as a BAR.
-      //
-      // The old version tinted the whole shaft brighter with throttle, which
-      // reads as "warmer" and not as a quantity - you cannot tell 40% from 60% by
-      // hue. A column that fills is a number you can actually read off, and it
-      // fills from the rear axle forward because that is the end the motor drives.
+      // The shaft: an outline, and a fill that grows as a BAR rather than a tint -
+      // you cannot tell 40% from 60% by hue. It fills from the rear axle forward.
       dl->AddRectFilled(ImVec2(mid.x - shaftT, axleF),
                         ImVec2(mid.x + shaftT, axleR), WIRE_VOID, 0.0f);
 
@@ -7407,10 +6544,8 @@ namespace
       beam(axleF);
       beam(axleR);
 
-      // A hub at each end, so a wheel reads as mounted on the beam rather than
-      // floating beside it.
-      // Eight segments, not twelve: at this size the facets are visible, and a
-      // visibly faceted circle is what a wireframe from this era looked like.
+      // A hub at each end, so a wheel reads as mounted on the beam. Eight segments,
+      // not twelve: the facets are visible, which is what a wireframe looked like.
       const auto hub = [&](Float32 x, Float32 y)
       {
           dl->AddCircleFilled(ImVec2(x, y), beamT * 1.15f, WIRE_VOID, 8);
@@ -7420,12 +6555,8 @@ namespace
       // ---- wheels -----------------------------------------------------------
       const Float32 deg = steerN * CHASSIS_LOCK_DEG;
 
-      // Front: dark when released, because a released servo holds nothing and the
-      // wheels are wherever the ground last left them. Drawing them straight would
-      // be the display inventing a fact.
-      // Bright while the servo is holding them, gray while it is released - the
-      // steering is either being commanded or it is not, and that is a two-state
-      // fact rather than a gradient.
+      // Front: bright while the servo holds them, gray when released - a released
+      // servo holds nothing, so drawing them straight would invent a fact.
       const ImU32 frontFill = WIRE_VOID;
       const ImU32 frontEdge = servoLive ? ui::ansi::BRCYAN : ui::ansi::IDLE;
 
@@ -7434,9 +6565,8 @@ namespace
       hub(mid.x - track, axleF);
       hub(mid.x + track, axleF);
 
-      // Rear: the driven pair. They warm rather than spin - nothing on this car
-      // measures speed yet, so brightness is a COMMAND and not a reading, and
-      // animating it would imply a measurement that does not exist.
+      // Rear: the driven pair. They warm rather than spin - nothing here measures
+      // speed, so brightness is a COMMAND and not a reading.
       const ImU32 rearFill = WIRE_VOID;
       const ImU32 rearEdge = armed ? ui::ansi::BRGREEN : ui::ansi::IDLE;
 
@@ -7468,31 +6598,18 @@ namespace
   }
 
   // ============================================== the drive view ==
-  //
   // Steering on GP0 and the ESC on GP1, with sliders instead of typed numbers.
-  //
-  // EVERY LIMIT HERE COMES FROM THE BOARD. The sliders are built from the range
-  // the firmware reports, not from constants in this file, so tightening the
-  // firmware tightens the UI and the two can never disagree about what is safe.
-  // A hub that decided the limits would be a hub whose safety disappears the
-  // moment it disconnects - and the board keeps holding the wires either way.
+  // EVERY LIMIT HERE COMES FROM THE BOARD: the sliders are built from the range
+  // the firmware reports, so safety survives the hub disconnecting.
   Void drawDriveBody(Float32 w, Float32 h)
   {
-      // Scrolls with the wheel, like anything else that is a list of controls.
-      //
-      // This carried ImGuiWindowFlags_NoScrollWithMouse, copied from the map
-      // views where it is correct because the wheel ZOOMS there and scrolling
-      // would fight it. Nothing here zooms, so the flag only meant the scrollbar
-      // had to be dragged - a panel that shows a scrollbar and then ignores the
-      // wheel reads as broken, and is.
+      // Scrolls with the wheel. Do NOT copy ImGuiWindowFlags_NoScrollWithMouse
+      // from the map views - it is right there because the wheel ZOOMS.
       ImGui::BeginChild("##drive", ImVec2(w, h), ImGuiChildFlags_None,
                         ImGuiWindowFlags_None);
 
-      // The cut-out this view sits in. Range, Reference and the board view are
-      // all recessed into the casing and this one was not - it was widgets lying
-      // on the panel, which is why it read as a different application. The bezel
-      // is drawn last, over the content, so it shadows the top edge the way a
-      // milled cut-out does.
+      // The cut-out this view sits in, recessed like the other views. The bezel is
+      // drawn LAST, over the content, so it shadows the top edge.
       const ImVec2 drivePanel0 = ImGui::GetCursorScreenPos();
 
       const Bool live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
@@ -7548,17 +6665,9 @@ namespace
       if(!driveKnown)
       {
           // ---- the firmware trap ------------------------------------------
-          //
-          // There are TWO images. `sketch` is whatever is open in the Code view;
-          // `pico_debug` is the one that answers these commands. Pressing Build &
-          // Flash on a sketch replaces pico_debug, and every view that talks to
-          // the board goes quiet - which reads as "the app broke" rather than as
-          // "a different program is running".
-          //
-          // So this says which image it needs, and offers to flash it.
-          //
-          // Asked on a timer rather than every frame: a draw happens sixty times a
-          // second and the board has better things to do.
+          // There are TWO images: whatever is open in the Code view, and
+          // `pico_debug`, which answers these commands. Build & Flash on a sketch
+          // replaces pico_debug and every board view goes quiet.
           const Float64 nowAsk = ImGui::GetTime();
           if(nowAsk - driveAskedAt > 1.0)
           {
@@ -7587,9 +6696,8 @@ namespace
           return;
       }
 
-      // Poll while the view is open. Not a subscription on the board: this way
-      // the traffic stops dead when the view is not on screen, and a firmware
-      // that is mid-reflash is never mid-broadcast.
+      // Poll while the view is open, rather than subscribing on the board: the
+      // traffic stops dead when the view is not on screen.
       const Float64 nowPoll = ImGui::GetTime();
       if(nowPoll - driveAskedAt > 0.25)
       {
@@ -7597,9 +6705,8 @@ namespace
           pollPico("DRIVE");
       }
 
-      // The sweep runs here so it stops the moment the view is not drawn - a
-      // servo cycling behind a tab nobody is looking at is exactly the thing that
-      // should not be possible.
+      // The sweep runs here so it stops the moment the view is not drawn: a servo
+      // cycling behind a tab nobody is looking at must not be possible.
       if(driveSweep && !driveServoOn)
       {
           driveSweep = false;
@@ -7630,14 +6737,10 @@ namespace
       ImGui::Spacing();
 
       // ---- the car ---------------------------------------------------------
-      //
-      // What the numbers below already say, in the form somebody standing next to
-      // a powered car can read without converting anything.
+      // What the numbers below already say, in a form readable without converting.
       {
-          // The well is NARROWER than the panel and centered. Full width left the
-          // car adrift in a meter of empty black, which reads as a rendering
-          // fault rather than as a diagram - an instrument is the size of the
-          // thing it shows, not the size of the space it was given.
+          // The well is NARROWER than the panel and centered: full width leaves the
+          // car adrift in a meter of black, which reads as a rendering fault.
           const Float32 full = ImGui::GetContentRegionAvail().x;
           const Float32 want = 460.0f * uiDpiScale;
           const Float32 caw  = (full < want) ? full : want;
@@ -7646,10 +6749,8 @@ namespace
           const ImVec2 here = ImGui::GetCursorScreenPos();
           const ImVec2 cp0(here.x + ((full - caw) * 0.5f), here.y);
 
-          // The throttle as a fraction of ITS range, which is what the shaft
-          // fills with. The TARGET rather than the output, deliberately: this is
-          // the one place showing what has been asked for, and the bar below
-          // shows what is actually being given.
+          // The throttle as a fraction of ITS range. The TARGET rather than the
+          // output - the bar below shows what is actually being given.
           const Float32 power = throttleFraction(driveEscT);
 
           drawChassis(ImGui::GetWindowDrawList(),
@@ -7679,10 +6780,8 @@ namespace
       // ---- steering --------------------------------------------------------
       driveSection("Steering", "GP0");
 
-      // Engaging is a deliberate act, the same shape as arming the ESC. The board
-      // comes up released and stays that way until asked, because driving neutral
-      // at power-on assumes 1500 us is somewhere safe - and on a car whose horn is
-      // a tooth out, the servo picks up the frame before anyone types anything.
+      // Engaging is a deliberate act, like arming the ESC. The board comes up
+      // released: with the horn a tooth out, 1500 us picks up the frame.
       if(driveServoOn)
       {
           ui::pushTint(ui::Tint::TINT_WARN);
@@ -7728,17 +6827,8 @@ namespace
           ImGui::SameLine();
           driveLamp(false, ui::sem::MUTED, "released  -  the servo is limp");
 
-          // Drawn as a band across the controls it applies to, because the thing
-          // being explained is that ALL of them are inert. A note beside the
-          // button would explain the button.
-          // ONE line, and a rule down the left rather than a box round it.
-          //
-          // It was a two-line placard with a full border, and it is on screen
-          // whenever the servo is released - which is most of the time. A notice
-          // that is always up and shouts stops being read; the same words at one
-          // line with a colored edge still catch the eye and stop being the
-          // loudest thing in the panel. The detail moved to the tooltip on the
-          // control it is actually about.
+          // A band across the controls it applies to, because what is explained is
+          // that ALL of them are inert. ONE line, not a bordered placard.
           const ImVec2  a  = ImGui::GetCursorScreenPos();
           const Float32 bh = ImGui::GetTextLineHeight() + 6.0f * uiDpiScale;
           ImDrawList*   dl = ImGui::GetWindowDrawList();
@@ -7798,15 +6888,9 @@ namespace
           sendPico("STEER 0");
       }
 
-      // ---- how fast anything is allowed to move ---------------------------
-      //
-      // A slider rather than presets. Four named buttons tell you four points and
-      // hide the rest of the range; the useful rate for a given job is somewhere
-      // between them and the only way to find it is to move it and watch.
-      //
-      // LOGARITHMIC, because the interesting part is the bottom. 1 to 20 is where
-      // the difference between "creeps" and "moves" lives, and on a linear scale
-      // that entire question is the first tenth of the track.
+      // ---- how fast anything is allowed to move -------------------------
+      // A slider rather than presets: the useful rate is found by moving it and
+      // watching. LOGARITHMIC, because 1 to 20 is where "creeps" becomes "moves".
       {
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                              "Response  -  how fast the servo may move");
@@ -7863,11 +6947,9 @@ namespace
 
 
       // ---- the calibration -------------------------------------------------
-      //
-      // Three named points instead of a min/max pair, because a car has three
-      // interesting positions and only two of them are ends. Center used to be
-      // assumed to be 1500 and that assumption is what put a servo against a
-      // frame - it is a measurement now, like the other two.
+      // Three named points instead of a min/max pair: a car has three interesting
+      // positions and only two are ends. Center is a MEASUREMENT - assuming it is
+      // 1500 is what put a servo against a frame.
       if(ImGui::TreeNode("Calibration  -  the three numbers for THIS car"))
       {
           if(!calLoaded)
@@ -7910,11 +6992,8 @@ namespace
           sendPico("SERVO CENTER");
       }
 
-      // ---- exact values, and steps ----------------------------------------
-      //
-      // A slider is for feeling out where things are; a number is for saying
-      // exactly where. Calibration needs both, and reading an end stop off a
-      // slider handle is not reading it.
+      // ---- exact values, and steps --------------------------------------
+      // A slider feels out where things are; a number says exactly where.
       const auto nudge = [](Int32 by)
       {
           driveSweep      = false;
@@ -7967,20 +7046,8 @@ namespace
               "looking at is exactly what should not be possible.");
       }
 
-      // What the board is actually OUTPUTTING, which lags the slider while the
-      // slew runs. Showing both is what makes the ramp visible rather than
-      // looking like lag. Directly under the buttons that move it: the limits
-      // block below expands, and this must not be pushed away by that.
-      // ONE status line for the whole steering section.
-      //
-      // There were three, and between them the center value appeared four times
-      // in five lines: the fraction, the raw slider, and this. A number repeated
-      // is a number you stop reading.
-      //
-      // Said as "the center value" rather than as the number it was that day.
-      // It was 1484 then and is 1480 now, and a comment that names a measurement
-      // is a comment that goes quietly stale the next time the car is
-      // calibrated - which is the thing this whole pass has been correcting.
+      // ONE status line for the whole steering section: what the board is actually
+      // OUTPUTTING, which lags the slider. Showing both makes the ramp visible.
       {
           Array<Char, 96> st;
           if(driveServoOn)
@@ -8094,8 +7161,7 @@ namespace
           }
 
           // Whether what is on screen matches what the firmware would build with.
-          // Silence here would mean "written" and "typed but not written" look
-          // identical, which is the whole problem generated files have.
+          // Silence would make "written" and "typed but not written" identical.
           {
               Int32 fl = 0;
               Int32 fc = 0;
@@ -8116,9 +7182,8 @@ namespace
                       !readThrottleNumbers(calWritten, tl, th)
                       || tl != driveEscMin || th != driveEscMax)
               {
-                  // The steering matches and the throttle does not, which is what
-                  // a header written before the throttle was persisted looks
-                  // like. Worth its own sentence rather than a silent green tick.
+                  // The steering matches and the throttle does not - what a header
+                  // written before the throttle was persisted looks like.
                   ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
                                      "Steering matches; the throttle range in "
                                      "cal.h does not.");
@@ -8159,11 +7224,9 @@ namespace
           ImGui::TreePop();
       }
 
-      // ---- the raw limits, still reachable ---------------------------------
-      //
-      // Kept because finding an end stop means pushing PAST where you think it
-      // is, and the calibration above will not let you: it clamps to what the
-      // board already accepts. This is the way out of that circle.
+      // ---- the raw limits, still reachable -------------------------------
+      // Finding an end stop means pushing PAST where you think it is, and the
+      // calibration above clamps to what the board already accepts.
       if(ImGui::TreeNode("Limits  -  widen to find the real end stops"))
       {
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
@@ -8236,9 +7299,8 @@ namespace
           driveReading(driveArmed ? ui::sem::WARN : ui::sem::MUTED, r.data());
       }
 
-      // Arming is a separate, deliberate act. The slider does nothing until it
-      // happens, and the board refuses throttle commands regardless of what this
-      // checkbox says - this is the reminder, not the enforcement.
+      // Arming is a separate, deliberate act. The BOARD refuses throttle commands
+      // regardless of what this checkbox says - this is the reminder, not the law.
       Bool arm = driveArmed;
       if(ui::checkbox("Arm the ESC", &arm))
       {
@@ -8301,10 +7363,7 @@ namespace
       };
 
       // A power bar, because a microsecond figure is not a sense of how much.
-      //
-      // Segmented rather than smooth: a continuous bar invites reading a
-      // precision that is not there. Ten blocks of the throttle's own range say
-      // "about a third" without pretending to say more.
+      // Segmented: ten blocks say "about a third" without implying more.
       {
           const Float32 barW = ImGui::GetContentRegionAvail().x - (120.0f * uiDpiScale);
           const Float32 barH = 10.0f * uiDpiScale;
@@ -8361,9 +7420,7 @@ namespace
       }
 
       // Response belongs WITH the thing it governs, not in a settings pile at the
-      // top of the page. It was a section of its own between Steering's
-      // collapsibles and the actual Throttle controls, which read as a third
-      // subject wedged between two halves of a second one.
+      // top of the page.
       ImGui::Spacing();
       ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                          "Response  -  how fast the ESC may move");
@@ -8497,12 +7554,8 @@ namespace
                   "which is what covers the app being minimised, hung or closed.");
           }
 
-          // What is missing, named. Enabling this does NOT arm the ESC or engage
-          // the servo - those stay deliberate acts - so it has to say why nothing
-          // happens rather than letting somebody hold W at a dead car.
-          // SameLine only when there IS something to put there. Calling it with
-          // nothing after leaves the NEXT thing on this line, which put "Forward
-          // cap" beside the checkbox the moment the car was ready.
+          // What is missing, named: enabling this does NOT arm the ESC or engage
+          // the servo. SameLine only when there IS something to put there.
           if(!ready || wasdOn)
           {
               ImGui::SameLine();
@@ -8554,20 +7607,13 @@ namespace
       }
 
       // ---- lights ----------------------------------------------------------
-      //
-      // Its own section, at the end. The tail-lamp threshold used to sit second
-      // from the top, between the steering and the throttle - a LIGHTING setting
-      // in the middle of the drivetrain, with no lighting section for it to
-      // belong to. Subjects were interleaved and that is most of what made the
-      // page read as a pile.
+      // Its own section, at the end, not interleaved with the drivetrain.
       driveSection("Lights", "what the lamps do");
 
       // ---- when the tail lamps go out ------------------------------------
-      //
-      // Beside Response because it is the same KIND of thing: a judgment about
-      // where a boundary sits, found by watching the car rather than measured off
-      // it. Idle is the pulse at which the motor sits still; this is how far past
-      // that counts as actually going somewhere.
+      // The same KIND of thing as Response: a judgment about where a boundary
+      // sits. Idle is the pulse at which the motor sits still; this is how far
+      // past that counts as going somewhere.
       {
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                              "Tail lamps  -  how much throttle counts as moving");
@@ -8622,10 +7668,9 @@ namespace
                          "its target a few microseconds at a time, so a slider\n"
                          "dragged end to end produces a sweep rather than a step.");
 
-      // ---- the wiring this view assumes ------------------------------------
-      //
-      // Written down because a signal wire in the wrong hole looks exactly like
-      // firmware that does not work, and the two are debugged very differently.
+      // ---- the wiring this view assumes ----------------------------------
+      // A signal wire in the wrong hole looks exactly like firmware that does not
+      // work, and the two are debugged very differently.
       if(ImGui::TreeNode("Wiring"))
       {
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
@@ -8646,15 +7691,8 @@ namespace
       ImGui::EndChild();
   }
 
-  // ---------------------------------------------------------------------------
-  // A .bdoc, drawn either as the page it describes or as the source that
-  // describes it.
-  //
-  // The SAME editor and the same file underneath. This is a view of one thing,
-  // not two documents - which is the point of a text format over a binary one:
-  // when the page looks wrong you can see, in one click, whether the document is
-  // wrong or the renderer is.
-  // ---------------------------------------------------------------------------
+  // A .bdoc, drawn either as the page it describes or as the source that describes
+  // it - the SAME editor and file underneath, so one click says which is wrong.
   Void drawDocPane(Float32 w, Float32 h)
   {
       ImGui::BeginChild("##docpane", ImVec2(w, h), ImGuiChildFlags_None,
@@ -8692,14 +7730,8 @@ namespace
       {
           docParsedFrom = codeEditor.text();
 
-          // The document's OWN folder, so <Include file="..."/> resolves the way
-          // a person writing the path would expect: relative to the file they
-          // are writing it in, exactly like a C include.
-          // Both separators, and the backslash has to be escaped. Written as
-          // "\/" this was the single character '/' - a non-standard escape MSVC
-          // accepts - so on a Windows path it found nothing, every include
-          // reported "no folder to resolve against", and the bug looked like it
-          // was in the includer.
+          // The document's OWN folder, so <Include file="..."/> resolves like a C
+          // include. BOTH separators: "\/" is just '/' and never matches here.
           Str base = codePath;
           const Size cut = base.find_last_of("\\/");
           base = (cut == Str::npos) ? Str() : base.substr(0, cut);
@@ -8715,9 +7747,8 @@ namespace
       }
       else
       {
-          // Style complaints, counted rather than listed. They are not errors -
-          // the document renders - so they belong where somebody can choose to
-          // look at them.
+          // Style complaints, counted rather than listed: they are not errors,
+          // the document renders.
           const Vec<Str> notes = refdoc::check(docParsed);
           if(notes.empty())
           {
@@ -8752,9 +7783,8 @@ namespace
       }
       else
       {
-          // One renderer, shared. The page's frame - scrolling, Ctrl+wheel
-          // zoom, drag to pan, the reading measure - lives in refdoc so that a
-          // document behaves identically wherever it is opened from.
+          // One renderer, shared. The page's frame - scroll, Ctrl+wheel zoom, drag
+          // to pan - lives in refdoc, so a document behaves the same everywhere.
           refdoc::drawPage(docParsed, ImVec2(w, std::max(60.0f, rest)),
                            docView, uiDpiScale);
       }
@@ -8762,27 +7792,23 @@ namespace
       ImGui::EndChild();
   }
 
-  // Defined with the rest of the firmware UI, several hundred lines below,
-  // because it belongs beside the board state and the backup path it shares a
-  // subject with rather than beside the views it is dispatched from.
+  // Defined with the rest of the firmware UI several hundred lines below, beside
+  // the board state and backup path it shares a subject with.
   Void drawFlashCatalog();
 
   Void drawViewBody(Int32 view, Float32 w, Float32 h)
   {
       const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
-      // Explicitly black, matching every other surface. An explicit push rather
-      // than inherited, because the map is the one panel whose background must
-      // never pick up a tint or an alpha - it is the surface the point cloud is
-      // read against.
+      // Explicitly black rather than inherited: the map's background must never
+      // pick up a tint or an alpha, it is what the point cloud is read against.
       ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::ansi::BLACK);
       ImGui::PushID(view);
 
       if(view == 0 || view == 1)
       {
-          // is3D is set immediately before the draw, so both maps can be on
-          // screen at once in the floating layout: each draw sees the flag it
-          // needs, and the 2D and 3D state they read live in separate members.
+          // is3D is set immediately before the draw, so both maps can be on screen
+          // at once in the floating layout - each draw sees the flag it needs.
           radarView.is3D = (view == 1);
 
           ImGui::BeginChild("##map", ImVec2(w, h), ImGuiChildFlags_None,
@@ -8813,14 +7839,8 @@ namespace
           {
               codeLoaded = true;
 
-              // The first sketch, alphabetically. Every one of them is now a
-              // real file with its own build target, so there is no longer a
-              // privileged slot to land on - and any of them is a better first
-              // sight than an empty editor.
-              //
-              // Loaded on first sight rather than at startup: most sessions
-              // never open this view, and reading a file costs nothing until
-              // somebody looks.
+              // The first sketch, alphabetically. Each is a real file with its own
+              // build target, so any of them beats an empty editor.
               const Vec<Str> first = sketch::list();
               if(!first.empty())
               {
@@ -8829,9 +7849,8 @@ namespace
               }
           }
 
-          // Tree | splitter | editor. The tree's width is the user's, clamped so
-          // a drag can neither squeeze the editor away nor strand the tree at a
-          // width with no grabbable edge.
+          // Tree | splitter | editor. The tree's width is the user's, clamped so a
+          // drag can neither squeeze the editor away nor strand the tree.
           const Float32 splitW = std::max(ImGui::GetStyle().ItemSpacing.x,
                                           8.0f * uiDpiScale);
 
@@ -8897,11 +7916,7 @@ namespace
       else
       {
           // Range is the terminal branch, so an index from a stale settings file
-          // lands on a real view rather than on nothing. It used to be Reference,
-          // which no longer exists.
-          //
-          // Polled only while this view is drawn - which is to say, only while
-          // somebody is looking at it. See pollTof().
+          // lands on a real view. Polled only while drawn - see pollTof().
           pollSensorList();
           pollTof(true);
           drawRangeBody(w, h);
@@ -9015,9 +8030,8 @@ namespace
           }
       }
 
-      // Right-aligned, so opening the console is where the tabs END rather than
-      // in a second row of chrome above them. The same place the old layout
-      // switch used to live, for the same reason.
+      // Right-aligned, so opening the console is where the tabs END rather than a
+      // second row of chrome above them.
       if(ImGui::TabItemButton(consoleOpen ? "  Console  <  " : "  >  Console  ",
                               ImGuiTabItemFlags_Trailing
                               | ImGuiTabItemFlags_NoTooltip))
@@ -9043,13 +8057,8 @@ namespace
 
       drawTabbedViews(mapW, viewH);
 
-      // The bottom bar belongs to the VIEW above it, not to the central region.
-      // Points/Rays/Density and Grid/Trail/Labels configure the map and nothing
-      // else, so on a board tab they are not merely disabled - they are absent,
-      // and the board gets the height back.
-      //
-      // In the floating layout it follows the FOCUSED panel, so clicking a map
-      // brings up the map's controls.
+      // The bottom bar belongs to the VIEW above it: the map's controls are ABSENT
+      // on a board tab rather than disabled, so the board gets the height back.
       if(ctrlH > 0.0f)
       {
           ImGui::BeginChild("##controls", ImVec2(mapW, ctrlH), ImGuiChildFlags_None,
@@ -9060,9 +8069,8 @@ namespace
   }
 
   // ==================================================================== vehicle
-  // The Pico as the car's controller rather than as a serial port. Left: the link
-  // and its command vocabulary. Right: what the board says about servo and ESC,
-  // and - when it says nothing - why.
+  // The Pico as the car's controller rather than as a serial port: the link and
+  // its vocabulary, then what the board says about servo and ESC, or why not.
 
   Void drawPicoLinkBlock()
   {
@@ -9178,11 +8186,8 @@ namespace
               }
           };
 
-          // Two vocabularies, both real. pico_debug (flashed now) answers
-          // PING/ID/STATUS/HELP/LED and returns "ERR bad command" to `?`;
-          // tt02_control answers only `?`. Whichever is on the board, the other
-          // half of this grid comes back ERR, which is the board being correct
-          // rather than anything here being broken.
+          // Two vocabularies, both real: pico_debug answers PING/ID/STATUS/HELP/
+          // LED, tt02_control only `?`. Half this grid comes back ERR either way.
           ImGui::TableNextRow();
           cmd(ui::Icon::ICON_HELP,       "?  status", "?");
           cmd(ui::Icon::ICON_LINK,       "PING",      "PING");
@@ -9200,10 +8205,8 @@ namespace
           ImGui::EndTable();
       }
 
-      // Free-text line. Enter sends and keeps the cursor here, which is what you
-      // want when you are poking at a fresh command vocabulary.
-      // Matches what iconButton auto-sizes to, so the input field ends exactly
-      // where the button begins.
+      // Free-text line. Enter sends and keeps the cursor here. The width matches
+      // what iconButton auto-sizes to, so the field ends where the button begins.
       const Float32 sendW = ImGui::CalcTextSize("Send").x + sty.FramePadding.x * 2.0f
                           + (ui::iconsReady()
                              ? ui::iconSize() + sty.ItemInnerSpacing.x : 0.0f);
@@ -9232,8 +8235,7 @@ namespace
   }
 
   // Servo and ESC pulse widths, when the firmware reports them. Nothing is
-  // synthesised here: if no S line has arrived the readouts say "--" and the note
-  // underneath says which firmware would have answered.
+  // synthesised: with no S line the readouts say "--" and the note says why.
   Void drawControllerState()
   {
       ImGui::SeparatorText("Controller state");
@@ -9246,9 +8248,8 @@ namespace
           std::snprintf(esc.data(),   sizeof(esc.data()),   "%d", vehicleStatus.escUs);
       }
 
-      // Bounded rather than stretched: at full workspace width a two-column table
-      // throws its second value against the far edge and the pair stops reading
-      // as a pair.
+      // Bounded rather than stretched: at full width a two-column table throws its
+      // second value against the far edge and the pair stops reading as a pair.
       const Float32 tableW = std::min(520.0f * uiDpiScale, ImGui::GetContentRegionAvail().x);
 
       if(ImGui::BeginTable("pwm", 2, ImGuiTableFlags_SizingStretchSame,
@@ -9264,9 +8265,8 @@ namespace
 
       ImGui::Spacing();
 
-      // Everything the board reports about itself, and "--" for everything it
-      // does not. The reply row is the only thing that says which of the two
-      // firmwares is answering, and it says it in three words.
+      // Everything the board reports about itself, and "--" for everything it does
+      // not. The reply row is the only thing saying which firmware is answering.
       if(ImGui::BeginTable("vehstat", 2, ImGuiTableFlags_SizingStretchProp,
                             ImVec2(tableW, 0.0f)))
       {
@@ -9323,9 +8323,8 @@ namespace
       // ---- automatic --------------------------------------------------------
       if(ui::checkbox("Automatic", &autoLights))
       {
-          // Start from a clean slate rather than from whatever the lamps happened
-          // to be showing: a stale brake hold or a half-finished flash carried
-          // into automatic mode looks like the detector's first decision.
+          // Start from a clean slate: a stale brake hold or half-finished flash
+          // carried in would look like the detector's first decision.
           autoLightState = lights::AutoState{};
           if(!autoLights)
           {
@@ -9360,9 +8359,8 @@ namespace
 
       ImGui::Spacing();
 
-      // The controls below SHOW the decision while automatic is on. Left live,
-      // they would fight the detector - a press would last exactly one frame,
-      // which reads as a broken button rather than as a busy one.
+      // The controls below SHOW the decision while automatic is on. Left live they
+      // would fight the detector, and a press would last exactly one frame.
       ImGui::BeginDisabled(autoLights);
 
       const Float32 w = ImGui::GetContentRegionAvail().x;
@@ -9410,9 +8408,8 @@ namespace
               ImGui::SameLine();
           }
 
-          // Hazards get the warning glyph and the amber the lamp itself uses;
-          // Left and Right get neither, because the pack has no left/right arrow
-          // and a rotate glyph pointing the wrong way is worse than nothing.
+          // Hazards get the warning glyph and the lamp's own amber; Left and Right
+          // get neither, because the pack has no left/right arrow.
           const Bool sel = (lightInput.turn == TURNS[i].v);
           const ui::Tint t = (TURNS[i].v == lights::Turn::TURN_HAZARD)
                            ? ui::Tint::TINT_WARN : ui::Tint::TINT_NONE;
@@ -9473,9 +8470,8 @@ namespace
   }
 
   // =================================================================== firmware
-  // Load a different program onto the Pico on demand. Everything here is a thin
-  // face over firmware\build.bat / flash.bat / backup.bat - the same scripts that
-  // work from a terminal - so there is one flashing mechanism, not two.
+  // Load a different program onto the Pico on demand - a thin face over
+  // firmware\build.bat / flash.bat / backup.bat, so there is one mechanism.
 
   Void sizeText(Char* buf, Size n, Int64 bytes)
   {
@@ -9489,9 +8485,8 @@ namespace
       }
   }
 
-  // The catalog's descriptions are paragraphs written for a human reading the
-  // file, not labels. They live in a hover tooltip so a row stays one predictable
-  // height and no prose sits permanently on screen.
+  // The catalog's descriptions are paragraphs, not labels. A hover tooltip keeps
+  // every row one predictable height.
   Void descriptionTooltip(const Str& text)
   {
       if(text.empty() || !ImGui::IsItemHovered())
@@ -9506,24 +8501,10 @@ namespace
       ImGui::EndTooltip();
   }
 
-  // ---------------------------------------------------------------------------
-  // ANSI coloring for the build log.
-  //
-  // It used to be ONE COLOR PER LINE, chosen from the prefix: an [error] line
-  // was red end to end, an [ok] line green end to end. That is a status light
-  // rather than a log. It also meant the two things actually worth finding in a
-  // two-hundred-line cmake dump - the verb and the word "error" - were the same
-  // color as the eighty characters of absolute path sitting next to them.
-  //
-  // So: the tag is colored, and the rest of the line is colored by TOKEN.
-  // Paths recede to gray because every line has one and none of them is the
-  // point; ninja's verbs come forward in bright white; error and warning are
-  // found wherever they appear rather than only at the start of a line.
-  //
-  // Restrained on purpose. Six colors, each meaning one thing, on the black
-  // ground the serial console next door already uses - this is the other half of
-  // the same terminal and the two should not look like different programs.
-  // ---------------------------------------------------------------------------
+  // ANSI coloring for the build log. The tag is colored and the rest of the line
+  // by TOKEN: paths recede to gray, ninja's verbs come forward in bright white,
+  // and error/warning are found wherever they appear. Six colors, each meaning
+  // one thing, on the same black ground the serial console next door uses.
   struct LogRun
   {
       Size  begin;
@@ -9550,9 +8531,8 @@ namespace
 
   [[nodiscard]] ImU32 flashTokenColor(const Str& tok, ImU32 fallback)
   {
-      // Found anywhere, not just at the start of a line. "CMake Warning at ..."
-      // and "range.cxx:41:9: error: ..." both carry the word in the middle, and
-      // those are precisely the lines somebody is scrolling to look for.
+      // Found anywhere, not just at the start of a line: "CMake Warning at ..."
+      // and "range.cxx:41:9: error: ..." both carry the word in the middle.
       if(containsCI(tok, "error"))
       {
           return ui::ansi::BRRED;
@@ -9562,13 +8542,8 @@ namespace
           return ui::ansi::BRYELLOW;
       }
 
-      // A PATH RECEDES. Nearly every line of a cmake configure carries a full
-      // absolute path and it is the least interesting thing on the line - what
-      // matters is the verb in front of it. Gray is what "context, not content"
-      // already means in the console next door.
-      //
-      // A separator AND a dot, so "no RP2350/RPI-RP2 drive" stays white: a slash
-      // alone is not a path.
+      // A PATH RECEDES: every cmake line carries one and the verb in front of it is
+      // what matters. A separator AND a dot - a slash alone is not a path.
       const Bool sep = tok.find('/') != Str::npos || tok.find('\\') != Str::npos;
       const Bool dot = tok.find('.') != Str::npos;
       if(sep && dot)
@@ -9610,8 +8585,7 @@ namespace
       if(s[0] == '[')
       {
           // The scripts write [conf ], [build], [ok   ], [error]; ninja writes
-          // [1/3]. Both are a bracket at column zero and both want coloring, so
-          // this handles them together and tells them apart by content.
+          // [1/3]. Both are a bracket at column zero, told apart by content.
           if(const Size close = s.find(']'); close != Str::npos && close <= 12)
           {
               Str tag = s.substr(1, close - 1);
@@ -9635,9 +8609,8 @@ namespace
               {
                   head = ui::ansi::BRRED;
 
-                  // The dim red, not the bright one. The line still reads as bad
-                  // at a glance without becoming a block of shouting that the
-                  // eye then has to read anyway to find out what broke.
+                  // The dim red, not the bright one: the line still reads as bad
+                  // without becoming a block of shouting.
                   body = ui::ansi::RED;
               }
               else if(_stricmp(tag.c_str(), "ok") == 0)
@@ -9662,9 +8635,8 @@ namespace
           out.push_back(LogRun{ 0, 2, ui::ansi::GRAY });
           i = 2;
 
-          // OURS. The messages this project's CMakeLists prints - which board was
-          // detected, how many sketch targets were found - are the only lines in
-          // a configure dump written by somebody who works on this car.
+          // OURS. The messages this project's CMakeLists prints are the only lines
+          // in a configure dump written by somebody who works on this car.
           if(s.rfind("-- bibo:", 0) == 0)
           {
               body = ui::ansi::BRCYAN;
@@ -9717,26 +8689,21 @@ namespace
           ImGui::TextDisabled("%d lines", static_cast<Int32>(flashLog.size()));
       }
 
-      // The same black ground and the same mono face as the serial console. The
-      // two panes are tabs of one console and used to look like two different
-      // programs - one a terminal, the other proportional text on the window
-      // background.
+      // The same black ground and mono face as the serial console: the two panes
+      // are tabs of one console and must not look like two programs.
       ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::ansi::BLACK);
 
       ImGui::BeginChild(id, size, ImGuiChildFlags_None,
                         ImGuiWindowFlags_HorizontalScrollbar);
       {
-          // Pushed and popped INSIDE the child. A ScopedFont at function scope
-          // would pop after EndChild, and a push that straddles the boundary
-          // renders as a blank white window rather than as an error anybody can
-          // read - see the same note in drawSerialConsole.
+          // Pushed and popped INSIDE the child: a font push that straddles
+          // Begin/EndChild renders as a blank white window - see drawSerialConsole.
           ScopedFont sf(ui::fonts.mono);
 
           if(!flashLog.empty())
           {
-              // Reused across every line and every frame rather than built per
-              // line: the clipper means about forty lines are tokenized per
-              // frame, and none of them needs its own allocation.
+              // Reused rather than built per line: the clipper tokenizes about
+              // forty lines a frame, and none needs its own allocation.
               static Vec<LogRun> runs;
 
               // The runs butt against each other, so no horizontal item spacing.
@@ -9800,9 +8767,8 @@ namespace
       const Float32 refreshW = ImGui::CalcTextSize("Refresh").x + sty.FramePadding.x * 2.0f;
 
       {
-          // BOOTSEL is a MODE, and the single most common way to be confused by
-          // this board is to forget you are in it: the COM port is gone, nothing
-          // answers, and it looks broken. So it gets the loud treatment.
+          // BOOTSEL is a MODE, and forgetting you are in it is the commonest way
+          // to be confused here: the COM port is gone and nothing answers.
           ScopedFont sf(ui::fonts.title);
           ImGui::AlignTextToFramePadding();
 
@@ -9829,10 +8795,8 @@ namespace
       }
 
       {
-          // Always drawn, even when there is nothing to say. Rendering this row
-          // conditionally made every control below it jump a line as the board
-          // entered and left BOOTSEL - which is exactly when you are looking at
-          // this panel and clicking things.
+          // Always drawn, even with nothing to say: rendering it conditionally
+          // makes every control below jump a line as the board enters BOOTSEL.
           ScopedFont sf(ui::fonts.small);
 
           if(brd.present && !brd.bootsel)
@@ -9905,18 +8869,9 @@ namespace
   }
 
   // ============================================== the flash view ==
-  //
-  // The catalog, full width, as a central view.
-  //
-  // It lived in the sidebar until 2026-08-31, in a 360px column beside
-  // the board state, the backup path and the reboot buttons. Each row is
-  // a title, a size, a build date, a board name and two buttons, and the
-  // descriptions are paragraphs - it was the one thing in that section
-  // that wanted width, and it was squeezing the four things that did not.
-  //
-  // The modal comes WITH it. A popup's identity is its ID stack, so the
-  // OpenPopup and the BeginPopupModal have to be drawn by the same
-  // function or the modal never appears.
+  // The catalog, full width, as a central view - its rows never fitted the
+  // sidebar. The modal comes WITH it: a popup's identity is its ID stack, so
+  // OpenPopup and BeginPopupModal must be drawn by the same function.
   Void drawFlashCatalog()
   {
       const ImGuiStyle& sty  = ImGui::GetStyle();
@@ -9929,9 +8884,8 @@ namespace
 
       const Vec<FirmwareEntry>& cat = picoFlash.catalog();
 
-      // OpenPopup is deferred out of the row's PushID scope: a popup's identity
-      // comes from the ID stack, so opening it inside the row and beginning it
-      // outside would never match.
+      // OpenPopup is deferred out of the row's PushID scope: opening it inside the
+      // row and beginning it outside would never match on the ID stack.
       Bool openConfirm = false;
 
       if(cat.empty())
@@ -9963,14 +8917,8 @@ namespace
                           e.buildable ? "not built yet" : "missing on disk");
               }
 
-              // Which board the image is FOR.
-              //
-              // Stated here because it is stated nowhere else: a .uf2 carries no
-              // board, the RP2350 accepts either one without complaint, and a
-              // Pico 2 W image on the car's plain Pico 2 boots, runs, answers
-              // every command, and simply has a dead LED - because it spent its
-              // startup bringing up a wireless chip that is not in the package.
-              // That is a long evening to save with one word in a list.
+              // Which board the image is FOR, stated nowhere else: a .uf2 carries
+              // none, and a Pico 2 W image on a plain Pico 2 runs with a dead LED.
               if(!e.board.empty())
               {
                   ImGui::SameLine();
@@ -10014,9 +8962,9 @@ namespace
       }
 
 
-      // ---- confirmation -----------------------------------------------------
-      // Flashing is destructive and, for anything not in the catalog, permanent.
-      // It gets a modal that names the image and says so.
+      // ---- confirmation ---------------------------------------------------
+      // Flashing is destructive and, for anything not in the catalog, permanent,
+      // so it gets a modal that names the image and says so.
       const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
       ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
       if(ImGui::BeginPopupModal("Flash this firmware?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
@@ -10069,14 +9017,8 @@ namespace
       }
   }
 
-  // Board state, backup and reboot. Status and one-shot actions, which is what
-  // a narrow column is good for.
-  //
-  // THE CATALOG IS NOT HERE any more - it is the Flash view. Each of its rows
-  // is a title, a size, a build date, a board name and two buttons, with a
-  // paragraph of description behind it, and none of that fits in 360px beside
-  // three other things. What the scripts PRINT while doing any of it is still
-  // in the Console section - one log, one place.
+  // Board state, backup and reboot: status and one-shot actions, which is what a
+  // narrow column is good for. THE CATALOG IS NOT HERE - it is the Flash view.
   Void sectionFirmware()
   {
       drawFlashControls();
@@ -10084,25 +9026,14 @@ namespace
 
   // ==================================================================== console
   // Everything that streams, in one place: the serial line log and whatever the
-  // flash/build scripts are printing.
-  //
-  // Both live in the sidebar, which scrolls, so each gets its OWN fixed-height
-  // scroll region rather than filling the column - a log that grows the page it
-  // sits on cannot be read, and one that autoscrolls while the page also scrolls
-  // cannot be used at all.
+  // flash/build scripts print. Each gets its OWN fixed-height scroll region - a
+  // log that grows the scrolling page it sits on cannot be used.
   constexpr Float32 LOG_PANE_H = 260.0f;   // logical px; multiplied by uiDpiScale at use
 
   // ---- the console's palette ------------------------------------------------
-  //
-  // A terminal, not a panel. Pure black rather than the skeuomorphic slate the
-  // rest of the hub uses, because this is the one surface that is not a molded
-  // object - it is a screen, and a screen in 2010 was black with phosphor on it.
-  // The bevels and plates elsewhere are pretending to be plastic; this is
-  // pretending to be a CRT, and mixing the two is what made it look like a text
-  // box rather than a terminal.
-  //
-  // The colors are the ANSI sixteen, which is the palette every serial monitor
-  // has used for forty years, so a line reads the way it would in any of them.
+  // A terminal, not a panel: pure black rather than the slate the rest of the hub
+  // uses, because this is a screen and not a molded object. The colors are the
+  // ANSI sixteen, so a line reads the way it would in any serial monitor.
   namespace ansi
   {
 
@@ -10119,11 +9050,8 @@ namespace
 
   }
 
-  // What color a line is, from what the board actually says.
-  //
-  // The firmware's vocabulary is four words wide - OK, ERR, INFO, and a bare
-  // reply - and it is worth coloring because scanning a console for the one ERR
-  // in three hundred lines is exactly what color is for.
+  // What color a line is, from what the board says. The firmware's vocabulary is
+  // four words wide, and finding the one ERR in three hundred lines is the point.
   ImU32 consoleColor(const PicoLine& ln)
   {
       if(ln.poll)
@@ -10166,9 +9094,8 @@ namespace
       ui::checkbox("Auto-scroll", &logAutoscroll);
       ImGui::SameLine();
 
-      // Off by default. The hub polls DRIVE, LIGHTS, STATUS and TOF on their own
-      // timers - the indicator poll alone is eight sends and eight replies a
-      // second - and a console showing all of it buries everything you typed.
+      // Off by default: the hub's DRIVE/LIGHTS/STATUS/TOF polls are sixteen lines
+      // a second on their own, and they bury everything you typed.
       ui::checkbox("Polling", &logShowPoll);
       if(ImGui::IsItemHovered())
       {
@@ -10242,12 +9169,9 @@ namespace
       ImGui::BeginChild("##console", size, ImGuiChildFlags_None,
                         ImGuiWindowFlags_HorizontalScrollbar);
 
-      // The font is pushed and popped INSIDE the child.
-      //
-      // A ScopedFont declared at function scope would pop after EndChild, and
-      // ImGui compares the style and font stack sizes at Begin against End - a
-      // push that straddles the boundary leaves the frame unbalanced, which
-      // renders as a blank window rather than as an error anybody can read.
+      // The font is pushed and popped INSIDE the child: ImGui compares the style
+      // and font stack sizes at Begin against End, and an unbalanced frame renders
+      // as a blank window rather than as an error anybody can read.
       {
       ScopedFont mono(ui::fonts.mono);
 
@@ -10267,9 +9191,7 @@ namespace
                                 ln.tS, ln.outgoing ? '>' : '<', ln.text.c_str());
 
                   // A Selectable rather than plain text, so lines can be
-                  // highlighted and copied. Click one, shift-click another for a
-                  // run, ctrl-click to add or remove one - the same three
-                  // gestures every list in every program uses.
+                  // highlighted and copied: click, shift-click, ctrl-click.
                   ImGui::PushStyleColor(ImGuiCol_Text, consoleColor(ln));
                   ImGui::PushID(idx);
                   const Bool wasSel = (logSel.count(idx) != 0);
@@ -10279,9 +9201,8 @@ namespace
                       const ImGuiIO& io = ImGui::GetIO();
                       if(io.KeyShift && logSelAnchor >= 0)
                       {
-                          // A run, in SCREEN order rather than log order: the
-                          // filter can hide lines between the two clicks and
-                          // selecting what is not visible would be a surprise.
+                          // A run in SCREEN order, not log order: the filter can
+                          // hide lines between the two clicks.
                           Int32 a = -1;
                           Int32 b = -1;
                           for(Int32 k = 0; k < static_cast<Int32>(logShown.size()); ++k)
@@ -10335,9 +9256,8 @@ namespace
           }
       }
 
-      // Ctrl+C copies the selection, which is what the highlight is FOR. Scoped
-      // to this child being hovered or focused so it does not steal the shortcut
-      // from the editor.
+      // Ctrl+C copies the selection. Scoped to this child being focused so it does
+      // not steal the shortcut from the editor.
       if(!logSel.empty()
          && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)
          && ImGui::IsKeyPressed(ImGuiKey_C)
@@ -10373,12 +9293,8 @@ namespace
       ImGui::PopStyleColor(4);
   }
 
-  // The console column: the two logs, filling their own column on the left.
-  //
-  // The same two tabs the sidebar section had, but given a whole column's height
-  // instead of a fifth of one. That is the entire reason it moved: a log that
-  // produces hundreds of lines and shows four is a log you scroll rather than
-  // read.
+  // The console column: the two logs, filling their own column on the left - a
+  // whole column's height instead of the fifth the sidebar section gave them.
   Void drawConsoleColumn(Float32 w, Float32 h)
   {
       ImGui::BeginChild("##consolecol", ImVec2(w, h), ImGuiChildFlags_Borders);
@@ -10414,15 +9330,14 @@ namespace
 
   // ===================================================================== modals
   // Raised from more than one workspace, so opened and begun at the root of the
-  // frame where the ID stack is stable.
+  // frame, where the ID stack is stable.
 
   Void drawGlobalModals()
   {
       const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
 
-      // The SERIAL port, which over a wireless link is not what picoLink.port()
-      // says - that is "192.168.1.42:4242", and a 1200-baud touch on an IP address
-      // is not a thing. Rebooting into the bootloader needs the cable, always.
+      // The SERIAL port. Over a wireless link picoLink.port() is "192.168.1.42:4242"
+      // and a 1200-baud touch on that is not a thing: BOOTSEL always needs the cable.
       const Str linkPort = picoLink.wireless() ? Str() : picoLink.port();
       const Str bport    = linkPort.empty()
           ? (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size())
@@ -10472,13 +9387,11 @@ namespace
   }
 
   // ==================================================================== sidebar
-  // One scrollable column, five collapsing sections, drawn in a fixed order. This
-  // is the only place in the app that scrolls as a page.
+  // One scrollable column, five collapsing sections, drawn in a fixed order - the
+  // only place in the app that scrolls as a page.
 
-  // ---------------------------------------------------------------------------
   // The sections, and the three things you can do to them: reorder, tear off,
   // put back.
-  // ---------------------------------------------------------------------------
   struct SectionEntry
   {
       const Char* label;          // leading spaces clear the icon; see iconTabLabel
@@ -10508,9 +9421,8 @@ namespace
       return SECTIONS[0];
   }
 
-  // Moves the section at slot `from` to slot `to`, shifting the rest along.
-  // A rotate, not a swap: dragging Console to the top should leave the others in
-  // their relative order, and a swap would drop System to the bottom instead.
+  // Moves the section at slot `from` to slot `to`, shifting the rest along. A
+  // rotate, not a swap: the others keep their relative order.
   Void moveSection(Int32 from, Int32 to)
   {
       if(from == to || from < 0 || to < 0 || from >= SECTION_COUNT || to >= SECTION_COUNT)
@@ -10538,19 +9450,10 @@ namespace
       panelLayoutDirty   = true;
   }
 
-  // The tear-off button, sitting at the right end of the row the header owns.
-  // Returns true if it was pressed. Call it immediately after the header, which
-  // must have had SetNextItemAllowOverlap() so this wins the hit test.
-  //
-  // SameLine, NOT SetCursorScreenPos.
-  //
-  // The first version placed the button by hand and then restored the cursor, and
-  // it deadlocked the app on the very first frame: moving the cursor past the last
-  // submitted item and then ending the window without submitting another is an
-  // ImGui assertion, and asserts are live in this build. The last section in the
-  // column is the one that trips it - every other one has a following header to
-  // grow the bounds back. SameLine keeps the whole thing inside ImGui's own layout
-  // and cannot desynchronise from it.
+  // The tear-off button, at the right end of the row the header owns. Call it
+  // immediately after the header, which must have had SetNextItemAllowOverlap().
+  // SameLine, NOT SetCursorScreenPos: moving the cursor past the last submitted
+  // item and ending the window without another is an ImGui assertion.
   Bool tearOffButton(Int32 id, Bool floating)
   {
       const Char*   lbl = floating ? "dock" : "float";
@@ -10572,28 +9475,14 @@ namespace
       return hit;
   }
 
-  // ---------------------------------------------------------------------------
-  // The emergency stop.
-  //
-  // PINNED above the sidebar's scroll, so it is in the same place in every view
-  // and at every scroll position. It used to live at the top of the Drive view,
-  // which meant the one control somebody reaches for without looking was only
-  // there if they happened to be on the right tab - and the moment you are
-  // reaching for it is the moment you are not going to go and find it first.
-  //
-  // Deliberately NOT disabled when the link is down. A stop you cannot press
-  // because the program has decided it would not work is worse than one that
-  // presses and does nothing: the second at least matches what a person expects
-  // a red button to do, and the console says what happened.
-  // ---------------------------------------------------------------------------
-  // One body, two ways in: the button and the space bar. They have to be the
-  // same code - a keyboard stop that did nine tenths of what the red button does
-  // is a keyboard stop nobody can trust in the moment they need it.
+  // The emergency stop. PINNED above the sidebar's scroll, so it is in the same
+  // place in every view and at every scroll position. Deliberately NOT disabled
+  // when the link is down: a stop you cannot press is worse than one that presses
+  // and does nothing. One body, two ways in - the button and the space bar.
   Void emergencyStop(const Char* how)
   {
-      // The hub's own idea of what it is asking for is reset too. Leaving the
-      // sliders where they were would have them fight the board back to the old
-      // target on the next poll, which is a stop that undoes itself.
+      // The hub's own idea of what it is asking for is reset too, or the sliders
+      // fight the board back to the old target on the next poll.
       driveSweep     = false;
       driveServoWant = 1500;
       driveEscWant   = 1500;
@@ -10608,35 +9497,18 @@ namespace
       LOG_WARN("drive", "emergency stop (%s)", how);
   }
 
-  // ---------------------------------------------------------------------------
   // SPACE, anywhere in the program.
   //
-  // ---- why the key has to be taken off ImGui -------------------------------
+  // Space is ImGui's own "activate what the nav cursor is on" key, so a panicked
+  // space with the cursor on the ARM checkbox would fire this stop AND tick that
+  // box - and this runs at the top of frame(), so the box wins and re-arms it.
+  // The key is therefore CLAIMED every frame: ImGui's navigation asks for it with
+  // ImGuiKeyOwner_NoOwner and gets nothing once somebody owns it. No lock flags,
+  // which would block this read too, and the claim must be renewed each frame.
   //
-  // Space is ImGui's own "activate the thing the nav cursor is on" key. Left
-  // alone, a panicked space with the nav cursor parked on the ARM checkbox would
-  // fire this stop AND tick that box in the same frame - and this runs at the top
-  // of frame(), so the box wins: STOP goes out, then ESC ARM, and the one press
-  // meant to kill it re-arms it instead.
-  //
-  // So the key is CLAIMED, every frame. ImGui's navigation asks for space with
-  // ImGuiKeyOwner_NoOwner (imgui.cpp: activate_down / activate_pressed) and gets
-  // nothing once somebody owns it. No lock flags: those would block this read of
-  // it too. The claim has to be renewed every frame because ownership is released
-  // the frame after the key comes up.
-  //
-  // ---- the one exception ---------------------------------------------------
-  //
-  // Text entry. Space is a character before it is anything else, and a stop that
-  // fired on every word typed in the code editor would be switched off within a
-  // minute - and a stop that is off is worth less than one with an exception in
-  // it. Both flavors have to be named: the editor draws an InvisibleButton and
+  // The one exception is TEXT ENTRY, and both flavors must be named: the editor
   // reads io.InputQueueCharacters directly, so it sets neither WantTextInput nor
-  // an ActiveId.
-  //
-  // Dragging a slider is NOT an exception. That is exactly a moment somebody
-  // might want to stop.
-  // ---------------------------------------------------------------------------
+  // an ActiveId. Dragging a slider is NOT an exception.
   Void updateEmergencyKey()
   {
       const ImGuiIO& io = ImGui::GetIO();
@@ -10647,8 +9519,7 @@ namespace
       const Bool typing = io.WantTextInput || codeView.focused;
 
       // Focus: ImGui clears its key state when the window loses it, so a space
-      // held while alt-tabbing away does not arrive here later. The test is
-      // belt-and-braces for the frame focus is actually lost on.
+      // held while alt-tabbing away does not arrive here later.
       if(io.AppFocusLost || typing)
       {
           return;
@@ -10696,15 +9567,9 @@ namespace
 
   Void drawSidebar(Float32 width, Float32 height)
   {
-      // An OUTER child holding the pinned button and the scrolling column.
-      //
-      // It has to be a child, not just two things drawn in a row. ImGui puts the
-      // cursor back at the WINDOW's left content edge after an item, not at
-      // wherever the caller had moved it - so the button drew correctly at the
-      // sidebar's x and the scrolling column below it then started at the far
-      // left of the app, on top of the console. A child makes "the window's left
-      // edge" mean this column's left edge, which is the only way to say it that
-      // an item cannot undo. Same fix the central region needed, same reason.
+      // An OUTER child holding the pinned button and the scrolling column. It MUST
+      // be a child: ImGui puts the cursor back at the WINDOW's left content edge
+      // after an item, so without one the column lands on the console.
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
       ImGui::BeginChild("##sidebarcol", ImVec2(width, height), ImGuiChildFlags_None,
                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -10787,9 +9652,8 @@ namespace
               ImGui::EndDragDropTarget();
           }
 
-          // Drawn over the header after the fact rather than as part of its label:
-          // CollapsingHeader takes a string, and putting an image inside it would
-          // mean hand-rolling the whole widget to get one 16px picture in.
+          // Drawn over the header after the fact: CollapsingHeader takes a string,
+          // so an image inside it means hand-rolling the whole widget.
           if(ui::iconsReady())
           {
               ui::iconAt(ImGui::GetWindowDrawList(), e.icon,
@@ -10843,9 +9707,8 @@ namespace
               continue;
           }
 
-          // First appearance only. After that ImGui's own ini has the position the
-          // user dragged it to, and forcing one would undo their arrangement on
-          // every launch.
+          // First appearance only: after that ImGui's ini has the position the user
+          // dragged it to, and forcing one would undo it on every launch.
           const ImGuiViewport* vp = ImGui::GetMainViewport();
           ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f
                                              + static_cast<Float32>(slot) * 24.0f * uiDpiScale,
@@ -10876,9 +9739,8 @@ namespace
       }
   }
 
-  // The column's width for this frame, clamped to something usable. Pure: the
-  // layout needs it before the handle can be drawn, and a widget cannot be asked
-  // for its answer twice in one frame without colliding with its own ID.
+  // The column's width for this frame, clamped to something usable. Pure, because
+  // the layout needs it before the handle that adjusts it can be drawn.
   Float32 consoleWidth(Float32 availW)
   {
       const Float32 lo = CONSOLE_MIN_W * uiDpiScale;
@@ -10896,10 +9758,8 @@ namespace
       return w;
   }
 
-  // The handle on the console column's RIGHT edge.
-  //
-  // The sign is the opposite of the sidebar's for the same reason the code tree's
-  // is: this panel is on the left, so dragging right widens it.
+  // The handle on the console column's RIGHT edge. The sign is the opposite of
+  // the sidebar's: this panel is on the left, so dragging right widens it.
   Void consoleSplitter(const ImVec2& at, Float32 h, Float32 thickness)
   {
       ImGui::SetCursorScreenPos(at);
@@ -10955,10 +9815,8 @@ namespace
       return w;
   }
 
-  // The drag handle between the map and the column.
-  //
-  // The value it adjusts is in LOGICAL pixels: dividing the mouse delta by the
-  // scale is what keeps a drag feeling the same at 100% and at 200%.
+  // The drag handle between the map and the column. The value it adjusts is in
+  // LOGICAL pixels, so a drag feels the same at 100% and at 200%.
   Void sidebarSplitter(const ImVec2& at, Float32 h, Float32 thickness)
   {
       ImGui::SetCursorScreenPos(at);
@@ -10984,9 +9842,8 @@ namespace
           panelLayoutDirty = true;
       }
 
-      // The grip: three dots, only once it is worth noticing. A permanently drawn
-      // handle down the full height of the window would be a bigger mark on the
-      // screen than the thing it resizes.
+      // The grip: three dots, only once it is worth noticing. A full-height handle
+      // would be a bigger mark on the screen than the thing it resizes.
       const ImU32 col = active   ? ui::accent::CYAN
                       : ImGui::IsItemHovered() ? ui::accent::CYAN_HI
                       : IM_COL32(0x50, 0x58, 0x60, 0xFF);
@@ -11001,14 +9858,8 @@ namespace
       }
   }
 
-  // The drag handle between the Code view's file tree and the editor.
-  //
-  // Deliberately the same shape as sidebarSplitter() above - same three-dot grip,
-  // same hover colors, same double-click-to-restore. Two resize handles in one
-  // app that behave differently is worse than either behavior on its own.
-  //
-  // The sign differs because the panel is on the LEFT of this one: dragging right
-  // widens the tree, where dragging right narrows the sidebar.
+  // The drag handle between the Code view's file tree and the editor - the same
+  // shape as sidebarSplitter(), but this panel is on the LEFT so the sign flips.
   Void codeTreeSplitter(const ImVec2& at, Float32 h, Float32 thickness)
   {
       ImGui::SetCursorScreenPos(at);
@@ -11082,8 +9933,7 @@ Void app::init(Float32 dpiScale)
     defaultBackupName();
 
     // --connect [port] [baud] pins a specific port; --no-connect suppresses the
-    // automatic attempt. With neither, we just connect: the lidar is the one
-    // thing that works today and the common case is "plug it in and look at it".
+    // automatic attempt. With neither, we just connect.
     Bool suppress = false;
 
     for(Int32 i = 1; i < __argc; ++i)
@@ -11094,9 +9944,8 @@ Void app::init(Float32 dpiScale)
             continue;
         }
 
-        // --tab names a sidebar section and opens it. The old workspace and
-        // lidar sub-tab names still work - they map onto the section that now
-        // holds that content - so existing scripts and habits do not break.
+        // --tab names a sidebar section and opens it. The old workspace and lidar
+        // sub-tab names still map onto the section that holds that content.
         if(std::strcmp(__argv[i], "--map") == 0 && i + 1 < __argc)
         {
             for(Int32 m = 0; m < static_cast<Int32>(MapMode::MAP_MODE_COUNT); ++m)
@@ -11173,10 +10022,8 @@ Void app::init(Float32 dpiScale)
                          forceViewFrames = 4;
                      }
 
-            // The documents live in the Code tree now, so every word that used
-            // to mean "the Reference view" means the Code view. Kept rather
-            // than removed: somebody's shortcut or note still says --view ref,
-            // and landing on the documents is what they wanted either way.
+            // The documents live in the Code tree now, so every word that meant
+            // "the Reference view" means the Code view. Kept, not removed.
             else if(_stricmp(v, "reference") == 0 ||
                      _stricmp(v, "ref") == 0 ||
                      _stricmp(v, "docs") == 0)
@@ -11208,9 +10055,8 @@ Void app::init(Float32 dpiScale)
                 { "vehicle",  SECTION_VEHICLE,  -1 },
                 { "firmware", SECTION_FIRMWARE, -1 }, { "flash",    SECTION_FIRMWARE, -1 },
             };
-            // "console" and "debug" no longer name a SECTION - the logs have
-            // their own column now - so they open that instead of selecting
-            // something in the sidebar.
+            // "console" and "debug" no longer name a SECTION - the logs have their
+            // own column - so they open that instead.
             if(_stricmp(__argv[i + 1], "console") == 0
                || _stricmp(__argv[i + 1], "debug") == 0)
             {
@@ -11263,11 +10109,9 @@ Void app::init(Float32 dpiScale)
                 }
             }
 
-            // A named port that is NOT enumerated is offered anyway, and the
-            // connect is allowed to fail on it. Silently falling back to some
-            // other port is worse in every way: --connect COM7 would talk to
-            // whatever happened to be selected, and the script that asked for
-            // COM7 would report success against the wrong device.
+            // A named port that is NOT enumerated is offered anyway and allowed to
+            // fail: falling back would make --connect COM7 report success against
+            // whatever device happened to be selected.
             if(!found)
             {
                 lidarPorts.push_back(Str(want));
@@ -11288,10 +10132,8 @@ Void app::init(Float32 dpiScale)
         break;
     }
 
-    // Only when a port was actually identified. refreshPorts() leaves
-    // portIndex at -1 when it cannot tell which port the lidar is on, and
-    // auto-connecting anyway would open somebody else's device - which is
-    // exactly how the lidar ended up holding the Pico's COM10.
+    // Only when a port was actually identified. refreshPorts() leaves portIndex at
+    // -1 when it cannot tell, and connecting anyway opens somebody else's device.
     if(!suppress && portIndex >= 0)
     {
         connect();
@@ -11301,11 +10143,8 @@ Void app::init(Float32 dpiScale)
         LOG_INFO("lidar", "no RPLIDAR adapter found; not auto-connecting");
     }
 
-    // The Pico is the other half of "launched with no arguments, both devices
-    // connected", which is what this app is documented to do - but only the
-    // lidar was ever wired up here. The board view made the omission obvious:
-    // it has nothing live to show until the link is open, and every launch was
-    // opening it closed. --no-connect suppresses both, as it always has.
+    // The other half of "launched with no arguments, both devices connected",
+    // which is what this app is documented to do. --no-connect suppresses both.
     if(!suppress)
     {
         connectPico();
@@ -11314,9 +10153,8 @@ Void app::init(Float32 dpiScale)
 
 Void app::notifyDeviceChange()
 {
-    // Called from the window procedure, so it touches nothing but an atomic and
-    // returns immediately. The rescan itself happens on the UI thread in
-    // pumpDeviceScan(), where it is safe to touch the port lists.
+    // Called from the window procedure, so it touches nothing but an atomic. The
+    // rescan happens on the UI thread in pumpDeviceScan().
     deviceChangePending.store(true, std::memory_order_release);
 }
 
@@ -11325,13 +10163,8 @@ Void app::setDpiScale(Float32 dpiScale)
     uiDpiScale = dpiScale > 0.0f ? dpiScale : 1.0f;
 }
 
-// Works the lamps out from the drive state, once a frame.
-//
-// The inputs are what the BOARD reports it is doing - driveSteer and driveEsc -
-// not what the sliders are asking for. The difference is the slew limiter: a
-// slider dragged to full lock arrives instantly, the servo takes a second to
-// get there, and it is the servo the indicator should follow. Reading the
-// targets would flash the indicator before the wheels had moved.
+// Works the lamps out from the drive state, once a frame. The inputs are what the
+// BOARD reports, not the sliders: the targets would flash the indicator early.
 Void updateAutoLights()
 {
     if(!autoLights)
@@ -11347,29 +10180,15 @@ Void updateAutoLights()
     lightInput = lights::detect(autoLightState, d, ImGui::GetTime());
 }
 
-// ---------------------------------------------------------------------------
-// WASD, polled once a frame.
+// WASD, polled once a frame. A/D steer to FULL LOCK on press and back to straight
+// on release. W is forward at the cap below. S is a BRAKE, not reverse:
+// chassis.h is forward-only and the throttle clamp turns anything below idle
+// INTO idle, so no value means backwards.
 //
-// A/D steer to FULL LOCK on press and back to straight on release - digital,
-// the way a game does it, which is what was asked for. W is forward at the cap
-// below. S is a BRAKE, not reverse: chassis.h is forward-only, and the throttle
-// clamp turns any number below idle INTO idle, so there is no value that means
-// backwards and pretending otherwise would send the car forwards.
-//
-// ---- what stops this driving the car while somebody types ----------------
-//
-// Not io.WantCaptureKeyboard. That is true on essentially every frame in this
-// app - main.cxx sets ImGuiConfigFlags_NavEnableKeyboard, and once any window
-// holds nav focus ImGui raises the flag - so guarding on it would mean this
-// never fires at all.
-//
-// Not io.WantTextInput alone either. The code editor never sets it: it draws an
-// InvisibleButton and reads io.InputQueueCharacters directly, so while somebody
-// is typing "daw" in vim, WantTextInput is false and IsAnyItemActive() is false.
-// Those are literally three of these four keys.
-//
-// So all three, and the editor's own flag is the one that matters most.
-// ---------------------------------------------------------------------------
+// WHAT STOPS THIS WHILE SOMEBODY TYPES: not io.WantCaptureKeyboard, which
+// ImGuiConfigFlags_NavEnableKeyboard makes true on nearly every frame, and not
+// io.WantTextInput alone, because the editor reads io.InputQueueCharacters and
+// sets neither it nor an ActiveId. So all three.
 Void updateKeyboardDrive()
 {
     const ImGuiIO& io = ImGui::GetIO();
@@ -11381,10 +10200,8 @@ Void updateKeyboardDrive()
                      || codeView.focused
                      || ImGui::IsAnyItemActive();
 
-    // ImGui clears its key-down array when the window loses focus, so the keys
-    // read as released by themselves - but the app is not drawn at all while
-    // minimised (main.cxx sleeps instead of calling frame()), so nothing here
-    // runs to send the stop. That case is the board's deadman, not this.
+    // ImGui clears its key-down array when the window loses focus, so the keys read
+    // as released. While minimised main.cxx sleeps: that case is the deadman's.
     const Bool live = wasdOn && linkUp && !typing && !io.AppFocusLost;
 
     const Bool a = live && ImGui::IsKeyDown(ImGuiKey_A);
@@ -11431,14 +10248,8 @@ Void updateKeyboardDrive()
     }
 
     // ---- the keepalive ---------------------------------------------------
-    //
-    // The board stops itself after DEADMAN_MS with nothing heard, and this
-    // sends on key CHANGES - so holding W steadily would go quiet and be
-    // stopped for it. Re-sending the same throttle is idempotent and is what
-    // proves the host is still here.
-    //
-    // Only while actually driving. A car sitting still does not need a
-    // heartbeat, and one sent anyway is traffic that hides real traffic.
+    // The board stops itself after DEADMAN_MS with nothing heard, and this sends
+    // on key CHANGES - so holding W steadily would go quiet. Only while driving.
     if(live && wasdSentEsc != 0)
     {
         const Float64 now = ImGui::GetTime();
@@ -11464,9 +10275,8 @@ Void app::frame()
     updateEmergencyKey();
     updateKeyboardDrive();
 
-    // Ctrl+` for the console, which is the shortcut every editor and terminal
-    // already uses for exactly this. Checked before anything draws so the
-    // layout below measures the state it is about to render.
+    // Ctrl+` for the console. Checked before anything draws, so the layout below
+    // measures the state it is about to render.
     if(ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_GraveAccent))
     {
         consoleOpen      = !consoleOpen;
@@ -11484,40 +10294,30 @@ Void app::frame()
 
     const ImGuiStyle& sty = ImGui::GetStyle();
 
-    // ---- the status bar's height, reserved now and DRAWN LAST ------------
-    //
-    // Sized to whichever is taller, the type or the icons, plus its padding.
-    // Sizing to the text alone is what cropped the old lamps.
-    //
-    // It lives at the BOTTOM. Along the top it competed with the tab bar for
-    // the eye and pushed the actual work down; a status bar is ambient
-    // information you glance at, not a header you read first.
+    // ---- the status bar's height, reserved now and DRAWN LAST ----------
+    // Sized to whichever is taller, the type or the icons, plus its padding:
+    // sizing to the text alone is what cropped the old lamps.
     const Float32 stripPad = 6.0f * uiDpiScale;
     const Float32 stripH   = std::max(ImGui::GetTextLineHeight(), ui::iconSize())
                            + stripPad * 2.0f;
 
     // ---- map + sidebar ---------------------------------------------------
-    // Everything above the bar lays out against the height that is left once
-    // the bar has taken its own.
+    // Everything above the bar lays out against the height the bar leaves.
     ImVec2 avail = ImGui::GetContentRegionAvail();
     avail.y -= stripH + sty.ItemSpacing.y;
 
-    // The column's width is the user's now - see sidebarSplitter(). It is still
-    // a LOGICAL width, so the sidebar's contents lay out against a number that
-    // does not move when the DPI or the zoom does.
+    // The column's width is the user's - see sidebarSplitter() - and a LOGICAL
+    // width, so its contents lay out against a number DPI and zoom do not move.
     const Float32 gap   = std::max(sty.ItemSpacing.x, 8.0f * uiDpiScale);
     const Float32 sideW = sidebarWidth(avail.x);
 
-    // The console column, when it is open, comes off the LEFT before anything
-    // else is measured - so the central view narrows and the sidebar does not
-    // move. A panel that shoved the sidebar around every time it opened would
-    // make the whole window feel unstable.
+    // The console column, when open, comes off the LEFT before anything else is
+    // measured - so the central view narrows and the sidebar does not move.
     const Float32 consW = consoleOpen ? consoleWidth(avail.x) : 0.0f;
     const Float32 consGap = consoleOpen ? gap : 0.0f;
 
-    // Sized for the view that is on screen, which is why centralView is kept
-    // across frames. A view with no controls costs no height at all - the
-    // spacing goes too, or a board tab would sit above a blank strip.
+    // Sized for the view on screen, which is why centralView is kept across
+    // frames. A view with no controls costs no height - the spacing goes too.
     const Float32 mapW  = avail.x - sideW - gap - consW - consGap;
     const Float32 ctrlH = centralControlHeight(centralView, mapW);
     const Float32 mapH  = avail.y - ctrlH - (ctrlH > 0.0f ? sty.ItemSpacing.y : 0.0f);
@@ -11535,18 +10335,9 @@ Void app::frame()
 
     if(mapW > 80.0f * uiDpiScale && mapH > 80.0f * uiDpiScale)
     {
-        // The central region gets its own child window, and it has to.
-        //
-        // Everything inside it begins with a tab bar, and ImGui puts the cursor
-        // back at the WINDOW's left content edge after one - not at wherever the
-        // caller had moved it. With the console column open that edge is 400 px
-        // to the left of where the view should start, so the tab bar landed
-        // correctly and the body underneath it did not. A child makes "the
-        // window's left edge" mean this column's left edge, which is the only
-        // way to say it that a tab bar cannot undo.
-        //
-        // Zero padding on the child so mapW is exactly the width the view gets;
-        // popped immediately, so the widgets inside still get the normal one.
+        // The central region MUST have its own child window: everything inside it
+        // begins with a tab bar, after which ImGui puts the cursor back at the
+        // WINDOW's left content edge. Zero padding, popped at once.
         ImGui::SetCursorScreenPos(ImVec2(midX, p0.y));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::BeginChild("##centralcol", ImVec2(mapW, avail.y), ImGuiChildFlags_None,
@@ -11563,11 +10354,9 @@ Void app::frame()
 
     drawSidebar(sideW, avail.y);
 
-    // ---- the status bar, last --------------------------------------------
-    //
-    // Pinned to the window's bottom edge rather than flowed after the sidebar,
-    // because the two columns above it do not necessarily end at the same y and
-    // a bar that followed whichever was taller would move as panels opened.
+    // ---- the status bar, last ------------------------------------------
+    // Pinned to the window's bottom edge rather than flowed after the sidebar:
+    // the two columns above it do not necessarily end at the same y.
     {
         const ImVec2 wp = ImGui::GetWindowPos();
         const ImVec2 ws = ImGui::GetWindowSize();
@@ -11594,12 +10383,9 @@ Void app::frame()
         ImGui::PopStyleVar();
     }
 
-    // ---- the recorder's frame source -------------------------------------
-    //
-    // Live while idle or capturing, recorded while playing or scrubbed. Done
-    // here rather than in the tab body so a recording keeps advancing while you
-    // are looking at another tab - stopping playback because you glanced at the
-    // board view would be surprising.
+    // ---- the recorder's frame source -----------------------------------
+    // Live while idle or capturing, recorded while playing or scrubbed. Here
+    // rather than in the tab body, so a recording keeps advancing off-tab.
     if(!recording.empty() && (recPlaying || recPendingSeek))
     {
         if(recPlaying)
@@ -11657,8 +10443,7 @@ Void app::shutdown()
     picoLink.disconnect();
 
     // clangd holds an index of the whole firmware in memory and would otherwise
-    // outlive the window that started it - an orphan with no console, no icon
-    // and a few hundred megabytes, discoverable only in Task Manager.
+    // outlive the window - an orphan of a few hundred megabytes.
     lsp::stop();
 
     // Last, so anything the two lines above logged on their way out is in the

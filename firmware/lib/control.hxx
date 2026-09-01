@@ -2,25 +2,13 @@
  * ---------------------------------------------------------------------------
  * control - PID and feedforward, as arithmetic.
  *
- * NO HARDWARE, NO SDK, NO CLOCK. Everything here takes the numbers it needs as
- * arguments, including the timestep. That is what lets it be tested on a host
- * against invented inputs instead of by driving a car into a wall, and it is
- * the same split that makes dfplayer_proto and sfx testable.
+ * NO HARDWARE, NO SDK, NO CLOCK. Every number arrives as an argument, the
+ * timestep included, so this tests on a host. The caller owns the loop and the
+ * clock; this owns the response.
  *
- * The caller owns the loop and the clock. This owns the response.
- *
- * ---------------------------------------------------------------------------
- * WHY FEEDFORWARD FIRST AND PID SECOND.
- *
- * A PID asked to do the whole job has to build its output out of accumulated
- * error, which means it can only correct a speed it is ALREADY getting wrong.
- * On a car whose motor does not move at all below a certain pulse, that is
- * most of the useful range: the integral winds up during the dead zone,
- * then dumps when the wheels finally break loose.
- *
- * Feedforward is the model - "this much pulse produces about this much speed" -
- * and the PID only corrects what the model got wrong. That is why gainS
- * exists, and why it matters most on this drivetrain.
+ * FEEDFORWARD FIRST, PID SECOND. A PID can only correct a speed it is already
+ * getting wrong, and this car's motor does not move at all below a certain
+ * pulse. The model predicts; the PID corrects what the model got wrong.
  * -------------------------------------------------------------------------
  */
 #pragma once
@@ -119,19 +107,11 @@ namespace bibo::control
         Float32 ki = 0.0f;
         Float32 kd = 0.0f;
 
-        /*
-         * The integral is clamped in OUTPUT units, so the limit means the same
-         * thing whatever ki is. A limit expressed in error-seconds changes
-         * meaning every time the gain is retuned, which is how an anti-windup
-         * clamp quietly stops clamping.
-         */
+        /* Clamped in OUTPUT units, so the limit means the same thing whatever ki is. */
         Float32 iMax = 0.0f;   /* output units; 0 disables the clamp */
 
         Float32 outMin = 0.0f; /* output units */
-        Float32 outMax = 0.0f; /*
-        Float32 outMax = 0.0f;  * output units; outMax <= outMin disables
-                                 * output clamping
-                                 */
+        Float32 outMax = 0.0f; /* output units; outMax <= outMin disables clamping */
 
         /* ---- state ---- */
         Float32 integral  = 0.0f;
@@ -225,10 +205,7 @@ namespace bibo::control
         const Bool high = p->outMax > p->outMin && without >= p->outMax;
         const Bool low  = p->outMax > p->outMin && without <= p->outMin;
 
-        /*
-         * Integrate unless that would push further into a limit we are already
-         * against. Error pointing back toward the middle always integrates.
-         */
+        /* Integrate unless that pushes further into a limit already reached. */
         if(!((high && add > 0.0f) || (low && add < 0.0f)))
         {
             p->integral += add;

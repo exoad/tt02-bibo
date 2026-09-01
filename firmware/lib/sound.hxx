@@ -52,27 +52,21 @@ namespace bibo::sound
     /* ---- state, one copy - the same deal chassis.hxx and lights.hxx make -- */
     inline dfplayer::Bus bus;
 
-    /*
-     * Remembered rather than asked for. The module has no "what volume are
-     * you" query worth a round trip, and a value the hub cannot read back is a
-     * slider that jumps to a default every time the view is opened.
-     */
+    /* Remembered, not asked for: no query on the module is worth a round trip. */
     inline UInt8  level   = 8;
     inline UInt8  tone    = DFP_EQ_NORMAL;
     inline UInt16 last    = 1;
 
     /*
      * How many files the card holds, 0 for "not asked, or it did not answer".
-     * Asked at mount, which is when it can change - a card is not swapped while
-     * the board is running - rather than on every status line, because the
-     * query WAITS and the hub polls twice a second.
+     * Asked at mount rather than per status line: the query WAITS and the hub
+     * polls twice a second.
      */
     inline UInt16 files   = 0;
 
     /*
      * Whether the card has been mounted since power-on. It takes 1.5-3 s and a
-     * play sent before that is LOST - no error, no sound - so boot does not pay
-     * for it and the first thing that needs the card asks.
+     * play sent before that is LOST, so boot does not pay for it.
      */
     inline Bool   mounted = false;
 
@@ -133,11 +127,8 @@ namespace bibo::sound
 
     /*
      * ---- what came back -------------------------------------------------
-     *
-     * ready() is the card, hasVoice() is the BUSY wire, speaking() is a
-     * track actually sounding. Three questions rather than one, because
-     * they fail independently and a caller that got a single Bool could
-     * not tell a silent module from an unwired pin.
+     * ready() is the card, hasVoice() is the BUSY wire, speaking() is a track
+     * sounding. Three questions, because they fail independently.
      */
     /**
      * @brief Whether the speaker is open and the card mounted.
@@ -210,11 +201,7 @@ namespace bibo::sound
         return last;
     }
 
-    /*
-     * ---- settings --------------------------------------------------------
-     *
-     * Clamped by the driver, remembered here so a reset can put them back.
-     */
+    /* ---- settings - remembered here so a reset can put them back --------- */
     /**
      * @brief Sets the volume and remembers it for the next mount()/reset.
      *
@@ -238,11 +225,7 @@ namespace bibo::sound
         dfplayer::eq(&bus, tone);
     }
 
-    /*
-     * ---- why this file exists ---------------------------------------------
-     *
-     *     sound::play("hit1")
-     */
+    /* ---- why this file exists: sound::play("hit1") ------------------------ */
     /**
      * @brief Why a sound did or did not play.
      *
@@ -284,17 +267,9 @@ namespace bibo::sound
         }
 
         /*
-         * ZERO IS RESERVED AND IS NOT A FILE.
-         *
-         * The DFPlayer numbers files from 1, so there is no mp3/0000.mp3 to
-         * play. It is also the value sfx::NONE uses for "no such clip", which
-         * is what makes this worth a guard rather than a comment: a lookup that
-         * misses returns 0, and a caller that forgets to check it would hand
-         * that 0 straight to here. Refusing names the mistake instead of
-         * sending a play for a file that cannot exist.
-         *
-         * The console's numeric path rejected 0 already. The LIBRARY did not,
-         * and the library is what a cue will call.
+         * ZERO IS RESERVED AND IS NOT A FILE. The DFPlayer numbers files from 1,
+         * and 0 is also what sfx::NONE returns for "no such clip" - so a lookup
+         * that missed would arrive here as a play for a file that cannot exist.
          */
         if(t == 0u)
         {
@@ -302,9 +277,7 @@ namespace bibo::sound
         }
 
         /*
-         * Only checked when the count is known. 0 means nobody has asked, and
-         * refusing on an unknown would make the speaker useless on a module
-         * that will not answer a query but plays perfectly well.
+         * Only checked when the count is known; 0 means nobody has asked.
          */
         if(files > 0 && t > files)
         {

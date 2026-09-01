@@ -1,15 +1,8 @@
 # Static analysis: cppcheck, and this repository's own clang-tidy list.
 #
-# Separate from codeql.yml because they answer different questions. CodeQL
-# follows data across functions looking for a path from an input to a hazard;
-# cppcheck and clang-tidy read the code in front of them. The overlap is small
-# and the cheap one runs in about a minute.
-#
-# THE CLANG-TIDY STEP RUNS THIS REPOSITORY'S OWN CONFIG rather than a list
-# invented here. .clang-tidy at the root and firmware/.clang-tidy below it are
-# what the hub's Code view and CLion already enforce as you type, so CI agreeing
-# with the editor is the whole point - a rule that only fires in CI gets
-# committed around, and a rule that only fires in the editor decays.
+# Separate from codeql.yml: CodeQL follows data across functions, these two read
+# the code in front of them. clang-tidy runs .clang-tidy and firmware/.clang-tidy
+# so CI agrees with the editor - a rule that fires in only one of them decays.
 name: analysis
 
 on:
@@ -33,32 +26,20 @@ jobs:
           sudo apt-get install -y --no-install-recommends cppcheck
           cppcheck --version
 
-      # vendor/ is upstream and hub/third_party holds imgui - neither is ours to
-      # fix, and their findings would sit in the same list as a real one. Same
-      # exclusion the style audit makes, for the same reason.
+      # vendor/ and hub/third_party (imgui) are upstream - not ours to fix, and
+      # their findings would crowd out a real one. --inline-suppr so a genuine
+      # false positive can be waived AT THE LINE rather than in a list far away.
       #
-      # --inline-suppr so a genuine false positive can be waived AT THE LINE,
-      # where the next reader sees why, rather than in a list far away.
-      # THREE SUPPRESSIONS, each for a reason rather than to get to green.
-      #
-      # useStlAlgorithm      wants std::find_if and std::fill. The firmware is
+      # useStlAlgorithm      wants std::find_if and std::fill, but the firmware is
       #                      FREESTANDING - no heap, no exceptions, no <algorithm>
-      #                      - so every one of these is advice to include a header
-      #                      that is not there. Same reason .clangd drops
-      #                      bugprone-unhandled-exception-at-new.
-      #
+      #                      - so each finding advises a header that is not there.
       # knownConditionTrueFalse
       #                      cppcheck explores #ifdef combinations the real build
-      #                      never has. It reported `!bibo::net::present()` as
-      #                      "always false" AND "always true" for the SAME line,
-      #                      which is the tell: BIBO_WIRELESS is set from the board
-      #                      header, and each board makes it constant in a
-      #                      different direction.
-      #
-      # --inconclusive       removed rather than suppressed. It is the flag that
-      #                      says "reports things it is not sure about", and both
-      #                      findings it produced were "technically this member
-      #                      function could be static".
+      #                      never has. It called `!bibo::net::present()` both
+      #                      "always false" AND "always true" on the SAME line,
+      #                      because BIBO_WIRELESS comes from the board header.
+      # --inconclusive       removed, not suppressed: both findings it produced
+      #                      were "this member could be static".
       - name: cppcheck
         run: |
           set -o pipefail
@@ -94,14 +75,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang-tidy
           clang-tidy --version
 
-      # The test translation units, because they are what pulls firmware/lib in
-      # with a compiler that can actually parse it - BIBO_FAKE_HAL swaps the SDK
-      # half out. Running clang-tidy at the headers directly instead makes it
-      # parse `pico/stdlib.h`, fail, and report on a fraction of the file while
-      # still exiting 0.
-      #
-      # HeaderFilterRegex in .clang-tidy is what keeps the report to our own
-      # headers, so the count below is of findings in this repository.
+      # The test translation units, because they pull firmware/lib in with a
+      # compiler that can parse it - BIBO_FAKE_HAL swaps the SDK half out. Aimed
+      # at the headers directly, clang-tidy fails on `pico/stdlib.h`, reports on a
+      # fraction of the file and still exits 0. HeaderFilterRegex keeps the count.
       - name: clang-tidy
         run: |
           set -u

@@ -2,36 +2,20 @@
  * ---------------------------------------------------------------------------
  * geom - where the car is, in meters and radians.
  *
- * WORLD FRAME, not pixels. gfx.hxx has a Point and it is a screen coordinate;
- * this is the other kind, and keeping them in separate files with separate
- * names is what stops one being passed where the other is meant.
+ * WORLD FRAME, not pixels: gfx.hxx has a Point and it is a screen coordinate.
+ * Pure arithmetic - no SDK, no clock, no hardware - so it compiles for the
+ * Pico, the Orange Pi and the host test from one copy.
  *
- * Pure arithmetic - no SDK, no clock, no hardware. Which means it compiles for
- * the Pico, for the Orange Pi, and for the host test, from one copy. That is
- * deliberate and it is the reason none of this reaches for a peripheral: the
- * moment a controller needs a timestamp of its own, it stops being portable and
- * starts being firmware.
- *
- * ---------------------------------------------------------------------------
- * ANGLES ARE RADIANS AND ARE WRAPPED.
- *
- * A heading that accumulates without wrapping reaches 200 rad after a few
- * minutes of driving in circles, and every comparison against it starts
- * behaving oddly for reasons that look like sensor drift. Worse, the difference
- * between 179 degrees and -179 degrees is 2 degrees the short way and 358 the
- * long way, and a controller that takes the long way turns the car all the way
- * round to reach a heading it was almost at. wrapPi exists for exactly that.
+ * ANGLES ARE RADIANS AND ARE WRAPPED. 179 degrees and -179 degrees are 2
+ * degrees apart the short way and 358 the long way, and a controller that
+ * takes the long way turns the car all the way round. wrapPi exists for that.
  * -------------------------------------------------------------------------
  */
 #pragma once
 
 #include "types.hxx"
 
-/*
- * sqrtf, sinf, cosf, atanf. The float forms deliberately: the double ones pull
- * in software double-precision on an M33, which is both slower and larger for
- * arithmetic that is never more accurate than the encoder feeding it.
- */
+/* The float forms deliberately: the double ones pull in software double-precision on an M33. */
 #include <math.h>
 
 namespace bibo::geom

@@ -1,5 +1,4 @@
 @echo off
-REM ===========================================================================
 REM  Builds the firmware for one of the two boards.
 REM
 REM    firmware\build.bat                 pico2_w  -> build\pico_debug.uf2
@@ -7,44 +6,26 @@ REM    firmware\build.bat pico2           pico2    -> build-pico2\pico_debug.uf2
 REM    firmware\build.bat clean           wipe, then build pico2_w
 REM    firmware\build.bat clean pico2     wipe, then build pico2  (any order)
 REM
-REM  SEPARATE BUILD DIRECTORIES, on purpose. Changing PICO_BOARD in one tree
-REM  invalidates most of it, so sharing a directory would mean a full rebuild -
-REM  and on the W that is the cyw43 stack, ~190 translation units - every single
-REM  time you switched boards. Two trees cost disk, which is free, instead of
-REM  minutes, which are not. build\ stays the W's so every existing path,
-REM  note, .clangd and compile_commands.json keeps meaning what it meant.
+REM  SEPARATE BUILD DIRECTORIES: changing PICO_BOARD invalidates most of a tree,
+REM  so sharing one means a full rebuild (~190 TUs on the W) at every switch.
+REM  build\ stays the W's, so existing paths and .clangd keep meaning what they did.
 REM
-REM  Toolchain notes, learned the hard way on this machine:
-REM
-REM   * arm-none-eabi-gcc comes from MSYS2 (mingw64), installed once. It is a
-REM     native Windows binary.
-REM   * CMake and Ninja come from Visual Studio, NOT from MSYS2. MSYS2 ships two
-REM     incompatible cmakes and both failed here: usr/bin/cmake is a Cygwin-style
-REM     build that uses POSIX paths and cannot drive a native ARM toolchain, and
-REM     mingw64/cmake died with 0xC0000135 (DLL not found) because this MSYS2
-REM     install is only partially updated. VS's cmake is native, self-contained,
-REM     and already present.
-REM   * PATH is NOT globally modified. In particular, putting mingw64\bin ahead
-REM     of msys64\usr\bin makes usr/bin binaries fail with 0xC0000139
-REM     (entrypoint not found), because the two runtimes shadow each other.
-REM     Only the ARM toolchain directory is added, and only for this build.
-REM
-REM ===========================================================================
+REM  Toolchain traps on this machine:
+REM   * arm-none-eabi-gcc is MSYS2's (mingw64), a native Windows binary. CMake and
+REM     Ninja are Visual Studio's, NOT MSYS2's: usr/bin's cmake is Cygwin-style
+REM     (POSIX paths, cannot drive a native ARM toolchain) and mingw64's dies with
+REM     0xC0000135 (DLL not found) on this partially-updated install.
+REM   * PATH is NOT globally modified: mingw64\bin ahead of msys64\usr\bin makes
+REM     usr/bin binaries fail with 0xC0000139, the two runtimes shadowing.
 
 setlocal EnableDelayedExpansion
 set "HERE=%~dp0"
 set "ROOT=%HERE%.."
 
 REM ---- arguments, order-independent ----------------------------------------
-REM Two flags in any order, because "clean pico2" and "pico2 clean" are the same
-REM intent and having one of them silently build the wrong board would be a
-REM genuinely expensive mistake - it produces a working image for the wrong
-REM chip, which flashes without complaint.
-REM A third argument, added when sketches stopped being one overwritten slot and
-REM became one target per file: TARGET, which builds just that image. Without it
-REM every sketch in sketches/ is built along with the car, and that grows with
-REM the folder - which is the wrong thing to charge someone for pressing Build
-REM on a one-file experiment.
+REM Order matters nowhere: silently building the wrong board yields a working
+REM image for the wrong chip, which flashes without complaint. TARGET builds one
+REM image; without it every sketch in sketches/ is built alongside the car.
 set "BOARD=pico2_w"
 set "DOCLEAN="
 set "TARGET="
@@ -59,9 +40,8 @@ for %%A in (%*) do (
     ) else if /i "%%~A"=="pico_debug" (
         set "TARGET=pico_debug"
     ) else if exist "%HERE%sketches\%%~A.cxx" (
-        REM Checked against the FILE rather than taken on trust, so a typo is
-        REM caught here with a list of what exists instead of surfacing two
-        REM minutes later as ninja saying "unknown target".
+        REM Checked against the FILE, so a typo is caught here with a list of
+        REM what exists rather than two minutes later as ninja "unknown target".
         set "TARGET=%%~A"
     ) else (
         echo [error] unknown argument "%%~A"
@@ -73,8 +53,7 @@ for %%A in (%*) do (
     )
 )
 
-REM The W keeps the plain build\ directory it has always had; anything else gets
-REM its own suffixed tree.
+REM The W keeps the plain build\ directory; anything else gets a suffixed tree.
 if /i "%BOARD%"=="pico2_w" (
     set "BUILD=%HERE%build"
 ) else (
@@ -106,12 +85,11 @@ if not exist "%CMAKE%" (
     exit /b 1
 )
 
-REM PATH is deliberately NOT touched. The SDK builds its own host tools (pioasm,
-REM picotool) with the first native g++ it finds, which on this machine is
-REM ucrt64's. Prepending mingw64\bin then shadows ucrt64's runtime DLLs and those
-REM tools die silently mid-build - pioasm exits non-zero with no message, while
-REM running fine by hand. PICO_TOOLCHAIN_PATH tells the SDK where the ARM
-REM cross-compiler is without putting its directory in front of anything.
+REM PATH deliberately NOT touched: the SDK builds its host tools (pioasm,
+REM picotool) with the first native g++ it finds - ucrt64's - and prepending
+REM mingw64\bin shadows ucrt64's DLLs, so they die silently mid-build (pioasm
+REM exits non-zero with no message, yet runs fine by hand). PICO_TOOLCHAIN_PATH
+REM points the SDK at the cross-compiler instead.
 set "PICO_TOOLCHAIN_PATH=C:/msys64/mingw64"
 
 if defined DOCLEAN (
@@ -120,12 +98,10 @@ if defined DOCLEAN (
 )
 
 echo [conf ] cmake configure for %BOARD%
-REM picotool_DIR: use Raspberry Pi's OFFICIAL prebuilt picotool rather than the
-REM one the SDK builds from source here. The locally-built one crashes with an
-REM access violation (0xC0000005) in every subcommand that touches an ELF -
-REM `uf2 convert` and `coprodis` both - and reports "compiled without USB
-REM support". It is built by ucrt64 gcc; the official binary is GNU-16.2.0 with
-REM USB support and works. Downloaded once into vendor/ (gitignored):
+REM picotool_DIR: Raspberry Pi's OFFICIAL prebuilt picotool, pinned at v2.3.0-1.
+REM The one the SDK builds here (ucrt64 gcc) crashes with 0xC0000005 in every
+REM subcommand that touches an ELF - `uf2 convert`, `coprodis` - and reports
+REM "compiled without USB support". Downloaded once into vendor/ (gitignored):
 REM   https://github.com/raspberrypi/pico-sdk-tools/releases  (v2.3.0-1)
 set "PICOTOOL_DIR=%ROOT%\vendor\picotool-2.3.0\picotool"
 
@@ -137,13 +113,10 @@ if not exist "%PICOTOOL_DIR%\picotool.exe" (
     exit /b 1
 )
 
-REM CMAKE_EXPORT_COMPILE_COMMANDS writes build\compile_commands.json, which is
-REM what firmware/.clangd points every editor at. CMakePresets.json has always
-REM set it and this script never did - and since this script is the one that
-REM actually runs, and it deletes and recreates build\ on a clean, the database
-REM did not exist unless somebody had separately configured through the IDE.
-REM So the fallback that exists precisely for editors WITHOUT the project loaded
-REM only worked once the project was loaded. It is set in both places now.
+REM CMAKE_EXPORT_COMPILE_COMMANDS writes build\compile_commands.json, which
+REM firmware/.clangd points editors at. Only CMakePresets.json set it, yet this
+REM script is what runs and it recreates build\ on a clean - so the fallback for
+REM editors WITHOUT the project loaded only worked once it was loaded.
 "%CMAKE%" -S "%HERE%." -B "%BUILD%" -G Ninja ^
     -DPICO_BOARD=%BOARD% ^
     -DCMAKE_MAKE_PROGRAM="%NINJA%" ^
@@ -167,10 +140,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM The image the caller actually asked for, checked by name. A build that
-REM "succeeded" while producing no UF2 is the failure worth catching here: the
-REM flash step downstream would otherwise reach for a stale file from a previous
-REM build and report success having flashed the wrong program.
+REM Check the asked-for image by name: a build that "succeeded" while producing
+REM no UF2 leaves the flash step downstream reaching for a stale file from a
+REM previous build and reporting success having flashed the wrong program.
 set "WANT=pico_debug"
 if defined TARGET set "WANT=%TARGET%"
 

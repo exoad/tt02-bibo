@@ -1,11 +1,8 @@
 @echo off
 REM Builds and (with "run") executes the vehicle lighting tests.
-REM
-REM   tests\build_geom_test.bat        - compile only
-REM   tests\build_geom_test.bat run    - compile then run
-REM
-REM No hardware and no ImGui: lights.cxx is a pure state machine, which
-REM is what makes the docs/conventions.md rules checkable before any LED exists.
+REM   tests\build_lights_test.bat [run]   - compile, optionally run
+REM No hardware and no ImGui: lights.cxx is a pure state machine, which makes
+REM the docs/conventions.md rules checkable before any LED exists.
 
 setlocal
 set HERE=%~dp0
@@ -35,13 +32,9 @@ if errorlevel 1 (
 
 echo [ok] %HERE%build\test_lights.exe
 
-REM An EARLY RETURN, not an if-block, and the reason is a cmd.exe
-REM parsing rule that cost every one of these scripts its exit code:
-REM `exit /b %errorlevel%` inside `if ... ( ... )` is expanded when
-REM cmd parses the BLOCK, which is before the test has run. All 11
-REM scripts exited 0 while printing OVERALL: FAIL, so not one of them
-REM could ever have gated a commit. Out here the expansion happens
-REM when the line is reached.
+REM An EARLY RETURN, not an if-block: `exit /b %errorlevel%` inside
+REM `if ... ( ... )` expands when cmd PARSES the block, before the test has run.
+REM All 11 scripts once exited 0 while printing OVERALL: FAIL.
 if /i not "%~1"=="run" exit /b 0
 "%HERE%build\test_lights.exe"
 exit /b %errorlevel%

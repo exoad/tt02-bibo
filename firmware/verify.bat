@@ -1,40 +1,23 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-REM ===========================================================================
-REM  verify.bat - is firmware/ actually green?
+REM  verify.bat - is firmware/ actually green?    usage: firmware\verify.bat
 REM
-REM    firmware\verify.bat
+REM  Exits 0 only when EVERY line below passed, so it can gate a commit or flash.
 REM
-REM  Exits 0 only when EVERY line below passed. Exits 1 otherwise, so it can
-REM  gate a commit or a flash.
-REM
-REM  WHY THIS EXISTS, and why it is shaped the way it is.
-REM
-REM  Verifying this tree by hand went wrong four separate ways in one day, and
-REM  every one of them REPORTED SUCCESS while measuring nothing:
-REM
-REM    1. A warning count taken from a build that had already failed. The
-REM       compiler never reached the file, so "0 warnings" was true and
-REM       meaningless. => errors are counted FIRST and warnings are only
-REM       reported when errors is 0.
-REM
-REM    2. Test results read from printed text while the script's exit code was
-REM       always 0 - `exit /b %errorlevel%` inside an if-block expands when cmd
-REM       PARSES the block, before the test runs. All eleven scripts had it.
-REM       => this file checks EXIT CODES, never output, and uses an early
-REM       return rather than a block.
-REM
-REM    3. A count taken twice against a moving branch, answering about two
-REM       different objects. => the commit is pinned once at the top and
-REM       compared at the bottom.
-REM
-REM    4. An incremental build reporting 0 warnings because it had not
-REM       recompiled the file that warns. => both boards are built CLEAN.
-REM
-REM  The rule underneath all four: measure the artifact, not the name of it,
-REM  and prefer a check that fails loudly to one that passes quietly.
-REM ===========================================================================
+REM  Shaped by four ways of verifying this tree that all REPORTED SUCCESS while
+REM  measuring nothing:
+REM    1. Warnings counted from a build that had already failed - the compiler
+REM       never reached the file, so "0 warnings" was true and meaningless.
+REM       => errors are counted FIRST; warnings are reported only when errors=0.
+REM    2. Results read from printed text while the exit code was always 0:
+REM       `exit /b %errorlevel%` inside an if-block expands when cmd PARSES the
+REM       block, before the test runs. All eleven scripts had it. => check EXIT
+REM       CODES, never output, and use an early return rather than a block.
+REM    3. A count taken twice against a moving branch => the commit is pinned at
+REM       the top and compared at the bottom.
+REM    4. An incremental build reporting 0 warnings because it never recompiled
+REM       the file that warns. => both boards are built CLEAN.
 
 set HERE=%~dp0
 set ROOT=%HERE%..
@@ -49,10 +32,8 @@ echo   commit %PINNED%
 echo   ---------------------------------------------------------------
 
 REM ---- 1. both boards, CLEAN, one capture each ------------------------------
-REM
-REM Clean because an incremental build only recompiles what changed, so a
-REM warning in an untouched file is invisible - which is exactly how a raw NUL
-REM byte in main.cxx survived a run of "0 warnings" builds.
+REM Clean because an incremental build skips untouched files, so a warning in one
+REM is invisible - how a raw NUL byte in main.cxx survived "0 warnings" builds.
 call :board pico2_w ""
 call :board pico2   "pico2"
 
@@ -62,12 +43,8 @@ call :suite pins     "%HERE%tests\build_pins_test.bat"
 call :suite dfplayer "%HERE%tests\build_dfplayer_test.bat"
 call :suite chassis  "%HERE%tests\build_chassis_test.bat"
 
-REM control, pursuit and sfx were WRITTEN AND NEVER GATED. Their build scripts
-REM had been sitting in tests\ passing 71 checks between them that nothing ran -
-REM so the day one of them broke, the gate would have said PASS. Found while
-REM adding pilot\, which wanted to build on control and pursuit and had no way
-REM to know whether they still worked.
-REM
+REM control, pursuit and sfx were WRITTEN AND NEVER GATED - 71 checks sitting in
+REM tests\ that nothing ran, so the day one broke the gate would still say PASS.
 REM A test suite that is not in this list is a suite that does not exist.
 call :suite control  "%HERE%tests\build_control_test.bat"
 call :suite pursuit  "%HERE%tests\build_pursuit_test.bat"
@@ -97,19 +74,15 @@ if "%FAIL%"=="1" (
 echo   PASS
 exit /b 0
 
-REM ===========================================================================
 REM  :board <label> <build.bat argument>
 REM
-REM  find and findstr are called by ABSOLUTE PATH. `find /c /v ""` is the
-REM  standard cmd line-count idiom and it is a loaded gun in a tree whose
-REM  shell puts git's usr/bin ahead of System32: GNU find took /c as a PATH
-REM  and started walking the whole C: drive. Same exposure for findstr,
-REM  sort and more.
+REM  find and findstr are called by ABSOLUTE PATH: with git's usr/bin ahead of
+REM  System32, `find /c /v ""` reaches GNU find, which takes /c as a PATH and
+REM  walks the whole C: drive. Same exposure for findstr, sort and more.
 REM
-REM  One capture. Errors decide pass or fail; the warning count is only printed
-REM  when there are no errors, because a warning count from a failed build is
-REM  a count of how far the compiler got.
-REM ===========================================================================
+REM  One capture. Errors decide pass/fail; the warning count prints only when
+REM  there are no errors, since one from a failed build just measures how far
+REM  the compiler got.
 :board
 set LABEL=%~1
 set OUT=%TEMP%\bibo-verify-%LABEL%.txt
@@ -135,13 +108,10 @@ if not "%WARNS%"=="0" (
 echo   [ ok ] %LABEL%  0 errors, 0 warnings, %IMGS% image^(s^)
 exit /b 0
 
-REM ===========================================================================
 REM  :suite <name> <script>
 REM
-REM  Runs it and reads the EXIT CODE. Not the output: every one of these
-REM  scripts printed OVERALL: FAIL while exiting 0 until 2026-08-31, so any
-REM  check that read the text agreed with a check that read nothing.
-REM ===========================================================================
+REM  Reads the EXIT CODE, not the output: until 2026-08-31 every one of these
+REM  scripts printed OVERALL: FAIL while exiting 0.
 :suite
 call %2 run >nul 2>&1
 if errorlevel 1 (

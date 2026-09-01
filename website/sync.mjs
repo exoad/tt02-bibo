@@ -1,20 +1,10 @@
 /*
  * Generate the documentation site's content from firmware/ itself.
  *
- * WHY GENERATED RATHER THAN WRITTEN. A hand-written API page is correct on the
- * day it is written and wrong from the next commit onwards, silently - which is
- * this project's characteristic failure. Every signature and every prose block
- * on an API page here is read out of the header at build time, so a page cannot
- * describe a function that no longer exists.
- *
- * THE INPUT IS THE COMMENT STYLE THE FIRMWARE ALREADY USES. There are no
- * Doxygen tags in this codebase and none are being introduced: a declaration is
- * documented by the block comment directly above it, which is how every header
- * here is already written. The OUTPUT is Doxygen-shaped - signature, then prose,
- * grouped by kind - the input is just prose.
- *
- * Run by `npm run dev`, `build` and `generate`, so the content cannot be stale
- * relative to the firmware in the same tree.
+ * A hand-written API page is correct the day it is written and silently wrong
+ * from the next commit on, so every signature and prose block here is read out of
+ * the header at build time - from the block comment above a declaration. Run by
+ * `npm run dev`, `build` and `generate`, so the content cannot go stale.
  */
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, basename, dirname } from 'node:path'
@@ -37,11 +27,8 @@ function headers(dir) {
   return found
 }
 
-/* A block comment, stripped of its frame, kept as prose.
- *
- * The frame varies across these headers - some blocks are ruled off with
- * dashes or equals signs, some are plain - so the ruler lines go and the rest
- * is kept verbatim. Nothing here tries to interpret the prose. */
+/* A block comment, stripped of its frame, kept as prose. Ruler lines of dashes
+ * or equals signs go; the rest is verbatim and nothing here interprets it. */
 function unframe(lines) {
   return lines
     .map(l => l.replace(/^\s*\/\*+/, '').replace(/\*+\/\s*$/, '').replace(/^\s*\*\s?/, ''))
@@ -51,18 +38,10 @@ function unframe(lines) {
     .trim()
 }
 
-/* Split a doc comment into its Doxygen tags and the prose around them.
- *
- * BOTH SHAPES HAVE TO WORK, and that is the whole design. The firmware is
- * being converted to `@brief`/`@param`/`@return` a header at a time, so on any
- * given day some declarations carry tags and the rest are the prose paragraphs
- * this project has always written. A generator that only understood one of
- * them would blank half the reference until the conversion finished.
- *
- * Untagged text is the description, which is what an unconverted comment
- * becomes - so a file that has never been touched still renders exactly as it
- * did before this existed.
- */
+/* Split a doc comment into its Doxygen tags and the prose around them. BOTH
+ * SHAPES HAVE TO WORK: the firmware is converted to `@brief`/`@param` a header
+ * at a time, and untagged text becomes the description, so a file nobody has
+ * touched still renders instead of blanking until the conversion finishes. */
 function doxygen(text) {
   const out = { brief: '', body: [], params: [], returns: '', notes: [], warns: [] }
   if (!text) return out
@@ -75,8 +54,7 @@ function doxygen(text) {
       const [, tag, rest] = m
       if (tag === 'brief') { out.brief = rest; cur = { push: s => (out.brief += ' ' + s) } }
       else if (tag === 'param') {
-        /* `@param name description`, and the name may carry a direction
-         * prefix - [in], [out], [in,out] - which Doxygen allows before it. */
+        /* `@param name description`; the name may carry an [in]/[out] prefix. */
         const pm = rest.match(/^(\[[^\]]*\]\s*)?(\S+)\s*(.*)$/)
         const p = { name: pm ? pm[2] : rest, dir: (pm && pm[1] || '').trim(), text: pm ? pm[3] : '' }
         out.params.push(p)
@@ -103,8 +81,7 @@ function doxygen(text) {
 }
 
 const DECL = [
-  /* Order matters: a function whose return type is `struct X` must not be read
-   * as a struct declaration, so the more specific patterns come first. */
+  /* Order matters: `struct X f()` must not be read as a struct declaration. */
   { kind: 'function',
     re: /^\s*(?:static\s+|inline\s+|constexpr\s+)*(?:\[\[nodiscard\]\]\s*)?([A-Za-z_][\w:]*\s*[*&]?)\s+([A-Za-z_]\w*)\s*\(([^;{]*)\)\s*(?:noexcept)?\s*[{;]?\s*$/,
     take: m => ({ name: m[2], sig: `${m[1].trim()} ${m[2]}(${m[3].trim()})` }) },
@@ -122,13 +99,9 @@ const DECL = [
     take: m => ({ name: m[1], sig: `using ${m[1]} = ${m[2].trim()};` }) },
 ]
 
-/* #define is handled apart from the list above because it is NOT SCOPED.
- *
- * The others are only legal inside a namespace, so they are looked for only
- * there. A preprocessor directive is conventionally written at column 0 even
- * when it sits among namespaced code, which put every constant in cal.hxx -
- * the whole calibration table - outside the depth guard and reported the file
- * as having nothing in it. */
+/* #define is handled apart from the list above because it is NOT SCOPED: a
+ * directive sits at column 0 even among namespaced code, which put cal.hxx's
+ * whole calibration table outside the depth guard and reported it as empty. */
 const DEFINE = {
   kind: 'constant',
   re: /^\s*#define\s+([A-Z][A-Z0-9_]*)\s+(.+?)\s*(?:\/\*.*)?$/,
@@ -164,27 +137,23 @@ function parse(path) {
       continue
     }
 
-    /* `[\w:]*` so a CONCATENATED namespace keeps all of itself. The firmware
-     * moved to `namespace bibo::lights` on 2026-08-31, and matching only the
-     * first segment made every page in the reference claim its declarations
-     * lived in plain `bibo` - the pages stayed generated and every namespace
-     * line on them was wrong, which is worse than an empty page. */
+    /* `[\w:]*` so a CONCATENATED namespace keeps all of itself. Matching only
+     * the first segment of `namespace bibo::lights` made every reference page
+     * claim its declarations lived in plain `bibo` - generated, and wrong. */
     const nsm = line.match(/^\s*namespace\s+([A-Za-z_][\w:]*)/)
     if (nsm) { ns.push({ name: nsm[1], at: depth }); pending = null; continue }
 
-    /* declarations, only where a declaration can be: inside a namespace, and
-     * not nested inside a struct or function body. depth is 1 for the outer
-     * `bibo` brace and 2 inside a sub-namespace. */
+    /* declarations only where one can be: inside a namespace, not nested in a
+     * struct or function body. depth is 1 for the outer `bibo` brace. */
     const dm = seenPragma ? line.match(DEFINE.re) : null
     if (dm) {
       out.decls.push({ ...DEFINE.take(dm), kind: DEFINE.kind, doc: pending || '',
                        ns: ns.map(x => x.name).join('::'), line: i + 1 })
       pending = null
     }
-    /* `depth <= ns.length` alone is the guard. Requiring depth > 0 as well
-     * assumed every declaration lives in a namespace, and types.hxx - the file
-     * defining Int32, Bool and Void, the vocabulary the whole firmware is
-     * written in - declares them at FILE SCOPE. It reported as empty. */
+    /* `depth <= ns.length` alone is the guard. Also requiring depth > 0 assumed
+     * every declaration lives in a namespace, and types.hxx - Int32, Bool, Void
+     * - declares them at FILE SCOPE, so it reported as empty. */
     else if (seenPragma && depth <= ns.length) {
       for (const d of DECL) {
         const m = line.match(d.re)
@@ -217,8 +186,7 @@ function parse(path) {
 
 /* ---- writing the pages --------------------------------------------------- */
 
-/* Vue would eat a `{{`. Coerces first: an unmatched regex group comes back
- * undefined, and `@param name` with no description is a legal thing to write. */
+/* Vue would eat a `{{`. Coerces first: `@param name` with no description is legal. */
 const esc = s => String(s ?? '').replace(/\{\{/g, '&#123;&#123;')
 
 function apiPage(path, mod, order) {
@@ -259,8 +227,7 @@ function apiPage(path, mod, order) {
 
       if (dx.returns) md += `**Returns** — ${esc(dx.returns.trim())}\n\n`
 
-      /* Docus renders these as coloured callouts, which is the point: a
-       * warning about hardware should not read like another paragraph. */
+      /* Docus renders these as coloured callouts, which is the point. */
       for (const n of dx.notes) md += `::note\n${esc(n.trim())}\n::\n\n`
       for (const w of dx.warns) md += `::warning\n${esc(w.trim())}\n::\n\n`
     }
@@ -285,8 +252,7 @@ files.forEach((f, i) => {
   summaries.push(page)
 })
 
-/* the subsystems page is the headers' own banners, which is where the
- * explanation of each subsystem already lives */
+/* the subsystems page is the headers' own banners, where each already explains itself */
 let sub = `---\ntitle: Subsystems\ndescription: What each part of the firmware is responsible for\n---\n\n# Subsystems\n\n`
 sub += `The firmware is ${files.length} headers under \`firmware/lib\`. Each one states what it owns and, more usefully, what it deliberately does not.\n\n`
 for (const s of summaries) {
@@ -296,11 +262,8 @@ for (const s of summaries) {
 }
 writeFileSync(join(OUT, '2.subsystems.md'), sub)
 
-/* Getting started is firmware/README.md, not a retelling of it.
- *
- * Two copies of a toolchain instruction is one copy and one lie - and the
- * README is the one a person finds first when they are standing in the repo,
- * so it stays the original. Its H1 goes because the frontmatter supplies it. */
+/* Getting started is firmware/README.md itself, not a retelling - two copies of a
+ * toolchain instruction is one copy and one lie. Its H1 goes; frontmatter has it. */
 const readme = readFileSync(join(REPO, 'firmware', 'README.md'), 'utf8')
   .replace(/\r\n/g, '\n')
   .replace(/^#\s+.*\n/, '')
@@ -311,12 +274,7 @@ writeFileSync(join(OUT, '1.getting-started.md'),
   + `::note\nGenerated from \`firmware/README.md\`.\n::\n\n${esc(readme)}\n`)
 
 /* NO LANDING PAGE. `/` redirects to the first page of the docs - see the route
- * rule in nuxt.config.ts.
- *
- * A landing page sells something to somebody deciding whether to use it. This
- * is a reference for one car's firmware, opened by pressing Docs in the hub,
- * and a card grid between that press and the documentation is a page whose
- * whole content is three links to the thing you already asked for. */
+ * rule in nuxt.config.ts. */
 
 console.log(`${files.length} header(s), ${total} declaration(s)`)
 for (const s of summaries) console.log(`  ${String(s.count).padStart(4)}  ${s.mod}`)

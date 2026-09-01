@@ -1,14 +1,9 @@
 /*
- * A static server for the generated docs, with no dependencies.
- *
- * WHY THIS EXISTS RATHER THAN OPENING THE FILE. Nuxt writes absolute asset
- * URLs - `/_nuxt/entry.css` - and under file:// that resolves to the root of
- * C:, so double-clicking index.html gets you unstyled text and a dead sidebar.
- * Checked, not assumed: the built index.html references /_nuxt/ absolutely.
- *
- * The alternative was flattening every route so relative URLs would work from
- * disk, which costs the sidebar its grouping, because Docus builds that from
- * the directory structure. Thirty lines of http.createServer is cheaper.
+ * A static server for the generated docs, with no dependencies. Nuxt writes
+ * absolute asset URLs - `/_nuxt/entry.css` - which under file:// resolve to the
+ * root of C:, so double-clicking index.html gets unstyled text and a dead
+ * sidebar. Flattening the routes so relative URLs work costs the sidebar its
+ * grouping, which Docus builds from the directory structure.
  */
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
@@ -73,10 +68,8 @@ catch {
   process.exit(1)
 }
 
-/* A busy port means a previous copy is already serving this folder, which is
- * the desired end state - so exit quietly and let the caller open the URL.
- * Pressing the hub's Docs button twice should show the docs twice, not raise
- * an error the second time. */
+/* A busy port means a previous copy already serves this folder - the desired end
+ * state, so pressing the hub's Docs button twice must not raise an error. */
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log(`already serving on ${port}`)

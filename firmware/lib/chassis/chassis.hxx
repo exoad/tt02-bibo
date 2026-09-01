@@ -1,59 +1,25 @@
 /*
  * ---------------------------------------------------------------------------
- * chassis - the two outputs that move this car.
- *
- * The steering servo on GP0 and the ESC on GP1. These are the only things on
- * the vehicle that can break something, so the safety lives HERE rather than
- * in whatever is calling: a console, a sketch and an autonomy loop must not
- * each carry their own copy of "refuse throttle until armed", because the day
- * one of them forgets is the day it matters.
- *
- * ---- what a caller gets ----------------------------------------------------
- *
- * Fractions, not microseconds. drive::steer(-1..+1) maps through the measured
- * calibration in cal.h, with each side scaled separately, so nothing above this
- * file needs to know that this car throws 250 us one way from center and 180
- * the other. The raw microsecond entry points exist for calibrating and are
- * named so it is obvious you are below the abstraction.
- *
- * Every entry point that can refuse returns Bool. It never prints: what to say
- * about a refusal is the caller's business, and a library that printf'd into
- * somebody's protocol would be unusable from the one place that matters.
- *
- * ---- the three rules -------------------------------------------------------
- *
- * 1. THE STEERING IS RELEASED AT BOOT. Not neutral - released, no pulse at all.
- *    Driving neutral the instant USB power arrives assumes 1500 us is a safe
- *    place for the linkage to be, and on a car whose horn is a tooth off its
- *    spline it is not. The ESC still gets neutral immediately, because it is
- *    listening for exactly that to come up disarmed and an ESC fed no pulse
- *    sits there beeping about a lost signal.
- *
- * 2. THE ESC IS DISARMED UNTIL ASKED. Every throttle command is refused until
- *    drive::arm(true), and disarming walks back to neutral. One deliberate act
- *    between a slider and a moving car.
- *
- * 3. NOTHING JUMPS. Calls set a TARGET; drive::pump() walks the output toward it
- *    at a bounded rate. A slider dragged end to end produces a sweep rather
- *    than a step, which is the difference between a servo turning and a servo
- *    being hit. drive::stop() is the exception, on purpose.
- *
- * ---- before the ESC is ever armed, from docs/wiring.md ---------------------
- *
- *   - Common ground between the Pico and the ESC is REQUIRED. Signal and
- *     ground cross between two power domains; without the shared return the
- *     ESC and the servo see noise, and that presents as erratic behavior
- *     rather than as no behavior. Check the breadboard rails are bridged -
- *     they are split in the middle and it does not look like it.
+ * chassis - the steering servo on GP0 and the ESC on GP1, the only two outputs
+ * on this car that can break something, so the safety lives HERE and not in the
+ * caller. Fractions, not microseconds: drive::steer(-1..+1) maps through the
+ * measured calibration in cal.h, each side scaled separately. Anything that can
+ * refuse returns Bool and never prints. The state below is file-scope; each
+ * image is a single translation unit, which is why there is one chassis.
+ * ---- the three rules ------------------------------------------------------
+ * 1. THE STEERING IS RELEASED AT BOOT - no pulse at all, because 1500 us is not
+ *    safe for a linkage whose horn is a tooth off its spline. The ESC does get
+ *    neutral at once: fed no pulse it beeps about a lost signal.
+ * 2. THE ESC IS DISARMED UNTIL ASKED. Throttle is refused until drive::arm(true).
+ * 3. NOTHING JUMPS. Calls set a TARGET and drive::pump() walks toward it at a
+ *    bounded rate. drive::stop() is the exception, on purpose.
+ * ---- before the ESC is ever armed, from docs/wiring.md --------------------
+ *   - Common ground between the Pico and the ESC is REQUIRED; without the shared
+ *     return the servo and the ESC see noise, which presents as erratic behavior
+ *     rather than as no behavior. The breadboard rails are split in the middle
+ *     and it does not look like it.
  *   - NEVER connect the BEC 5 V to the Pico while USB is attached.
- *   - Put the car on a stand. A wheel on the ground turns a test into a
- *     departure.
- *
- * ---- one copy ---------------------------------------------------------------
- *
- * The state below is file-scope, so including this in two translation units
- * would give you two chassis and one car. Each firmware image is a single
- * translation unit, which is why that is fine and why it is written down.
+ *   - Put the car on a stand.
  * -------------------------------------------------------------------------
  */
 #pragma once
@@ -247,10 +213,9 @@ namespace bibo::drive
     inline Bool  servoLive  = false;
 
     /*
-     * The working limits, widened only on purpose. They start at the calibration
-     * and are raised a little at a time while watching the linkage, which is how an
-     * end stop is FOUND. Guessing them from a datasheet gets you a number the
-     * linkage has never heard of.
+     * The working limits, widened only on purpose: they start at the calibration
+     * and are raised while watching the linkage, which is how an end stop is
+     * FOUND rather than guessed off a datasheet the linkage never heard of.
      */
     inline Int32 servoMin = SERVO_DEFAULT_MIN;
     inline Int32 servoMax = SERVO_DEFAULT_MAX;
@@ -258,12 +223,10 @@ namespace bibo::drive
     inline Int32 escMax   = ESC_DEFAULT_MAX;
 
     /*
-     * Where the wheels actually point straight.
-     *
-     * DRIVE_NEUTRAL_US is the middle of the SERVO's range and has nothing to say
-     * about the CAR's. The horn only fits its spline at whole-tooth intervals, so
-     * straight-ahead lands wherever it lands - and treating 1500 as center is how a
-     * servo comes to lean on a frame at what everyone is calling neutral.
+     * Where the wheels actually point straight. DRIVE_NEUTRAL_US is the middle of
+     * the SERVO's range and says nothing about the CAR's - the horn fits its
+     * spline only at whole-tooth intervals - so treating 1500 as center is how a
+     * servo comes to lean on a frame at what everyone calls neutral.
      */
     inline Int32 servoCenterUs = STEER_CAL_CENTER;
 
@@ -273,21 +236,14 @@ namespace bibo::drive
     inline Int32 escNow      = DRIVE_NEUTRAL_US;
 
     /*
-     * How fast an output may move, in microseconds per tick.
-     *
-     * Runtime, because the right answer changes with what you are doing: slow while
-     * finding an end stop with the horn off, fast while driving. Baking it in meant
-     * the steering crawled to wherever a slider was dragged, which reads as lag in
-     * the UI and is a real limit on the car.
+     * How fast an output may move, in microseconds per tick. Runtime, because the
+     * right answer changes with the job: slow while finding an end stop with the
+     * horn off, fast while driving.
      */
     inline Int32 steerSlewUs    = STEER_SLEW_US;
     inline Int32 throttleSlewUs = THROTTLE_SLEW_US;
 
-    /*
-     * When the slew limiter may next take a step. The only symbol in this module
-     * that carried no module prefix, which is exactly the kind of thing the
-     * prefix rule in tools/style_audit.py exists to stop drifting in.
-     */
+    /* When the slew limiter may next take a step. */
     inline timing::Deadline slewNextAt;
 
     /* ---- helpers ------------------------------------------------------------- */
@@ -341,10 +297,7 @@ namespace bibo::drive
             n = 1.0f;
         }
 
-        /*
-         * A center sitting on top of an end is not a range to interpolate across.
-         * It happens while limits are being narrowed, and it must not divide.
-         */
+        /* A center sitting on an end is no range to interpolate, and must not divide. */
         const Int32 lo = servoCenterUs - servoMin;
         const Int32 hi = servoMax - servoCenterUs;
 
@@ -407,11 +360,9 @@ namespace bibo::drive
         servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
 
         /*
-         * Rule 2, and open() has to say it too. escArmed was only ever cleared
-         * by its initializer and by stop(), so a SECOND open() - a re-init, a
-         * mode change - parked the ESC at neutral while leaving it armed, and
-         * the next throttleUs() was accepted by something that reads like a
-         * fresh bring-up. Found by the first test this module ever had.
+         * Rule 2, and open() has to say it too: a SECOND open() used to park the
+         * ESC at neutral while leaving it armed, so the next throttleUs() went
+         * through on what reads as a fresh bring-up.
          */
         escArmed  = false;
         escTarget = DRIVE_NEUTRAL_US;
@@ -451,10 +402,7 @@ namespace bibo::drive
             servo::writeUs(PIN_SERVO, static_cast<UInt32>(servoNow));
         }
 
-        /*
-         * A disarmed ESC is walked back to neutral rather than snapped there: a
-         * step to neutral from a moving throttle is itself a jolt.
-         */
+        /* A disarmed ESC is walked back to neutral: a step there is itself a jolt. */
         if(const Int32 want = escArmed ? escTarget : DRIVE_NEUTRAL_US; escNow != want)
         {
             const Int32 d    = want - escNow;
@@ -715,14 +663,10 @@ namespace bibo::drive
         }
 
         /*
-         * Checked AFTER clamping, not only before.
-         *
-         * `SERVOLIMITS 1 2` passes the ordering test - 1 is genuinely below 2 - and
-         * then both clamp to SERVO_HARD_MIN and the range is 1000 to 1000. The
-         * steering can no longer be commanded anywhere, drive::steerToUs divides a
-         * span of zero, and the reply reports a car that looks configured. Found on
-         * the board rather than by reading this, which is the only reason it is
-         * here: it needs two plausible numbers to reach.
+         * Checked AFTER clamping, not only before. `SERVOLIMITS 1 2` passes the
+         * ordering test and then both clamp to SERVO_HARD_MIN, so the range is
+         * 1000 to 1000: steerToUs divides a span of zero and the reply reports a
+         * car that looks configured.
          */
         const Int32 lo2 = clamp(lo, SERVO_HARD_MIN, SERVO_HARD_MAX);
         const Int32 hi2 = clamp(hi, SERVO_HARD_MIN, SERVO_HARD_MAX);
@@ -810,10 +754,7 @@ namespace bibo::drive
             return false;
         }
 
-        /*
-         * The same collapse as the steering, and worse here: the throttle's hard
-         * band is only 200 us wide, so any pair below 1500 lands on 1500/1500.
-         */
+        /* The same collapse, worse: the band is 200 us, so any pair below 1500 lands on 1500/1500. */
         const Int32 lo2 = clamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
         const Int32 hi2 = clamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
         if(lo2 >= hi2)

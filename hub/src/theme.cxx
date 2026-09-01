@@ -1,38 +1,23 @@
-// The app's look: Frutiger Aero color on Unreal/IntelliJ geometry.
+// The app's look: hand-authored palette on Unreal/IntelliJ geometry.
+// StyleColorsDark() runs first only to guarantee every ImGuiCol_ has a value.
 //
-// StyleColorsDark() is called first only to guarantee every ImGuiCol_ has some
-// value; essentially all of them are then overwritten below. The palette IS
-// hand-authored - see the block in applyStyle() for what the three anchor
-// colors are and why chrome is steel rather than neutral gray.
-//
-// Geometry (rounding / padding / spacing) is tuned so the look still breathes at
-// the larger font sizes in ui::size.
-//
-// Notes on Dear ImGui 1.92 (dynamic font atlas):
-//  - PushFont() takes TWO arguments: PushFont(ImFont*, float base_size), where
-//    base_size is a PRE-SCALE value that ImGui multiplies by
-//    style.FontScaleMain * style.FontScaleDpi. Pass `font->LegacySize` to get
-//    the pre-1.92 "use the size the font was added at" behavior. Every ImFont
-//    handed out below has a positive LegacySize equal to its intended
-//    (already load-time-DPI-multiplied) size.
+// Dear ImGui 1.92 (dynamic font atlas):
+//  - PushFont(ImFont*, float base_size) - base_size is a PRE-SCALE value ImGui
+//    multiplies by style.FontScaleMain * style.FontScaleDpi. Pass
+//    `font->LegacySize`; every ImFont handed out below has a positive one.
 //  - AddFontFromFileTTF() asserts on a missing file unless the config carries
-//    ImFontFlags_NoLoadError; we set it AND pre-check the file with fopen, so a
-//    missing Segoe UI degrades to the built-in font instead of tripping
-//    IM_ASSERT_USER_ERROR(0, "Could not load font file!").
-//  - The atlas is dynamic: no Build() call, and re-baking for a scale change
-//    happens automatically on the next frame.
+//    ImFontFlags_NoLoadError; we set it AND pre-check with fopen, so a missing
+//    Segoe UI degrades to the built-in font.
+//  - The atlas is dynamic: no Build() call; a scale change re-bakes next frame.
 //
 // DPI OWNERSHIP (read before touching FontScaleDpi):
-//  - loadFonts(dpi) rasterises the atlas at logical_px * dpi and remembers dpi
-//    in fontBaseDpi. That is the ONLY place DPI is baked into type.
-//  - style.FontScaleDpi belongs to the SHELL (main.cxx), not to this file. On
-//    WM_DPICHANGED the shell keeps the existing atlas and sets
-//        style.FontScaleDpi = new_dpi / <dpi loadFonts was called with>
-//    so the dynamic atlas re-bakes for the delta only.
-//  - applyStyle() therefore PRESERVES whatever FontScaleDpi it finds instead of
-//    resetting it to 1.0f, which is what makes it safely repeatable after a DPI
-//    change. FontScaleMain is ours and stays at 1.0f.
-//  - ui::dpiScale() is GEOMETRY ONLY. It is never applied to a font base size.
+//  - loadFonts(dpi) rasterises at logical_px * dpi and remembers dpi in
+//    fontBaseDpi. The ONLY place DPI is baked into type.
+//  - style.FontScaleDpi belongs to the SHELL (main.cxx): on WM_DPICHANGED it keeps
+//    the atlas and sets FontScaleDpi = new_dpi / <loadFonts' dpi>.
+//  - applyStyle() therefore PRESERVES the FontScaleDpi it finds rather than
+//    resetting it. FontScaleMain is ours and stays at 1.0f.
+//  - ui::dpiScale() is GEOMETRY ONLY. Never applied to a font base size.
 
 #ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
@@ -53,14 +38,8 @@ namespace ui
   namespace
   {
 
-    // The DPI scale the atlas was last rasterised at, i.e. the argument of the most
-    // recent loadFonts() call. Font base sizes (LegacySize) are in these units.
-    //
-    // Intentionally NOT declared in theme.h and intentionally not exposed as a free
-    // function: nothing outside this file needs it any more (main.cxx tracks the
-    // same value itself as fontDpiBase). If another translation unit ever does,
-    // add `namespace ui { float FontBaseDpi(); }` as a forward declaration there
-    // rather than growing the header.
+    // The DPI the atlas was last rasterised at - loadFonts()'s argument. Font base
+    // sizes (LegacySize) are in these units.
     Float32 fontBaseDpi = 1.0f;
 
     // Geometry scale. Set by setDpiScale(), read by dpiScale(). Never a font size.
@@ -76,9 +55,8 @@ namespace ui
     constexpr const Char* SEGOE_SEMIBOLD = UI_FONT_DIR "seguisb.ttf";
     constexpr const Char* SEGOE_BOLD     = UI_FONT_DIR "segoeuib.ttf";
 
-    // Monospace, best first. Cascadia Mono ships with Windows Terminal and modern
-    // Windows 11; Consolas is on every Windows since Vista; Lucida Console is the
-    // floor. One of these exists on any machine this will ever run on.
+    // Monospace, best first: Cascadia Mono (Windows 11 / Terminal), Consolas
+    // (every Windows since Vista), Lucida Console as the floor.
     constexpr const Char* MONO_CASCADIA  = UI_FONT_DIR "CascadiaMono.ttf";
     constexpr const Char* MONO_CONSOLAS  = UI_FONT_DIR "consola.ttf";
     constexpr const Char* MONO_LUCIDA    = UI_FONT_DIR "lucon.ttf";
@@ -139,9 +117,8 @@ namespace ui
         return nullptr;
     }
 
-    // First readable candidate wins, else the built-in font. Guaranteed non-null as
-    // long as ImGui has any default font compiled in; LoadFonts() applies one final
-    // safety net regardless.
+    // First readable candidate wins, else the built-in font. Non-null as long as
+    // ImGui has a default font compiled in; loadFonts() nets the rest.
     ImFont* loadRole(ImFontAtlas* atlas, Float32 sizePx,
                      const Char* first, const Char* second, const Char* third)
     {
@@ -184,16 +161,15 @@ namespace ui
       ImFontAtlas* atlas = io.Fonts;
 
       // Safe to re-run before the first frame and between frames. The atlas is
-      // only marked Locked inside NewFrame()..EndFrame() on backends without
-      // dynamic texture support; touching it then would assert.
+      // Locked inside NewFrame()..EndFrame() on backends without dynamic texture
+      // support, and touching it then asserts.
       if(!atlas->Locked)
       {
           atlas->Clear();
       }
 
-      // The type scale from theme.h, in logical px, multiplied by the LOAD-TIME
-      // DPI exactly once. These are the values that end up in ImFont::LegacySize
-      // and therefore the base sizes callers push.
+      // The type scale from theme.hxx, multiplied by the LOAD-TIME DPI exactly
+      // once. These end up in ImFont::LegacySize - the base sizes callers push.
       const Float32 szSmall = size::SMALL * dpiScale;
       const Float32 szBody  = size::BODY  * dpiScale;
       const Float32 szTitle = size::TITLE * dpiScale;
@@ -201,8 +177,8 @@ namespace ui
       const Float32 szBig   = size::BIG   * dpiScale;
       const Float32 szCode  = size::CODE  * dpiScale;
 
-      // Regular for reading sizes, semibold/bold for the headline roles so the
-      // hierarchy reads by weight as well as size.
+      // Regular for reading sizes, semibold/bold for headlines, so the hierarchy
+      // reads by weight as well as size.
       fonts.small = loadRole(atlas, szSmall, SEGOE_REGULAR,  SEGOE_SEMIBOLD, nullptr);
       fonts.body  = loadRole(atlas, szBody,  SEGOE_REGULAR,  SEGOE_SEMIBOLD, nullptr);
       fonts.title = loadRole(atlas, szTitle, SEGOE_SEMIBOLD, SEGOE_BOLD,     SEGOE_REGULAR);
@@ -210,8 +186,8 @@ namespace ui
       fonts.big   = loadRole(atlas, szBig,   SEGOE_BOLD,     SEGOE_SEMIBOLD, SEGOE_REGULAR);
       fonts.mono  = loadRole(atlas, szCode,  MONO_CASCADIA,  MONO_CONSOLAS,  MONO_LUCIDA);
 
-      // Safety net: nothing here may ever be null. Pushing a null ImFont* is an
-      // outright crash, so this is load-bearing rather than defensive noise.
+      // Safety net: nothing here may ever be null - pushing a null ImFont* is an
+      // outright crash.
       ImFont* any = fonts.body;
       if(any == nullptr)
       {
@@ -261,11 +237,9 @@ namespace ui
           fonts.mono  = any;
       }
 
-      // Callers derive their PushFont() base size from LegacySize, and a
-      // zero/negative there silently degrades to "keep the current size". The
-      // atlas copies ImFontConfig::SizePixels into LegacySize, but a shared
-      // fallback carries the size of whichever role first loaded it - so re-stamp
-      // anything non-positive.
+      // A zero/negative LegacySize silently degrades PushFont to "keep the current
+      // size", and a shared fallback font carries the size of whichever role first
+      // loaded it - so re-stamp anything non-positive.
       const Array<ImFont*, 6> roles = { fonts.small, fonts.body, fonts.title,
                                         fonts.stat,  fonts.big,  fonts.mono };
       const Array<Float32, 6> sizes = { szSmall,     szBody,     szTitle,
@@ -298,27 +272,20 @@ namespace ui
 
       ImGuiStyle& style = ImGui::GetStyle();
 
-      // style.FontScaleDpi is the SHELL's: after WM_DPICHANGED it holds
-      // new_dpi / font_base_dpi so the existing atlas re-bakes for the delta.
-      // Capture it before the reset below and hand it straight back, otherwise a
-      // second applyStyle() after a DPI change would silently revert all text to
-      // the pre-change size. This makes applyStyle() safe in either order:
-      //   - shell sets FontScaleDpi then calls applyStyle()  -> preserved here
-      //   - shell calls applyStyle() then sets FontScaleDpi  -> shell wins
+      // The SHELL's, captured before the reset below and handed straight back - or
+      // a second applyStyle() after a DPI change silently reverts all text to the
+      // pre-change size. Safe in either call order.
       const Float32 shellFontScaleDpi = style.FontScaleDpi;
 
       // Reset to defaults so applyStyle() is idempotent: ScaleAllSizes()
-      // accumulates into style._MainScale otherwise, and repeated calls on a DPI
-      // change would compound.
+      // accumulates into style._MainScale, so repeated calls would compound.
       style = ImGuiStyle();
 
-      // Stock Dear ImGui dark. No hand-authored palette: every ImGuiCol_ below
-      // this line is whatever upstream ships.
       ImGui::StyleColorsDark();
 
       // Default (un-pushed) text size follows the body font loadFonts() actually
-      // registered, so the two can never drift apart. Pre-scale value, and NOT
-      // touched by ScaleAllSizes() - dpi is already baked into LegacySize.
+      // registered, so the two cannot drift. Pre-scale value, and NOT touched by
+      // ScaleAllSizes() - dpi is already baked into LegacySize.
       style.FontSizeBase = (fonts.body != nullptr && fonts.body->LegacySize > 0.0f)
                          ? fonts.body->LegacySize
                          : size::BODY * dpiScale;
@@ -328,19 +295,9 @@ namespace ui
       style.FontScaleDpi  = (shellFontScaleDpi > 0.0f) ? shellFontScaleDpi : 1.0f;
 
       // ------------------------------------------------------------- palette
-      // Industrial slate: the dark-graphite console of UDK / Maya / Blender 2.7x /
-      // Photoshop CS5, with Dark Aero's LED accents set into it.
-      //
-      // GRAPHITE, NOT BLACK. This is the change that matters most and it is the
-      // opposite of what the app used to do. A pure black ground with near-white
-      // text is the highest-contrast pairing available and it is punishing over a
-      // long session - which is exactly why every tool in that reference list sits
-      // in a narrow low-contrast band instead. Panels live around 15-22% gray and
-      // the type floats a little way above them rather than blazing off them.
-      //
-      // The one thing kept from black: the lidar VIEWPORT, which stays darker than
-      // the chrome. It is a display set into the console, not part of the casing,
-      // and the point cloud needs the contrast the chrome deliberately gives up.
+      // Industrial slate with LED accents. GRAPHITE, NOT BLACK: panels sit around
+      // 15-22% gray. The lidar VIEWPORT is the exception and stays darker - the
+      // point cloud needs the contrast the chrome gives up.
       auto  slate = [](Float32 v, Float32 a = 1.0f) {
           // Faintly cool, the way graphite reads under workshop light.
           return ImVec4(v * 0.96f, v * 0.99f, v * 1.06f, a);
@@ -369,7 +326,6 @@ namespace ui
       c[ImGuiCol_FrameBgActive]    = slate(0.100f);
 
       // ---- keys: pushed OUT of the casing, so they are lighter ----
-      // The bevel in ui::bevel is what sells this; these are the plate under it.
       c[ImGuiCol_Button]           = slate(0.300f);
       c[ImGuiCol_ButtonHovered]    = slate(0.360f);
       c[ImGuiCol_ButtonActive]     = slate(0.215f);   // sinks when pressed
@@ -421,24 +377,14 @@ namespace ui
       c[ImGuiCol_DragDropTarget]       = accentHi;
       c[ImGuiCol_TextLink]             = accentHi;
 
-      // Type sits ABOVE the panels, not blazing off them. #D6DBE0 on ~18% gray is
-      // a comfortable long-session contrast; near-white on black was not.
+      // #D6DBE0 on ~18% gray: a comfortable long-session contrast, where
+      // near-white on black was not.
       c[ImGuiCol_Text]                 = ImVec4(0.839f, 0.859f, 0.878f, 1.00f);
       c[ImGuiCol_TextDisabled]         = ImVec4(0.478f, 0.510f, 0.541f, 1.00f);
 
       // ------------------------------------------------------------ geometry
-      // Very nearly square. 2px takes the bite off a hard corner without the
-      // control reading as a rounded tile; containers are square outright. This is
-      // the single change that does the most to move the app from "Material" to
-      // "tool" - a 5px radius reads as a card no matter what color it is.
-      // SHARP. Every corner in the program, at zero.
-      //
-      // Two pixels of radius was the tell that this was a modern UI wearing a
-      // skeuomorphic coat: rounded corners are a 2010s idiom, and the look this is
-      // after is the decade before that - hard edges, wireframes, and colors out
-      // of a sixteen-entry palette. Rounding is set in ONE place so there is no
-      // second answer anywhere; a widget that rounds itself would stand out
-      // immediately now, which is the point.
+      // SHARP. Every corner in the program, at zero, and set in ONE place so there
+      // is no second answer - a widget that rounds itself stands out immediately.
       style.FrameRounding     = 0.0f;
       style.GrabRounding      = 0.0f;
       style.TabRounding       = 0.0f;
@@ -447,18 +393,14 @@ namespace ui
       style.PopupRounding     = 0.0f;
       style.ScrollbarRounding = 0.0f;
 
-      // Widgets are outlined; containers are not. Both of these tools ring every
-      // control and let panels run flush into one another, and the earlier
-      // complaint was specifically about container borders - sidebars and boxes
-      // ringed inside other ringed boxes. That stays fixed.
+      // Widgets are outlined; containers are NOT - panels run flush into one
+      // another, or you get boxes ringed inside other ringed boxes.
       style.FrameBorderSize  = 1.0f;    // scaled by ScaleAllSizes below
       style.WindowBorderSize = 0.0f;
       style.ChildBorderSize  = 0.0f;
 
-      // DENSE. This is a workstation toolbar, not a settings page: the reference
-      // tools pack controls close together and let the outlines and bevels do the
-      // separating that whitespace does elsewhere. Every value here is smaller
-      // than a general-purpose UI would use, on purpose.
+      // DENSE, on purpose - every value is smaller than a general-purpose UI would
+      // use, with the outlines and bevels doing the separating.
       style.ItemSpacing      = ImVec2(5.0f, 3.0f);
       style.ItemInnerSpacing = ImVec2(4.0f, 3.0f);
       style.FramePadding     = ImVec2(6.0f, 3.0f);
@@ -466,13 +408,12 @@ namespace ui
       style.WindowPadding    = ImVec2(6.0f, 5.0f);
       style.IndentSpacing    = 14.0f;
 
-      // A thin scrollbar. The stock 14px bar is a touch-sized affordance; a tool
-      // that expects a mouse gives the space to the content.
+      // A thin scrollbar; the stock 14px bar is a touch-sized affordance.
       style.ScrollbarSize    = 10.0f;
       style.GrabMinSize      = 9.0f;
 
-      // The selected tab is marked by its overline, so the overline has to be
-      // thick enough to see against a 2px-rounded tab.
+      // The selected tab is marked only by its overline, so it has to be thick
+      // enough to see.
       style.TabBarOverlineSize = 3.0f;
       style.TabBorderSize      = 0.0f;
       style.TabBarBorderSize   = 1.0f;
@@ -485,12 +426,12 @@ namespace ui
       style.SeparatorSize           = hairline(dpiScale);
       style.SeparatorTextBorderSize = hairline(dpiScale);
 
-      // Same reason: an outline that rounds to zero at some DPI would silently
-      // undo the entire look on that machine.
+      // Same reason: an outline rounding to zero at some DPI silently undoes the
+      // whole look on that machine.
       style.FrameBorderSize         = hairline(dpiScale);
 
-      // Popups are the one exception: they float over arbitrary content and need
-      // an edge to sit against, or a modal reads as text pasted onto the page.
+      // Popups are the one bordered container: they float over arbitrary content
+      // and need an edge, or a modal reads as text pasted onto the page.
       style.PopupBorderSize         = hairline(dpiScale);
   }
 
@@ -503,22 +444,10 @@ namespace ui
       bevelRect(pMin, pMax, false, strength);
   }
 
-  // ---------------------------------------------------------------------------
-  // The bevel
-  //
-  // This is what makes a control read as a physical key pushed out of the casing
-  // rather than a colored rectangle: one pixel of light along the TOP edge, one
-  // pixel of shadow along the BOTTOM. Both invert when the key is pressed, so it
-  // visibly sinks into the panel instead of merely changing color.
-  //
-  // Drawn OVER an item ImGui has already submitted, so ImGui::Button stays a real
-  // ImGui::Button and keeps its sizing, hover, activation and keyboard nav.
-  //
-  // One pixel means ONE PHYSICAL PIXEL, not one scaled unit. A bevel that grows
-  // with DPI stops reading as a machined edge and starts reading as a border,
-  // which is a different thing entirely - so this is the one measurement in the
-  // file that deliberately ignores the DPI scale.
-  // ---------------------------------------------------------------------------
+  // The bevel: 1px of light along the TOP edge, 1px of shadow along the BOTTOM,
+  // both inverted when pressed. Drawn OVER an already-submitted item, so
+  // ImGui::Button stays a real ImGui::Button. One pixel means ONE PHYSICAL PIXEL -
+  // the one measurement in the file that deliberately ignores the DPI scale.
   Void bevelRect(const ImVec2& pMin, const ImVec2& pMax, Bool pressed, Float32 strength)
   {
       if(strength <= 0.0f)
@@ -536,14 +465,9 @@ namespace ui
       const Float32 a = (strength > 1.0f) ? 1.0f : strength;
       ImDrawList* dl = ImGui::GetWindowDrawList();
 
-      // GLOSS. Dark Aero's panels are glossy charcoal, not matte, so a raised
-      // control carries a soft sheen over its top half - light falling on a
-      // molded surface. Kept low: this has to read as a finish, never as a
-      // gradient, and it is the first thing that tips into looking cheap.
-      //
-      // Clipped rather than rounded because AddRectFilledMultiColor cannot round
-      // its corners; at these alphas the square corners under a 2px radius are not
-      // perceptible.
+      // GLOSS: a soft sheen over the top half of a raised control, kept low so it
+      // reads as a finish and not a gradient. Clipped rather than rounded because
+      // AddRectFilledMultiColor cannot round its corners.
       if(!pressed)
       {
           dl->PushClipRect(pMin, pMax, true);
@@ -568,8 +492,7 @@ namespace ui
       dl->AddLine(ImVec2(pMin.x + r, pMax.y - 0.5f),
                   ImVec2(pMax.x - r, pMax.y - 0.5f), bottom, 1.0f);
 
-      // A pressed key also shadows itself along its top inner edge, the way a real
-      // one does when it drops into the casing.
+      // A pressed key also shadows itself along its top inner edge.
       if(pressed)
       {
           dl->AddLine(ImVec2(pMin.x + r, pMin.y + 1.5f),
@@ -578,14 +501,9 @@ namespace ui
       }
   }
 
-  // ---------------------------------------------------------------------------
-  // An indicator LED
-  //
-  // Not a filled circle: a lit LED on a dark console throws light onto the panel
-  // around it, and that halo is most of what makes it read as EMITTING rather than
-  // as a colored dot painted on. Unlit ones get a recessed socket instead, so the
-  // two states differ in more than brightness.
-  // ---------------------------------------------------------------------------
+  // An indicator LED. Not a filled circle: a lit one throws a halo onto the panel,
+  // which is most of what makes it read as EMITTING. Unlit ones get a recessed
+  // socket, so the two states differ in more than brightness.
   Void led(ImDrawList* dl, const ImVec2& center, Float32 radius, ImU32 color, Bool lit)
   {
       if(dl == nullptr || radius <= 0.0f)
@@ -614,19 +532,9 @@ namespace ui
       }
   }
 
-  // ---------------------------------------------------------------------------
-  // A screen recessed into the casing
-  //
-  // The two central views are displays set into the console, not areas of it, and
-  // on real gear that reads as a bezel: the panel casts a shadow onto the top and
-  // left inner edges of the cut-out and catches light along the bottom and right.
-  // That is the exact inverse of a raised key, which is what makes the two read as
-  // opposite mechanisms rather than as two rectangles.
-  //
-  // The inner shadow is a gradient rather than a line because a milled edge is not
-  // sharp - it falls off over a couple of millimeters, and at screen scale that is
-  // a few pixels.
-  // ---------------------------------------------------------------------------
+  // A screen recessed into the casing: shadow on the top and left inner edges,
+  // light along the bottom and right - the exact inverse of a raised key. The
+  // inner shadow is a gradient because a milled edge is not sharp.
   Void screenInset(const ImVec2& pMin, const ImVec2& pMax, Float32 strength)
   {
       if(strength <= 0.0f)
@@ -667,8 +575,7 @@ namespace ui
   }
 
   // A raised plate for custom-drawn chrome that is not an ImGui item - the HUD
-  // readouts over the map, the chips in the board view. Same key treatment the
-  // buttons get, so a label on the viewport belongs to the same machine.
+  // readouts over the map, the chips in the board view.
   Void plate(const ImVec2& pMin, const ImVec2& pMax, ImU32 fill, Float32 rounding)
   {
       ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -696,15 +603,10 @@ namespace ui
     {
         ImVec4 h = ImGui::ColorConvertU32ToFloat4(hue);
 
-        // Rescale the hue to the base's own brightness FIRST. The semantic colors
-        // are LED colors - picked to be read at a glance against a dark panel - and
-        // mixing one in raw does not tint a button, it lights it up: 30% of a
-        // 0xFFB02E amber over slate produced a solid tan block with the bevel and
-        // the gloss no longer visible on it, which is a painted control, not a
-        // molded one.
-        //
-        // So change the HUE at (near) constant VALUE, and let `lift` add the small
-        // deliberate amount of brightness rather than it arriving by accident.
+        // Rescale the hue to the base's brightness FIRST: mixing an LED color in
+        // raw lights the button up rather than tinting it - 30% of 0xFFB02E amber
+        // over slate gave a solid tan block with the bevel and gloss invisible. So
+        // change HUE at near-constant VALUE and let `lift` add the brightness.
         const Float32 lb = 0.2126f * base.x + 0.7152f * base.y + 0.0722f * base.z;
         const Float32 lh = 0.2126f * h.x    + 0.7152f * h.y    + 0.0722f * h.z;
         if(lh > 0.001f)
@@ -746,9 +648,9 @@ namespace ui
       const ImU32   hue = tintHue(t);
       const ImVec4* c   = ImGui::GetStyle().Colors;
 
-      // The mix is strong (the hue is luminance-matched, so it costs no
-      // brightness) and the lift is small. Hovered and active lift further, which
-      // is where the "it responds" comes from - not from the tint.
+      // Strong mix (the hue is luminance-matched, so it costs no brightness), small
+      // lift. Hovered and active lift further - that is where the response reads
+      // from, not from the tint.
       ImGui::PushStyleColor(ImGuiCol_Button,        mixToward(c[ImGuiCol_Button],        hue, 0.38f, 1.02f));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, mixToward(c[ImGuiCol_ButtonHovered], hue, 0.48f, 1.10f));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive,  mixToward(c[ImGuiCol_ButtonActive],  hue, 0.58f, 1.18f));
@@ -769,26 +671,16 @@ namespace ui
       popTint(tint);
 
       // AFTER the pop, so the bevel and gloss are drawn over the tinted fill
-      // rather than being tinted themselves. The highlight on a molded surface
-      // is the color of the light, not the color of the plastic.
+      // rather than being tinted themselves.
       shadeLastItem();
       return clicked;
   }
 
-  // ---------------------------------------------------------------------------
-  // Checkbox
-  //
-  // Hand-rolled rather than ImGui::Checkbox because that widget sizes its box to
-  // the WHOLE frame height, and at this type scale that is a ~28 px square that
-  // reads as a tile rather than a control.
-  //
-  // A checkbox is a well, not a key: it is milled INTO the panel, so it takes the
-  // inverted bevel - shadow on the top edge, light on the bottom - which is the
-  // opposite of a button and is what makes the pair read as different mechanisms.
-  //
-  // Still a real ImGui item (an InvisibleButton over box + label), so hover,
-  // activation, keyboard nav, disabled state and SameLine all behave.
-  // ---------------------------------------------------------------------------
+  // Hand-rolled rather than ImGui::Checkbox, which sizes its box to the WHOLE
+  // frame height - at this type scale a ~28px square that reads as a tile. A
+  // checkbox is a well, not a key, so it takes the INVERTED bevel. Still a real
+  // ImGui item (an InvisibleButton over box + label), so hover, activation,
+  // keyboard nav, disabled and SameLine all behave.
   Bool checkbox(const Char* label, Bool* v)
   {
       const ImGuiStyle& st = ImGui::GetStyle();
@@ -803,23 +695,11 @@ namespace ui
 
       const ImVec2 p = ImGui::GetCursorScreenPos();
 
-      // Report a text baseline, the way ImGui's own checkbox does.
-      //
-      // An InvisibleButton reports NONE - it is a bare rectangle as far as layout
-      // is concerned. Stock Checkbox submits its item with a baseline of
-      // FramePadding.y, and SameLine hands that offset to whatever comes next, so
-      // a trailing label lands level with the widget's own text. Ours did not, so
-      //
-      //     checkbox("Nearest", ...); SameLine(); TextUnformatted("|");
-      //
-      // drew the separator at the TOP of the row while the four checkbox labels
-      // beside it sat centered a few pixels lower. Small, but it is the difference
-      // between a toolbar that looks machined and one that looks assembled.
-      //
-      // This is the only public way to set it. It is a max(), so on a row that
-      // already has a framed widget it changes nothing, and it does not move the
-      // checkbox: ItemSize only shifts an item that reports a baseline of its own,
-      // and the box is drawn from p, captured above.
+      // Report a text baseline, the way ImGui's own checkbox does - an
+      // InvisibleButton reports NONE, so a following SameLine() item drew at the
+      // TOP of the row. This is the only public way to set it. It is a max(), and
+      // it does not move the checkbox: ItemSize only shifts an item reporting a
+      // baseline of its own, and the box is drawn from p, captured above.
       ImGui::AlignTextToFramePadding();
 
       ImGui::PushID(label);
@@ -856,9 +736,8 @@ namespace ui
 
       if(on)
       {
-          // Two strokes drawn inside the box with a margin, rather than ImGui's
-          // RenderCheckMark - that one is thick enough at this size to fill the
-          // square, which is what made the control read as a solid tile.
+          // Two strokes with a margin, rather than ImGui's RenderCheckMark, which
+          // is thick enough at this size to fill the square.
           const Float32 m = box * 0.24f;
           const ImVec2 a(b0.x + m,           b0.y + box * 0.52f);
           const ImVec2 b(b0.x + box * 0.42f, b1.y - m);
@@ -870,9 +749,8 @@ namespace ui
 
       if(tsz.x > 0.0f)
       {
-          // ImGui::FindRenderedTextEnd is imgui_internal only, and nothing else
-          // here includes that header. The rule it implements is one line anyway:
-          // everything from the first "##" onward is an ID, not a label.
+          // ImGui::FindRenderedTextEnd is imgui_internal only. Its rule: everything
+          // from the first "##" onward is an ID, not a label.
           const Char* end = std::strstr(label, "##");
           if(end == nullptr)
           {
@@ -886,15 +764,9 @@ namespace ui
       return pressed;
   }
 
-  // ---------------------------------------------------------------------------
-  // Combo
-  //
   // ImGui fills a combo's arrow area with ImGuiCol_Button, so against a darker
-  // FrameBg the drop-down reads as a separate button welded onto the right of a
-  // field. Both reference tools draw the arrow INSIDE the field. Pushing the
-  // button colors to match the frame is the whole fix; the widget is otherwise
-  // stock, so it keeps its popup, keyboard handling and sizing.
-  // ---------------------------------------------------------------------------
+  // FrameBg the drop-down reads as a button welded to the field. Pushing the
+  // button colors to match the frame is the whole fix; otherwise stock.
   Bool combo(const Char* label, Int32* current, const Char* const items[], Int32 count)
   {
       const ImGuiStyle& st = ImGui::GetStyle();
@@ -906,17 +778,9 @@ namespace ui
       return changed;
   }
 
-  // ---------------------------------------------------------------------------
-  // Segmented button
-  //
   // One cell of a mutually-exclusive row. Unselected is transparent so the row
-  // reads as one strip rather than as N separate buttons; selected takes a plate
-  // fill and an accent underline along its bottom edge.
-  //
-  // The underline is the part that matters. Both reference tools mark the active
-  // item with a colored edge rather than by flooding it, which is what keeps a
-  // selected cell from shouting louder than the content it is selecting.
-  // ---------------------------------------------------------------------------
+  // reads as one strip; selected takes a plate fill and an accent EDGE, not a
+  // flood.
   Bool segmentedButton(const Char* label, Bool selected, const ImVec2& size, Mark mark)
   {
       Bool hit;
@@ -930,9 +794,8 @@ namespace ui
           const Float32  t = 2.0f * dpiScale();
           const ImU32  m = ImGui::GetColorU32(ImGuiCol_CheckMark);
 
-          // Underline for a segment in a horizontal row, left bar for a row in a
-          // vertical list - in both cases the mark runs along the edge the row is
-          // stacked against, which is what makes a column of them scan as a list.
+          // The mark runs along the edge the set is stacked against: underline for
+          // a horizontal row, left bar for a vertical list.
           if(mark == Mark::MARK_UNDERLINE)
           {
               ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, b.y - t), b, m);
@@ -975,14 +838,11 @@ namespace ui
       return geometryDpiScale / fontBaseDpi;
   }
 
-  // ---------------------------------------------------------------------------
   // The user's zoom. See theme.hxx for why it is not folded into dpiScale().
-  // ---------------------------------------------------------------------------
   namespace
   {
-    // Defaults to a step above 100%. The scale the UI was originally tuned at was
-    // measured on one machine, and "everything is a bit small" was the verdict from
-    // the person actually using it - so the default moves, and the control stays.
+    // Defaults a step above 100%: the scale the UI was tuned at read as too small
+    // in use.
     Float32 uiUserScale     = 1.20f;
     Bool    uiUserScaleDirty = false;
   }
@@ -1010,8 +870,8 @@ namespace ui
           s = USER_SCALE_MAX;
       }
 
-      // Half a step, so float noise from the snap can never register as a change
-      // and rebuild the style every frame.
+      // Half a step, so float noise from the snap cannot rebuild the style every
+      // frame.
       if(std::fabs(s - uiUserScale) < USER_SCALE_STEP * 0.5f)
       {
           return;

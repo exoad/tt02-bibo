@@ -62,13 +62,9 @@
 #include "../pins.hxx"
 
 /*
- * The protocol itself - frames, checksums, command numbers - lives next door
- * and needs NOTHING from the SDK, so it can be tested on the host. The one
- * part of this driver that fails silently is the checksum, and a checksum that
- * can only be exercised by flashing a microcontroller is a checksum nobody
- * exercises. Same split, and the same reason, as lib/text.hxx.
- *
- * firmware\tests\build_dfplayer_test.bat run
+ * The protocol itself lives next door and needs NOTHING from the SDK, so the
+ * checksum - the one part of this driver that fails silently - can be tested
+ * on the host: firmware\tests\build_dfplayer_test.bat run
  */
 #include "dfplayer_proto.hxx"
 
@@ -140,11 +136,7 @@ namespace bibo::dfplayer
         {
             gpio::open(busyPin, PIN_DIR_IN);
 
-            /*
-             * Pulled up because the module drives it LOW to mean "playing". With
-             * nothing attached the pin would float and read as playing about half
-             * the time.
-             */
+            /* Pulled up because the module drives it LOW to mean "playing"; unattached it would float. */
             gpio::pull(busyPin, PIN_PULL_UP);
         }
     }
@@ -168,11 +160,7 @@ namespace bibo::dfplayer
         send(bus, DFP_CMD_RESET, 0);
         timing::ms(DFP_BOOT_MS);
 
-        /*
-         * The module chatters an init frame on its way up. Nothing here reads
-         * replies, so leaving it in the FIFO would mean the first byte anybody
-         * ever reads is stale.
-         */
+        /* The module chatters an init frame on its way up; left in the FIFO it is somebody's stale first byte. */
         uart::drain(bus->port);
     }
 
@@ -305,9 +293,8 @@ namespace bibo::dfplayer
         uart::write(bus->port, sent, sizeof(sent));
 
         /*
-         * A 10-byte reply at 9600 baud is about 10 ms. 40 gives the module
-         * time to think and still fails fast enough that a silent one does not
-         * hang the console.
+         * A 10-byte reply at 9600 baud is about 10 ms. 40 gives the module time
+         * to think and still fails fast enough not to hang the console.
          */
 
         UInt8 f[10];
@@ -322,11 +309,7 @@ namespace bibo::dfplayer
                 return false;   /* silence */
             }
 
-            /*
-             * Resynchronise on the start byte rather than trusting alignment -
-             * half a frame left over from something else would otherwise shift
-             * every byte after it.
-             */
+            /* Resynchronise on the start byte: half a leftover frame would shift every byte after it. */
             if(n == 0 && b != 0x7E)
             {
                 continue;
@@ -345,10 +328,7 @@ namespace bibo::dfplayer
                 continue;   /* not a frame after all */
             }
 
-            /*
-             * The same invariant the host test asserts: the body and the
-             * checksum word cancel in 16 bits.
-             */
+            /* The invariant the host test asserts: body and checksum word cancel in 16 bits. */
             UInt16 sum = 0;
             for(Int32 i = 1; i <= 6; ++i)
             {

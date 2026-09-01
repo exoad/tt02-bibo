@@ -79,32 +79,15 @@ namespace bibo::tof
 #define VL53_REG_FIRMWARE_STATUS  0x00E5
 #define VL53_REG_MODEL_ID         0x010F
 
-    /*
-     * What the sensor says it is. Checked at open, because a wrong-but-present
-     * device at 0x29 is a much clearer failure than a sensor that never ranges.
-     */
+    /* What the sensor says it is. Checked at open: a wrong-but-present device at 0x29 fails more clearly than one that never ranges. */
 #define VL53_MODEL_ID 0xEACC
 
     /*
-     * ---- timing budget --------------------------------------------------------
-     *
-     * How long the sensor integrates for, per measurement. This is the single
-     * biggest control over how far it reaches, and leaving it unset is a mistake
-     * that hides well: the sensor still ranges, still reports status 0, and simply
-     * cannot see anything far away.
-     *
-     * Longer means more photons collected, which means a weak return from a distant
-     * or dark surface rises above the noise. Roughly:
-     *
-     *   20 ms    short reach, fast                       ~1.0 m in long mode
-     *   50 ms    the sensible default                    ~2.5 m
-     *   100 ms   what the 4 m figure on the box assumes  ~3.6 m
-     *   200 ms   diminishing returns indoors             ~4.0 m
-     *
-     * The numbers below are ST's, from the ULD driver. They are pre-computed
-     * macro-period timeouts rather than anything derivable from the milliseconds,
-     * and they DIFFER BY DISTANCE MODE - which is why changing the mode has to
-     * re-apply the budget, and why tof::setMode() does.
+     * ---- timing budget: how long the sensor integrates, and the biggest control
+     * over reach. Left unset it still ranges and still reports status 0, but sees
+     * about a meter: 50 ms ~2.5 m, 100 ms ~3.6 m, 200 ms ~4.0 m in long mode. The
+     * numbers below are ST's macro-period timeouts and DIFFER BY DISTANCE MODE,
+     * which is why tof::setMode() re-applies the budget.
      */
     enum Budget
     {
@@ -150,11 +133,7 @@ namespace bibo::tof
     /** @brief The two distance/window presets the sensor can run in. */
     enum Mode
     {
-        /*
-         * Up to about 1.3 m, and much better in bright light. The right default for
-         * a bumper: the ambient infrared in daylight is what limits this sensor,
-         * not the laser.
-         */
+        /* Up to about 1.3 m, and much better in bright light: ambient infrared is what limits this sensor, not the laser. */
         MODE_SHORT = 0,
 
         /* Up to about 4 m indoors, and easily blinded outdoors. */
@@ -235,10 +214,7 @@ namespace bibo::tof
 
     /* ---- distance mode ------------------------------------------------------- */
 
-    /*
-     * Forward declared: setting the mode re-applies the budget, and setting the
-     * budget needs to know the mode.
-     */
+    /* Forward declared: setting the mode re-applies the budget, and the budget needs the mode. */
     [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget);
 
     /**
@@ -276,18 +252,10 @@ namespace bibo::tof
                     && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
 
                     /*
-                 * The sigma-delta pair, and the reason short mode reported a
-                 * hardware fault when these were missing.
-                 *
-                 * The configuration block leaves 0x78 = 0x0F0D and 0x7A = 0x0E0E,
-                 * which are the LONG values. Changing the VCSEL periods above
-                 * without changing these leaves the sensor with a phase window
-                 * that does not match the period it is now pulsing at - which is
-                 * not a wrong reading, it is an inconsistent configuration, and it
-                 * reports as a fault.
-                 *
-                 * Long mode worked precisely BECAUSE it agreed with the block by
-                 * accident. That is why only one of the two modes was broken.
+                 * The sigma-delta pair. The config block leaves the LONG values
+                 * here, so changing the VCSEL periods above without these gives a
+                 * phase window that does not match the period being pulsed - an
+                 * inconsistent configuration, reported as a hardware fault.
                  */
                     && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
                     && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
@@ -301,16 +269,10 @@ namespace bibo::tof
                 && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
                 && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
 
-                /*
-             * Written explicitly even though the configuration block already
-             * leaves these values. Relying on that meant long mode worked by
-             * agreement rather than by instruction, and switching to short and
-             * back would otherwise never restore them.
-             */
+                /* Written explicitly even though the config block already leaves these values: switching to short and back would otherwise never restore them. */
                 && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
                 && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
 
-        /* The budget's values are mode-specific, so it goes back in. */
         return okLong && setBudget(v, v->budget);
     }
 
@@ -381,11 +343,7 @@ namespace bibo::tof
         v->mode        = MODE_LONG;
         v->budget      = BUDGET_50MS;
 
-        /*
-         * Is anything there at all? A separate check from the ID below, because
-         * "nothing answers" and "something answers and is not a VL53L1X" are
-         * different problems with different fixes.
-         */
+        /* Separate from the ID check below: "nothing answers" and "something answers and is not a VL53L1X" have different fixes. */
         if(!i2c::present(sda, addr))
         {
             return false;
@@ -398,11 +356,7 @@ namespace bibo::tof
             return false;
         }
 
-        /*
-         * Wait for the firmware to finish booting. Writing configuration into a
-         * sensor that is still starting up is the classic way to get one that
-         * ranges but returns nonsense.
-         */
+        /* Wait for the firmware to boot. Configuring a sensor that is still starting up gives one that ranges and returns nonsense. */
         Bool booted = false;
         for(Int32 i = 0; i < 1000; ++i)
         {
@@ -420,10 +374,6 @@ namespace bibo::tof
             return false;
         }
 
-        /*
-         * The block goes in one register at a time. It could go as one burst, and
-         * a burst would need a 93-byte buffer for a one-off - not worth it.
-         */
         for(Int32 i = 0; i < 91; ++i)
         {
             const UInt16 reg = static_cast<UInt16>(VL53_REG_CONFIG_START + i);
@@ -435,12 +385,7 @@ namespace bibo::tof
 
         v->ok = true;
 
-        /*
-         * One throwaway measurement, which ST's own driver also does. The first
-         * result after configuration is not trustworthy, and starting a program by
-         * showing a wrong number is worse than starting it a hundred milliseconds
-         * later.
-         */
+        /* One throwaway measurement, as ST's own driver does: the first result after configuration is not trustworthy. */
         static_cast<Void>(i2c::writeReg16U8(sda, addr, VL53_REG_SYSTEM_START, 0x40));
         for(Int32 i = 0; i < 500; ++i)
         {
@@ -461,7 +406,6 @@ namespace bibo::tof
         static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x0008, 0x09));
         static_cast<Void>(i2c::writeReg16U8(sda, addr, 0x000B, 0x00));
 
-        /* Read back the polarity actually configured rather than assuming it. */
         {
             UInt8 mux = 0;
             if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
@@ -471,14 +415,8 @@ namespace bibo::tof
         }
 
         /*
-         * Mode first, then budget - and tof::setMode re-applies the budget anyway,
-         * because the two are not independent. 50 ms reaches about 2.5 m, which is
-         * a useful indoor default; raise it for more reach at a lower rate.
-         */
-        /*
-         * Both, and then the verdict - not `a && b`, which would skip the
-         * budget write whenever the mode write failed. The sensor is left in
-         * a known state either way and the caller is told whether it took.
+         * 50 ms reaches about 2.5 m. Both writes, then the verdict - not `a && b`,
+         * which would skip the budget write whenever the mode write failed.
          */
         const Bool modeSet   = setMode(v, MODE_LONG);
         const Bool budgetSet = setBudget(v, BUDGET_50MS);
@@ -540,15 +478,9 @@ namespace bibo::tof
         UInt16 amb = 0;
 
         /*
-         * 0x0098 is the crosstalk-corrected peak SIGNAL rate for this measurement,
-         * and 0x0090 is the AMBIENT rate. Both are the sensor's own fixed point;
-         * the ratio between them is what matters and the absolute units do not.
-         *
-         * The ambient register is 0x0090 and NOT 0x009A. Reading 0x009A returns a
-         * different field entirely, and it returns a large, almost unchanging
-         * number - which read exactly like a sensor being swamped by room light and
-         * was nothing of the kind. Worth naming, because a plausible wrong answer
-         * from a wrong register is the hardest kind to notice.
+         * 0x0098 is the crosstalk-corrected peak SIGNAL rate, 0x0090 the AMBIENT
+         * rate; the ratio matters, not the units. Ambient is 0x0090 and NOT 0x009A,
+         * a different field whose large, unchanging value reads like room light.
          */
         if(!i2c::readReg16U16(v->sda, v->addr, 0x0098, &sig)
            || !i2c::readReg16U16(v->sda, v->addr, 0x0090, &amb))

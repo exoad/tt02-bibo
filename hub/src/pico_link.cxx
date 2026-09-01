@@ -1,26 +1,18 @@
 // Win32 implementation of the Pico 2 W debug serial link.
 //
-// Design notes
-// ------------
-// * One worker thread owns the HANDLE for the whole life of a connection. It
-//   is the only thread that touches the port, so no handle locking is needed.
-//   ReadFile is given a short total timeout, so the thread parks inside the
-//   driver instead of spinning, and a silent board simply produces a stream of
-//   zero-byte reads that cost nothing and are NOT an error.
-// * The UI thread only ever touches small mutex-protected queues: send() pushes
-//   a string, drain() moves the accumulated lines out. Neither can block on I/O.
-// * pico_link.h declares the class with no data members and no pimpl pointer,
-//   and it is not ours to edit, so per-object state lives in a file-static side
-//   table keyed by `this`. See IMPL_TABLE below.
+//
+// One worker thread owns the HANDLE for the life of a connection - the only
+// thread that touches the port, so no handle locking is needed. ReadFile gets a
+// short total timeout, so the thread parks in the driver instead of spinning and
+// a silent board produces zero-byte reads that are NOT an error. The UI thread
+// only touches small mutex-protected queues and can never block on I/O.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "shared.hxx"
 
-// BEFORE windows.h, and that order is not stylistic. windows.h pulls in the
-// original winsock.h, and winsock2.h then redefines half of it - the failure is
-// a hundred lines of "redefinition of struct sockaddr_in" pointing at somebody
-// else's header. Included first, winsock2.h sets the guard that keeps the old
-// one out.
+// BEFORE windows.h, which pulls in the original winsock.h that winsock2.h then
+// redefines half of - a hundred "redefinition of struct sockaddr_in" errors in
+// somebody else's header. First, it sets the guard that keeps the old one out.
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -108,10 +100,9 @@ namespace
       // Data shared with the UI thread.
       mutable Mutex      mu;
       Deque<PicoLine>    log;
-      // What is waiting to go out. The flag rides WITH the payload: the echo
-      // into the log happens on the worker thread, long after send() returned,
-      // and a parallel deque of flags would be one mispop away from labeling the
-      // wrong line.
+      // The poll flag rides WITH the payload: the echo into the log happens on
+      // the worker thread long after send() returned, and a parallel deque of
+      // flags would be one mispop away from labeling the wrong line.
       struct TxItem
       {
           Str  text;
@@ -140,22 +131,15 @@ namespace
       }
 
       // ---- generations ------------------------------------------------------
-      //
-      // disconnect() may DETACH a worker rather than wait for it, when it is
-      // wedged in a driver call that will not return for two minutes. That
-      // worker is still alive and still holds a pointer to this object, so it
-      // must not be allowed to write state belonging to a connection that
-      // started after it was abandoned - a stale "cannot open COM10" landing on
-      // a link that connected fine ten seconds later is a bug that would be
-      // almost impossible to reproduce deliberately.
-      //
-      // Every connect and every disconnect bumps this. A worker keeps the value
-      // it started with and goes quiet the moment it stops matching.
+      // disconnect() may DETACH a worker wedged in a driver call rather than wait
+      // out its two-minute timeout, and that worker must not write state belonging
+      // to a LATER connection - a stale "cannot open COM10" landing on a link that
+      // connected fine ten seconds later. Every connect and disconnect bumps this;
+      // a worker keeps its starting value and goes quiet once it stops matching.
       Atomic<UInt32> gen{0};
 
-      // Set when disconnect() gave up waiting and detached a worker. That worker
-      // still holds a pointer to this object, so this object can never be freed
-      // afterwards - see the destructor.
+      // Set when disconnect() detached a worker. That worker still holds a pointer
+      // to this object, so it can never be freed afterwards - see the destructor.
       Atomic<Bool> abandoned{false};
 
       [[nodiscard]] Bool current(UInt32 mine) const
@@ -277,8 +261,8 @@ namespace
       return any ? n : 0;
   }
 
-  // Every COM name Windows currently has mapped. Used to filter out stale
-  // registry entries for Picos that are no longer plugged in.
+  // Every COM name Windows currently has mapped, to filter out stale registry
+  // entries for Picos that are no longer plugged in.
   HashSet<Str> serialcommPorts()
   {
       HashSet<Str> out;
@@ -349,9 +333,9 @@ namespace
       return !out->empty();
   }
 
-  // Preferred route: walk HKLM\SYSTEM\CurrentControlSet\Enum\USB looking for
-  // VID_2E8A*, then read each instance's Device Parameters\PortName. No extra
-  // libraries, and it copes with composite devices (VID_2E8A&PID_0009&MI_00).
+  // Preferred route: walk HKLM\SYSTEM\CurrentControlSet\Enum\USB for VID_2E8A*,
+  // then read each instance's Device Parameters\PortName. No extra libraries, and
+  // it copes with composite devices (VID_2E8A&PID_0009&MI_00).
   Void enumViaRegistry(Vec<Str>& out)
   {
       HKEY usb = nullptr;
@@ -423,9 +407,9 @@ namespace
       return false;
   }
 
-  // Fallback if the Enum\USB hive is unreadable: class-enumerate present COM
-  // ports and match VID_2E8A in the hardware ID. GUID_DEVCLASS_PORTS is spelled
-  // out here so we need not link uuid.lib.
+  // Fallback if the Enum\USB hive is unreadable: class-enumerate present COM ports
+  // and match VID_2E8A in the hardware ID. GUID_DEVCLASS_PORTS is spelled out to
+  // avoid linking uuid.lib.
   Void enumViaSetupapi(Vec<Str>& out)
   {
       static constexpr GUID PORTS_CLASS = {
@@ -518,21 +502,17 @@ namespace
   //  the wireless worker
   // ---------------------------------------------------------------------------
 
-  // How long a recvfrom() waits before going round again to look at the transmit
-  // queue and the stop flag. The same 33 ms the serial reader uses, for the same
-  // reason: a silent peer costs thirty cheap wakeups a second and nothing else.
+  // How long recvfrom() waits before going round again to look at the transmit
+  // queue and the stop flag: a silent peer costs ~30 cheap wakeups a second.
   constexpr Int32 UDP_RECV_TIMEOUT_MS = 33;
 
   // How often to re-send the opening PING while still waiting for a first reply.
   constexpr Float64 UDP_HELLO_EVERY_S = 0.5;
 
   // How long a link that WAS answering may go silent before it is called lost.
-  //
   // Only after a first reply, so a car that was never there is reported as never
   // there rather than as having disappeared. Three seconds is twelve of the hub's
-  // own 250 ms drive polls: long enough that a burst of Wi-Fi retries is not a
-  // disconnection, short enough to notice before wondering why the car ignores
-  // you.
+  // 250 ms drive polls - past a burst of Wi-Fi retries, short of a puzzle.
   constexpr Float64 UDP_SILENCE_LIMIT_S = 3.0;
 
   Void LinkImpl_runUdp_trampoline(LinkImplBody* self, Str host, UInt16 port, UInt32 myGen)
@@ -551,8 +531,8 @@ namespace
           }
       } doneFlag{this};
 
-      // Winsock is reference counted, so starting it here and stopping it on the
-      // way out is correct even if something else in the process has it open too.
+      // Winsock is reference counted, so start/stop here is correct even if
+      // something else in the process has it open too.
       WSADATA wsa;
       ZeroMemory(&wsa, sizeof(wsa));
       if(WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
@@ -607,8 +587,7 @@ namespace
                  reinterpret_cast<const Char*>(&rcvTimeout), sizeof(rcvTimeout));
 
       // No bind: an unbound UDP socket picks an ephemeral local port on the first
-      // send, and the board replies to whatever it hears from. Binding a fixed
-      // port would only create a way for two copies of this program to collide.
+      // send, and the board replies to whatever it hears from.
 
       {
           LockGuard<Mutex> lk(mu);
@@ -668,9 +647,8 @@ namespace
               }
           }
 
-          // A datagram is a MESSAGE, not a stream: what it holds is complete
-          // whether or not it ends in a newline. Waiting for one would silently
-          // swallow every sender that does not bother, which is most of them.
+          // A datagram is a MESSAGE, not a stream: complete whether or not it ends
+          // in a newline, and waiting for one swallows senders that omit it.
           if(!accum.empty() && !overlong)
           {
               emit(std::move(accum));
@@ -692,10 +670,8 @@ namespace
       while(!stop.load(std::memory_order_acquire))
       {
           // ---- the opening PING ----------------------------------------------
-          //
-          // Repeated, not sent once. This is UDP: the first datagram can simply
-          // vanish, and a link that gave up on one lost packet would look like a
-          // car that is switched off.
+          // Repeated, not sent once: on UDP the first datagram can simply vanish,
+          // and giving up on one lost packet looks like a car switched off.
           if(state.load(std::memory_order_acquire) == PicoState::PICO_STATE_CONNECTING)
           {
               const Float64 now = elapsedS();
@@ -716,9 +692,8 @@ namespace
           {
               if(!sendLine(item.text))
               {
-                  // A failed sendto on UDP is a local problem - no route, no
-                  // adapter - not the peer refusing. Worth reporting, not worth
-                  // tearing the link down for: the next one may well go.
+                  // A failed sendto on UDP is a LOCAL problem - no route, no
+                  // adapter - not the peer refusing, so the link stays up.
                   setErrorIf(myGen,
                              winErrText("send failed",
                                         static_cast<DWORD>(WSAGetLastError())));
@@ -744,10 +719,8 @@ namespace
                                      reinterpret_cast<sockaddr*>(&from), &fromLen);
           if(got > 0)
           {
-              // Anything that is not the board is ignored rather than logged. On
-              // an ordinary home network this port will occasionally be found by
-              // something scanning, and a console full of a stranger's probes is
-              // a console nobody reads.
+              // Anything that is not the board is ignored, not logged: this port
+              // gets found by network scanners.
               if(from.sin_addr.s_addr == peer.sin_addr.s_addr)
               {
                   if(state.load(std::memory_order_acquire)
@@ -764,10 +737,8 @@ namespace
               if(code != WSAETIMEDOUT && code != WSAEWOULDBLOCK
                  && code != WSAECONNRESET)
               {
-                  // WSAECONNRESET on a UDP socket means an ICMP port-unreachable
-                  // came back - the car is on the network but nothing is
-                  // listening on that port. Which happens every time the board is
-                  // reset, so it is a silence to wait through, not a fault.
+                  // WSAECONNRESET on a UDP socket is an ICMP port-unreachable,
+                  // which happens on every board reset - a silence, not a fault.
                   setErrorIf(myGen,
                              winErrText("receive failed",
                                         static_cast<DWORD>(code)));
@@ -825,10 +796,8 @@ namespace
                              nullptr);
       if(h == INVALID_HANDLE_VALUE)
       {
-          // Asked to stop while the open was in flight - which is what
-          // CancelSynchronousIo does to a CreateFile that is taking its time.
-          // Not a failure, and reporting one would put a red banner on screen
-          // for a button the user pressed on purpose.
+          // Asked to stop while the open was in flight - what CancelSynchronousIo
+          // does to a slow CreateFile. Not a failure.
           if(stop.load(std::memory_order_acquire))
           {
               setStateIf(myGen, PicoState::PICO_STATE_DISCONNECTED);
@@ -863,7 +832,6 @@ namespace
 
       // MAXDWORD interval + MAXDWORD multiplier + a constant is the documented
       // "return as soon as anything is there, else give up after N ms" recipe.
-      // A silent board therefore costs ~33 cheap wakeups a second and nothing else.
       COMMTIMEOUTS to;
       ZeroMemory(&to, sizeof(to));
       to.ReadIntervalTimeout         = MAXDWORD;
@@ -957,10 +925,8 @@ namespace
                   continue;   // recoverable: purge/abort raced with the read
               }
 
-              // A Pico that has been unplugged - or told to reboot into
-              // BOOTSEL, which drops the CDC port on purpose - is not a fault.
-              // Reporting it as one made every deliberate reflash look like a
-              // failure, which is precisely how a warning stops being read.
+              // A Pico unplugged - or rebooting into BOOTSEL, which drops the CDC
+              // port on purpose - is not a fault.
               const dev::Loss why = dev::classify(port, code);
               if(why == dev::Loss::LOSS_UNPLUGGED)
               {
@@ -975,8 +941,8 @@ namespace
               break;
           }
 
-          // got == 0 simply means the board said nothing this interval. That is
-          // the expected steady state for a silent peer, not an error.
+          // got == 0 means the board said nothing this interval - the expected
+          // steady state for a silent peer, not an error.
           for(DWORD i = 0; i < got; ++i)
           {
               const Char c = buf[i];
@@ -1043,8 +1009,8 @@ namespace
       EscapeCommFunction(h, CLRRTS);
       CloseHandle(h);
 
-      // Only a clean stop resets the state; an Error set above is left standing
-      // so the UI can read it before disconnect() clears it.
+      // Only a clean stop resets the state; an Error set above is left standing so
+      // the UI can read it before disconnect() clears it.
       PicoState expected = PicoState::PICO_STATE_CONNECTED;
       state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
   }
@@ -1055,9 +1021,8 @@ namespace
 //  PicoLink
 // ---------------------------------------------------------------------------
 
-// The header forward-declares Impl; this is it. One inheritance step so the
-// body above stays a plain struct and every member access below is a direct
-// pointer dereference rather than a map lookup.
+// The header forward-declares Impl; this is it. One inheritance step so the body
+// above stays a plain struct.
 struct PicoLink::Impl : LinkImplBody {};
 
 PicoLink::PicoLink()
@@ -1071,22 +1036,11 @@ PicoLink::~PicoLink()
     disconnect();
 
     // ---- the one case where this deliberately leaks ------------------------
-    //
-    // disconnect() detaches a worker rather than wait for it when it is wedged
-    // in a driver call that will not return for two minutes. That worker holds
-    // a raw pointer to pimpl and will keep using it until the call returns, so
-    // freeing it here would be a use-after-free on the way out of the program -
-    // a crash on exit, blamed on whatever happened to be running at the time.
-    //
-    // The alternatives are worse. Waiting for it means the app takes two
-    // minutes to close, which is the behavior that made it look hung in the
-    // first place. Killing the thread leaves the driver's own state half
-    // written.
-    //
-    // So the allocation is abandoned. It is a few kilobytes, it happens only
-    // when a device has already stopped answering, and it happens as the
-    // process is exiting - at which point the OS reclaims everything anyway.
-    // A leak with a reason beats a crash.
+    // A worker detached by disconnect() still holds a raw pointer to pimpl until
+    // its driver call returns, so freeing it here is a use-after-free on the way
+    // out. Waiting instead means a two-minute close; killing the thread leaves
+    // driver state half written. So the allocation is abandoned - a few kilobytes,
+    // only when a device already stopped answering, and only as the process exits.
     if(pimpl != nullptr && !pimpl->abandoned.load(std::memory_order_acquire))
     {
         delete pimpl;
@@ -1119,9 +1073,8 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     pimpl->stop.store(false, std::memory_order_release);
     pimpl->finished.store(false, std::memory_order_release);
 
-    // Back to the cable. Without this, a serial link opened after a wireless
-    // one would still report wireless() and the UI would go on refusing to
-    // flash a board that is sitting on the end of a USB cable.
+    // Back to the cable. Without this a serial link opened after a wireless one
+    // still reports wireless(), and the UI refuses to flash a cabled board.
     pimpl->udp.store(false, std::memory_order_release);
 
     pimpl->t0Ns.store(nowNs(), std::memory_order_relaxed);
@@ -1137,8 +1090,8 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     }
     pimpl->state.store(PicoState::PICO_STATE_CONNECTING, std::memory_order_release);
 
-    // A new generation. Anything still running from a previous one is now
-    // stale and its writes are dropped on the floor.
+    // A new generation: anything still running from a previous one is stale and
+    // its writes are dropped.
     const UInt32 myGen =
         pimpl->gen.fetch_add(1, std::memory_order_acq_rel) + 1u;
 
@@ -1223,41 +1176,28 @@ Void PicoLink::disconnect()
 
     pimpl->stop.store(true, std::memory_order_release);
 
-    // Retire this generation before touching the thread. Whatever the worker
-    // does from here on - including finishing a two-minute open long after it
-    // was detached - is no longer allowed to reach the visible state.
+    // Retire this generation BEFORE touching the thread: whatever the worker does
+    // from here - including finishing a two-minute open long after it was detached
+    // - can no longer reach the visible state.
     pimpl->gen.fetch_add(1, std::memory_order_acq_rel);
 
     if(pimpl->worker.joinable())
     {
         // ---- why this is not a plain join() ------------------------------
-        //
-        // It used to be, and pressing Disconnect while the link was still
-        // CONNECTING froze the whole app. The worker is inside CreateFileA at
-        // that moment, and on a USB CDC port whose device has stopped
-        // answering, that call blocks for the full ~120 second driver timeout.
-        // `stop` is not read during a syscall, so setting it changes nothing.
-        // Joining from the UI thread therefore parks the entire interface for
-        // two minutes - long enough that Windows marks it Not Responding and
-        // closing it looks exactly like a crash.
-        //
-        // CancelSynchronousIo breaks a blocking call the worker is sitting in,
-        // which turns the join from two minutes into microseconds. It returns
-        // ERROR_NOT_FOUND when the thread is not blocked, which is fine and
-        // means there was nothing to cancel.
+        // Disconnecting while still CONNECTING froze the app: the worker is inside
+        // CreateFileA, which on a USB CDC port whose device stopped answering
+        // blocks for the full ~120 s driver timeout, and `stop` is not read during
+        // a syscall. CancelSynchronousIo breaks that call - microseconds instead of
+        // minutes. ERROR_NOT_FOUND just means there was nothing to cancel.
         const HANDLE th = static_cast<HANDLE>(pimpl->worker.native_handle());
         if(th != nullptr)
         {
             ::CancelSynchronousIo(th);
         }
 
-        // And a bounded wait, because "should return promptly" is not a
-        // guarantee and the UI freezing is the thing being fixed. If the
-        // worker really will not come back, it is detached and left to finish
-        // on its own rather than held onto at the cost of the interface.
-        //
-        // Safe to detach: the worker only touches the Impl, which outlives
-        // every connection, and it closes its own handle on the way out.
+        // A bounded wait; a worker that will not come back is detached. Safe: it
+        // only touches the Impl, which outlives every connection, and closes its
+        // own handle on the way out.
         if(::WaitForSingleObject(th, 3000) == WAIT_OBJECT_0)
         {
             pimpl->worker.join();
@@ -1408,8 +1348,8 @@ Vec<Str> PicoLink::listPicoPorts()
         Vec<Str> out;
         for(const auto& p : found)
         {
-            // Drop entries for Picos that are no longer plugged in. If
-            // SERIALCOMM could not be read at all, do not filter.
+            // Drop entries for Picos no longer plugged in - but if SERIALCOMM
+            // could not be read at all, do not filter.
             if(!live.empty() && live.find(p) == live.end())
             {
                 continue;
@@ -1448,9 +1388,9 @@ Bool PicoLink::bootselTouch(const Str& port)
         return false;   // the only failure the contract reports
     }
 
-    // The Pico SDK's reset interface watches CDC line state: a line coding of
-    // 1200 baud together with DTR *deasserted* means "reboot to BOOTSEL". Set
-    // the line coding first so the DTR transition is seen at 1200.
+    // The Pico SDK's reset interface watches CDC line state: 1200 baud with DTR
+    // *deasserted* means "reboot to BOOTSEL". Line coding FIRST, so the DTR
+    // transition is seen at 1200 baud.
     configurePort(h, BOOTSEL_BAUD, /*assertDtr=*/false, nullptr);
     EscapeCommFunction(h, CLRDTR);
     EscapeCommFunction(h, CLRRTS);
@@ -1458,8 +1398,7 @@ Bool PicoLink::bootselTouch(const Str& port)
 
     CloseHandle(h);
 
-    // From here the board reboots and re-enumerates as the RPI-RP2 mass storage
-    // drive: THIS COM PORT DISAPPEARS. Any open PicoLink on it will fault on its
-    // next read and land in PicoState::PICO_STATE_ERROR. That is expected, not a bug.
+    // From here the board re-enumerates as RPI-RP2 mass storage and THIS COM PORT
+    // DISAPPEARS: any open PicoLink faults on its next read into PICO_STATE_ERROR.
     return true;
 }

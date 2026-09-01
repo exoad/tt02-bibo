@@ -6,8 +6,7 @@
 #include "theme.hxx"
 
 // NOMINMAX before windows.h, or its min/max MACROS shadow std::min/std::max and
-// every call to them becomes a syntax error. Only needed here because this file
-// is the one part of the renderer that touches the filesystem.
+// every call becomes a syntax error. Needed only here: this file loads the model.
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -27,9 +26,7 @@ namespace scene3d
 
     constexpr Float32 PI_F = 3.14159265358979323846f;
 
-    // The device's own limits, repeated here rather than reached for across a
-    // header: the 3D view discards exactly what the flat map discards, and if that
-    // ever stops being true it should be a visible edit in both places.
+    // Repeated, not shared: the 3D view discards what the flat map discards.
     constexpr Float32 MIN_VALID_MM = 50.0f;
     constexpr Float32 MAX_VALID_MM = 12000.0f;
 
@@ -43,26 +40,15 @@ namespace scene3d
     constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TIRE_WID_MM;
     constexpr Float32 EGO_SENSOR_AHEAD_MM = vehicle::C1_MOUNT_AHEAD_MM;
 
-    // How tall a return stands: up to the SCAN PLANE, and no further.
-    //
-    // The C1 is a planar scanner. It measures one horizontal slice and knows
-    // nothing whatsoever about height, so every column is the same height - varying
-    // it by range or by quality would be inventing a third dimension out of a
-    // two-dimensional instrument, which is the one thing a 3D view of a 2D sensor
-    // must not do.
-    //
-    // But the height is no longer ARBITRARY. It was 90 mm, chosen because it looked
-    // right. It is now the height of the plane the beam actually sweeps, so the top
-    // of every column is a real measured surface and the sensor drawn on the car
-    // sits exactly level with it. That is one fewer invented number, and it makes
-    // the picture self-consistent: you can see the slice the device is taking.
+    // How tall a return stands: up to the SCAN PLANE, and no further. The C1 is a
+    // planar scanner - one horizontal slice, no height - so every column is the
+    // same height, and varying it would invent a third dimension. Using the plane
+    // the beam sweeps makes the top of every column a real measured surface.
     constexpr Float32 COLUMN_MM   = vehicle::C1_SCAN_Z_MM;
     constexpr Float32 COLUMN_W_MM = 46.0f;
     constexpr Float32 WALL_H_MM   = 260.0f;
 
-    // ---------------------------------------------------------------------------
-    // Vector helpers
-    // ---------------------------------------------------------------------------
+    // ---- vector helpers -------------------------------------------------------
     Vec3 sub(const Vec3& a, const Vec3& b) { return Vec3{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z }; }
     Vec3 add(const Vec3& a, const Vec3& b) { return Vec3{ a.x + b.x, a.y + b.y, a.z + b.z }; }
     Vec3 mul(const Vec3& a, Float32 k)     { return Vec3{ a.x * k, a.y * k, a.z * k }; }
@@ -84,13 +70,9 @@ namespace scene3d
         return (l > 1e-6f) ? mul(a, 1.0f / l) : Vec3{ 0.0f, 1.0f, 0.0f };
     }
 
-    // ---------------------------------------------------------------------------
-    // The projection, built once per frame.
-    //
-    // Two forms of the same camera: an MVP matrix for the GPU, and the basis
-    // vectors, because billboarding a line and sizing it in PIXELS both need to
-    // know where the eye is and how wide a pixel is at a given depth.
-    // ---------------------------------------------------------------------------
+    // The projection, built once per frame, in two forms of the same camera: an MVP
+    // matrix for the GPU, and the basis vectors, because billboarding a line and
+    // sizing it in PIXELS both need the eye and the pixel width at a given depth.
     struct View
     {
         Vec3    eye, right, up, fwd;
@@ -105,17 +87,15 @@ namespace scene3d
             return dot(sub(p, eye), fwd);
         }
 
-        // Half-width, in WORLD units, of something that should be `px` pixels wide
-        // where it sits. Without this every line would be a fixed physical width and
-        // the far side of the grid would vanish.
+        // Half-width in WORLD units of something `px` pixels wide where it sits;
+        // without it every line has a fixed physical width and the far grid goes.
         [[nodiscard]] Float32 pxToWorld(const Vec3& at, Float32 px) const
         {
             const Float32 d = depthOf(at);
             return (d > nearMm) ? (px * d / focal) : (px * nearMm / focal);
         }
 
-        // Screen position, for the few things that are still 2D - labels, and the
-        // HUD drawn over the composited image.
+        // Screen position, for the few things still 2D - labels and the HUD.
         Bool project(const Vec3& p, ImVec2& out) const
         {
             const Float32 x = p.x * mvp[0] + p.y * mvp[4] + p.z * mvp[8]  + mvp[12];
@@ -172,14 +152,10 @@ namespace scene3d
         };
 
         // Rotation about the vertical, applied BEFORE the view - a model matrix for
-        // the whole scene. See DrawArgs::worldYawDeg.
-        //
-        // Sign, derived rather than guessed: a return at bearing b lands at
-        // (sin b, cos b), so bearing 0 is +y and bearing 90 is +x - increasing
-        // bearing sweeps forward toward right, which is CLOCKWISE seen from above
-        // and therefore a NEGATIVE rotation about +z. When the sensor turns and a
-        // fixed feature's measured bearing rises by d, the feature has moved by -d
-        // about +z, so undoing it - putting the world back where it was - is +d.
+        // the whole scene. See DrawArgs::worldYawDeg. Sign, derived not guessed: a
+        // return at bearing b lands at (sin b, cos b), so rising bearing sweeps
+        // CLOCKWISE from above, a NEGATIVE rotation about +z. A fixed feature whose
+        // measured bearing rises by d moved by -d, so undoing it is +d.
         const Float32 wy = worldYawDeg * (PI_F / 180.0f);
         const Float32 cw = std::cos(wy), sw = std::sin(wy);
         const Array<Float32, 16> model = {
@@ -216,24 +192,14 @@ namespace scene3d
             }
         }
 
-        // The eye and the basis stay in SCENE space, unrotated: they are what
-        // billboarding and pixel-width sizing are measured against, and those are
-        // properties of the camera rather than of the frame the scene is drawn in.
+        // Eye and basis stay in SCENE space, unrotated: billboarding and pixel
+        // sizing are camera properties, not world-frame ones.
         return v;
     }
 
-    // ---------------------------------------------------------------------------
-    // Emission.
-    //
-    // These keep the names and shapes the geometry code already called, so every
-    // mode below is unchanged by the move to a depth buffer - what changed is that
-    // they now hand WORLD-space triangles to the GPU instead of screen-space
-    // polygons to a sorted queue.
-    //
-    // Opaque or blended is decided by the fill's own alpha rather than by a flag at
-    // every call site: a translucent color IS the statement that this surface is
-    // see-through, and having to say it twice is a way to say it inconsistently.
-    // ---------------------------------------------------------------------------
+    // ---- emission -------------------------------------------------------------
+    // These hand WORLD-space triangles to the GPU. Opaque or blended is decided by
+    // the fill's own alpha, not by a flag at every call site.
     scenegpu::Vertex vtx(const Vec3& p, ImU32 col, const ImVec2& uv)
     {
         scenegpu::Vertex v;
@@ -263,9 +229,7 @@ namespace scene3d
         }
     }
 
-    // The same, with a color per vertex. A gradient needs one: a triangle painted
-    // one flat color cannot fade, and a ring of them fading in steps reads as
-    // wedges - which is exactly how the ride view's ground first came out.
+    // The same, per vertex. A gradient needs it: flat triangles read as wedges.
     Void emitTriC(const Vec3& a, const Vec3& b, const Vec3& c, ImU32 ca, ImU32 cb, ImU32 cc)
     {
         const ImVec2 z(0.5f, 0.5f);
@@ -285,10 +249,9 @@ namespace scene3d
         }
     }
 
-    // A camera-facing quad along a segment, `px` pixels wide wherever it is. This is
-    // how every line in the scene is drawn now: a real line primitive would be one
-    // pixel wide regardless of DPI, and would not be depth-tested against the solid
-    // geometry the way a triangle is.
+    // A camera-facing quad along a segment, `px` pixels wide wherever it is - how
+    // every line in the scene is drawn. A real line primitive would be one pixel
+    // wide whatever the DPI, and would not depth-test against solid geometry.
     Void ribbon(const View& v, const Vec3& a, const Vec3& b, ImU32 col, Float32 px)
     {
         const Vec3 dir = sub(b, a);
@@ -311,16 +274,14 @@ namespace scene3d
         emitTri(q0, q2, q3, col, nullptr, 0);
     }
 
-    // The old signature, kept so the geometry code did not have to change. `dl` is
-    // unused: nothing in the scene draws to the ImGui list any more.
+    // `dl` is unused: nothing in the scene draws to the ImGui list any more.
     Void line3(ImDrawList* dl, const View& v, const Vec3& a, const Vec3& b, ImU32 col, Float32 w)
     {
         static_cast<Void>(dl);
         ribbon(v, a, b, col, w);
     }
 
-    // How a face is painted: the fill, the outline, and how wide the outline
-    // is. These three travelled together to every one of the 25 call sites.
+    // How a face is painted: fill, outline, outline width.
     struct FaceStyle
     {
         ImU32   fill  = 0u;
@@ -337,12 +298,8 @@ namespace scene3d
 
     // A convex face, optionally outlined. The outline is nudged toward the eye by a
     // fraction of its depth so it cannot z-fight with the face it belongs to.
-    //
-    // Templated on the point count rather than taking it as a parameter: every
-    // caller passed a literal 3 or 4 beside a fixed-size array, which is a
-    // length the array already knew. Taking Array<Vec3, N> means the two can
-    // no longer disagree, and the runtime `n < 3 || n > 4` guard becomes a
-    // static_assert that fires at the call site instead.
+    // Templated on the point count so the count and the array cannot disagree, and
+    // the 3-or-4 guard is a static_assert at the call site.
     template<Size N>
     Void pushFace(const View& v, const Array<Vec3, N>& w, const FaceStyle& st, FaceTex tx = {})
     {
@@ -384,9 +341,7 @@ namespace scene3d
         }
     }
 
-    // ---------------------------------------------------------------------------
     // A box standing on the ground, centered on (x,y) in scene axes.
-    // ---------------------------------------------------------------------------
     Void column(const View& v, Float32 x, Float32 y, Float32 half, Float32 h, ImU32 side, ImU32 top, ImU32 edge, Float32 edgeW)
     {
         const Float32 x0 = x - half, x1 = x + half;
@@ -397,10 +352,7 @@ namespace scene3d
       const Vec3 t00{ x0, y0, h },    t10{ x1, y0, h };
       const Vec3 t11{ x1, y1, h },    t01{ x0, y1, h };
 
-        // All four sides. Picking the two facing the camera was a painter's-algorithm
-        // economy; the depth buffer hides the far ones for free and correctly, and
-        // guessing which two are visible is exactly the kind of per-primitive
-        // visibility decision this renderer stopped making.
+        // All four sides: the depth buffer hides the far ones for free.
         const Array<Vec3, 4> sN = { b01, b11, t11, t01 };
         const Array<Vec3, 4> sS = { b00, b10, t10, t00 };
         const Array<Vec3, 4> sE = { b10, b11, t11, t10 };
@@ -415,13 +367,9 @@ namespace scene3d
         pushFace(v, tp, { top, edge, edgeW });
     }
 
-    // ---------------------------------------------------------------------------
-    // The ground: range rings and radials, on z = 0.
-    // ---------------------------------------------------------------------------
-    // The ground grid follows the MODE, the same way the flat map's does: rings
-    // where the quantity is a range and a bearing, squares where it is a length.
-    // A wall panel judged against concentric circles is a straight edge argued with
-    // by curves.
+    // The ground - range rings and radials on z = 0 - follows the MODE the way the
+    // flat map's does: rings where the quantity is a range and a bearing, squares
+    // where it is a length.
     Bool sceneWantsSquares(SceneMode m)
     {
         return m == SceneMode::SCENE_MODE_WALLS;
@@ -452,40 +400,23 @@ namespace scene3d
               (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT), 1.6f * dpi);
     }
 
-    // ---------------------------------------------------------------------------
-    // SCENE_MODE_FULL - the ride view.
+    // SCENE_MODE_FULL - the ride view. Modelled on the display an autonomous car
+    // shows its PASSENGERS: a picture of the situation rather than an instrument.
+    // No wireframe, almost no text, few colors, soft and matte.
     //
-    // Modelled on the display an autonomous car shows its PASSENGERS, which is a
-    // different thing from the displays above it. Those are instruments: grids to
-    // measure against, a number per mode, a color per meaning. This one is a
-    // picture of the situation, and the design rules that follow from that are:
+    // A planar lidar has no classifier and cannot tell a chair leg from an ankle,
+    // so every detection is the same plain box: drawing a person because something
+    // is person-sized would be the display inventing a fact.
     //
-    //   * No wireframe. A grid of lines is how you read a measurement off a plot;
-    //     it is not how you show somebody where the car is.
-    //   * Almost no text.
-    //   * Few colors. A near-white for real things, one accent for intent, and a
-    //     dark ground. Waymo's screen is essentially two colors and it is legible
-    //     from the back seat.
-    //   * Soft, rounded, matte. Sharp wireframe boxes read as debug output.
-    //
-    // THE ONE THING NOT COPIED: Waymo draws little pedestrians, cyclists and cars,
-    // because Waymo has a classifier that earns those shapes. A planar lidar with
-    // no classifier cannot tell a chair leg from an ankle, so every detection here
-    // is the same plain box. Drawing a person because something is person-sized
-    // would be the display inventing a fact.
-    // ---------------------------------------------------------------------------
-    // Uniform, and modest. The C1 measures one horizontal slice, so a box's
-    // height is a drawing convention either way - and a convention near the car's
-    // own 135 mm reads as "things about this big", where 380 mm read as a wall.
+    // Box height is a drawing convention either way; near the car's own 135 mm it
+    // reads as "things about this big", where 380 mm read as a wall.
     constexpr Float32 RIDE_BOX_H_MM = 240.0f;
 
-    // The floor: a filled disc that fades out with range, no lines. Its edge is
-    // where the sensor stops being able to see, which is a real boundary and the
-    // only one this view draws.
+    // The floor: a filled disc fading with range. Its edge is where the sensor
+    // stops seeing - the only real boundary this view draws.
     Void drawRideGround(const View& v, const DrawArgs& a)
     {
-        // Everything here is world-space and emitted straight through; the view is
-        // only in the signature so this reads like its neighbors.
+        // World-space and emitted straight through; `v` is only in the signature.
         static_cast<Void>(v);
         constexpr Int32   SEG   = 64;
         constexpr Float32 R_IN  = 1400.0f;
@@ -496,9 +427,7 @@ namespace scene3d
         const ImU32 c1 = IM_COL32(0x12, 0x18, 0x22, 0xFF);
         const ImU32 c2 = IM_COL32(0x08, 0x0B, 0x10, 0x00);
 
-        // Inner color on the inner edge, outer on the outer, interpolated across
-        // each triangle. Per-VERTEX, not per-triangle: coloring whole triangles
-        // gives a ring of flat wedges, which is what this looked like first time.
+        // Per-VERTEX, not per-triangle, or the ring comes out as flat wedges.
         const auto ring = [&](Float32 r0, Float32 r1, ImU32 a0, ImU32 a1) {
             Vec3 p0{ r0, 0.0f, 0.0f }, p1{ r1, 0.0f, 0.0f };
             for(Int32 i = 1; i <= SEG; ++i)
@@ -513,8 +442,7 @@ namespace scene3d
             }
         };
 
-        // The disc under the car is its own, slightly lighter, so the car is always
-        // standing on something even in an empty room.
+        // The disc under the car is lighter, so it stands on something.
         Vec3 prev{ R_IN, 0.0f, 0.0f };
         for(Int32 i = 1; i <= SEG; ++i)
         {
@@ -529,11 +457,8 @@ namespace scene3d
         static_cast<Void>(a);
     }
 
-    // A detection, as a soft chamfered box.
-    //
-    // Chamfered rather than square: eight sides in plan instead of four costs four
-    // triangles and is the whole difference between "a rounded object" and "a debug
-    // AABB". Nothing else about it is rounded, and nothing else needs to be.
+    // A detection, as a soft chamfered box: eight sides in plan instead of four is
+    // four triangles, and the difference between an object and a debug AABB.
     Void drawDetection(const View& v, const Detection& d, Float32 dpi)
     {
         const Float32 px = -d.uy, py = d.ux;
@@ -559,8 +484,7 @@ namespace scene3d
             hi[i] = toScene(x, y, RIDE_BOX_H_MM);
         }
 
-        // In the car's way, or merely present. Two states, because two is what this
-        // display can honestly distinguish.
+        // In the car's way, or merely present - two states, all this can tell.
         const ImU32 side = d.inPath ? IM_COL32(0xE8, 0x7A, 0x5A, 0x5A)
                                     : IM_COL32(0xC8, 0xD4, 0xE2, 0x3E);
         const ImU32 top  = d.inPath ? IM_COL32(0xFF, 0x9A, 0x74, 0xD8)
@@ -582,8 +506,7 @@ namespace scene3d
         static_cast<Void>(dpi);
     }
 
-    // Where the car would go. The one saturated color on the screen, because it is
-    // the one thing here that is an INTENTION rather than an observation.
+    // Where the car would go: the one saturated color, and the one INTENTION.
     Void drawPathRibbon(const View& v, const DrawArgs& a)
     {
         static_cast<Void>(v);
@@ -604,9 +527,7 @@ namespace scene3d
             const Float32 ya = y0 + (y1 - y0) * t0;
             const Float32 yb = y0 + (y1 - y0) * t1;
 
-            // Fades out along its length: the far end of a planned path is less
-            // certain than the near end, and the ribbon should not pretend
-            // otherwise.
+            // Fades along its length: the far end of a plan is less certain.
             const UInt32 aa = static_cast<UInt32>(0xB0u * (1.0f - t0 * 0.75f));
             const UInt32 ab = static_cast<UInt32>(0xB0u * (1.0f - t1 * 0.75f));
             const ImU32 ca = IM_COL32(0x35, 0xC8, 0xE8, aa);
@@ -640,8 +561,7 @@ namespace scene3d
             }
         }
 
-        // Radials every 45 deg, and the forward axis in the heading color so the
-        // car's facing survives being orbited behind.
+        // Radials every 45 deg; forward in the heading color, so facing survives.
         for(Int32 b = 0; b < 360; b += 45)
         {
             const Float32 a = static_cast<Float32>(b) * (PI_F / 180.0f);
@@ -654,24 +574,13 @@ namespace scene3d
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // The car model.
+    // The car model: assets/models/car.obj - "sedan-sports", Kenney's Car Kit, CC0.
     //
-    // assets/models/car.obj - "sedan-sports" from Kenney's Car Kit, CC0. Downloaded
-    // rather than modelled: a hand-lofted shell got the proportions of a touring car
-    // roughly right and never looked like one, and there is no reason to keep
-    // approximating a thing that exists under a public-domain license.
-    //
-    // The loader is deliberately small. It reads `v`, `g` and triangular `f`, which
-    // is everything this file contains (2088 faces, all triangles, one material) and
-    // is not a general OBJ parser - anything it does not understand it skips, so a
-    // different model would degrade to a partial mesh rather than to garbage.
-    //
-    // Color comes from the GROUP NAMES, not from the material: the kit textures
-    // everything from one atlas, and a texture would be the wrong answer here
-    // anyway. This is a schematic, and `body` / `wheel-*` / `spoiler` is exactly the
-    // distinction a schematic wants.
-    // ---------------------------------------------------------------------------
+    // The loader reads `v`, `g` and triangular `f`, which is everything this file
+    // contains (2088 faces, all triangles, one material). NOT a general OBJ parser:
+    // what it does not understand it skips, so another model degrades to a partial
+    // mesh rather than to garbage. Color comes from the GROUP NAMES, not the
+    // material - `body` / `wheel-*` / `spoiler` is what a schematic wants.
     enum CarPart { CAR_PART_BODY = 0, CAR_PART_WHEEL, CAR_PART_SPOILER, CAR_PART_COUNT };
 
     struct CarTri
@@ -689,8 +598,7 @@ namespace scene3d
         Bool loaded = false;
     };
 
-    // Both go through ui::assetPath, so the model follows the same two-layout rule
-    // the icon atlas does and a copied exe keeps its car.
+    // Both via ui::assetPath, so a copied exe keeps its car - as the icon atlas.
     Bool carModelPath(Char* out, Size cap)
     {
         return ui::assetPath("models\\car.obj", out, cap);
@@ -748,8 +656,7 @@ namespace scene3d
         {
             if(line[0] == 'v' && line[1] == ' ')
             {
-                // `v x y z [r g b]` - the kit writes vertex colors, all white, and
-                // they are ignored.
+                // `v x y z [r g b]` - the kit's vertex colors are all white.
                 Float32 x = 0.0f, y = 0.0f, z = 0.0f;
                 if(std::sscanf(line.data() + 2, "%f %f %f", &x, &y, &z) == 3)
                 {
@@ -758,9 +665,7 @@ namespace scene3d
             }
             else if(line[0] == 'v' && line[1] == 't' && line[2] == ' ')
             {
-                // OBJ's V axis runs up from the bottom; every graphics API this app
-                // touches runs it down from the top, so it is flipped once here
-                // rather than at every use.
+                // OBJ's V runs up, every API here runs it down. Flipped once.
                 Float32 u = 0.0f, vv = 0.0f;
                 if(std::sscanf(line.data() + 3, "%f %f", &u, &vv) == 2)
                 {
@@ -777,9 +682,7 @@ namespace scene3d
             }
             else if(line[0] == 'f' && line[1] == ' ')
             {
-                // `f a/ta/na b/tb/nb c/tc/nc`. Only the position index is wanted,
-                // and only triangles appear in this file - a polygon would be
-                // skipped rather than mis-triangulated.
+                // `f a/ta/na ...`. Only triangles here; a polygon is skipped.
                 Array<Int32, 3> idx= { 0, 0, 0 };
                 Array<Int32, 3> tex= { 0, 0, 0 };
                 Int32 got = 0;
@@ -831,13 +734,9 @@ namespace scene3d
 
         // ---- fit to the real chassis -----------------------------------------
         //
-        // PER AXIS, not uniform, and that is a deliberate distortion. The model's
-        // proportions are a generic sports saloon; the numbers the rest of this app
-        // uses - the corridor width, the Fit erosion, the footprint on the flat map
-        // - are the TT-02's actual 430 x 190 x 135. Scaling uniformly would leave
-        // the car ~15% wider than the corridor drawn alongside it, and a picture
-        // that disagrees with the measurement beside it is worse than a picture with
-        // a slightly wrong roofline.
+        // PER AXIS, not uniform, and the distortion is deliberate: the app measures
+        // against the TT-02's actual 430 x 190 x 135, and a uniform scale leaves
+        // the car ~15% wider than the corridor drawn beside it.
         Array<Float32, 3> lo= {  1e9f,  1e9f,  1e9f };
         Array<Float32, 3> hi= { -1e9f, -1e9f, -1e9f };
         for(const Vec3& v : raw)
@@ -869,12 +768,9 @@ namespace scene3d
 
         // Model axes are x=right, y=UP, z=LENGTH with +z forward (checked against
         // the wheel groups: wheel-front-* sit at +z). Scene axes are x=right,
-        // y=forward, z=up.
-        //
-        // Swapping two axes is a REFLECTION - it flips triangle winding, and the
-        // back-face test below depends on winding. Negating x as well puts the
-        // determinant back to +1, and mirroring a symmetric car left-to-right is
-        // invisible.
+        // y=forward, z=up. Swapping two axes is a REFLECTION and flips triangle
+        // winding, so x is negated as well to put the determinant back to +1;
+        // mirroring a symmetric car left-to-right is invisible.
         const auto toScene3 = [&](const Vec3& v) {
             return Vec3{ -(v.x - cx) * sx,
                           (v.z - cz) * sz,
@@ -886,8 +782,7 @@ namespace scene3d
 
         for(const Face& fc : faces)
         {
-            // OBJ indices are 1-based, and negative means "counting back from the
-            // end". Both forms are resolved here; out-of-range drops the face.
+            // OBJ indices are 1-based; negative counts back. Out-of-range drops.
             const auto resolve = [&](Int32 i) -> Int32 {
                 if(i > 0)
                 {
@@ -939,9 +834,7 @@ namespace scene3d
             static_cast<Void>(loadCarObj(m));
         }
 
-        // The texture is loaded lazily and retried until it succeeds, because the
-        // D3D device is not up when the first frame's model load happens. Once it
-        // is non-zero this costs one comparison.
+        // Lazy and retried: the D3D device is not up at the first model load.
         if(m.loaded && m.tex == 0)
         {
             Array<Char, MAX_PATH> tp;
@@ -953,21 +846,16 @@ namespace scene3d
         return m;
     }
 
-    // Flat-shaded, back-face culled. No per-triangle outline: at 2088 faces an
-    // outline is a wireframe, and the shading is what carries the form.
+    // Flat-shaded. No per-triangle outline: at 2088 faces that is a wireframe.
     Void drawCarModel(const View& v, const CarModel& m, Float32 dpi)
     {
         static_cast<Void>(dpi);
 
-        // Above, ahead and to one side. A single fixed light in WORLD space, not
-        // camera space, so orbiting moves the highlight across the body the way it
-        // would on a real object rather than pinning it to the screen.
+        // One fixed light in WORLD space, so orbiting moves the highlight.
         const Vec3 LIGHT = norm(Vec3{ 0.38f, 0.42f, 0.82f });
 
-        // The contact shadow. Nothing sells "this object is sitting on that floor"
-        // like a soft dark patch under it, and without one the car appears to hover
-        // - which on a display whose whole subject is where things are on the
-        // ground is the wrong impression to give.
+        // The contact shadow: without it the car hovers, on a display whose whole
+        // subject is where things are on the ground.
         {
             const Float32 rx = EGO_WID_MM * 0.62f;
             const Float32 ry = EGO_LEN_MM * 0.56f;
@@ -992,20 +880,13 @@ namespace scene3d
 
         for(const CarTri& t : m.tris)
         {
-            // No back-face rejection. The depth buffer resolves it per pixel, and
-            // trusting a downloaded mesh's winding was one bug waiting to happen for
-            // no gain at 2088 triangles.
-            // A stylised material rather than one lambert term, because the point
-            // of this view is that it reads as an OBJECT at a glance:
-            //
-            //   key  a directional light. |n.l|, not max(0, n.l) - with both faces
-            //        of the shell reachable, a triangle whose winding happens to
-            //        point inward would otherwise render black.
-            //   sky  a hemispheric term. Surfaces facing up are lit by the sky and
-            //        surfaces facing down are not; this is what stops a flat-shaded
-            //        model looking like folded paper.
-            //   rim  a fresnel edge. Grazing faces catch light, which separates the
-            //        silhouette from a dark background without an outline.
+            // No back-face rejection: the depth buffer resolves it per pixel, and a
+            // downloaded mesh's winding is not worth trusting. A stylised material,
+            // not one lambert term:
+            //   key  |n.l|, NOT max(0, n.l) - with both faces reachable, an
+            //        inward-winding triangle would render black.
+            //   sky  hemispheric; stops a flat-shaded model looking like paper.
+            //   rim  fresnel, separating the silhouette from a dark background.
             const Vec3 toEye = norm(sub(v.eye, Vec3{
                 (t.a.x + t.b.x + t.c.x) / 3.0f,
                 (t.a.y + t.b.y + t.c.y) / 3.0f,
@@ -1021,8 +902,7 @@ namespace scene3d
                 lit = 1.35f;
             }
 
-            // With the atlas bound, the vertex color is a LIGHT level, not a
-            // paint: white x lit, so the texture's own colors come through.
+            // With the atlas bound the vertex color is a LIGHT level, not paint.
             const ImU32 base = (m.tex != 0) ? IM_COL32(0xFF, 0xFF, 0xFF, 0xFF)
                                             : BASE[t.part];
             const auto ch = [&](Int32 shift) {
@@ -1035,31 +915,19 @@ namespace scene3d
             const Array<Vec3, 3> tri = { t.a, t.b, t.c };
             const ImVec2 uv[3]  = { t.ta, t.tb, t.tc };
 
-            // Textured when the atlas is there, shaded-flat when it is not. The
-            // shading multiplies the SAMPLED color either way - the tint is passed
-            // as the vertex color, which ImGui multiplies into the texture - so the
-            // car keeps its form in both cases rather than turning into a flat
-            // sticker the moment a texture appears.
+            // Textured when the atlas is there, shaded-flat when not: the shading
+            // multiplies the SAMPLED color either way, so the form survives both.
             pushFace(v, tri, { col, 0u, 0.0f }, { m.tex, m.tex != 0 ? uv : nullptr });
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // The car.
-    //
-    // Hand-authored from the TT-02's own dimensions, not a scanned or CAD model:
-    // there is no TT-02 mesh in this repository and I am not going to fetch one, so
-    // what this is - a lofted low-poly touring shell built to the kit's wheelbase,
-    // tread and overall size - is stated rather than implied.
-    //
-    // Built as a series of CROSS-SECTIONS along the length, lofted together. That is
-    // how a car body actually varies: the bonnet is low and narrow, the screen rakes
-    // up to a roof that is inset from the shoulders, the tail drops away again. An
-    // extruded plan outline - which is what this was - cannot express any of that,
-    // and read as a wedge from every angle.
+    // The fallback car: hand-authored from the TT-02's own dimensions, not a
+    // scanned or CAD model. Built as CROSS-SECTIONS along the length, lofted
+    // together, because that is how a body varies - low narrow bonnet, raked
+    // screen, roof inset from the shoulders, tail dropping away. An extruded plan
+    // outline reads as a wedge.
     //
     // Heights are fractions of EGO_HEIGHT_MM, widths of the half-width. Front is +y.
-    // ---------------------------------------------------------------------------
     struct Station
     {
         Float32 y;      // along the car, fraction of half-length, +1 = nose
@@ -1069,8 +937,7 @@ namespace scene3d
         Float32 zu;     // roof height
     };
 
-    // Nine stations. The shape of a 1/10 touring shell: a short low nose, a bonnet
-    // rising to the cowl, a raked screen, a roof over the middle, a fastback rear.
+    // Nine stations: nose, bonnet, cowl, raked screen, roof, fastback rear.
     constexpr Station STATIONS[9] = {
         {  1.00f, 0.34f, 0.28f, 0.05f, 0.26f },   // nose
         {  0.86f, 0.66f, 0.54f, 0.05f, 0.38f },
@@ -1086,9 +953,8 @@ namespace scene3d
     constexpr Int32 STATION_N = 9;
     constexpr Int32 SECTION_N = 6;    // points around one cross-section
 
-    // One cross-section, as a closed loop of six points. Six is the fewest that can
-    // carry a shoulder: bottom, shoulder, roof - mirrored. Four would make every
-    // section a trapezoid and lose the tumblehome that says "car".
+    // One cross-section, a closed loop of six points - the fewest that can carry a
+    // shoulder (bottom, shoulder, roof, mirrored). Four is a trapezoid.
     Void sectionLoop(const Station& s, Float32 hw, Float32 hl, Float32 hz, Vec3* out)
     {
         const Float32 y  = s.y * hl;
@@ -1104,9 +970,7 @@ namespace scene3d
         out[5] = Vec3{  s.wl * hw, y, zl };
     }
 
-    // A wheel: a cylinder about the x axis, which is how a wheel is actually
-    // oriented. Ten segments - enough to read as round at any zoom this view
-    // reaches, and 4 wheels x 10 is still only 40 faces.
+    // A wheel: a cylinder about the x axis. Ten segments reads as round here.
     Void wheel(const View& v, Float32 cx, Float32 cy, Float32 r, Float32 halfW, ImU32 tread, ImU32 rim, Float32 dpi)
     {
         constexpr Int32 SEG = 10;
@@ -1129,8 +993,7 @@ namespace scene3d
             pushFace(v, q, { tread, 0u, 0.0f });
         }
 
-        // The outboard face. The inboard one is inside the bodywork and the depth
-        // buffer would discard it anyway, so it is simply not generated.
+        // The outboard face only: the inboard one is inside the bodywork.
         const Vec3* side = (cx > 0.0f) ? out.data() : in.data();
         const Vec3 hub{ (cx > 0.0f) ? cx + halfW : cx - halfW, cy, r };
         for(Int32 i = 0; i < SEG; ++i)
@@ -1149,26 +1012,13 @@ namespace scene3d
         }
     }
 
-    // The RPLIDAR C1, to scale: a 55.6 mm square base with the rotating head on
-    // top, 41.3 mm to the crown. Small - about an eighth of the car's length - and
-    // that smallness is the point of the mode.
-    // ---------------------------------------------------------------------------
-    // Lamps.
+    // Lamps, positioned from the car's own dimensions rather than from the mesh:
+    // the downloaded model has no addressable lamp geometry, and hunting for it
+    // would tie the lighting to one particular OBJ.
     //
-    // Positioned from the car's own dimensions rather than from the mesh: the
-    // downloaded model has no addressable lamp geometry, and hunting for it in a
-    // generic saloon would tie the lighting to one particular OBJ.
-    //
-    // Every lamp is drawn twice - a dark lens that is always there, and a lit face
-    // on top scaled by brightness. That is how a real lamp looks: an unlit lamp is
-    // not invisible, it is a dark glass rectangle, and drawing nothing when a lamp
-    // is off makes the car change shape every time it blinks.
-    // ---------------------------------------------------------------------------
-    // One lamp on the shell: where it is, how big its lens is, which way it
-    // faces, its color and how hard it is lit.
-    //
-    // (x, y, z) was three parameters for a point this file already has a type
-    // for, which is most of why the signature ran to 139 columns.
+    // Every lamp is drawn TWICE - a dark lens always there, and a lit face on top
+    // scaled by brightness. An unlit lamp is a dark glass rectangle, not nothing;
+    // drawing nothing makes the car change shape every time it blinks.
     struct Lamp3D
     {
         Vec3    at{ 0.0f, 0.0f, 0.0f };
@@ -1186,8 +1036,7 @@ namespace scene3d
         const Bool    facingFront = L.facingFront;
         const ImU32   hue   = L.hue;
         const Float32 level = L.level;
-        // Pushed a hair proud of the bodywork so the depth buffer cannot z-fight
-        // the lens against the panel it is set into.
+        // A hair proud of the bodywork, or the lens z-fights the panel.
         const Float32 out = facingFront ? 1.5f : -1.5f;
 
         const Array<Vec3, 4> q = {
@@ -1217,8 +1066,7 @@ namespace scene3d
         };
         pushFace(v, lit, { IM_COL32(r, g, b, 0xFF), 0u, 0.0f });
 
-        // A soft bloom in front of the lens, so a lit lamp reads at a distance the
-        // way a real one does - by spilling, not by being a brighter rectangle.
+        // A soft bloom: a lit lamp reads by spilling, not by being brighter.
         const Float32 gw = halfW * 2.1f, gh = halfH * 2.4f;
         const Array<Vec3, 4> glow = {
             Vec3{ x - gw, y + out * 2.2f, z - gh },
@@ -1230,12 +1078,9 @@ namespace scene3d
         pushFace(v, glow, { IM_COL32(r, g, b, ga), 0u, 0.0f });
     }
 
-    // The whole cluster set, front and rear.
-    //
-    // The rear layout follows the note in docs/conventions.md: the Impreza's cluster carries
-    // a red main lamp, an amber indicator, and the reverse lamp NESTED INSIDE the
-    // indicator housing - so the reverse lamp is drawn small and inboard of the
-    // amber, not as a fourth unit in a row.
+    // The whole cluster set. The rear layout follows docs/conventions.md: red main
+    // lamp, amber indicator, and the reverse lamp NESTED INSIDE the indicator
+    // housing - small and inboard of the amber, not a fourth unit in a row.
     Void drawLamps(const View& v, const lights::Lamps& L)
     {
         const Float32 hw = EGO_WID_MM * 0.5f;
@@ -1299,8 +1144,8 @@ namespace scene3d
         const Vec3 t0 = at(-hb, -hb, PLINTH_H), t1 = at(hb, -hb, PLINTH_H);
         const Vec3 t2 = at( hb,  hb, PLINTH_H), t3 = at(-hb, hb, PLINTH_H);
 
-        // Double-braced: the outer pair is the Array of faces, the inner one
-        // each face's four points. A single pair is one initializer too few.
+        // Double-braced: outer pair is the Array of faces, inner one each face's
+        // four points. A single pair is one initializer too few.
         const Array<Array<Vec3, 4>, 4> sides = {{
             { b0, b1, t1, t0 }, { b1, b2, t2, t1 },
             { b2, b3, t3, t2 }, { b3, b0, t0, t3 },
@@ -1313,9 +1158,7 @@ namespace scene3d
         const Array<Vec3, 4> cap = { t0, t1, t2, t3 };
         pushFace(v, cap, { top, edge, 1.0f * dpi });
 
-        // The head, as a short cylinder. This is the part that actually turns, and
-        // drawing it as its own piece is the only visual cue this view gives that
-        // the device is a rotating scanner rather than a box.
+        // The head: the part that turns, and the only cue that this is a scanner.
         constexpr Int32 SEG = 16;
         Array<Vec3, SEG> lo;
         Array<Vec3, SEG> hi;
@@ -1355,17 +1198,14 @@ namespace scene3d
         const Float32 hl = EGO_LEN_MM * 0.5f;
         const Float32 hz = EGO_HEIGHT_MM;
 
-        // The car is the one object in the scene that is NOT measured data, so it is
-        // drawn as a solid shell while every return stays an outline. You should
-        // never have to wonder which of the two the sensor actually saw.
+        // The car is NOT measured data: a solid shell, where returns are outlines.
         const ImU32 shell = IM_COL32(0x2A, 0x33, 0x3E, 0xFF);
         const ImU32 upper = IM_COL32(0x36, 0x41, 0x4E, 0xFF);
         const ImU32 glass = IM_COL32(0x18, 0x2A, 0x38, 0xFF);
         const ImU32 edge  = IM_COL32(0xC8, 0xD2, 0xDC, 0xC0);
         const Float32 ew  = 1.1f * dpi;
 
-        // Wheels first - they are inboard of the shoulders and mostly hidden by it,
-        // and the depth sort will interleave them correctly anyway.
+        // Wheels first: inboard of the shoulders, and the depth test interleaves.
         const Float32 wr = EGO_WHEEL_D_MM * 0.5f;
         const Float32 ww = EGO_WHEEL_W_MM * 0.5f;
         const Float32 ax = EGO_WHEELBASE_MM * 0.5f;
@@ -1393,10 +1233,8 @@ namespace scene3d
             {
                 const Int32 k2 = (k + 1) % SECTION_N;
 
-                // The roof panel (the segment across the top) gets the lighter
-                // color, and the two screen bays get glass - which is the whole
-                // reason for lofting rather than extruding: those panels only exist
-                // because the sections differ.
+                // Roof panel lighter, the two screen bays glass - panels that only
+                // exist because the sections differ, which is why this is lofted.
                 ImU32 col = shell;
                 if(k == 2)                                      // roof / bonnet top
                 {
@@ -1413,12 +1251,9 @@ namespace scene3d
             }
         }
 
-        // Caps, so the nose and tail are closed rather than open tubes.
-        //
-        // The fan triangles carry NO edge. Outlining each one drew a star across
-        // both ends of the car - the spokes of the fan are an artifact of how the
-        // cap is triangulated, not lines that exist on the shell. The rim gets its
-        // outline separately, from the loop itself.
+        // Caps, so the nose and tail are closed. The fan triangles carry NO edge:
+        // outlining each drew a star across both ends, because the spokes are a
+        // triangulation artifact. The rim is outlined separately, from the loop.
         for(Int32 e = 0; e < 2; ++e)
         {
             const Vec3* L = loop[e == 0 ? 0 : STATION_N - 1];
@@ -1438,9 +1273,8 @@ namespace scene3d
             }
         }
 
-        // Lights. Two amber at the nose, two red at the tail - the cheapest possible
-        // way to make which end is which readable from any orbit angle, which
-        // matters more here than on the flat map because the map always faced up.
+        // Two amber at the nose, two red at the tail: which end is which, at any
+        // orbit angle.
         const auto lamp = [&](Float32 x, Float32 y, Float32 z, ImU32 col) {
             const Float32 s = 22.0f;
             const Array<Vec3, 4> q = { Vec3{ x - s, y, z - s * 0.6f },
@@ -1454,8 +1288,7 @@ namespace scene3d
         lamp(-hw * 0.50f, -hl * 0.99f, hz * 0.34f, IM_COL32(0xE0, 0x28, 0x20, 0xFF));
         lamp( hw * 0.50f, -hl * 0.99f, hz * 0.34f, IM_COL32(0xE0, 0x28, 0x20, 0xFF));
 
-        // The rear wing a touring shell carries, on two posts. Cheap, and it settles
-        // the front/back question from above, where the lights are edge-on.
+        // The rear wing: settles front/back from above, where lights are edge-on.
         {
             const Float32 y  = -hl * 0.92f;
             const Float32 z  = hz * 0.78f;
@@ -1474,22 +1307,11 @@ namespace scene3d
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // Modes
-    // ---------------------------------------------------------------------------
-    // THE CHASSIS FILTER IS GONE, and its removal is the point.
-    //
-    // Returns inside the car's footprint used to be discarded here, because in the
-    // painter's-algorithm renderer they drew as columns standing up THROUGH the
-    // model. That fixed a picture and broke a measurement: a hand cupped around the
-    // sensor sits well inside a 430 x 190 mm footprint, so the filter deleted the
-    // easiest way there is to check the device is alive. It was reported within a
-    // day, which is about how long a display that hides real returns deserves.
-    //
-    // The depth buffer makes it unnecessary. A return behind the car is occluded
-    // because it IS behind the car, per pixel; one in front draws in front. Nothing
-    // is guessed and nothing is thrown away. Where the car would hide something you
-    // want to see, hide the CAR - see DrawArgs::showCar.
+    // ---- modes ----------------------------------------------------------------
+    // THERE IS NO CHASSIS FILTER, deliberately. Discarding returns inside the car's
+    // footprint deleted the easiest check that the device is alive - a hand cupped
+    // around the sensor sits well inside 430 x 190 mm. The depth buffer makes the
+    // filter unnecessary; to see past the car, hide the CAR.
     Int32 drawReturns(const View& v, const DrawArgs& a, Bool solid, Int32* hidden)
     {
         if(hidden != nullptr)
@@ -1527,11 +1349,9 @@ namespace scene3d
             }
             else
             {
-                // A pin: a stalk, and a head at the top. The head used to be a
-                // screen-space circle drawn straight to the ImGui list - which is
-                // precisely why the car covered pins that were in front of it, since
-                // nothing drawn that way is depth-tested against anything. It is a
-                // camera-facing quad in the scene now, like everything else.
+                // A pin: a stalk and a head. The head is a camera-facing quad IN THE
+                // SCENE - as a screen-space circle on the ImGui list it was not
+                // depth-tested, so the car covered pins that were in front of it.
                 const Vec3 g{ x, y, 0.0f }, t{ x, y, COLUMN_MM };
                 ribbon(v, g, t, IM_COL32(0xFF, 0xFF, 0xFF, 0x55), 1.0f * a.dpi);
 
@@ -1585,8 +1405,7 @@ namespace scene3d
         {
             const Int32 j = (i + 1) % a.reachN;
 
-            // Bin centers, in the same convention the clearance map uses: bearing 0
-            // is forward, and forward is +y here.
+            // Bin centers, clearance-map convention: bearing 0 forward, +y here.
             const Float32 ai = (static_cast<Float32>(i) + 0.5f) * a.reachBinDeg * (PI_F / 180.0f);
             const Float32 aj = (static_cast<Float32>(j) + 0.5f) * a.reachBinDeg * (PI_F / 180.0f);
 
@@ -1601,12 +1420,9 @@ namespace scene3d
         }
     }
 
-    // How the frame of reference reads in the corner.
-    //
-    // In a world frame the heading is a MEASUREMENT, so it is shown with its
-    // confidence. Below about a third, the room is not distinctive enough to
-    // identify a direction - a corridor, a bare wall, anything close to
-    // rotationally symmetric - and saying "unsure" is the only honest output.
+    // How the frame of reference reads in the corner. In a world frame the heading
+    // is a MEASUREMENT and carries its confidence: below about a third the room is
+    // too near rotationally symmetric to name a direction, so it says "unsure".
     const Char* lockNote(const DrawArgs& a, Float32 yaw, Char* buf, Size cap)
     {
         if(a.worldHeadingOk < 0.0f)
@@ -1614,9 +1430,7 @@ namespace scene3d
             std::snprintf(buf, cap, "car lock");
             return buf;
         }
-        // Folded to (-180, 180] and snapped through zero, so a heading of -0.3 deg
-        // prints as "0" rather than "-0" - which reads as a bug even though it is
-        // just a sign bit on a rounded number.
+        // Folded to (-180, 180] and snapped through zero, so -0.3 prints as "0".
         while(yaw >  180.0f)
         {
             yaw -= 360.0f;
@@ -1703,8 +1517,7 @@ namespace scene3d
           yaw += 2.0f * PI_F;
       }
 
-      // Never past vertical either way: at the poles the up vector degenerates
-      // and the ground plane flips over, and no drag should be able to do that.
+      // Never past vertical: at the poles `up` degenerates and the ground flips.
       pitch += dPitch;
       if(pitch <  0.02f)
       {
@@ -1769,11 +1582,9 @@ namespace scene3d
 
       a.dl->PushClipRect(a.p0, a.p1, true);
 
-      // The scene is rendered off-screen with a depth buffer and composited as one
-      // image. If that cannot be set up, the viewport is left black rather than
-      // falling back to the painter's algorithm this replaced - a renderer that
-      // silently degrades to the wrong answer is worse than one that shows
-      // nothing and says so.
+      // Rendered off-screen with a depth buffer and composited as one image. If
+      // that cannot be set up the viewport goes black and says so, rather than
+      // silently degrading to the wrong answer.
       const Int32 pw = static_cast<Int32>(a.p1.x - a.p0.x);
       const Int32 ph = static_cast<Int32>(a.p1.y - a.p0.y);
 
@@ -1833,9 +1644,7 @@ namespace scene3d
           break;
 
       case SceneMode::SCENE_MODE_FULL:
-          // The ride view. No returns as columns and no wall panels: this mode
-          // shows the CONCLUSIONS - the floor, the things on it, and where the car
-          // is going - and the evidence for them is what the other four are for.
+          // No columns, no wall panels: this mode shows the CONCLUSIONS.
           drawPathRibbon(v, a);
           for(Int32 i = 0; i < a.objectN; ++i)
           {
@@ -1858,13 +1667,11 @@ namespace scene3d
           break;
       }
 
-      // The downloaded model when it is there, the hand-built shell when it is
-      // not. A missing asset must cost fidelity, never the car: without something
-      // at the origin the whole scene loses its frame of reference.
+      // The downloaded model when there, the hand-built shell when not: a missing
+      // asset costs fidelity, never the car - the origin needs something on it.
       if(a.ego == EgoView::EGO_VIEW_SENSOR)
       {
-          // On its own, standing on the floor. The whole point of this mode is
-          // the SIZE: 56 mm against a 442 mm car.
+          // On its own. The point of this mode is the SIZE: 56 mm vs a 442 mm car.
           drawSensor(v, a.dpi, 0.0f, 0.0f, 0.0f);
       }
       else
@@ -1879,10 +1686,9 @@ namespace scene3d
               drawCarFallback(v, a.dpi);
           }
 
-          // And the sensor ON it, at its mount. Every measurement in this scene
-          // is in the sensor's frame, so where the sensor sits on the car is the
-          // relationship the whole picture is built on - and leaving it out made
-          // the car look like the thing doing the measuring.
+          // And the sensor ON it, at its mount: every measurement here is in the
+          // sensor's frame, so where it sits on the car is what the picture is
+          // built on.
           drawSensor(v, a.dpi,
                      vehicle::C1_MOUNT_LATERAL_MM,
                      vehicle::C1_MOUNT_AHEAD_MM,

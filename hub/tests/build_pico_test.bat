@@ -1,17 +1,10 @@
 @echo off
 REM Builds and (with "run") executes the PicoLink hardware test.
-REM
-REM   tests\build_pico_test.bat        - compile only
-REM   tests\build_pico_test.bat run    - compile then run against COM10
-REM
-REM pico_link.cxx and the one thing it calls - dev::describe, which turns a lost
-REM link into a sentence. Nothing else from the viewer. This test would not link
-REM at all for a while: devlink.cxx was added and this script was not told, so
-REM the whole suite failed on two unresolved symbols rather than on anything it
-REM was testing.
+REM   tests\build_pico_test.bat [run]   - compile, optionally run against COM10
+REM devlink.cxx must stay in the source list: when it was added and this script
+REM was not told, the whole suite failed on two unresolved symbols.
 REM The port name is hardcoded in test_pico_link.cxx rather than passed on the
 REM command line, because Git Bash mangles the \\.\ device prefix.
-REM
 REM /MT matches the rest of this project (the rplidar driver lib is static-CRT).
 
 setlocal
@@ -45,13 +38,9 @@ if errorlevel 1 (
 
 echo [test] built -^> %HERE%build\test_pico_link.exe
 
-REM An EARLY RETURN, not an if-block, and the reason is a cmd.exe
-REM parsing rule that cost every one of these scripts its exit code:
-REM `exit /b %errorlevel%` inside `if ... ( ... )` is expanded when
-REM cmd parses the BLOCK, which is before the test has run. All 11
-REM scripts exited 0 while printing OVERALL: FAIL, so not one of them
-REM could ever have gated a commit. Out here the expansion happens
-REM when the line is reached.
+REM An EARLY RETURN, not an if-block: `exit /b %errorlevel%` inside
+REM `if ... ( ... )` expands when cmd PARSES the block, before the test has run.
+REM All 11 scripts once exited 0 while printing OVERALL: FAIL.
 if /i not "%~1"=="run" exit /b 0
 echo.
 "%HERE%build\test_pico_link.exe"

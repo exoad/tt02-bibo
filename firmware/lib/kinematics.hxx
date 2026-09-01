@@ -2,19 +2,11 @@
  * ---------------------------------------------------------------------------
  * kinematics - the bicycle model, which is what a TT-02 is.
  *
- * A car steers by pointing its front wheels; it cannot turn on the spot and it
- * cannot move sideways. That single constraint is the difference between this
- * and the differential-drive maths most robot code is written around, and it is
- * why a skid-steer controller dropped onto this car produces demands it can
- * physically never satisfy.
- *
- * TWO WHEELS, not four. Real Ackermann steering points the inner and outer
- * wheels at slightly different angles so both roll without scrubbing; the
- * bicycle model collapses each axle to one wheel on the centerline. The error
- * is a fraction of a degree at this wheelbase and track, and carrying the full
- * geometry would buy precision the steering linkage cannot deliver - the horn
- * only fits its spline at whole-tooth intervals, which is a far larger error
- * than the one being ignored.
+ * A car steers by pointing its front wheels: it cannot turn on the spot and it
+ * cannot move sideways, which is why a skid-steer controller dropped onto this
+ * car asks for demands it can never satisfy. TWO WHEELS, not four - each axle
+ * collapses to one wheel on the centerline, and the Ackermann error that
+ * ignores is smaller than the whole-tooth steps the servo horn's spline allows.
  *
  * Pure arithmetic. Compiles for the Pico, the Orange Pi and the host test.
  * -------------------------------------------------------------------------
@@ -86,10 +78,7 @@ namespace bibo::kin
         Float32 wheelbase = KIN_WHEELBASE_M;   /* meters, front axle to rear */
         Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, the smaller lock  */
 
-        /*
-         * As with odometry: a claim the person who measured makes, not
-         * something this file can work out.
-         */
+        /* As with odometry: a claim the person who measured makes. */
         Bool    measured  = false;
     };
 
@@ -262,12 +251,7 @@ namespace bibo::kin
 
         geom::Pose out = p;
 
-        /*
-         * 1e-6 rad over one step is a radius of about 40 km - straight, by any
-         * measure this car can take. Below it the arc form's divide is the only
-         * thing that would be interesting, and it would be interesting in the
-         * wrong way.
-         */
+        /* 1e-6 rad in one step is a 40 km radius - straight, and the divide blows up. */
         if(dTheta < 1e-6f && dTheta > -1e-6f)
         {
             out.x += ds * cosf(p.heading);
@@ -288,12 +272,8 @@ namespace bibo::kin
 
     /*
      * ---- the same four, on the INSTALLED shape ------------------------------
-     *
-     * The explicit-wheelbase forms above stay, because a test wants to ask
-     * about a car that is not this one and a planner may reason about a
-     * hypothetical. These are what ordinary code calls: threading the same two
-     * numbers through every call site is how one of them ends up stale.
-     * -------------------------------------------------------------------------
+     * The explicit-wheelbase forms above stay for tests and hypotheticals; these
+     * are what ordinary code calls, so no call site threads the numbers itself.
      */
 
     /**

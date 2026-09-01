@@ -1,33 +1,20 @@
 # Generates hub/assets/bibo.ico — the application and window icon.
-#
-# Drawn rather than sourced, because the app icon has to be the app: the same
-# graphite plate and top bevel the UI is built from, with the CAR as the subject.
-#
-# The composition is Fugue's car.png - silver cabin over a blue body, dark
-# grille and badge, amber lamps, tyres - which is already what the hub shows for
-# anything to do with the vehicle. Redrawn from primitives rather than scaled,
-# because Fugue is 16x16 and an icon needs 256; blown up it is a smudge.
-#
-# It was a radar sweep until 2026-09-01. The radar is the SENSOR. The car is the
-# thing, and the thing is what an icon should be.
-#
 # Run from anywhere:  powershell -ExecutionPolicy Bypass -File hub\assets\make_icon.ps1
 #
-# Entry format matters and the obvious choice is wrong. PNG-compressed entries
-# are legal since Vista, but GDI+ (System.Drawing.Icon) cannot decode them, so an
-# all-PNG .ico fails to render in a whole class of tooling even though Explorer
-# shows it fine. So: uncompressed DIB for every size up to 64, PNG only for 128
-# and 256 where the size saving is real and nothing small reads them.
+# The subject is the car, on the graphite plate the UI is built from, redrawn
+# from primitives after Fugue's car.png - Fugue is 16x16, a smudge blown up.
+#
+# ENTRY FORMAT: uncompressed DIB for every size up to 64, PNG only at 128 and
+# 256. PNG-in-ICO is legal since Vista but GDI+ (System.Drawing.Icon) cannot
+# decode it, so an all-PNG .ico fails to render in a whole class of tooling while
+# Explorer shows it fine, which is what makes that hard to spot.
 
 Add-Type -AssemblyName System.Drawing
 
-# A rounded rectangle, which the car is made almost entirely of. Four arcs and
-# a close, the same shape as the plate - factored out because there are seven of
-# them below and an inline copy of this is where the corners stop matching.
-#
-# The radius is CLAMPED to half the shorter side. At 16 pixels a wheel is three
-# pixels tall and a radius asked for as a fraction of the icon is larger than
-# the shape, which GDI+ draws as a bow tie rather than refusing.
+# A rounded rectangle - four arcs and a close, factored out because there are
+# seven below and an inline copy is where the corners stop matching. The radius
+# is CLAMPED to half the shorter side: at 16 pixels a wheel is three pixels tall,
+# and a radius larger than the shape makes GDI+ draw a bow tie rather than refuse.
 function New-RoundRect([single]$x, [single]$y, [single]$w, [single]$h, [single]$r) {
     $r = [math]::Min($r, [math]::Min($w, $h) / 2.0)
     $p = New-Object System.Drawing.Drawing2D.GraphicsPath
@@ -60,7 +47,7 @@ function New-IconBitmap([int]$s) {
     $w     = $s - ($inset * 2)
     $rad   = [math]::Max(2, [int]($s * 0.18))
 
-    # ---- the plate: rounded graphite, lit from above --------------------
+    # The plate: rounded graphite, lit from above.
     $path = New-Object System.Drawing.Drawing2D.GraphicsPath
     $d = $rad * 2
     $path.AddArc($inset, $inset, $d, $d, 180, 90)
@@ -78,8 +65,7 @@ function New-IconBitmap([int]$s) {
     $g.FillPath($brush, $path)
     $brush.Dispose()
 
-    # 1px light bevel along the top edge, dark seam around the whole plate —
-    # the same tactile treatment ui::bevelRect gives every control.
+    # 1px bevel on top, dark seam around the plate - as ui::bevelRect does.
     $penEdge = New-Object System.Drawing.Pen (
         [System.Drawing.Color]::FromArgb(210, 0, 0, 0)), ([float][math]::Max(1, $s / 96))
     $g.DrawPath($penEdge, $path)
@@ -94,18 +80,10 @@ function New-IconBitmap([int]$s) {
         $penTop.Dispose()
     }
 
-    # ---- the subject: the car, head on ------------------------------------
-    #
-    # The composition is Fugue's car.png, which is what the hub already uses for
-    # anything to do with the vehicle - silver cabin over a blue body, a dark
-    # grille with a badge, amber lamps either side, tyres under it. Redrawn from
-    # primitives rather than scaled: Fugue is 16x16 and blowing that up to 256
-    # gives a smudge. Same subject, same reading, at every size.
-    #
-    # Everything is a fraction of $s so the layout survives the eight sizes, and
-    # detail DROPS OUT as it shrinks rather than being squeezed - below 24 the
-    # grille and the badge are sub-pixel, and drawing them anyway turns the
-    # front of the car into grey mud.
+    # The subject: the car, head on. Everything is a fraction of $s so the layout
+    # survives all eight sizes, and detail DROPS OUT as it shrinks - below 24 the
+    # grille and badge are sub-pixel, and drawing them anyway turns the front of
+    # the car into grey mud.
     $bodyL = $s * 0.155
     $bodyR = $s * 0.845
     $bodyW = $bodyR - $bodyL
@@ -124,8 +102,7 @@ function New-IconBitmap([int]$s) {
     $g.FillPath($cabBrush, $cab)
     $cabBrush.Dispose()
 
-    # The windscreen, darker, inset into the lower half of the cabin. It is what
-    # makes the shape read as the FRONT of a car rather than a lozenge.
+    # The windscreen: what makes the shape read as the FRONT of a car.
     if ($s -ge 24) {
         $wsX = $cabX + $cabW * 0.10
         $wsW = $cabW * 0.80
@@ -152,9 +129,8 @@ function New-IconBitmap([int]$s) {
     $bodyBrush.Dispose()
     $body.Dispose()
 
-    # Headlamps, amber, at the outer edges of the body. These carry the icon at
-    # small sizes - two warm dots against blue survive to 16 where nothing else
-    # does, and they are why the shape still reads as a car there.
+    # Headlamps. These carry the icon at small sizes - two warm dots against blue
+    # survive to 16 where nothing else does.
     $lampW = $s * 0.145
     $lampH = $s * 0.085
     $lampY = $bodyY + $bodyH * 0.20
@@ -186,9 +162,8 @@ function New-IconBitmap([int]$s) {
         $bdBrush.Dispose(); $bd.Dispose()
     }
 
-    # Tyres, projecting BELOW the body so the car sits on something. They were
-    # inside the body's own rectangle first, which hid them behind it and left
-    # two dark notches that read as damage rather than wheels.
+    # Tyres, projecting BELOW the body so the car sits on something. Inside the
+    # body's own rectangle they hide behind it and read as two notches of damage.
     $tyW = $s * 0.155
     $tyH = $s * 0.105
     $tyY = $bodyY + $bodyH - $s * 0.030
@@ -200,22 +175,14 @@ function New-IconBitmap([int]$s) {
     $g.FillPath($tyBrush, $t2)
     $tyBrush.Dispose(); $t1.Dispose(); $t2.Dispose()
 
-    # The green status LED that used to sit in the bottom-right corner is GONE.
-    # It belonged to the radar, which left that corner empty; the car's right
-    # rear wheel is there now, and the LED landed on top of it - a bright dot
-    # over a black one, which read as a defect rather than an accent. An icon
-    # has room for one subject.
-
     $g.Dispose()
     $path.Dispose()
     return $bmp
 }
 
-# ---- render every size ---------------------------------------------------
-#
-# Sizes <= 64 are packed as uncompressed DIB (a BITMAPINFOHEADER, a bottom-up
-# BGRA image, and an AND mask that is all zeroes because the alpha channel does
-# the work). 128 and 256 are PNG, where the compression is worth having.
+# Render every size. <= 64 is packed as uncompressed DIB (a BITMAPINFOHEADER, a
+# bottom-up BGRA image, and an all-zero AND mask because alpha does the work);
+# 128 and 256 are PNG, where the compression is worth having.
 
 function Get-DibBytes([System.Drawing.Bitmap]$bmp) {
     $w = $bmp.Width; $h = $bmp.Height
@@ -230,8 +197,7 @@ function Get-DibBytes([System.Drawing.Bitmap]$bmp) {
     $ms = New-Object System.IO.MemoryStream
     $bw = New-Object System.IO.BinaryWriter $ms
 
-    # BITMAPINFOHEADER. Height is doubled: the XOR image and the AND mask are
-    # stacked, and the header describes both.
+    # BITMAPINFOHEADER. Height is doubled: XOR image and AND mask are stacked.
     $bw.Write([UInt32]40)
     $bw.Write([Int32]$w)
     $bw.Write([Int32]($h * 2))
@@ -247,8 +213,7 @@ function Get-DibBytes([System.Drawing.Bitmap]$bmp) {
         $bw.Write($buf, $y * $stride, $w * 4)
     }
 
-    # AND mask: 1bpp, rows padded to 4 bytes, all zero. Ignored for 32bpp icons
-    # but the format requires it to be present.
+    # AND mask: 1bpp, 4-byte-padded rows, all zero. Unused at 32bpp, required anyway.
     $maskRow = [int]([math]::Ceiling($w / 32.0) * 4)
     $zero = New-Object Byte[] $maskRow
     for ($y = 0; $y -lt $h; $y++) { $bw.Write($zero, 0, $maskRow) }
@@ -258,8 +223,7 @@ function Get-DibBytes([System.Drawing.Bitmap]$bmp) {
     $bw.Dispose(); $ms.Dispose()
 
     # The comma is load-bearing: PowerShell unrolls an array on return, so a bare
-    # `return $out` emits 25,000 individual bytes into the pipeline instead of one
-    # byte[], and every consumer downstream then sees object[].
+    # `return $out` emits 25,000 loose bytes and every consumer sees object[].
     return ,$out
 }
 
@@ -277,7 +241,7 @@ foreach ($s in $sizes) {
     $bmp.Dispose()
 }
 
-# ---- pack the ICO ------------------------------------------------------
+# Pack the ICO.
 $fs = [System.IO.File]::Create($icoPath)
 $bw = New-Object System.IO.BinaryWriter $fs
 
@@ -303,14 +267,9 @@ foreach ($b in $blobs) { $bw.Write($b[1]) }
 
 $bw.Flush(); $bw.Dispose(); $fs.Dispose()
 
-# ---- and the 256 on its own, for the README ----------------------------
-#
-# A browser is not required to render an .ico in an <img>, and the repository
-# front page is the one place where "usually works" is not good enough. This is
-# the SAME byte array already packed into the .ico above, written out a second
-# time rather than re-rendered, so the two cannot drift apart - the failure
-# this file would otherwise invite is a README icon that quietly stops matching
-# the window icon.
+# And the 256 on its own, for the README - a browser is not required to render an
+# .ico in an <img>. Written from the SAME byte array packed above rather than
+# re-rendered, so the README icon cannot quietly stop matching the window icon.
 $pngPath = Join-Path $outDir 'bibo.png'
 foreach ($b in $blobs) {
     if ([int]$b[0] -eq 256) {

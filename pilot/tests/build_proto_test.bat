@@ -1,12 +1,8 @@
 @echo off
 REM Builds and (with "run") executes the line-protocol tests.
-REM
-REM   tests\build_proto_test.bat        - compile only
-REM   tests\build_proto_test.bat run    - compile then run
-REM
-REM No hardware, no serial port and no Orange Pi. proto.cxx is pure string work
-REM precisely so it can be finished and proved before the board it is for
-REM exists - which is the whole argument for writing this layer first.
+REM   tests\build_proto_test.bat [run]   - compile, optionally run
+REM No hardware, no serial port and no Orange Pi: proto.cxx is pure string work
+REM so it can be proved before the board it is for exists.
 
 setlocal
 set HERE=%~dp0
@@ -36,11 +32,9 @@ if errorlevel 1 (
 
 echo [ok] %HERE%build\test_proto.exe
 
-REM An EARLY RETURN, not an if-block, and the reason is a cmd.exe parsing
-REM rule that cost every one of these scripts its exit code: `exit /b
-REM %errorlevel%` inside `if ... ( ... )` is expanded when cmd parses the
-REM BLOCK, which is before the test has run. Out here the expansion happens
-REM when the line is reached.
+REM An EARLY RETURN, not an if-block: `exit /b %errorlevel%` inside
+REM `if ... ( ... )` expands when cmd PARSES the block, before the test has run,
+REM so the script exits 0 no matter what the test printed.
 if /i not "%~1"=="run" exit /b 0
 "%HERE%build\test_proto.exe"
 exit /b %errorlevel%

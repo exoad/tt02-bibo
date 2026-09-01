@@ -15,9 +15,8 @@ namespace scenegpu
   namespace
   {
 
-    // One shader pair for everything. Untextured geometry binds a 1x1 white texel,
-    // so the pixel shader has no branch and there is no second pipeline to keep in
-    // step with this one.
+    // One shader pair for everything: untextured geometry binds a 1x1 white texel,
+    // so there is no branch and no second pipeline to keep in step with this one.
     const Char* SHADER_SRC = R"(
     cbuffer Constants : register(b0)
     {
@@ -177,8 +176,7 @@ namespace scenegpu
 
         release(vbuf);
 
-        // Grown in chunks so a scene that gains a few returns does not reallocate
-        // every frame.
+        // Grown in chunks, so a few more returns do not reallocate every frame.
         vbufCap = ((count * 3) / 2 + 4096);
 
         D3D11_BUFFER_DESC bd = {};
@@ -272,9 +270,8 @@ namespace scenegpu
           return;
       }
 
-      // Cull NOTHING. The depth buffer decides visibility now, and letting it do
-      // so means a mesh with inconsistent winding - which any downloaded model may
-      // have - renders correctly instead of developing holes.
+      // Cull NOTHING: the depth buffer decides visibility, so a mesh with
+      // inconsistent winding renders correctly instead of developing holes.
       D3D11_RASTERIZER_DESC rd = {};
       rd.FillMode        = D3D11_FILL_SOLID;
       rd.CullMode        = D3D11_CULL_NONE;
@@ -442,10 +439,9 @@ namespace scenegpu
           return reinterpret_cast<ImTextureID>(colorSrv);
       }
 
-      // Opaque triangles may be reordered freely - the depth buffer decides the
-      // result, not the order - so they are grouped by texture to collapse the
-      // draw calls. Blended ones may not: they are sorted back to front, and the
-      // batching has to follow that order.
+      // Opaque triangles may be reordered freely - the depth buffer decides, not
+      // the order - so they group by texture to collapse draw calls. Blended ones
+      // may NOT: they sort back to front, and the batching must follow that.
       std::stable_sort(opaqueTris.begin(), opaqueTris.end(),
                        [](const Tri& x, const Tri& y) { return x.tex < y.tex; });
 
@@ -498,9 +494,8 @@ namespace scenegpu
       }
 
       // ---- state ------------------------------------------------------------
-      //
       // ImGui's DX11 backend saves and restores the whole pipeline around its own
-      // render, and this runs inside app::frame() - before that render - so it is
+      // render, and this runs inside app::frame() BEFORE that render, so it is
       // free to set state without putting it back.
       ID3D11RenderTargetView* rtv = colorRtv;
       ctx->OMSetRenderTargets(1, &rtv, depthDsv);
@@ -553,9 +548,9 @@ namespace scenegpu
       ctx->OMSetDepthStencilState(dsBlended, 0);
       drawRuns(blendedTris, static_cast<Int32>(opaqueTris.size()) * 3);
 
-      // The render target must not stay bound: ImGui is about to draw to the back
-      // buffer, and leaving our color texture as an output while it is also about
-      // to be read as a shader resource is exactly the hazard D3D warns about.
+      // The render target must not stay bound: leaving the color texture as an
+      // output while ImGui is about to read it as a shader resource is the hazard
+      // D3D warns about.
       ID3D11RenderTargetView* none = nullptr;
       ctx->OMSetRenderTargets(1, &none, nullptr);
 

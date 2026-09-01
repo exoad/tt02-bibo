@@ -2,52 +2,23 @@
  * ---------------------------------------------------------------------------
  * pins - every pin a program uses, declared once, at startup.
  *
- * THE RULE: a program's first act is to say what is wired where. main.cxx does
- * it, every sketch does it, and nothing below this file contains a GPIO number.
+ * THE RULE: a program's first act is to say what is wired where, and nothing
+ * below this file contains a GPIO number. A map is a value, so a sketch
+ * borrowing a pad builds its own instead of editing the car's wiring.
  *
  *     pins::begin(pins::car());          the car, as it is wired today
  *     pins::begin(mine);                 a sketch, as the breadboard is
  *
- * Before this the numbers were scattered - PIN_SERVO 0 in chassis.hxx, ten
- * lamps in a table in lights.hxx - and "is GP14 taken?" was a question you
- * answered by grepping and hoping. It went stale the day somebody added a
- * driver, which is exactly how the DFPlayer nearly landed on the tail lamps.
- *
- * ---------------------------------------------------------------------------
- * A MAP, NOT A SET OF CONSTANTS, and that is the important part.
- *
- * The first version of this file was a wall of `constexpr Int32 SERVO = 0`.
- * That is right for the car and wrong for everything else: a sketch borrowing a
- * pad for an afternoon would have had to EDIT THE CAR'S WIRING to do it, and a
- * breadboard experiment must never be able to change what the finished vehicle
- * believes about itself.
- *
- * So a Map is a value. car() returns the vehicle's; a sketch builds its own, or
- * takes car() and overrides the fields it cares about. Both go through begin(),
- * both are checked the same way, and neither can affect the other.
- *
- * ---------------------------------------------------------------------------
- * DECLARING IS NOT OPENING.
- *
- * begin() records the map and validates it. It does NOT touch a GPIO, because
- * only a subsystem knows whether its pad wants a direction, a pull, a PWM slice
- * or an alternate function - lights::open() sets outputs, drive::open() starts
- * servo pulses, dfplayer::open() picks a UART funcsel. They read active()
- * instead of holding numbers.
- *
- * Which is why begin() must come FIRST. A subsystem opened before the map is
- * installed binds nothing at all - see `installed` below, which starts empty on
- * purpose.
+ * DECLARING IS NOT OPENING. begin() records and validates the map and touches
+ * no GPIO - only a subsystem knows what its pad wants. Which is why begin()
+ * must come FIRST: a subsystem opened before it binds nothing at all.
  * -------------------------------------------------------------------------
  */
 #pragma once
 
 #include "types.hxx"
 
-/*
- * For conflictText() only. text.hxx is a leaf - types.hxx and the C
- * headers - so this adds no cycle and no hardware dependency.
- */
+/* For conflictText() only. text.hxx is a leaf, so this adds no cycle. */
 #include "text.hxx"
 
 namespace bibo::pins
@@ -98,18 +69,11 @@ namespace bibo::pins
         Int32 i2cScl    = NONE;
 
         /*
-         * sound - the DFPlayer Mini.
-         *
-         * THE DIRECTIONS ARE THE SILICON'S, not a preference. On RP2350 GPIO14
-         * is UART0_TX and GPIO15 is UART0_RX - funcsel 0x0b, which the SDK
-         * calls GPIO_FUNC_UART_AUX and not GPIO_FUNC_UART. Reversed, two
-         * outputs face each other and two inputs face each other: nothing is
-         * damaged, the port opens, every write succeeds, and no byte leaves the
-         * chip.
-         *
-         * soundBusy is the module's own output and is LOW WHILE PLAYING. It is
-         * the only honest way to know a track has finished - the serial reply
-         * says a command was ACCEPTED, which is a different claim.
+         * sound - the DFPlayer Mini. THE DIRECTIONS ARE THE SILICON'S: on RP2350
+         * GPIO14 is UART0_TX and GPIO15 is UART0_RX, funcsel 0x0b - that is
+         * GPIO_FUNC_UART_AUX, not GPIO_FUNC_UART. Reversed, the port opens, every
+         * write succeeds, and no byte leaves the chip. soundBusy is the module's
+         * own output and is LOW WHILE PLAYING, the only honest end-of-track.
          */
         Int32 soundTx   = NONE;
         Int32 soundRx   = NONE;
@@ -128,18 +92,12 @@ namespace bibo::pins
         Int32 revR      = NONE;
 
         /*
-         * the SPI display.
-         *
-         * SCK and MOSI are fixed by the silicon for a given SPI block - GP18
-         * and GP19 are SPI0 - while CS, DC and RES are plain GPIOs and are free
-         * choices. Both kinds live here anyway: a caller should not have to
-         * know which of the five it is allowed to move.
-         *
-         * A SHARED BUS IS TWO ROLES ON ONE PAD and begin() would reject it. The
-         * MicroSD card is meant to sit on this same SCK/MOSI with its own chip
-         * select, so when it goes on it wants a bus concept rather than another
-         * pair of pin fields. Not solved here; written down so it is not a
-         * surprise the day somebody adds sdSck and the map refuses to load.
+         * the SPI display. SCK and MOSI are fixed by the silicon for a given
+         * block - GP18 and GP19 are SPI0 - while CS, DC and RES are free
+         * choices; both kinds live here so a caller need not know which of the
+         * five it may move. A SHARED BUS IS TWO ROLES ON ONE PAD and begin()
+         * rejects it, so a second device on this SCK/MOSI wants a bus concept
+         * rather than another pair of pin fields.
          */
         Int32 tftSck    = NONE;
         Int32 tftMosi   = NONE;
@@ -147,19 +105,13 @@ namespace bibo::pins
         Int32 tftDc     = NONE;
         Int32 tftRes    = NONE;
 
-        /*
-         * The panel's backlight. NONE means it is tied to 3V3 and always on,
-         * which is how these boards ship - tft::brightness() then says so
-         * rather than pretending to dim a pad nothing is driving.
-         */
+        /* Backlight. NONE means tied to 3V3 and always on, as these boards ship. */
         Int32 tftBlk    = NONE;
 
         /* sensors */
         /*
-         * The MicroSD module. Its own SPI pads, NOT the panel's - the two
-         * would be one bus shared by two devices at different clocks, and
-         * begin() would reject the shared pads as two roles anyway. When a
-         * bus becomes a first-class thing here, this is what changes.
+         * The MicroSD module. Its own SPI pads, NOT the panel's - the two would
+         * be one bus at different clocks, and begin() rejects shared pads.
          */
         Int32 sdSck     = NONE;
         Int32 sdMosi    = NONE;
@@ -248,12 +200,7 @@ namespace bibo::pins
         m.tftDc     = 21;
         m.tftRes    = 20;
 
-        /*
-         * Where the module GOES. Its headers are unsoldered, so nothing is
-         * on these pads yet and sd::open() will fail honestly until they
-         * are - which beats the four #defines this replaced, which named
-         * the same pads and could not be seen or checked from here.
-         */
+        /* Where the module GOES. Headers unsoldered, so sd::open() fails until then. */
         m.sdSck     = 26;
         m.sdMosi    = 27;
         m.sdMiso    = 28;
@@ -266,24 +213,14 @@ namespace bibo::pins
 
     /*
      * ---- the installed map ------------------------------------------------
-     *
-     * One per program, because one program is one car. Subsystems read this
-     * rather than holding numbers, so a sketch that installs a different map
-     * gets different pads with no other change anywhere.
-     *
-     * It starts EMPTY - every field NONE - so a subsystem opened before begin()
-     * binds nothing and is visibly dead. That is the right failure: a servo on
-     * a pad chosen by whatever ran last is worse than a servo that does not
-     * move.
+     * One per program, because one program is one car. It starts EMPTY - every
+     * field NONE - so a subsystem opened before begin() binds nothing and is
+     * visibly dead, which beats a servo on a pad whatever ran last chose.
      */
     inline Map  installed;
     inline Bool up = false;
 
-    /*
-     * Where the last begin() found a problem. Kept so a caller can SAY which
-     * pins clashed - "pin conflict" without the pin sends somebody back to the
-     * file to work out which.
-     */
+    /* Where the last begin() found a problem, so a caller can name the pins. */
     inline Int32 clashPin = NONE;
     inline Size  clashA   = 0;
     inline Size  clashB   = 0;
