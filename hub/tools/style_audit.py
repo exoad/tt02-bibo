@@ -1195,6 +1195,65 @@ total += ns_bad
 
 total += struct_bad
 
+# ---------------------------------------------------------------------------
+#  Stray files in the repository root
+#
+#  Not a style rule. A DAMAGE rule, and the only one here that is about the
+#  shell rather than about C++.
+#
+#  On 2026-08-31 a 75 GB file called `headOn` was found in the root. It was a
+#  10.5 KB block repeated 7.4 million times - a seed doubled twenty-three
+#  times, killed part way through the twenty-fourth. Nothing in this repository
+#  wrote it: all 36 tracked scripts were searched for an append and none has
+#  one. It came from a shell command that printed source text WITHOUT QUOTING
+#  it, and the source text contained an arrow:
+#
+#      grep -rn in->headOn .      the shell reads this as
+#      grep -rn in- .  > headOn   pattern `in-`, output redirected
+#
+#  `in->headOn` is a real expression in cue.hxx. `>` truncates, so one of those
+#  costs nothing; `>>` appends, and a C++ line full of shifts is full of `>>`:
+#
+#      (a >> 11) & 0x1F           appends to a file called `11)`
+#      bits >> row                appends to a file called `row`
+#
+#  Fifteen of these turned up in one day - `11)`, `5u)`, `8)`, `b)`, `LAMP_OFF)`
+#  - and fourteen were zero bytes and harmless. The fifteenth landed on a name
+#  that was also being read, and grew until something interrupted it.
+#
+#  The check is deliberately blunt: NOTHING untracked belongs in the root. A
+#  file here is either committed, ignored, or a mistake. Catching it at zero
+#  bytes is the entire point - the 75 GB one was invisible for hours because
+#  nothing looked, and `git status` shows it in the same undifferentiated `??`
+#  list as a new directory somebody meant to add.
+print('\n--- stray files in the repository root ---')
+stray_bad = 0
+try:
+    import subprocess
+    out = subprocess.check_output(
+        ['git', 'ls-files', '--others', '--exclude-standard'],
+        cwd=ROOT, stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
+except Exception as e:
+    # A missing git is not a clean tree. Say which one this is.
+    print('  SKIPPED - could not ask git (%s)' % e.__class__.__name__)
+    out = None
+
+if out is not None:
+    for name in sorted(l.strip() for l in out.split('\n') if l.strip()):
+        if '/' in name:
+            continue                      # not in the root
+        full = os.path.join(ROOT, name)
+        if not os.path.isfile(full):
+            continue
+        size = os.path.getsize(full)
+        print('  untracked file in root: %-24s %d byte(s)%s'
+              % (name, size, '   <-- and it is GROWING' if size > (1 << 30) else ''))
+        stray_bad += 1
+    if stray_bad == 0:
+        print('  ok')
+
+total += stray_bad
+
 print('\n%d file(s): %s' % (
     len(files),
     ', '.join(sorted(set(os.path.relpath(os.path.dirname(f), ROOT).replace('\\', '/')
