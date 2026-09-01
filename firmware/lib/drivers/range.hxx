@@ -62,11 +62,8 @@
 #include "../hal.hxx"
 #include "../pins.hxx"
 
-namespace bibo
+namespace bibo::tof
 {
-
-  namespace tof
-  {
 
 #define VL53_ADDR_DEFAULT 0x29
 
@@ -273,12 +270,12 @@ namespace bibo
         if(mode == MODE_SHORT)
         {
             const Bool okShort =
-                   i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x14)
-                && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x07)
-                && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x05)
-                && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
+                    i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x14)
+                    && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x07)
+                    && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x05)
+                    && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
 
-                /*
+                    /*
                  * The sigma-delta pair, and the reason short mode reported a
                  * hardware fault when these were missing.
                  *
@@ -292,26 +289,26 @@ namespace bibo
                  * Long mode worked precisely BECAUSE it agreed with the block by
                  * accident. That is why only one of the two modes was broken.
                  */
-                && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
-                && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
+                    && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
+                    && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
 
             return okShort && setBudget(v, v->budget);
         }
 
         const Bool okLong =
-               i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x0A)
-            && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x0F)
-            && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
-            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
+                i2c::writeReg16U8(v->sda, v->addr, 0x004B, 0x0A)
+                && i2c::writeReg16U8(v->sda, v->addr, 0x0060, 0x0F)
+                && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
+                && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
 
-            /*
+                /*
              * Written explicitly even though the configuration block already
              * leaves these values. Relying on that meant long mode worked by
              * agreement rather than by instruction, and switching to short and
              * back would otherwise never restore them.
              */
-            && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
-            && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
+                && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
+                && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
 
         /* The budget's values are mode-specific, so it goes back in. */
         return okLong && setBudget(v, v->budget);
@@ -344,11 +341,11 @@ namespace bibo
         v->budget = budget;
 
         const UInt16* row = v->mode == MODE_SHORT
-                          ? BUDGET_SHORT[static_cast<Int32>(budget)]
-                          : BUDGET_LONG[static_cast<Int32>(budget)];
+                                ? BUDGET_SHORT[static_cast<Int32>(budget)]
+                                : BUDGET_LONG[static_cast<Int32>(budget)];
 
         return i2c::writeReg16U16(v->sda, v->addr, 0x005E, row[0])
-            && i2c::writeReg16U16(v->sda, v->addr, 0x0061, row[1]);
+               && i2c::writeReg16U16(v->sda, v->addr, 0x0061, row[1]);
     }
 
     /* ---- bring-up ------------------------------------------------------------ */
@@ -581,7 +578,7 @@ namespace bibo
     [[nodiscard]] static Bool startRanging(Vl53* v)
     {
         return v->ok
-            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
+               && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
     }
 
     /**
@@ -593,7 +590,7 @@ namespace bibo
     [[nodiscard]] static Bool stopRanging(Vl53* v)
     {
         return v->ok
-            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
+               && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
     }
 
     /**
@@ -633,7 +630,7 @@ namespace bibo
     inline Bool clear(Vl53* v)
     {
         return v->ok
-            && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
+               && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
     }
 
     /**
@@ -708,15 +705,15 @@ namespace bibo
 
         switch(raw)
         {
-        case 9:  return 0;    /* the only "good" raw code */
-        case 6:  return 1;    /* sigma too high - the answer is too noisy */
-        case 4:  return 2;    /* signal too weak - nothing came back */
-        case 8:  return 3;    /* out of the valid phase - beyond range */
-        case 5:  return 4;    /* hardware fail */
-        case 12: return 5;    /* wrapped target - an echo from further than it says */
-        case 18: return 6;    /* synchronisation */
-        case 3:  return 7;    /* merged pulse */
-        default: return 8;    /* something else */
+            case 9:  return 0;    /* the only "good" raw code */
+            case 6:  return 1;    /* sigma too high - the answer is too noisy */
+            case 4:  return 2;    /* signal too weak - nothing came back */
+            case 8:  return 3;    /* out of the valid phase - beyond range */
+            case 5:  return 4;    /* hardware fail */
+            case 12: return 5;    /* wrapped target - an echo from further than it says */
+            case 18: return 6;    /* synchronisation */
+            case 3:  return 7;    /* merged pulse */
+            default: return 8;    /* something else */
         }
     }
 
@@ -731,19 +728,17 @@ namespace bibo
     {
         switch(status)
         {
-        case 0: return "OK";
-        case 1: return "TOO NOISY";
-        case 2: return "NO SIGNAL";
-        case 3: return "OUT OF RANGE";
-        case 4: return "HARDWARE FAIL";
-        case 5: return "WRAPPED TARGET";
-        case 6: return "SYNC";
-        case 7: return "MERGED PULSE";
-        default: return "UNKNOWN";
+            case 0: return "OK";
+            case 1: return "TOO NOISY";
+            case 2: return "NO SIGNAL";
+            case 3: return "OUT OF RANGE";
+            case 4: return "HARDWARE FAIL";
+            case 5: return "WRAPPED TARGET";
+            case 6: return "SYNC";
+            case 7: return "MERGED PULSE";
+            default: return "UNKNOWN";
         }
     }
 
-
-  }
 
 }

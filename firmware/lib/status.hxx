@@ -35,11 +35,8 @@
 
 #include "hal.hxx"
 
-namespace bibo
+namespace bibo::status
 {
-
-  namespace status
-  {
 
     /* 0 means not blinking: solid at whatever status::solid() last set. */
     inline Float32 hzNow  = 0.0f;
@@ -186,7 +183,5 @@ namespace bibo
         lit = false;
     }
 
-
-  }
 
 }

@@ -97,6 +97,19 @@ using namespace bibo;
  */
 #define GAP_MS      6000
 
+/*
+ * `int`, NOT Int32, and this is the one place in the tree where the vocabulary
+ * does not apply. On arm-none-eabi int32_t is `long int` - the same size, the
+ * same representation, a different type as far as the language is concerned -
+ * and the compiler rejects it outright:
+ *
+ *     error: '::main' must return 'int'
+ *
+ * It builds clean on the host, where MSVC's int32_t IS `int`, so the host
+ * suites cannot catch this and only a board build will. main's signature is the
+ * C runtime's contract rather than this project's vocabulary, so it is spelled
+ * the runtime's way - same as app/main.cxx and range-view.cxx.
+ */
 int main(Void)
 {
     /*
