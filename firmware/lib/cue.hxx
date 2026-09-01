@@ -195,7 +195,7 @@ namespace bibo::cue
      * DRIVEN and the tails go out - and, mirrored, how far below neutral before it
      * counts as reversing.
      *
-     * Settable rather than fixed because it is a judgement about when "moving"
+     * Settable rather than fixed because it is a judgment about when "moving"
      * starts, not a measurement: a car crawling has not really pulled away and its
      * lamp should still be on, and where exactly that line falls is something you
      * find by watching the car. Seeded from cal.h by the application - this file
@@ -246,11 +246,11 @@ namespace bibo::cue
      *               with a beginning and an end - flash, alert.
      *   PLAY_LOOP   run it round until something cancels it. A blink whose rhythm
      *               is the script's own steps - the indicators.
-     *   PLAY_HOLD   one state, held until cancelled. Not really a script at all,
+     *   PLAY_HOLD   one state, held until canceled. Not really a script at all,
      *               but expressed as one so there is nothing else to learn - the
      *               headlights, the brake lamps, reverse.
      *
-     * This started as one-shots only, with the continuous behaviour - indicators,
+     * This started as one-shots only, with the continuous behavior - indicators,
      * brake, reverse - computed by hand in a solve() beside it. That split looked
      * reasonable and was not: it meant the car had two lighting systems, one you
      * could name and trigger and one you could not, and the second one grew every
@@ -857,20 +857,25 @@ namespace bibo::cue
         toneNow = tone;
     }
 
-    /*
-     * Advance one cue's script, and stop it if it has finished.
+    /**
+     * @brief Advances one cue's script, and stops it if it has finished.
      *
-     * A while, not an if, and the deadline ACCUMULATES rather than being restarted
-     * from `now`.
+     * A while, not an if, and the deadline ACCUMULATES rather than being
+     * restarted from `now`.
      *
-     * Both halves of that matter and they are the same point. Restarting from `now`
-     * would add a whole pass of the main loop to every step, so a two-step cue
-     * repeated three times would run six loop-periods long - and it would make the
-     * while unreachable, because the new deadline would always be in the future.
-     * Accumulating keeps the cue the length the script says, and lets the loop
-     * catch up honestly if something upstream blocked: serial::printf can sit for
-     * half a second when the host stops draining the port, and a cue should have
-     * PLAYED during that, not be waiting to.
+     * Both halves of that matter and they are the same point. Restarting
+     * from `now` would add a whole pass of the main loop to every step,
+     * so a two-step cue repeated three times would run six loop-periods
+     * long - and it would make the while unreachable, because the new
+     * deadline would always be in the future. Accumulating keeps the cue
+     * the length the script says, and lets the loop catch up honestly if
+     * something upstream blocked: serial::printf can sit for half a
+     * second when the host stops draining the port, and a cue should
+     * have PLAYED during that, not be waiting to.
+     *
+     * @param k the cue to advance, as a raw index into cue::SCRIPT
+     * @param now the current time, compared against the cue's step
+     *            deadline
      */
     inline Void advance(const Int32 k, const UInt64 now)
     {
@@ -878,7 +883,7 @@ namespace bibo::cue
 
         if(sc->play == PLAY_HOLD)
         {
-            return;   /* nothing to advance; it is one state until cancelled */
+            return;   /* nothing to advance; it is one state until canceled */
         }
 
         while(active[k] && now >= stepAtUs[k])
@@ -902,18 +907,23 @@ namespace bibo::cue
         }
     }
 
-    /*
-     * Everything active, composited in priority order.
+    /**
+     * @brief Composites every active cue into one lamp set, in priority
+     *        order.
      *
-     * A cue OWNS every channel any of its steps mentions, for its whole duration,
-     * including the steps where that channel is dark. Without that a flash would be
-     * invisible whenever the headlights were already on - the cue's on-steps would
-     * agree with whatever was underneath and its off-steps would be overwritten by
-     * it.
+     * A cue OWNS every channel any of its steps mentions, for its whole
+     * duration, including the steps where that channel is dark. Without
+     * that a flash would be invisible whenever the headlights were
+     * already on - the cue's on-steps would agree with whatever was
+     * underneath and its off-steps would be overwritten by it.
      *
-     * That ownership is also what makes priority mean something. A lower cue writes
-     * its channels; a higher one writes over them, lit or dark, and the result is
-     * the higher cue's opinion in full rather than a blend of two.
+     * That ownership is also what makes priority mean something. A lower
+     * cue writes its channels; a higher one writes over them, lit or
+     * dark, and the result is the higher cue's opinion in full rather
+     * than a blend of two.
+     *
+     * @param now the current time, passed on to advance()
+     * @param out the lamp set to fill; cleared first
      */
     inline Void compose(const UInt64 now, lights::Set* out)
     {
@@ -955,7 +965,19 @@ namespace bibo::cue
         soundWrite(tone);
     }
 
-    /* Call often. Cheap when there is nothing to do. */
+    /**
+     * @brief Runs one tick of every continuous rule, and shows the result.
+     *
+     * Call often. Cheap when there is nothing to do.
+     *
+     * @param in what the continuous rules read this tick; must be the
+     *           ACTUAL servo and ESC output, not the targets - see the
+     *           file banner for why
+     *
+     * @note Composes every tick, even with the master lamp switch off, so
+     *       the turn-signal state machine keeps running while the car is
+     *       dark. Only the write to the pins is gated, in lights.hxx.
+     */
     inline Void tick(const Input* in)
     {
         if(!up || in == nullptr)
@@ -1082,8 +1104,15 @@ namespace bibo::cue
         lights::write(&s);
     }
 
-    /* What the running cue is sounding, for anything that reports it. Always
-     * cue::TONE_NONE until a buzzer exists - see cue::soundWrite(). */
+    /**
+     * @brief What the running cue is sounding, for anything that reports
+     *        it.
+     *
+     * Always cue::TONE_NONE until a buzzer exists - see
+     * cue::soundWrite().
+     *
+     * @return the tone from the current step of the loudest cue
+     */
     inline UInt8 tone(Void)
     {
         return toneNow;

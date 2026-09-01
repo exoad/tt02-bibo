@@ -56,7 +56,7 @@ firmware\flash.bat
 
 `flash.bat` needs **no picotool**. The Pico SDK's USB stack exposes a reset
 interface: opening its CDC port at **1200 baud** and closing reboots the board
-into the UF2 bootloader, which mounts as a removable drive labelled `RPI-RP2`.
+into the UF2 bootloader, which mounts as a removable drive labeled `RPI-RP2`.
 Copying the `.uf2` there flashes it and the board reboots itself.
 
 If the board is already in BOOTSEL (or you held the button while plugging in),
@@ -99,7 +99,7 @@ silent board from a confused one.
 Baud is irrelevant on CDC — **except 1200, which triggers the BOOTSEL reset.**
 Do not use 1200 for normal traffic.
 
-### Behaviour at power-on
+### Behavior at power-on
 
 Three fast flashes, then a slow 0.5 Hz heartbeat. That is deliberate: it is
 proof of life *before* any host opens the port, so a board can be checked

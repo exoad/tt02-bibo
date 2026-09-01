@@ -167,7 +167,7 @@ namespace bibo::text
             // Through UInt8 first, deliberately: toupper takes an int whose value
             // must be representable as unsigned char, and a plain char is SIGNED on
             // this toolchain - so a byte over 0x7F would arrive negative and the
-            // behaviour would be undefined.
+            // behavior would be undefined.
             s[i] = static_cast<Utf8>(
                 toupper(static_cast<UInt8>(s[i])));
         }

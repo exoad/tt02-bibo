@@ -43,9 +43,9 @@ namespace bibo::control
      *          motion at all, and a controller that does not know that spends
      *          its first 41 us achieving nothing.
      *
-     *   gainV  output per metre per second, once moving. The linear part.
+     *   gainV  output per meter per second, once moving. The linear part.
      *
-     *   gainA  output per metre per second squared. Small on a light car and
+     *   gainA  output per meter per second squared. Small on a light car and
      *          safe at zero until the rest is tuned - it matters when a target
      *          CHANGES quickly rather than when it is held.
      *
@@ -67,9 +67,9 @@ namespace bibo::control
      *
      * @param f the gains to predict with; does nothing (returns 0.0) when
      *          null
-     * @param vTarget the target speed, metres per second; its SIGN, not its
+     * @param vTarget the target speed, meters per second; its SIGN, not its
      *                measured value, decides which way gainS is applied
-     * @param aTarget the target acceleration, metres per second squared
+     * @param aTarget the target acceleration, meters per second squared
      * @return the predicted output, in the caller's units (see Feedforward)
      *
      * @note THE SIGN OF gainS IS THE TARGET'S, AND ZERO MEANS ZERO. The
@@ -168,7 +168,7 @@ namespace bibo::control
      *
      * CONDITIONAL INTEGRATION. The integral only accumulates when the output is
      * not already saturated, or when the error would drive it back INTO range.
-     * Without that, a target the car cannot reach - a wheel against a kerb -
+     * Without that, a target the car cannot reach - a wheel against a curb -
      * winds the integral up for as long as it is held, and the car leaps when
      * it comes free. Clamping alone does not fix that; it only bounds how long
      * the leap lasts.
@@ -263,8 +263,8 @@ namespace bibo::control
      */
     struct Demand
     {
-        Float32 v = 0.0f;   /* metres per second        */
-        Float32 a = 0.0f;   /* metres per second squared */
+        Float32 v = 0.0f;   /* meters per second        */
+        Float32 a = 0.0f;   /* meters per second squared */
     };
 
     /**
@@ -276,7 +276,7 @@ namespace bibo::control
      * @param f the feedforward gains; see predict()
      * @param p the PID state to correct with and update; see step()
      * @param d the demand: target speed (m/s) and acceleration (m/s^2)
-     * @param v the current measured speed, metres per second
+     * @param v the current measured speed, meters per second
      * @param dt seconds since the last call to command() for this `p`
      * @return the output to send to the actuator, in the caller's output
      *         units - predict()'s result plus step()'s correction

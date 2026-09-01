@@ -76,7 +76,7 @@
  * 400 ms rather than 200. The hub's own DRIVE poll runs at 250 ms and a
  * keyboard controller sends on key CHANGES rather than on a timer, so 200 would
  * trip on somebody holding W steadily and doing nothing wrong. 400 leaves one
- * missed poll of margin and is a few centimetres at the speeds this car does.
+ * missed poll of margin and is a few centimeters at the speeds this car does.
  *
  * It only applies while the car is actually being DRIVEN - armed AND commanded
  * above idle. Arming and then sitting still is not a hazard, and a timeout that
@@ -444,7 +444,7 @@ static Void printDrive(Void)
 static Void handleSteer(const CharSeq arg)
 {
     /* Rejected rather than defaulted: "STEER" with nothing after it is far more
-     * likely to be a truncated command than a request to centre, and guessing
+     * likely to be a truncated command than a request to center, and guessing
      * that it means zero would turn a typo into a movement. */
     if(arg[0] == '\0')
     {
@@ -540,7 +540,7 @@ static Void handleTrim(const CharSeq arg)
     }
 
     bibo::drive::trim(us);
-    bibo::serial::printf("INFO centre is now %d us\n", bibo::drive::read().centerUs);
+    bibo::serial::printf("INFO center is now %d us\n", bibo::drive::read().centerUs);
     printDrive();
 }
 
@@ -862,8 +862,8 @@ static Void cmdDrive(const CharSeq arg)
  * STOP - the one command that has to work when nothing else is going right.
  *
  * The drivetrain first, because that is the part that can hurt somebody:
- * throttle to neutral and disarmed, steering RELEASED rather than centred.
- * Released is the stronger claim - centre is only a safe place to leave a servo
+ * throttle to neutral and disarmed, steering RELEASED rather than centered.
+ * Released is the stronger claim - center is only a safe place to leave a servo
  * if 1500 us is where the linkage wants to sit, and on a car whose horn is a
  * tooth off its spline it is not. Nothing to push with is the only stop that
  * works on every car.
@@ -1433,7 +1433,7 @@ static const Command COMMANDS[] =
     { .name = "STEER",       .usage = " <-1..1>",                .what = "steer as a fraction of this car's travel", .run = handleSteer },
     { .name = "SLEW",        .usage = " [STEER|THROTTLE] <us>",  .what = "how fast an output may move, per tick",    .run = handleSlew },
     { .name = "SERVO",       .usage = " <us>|ON|OFF|CENTER",     .what = "steering; OFF stops the pulse, servo limp", .run = handleServo },
-    { .name = "SERVOTRIM",   .usage = " <us>",                   .what = "move where centre is",                     .run = handleTrim },
+    { .name = "SERVOTRIM",   .usage = " <us>",                   .what = "move where center is",                     .run = handleTrim },
     { .name = "SERVOLIMITS", .usage = " <min> <max>",            .what = "widen to find the real end stops",         .run = handleLimits },
     { .name = "ESC",         .usage = " ARM|DISARM|NEUTRAL|<us>", .what = "throttle",                                .run = handleEsc },
     { .name = "ESCLIMITS",   .usage = " <min> <max>",            .what = "widen the throttle range",                 .run = handleEscLimits },

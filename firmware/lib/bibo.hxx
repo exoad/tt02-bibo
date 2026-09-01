@@ -112,7 +112,7 @@
  * cue sits above lights. */
 #include "sound.hxx"
 
-/* Drivetrain maths - PID, feedforward, and ticks to metres. Pure arithmetic,
+/* Drivetrain maths - PID, feedforward, and ticks to meters. Pure arithmetic,
  * no SDK, so both are tested on the host. */
 #include "geom.hxx"
 #include "kinematics.hxx"

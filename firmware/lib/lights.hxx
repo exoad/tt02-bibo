@@ -102,7 +102,7 @@ namespace bibo::lights
      * cannot disagree. */
 #define LIGHT_PIN_NONE pins::NONE
 
-    /* FILLED AT open(), FROM THE INSTALLED MAP - not initialised here.
+    /* FILLED AT open(), FROM THE INSTALLED MAP - not initialized here.
      *
      * It held literal GPIO numbers, then it held pins:: constants, and both had
      * the same flaw: the binding was fixed when the firmware was COMPILED. A
@@ -141,7 +141,7 @@ namespace bibo::lights
      * @brief Darkens every lamp in a set.
      *
      * Operates on the caller's set rather than on the live one, so it is also
-     * how a temporary set is initialised before a single lamp is raised in it.
+     * how a temporary set is initialized before a single lamp is raised in it.
      *
      * @param s the set to darken; every level becomes LAMP_OFF
      */
@@ -216,7 +216,7 @@ namespace bibo::lights
     }
 
     /*
-     * @brief Shows a set of lamps, honouring the master switch and any override.
+     * @brief Shows a set of lamps, honoring the master switch and any override.
      *
      * The two overrides are applied HERE rather than left to the caller: a
      * master switch that only worked when the cue layer remembered to ask is a

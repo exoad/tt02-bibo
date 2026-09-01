@@ -110,7 +110,7 @@ Int32 main(Void)
     geom::Pose p;
     p = kin::integrate(p, 1.0f, 0.0f, 0.257f, 1.0f);
     check(near(p.x, 1.0f, 1e-4f) && near(p.y, 0.0f, 1e-4f),
-          "one second at 1 m/s straight is one metre along +x");
+          "one second at 1 m/s straight is one meter along +x");
     check(near(p.heading, 0.0f, 1e-5f), "and the heading has not moved");
 
     /* A LEFT TURN GOES LEFT. Sign again - the one that matters. */
@@ -125,7 +125,7 @@ Int32 main(Void)
     geom::Pose c;
     const Float32 steer = 0.3f;
     const Float32 curv  = kin::curvatureFor(steer, 0.257f);
-    const Float32 circ  = GEOM_TAU / curv;          /* metres round the circle */
+    const Float32 circ  = GEOM_TAU / curv;          /* meters round the circle */
     const Int32   steps = 2000;
     const Float32 dt    = (circ / 1.0f) / static_cast<Float32>(steps);
 

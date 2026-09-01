@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
  * odom - how far the car has gone, and how fast.
  *
- * Ticks in, metres out. NO HARDWARE HERE: the pin, the interrupt and the clock
+ * Ticks in, meters out. NO HARDWARE HERE: the pin, the interrupt and the clock
  * belong to whoever is counting, and this turns their number into a distance.
  * That is what makes it testable on a host, and it is why every function takes
  * the timestamp rather than reading one.
@@ -30,7 +30,7 @@
  *   into TICKS_PER_REV.
  *
  * Until both are settled and WHEEL_MM is measured with calipers rather than
- * taken from a catalogue, every distance this produces is proportional to the
+ * taken from a catalog, every distance this produces is proportional to the
  * truth and not equal to it. calibrated() says which, so a caller can refuse to
  * navigate on a guess instead of driving confidently into a wall.
  * ------------------------------------------------------------------------- */
@@ -41,7 +41,7 @@
 namespace bibo::odom
 {
 
-    /* ---- the three numbers that turn ticks into metres --------------------
+    /* ---- the three numbers that turn ticks into meters --------------------
      *
      * A VALUE, NOT A #define, and that is the point of this block.
      *
@@ -54,15 +54,15 @@ namespace bibo::odom
      * The defines remain as the DEFAULTS, so a program that configures nothing
      * still behaves exactly as before.
      *
-     * MEASURED, NOT LOOKED UP. A TT-02's rolling diameter depends on the tyre,
+     * MEASURED, NOT LOOKED UP. A TT-02's rolling diameter depends on the tire,
      * the foam insert and how much the car weighs, and the difference between a
-     * catalogue number and the real one is a map that drifts a few percent per
+     * catalog number and the real one is a map that drifts a few percent per
      * lap - which looks like bad odometry rather than a wrong constant. */
 
     /**
-     * @brief Default rolling wheel diameter, in millimetres.
+     * @brief Default rolling wheel diameter, in millimeters.
      *
-     * 64 is the stock TT-02 touring tyre as a PLACEHOLDER; roll the car a
+     * 64 is the stock TT-02 touring tire as a PLACEHOLDER; roll the car a
      * measured distance and divide.
      *
      * @note Overridden by Config::wheelMm once configure() is called with a
@@ -86,12 +86,12 @@ namespace bibo::odom
 #define ODOM_GEAR_RATIO 1.0f
 
     /**
-     * @brief The three numbers that turn ticks into metres, plus a claim
+     * @brief The three numbers that turn ticks into meters, plus a claim
      *        about whether they were measured.
      */
     struct Config
     {
-        Float32 wheelMm     = ODOM_WHEEL_MM;      ///< Rolling wheel diameter, millimetres.
+        Float32 wheelMm     = ODOM_WHEEL_MM;      ///< Rolling wheel diameter, millimeters.
         Float32 ticksPerRev = ODOM_TICKS_PER_REV; ///< Sensor ticks per revolution of the magnet's shaft.
         Float32 gearRatio   = ODOM_GEAR_RATIO;    ///< Revolutions of that shaft per wheel revolution.
 
@@ -109,7 +109,7 @@ namespace bibo::odom
     /**
      * @brief Installs a new tuning configuration, if it is usable.
      *
-     * Rejects anything that would make metresPerTick meaningless. A zero wheel
+     * Rejects anything that would make metersPerTick meaningless. A zero wheel
      * or zero ticks-per-rev divides by zero and every distance afterwards is
      * inf, which propagates into the pose and is then very hard to trace back
      * to a setter that quietly accepted a bad value.
@@ -152,14 +152,14 @@ namespace bibo::odom
     }
 
     /**
-     * @brief Metres of travel represented by one sensor tick.
+     * @brief Meters of travel represented by one sensor tick.
      *
      * One multiply at the call site instead of a division, and one place
      * that knows the geometry.
      *
-     * @return metres per tick, using the active Config
+     * @return meters per tick, using the active Config
      */
-    inline Float32 metresPerTick(Void)
+    inline Float32 metersPerTick(Void)
     {
         const Float32 circumference = 3.14159265f * (tuning.wheelMm / 1000.0f);
         return circumference / (tuning.ticksPerRev * tuning.gearRatio);
@@ -181,7 +181,7 @@ namespace bibo::odom
 
         UInt32  lastTicks = 0u;    ///< ticks as of the previous update() call.
         UInt64  lastUs    = 0u;    ///< Timestamp of the previous update() call, microseconds.
-        Float32 speed     = 0.0f;   /* metres per second, filtered */
+        Float32 speed     = 0.0f;   /* meters per second, filtered */
         Bool    primed    = false; ///< False until the first update() call has run.
     };
 
@@ -228,7 +228,7 @@ namespace bibo::odom
      * @brief Total distance travelled since the last reset().
      *
      * @param w the wheel to read; a null wheel reads as zero
-     * @return distance, in metres
+     * @return distance, in meters
      */
     inline Float32 distance(const Wheel* w)
     {
@@ -236,7 +236,7 @@ namespace bibo::odom
         {
             return 0.0f;
         }
-        return static_cast<Float32>(w->ticks) * metresPerTick();
+        return static_cast<Float32>(w->ticks) * metersPerTick();
     }
 
     /* ---- speed -------------------------------------------------------------- */
@@ -252,7 +252,7 @@ namespace bibo::odom
      * any window short enough to be responsive contains zero, one or two ticks
      * and the speed reads as a square wave. The filter is a first-order lag -
      * one multiply, no history buffer, and its constant is in SECONDS rather
-     * than in samples so the behaviour does not change when the loop rate does.
+     * than in samples so the behavior does not change when the loop rate does.
      *
      * A caller that wants the raw value can take distance() twice and divide;
      * this is the one for a control loop.
@@ -261,7 +261,7 @@ namespace bibo::odom
      * @param nowUs the current time, in microseconds
      * @param tauS  the filter's time constant, in seconds; zero or negative
      *              disables filtering and returns the raw instantaneous speed
-     * @return the filtered speed, in metres per second
+     * @return the filtered speed, in meters per second
      * @note The first call after reset() only primes the filter and returns
      *       0.0; a real value needs a second call once time has passed.
      */
@@ -295,7 +295,7 @@ namespace bibo::odom
         /* Unsigned subtraction, so a wrap of the tick counter is still the
          * right delta. This car is forward-only, so ticks never count down. */
         const UInt32  dTicks = now - w->lastTicks;
-        const Float32 raw    = static_cast<Float32>(dTicks) * metresPerTick()
+        const Float32 raw    = static_cast<Float32>(dTicks) * metersPerTick()
                                / dtS;
 
         w->lastTicks = now;
@@ -320,7 +320,7 @@ namespace bibo::odom
      * @brief The last speed computed by update().
      *
      * @param w the wheel to read; a null wheel reads as zero
-     * @return speed, in metres per second
+     * @return speed, in meters per second
      */
     inline Float32 speed(const Wheel* w)
     {

@@ -61,7 +61,7 @@ namespace bibo
      * single-board computer, and neither wants a follower that allocates.
      *
      * @note `pts` must outlive every call to follow() that uses this Path,
-     *       and its points are in world metres, the same frame as geom::Pose.
+     *       and its points are in world meters, the same frame as geom::Pose.
      */
     struct Path
     {
@@ -75,14 +75,14 @@ namespace bibo
     struct Follower
     {
         /* Lookahead = clamp(perMs * speed, minM, maxM). */
-        Float32 minM  = 0.35f;   /* metres, the lookahead floor          */
-        Float32 maxM  = 1.50f;   /* metres, the lookahead ceiling        */
-        Float32 perMs = 0.7f;    /* metres of lookahead per m/s of speed */
+        Float32 minM  = 0.35f;   /* meters, the lookahead floor          */
+        Float32 maxM  = 1.50f;   /* meters, the lookahead ceiling        */
+        Float32 perMs = 0.7f;    /* meters of lookahead per m/s of speed */
 
         /* Within this of the last point, the path is finished. */
-        Float32 arriveM = 0.25f; /* metres */
+        Float32 arriveM = 0.25f; /* meters */
 
-        Float32 wheelbase = KIN_WHEELBASE_M; /* metres, see kinematics.hxx */
+        Float32 wheelbase = KIN_WHEELBASE_M; /* meters, see kinematics.hxx */
         Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, ditto - both are
                                                  * UNMEASURED PLACEHOLDERS   */
 
@@ -99,10 +99,10 @@ namespace bibo
         Bool       arrived   = false;  /* the end is within arriveM      */
         geom::Vec2 goal;               /* world frame                    */
         Float32    lookahead = 0.0f;
-        Float32    curvature = 0.0f;   /* 1/metres, + is left            */
+        Float32    curvature = 0.0f;   /* 1/meters, + is left            */
         Float32    steer     = 0.0f;   /* radians, clamped to maxSteer   */
         Float32    fraction  = 0.0f;   /* -1..1, what drive::steer wants */
-        Float32    crossTrack = 0.0f;  /* metres, + is left of the path  */
+        Float32    crossTrack = 0.0f;  /* meters, + is left of the path  */
     };
 
     /**
@@ -125,9 +125,9 @@ namespace bibo
      *
      * @param f the follower's tuning and committed progress; advanced by
      *          this call, never moved backward
-     * @param path the path to follow, in world metres
+     * @param path the path to follow, in world meters
      * @param pose where the car is and which way it faces
-     * @param speed the car's current speed, metres per second; only its
+     * @param speed the car's current speed, meters per second; only its
      *              magnitude is used, to scale the lookahead
      * @return the aim point and steering command; Aim::valid is false when
      *         `f` or `path` is null, `path` is empty, or the path's end lies

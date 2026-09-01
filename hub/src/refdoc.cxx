@@ -1096,8 +1096,8 @@ namespace refdoc
             { "magenta", ui::ansi::MAGENTA   },
             { "cyan",    ui::ansi::CYAN      },
             { "white",   ui::ansi::WHITE     },
-            { "grey",    ui::ansi::GRAY      },
-            { "grey",    ui::ansi::GRAY      },
+            { "gray",    ui::ansi::GRAY      },
+            { "gray",    ui::ansi::GRAY      },
             { "brRed",   ui::ansi::BRRED     },
             { "brGreen", ui::ansi::BRGREEN   },
             { "brYellow",ui::ansi::BRYELLOW  },
@@ -1245,7 +1245,7 @@ namespace refdoc
                 {
                     pen.align = -1;
                 }
-                else if(w == "centre" || w == "centre")
+                else if(w == "center" || w == "center")
                 {
                     pen.align = 0;
                 }
