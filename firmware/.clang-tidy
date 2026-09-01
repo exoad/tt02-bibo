@@ -1,0 +1,31 @@
+# firmware/ only. Adds to the root .clang-tidy rather than replacing it.
+#
+# WHY THIS CHECK IS SCOPED HERE AND NOT AT THE ROOT
+#
+# hicpp-signed-bitwise fires on any bitwise operator with a signed operand, and
+# an unscoped enum backed by int counts as signed. ImGui, Win32 and D3D11 are
+# all built that way, so at the root it reports on lines like
+#
+#   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+#   D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
+#
+# which are the correct way to call those libraries and cannot be written any
+# other way without a cast on every call. Measured before enabling it: 34 in
+# hub/, pilot/, lidar/ and shared/, and 26 of the 34 are exactly that. A check
+# that can never reach zero is not a ratchet, it is a permanent warning.
+#
+# firmware/ is freestanding and every line of it is ours. It is at zero.
+#
+# IgnorePositiveIntegerLiterals is what makes the check usable at all. Without
+# it the literal 8 in `x >> 8` is a signed int and reports, which on
+# display.hxx alone was 16 of the 26 hits - noise about C++ rather than about
+# the file. With it, the 26 became the 10 that were real.
+
+InheritParentConfig: true
+
+Checks: >
+  hicpp-signed-bitwise
+
+CheckOptions:
+  - key: hicpp-signed-bitwise.IgnorePositiveIntegerLiterals
+    value: true

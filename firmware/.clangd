@@ -54,3 +54,20 @@ Diagnostics:
   # would sit in the same list as a genuine mistake in a sketch.
   Suppress:
     - pp_file_not_found_angled_include_not_fatal
+
+  # clangd reads every .clangd from the file's directory up to the root and
+  # MERGES them, so this ADDS to the root check list rather than replacing it.
+  # firmware/.clang-tidy carries the reasoning and has to be kept in step - the
+  # two formats do not see each other, and the hub's Code view reads this one.
+  ClangTidy:
+    Add:
+      # Scoped to firmware/ because an unscoped int-backed enum counts as
+      # signed, so at the root every ImGui, Win32 and D3D11 flag OR reports.
+      # 26 of the 34 hits outside firmware/ are exactly that. firmware/ is all
+      # ours and is at zero.
+      - hicpp-signed-bitwise
+
+    CheckOptions:
+      # Without this the literal 8 in `x >> 8` reports, which is a fact about
+      # C++ and not about the file. On display.hxx it was 16 of the 26 hits.
+      hicpp-signed-bitwise.IgnorePositiveIntegerLiterals: true
