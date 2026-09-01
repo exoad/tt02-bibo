@@ -326,6 +326,30 @@ namespace bibo
     }
 
     /**
+     * @brief Writes one panel coordinate into two bytes, high byte first.
+     *
+     * The controller wants each edge of the window as a big-endian 16-bit
+     * value, and CASET and RASET each carry two of them.
+     *
+     * @param dst where to put the pair; two bytes are written
+     * @param v the coordinate, in panel pixels after offset
+     *
+     * @note The cast to UInt32 is the point of this function. `v` is signed,
+     *       and shifting a negative value right is arithmetic - it fills with
+     *       ones, so a coordinate left of the panel would be sent as a very
+     *       large positive one rather than being caught. Every caller clips
+     *       to zero before reaching here, so it does not happen today; this
+     *       makes it a conversion the reader can see rather than a promotion
+     *       they have to know about.
+     */
+    inline Void putCoord(UInt8* dst, const Int32 v)
+    {
+        const UInt32 u = static_cast<UInt32>(v);
+        dst[0] = static_cast<UInt8>((u >> 8u) & 0xFFu);
+        dst[1] = static_cast<UInt8>(u & 0xFFu);
+    }
+
+    /**
      * @brief Sets the panel's write window, the rectangle the next pixel
      * burst fills.
      *
@@ -348,16 +372,12 @@ namespace bibo
 
         UInt8 buf[4];
 
-        buf[0] = static_cast<UInt8>(x0 >> 8);
-        buf[1] = static_cast<UInt8>(x0 & 0xFF);
-        buf[2] = static_cast<UInt8>(x1 >> 8);
-        buf[3] = static_cast<UInt8>(x1 & 0xFF);
+        putCoord(&buf[0], x0);
+        putCoord(&buf[2], x1);
         write(s, 0x2A, buf, 4);            /* CASET - column address */
 
-        buf[0] = static_cast<UInt8>(y0 >> 8);
-        buf[1] = static_cast<UInt8>(y0 & 0xFF);
-        buf[2] = static_cast<UInt8>(y1 >> 8);
-        buf[3] = static_cast<UInt8>(y1 & 0xFF);
+        putCoord(&buf[0], y0);
+        putCoord(&buf[2], y1);
         write(s, 0x2B, buf, 4);            /* RASET - row address */
     }
 
@@ -659,7 +679,10 @@ namespace bibo
                  * skipped so overwriting text leaves no comb of old pixels.
                  */
                 const UInt8 bits = gc < 5 ? glyph[gc] : 0x00;
-                const Bool  on   = gr < 7 && ((bits >> gr) & 1u) != 0u;
+                const Bool  on   = gr < 7
+                                   && ((static_cast<UInt32>(bits)
+                                        >> static_cast<UInt32>(gr))
+                                       & 1u) != 0u;
 
                 cell[at++] = on ? fgHi : bgHi;
                 cell[at++] = on ? fgLo : bgLo;
