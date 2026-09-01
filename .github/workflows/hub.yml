@@ -81,16 +81,24 @@ jobs:
       # while exiting 0 until 2026-08-31 - `exit /b %errorlevel%` inside an
       # if-block expands when cmd PARSES the block, before the test has run.
       #
-      # hub\tests\build_test.bat is NOT in this list and must not be. It is a
-      # hardware test: it opens COM7 at 460800 and talks to a real RPLIDAR C1.
-      # On a runner it fails with "COM7 is gone", which is the correct answer to
-      # the wrong question.
+      # THREE SUITES ARE DELIBERATELY ABSENT, and all three for the same reason:
+      # they test this machine, not this code.
+      #
+      #   build_test.bat      opens COM7 at 460800 and talks to a real RPLIDAR C1
+      #   build_pico_test.bat opens COM10 and talks to a real Pico
+      #   build_devlink_test  enumerates the machine's ACTUAL serial ports - its
+      #                       own header says the point is agreeing with what
+      #                       Windows reports rather than with a mock
+      #
+      # All three pass on the desk and fail on a runner, which has no ports at
+      # all. That is the correct answer to the wrong question, and a CI job that
+      # asks it teaches everyone to ignore a red tick.
       - name: hub suites
         shell: cmd
         run: |
           setlocal enabledelayedexpansion
           set FAIL=0
-          for %%s in (devlink diagnostics editor geom json lights lint lsp pico) do (
+          for %%s in (diagnostics editor geom json lights lint lsp) do (
             call hub\tests\build_%%s_test.bat run >nul 2>&1
             if errorlevel 1 (
               echo   [FAIL] %%s

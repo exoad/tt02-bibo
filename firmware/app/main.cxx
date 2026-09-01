@@ -1759,7 +1759,7 @@ static constexpr Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
 static Void printHelp(const CharSeq arg)
 {
     static_cast<Void>(arg);
-    for(const auto i : COMMANDS)
+    for(const auto& i : COMMANDS)
     {
         bibo::serial::printf("INFO help %s%s - %s\n",
                      i.name, i.usage, i.what);
@@ -1806,7 +1806,7 @@ static Void handleLine(Utf8* line)
         return;
     }
 
-    for(const auto i : COMMANDS)
+    for(const auto& i : COMMANDS)
     {
         if(const CharSeq arg = bibo::text::word(line, i.name); arg != nullptr)
         {

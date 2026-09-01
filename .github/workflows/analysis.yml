@@ -39,6 +39,26 @@ jobs:
       #
       # --inline-suppr so a genuine false positive can be waived AT THE LINE,
       # where the next reader sees why, rather than in a list far away.
+      # THREE SUPPRESSIONS, each for a reason rather than to get to green.
+      #
+      # useStlAlgorithm      wants std::find_if and std::fill. The firmware is
+      #                      FREESTANDING - no heap, no exceptions, no <algorithm>
+      #                      - so every one of these is advice to include a header
+      #                      that is not there. Same reason .clangd drops
+      #                      bugprone-unhandled-exception-at-new.
+      #
+      # knownConditionTrueFalse
+      #                      cppcheck explores #ifdef combinations the real build
+      #                      never has. It reported `!bibo::net::present()` as
+      #                      "always false" AND "always true" for the SAME line,
+      #                      which is the tell: BIBO_WIRELESS is set from the board
+      #                      header, and each board makes it constant in a
+      #                      different direction.
+      #
+      # --inconclusive       removed rather than suppressed. It is the flag that
+      #                      says "reports things it is not sure about", and both
+      #                      findings it produced were "technically this member
+      #                      function could be static".
       - name: cppcheck
         run: |
           set -o pipefail
@@ -49,7 +69,8 @@ jobs:
             --language=c++ \
             --suppress=missingIncludeSystem \
             --suppress=unusedFunction \
-            --inconclusive \
+            --suppress=useStlAlgorithm \
+            --suppress=knownConditionTrueFalse \
             --error-exitcode=2 \
             -I firmware/lib \
             firmware/lib firmware/app shared lidar/bridge \
