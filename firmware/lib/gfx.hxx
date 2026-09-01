@@ -1,36 +1,41 @@
-/*
- * A 2D drawing API over a tft::Screen: shapes, text, colour and clipping.
+/**
+ * @file gfx.hxx
+ * @brief A 2D drawing API over a tft::Screen: shapes, text, color and
+ *        clipping.
  *
  * st77xx.h is the DRIVER - chip selects, command bytes, address windows - and
  * it hands back a tft::Screen. This is what you draw with, and every call takes the
- * screen it draws into:
+ * screen it draws into, wrapped in a gfx::Canvas:
  *
  *     tft::Screen screen;
- *     gfx::open(&screen, 240, 280, 0, 20);
+ *     gfx::Canvas cv = gfx::open(&screen, {240, 280, 0, 20});
  *
  *     while(true)
  *     {
- *         gfx::clear(&screen, NAVY);
- *         gfx::rectFill(&screen, 10, 10, 100, 40, ORANGE);
- *         gfx::circleFill(&screen, 120, 120, 30, CYAN);
- *
- *         gfx::textColour(&screen, WHITE);
- *         gfx::textSize(&screen, 2);
- *         gfx::textAt(&screen, 10, 60, "HELLO");
- *
- *         gfx::present(&screen);
+ *         cv.clear(NAVY)
+ *           .rectFill({10, 10, 100, 40}, ORANGE)
+ *           .circleFill({120, 120, 30}, CYAN)
+ *           .text({10, 60}, "HELLO", {.fg = WHITE, .size = 2})
+ *           .present();
  *     }
  *
- * The colour, the text size and the clip rectangle live in the tft::Screen, not in
- * this file. They belong to the thing being drawn on - a clip rectangle is as
- * much a property of a screen as its width is - and keeping them there is what
- * makes two screens possible rather than one global canvas.
+ * The color, the text size and the clip rectangle live in the gfx::Canvas, not
+ * in the tft::Screen or in this file's own state - see the Canvas banner
+ * further down for why. They belong to the thing being drawn on, and keeping
+ * them off the panel is what makes two screens possible rather than one
+ * global canvas.
+ *
+ * ---------------------------------------------------------------------------
+ * namespace detail, BELOW, IS NOT THE INTERFACE. It holds the functions this
+ * file has always drawn with, each still taking its canvas as a first
+ * argument; gfx::Canvas's methods are thin wrappers over them. A sketch
+ * should only ever name a Canvas method - never detail:: directly.
  *
  * ---------------------------------------------------------------------------
  * THE BACK BUFFER, AND WHY IT IS WORTH THE RAM
  *
  * gfx::open() attaches one. Every call above then draws into memory and
- * gfx::present() sends it in one burst. 240x320 at 16bpp is 153,600 bytes - 29%
+ * Canvas::present() sends it in one burst. 240x320 at 16bpp is 153,600 bytes - 29%
  * of the RP2350's 520 KB - and it buys three things:
  *
  *   NO FLICKER. Without a buffer you draw on the glass, so clearing and
@@ -40,8 +45,9 @@
  *   that. Straight to the panel each is a round trip with the half-finished
  *   states visible.
  *
- *   IT IS FAST. One address window and one burst, and gfx::present only pushes
- *   the ROWS THAT CHANGED - a ticking counter costs a fraction of a frame.
+ *   IT IS FAST. One address window and one burst, and Canvas::present only
+ *   pushes the ROWS THAT CHANGED - a ticking counter costs a fraction of a
+ *   frame.
  *
  * A sketch that wants the RAM back uses tft::open() and the tft* calls instead;
  * those go straight to the panel and allocate nothing.
@@ -64,11 +70,21 @@
 namespace bibo::gfx
 {
 
-    /* ---- colour --------------------------------------------------------------
+    /* ---- color -----------------------------------------------------------
      *
      * 16-bit 5-6-5, the panel's own format.
      */
-    /* The same packing, named for the layer a sketch is working in. */
+    /**
+     * @brief Packs 8-bit red, green and blue into the panel's format.
+     *
+     * The same packing as tft::rgb, named for the layer a sketch is
+     * working in.
+     *
+     * @param r red, 0-255
+     * @param g green, 0-255
+     * @param b blue, 0-255
+     * @return the color as a 16-bit 5-6-5 value
+     */
     constexpr UInt16 rgb(const UInt32 r, const UInt32 g, const UInt32 b)
     {
         return tft::rgb(r, g, b);
@@ -87,12 +103,17 @@ namespace bibo::gfx
     constexpr UInt16 DARKGREY  = rgb(64, 64, 64);
     constexpr UInt16 NAVY      = rgb(12, 16, 32);
     constexpr UInt16 PURPLE    = rgb(160, 90, 220);
-    /*
-     * Mixes two colours. `t` is 0 for all of `a`, 255 for all of `b`.
+    /**
+     * @brief Mixes two colors.
      *
-     * Per channel after unpacking, because 5-6-5 cannot be averaged as one integer:
-     * the channels would carry into each other and a half-way blend of red and blue
-     * would come out an unrelated colour.
+     * Per channel after unpacking, because 5-6-5 cannot be averaged as one
+     * integer: the channels would carry into each other and a half-way blend
+     * of red and blue would come out an unrelated color.
+     *
+     * @param a the color for t = 0
+     * @param b the color for t = 255
+     * @param t the mix: 0 for all of `a`, 255 for all of `b`
+     * @return the blended color
      */
     inline UInt16 blend(const UInt16 a, const UInt16 b, const UInt8 t)
     {
@@ -112,19 +133,40 @@ namespace bibo::gfx
         return static_cast<UInt16>((r << 11) | (g << 5) | bl);
     }
 
+    /**
+     * @brief Darkens a color toward black.
+     *
+     * @param c the color to darken
+     * @param amount how far toward black: 0 unchanged, 255 for black
+     * @return the darkened color
+     */
     inline UInt16 dim(const UInt16 c, const UInt8 amount)
     {
         return blend(c, BLACK, amount);
     }
 
+    /**
+     * @brief Lightens a color toward white.
+     *
+     * @param c the color to lighten
+     * @param amount how far toward white: 0 unchanged, 255 for white
+     * @return the lightened color
+     */
     inline UInt16 lighten(const UInt16 c, const UInt8 amount)
     {
         return blend(c, WHITE, amount);
     }
 
-    /*
-     * Hue 0-359, saturation and value 0-255. Integer throughout - no float, no
-     * table - so a rainbow sweep costs nothing on a chip that would rather not.
+    /**
+     * @brief Converts a hue/saturation/value color to the panel's format.
+     *
+     * Integer throughout - no float, no table - so a rainbow sweep costs
+     * nothing on a chip that would rather not.
+     *
+     * @param hue the hue in degrees; wrapped into 0-359 from either side
+     * @param sat saturation, 0-255
+     * @param val value (brightness), 0-255
+     * @return the color as a 16-bit 5-6-5 value
      */
     inline UInt16 hsv(Int32 hue, const UInt8 sat, const UInt8 val)
     {
@@ -177,12 +219,18 @@ namespace bibo::gfx
      * which is how `triangleFill` came to take seven numbers in a row where a
      * transposed pair is a silent bug rather than a compile error.
      * ======================================================================== */
+    /**
+     * @brief A pixel position: x right, y down, from the panel's top-left.
+     */
     struct Point
     {
         Int32 x;
         Int32 y;
     };
 
+    /**
+     * @brief A pixel rectangle: top-left corner plus width and height.
+     */
     struct Box
     {
         Int32 x;
@@ -196,13 +244,16 @@ namespace bibo::gfx
      *
      * Flutter's idea, and it earns its place here for the same reason it does
      * there: style used to be sticky state on the screen, so `textColour()` set a
-     * colour that stayed set, and a function that drew red text left the next
+     * color that stayed set, and a function that drew red text left the next
      * caller drawing red text. That is a bug you find by looking at the screen
      * rather than at the code.
      *
      * A Paint is passed, used, and forgotten. Two paints side by side describe two
      * appearances without either one leaking into the other.
      * ------------------------------------------------------------------------ */
+    /**
+     * @brief Where a piece of text sits relative to the point it is drawn at.
+     */
     enum Align
     {
         ALIGN_LEFT = 0,
@@ -210,6 +261,12 @@ namespace bibo::gfx
         ALIGN_RIGHT
     };
 
+    /**
+     * @brief How a piece of text is drawn, as a value rather than sticky
+     *        state.
+     *
+     * Passed to a text call and then forgotten - see the rationale above.
+     */
     struct Paint
     {
         UInt16 fg      = WHITE;
@@ -231,6 +288,14 @@ namespace bibo::gfx
      * does not own it: open two canvases on one panel and they share it, which is
      * the same thing two painters sharing a wall would mean.
      * ------------------------------------------------------------------------ */
+    /**
+     * @brief The thing you draw on: a panel plus everything drawing needs.
+     *
+     * Every drawing method returns *this so calls chain, and every query is
+     * const and does not chain, since a query answers rather than draws -
+     * see the header comment at the top of this file for what a chain of
+     * calls looks like.
+     */
     struct Canvas
     {
         tft::Screen* panel;
@@ -268,41 +333,220 @@ namespace bibo::gfx
          * things drawn rather than forty repetitions of the canvas's name. The
          * implementations are in detail:: below; these are the API.
          * ------------------------------------------------------------------- */
+        /**
+         * @brief Fills the whole canvas with one color.
+         *
+         * @param colour the fill color
+         */
         Canvas& clear(UInt16 colour);
+
+        /**
+         * @brief Pushes whatever has changed since the last present to the
+         *        panel.
+         *
+         * A no-op when nothing is dirty, so calling it every frame
+         * regardless of whether anything was drawn costs nothing.
+         */
         Canvas& present();
 
+        /**
+         * @brief Draws a single pixel.
+         *
+         * @param p the pixel's position
+         * @param colour the color to draw with
+         */
         Canvas& pixel(Point p, UInt16 colour);
+
+        /**
+         * @brief Draws a line between two points.
+         *
+         * @param a one endpoint
+         * @param b the other endpoint
+         * @param colour the color to draw with
+         */
         Canvas& line(Point a, Point b, UInt16 colour);
+
+        /**
+         * @brief Draws a rectangle's outline.
+         *
+         * @param b the rectangle
+         * @param colour the color to draw with
+         */
         Canvas& rect(const Box& b, UInt16 colour);
+
+        /**
+         * @brief Draws a filled rectangle.
+         *
+         * @param b the rectangle
+         * @param colour the fill color
+         */
         Canvas& rectFill(const Box& b, UInt16 colour);
+
+        /**
+         * @brief Draws a rounded rectangle's outline.
+         *
+         * @param b the rectangle
+         * @param radius the corner radius; clamped to half the shorter side
+         * @param colour the color to draw with
+         */
         Canvas& roundRect(const Box& b, Int32 radius, UInt16 colour);
+
+        /**
+         * @brief Draws a filled rounded rectangle.
+         *
+         * @param b the rectangle
+         * @param radius the corner radius; clamped to half the shorter side
+         * @param colour the fill color
+         */
         Canvas& roundRectFill(const Box& b, Int32 radius, UInt16 colour);
+
+        /**
+         * @brief Draws a circle's outline.
+         *
+         * @param centre the circle's center
+         * @param radius the radius; negative draws nothing
+         * @param colour the color to draw with
+         */
         Canvas& circle(Point centre, Int32 radius, UInt16 colour);
+
+        /**
+         * @brief Draws a filled circle.
+         *
+         * @param centre the circle's center
+         * @param radius the radius; negative draws nothing
+         * @param colour the fill color
+         */
         Canvas& circleFill(Point centre, Int32 radius, UInt16 colour);
+
+        /**
+         * @brief Draws a triangle's outline as three lines.
+         *
+         * @param a the first vertex
+         * @param b the second vertex
+         * @param cc the third vertex
+         * @param colour the color to draw with
+         */
         Canvas& triangle(Point a, Point b, Point cc, UInt16 colour);
+
+        /**
+         * @brief Draws a filled triangle.
+         *
+         * @param a the first vertex
+         * @param b the second vertex
+         * @param cc the third vertex
+         * @param colour the fill color
+         */
         Canvas& triangleFill(Point a, Point b, Point cc, UInt16 colour);
 
-        /* Text takes a Paint rather than leaving a colour set behind it. */
+        /* Text takes a Paint rather than leaving a color set behind it. */
+        /**
+         * @brief Draws left-aligned text at a position.
+         *
+         * @param at the top-left corner of the first glyph
+         * @param str the text to draw; nothing is drawn for nullptr
+         * @param paint the color, background and size to draw it with
+         */
         Canvas& text(Point at, const Utf8* str, const Paint& paint);
+
+        /**
+         * @brief Draws text aligned to a position.
+         *
+         * @param at the anchor point; which edge of the text sits there
+         *           depends on `align`
+         * @param str the text to draw; nothing is drawn for nullptr
+         * @param paint the color, background and size to draw it with
+         * @param align which edge of the text is placed at `at`
+         */
         Canvas& text(Point at, const Utf8* str, const Paint& paint, Align align);
+
+        /**
+         * @brief Formats text and draws it left-aligned at a position.
+         *
+         * @param at the top-left corner of the first glyph
+         * @param paint the color, background and size to draw it with
+         * @param fmt a printf-style format string
+         *
+         * @note The formatted text is truncated at 63 characters.
+         */
         Canvas& printf(Point at, const Paint& paint, const Utf8* fmt, ...);
 
         /* Clipping and the safe area. */
+        /**
+         * @brief Restricts drawing to a rectangle.
+         *
+         * @param b the rectangle to clip to; clamped to the panel's bounds
+         */
         Canvas& clip(const Box& b);
+
+        /**
+         * @brief Removes any clip rectangle, allowing the whole panel again.
+         */
         Canvas& clipReset();
+
+        /**
+         * @brief Sets how far the safe area is inset from the panel's edges.
+         *
+         * @param px the inset in pixels; clamped to a third of the shorter
+         *           side
+         *
+         * @note The panel's rounded corners cut into its outermost pixels;
+         *       lay out anything that must be read inside the safe area
+         *       rather than against 0 and width/height.
+         */
         Canvas& safeInset(Int32 px);
+
+        /**
+         * @brief Draws the safe area's boundary, as a calibration aid.
+         *
+         * @param colour the color to draw it with
+         */
         Canvas& safeOutline(UInt16 colour);
 
         /* Queries - const, and not chainable, because they answer rather than
          * draw. */
-        /* Whether open() succeeded. A canvas that did not open still
-         * draws - into its buffer, harmlessly - so this is the only
-         * way to find out. */
+        /**
+         * @brief Whether the panel came up.
+         *
+         * @return true if open() succeeded
+         *
+         * @note A canvas that did not open still draws, into its buffer,
+         *       harmlessly - so this is the only way to find out.
+         */
         [[nodiscard]] Bool  ok() const;
+
+        /**
+         * @brief The panel's width in pixels.
+         */
         [[nodiscard]] Int32 width() const;
+
+        /**
+         * @brief The panel's height in pixels.
+         */
         [[nodiscard]] Int32 height() const;
+
+        /**
+         * @brief The safe area, inset from the panel's edges.
+         *
+         * @return the safe rectangle, in the same coordinates as everything
+         *         else drawn
+         */
         [[nodiscard]] Box   safe() const;
+
+        /**
+         * @brief The width a piece of text would draw at, in pixels.
+         *
+         * @param str the text to measure
+         * @param paint only its size is used
+         * @return the width in pixels, or 0 for nullptr
+         */
         Int32 textWidth(const Utf8* str, const Paint& paint) const;
+
+        /**
+         * @brief The height one line of text draws at, in pixels.
+         *
+         * @param paint only its size is used
+         * @return the height in pixels
+         */
         [[nodiscard]] Int32 textHeight(const Paint& paint) const;
     };
 
@@ -323,46 +567,55 @@ namespace bibo::gfx
     * an edge vanishes into the curve.
     *
     * Set the inset once and lay out against these instead of against 0 and
-    * width/height. The full rectangle is still reachable - gfx::clear() fills it,
-    * and a background should - but anything that has to be READ belongs inside.
+    * width/height. The full rectangle is still reachable - Canvas::clear() fills
+    * it, and a background should - but anything that has to be READ belongs
+    * inside.
     *
-    *     gfx::safeInset(&screen, 12);
-    *     gfx::textAt(&screen, gfx::safeLeft(&screen), gfx::safeTop(&screen), "HELLO");
+    *     cv.safeInset(12);
+    *     const gfx::Box area = cv.safe();
+    *     cv.text({area.x, area.y}, "HELLO", {});
     *
-    * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
-    * for a frame to check against, then take it out.
+    * 12 is a reasonable start for a 1.69 inch 240x280. Turn on
+    * Canvas::safeOutline() for a frame to check against, then take it out.
     */
+      /** @brief Sets the safe inset on the canvas's panel. See above. */
       inline Void safeInset(const Canvas* cv, const Int32 inset)
       {
           const Int32 most = (cv->panel->width < cv->panel->height ? cv->panel->width : cv->panel->height) / 3;
           cv->panel->safeInset = inset < 0 ? 0 : inset > most ? most : inset;
       }
 
+      /** @brief The safe area's left edge. */
       inline Int32 safeLeft(const Canvas* cv)
       {
           return cv->panel->safeInset;
       }
 
+      /** @brief The safe area's top edge. */
       inline Int32 safeTop(const Canvas* cv)
       {
           return cv->panel->safeInset;
       }
 
+      /** @brief The safe area's right edge. */
       inline Int32 safeRight(const Canvas* cv)
       {
           return cv->panel->width - cv->panel->safeInset;
       }
 
+      /** @brief The safe area's bottom edge. */
       inline Int32 safeBottom(const Canvas* cv)
       {
           return cv->panel->height - cv->panel->safeInset;
       }
 
+      /** @brief The safe area's width. */
       inline Int32 safeWidth(const Canvas* cv)
       {
           return cv->panel->width - 2 * cv->panel->safeInset;
       }
 
+      /** @brief The safe area's height. */
       inline Int32 safeHeight(const Canvas* cv)
       {
           return cv->panel->height - 2 * cv->panel->safeInset;
@@ -370,6 +623,7 @@ namespace bibo::gfx
 
       /* ---- clipping ------------------------------------------------------------ */
 
+      /** @brief Clamps and sets the clip rectangle. See Canvas::clip. */
       inline Void clip(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h)
       {
           if(x < 0)
@@ -405,6 +659,7 @@ namespace bibo::gfx
           cv->clipH = h;
       }
 
+      /** @brief Resets the clip rectangle to the whole panel. */
       inline Void clipReset(Canvas* cv)
       {
           clip(cv, 0, 0, cv->panel->width, cv->panel->height);
@@ -417,6 +672,11 @@ namespace bibo::gfx
     * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
     * and drawn as spans it is thirty.
     */
+      /**
+       * @brief Fills a horizontal run of pixels, clipped to the canvas.
+       *
+       * The primitive every shape below is built from.
+       */
       inline Void span(Canvas* cv, Int32 x, const Int32 y, Int32 len, const UInt16 colour)
       {
           if(len <= 0 || y < cv->clipY || y >= cv->clipY + cv->clipH)
@@ -459,6 +719,7 @@ namespace bibo::gfx
           }
       }
 
+      /** @brief Draws a single pixel, via span(). */
       inline Void pixel(Canvas* cv, const Int32 x, const Int32 y, const UInt16 colour)
       {
           span(cv, x, y, 1, colour);
@@ -466,6 +727,7 @@ namespace bibo::gfx
 
       /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
     * be read - so this returns black without one rather than lying. */
+      /** @brief Reads back a pixel's color, or BLACK without a back buffer. */
       inline UInt16 peek(const Canvas* cv, const Int32 x, const Int32 y)
       {
           if(cv->buf == nullptr || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
@@ -476,6 +738,7 @@ namespace bibo::gfx
       }
 
       /* Alpha, which needs to read what is already there and so needs the buffer. */
+      /** @brief Blends a color over the pixel already there. Needs the buffer. */
       inline Void pixelBlend(Canvas* cv, const Int32 x, const Int32 y, const UInt16 colour, const UInt8 alpha)
       {
           pixel(cv, x, y, blend(peek(cv, x, y), colour, alpha));
@@ -483,6 +746,7 @@ namespace bibo::gfx
 
       /* ---- present ------------------------------------------------------------- */
 
+      /** @brief Pushes the dirty rows to the panel. See Canvas::present. */
       inline Void present(Canvas* cv)
       {
           if(cv->buf == nullptr || cv->dirtyBot < cv->dirtyTop)
@@ -516,6 +780,7 @@ namespace bibo::gfx
           cv->dirtyBot = -1;
       }
 
+      /** @brief Fills the whole canvas. See Canvas::clear. */
       inline Void clear(Canvas* cv, const UInt16 colour)
       {
           for(Int32 y = 0; y < cv->panel->height; ++y)
@@ -526,6 +791,7 @@ namespace bibo::gfx
 
       /* ---- rectangles ---------------------------------------------------------- */
 
+      /** @brief Fills a rectangle, as a stack of spans. */
       inline Void rectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 colour)
       {
           for(Int32 r = 0; r < h; ++r)
@@ -534,6 +800,7 @@ namespace bibo::gfx
           }
       }
 
+      /** @brief Draws a rectangle's outline. */
       inline Void rect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 colour)
       {
           if(w <= 0 || h <= 0)
@@ -551,11 +818,13 @@ namespace bibo::gfx
 
       /* ---- lines --------------------------------------------------------------- */
 
+      /** @brief Draws a horizontal line, via span(). */
       inline Void hLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const UInt16 colour)
       {
           span(cv, x, y, w, colour);
       }
 
+      /** @brief Draws a vertical line, pixel by pixel. */
       inline Void vLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 h, const UInt16 colour)
       {
           for(Int32 i = 0; i < h; ++i)
@@ -569,6 +838,7 @@ namespace bibo::gfx
     * which is why it has survived since 1962 and is still right on a
     * microcontroller.
     */
+      /** @brief Draws a line between two points. See above. */
       inline Void line(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const UInt16 colour)
       {
           const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
@@ -616,6 +886,7 @@ namespace bibo::gfx
 
       /* ---- circles ------------------------------------------------------------- */
 
+      /** @brief Draws a circle's outline (midpoint algorithm). */
       inline Void circle(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 colour)
       {
           if(r < 0)
@@ -648,6 +919,7 @@ namespace bibo::gfx
           }
       }
 
+      /** @brief Draws a filled circle, as horizontal spans. */
       inline Void circleFill(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 colour)
       {
           if(r < 0)
@@ -678,10 +950,11 @@ namespace bibo::gfx
 
       /* ---- rounded rectangles --------------------------------------------------
     *
-    * Filled as three bands plus four corner discs. A disc of radius r centred r in
+    * Filled as three bands plus four corner discs. A disc of radius r centered r in
     * from each edge cannot reach past it, so the overdraw is free of side effects
     * and the code stays short.
     */
+      /** @brief Draws a filled rounded rectangle. See above. */
       inline Void roundRectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 colour)
       {
           if(w <= 0 || h <= 0)
@@ -709,6 +982,7 @@ namespace bibo::gfx
           circleFill(cv, x + w - r - 1, y + h - r - 1, r, colour);
       }
 
+      /** @brief Draws a rounded rectangle's outline: straight sides, arced corners. */
       inline Void roundRect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 colour)
       {
           if(w <= 0 || h <= 0)
@@ -761,6 +1035,7 @@ namespace bibo::gfx
 
       /* ---- triangles ----------------------------------------------------------- */
 
+      /** @brief Draws a triangle's outline as three lines. */
       inline Void triangle(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const Int32 x2, const Int32 y2, const UInt16 colour)
       {
           line(cv, x0, y0, x1, y1, colour);
@@ -772,6 +1047,7 @@ namespace bibo::gfx
     * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
     * that share the middle vertex, filling a span between the active edges.
     */
+      /** @brief Draws a filled triangle. See above. */
       inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, const UInt16 colour)
       {
           Int32 tx = 0;
@@ -848,13 +1124,15 @@ namespace bibo::gfx
           }
       }
 
-      /* ---- text ----------------------------------------------------------------
+      /* ---- text ------------------------------------------------------------
     *
-    * Set the colour and size on the screen once, then draw. Two ways to place it:
-    * gfx::textAt() for an absolute position, or a cursor with gfx::print() for a
-    * readout that flows down the screen.
+    * Set the color and size with a Paint, then draw with Canvas::text() or
+    * Canvas::printf(). cursor(), textAt() and friends below are the
+    * lower-level pieces those are built from; textAligned() is reached from
+    * Canvas::text()'s aligned overload.
     */
 
+      /** @brief Sets the foreground color used for text drawn from here on. */
       inline Void textColour(Canvas* cv, const UInt16 fg)
       {
           cv->fg = fg;
@@ -862,6 +1140,7 @@ namespace bibo::gfx
 
       /* An opaque background, which is what you want for a value that changes: the
     * new text erases the old as it draws, with no flicker and no clear step. */
+      /** @brief Sets an opaque background color for text drawn from here on. */
       inline Void textBackground(Canvas* cv, const UInt16 bg)
       {
           cv->bg      = bg;
@@ -869,32 +1148,38 @@ namespace bibo::gfx
       }
 
       /* Leave whatever is behind the glyph alone - for text over a picture. */
+      /** @brief Makes text drawn from here on leave its background untouched. */
       inline Void textTransparent(Canvas* cv)
       {
           cv->bgSolid = false;
       }
 
+      /** @brief Sets the integer font scale, clamped to 1-8. */
       inline Void textSize(Canvas* cv, const Int32 scale)
       {
           cv->textScale = scale < 1 ? 1 : scale > 8 ? 8 : scale;
       }
 
+      /** @brief Moves the text cursor used by print()/printLine(). */
       inline Void cursor(Canvas* cv, const Int32 x, const Int32 y)
       {
           cv->cursorX = x;
           cv->cursorY = y;
       }
 
+      /** @brief The height of one line of text at the current scale. */
       inline Int32 textHeight(const Canvas* cv)
       {
           return 8 * cv->textScale;
       }
 
+      /** @brief The width of one glyph at the current scale. */
       inline Int32 charWidth(const Canvas* cv)
       {
           return 6 * cv->textScale;
       }
 
+      /** @brief The width a string would draw at, or 0 for nullptr. */
       inline Int32 textWidth(const Canvas* cv, const Utf8* str)
       {
           Int32 n = 0;
@@ -905,6 +1190,7 @@ namespace bibo::gfx
           return n * charWidth(cv);
       }
 
+      /** @brief Draws one glyph. Lowercase is folded to upper; the rest is '?'. */
       inline Void charAt(Canvas* cv, const Int32 x, const Int32 y, const Utf8 ch)
       {
           Utf8 c = ch;
@@ -936,6 +1222,7 @@ namespace bibo::gfx
           }
       }
 
+      /** @brief Draws a string left-aligned at a position. */
       inline Void textAt(Canvas* cv, const Int32 x, const Int32 y, const Utf8* str)
       {
           Int32 cx = x;
@@ -948,8 +1235,9 @@ namespace bibo::gfx
       }
 
 
-      /* `x` is the left edge, the centre or the right edge depending on `align` -
+      /* `x` is the left edge, the center or the right edge depending on `align` -
     * which is what makes a value that changes width stay put. */
+      /** @brief Draws a string aligned to a position. See Canvas::text. */
       inline Void textAligned(Canvas* cv, const Int32 x, const Int32 y, const Utf8* str, const Align align)
       {
           const Int32 w  = textWidth(cv, str);
@@ -966,12 +1254,24 @@ namespace bibo::gfx
       }
 
       /* Draws at the cursor and advances it, so consecutive calls flow. */
+      /**
+       * @brief Draws at the cursor and advances it horizontally.
+       *
+       * @note Not reached from any Canvas method today; see the text banner
+       *       above.
+       */
       inline Void print(Canvas* cv, const Utf8* str)
       {
           textAt(cv, cv->cursorX, cv->cursorY, str);
           cv->cursorX += textWidth(cv, str);
       }
 
+      /**
+       * @brief Draws at the cursor and drops it to the next line.
+       *
+       * @note Not reached from any Canvas method today; see the text banner
+       *       above.
+       */
       inline Void printLine(Canvas* cv, const Utf8* str)
       {
           textAt(cv, cv->cursorX, cv->cursorY, str);
@@ -980,6 +1280,12 @@ namespace bibo::gfx
 
       /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
     * screen and forty characters already overflow it at size 1. */
+      /**
+       * @brief Formats text and draws it at the cursor. See print().
+       *
+       * @note Not reached from any Canvas method today; Canvas::printf
+       *       formats and calls textAt() directly instead.
+       */
       inline Void printf(Canvas* cv, const Utf8* fmt, ...)
       {
           Utf8    buf[64];
@@ -995,6 +1301,7 @@ namespace bibo::gfx
     * look at the panel, and change the inset until the frame is fully visible with
     * a little to spare. Then take the call out.
     */
+      /** @brief Draws the safe area's boundary. See Canvas::safeOutline. */
       inline Void safeOutline(Canvas* cv, const UInt16 colour)
       {
           rect(cv, safeLeft(cv), safeTop(cv),
@@ -1003,19 +1310,26 @@ namespace bibo::gfx
 
       /* ---- start --------------------------------------------------------------- */
 
-      /*
-    * Brings up the panel AND attaches the back buffer.
-    *
-    * Returns what tft::open returns, which can only tell you the SPI pins were valid
-    * - see the note in st77xx.h about the panel being write-only.
-    */
+      /**
+       * @brief Brings up the panel and attaches the back buffer.
+       *
+       * @param cv the canvas to initialize
+       * @param panel the panel to open; not owned
+       * @param w the panel's width in pixels
+       * @param h the panel's height in pixels
+       * @param xoff the panel's column offset into the controller's RAM
+       * @param yoff the panel's row offset into the controller's RAM
+       * @return what tft::open returns, which can only tell you the SPI pins
+       *         were valid - see the note in st77xx.h about the panel being
+       *         write-only
+       */
       [[nodiscard]] static Bool open(Canvas* cv, tft::Screen* panel, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff)
       {
           cv->panel = panel;
 
           /* The drawing state starts here rather than in the driver. tft::openOn
        * used to zero these, which meant a panel arrived pre-loaded with a text
-       * colour and a clip rectangle it had no business having an opinion on. */
+       * color and a clip rectangle it had no business having an opinion on. */
           cv->buf       = nullptr;
           cv->dirtyTop  = h;
           cv->dirtyBot  = -1;
@@ -1050,7 +1364,7 @@ namespace bibo::gfx
           return true;
       }
 
-  } /* namespace detail */
+  }
 
     /* ===========================================================================
      * Canvas, the API.
@@ -1153,6 +1467,12 @@ namespace bibo::gfx
     /* A Paint is applied and then left behind: the sticky fields still exist
      * because print()/printLine() stream from a cursor, but nothing OUTSIDE this
      * file can observe them, so two paints cannot leak into each other. */
+    /**
+     * @brief Copies a Paint's fields onto the canvas's sticky text state.
+     *
+     * @param cv the canvas to set the state on
+     * @param p the appearance to apply
+     */
     inline Void applyPaint(Canvas* cv, const Paint& p)
     {
         detail::textColour(cv, p.fg);
@@ -1233,6 +1553,9 @@ namespace bibo::gfx
      * the hardware, and this is the one line where they meet. A sketch that wants
      * the panel's own controls - brightness, inversion, sleep - still has it.
      * ------------------------------------------------------------------------ */
+    /**
+     * @brief A panel's geometry: its size and its offset into controller RAM.
+     */
     struct PanelSize
     {
         Int32 w;
@@ -1241,6 +1564,13 @@ namespace bibo::gfx
         Int32 yoff;
     };
 
+    /**
+     * @brief Opens a canvas on a panel.
+     *
+     * @param panel the panel to draw on; passed in and not owned - see above
+     * @param g the panel's size and offset
+     * @return a Canvas ready to draw with; check ok() before trusting it
+     */
     inline Canvas open(tft::Screen* panel, const PanelSize& g)
     {
         Canvas cv{};

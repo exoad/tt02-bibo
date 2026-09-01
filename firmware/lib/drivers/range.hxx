@@ -611,6 +611,6 @@ namespace bibo
     }
 
 
-  } // namespace tof
+  }
 
-} // namespace bibo
+}

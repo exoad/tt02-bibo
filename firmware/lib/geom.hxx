@@ -42,9 +42,17 @@ namespace bibo::geom
         Float32 y = 0.0f;
     };
 
-    /* Where the car is and which way it faces. Heading is radians, zero along
-     * +x, increasing toward +y - the ordinary mathematical convention rather
-     * than a compass bearing, so that cos/sin work without a sign flip. */
+    /**
+     * @brief Where the car is and which way it faces.
+     *
+     * Flat rather than a Vec2 plus an angle: a pose is one thing to the code
+     * that integrates it, and splitting it invites a position updated without
+     * its heading.
+     *
+     * @note Heading is RADIANS, zero along +x and increasing toward +y - the
+     *       ordinary mathematical convention, not a compass bearing. That is
+     *       what lets cos/sin be used on it without a sign flip.
+     */
     struct Pose
     {
         Float32 x       = 0.0f;
@@ -52,12 +60,19 @@ namespace bibo::geom
         Float32 heading = 0.0f;
     };
 
-    /* ---- angles -----------------------------------------------------------
+    /* ---- angles ----------------------------------------------------------- */
+
+    /**
+     * @brief Folds an angle into (-pi, pi].
      *
-     * Into (-pi, pi]. A loop rather than fmod: fmod on a negative gives a
-     * negative remainder, so the naive one-liner is wrong for exactly half the
-     * inputs, and the loop runs at most a couple of times for any angle a
-     * vehicle actually produces. */
+     * A loop rather than fmod, deliberately: fmod on a negative gives a
+     * negative remainder, so the naive one-liner is wrong for exactly half its
+     * inputs. The loop runs at most a couple of times for any angle a vehicle
+     * actually produces.
+     *
+     * @param a an angle in radians, of any magnitude
+     * @return the same angle folded into (-pi, pi]
+     */
     inline Float32 wrapPi(Float32 a)
     {
         while(a > GEOM_PI)
@@ -71,18 +86,34 @@ namespace bibo::geom
         return a;
     }
 
-    /* The SHORT way from `from` to `to`. This is the one a heading controller
-     * wants; plain subtraction is the one that drives the long way round. */
+    /**
+     * @brief The SHORT way round from one heading to another.
+     *
+     * What a heading controller wants. Plain subtraction is the one that sends
+     * the car the long way round when the two straddle +/-pi.
+     *
+     * @param from the current heading, radians
+     * @param to the wanted heading, radians
+     * @return the signed difference in (-pi, pi]; positive turns toward +y
+     */
     inline Float32 angleDelta(const Float32 from, const Float32 to)
     {
         return wrapPi(to - from);
     }
 
-    /* ---- distances --------------------------------------------------------
+    /* ---- distances -------------------------------------------------------- */
+
+    /**
+     * @brief The squared distance between two points.
      *
-     * The squared form is offered because most uses COMPARE distances, and a
-     * comparison does not need the square root - which on an M33 without a
-     * hardware divide is worth avoiding inside a loop over a path. */
+     * Offered separately because most uses COMPARE distances, and a comparison
+     * does not need the square root - which on an M33 with no hardware divide
+     * is worth avoiding inside a loop over a path.
+     *
+     * @param a one point, metres
+     * @param b the other, metres
+     * @return the squared distance, metres squared
+     */
     inline Float32 distanceSq(const Vec2 a, const Vec2 b)
     {
         const Float32 dx = b.x - a.x;
@@ -90,19 +121,39 @@ namespace bibo::geom
         return dx * dx + dy * dy;
     }
 
+    /**
+     * @brief The distance between two points.
+     *
+     * @param a one point, metres
+     * @param b the other, metres
+     * @return the distance, metres
+     *
+     * @note Prefer distanceSq() where the value is only being compared - this
+     *       one pays for a square root that the comparison does not need.
+     */
     inline Float32 distance(const Vec2 a, const Vec2 b)
     {
         return sqrtf(distanceSq(a, b));
     }
 
-    /* ---- frames -----------------------------------------------------------
+    /* ---- frames ----------------------------------------------------------- */
+
+    /**
+     * @brief A world point expressed in the car's own frame.
      *
-     * A world point in the CAR's frame: +x straight ahead, +y to the left.
+     * +x is straight ahead, +y is to the left. This is the transform pure
+     * pursuit is built on.
      *
-     * This is the transform pure pursuit is built on, and the sign of the
-     * result is the whole answer - a goal with positive y is to the left and
-     * the car steers left. Getting the rotation backwards produces a controller
-     * that steers away from the path and looks like an unstable gain. */
+     * @param p where the car is and which way it faces
+     * @param world the point, in world metres
+     * @return the same point relative to the car, in metres
+     *
+     * @warning THE SIGN OF THE RESULT IS THE WHOLE ANSWER - a goal with
+     *          positive y is to the left, and the car steers left. Getting the
+     *          rotation backwards produces a controller that steers away from
+     *          the path and reads as an unstable gain rather than a wrong
+     *          transform.
+     */
     inline Vec2 toLocal(const Pose& p, const Vec2 world)
     {
         const Float32 dx = world.x - p.x;
@@ -117,8 +168,16 @@ namespace bibo::geom
         return out;
     }
 
-    /* The inverse, for turning something the car worked out about itself back
-     * into a place on the map. */
+    /**
+     * @brief The inverse of toLocal(): a car-frame point back on the map.
+     *
+     * For turning something the car worked out about itself into a place in the
+     * world.
+     *
+     * @param p where the car is and which way it faces
+     * @param local the point in the car's frame, metres
+     * @return the same point in world metres
+     */
     inline Vec2 toWorld(const Pose& p, const Vec2 local)
     {
         const Float32 c = cosf(p.heading);

@@ -225,7 +225,7 @@ namespace
             "and stop disarms, so throttle is refused again");
   }
 
-} // namespace
+}
 
 Int32 main()
 {
