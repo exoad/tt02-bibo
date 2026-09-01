@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * pursuit - pure pursuit, the path follower.
  *
  * Look a fixed distance ahead along the path, aim at that point, drive the arc
@@ -42,7 +43,8 @@
  * the right trade for a follower - rejoining a path is a planner's job, and a
  * follower that silently teleports to a different lap is worse than one that
  * reports it is lost.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "geom.hxx"
@@ -83,8 +85,10 @@ namespace bibo
         Float32 arriveM = 0.25f; /* meters */
 
         Float32 wheelbase = KIN_WHEELBASE_M; /* meters, see kinematics.hxx */
-        Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, ditto - both are
-                                                 * UNMEASURED PLACEHOLDERS   */
+        Float32 maxSteer  = KIN_MAX_STEER_RAD; /*
+        Float32 maxSteer  = KIN_MAX_STEER_RAD;  * radians, ditto - both are
+                                                 * UNMEASURED PLACEHOLDERS
+                                                 */
 
         /* How far along the path the follower has committed. Only increases. */
         Size    at = 0u;
@@ -142,8 +146,10 @@ namespace bibo
             return aim;
         }
 
-        /* Speed-scaled, floored, capped. The floor is load-bearing: at rest the
-         * product is zero and the curvature would divide by it. */
+        /*
+         * Speed-scaled, floored, capped. The floor is load-bearing: at rest the
+         * product is zero and the curvature would divide by it.
+         */
         Float32 ld = f->perMs * (speed < 0.0f ? -speed : speed);
         if(ld < f->minM)
         {
@@ -157,9 +163,11 @@ namespace bibo
 
         const geom::Vec2 last = path->pts[path->n - 1u];
 
-        /* ARRIVED is checked against the END, not the index. A follower that
+        /*
+         * ARRIVED is checked against the END, not the index. A follower that
          * decided it had arrived because it ran out of path would also decide
-         * that the moment it lost track of where it was. */
+         * that the moment it lost track of where it was.
+         */
         if(geom::distance(geom::Vec2{ .x = pose.x, .y = pose.y }, last) <= f->arriveM)
         {
             aim.valid   = true;
@@ -168,10 +176,12 @@ namespace bibo
             return aim;
         }
 
-        /* ---- advance the committed index ---------------------------------
+        /*
+         * ---- advance the committed index ---------------------------------
          *
          * Forward only. Walks past everything already within the lookahead, so
-         * the goal is the first point still further away than ld. */
+         * the goal is the first point still further away than ld.
+         */
         const Float32 ldSq = ld * ld;
         const geom::Vec2 here{ .x = pose.x, .y = pose.y };
 
@@ -183,7 +193,8 @@ namespace bibo
         }
         f->at = i;
 
-        /* ---- pick the goal ------------------------------------------------
+        /*
+         * ---- pick the goal ------------------------------------------------
          *
          * The first point at or beyond the lookahead, searching forward. If the
          * path ends inside the lookahead - which it does on every approach to
@@ -191,7 +202,8 @@ namespace bibo
          * instead of stopping short of it.
          *
          * A point BEHIND the car is skipped. Aiming at one produces a curvature
-         * that turns the car around, which is both wrong and alarming. */
+         * that turns the car around, which is both wrong and alarming.
+         */
         Bool       got = false;
         geom::Vec2 goal = last;
 
@@ -212,8 +224,10 @@ namespace bibo
 
         if(!got)
         {
-            /* Nothing far enough ahead: aim at the end. Only valid if the end
-             * is actually in front, or the car would reverse toward it. */
+            /*
+             * Nothing far enough ahead: aim at the end. Only valid if the end
+             * is actually in front, or the car would reverse toward it.
+             */
             const geom::Vec2 localEnd = geom::toLocal(pose, last);
             if(localEnd.x <= 0.0f)
             {
@@ -223,13 +237,15 @@ namespace bibo
             goal = last;
         }
 
-        /* ---- the geometry -------------------------------------------------
+        /*
+         * ---- the geometry -------------------------------------------------
          *
          * curvature = 2y / L^2, with y the goal's offset in the car's frame.
          * L is the ACTUAL distance to the goal rather than the nominal
          * lookahead - when the goal is the last point it can be nearer than ld,
          * and using ld there would understate the curvature and cut the corner
-         * at exactly the moment precision matters most. */
+         * at exactly the moment precision matters most.
+         */
         const geom::Vec2 local = geom::toLocal(pose, goal);
         const Float32    dist  = geom::distance(here, goal);
         const Float32    use   = dist > 0.01f ? dist : 0.01f;

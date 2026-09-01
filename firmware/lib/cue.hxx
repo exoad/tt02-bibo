@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * cue - what the car is SAYING.
  *
  * Everything the car emits at a person: which way it is about to turn, that it
@@ -60,7 +61,8 @@
  * watched on screen, and the constants are deliberately identical. One-shot
  * cues are not mirrored - the hub sees them the way a person does, in the lamp
  * levels the board reports.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "hal.hxx"
@@ -69,7 +71,8 @@
 namespace bibo::cue
 {
 
-    /* ---- channels ------------------------------------------------------------
+    /*
+     * ---- channels ------------------------------------------------------------
      *
      * What a cue can reach a person through. A bitmask, because an utterance is
      * routinely more than one thing at once - the alert below is both indicator
@@ -87,7 +90,8 @@ namespace bibo::cue
 
 #define CUE_CH_IND_BOTH (CUE_CH_IND_L | CUE_CH_IND_R)
 
-    /* ---- tones ---------------------------------------------------------------
+    /*
+     * ---- tones ---------------------------------------------------------------
      *
      * NOTHING DRIVES THESE YET. There is no buzzer on the car and no pin set aside
      * for one, so cue::soundWrite() below records the tone and returns.
@@ -112,7 +116,8 @@ namespace bibo::cue
 #define CUE_TURN_ON_MILLI  450
 #define CUE_TURN_OFF_MILLI 280
 
-    /* ---- the flash rate, and the standard it has to sit inside ---------------
+    /*
+     * ---- the flash rate, and the standard it has to sit inside ---------------
      *
      * FMVSS 108 does not state a flash rate itself. It incorporates SAE J590 (turn
      * signal flashers) and SAE J945 (vehicular hazard warning flashers) BY
@@ -204,8 +209,10 @@ namespace bibo::cue
      */
     inline Int32 motionUsNow = 10;
 
-    /* Wide enough to be useful, narrow enough that a typo cannot switch the lamps
-     * off for the whole usable throttle range. */
+    /*
+     * Wide enough to be useful, narrow enough that a typo cannot switch the lamps
+     * off for the whole usable throttle range.
+     */
 #define CUE_MOTION_US_MIN 0
 #define CUE_MOTION_US_MAX 60
 
@@ -238,7 +245,8 @@ namespace bibo::cue
         return motionUsNow;
     }
 
-    /* ---- what a cue IS -------------------------------------------------------
+    /*
+     * ---- what a cue IS -------------------------------------------------------
      *
      * One mechanism, three ways of playing, and that is the whole API:
      *
@@ -293,7 +301,8 @@ namespace bibo::cue
         UInt8       play;    /* a Play                                          */
     };
 
-    /* ---- the scripts ---------------------------------------------------------
+    /*
+     * ---- the scripts ---------------------------------------------------------
      *
      * HOLD scripts are one step with no duration. The ms is ignored - nothing
      * advances a held cue - and writing 0 says so.
@@ -397,8 +406,10 @@ namespace bibo::cue
         KIND_COUNT
     };
 
-    /* IN cue::Kind ORDER. The enum indexes this table directly, so a row added in
-     * the wrong place silently renames two cues at once. */
+    /*
+     * IN cue::Kind ORDER. The enum indexes this table directly, so a row added in
+     * the wrong place silently renames two cues at once.
+     */
     static const Script SCRIPT[KIND_COUNT] =
     {
         { .name = "none",    .means = "nothing",                      .step = nullptr,          .steps = 0u, .repeats = 0u, .play = PLAY_HOLD },
@@ -413,7 +424,8 @@ namespace bibo::cue
         { .name = "alert",   .means = "I have stopped myself",        .step = STEPS_ALERT,   .steps = 2u, .repeats = 3u, .play = PLAY_ONCE }
     };
 
-    /* ---- state, one copy - the same deal chassis.hxx makes ------------------
+    /*
+     * ---- state, one copy - the same deal chassis.hxx makes ------------------
      *
      * PER KIND, because the car says more than one thing at a time. Headlights on,
      * braking, and indicating left is three cues at once and is an ordinary
@@ -896,8 +908,10 @@ namespace bibo::cue
 
                 if(sc->play == PLAY_ONCE && loopIx[k] >= sc->repeats)
                 {
-                    /* A one-shot that has finished is finished - it does not stay
-                     * latched waiting for somebody to lower it. */
+                    /*
+                     * A one-shot that has finished is finished - it does not stay
+                     * latched waiting for somebody to lower it.
+                     */
                     active[k]  = false;
                     latched[k] = false;
                     return;
@@ -987,7 +1001,8 @@ namespace bibo::cue
 
         const UInt64 now = timing::nowUs();
 
-        /* ---- which way, with hysteresis and a minimum flash ------------------
+        /*
+         * ---- which way, with hysteresis and a minimum flash ------------------
          *
          * Three things here look right written down and are wrong on a car:
          *   1. TWO thresholds. Steering parked on a single one makes the lamp
@@ -1016,7 +1031,8 @@ namespace bibo::cue
             turnWant = TURN_OFF;
         }
 
-        /* ---- what the car wants to say --------------------------------------
+        /*
+         * ---- what the car wants to say --------------------------------------
          *
          * Every one of these is a REQUEST, overruled by anything a person has
          * latched. The car's opinion and the operator's are the same mechanism with
@@ -1074,7 +1090,8 @@ namespace bibo::cue
          */
         wants(KIND_REVERSE, rev, now);
 
-        /* The headlights are the one thing the car cannot know for itself - nothing
+        /*
+         * The headlights are the one thing the car cannot know for itself - nothing
          * it measures implies darkness - so `headOn` is a person's answer arriving
          * through the Input, and latching it with CUE HEAD is the other way to say
          * the same thing.
@@ -1083,11 +1100,14 @@ namespace bibo::cue
          * lamps follow the HEADLIGHTS, not the Input. Reading in->headOn for both
          * left CUE HEAD lighting the heads and not the tails - the operator's
          * switch worked on one of the two things a headlight switch does, which is
-         * the sort of half-working that gets blamed on wiring. */
+         * the sort of half-working that gets blamed on wiring.
+         */
         wants(KIND_HEAD, in->headOn, now);
 
-        /* Dim tails whenever the car is lit at all. See the note above the brake:
-         * this is the lower half of one pair of lamps and BRAKE is the upper. */
+        /*
+         * Dim tails whenever the car is lit at all. See the note above the brake:
+         * this is the lower half of one pair of lamps and BRAKE is the upper.
+         */
         wants(KIND_RUNNING, active[KIND_HEAD], now);
 
         /*

@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * lights - the lamps the car has, and which pins they are on today.
  *
  * THE OUTPUT LAYER, and nothing else. It knows what a lamp is, which GPIO each
@@ -51,7 +52,8 @@
  * regardless and push() skips any lamp whose pin is NONE, so wiring one later
  * is a line in pins.hxx rather than a rule anywhere.
  * ===========================================================================
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "hal.hxx"
@@ -95,14 +97,19 @@ namespace bibo::lights
         UInt8 level[LAMP_COUNT];
     };
 
-    /* ===========================================================================
+    /*
+     * ===========================================================================
      * THE BINDING. Temporary - see the banner.
-     * ======================================================================== */
-    /* One spelling of "no LED on this lamp", shared with the pin map so the two
-     * cannot disagree. */
+     * ========================================================================
+     */
+    /*
+     * One spelling of "no LED on this lamp", shared with the pin map so the two
+     * cannot disagree.
+     */
 #define LIGHT_PIN_NONE pins::NONE
 
-    /* FILLED AT open(), FROM THE INSTALLED MAP - not initialized here.
+    /*
+     * FILLED AT open(), FROM THE INSTALLED MAP - not initialized here.
      *
      * It held literal GPIO numbers, then it held pins:: constants, and both had
      * the same flaw: the binding was fixed when the firmware was COMPILED. A
@@ -110,7 +117,8 @@ namespace bibo::lights
      *
      * Now the program says what is wired where - pins::begin() - and this table
      * is a copy taken when the lamps are opened. Same ten entries, same order
-     * as the Lamp enum, and still NONE for anything with no LED on it. */
+     * as the Lamp enum, and still NONE for anything with no LED on it.
+     */
     inline Int32 pin[LAMP_COUNT] =
     {
         pins::NONE, pins::NONE, pins::NONE, pins::NONE, pins::NONE,

@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * chassis - the two outputs that move this car.
  *
  * The steering servo on GP0 and the ESC on GP1. These are the only things on
@@ -53,7 +54,8 @@
  * The state below is file-scope, so including this in two translation units
  * would give you two chassis and one car. Each firmware image is a single
  * translation unit, which is why that is fine and why it is written down.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "../hal.hxx"
@@ -281,9 +283,11 @@ namespace bibo::drive
     inline Int32 steerSlewUs    = STEER_SLEW_US;
     inline Int32 throttleSlewUs = THROTTLE_SLEW_US;
 
-    /* When the slew limiter may next take a step. The only symbol in this module
+    /*
+     * When the slew limiter may next take a step. The only symbol in this module
      * that carried no module prefix, which is exactly the kind of thing the
-     * prefix rule in tools/style_audit.py exists to stop drifting in. */
+     * prefix rule in tools/style_audit.py exists to stop drifting in.
+     */
     inline timing::Deadline slewNextAt;
 
     /* ---- helpers ------------------------------------------------------------- */
@@ -337,8 +341,10 @@ namespace bibo::drive
             n = 1.0f;
         }
 
-        /* A center sitting on top of an end is not a range to interpolate across.
-         * It happens while limits are being narrowed, and it must not divide. */
+        /*
+         * A center sitting on top of an end is not a range to interpolate across.
+         * It happens while limits are being narrowed, and it must not divide.
+         */
         const Int32 lo = servoCenterUs - servoMin;
         const Int32 hi = servoMax - servoCenterUs;
 
@@ -400,11 +406,13 @@ namespace bibo::drive
         servoLive = false;
         servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
 
-        /* Rule 2, and open() has to say it too. escArmed was only ever cleared
+        /*
+         * Rule 2, and open() has to say it too. escArmed was only ever cleared
          * by its initializer and by stop(), so a SECOND open() - a re-init, a
          * mode change - parked the ESC at neutral while leaving it armed, and
          * the next throttleUs() was accepted by something that reads like a
-         * fresh bring-up. Found by the first test this module ever had. */
+         * fresh bring-up. Found by the first test this module ever had.
+         */
         escArmed  = false;
         escTarget = DRIVE_NEUTRAL_US;
         escNow    = DRIVE_NEUTRAL_US;
@@ -443,8 +451,10 @@ namespace bibo::drive
             servo::writeUs(PIN_SERVO, static_cast<UInt32>(servoNow));
         }
 
-        /* A disarmed ESC is walked back to neutral rather than snapped there: a
-         * step to neutral from a moving throttle is itself a jolt. */
+        /*
+         * A disarmed ESC is walked back to neutral rather than snapped there: a
+         * step to neutral from a moving throttle is itself a jolt.
+         */
         if(const Int32 want = escArmed ? escTarget : DRIVE_NEUTRAL_US; escNow != want)
         {
             const Int32 d    = want - escNow;
@@ -800,8 +810,10 @@ namespace bibo::drive
             return false;
         }
 
-        /* The same collapse as the steering, and worse here: the throttle's hard
-         * band is only 200 us wide, so any pair below 1500 lands on 1500/1500. */
+        /*
+         * The same collapse as the steering, and worse here: the throttle's hard
+         * band is only 200 us wide, so any pair below 1500 lands on 1500/1500.
+         */
         const Int32 lo2 = clamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
         const Int32 hi2 = clamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
         if(lo2 >= hi2)

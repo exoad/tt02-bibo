@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * chassis - the safety property, on a laptop.
  *
  * conventions.md says "Safety lives in the module, not the caller", and points
@@ -10,7 +11,8 @@
  * coverage for its own sake: it is that these assertions are about what
  * reaches the PINS, not about what the module says it did. The difference
  * matters - lights::enable() spent weeks reporting a state it had not stored.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #include "../lib/chassis/chassis.hxx"
 
 #include <stdio.h>
@@ -45,9 +47,11 @@ namespace
       printf("  ok    %s = %d\n", what, got);
   }
 
-  /* The pads this test drives. escPin() expands to pins::active().esc, so a
+  /*
+   * The pads this test drives. escPin() expands to pins::active().esc, so a
    * test that never installs a map asserts about pin NONE - which passes,
-   * and proves nothing. */
+   * and proves nothing.
+   */
   Int32 escPin(Void)
   {
       return bibo::pins::active().esc;
@@ -58,11 +62,13 @@ namespace
       return bibo::pins::active().servo;
   }
 
-  /* pump() SLEWS - it walks each output toward its target by a few
+  /*
+   * pump() SLEWS - it walks each output toward its target by a few
    * microseconds per 20 ms tick, so one call never arrives. Tests that care
    * where the output ENDS UP have to let the clock run, which the fake lets
    * them do instantly. 200 ticks is four seconds of car time and returns in
-   * microseconds of ours. */
+   * microseconds of ours.
+   */
   Void settle(Void)
   {
       for(Int32 i = 0; i < 200; ++i)
@@ -101,9 +107,11 @@ namespace
             "disarming refuses again");
   }
 
-  /* Arming must not itself be a throttle command. A board that armed INTO the
+  /*
+   * Arming must not itself be a throttle command. A board that armed INTO the
    * last commanded value would move the moment you armed it, which is the one
-   * thing the arm step exists to prevent. */
+   * thing the arm step exists to prevent.
+   */
   Void testArmingIsNeutral()
   {
       printf("\narming does not carry the last command with it\n");
@@ -181,9 +189,11 @@ namespace
       checkEq(bibo::drive::steerToUs(1.0f), STEER_CAL_RIGHT,
               "+1.0 is full right");
 
-      /* The throw is ASYMMETRIC on this car - center is 1480, not 1500 - which
+      /*
+       * The throw is ASYMMETRIC on this car - center is 1480, not 1500 - which
        * is the whole reason commands are fractions. Half right must land half
-       * way to the RIGHT limit, not half way to 1500 + something. */
+       * way to the RIGHT limit, not half way to 1500 + something.
+       */
       const Int32 halfRight = bibo::drive::steerToUs(0.5f);
       const Int32 expected  = STEER_CAL_CENTER
                             + (STEER_CAL_RIGHT - STEER_CAL_CENTER) / 2;

@@ -60,14 +60,18 @@ using namespace bibo;
 #define SCREEN_YOFF  20
 #define SAFE_INSET   14
 
-/* ---- the bus -------------------------------------------------------------
+/*
+ * ---- the bus -------------------------------------------------------------
  *
  * The PADS are not here any more - they come from the map this program installs
- * in main(). Only the speed is a property of this sketch. */
+ * in main(). Only the speed is a property of this sketch.
+ */
 #define I2C_HZ       400000u     /* the sensor is happy at 400 kHz */
 
-/* Full scale for the bar, in millimeters. 2 m is a useful indoor span: far
- * enough to be interesting, near enough that the bar moves when you do. */
+/*
+ * Full scale for the bar, in millimeters. 2 m is a useful indoor span: far
+ * enough to be interesting, near enough that the bar moves when you do.
+ */
 #define BAR_FULL_MM  2000
 
 /*
@@ -83,7 +87,8 @@ using namespace bibo;
 int main(Void)
 {
 
-    /* ===================================================================== 1
+    /*
+     * ===================================================================== 1
      * DECLARE - what is wired where.
      *
      * Before anything is opened, because every driver below reads the
@@ -94,16 +99,20 @@ int main(Void)
      * This sketch borrows the car's pads for the bus and the panel, so it
      * starts from car() and changes nothing. A sketch that wanted the panel
      * somewhere else would set five fields here and no driver would notice.
-     * ================================================================== */
-    /* serial, the map, and a blink if the map is refused. Stopping beats
+     * ==================================================================
+     */
+    /*
+     * serial, the map, and a blink if the map is refused. Stopping beats
      * returning: a Pico that returns from main is powered, silent and
-     * indistinguishable from one that never flashed. */
+     * indistinguishable from one that never flashed.
+     */
     if(!boot::begin(pins::car()))
     {
         boot::halt();
     }
 
-    /* ===================================================================== 2
+    /*
+     * ===================================================================== 2
      * BIND - hand the low-level parts to the high-level ones.
      *
      * tft::Screen is the panel. gfx does not own one and never opens one; it
@@ -111,7 +120,8 @@ int main(Void)
      * back buffer, the clip and the text state from then on. Same for the
      * sensor: tof::Vl53 is the device, i2c is the bus it
      * sits on, and the bus is opened before the device that needs it.
-     * ================================================================== */
+     * ==================================================================
+     */
     tft::Screen panel;   /* the hardware: size, pads, the glass  */
 
     /* The canvas comes FROM open(); it is not declared and then filled in. */
@@ -133,10 +143,12 @@ int main(Void)
                                    pins::active().i2cScl, I2C_HZ);
 
     tof::Vl53 tof;
-    /* The start is PART of the answer, not something done to it afterwards:
+    /*
+     * The start is PART of the answer, not something done to it afterwards:
      * a sensor that opened but never started answers "not ready" forever
      * while haveTof still says yes. Short-circuiting is right here - there
-     * is nothing to start on a sensor that did not open. */
+     * is nothing to start on a sensor that did not open.
+     */
     const Bool haveTof = haveBus
                       && tof::open(&tof, VL53_ADDR_DEFAULT)
                       && tof::startRanging(&tof);
@@ -145,8 +157,10 @@ int main(Void)
     UInt8  status = 255;
     UInt32 reads  = 0;
 
-    /* Seeded so the FIRST good reading replaces them, rather than starting at
-     * zero and reporting a minimum of 0 mm forever. */
+    /*
+     * Seeded so the FIRST good reading replaces them, rather than starting at
+     * zero and reporting a minimum of 0 mm forever.
+     */
     UInt16 seenMin = 0xFFFF;
     UInt16 seenMax = 0;
 
@@ -222,8 +236,10 @@ int main(Void)
         const gfx::Paint METERS { .fg = good ? gfx::CYAN : gfx::DARKGRAY, .size = 2 };
         if(good)
         {
-            /* One decimal, done in integers - a float here would pull in the
-             * whole soft-float formatting path for one number. */
+            /*
+             * One decimal, done in integers - a float here would pull in the
+             * whole soft-float formatting path for one number.
+             */
             c.printf({ left, y }, METERS, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
         }
         else
@@ -245,8 +261,10 @@ int main(Void)
                 fill = wide - 2;
             }
 
-            /* Green far, amber near, red very near - the colors a bumper
-             * wants, so the same view is useful once this is on the car. */
+            /*
+             * Green far, amber near, red very near - the colors a bumper
+             * wants, so the same view is useful once this is on the car.
+             */
             const UInt16 bar = (mm < 150) ? gfx::RED
                            : (mm < 400) ? gfx::ORANGE
                            : gfx::GREEN;
@@ -277,8 +295,10 @@ int main(Void)
         c.printf({ left, y }, MUTED, "%u READS", reads)
          .present();
 
-        /* ~20 fps. The sensor's own measurement takes longer than this, so
-         * polling faster would only burn power to be told "not yet". */
+        /*
+         * ~20 fps. The sensor's own measurement takes longer than this, so
+         * polling faster would only burn power to be told "not yet".
+         */
         timing::ms(50);
     }
 

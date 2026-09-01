@@ -61,7 +61,8 @@
 #include "../hal.hxx"
 #include "../pins.hxx"
 
-/* The protocol itself - frames, checksums, command numbers - lives next door
+/*
+ * The protocol itself - frames, checksums, command numbers - lives next door
  * and needs NOTHING from the SDK, so it can be tested on the host. The one
  * part of this driver that fails silently is the checksum, and a checksum that
  * can only be exercised by flashing a microcontroller is a checksum nobody
@@ -139,9 +140,11 @@ namespace bibo::dfplayer
         {
             gpio::open(busyPin, PIN_DIR_IN);
 
-            /* Pulled up because the module drives it LOW to mean "playing". With
+            /*
+             * Pulled up because the module drives it LOW to mean "playing". With
              * nothing attached the pin would float and read as playing about half
-             * the time. */
+             * the time.
+             */
             gpio::pull(busyPin, PIN_PULL_UP);
         }
     }
@@ -165,9 +168,11 @@ namespace bibo::dfplayer
         send(bus, DFP_CMD_RESET, 0);
         timing::ms(DFP_BOOT_MS);
 
-        /* The module chatters an init frame on its way up. Nothing here reads
+        /*
+         * The module chatters an init frame on its way up. Nothing here reads
          * replies, so leaving it in the FIFO would mean the first byte anybody
-         * ever reads is stale. */
+         * ever reads is stale.
+         */
         uart::drain(bus->port);
     }
 
@@ -298,9 +303,11 @@ namespace bibo::dfplayer
         frame(sent, cmd, 0x00u, 0);
         uart::write(bus->port, sent, sizeof(sent));
 
-        /* A 10-byte reply at 9600 baud is about 10 ms. 40 gives the module
+        /*
+         * A 10-byte reply at 9600 baud is about 10 ms. 40 gives the module
          * time to think and still fails fast enough that a silent one does not
-         * hang the console. */
+         * hang the console.
+         */
 
         UInt8 f[10];
         Size  n = 0;
@@ -314,9 +321,11 @@ namespace bibo::dfplayer
                 return false;   /* silence */
             }
 
-            /* Resynchronise on the start byte rather than trusting alignment -
+            /*
+             * Resynchronise on the start byte rather than trusting alignment -
              * half a frame left over from something else would otherwise shift
-             * every byte after it. */
+             * every byte after it.
+             */
             if(n == 0 && b != 0x7E)
             {
                 continue;
@@ -335,8 +344,10 @@ namespace bibo::dfplayer
                 continue;   /* not a frame after all */
             }
 
-            /* The same invariant the host test asserts: the body and the
-             * checksum word cancel in 16 bits. */
+            /*
+             * The same invariant the host test asserts: the body and the
+             * checksum word cancel in 16 bits.
+             */
             UInt16 sum = 0;
             for(Int32 i = 1; i <= 6; ++i)
             {

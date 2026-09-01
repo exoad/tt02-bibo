@@ -52,22 +52,28 @@ namespace bibo::sound
     /* ---- state, one copy - the same deal chassis.hxx and lights.hxx make -- */
     inline dfplayer::Bus bus;
 
-    /* Remembered rather than asked for. The module has no "what volume are
+    /*
+     * Remembered rather than asked for. The module has no "what volume are
      * you" query worth a round trip, and a value the hub cannot read back is a
-     * slider that jumps to a default every time the view is opened. */
+     * slider that jumps to a default every time the view is opened.
+     */
     inline UInt8  level   = 8;
     inline UInt8  tone    = DFP_EQ_NORMAL;
     inline UInt16 last    = 1;
 
-    /* How many files the card holds, 0 for "not asked, or it did not answer".
+    /*
+     * How many files the card holds, 0 for "not asked, or it did not answer".
      * Asked at mount, which is when it can change - a card is not swapped while
      * the board is running - rather than on every status line, because the
-     * query WAITS and the hub polls twice a second. */
+     * query WAITS and the hub polls twice a second.
+     */
     inline UInt16 files   = 0;
 
-    /* Whether the card has been mounted since power-on. It takes 1.5-3 s and a
+    /*
+     * Whether the card has been mounted since power-on. It takes 1.5-3 s and a
      * play sent before that is LOST - no error, no sound - so boot does not pay
-     * for it and the first thing that needs the card asks. */
+     * for it and the first thing that needs the card asks.
+     */
     inline Bool   mounted = false;
 
     inline Bool   up      = false;
@@ -125,7 +131,8 @@ namespace bibo::sound
         return true;
     }
 
-    /* ---- what came back -------------------------------------------------
+    /*
+     * ---- what came back -------------------------------------------------
      *
      * ready() is the card, hasVoice() is the BUSY wire, speaking() is a
      * track actually sounding. Three questions rather than one, because
@@ -203,7 +210,8 @@ namespace bibo::sound
         return last;
     }
 
-    /* ---- settings --------------------------------------------------------
+    /*
+     * ---- settings --------------------------------------------------------
      *
      * Clamped by the driver, remembered here so a reset can put them back.
      */
@@ -230,7 +238,8 @@ namespace bibo::sound
         dfplayer::eq(&bus, tone);
     }
 
-    /* ---- why this file exists ---------------------------------------------
+    /*
+     * ---- why this file exists ---------------------------------------------
      *
      *     sound::play("hit1")
      */
@@ -274,7 +283,8 @@ namespace bibo::sound
             return RESULT_NO_CARD;
         }
 
-        /* ZERO IS RESERVED AND IS NOT A FILE.
+        /*
+         * ZERO IS RESERVED AND IS NOT A FILE.
          *
          * The DFPlayer numbers files from 1, so there is no mp3/0000.mp3 to
          * play. It is also the value sfx::NONE uses for "no such clip", which
@@ -284,15 +294,18 @@ namespace bibo::sound
          * sending a play for a file that cannot exist.
          *
          * The console's numeric path rejected 0 already. The LIBRARY did not,
-         * and the library is what a cue will call. */
+         * and the library is what a cue will call.
+         */
         if(t == 0u)
         {
             return RESULT_RESERVED;
         }
 
-        /* Only checked when the count is known. 0 means nobody has asked, and
+        /*
+         * Only checked when the count is known. 0 means nobody has asked, and
          * refusing on an unknown would make the speaker useless on a module
-         * that will not answer a query but plays perfectly well. */
+         * that will not answer a query but plays perfectly well.
+         */
         if(files > 0 && t > files)
         {
             return RESULT_PAST_END;

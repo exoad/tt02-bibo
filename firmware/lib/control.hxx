@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * control - PID and feedforward, as arithmetic.
  *
  * NO HARDWARE, NO SDK, NO CLOCK. Everything here takes the numbers it needs as
@@ -20,7 +21,8 @@
  * Feedforward is the model - "this much pulse produces about this much speed" -
  * and the PID only corrects what the model got wrong. That is why gainS
  * exists, and why it matters most on this drivetrain.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "types.hxx"
@@ -117,15 +119,19 @@ namespace bibo::control
         Float32 ki = 0.0f;
         Float32 kd = 0.0f;
 
-        /* The integral is clamped in OUTPUT units, so the limit means the same
+        /*
+         * The integral is clamped in OUTPUT units, so the limit means the same
          * thing whatever ki is. A limit expressed in error-seconds changes
          * meaning every time the gain is retuned, which is how an anti-windup
-         * clamp quietly stops clamping. */
+         * clamp quietly stops clamping.
+         */
         Float32 iMax = 0.0f;   /* output units; 0 disables the clamp */
 
         Float32 outMin = 0.0f; /* output units */
-        Float32 outMax = 0.0f; /* output units; outMax <= outMin disables
-                                 * output clamping                        */
+        Float32 outMax = 0.0f; /*
+        Float32 outMax = 0.0f;  * output units; outMax <= outMin disables
+                                 * output clamping
+                                 */
 
         /* ---- state ---- */
         Float32 integral  = 0.0f;
@@ -219,8 +225,10 @@ namespace bibo::control
         const Bool high = p->outMax > p->outMin && without >= p->outMax;
         const Bool low  = p->outMax > p->outMin && without <= p->outMin;
 
-        /* Integrate unless that would push further into a limit we are already
-         * against. Error pointing back toward the middle always integrates. */
+        /*
+         * Integrate unless that would push further into a limit we are already
+         * against. Error pointing back toward the middle always integrates.
+         */
         if(!((high && add > 0.0f) || (low && add < 0.0f)))
         {
             p->integral += add;

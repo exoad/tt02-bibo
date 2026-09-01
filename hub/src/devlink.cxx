@@ -8,8 +8,10 @@
 
 #include <cstring>
 
-/* The registry walk in portKind() needs advapi32. Declared here rather than in
- * the build scripts so a test that links devlink.cxx on its own gets it too. */
+/*
+ * The registry walk in portKind() needs advapi32. Declared here rather than in
+ * the build scripts so a test that links devlink.cxx on its own gets it too.
+ */
 #pragma comment(lib, "advapi32.lib")
 
 namespace dev

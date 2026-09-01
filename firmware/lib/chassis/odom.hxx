@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * odom - how far the car has gone, and how fast.
  *
  * Ticks in, meters out. NO HARDWARE HERE: the pin, the interrupt and the clock
@@ -33,7 +34,8 @@
  * taken from a catalog, every distance this produces is proportional to the
  * truth and not equal to it. calibrated() says which, so a caller can refuse to
  * navigate on a guess instead of driving confidently into a wall.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "../types.hxx"
@@ -41,7 +43,8 @@
 namespace bibo::odom
 {
 
-    /* ---- the three numbers that turn ticks into meters --------------------
+    /*
+     * ---- the three numbers that turn ticks into meters --------------------
      *
      * A VALUE, NOT A #define, and that is the point of this block.
      *
@@ -57,7 +60,8 @@ namespace bibo::odom
      * MEASURED, NOT LOOKED UP. A TT-02's rolling diameter depends on the tire,
      * the foam insert and how much the car weighs, and the difference between a
      * catalog number and the real one is a map that drifts a few percent per
-     * lap - which looks like bad odometry rather than a wrong constant. */
+     * lap - which looks like bad odometry rather than a wrong constant.
+     */
 
     /**
      * @brief Default rolling wheel diameter, in millimeters.
@@ -272,9 +276,11 @@ namespace bibo::odom
             return 0.0f;
         }
 
-        /* Copied ONCE. Reading the volatile twice could see two different
+        /*
+         * Copied ONCE. Reading the volatile twice could see two different
          * values if the interrupt lands between them, and the difference would
-         * be silently wrong rather than obviously so. */
+         * be silently wrong rather than obviously so.
+         */
         const UInt32 now = w->ticks;
 
         if(!w->primed)
@@ -292,8 +298,10 @@ namespace bibo::odom
 
         const Float32 dtS = static_cast<Float32>(nowUs - w->lastUs) / 1000000.0f;
 
-        /* Unsigned subtraction, so a wrap of the tick counter is still the
-         * right delta. This car is forward-only, so ticks never count down. */
+        /*
+         * Unsigned subtraction, so a wrap of the tick counter is still the
+         * right delta. This car is forward-only, so ticks never count down.
+         */
         const UInt32  dTicks = now - w->lastTicks;
         const Float32 raw    = static_cast<Float32>(dTicks) * metersPerTick()
                                / dtS;
@@ -307,9 +315,11 @@ namespace bibo::odom
         }
         else
         {
-            /* alpha = dt / (tau + dt). Bounded to 1 by construction, so a long
+            /*
+             * alpha = dt / (tau + dt). Bounded to 1 by construction, so a long
              * gap between calls settles to the raw value rather than
-             * overshooting it. */
+             * overshooting it.
+             */
             const Float32 alpha = dtS / (tauS + dtS);
             w->speed += alpha * (raw - w->speed);
         }

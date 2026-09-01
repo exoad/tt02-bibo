@@ -1,4 +1,5 @@
-/* PID, feedforward and odometry - lib/control.hxx and lib/chassis/odom.hxx.
+/*
+ * PID, feedforward and odometry - lib/control.hxx and lib/chassis/odom.hxx.
  *
  *   firmware\tests\build_control_test.bat run
  *
@@ -58,10 +59,12 @@ Int32 main(Void)
     ff.gainV = 100.0f;
     ff.gainA = 0.0f;
 
-    /* THE ONE THAT KEEPS THE CAR STILL. A static term applied at a target of
+    /*
+     * THE ONE THAT KEEPS THE CAR STILL. A static term applied at a target of
      * zero asks for the pulse that just barely moves it, while being told to
      * stand still - a car that will not hold on a bench and reads as a
-     * calibration fault rather than a controller bug. */
+     * calibration fault rather than a controller bug.
+     */
     check(near(control::predict(&ff, 0.0f, 0.0f), 0.0f, 0.001f),
           "zero demand is zero output, static term included");
 
@@ -84,16 +87,20 @@ Int32 main(Void)
     pid.outMax = 500.0f;
     control::reset(&pid);
 
-    /* NO DERIVATIVE ON THE FIRST STEP. With no previous measurement the naive
+    /*
+     * NO DERIVATIVE ON THE FIRST STEP. With no previous measurement the naive
      * version differentiates against zero and produces a large output from a
-     * standing start - the car lurches the instant the loop is enabled. */
+     * standing start - the car lurches the instant the loop is enabled.
+     */
     const Float32 first = control::step(&pid, 1.0f, 0.0f, 0.02f);
     check(near(first, 10.0f, 0.001f),
           "the first step is proportional only - no derivative kick");
 
-    /* DERIVATIVE ON MEASUREMENT, NOT ERROR. Moving the setpoint must not spike
+    /*
+     * DERIVATIVE ON MEASUREMENT, NOT ERROR. Moving the setpoint must not spike
      * the output: the measurement has not changed, so the damping term has
-     * nothing to say. Only the proportional term may move. */
+     * nothing to say. Only the proportional term may move.
+     */
     control::reset(&pid);
     static_cast<Void>(control::step(&pid, 0.0f, 0.0f, 0.02f));
     const Float32 jumped = control::step(&pid, 1.0f, 0.0f, 0.02f);
@@ -116,9 +123,11 @@ Int32 main(Void)
 
     printf("\ncontrol: windup\n\n");
 
-    /* INTEGRAL WINDUP is the one that hurts on a car. Hold a target it cannot
+    /*
+     * INTEGRAL WINDUP is the one that hurts on a car. Hold a target it cannot
      * reach - a wheel against a curb - and a naive integral grows for as long
-     * as it is held, then dumps the moment the wheel comes free. */
+     * as it is held, then dumps the moment the wheel comes free.
+     */
     control::Pid wind;
     wind.kp     = 1.0f;
     wind.ki     = 100.0f;
@@ -135,14 +144,18 @@ Int32 main(Void)
     check(wind.integral <= 200.0f + 0.001f,
           "the integral stays inside iMax while saturated");
 
-    /* The real test: once the obstruction clears, the output must come back
+    /*
+     * The real test: once the obstruction clears, the output must come back
      * promptly rather than holding full throttle while a wound-up integral
-     * drains. One step at the target should already be at or below the limit. */
+     * drains. One step at the target should already be at or below the limit.
+     */
     const Float32 freed = control::step(&wind, 5.0f, 5.0f, 0.02f);
     check(freed <= 100.0f + 0.001f, "and the output never exceeds outMax");
 
-    /* Error pointing back into range must still integrate, or the controller
-     * can never unwind at all. */
+    /*
+     * Error pointing back into range must still integrate, or the controller
+     * can never unwind at all.
+     */
     control::Pid back;
     back.kp = 0.0f;
     back.ki = 10.0f;
@@ -180,9 +193,11 @@ Int32 main(Void)
     check(near(odom::distance(&w), 10.0f * odom::metersPerTick(), 0.0001f),
           "ten ticks is ten tick-lengths");
 
-    /* FIRST UPDATE HAS NO WINDOW. There is no previous timestamp, so a speed
+    /*
+     * FIRST UPDATE HAS NO WINDOW. There is no previous timestamp, so a speed
      * computed from one would be distance over zero - or worse, over the whole
-     * uptime. It must report zero and prime instead. */
+     * uptime. It must report zero and prime instead.
+     */
     odom::Wheel s;
     odom::reset(&s, 1000u);
     check(near(odom::update(&s, 2000u, 0.0f), 0.0f, 0.0001f),
@@ -200,8 +215,10 @@ Int32 main(Void)
     check(near(v, odom::metersPerTick(), 0.0001f),
           "one tick in one second is one tick-length per second");
 
-    /* Filtered, the same input must approach but not exceed it - a lag that
-     * overshoots is not a lag. */
+    /*
+     * Filtered, the same input must approach but not exceed it - a lag that
+     * overshoots is not a lag.
+     */
     odom::Wheel fw;
     odom::reset(&fw, 0u);
     static_cast<Void>(odom::update(&fw, 0u, 0.5f));

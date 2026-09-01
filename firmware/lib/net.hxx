@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * net - the same command link, over Wi-Fi.
  *
  * One UDP datagram is one command line, in exactly the text the USB console
@@ -34,16 +35,19 @@
  * On a board with no radio every function here is a stub that answers "no
  * radio", so main.c reads the same on both images and needs no #ifdef around
  * any call site.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "types.hxx"
 #include "hal.hxx"
 
-/* The wireless stack, on a board that has one. UP HERE, not down inside the
+/*
+ * The wireless stack, on a board that has one. UP HERE, not down inside the
  * implementation, because an #include inside a namespace drags every
  * declaration in that header into it - which for lwIP is several hundred names
- * that would end up as net::something. */
+ * that would end up as net::something.
+ */
 #ifdef BIBO_WIRELESS
 #include "pico/cyw43_arch.h"
 #include "lwip/udp.h"
@@ -60,8 +64,10 @@ namespace bibo
   namespace net
   {
 
-    /* The port. Arbitrary, above the registered range, and the same number the hub
-     * uses - hub/src/pico_link.hxx. Change one and change the other. */
+    /*
+     * The port. Arbitrary, above the registered range, and the same number the hub
+     * uses - hub/src/pico_link.hxx. Change one and change the other.
+     */
 #define NET_PORT 4242
 
     /*
@@ -113,15 +119,19 @@ namespace bibo
     inline LineHandler handler   = nullptr;
     inline udp_pcb* pcb      = nullptr;
 
-    /* The last host that said anything. Replies go here - including replies to
+    /*
+     * The last host that said anything. Replies go here - including replies to
      * commands that arrived over USB, which is deliberate: a console watching
-     * wirelessly should see the whole conversation, not only its half of it. */
+     * wirelessly should see the whole conversation, not only its half of it.
+     */
     inline ip_addr_t peerAddr;
     inline UInt16    peerPort = 0;
     inline Bool      peerKnownNow = false;
 
-    /* The join in progress. cyw43's async connect keeps no copy of these, so they
-     * have to outlive the call that starts it. */
+    /*
+     * The join in progress. cyw43's async connect keeps no copy of these, so they
+     * have to outlive the call that starts it.
+     */
     inline Utf8 joinSsid[40];
     inline Utf8 joinPass[68];
 
@@ -131,8 +141,10 @@ namespace bibo
     inline Size  queueCount = 0;
     inline UInt32 dropped   = 0;
 
-    /* Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be
-     * - a sender is free to put two in one packet, or split one across two. */
+    /*
+     * Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be
+     * - a sender is free to put two in one packet, or split one across two.
+     */
     inline Utf8 partial[NET_LINE_CAP];
     inline Size partialLen = 0;
 
@@ -265,9 +277,11 @@ namespace bibo
             }
             else
             {
-                /* Over-long. Drop the whole line rather than letting its tail
+                /*
+                 * Over-long. Drop the whole line rather than letting its tail
                  * become a command nobody sent - the same rule, and the same
-                 * reasoning, as the USB reader in main.c. */
+                 * reasoning, as the USB reader in main.c.
+                 */
                 partialLen = 0;
             }
         }
@@ -329,8 +343,10 @@ namespace bibo
         peerPort     = port;
         peerKnownNow = true;
 
-        /* pbufs can be chained; walking the chain is not optional even for small
-         * packets, because "small" is the sender's decision and not ours. */
+        /*
+         * pbufs can be chained; walking the chain is not optional even for small
+         * packets, because "small" is the sender's decision and not ours.
+         */
         for(const pbuf* q = p; q != nullptr; q = q->next)
         {
             feed(static_cast<const Utf8*>(q->payload), q->len);
@@ -429,8 +445,10 @@ namespace bibo
                                 ? CYW43_AUTH_OPEN
                                 : CYW43_AUTH_WPA2_AES_PSK;
 
-        /* nullptr rather than an empty string for an open network: the SDK tests the
-         * pointer, not what it points at. */
+        /*
+         * nullptr rather than an empty string for an open network: the SDK tests the
+         * pointer, not what it points at.
+         */
 
         if(const CharSeq key = joinPass[0] == '\0' ? nullptr : joinPass; cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
         {

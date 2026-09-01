@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * geom - where the car is, in meters and radians.
  *
  * WORLD FRAME, not pixels. gfx.hxx has a Point and it is a screen coordinate;
@@ -20,14 +21,17 @@
  * between 179 degrees and -179 degrees is 2 degrees the short way and 358 the
  * long way, and a controller that takes the long way turns the car all the way
  * round to reach a heading it was almost at. wrapPi exists for exactly that.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "types.hxx"
 
-/* sqrtf, sinf, cosf, atanf. The float forms deliberately: the double ones pull
+/*
+ * sqrtf, sinf, cosf, atanf. The float forms deliberately: the double ones pull
  * in software double-precision on an M33, which is both slower and larger for
- * arithmetic that is never more accurate than the encoder feeding it. */
+ * arithmetic that is never more accurate than the encoder feeding it.
+ */
 #include <math.h>
 
 namespace bibo::geom

@@ -1,4 +1,5 @@
-/* The DFPlayer Mini wire format, in lib/drivers/dfplayer_proto.hxx.
+/*
+ * The DFPlayer Mini wire format, in lib/drivers/dfplayer_proto.hxx.
  *
  *   firmware\tests\build_dfplayer_test.bat run
  *
@@ -49,7 +50,8 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
-/* Bytes 1..6 plus the checksum, as 16-bit. Zero for a well-formed frame.
+/*
+ * Bytes 1..6 plus the checksum, as 16-bit. Zero for a well-formed frame.
  *
  * THE CHECKSUM IS ONE BIG-ENDIAN WORD, not two bytes, and this function got
  * that wrong on its first draft - it added f[7] and f[8] separately, which
@@ -58,7 +60,8 @@ static Void check(Bool ok, CharSeq what)
  *
  * Reading the checksum as a word is also what keeps this honest about byte
  * ORDER: swapping SUM_HI and SUM_LO produces a different word and a non-zero
- * residue, where a byte-wise sum would happily accept either arrangement. */
+ * residue, where a byte-wise sum would happily accept either arrangement.
+ */
 static UInt16 residue(const UInt8* f)
 {
     UInt16 sum = 0;
@@ -108,11 +111,13 @@ Int32 main(Void)
     /* ---- the checksum, which is the whole point -------------------------- */
     check(residue(f) == 0u, "body plus checksum cancels in 16 bits");
 
-    /* Across every command, and across parameters chosen to make the sum
+    /*
+     * Across every command, and across parameters chosen to make the sum
      * wrap - a checksum that is right for small numbers and wrong when the
      * total crosses 0x100 would otherwise pass a single spot check, and
      * "works for track 1, silent for track 300" is a genuinely nasty bug to
-     * meet on a bench. */
+     * meet on a bench.
+     */
     const UInt8 CMDS[] =
     {
         DFP_CMD_NEXT, DFP_CMD_PREV, DFP_CMD_TRACK, DFP_CMD_VOLUME,

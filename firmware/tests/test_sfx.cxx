@@ -1,4 +1,5 @@
-/* The clip table in lib/sfx.hxx.
+/*
+ * The clip table in lib/sfx.hxx.
  *
  *   firmware\tests\build_sfx_test.bat run
  *
@@ -67,11 +68,13 @@ Int32 main(Void)
     }
     check(badTrack == 0, "every clip has a name, a meaning, and a track >= 1");
 
-    /* ---- no two clips share a name --------------------------------------
+    /*
+     * ---- no two clips share a name --------------------------------------
      *
      * The duplicate is REACHABLE - track() returns the first match - so the
      * second one is simply dead, silently, and the only symptom is the wrong
-     * sound. */
+     * sound.
+     */
     Int32 dupName = 0;
     for(Size a = 0; a < sfx::COUNT; ++a)
     {
@@ -86,8 +89,10 @@ Int32 main(Void)
     }
     check(dupName == 0, "no name is defined twice");
 
-    /* Two names for ONE track is legal and deliberate - an alias. Reported
-     * rather than failed, because it is a thing somebody might mean. */
+    /*
+     * Two names for ONE track is legal and deliberate - an alias. Reported
+     * rather than failed, because it is a thing somebody might mean.
+     */
     Int32 shared = 0;
     for(Size a = 0; a < sfx::COUNT; ++a)
     {
@@ -120,9 +125,11 @@ Int32 main(Void)
     check(sfx::track("") == sfx::NONE, "the empty name is NONE");
     check(sfx::track(nullptr) == sfx::NONE, "a null name is NONE, not a crash");
 
-    /* PREFIXES MUST NOT MATCH. text::eq is whole-string, and this is the check
+    /*
+     * PREFIXES MUST NOT MATCH. text::eq is whole-string, and this is the check
      * that says so - a prefix match would make `clip1` and `clip12` the same
-     * sound, which is the kind of thing found by ear months later. */
+     * sound, which is the kind of thing found by ear months later.
+     */
     if(sfx::COUNT > 0)
     {
         Utf8 longer[64];
@@ -137,11 +144,13 @@ Int32 main(Void)
     check(sfx::nameOf(60000u) == nullptr,
           "an unknown track has no name, and says so with nullptr");
 
-    /* ---- zero is the sentinel and must never BE a clip -------------------
+    /*
+     * ---- zero is the sentinel and must never BE a clip -------------------
      *
      * sfx::NONE is 0, and the DFPlayer numbers files from 1, so a row claiming
      * track 0 would be both unplayable and indistinguishable from "not found".
-     * The table check above already rejects it; this states why. */
+     * The table check above already rejects it; this states why.
+     */
     Int32 zero = 0;
     for(Size i = 0; i < sfx::COUNT; ++i)
     {
