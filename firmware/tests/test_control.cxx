@@ -30,6 +30,12 @@ using namespace bibo;
 static Int32 failures = 0;
 static Int32 checks   = 0;
 
+/**
+ * @brief Records a pass/fail check and prints its outcome.
+ *
+ * @param ok true if the property being checked held
+ * @param what the description printed alongside the outcome
+ */
 static Void check(Bool ok, CharSeq what)
 {
     ++checks;
@@ -44,12 +50,25 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
+/**
+ * @brief Whether two floats are close enough to call equal.
+ *
+ * @param a the first value
+ * @param b the second value
+ * @param tol the largest difference still considered equal
+ * @return true when the two are within tol of each other
+ */
 static Bool near(Float32 a, Float32 b, Float32 tol)
 {
     const Float32 d = a - b;
     return ((d < 0.0f) ? -d : d) <= tol;
 }
 
+/**
+ * @brief Runs every feedforward, PID, and odometry check and reports the pass/fail count.
+ *
+ * @return 0 if every check passed, 1 if any failed
+ */
 Int32 main(Void)
 {
     printf("\ncontrol: feedforward\n\n");

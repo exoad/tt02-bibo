@@ -32,6 +32,12 @@
 static Int32 failures = 0;
 static Int32 checks   = 0;
 
+/**
+ * @brief Records a pass/fail check and prints its outcome.
+ *
+ * @param ok true if the property being checked held
+ * @param what the description printed alongside the outcome
+ */
 static Void check(Bool ok, CharSeq what)
 {
     ++checks;
@@ -46,6 +52,9 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
+/**
+ * @brief Proves the inspecting functions (len, empty, eq, starts, after) read strings without altering them.
+ */
 /* ---- inspecting ---------------------------------------------------------- */
 
 static Void testInspect(Void)
@@ -77,6 +86,9 @@ static Void testInspect(Void)
           "bibo::text::after refuses a non-match");
 }
 
+/**
+ * @brief Proves trimEnd and upper edit a line in place without disturbing digits, signs, or a clean line.
+ */
 /* ---- editing ------------------------------------------------------------- */
 
 static Void testEdit(Void)
@@ -105,6 +117,9 @@ static Void testEdit(Void)
     check(bibo::text::eq(a, "STEER -0.5"), "upper leaves digits and signs alone");
 }
 
+/**
+ * @brief Proves toInt accepts zero as a genuine result and rejects anything atoi() would silently mangle.
+ */
 /* ---- integers ------------------------------------------------------------ */
 
 static Void testInt(Void)
@@ -134,12 +149,22 @@ static Void testInt(Void)
 
 /* ---- fractions ----------------------------------------------------------- */
 
+/**
+ * @brief Whether two floats are close enough to call equal.
+ *
+ * @param a the first value
+ * @param b the second value
+ * @return true when the two are within 0.0001
+ */
 static Bool near(Float32 a, Float32 b)
 {
     const Float32 d = (a > b) ? (a - b) : (b - a);
     return d < 0.0001f;
 }
 
+/**
+ * @brief Proves toFloat accepts zero and a leading dot, and rejects anything atoi()-like parsing would mangle.
+ */
 static Void testFloat(Void)
 {
     printf("\nfractions\n");
@@ -164,6 +189,9 @@ static Void testFloat(Void)
     check(!bibo::text::toFloat(nullptr, &f), "nullptr is refused");
 }
 
+/**
+ * @brief Proves twoInts accepts exactly two numbers with any amount of space between, and refuses anything else.
+ */
 /* ---- pairs --------------------------------------------------------------- */
 
 static Void testTwoInts(Void)
@@ -190,13 +218,14 @@ static Void testTwoInts(Void)
 }
 
 
-/*
- * bibo::text::word - whole-word matching, which is what the command table stands on.
+/**
+ * @brief Proves bibo::text::word matches a whole word only, so a command table needs no particular row order.
  *
- * The SERVO/SERVOTRIM pair is the case that matters: bibo::text::starts() answers TRUE
- * for both, so a table matched with it would answer SERVOTRIM with the SERVO
- * handler unless the rows happened to be in the right order. These checks are
- * the reason the order of that table can be anything.
+ * @note The SERVO/SERVOTRIM pair is the case that matters: bibo::text::starts()
+ *       answers TRUE for both, so a table matched with it would answer
+ *       SERVOTRIM with the SERVO handler unless the rows happened to be in
+ *       the right order. These checks are the reason the order of that
+ *       table can be anything.
  */
 static Void testWord(Void)
 {
@@ -233,6 +262,11 @@ static Void testWord(Void)
           "a subcommand nests");
 }
 
+/**
+ * @brief Runs every text-parser check and reports the pass/fail count.
+ *
+ * @return 0 if every check passed, 1 if any failed
+ */
 Int32 main(Void)
 {
     printf("=== lib/text.h ===\n");

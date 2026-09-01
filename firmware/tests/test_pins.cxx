@@ -10,6 +10,12 @@
 using namespace bibo;
 
 static Int32 fails = 0, checks = 0;
+/**
+ * @brief Records a pass/fail check and prints its outcome.
+ *
+ * @param ok true if the property being checked held
+ * @param what the description printed alongside the outcome
+ */
 static Void check(Bool ok, CharSeq what)
 {
     ++checks;
@@ -20,6 +26,11 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
+/**
+ * @brief Runs every pins::begin() runtime map check and reports the pass/fail count.
+ *
+ * @return 0 if every check passed, 1 if any failed
+ */
 Int32 main(Void)
 {
     printf("\npins::begin\n\n");
