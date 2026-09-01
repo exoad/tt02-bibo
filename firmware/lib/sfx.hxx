@@ -40,11 +40,8 @@
 
 #include "types.hxx"
 
-namespace bibo
+namespace bibo::sfx
 {
-
-  namespace sfx
-  {
 
     /* Not a track. The DFPlayer numbers files from 1, so 0 is free to mean
      * "no such clip" and every caller can test it without a second flag. */
@@ -57,11 +54,11 @@ namespace bibo
         CharSeq means;   /* what it is, in plain English */
     };
 
-    static const Clip CLIPS[] =
+    static constexpr Clip CLIPS[] =
     {
-        { "clip1", 1u, "PLACEHOLDER - rename for what it sounds like" },
-        { "clip2", 2u, "PLACEHOLDER - rename for what it sounds like" },
-        { "clip3", 3u, "PLACEHOLDER - rename for what it sounds like" }
+        { .name = "clip1", .track = 1u, .means = "PLACEHOLDER - rename for what it sounds like" },
+        { .name = "clip2", .track = 2u, .means = "PLACEHOLDER - rename for what it sounds like" },
+        { .name = "clip3", .track = 3u, .means = "PLACEHOLDER - rename for what it sounds like" }
     };
 
     constexpr Size COUNT = sizeof(CLIPS) / sizeof(CLIPS[0]);
@@ -84,7 +81,7 @@ namespace bibo
      * Whole-string, not a prefix: `horn` must not match `hornLong`. The test
      * asserts it, because a prefix match is a wrong NOISE rather than an error,
      * and a wrong noise is found by ear months later. */
-    inline Bool sameName(CharSeq a, CharSeq b)
+    inline Bool sameName(const CharSeq a, const CharSeq b)
     {
         if(a == nullptr || b == nullptr)
         {
@@ -94,10 +91,10 @@ namespace bibo
         Size i = 0;
         for(; a[i] != '\0' && b[i] != '\0'; ++i)
         {
-            const Utf8 ca = (a[i] >= 'A' && a[i] <= 'Z')
-                          ? static_cast<Utf8>(a[i] - 'A' + 'a') : a[i];
-            const Utf8 cb = (b[i] >= 'A' && b[i] <= 'Z')
-                          ? static_cast<Utf8>(b[i] - 'A' + 'a') : b[i];
+            const Utf8 ca = a[i] >= 'A' && a[i] <= 'Z'
+                                ? static_cast<Utf8>(a[i] - 'A' + 'a') : a[i];
+            const Utf8 cb = b[i] >= 'A' && b[i] <= 'Z'
+                                ? static_cast<Utf8>(b[i] - 'A' + 'a') : b[i];
             if(ca != cb)
             {
                 return false;
@@ -109,17 +106,17 @@ namespace bibo
     /* By NAME, returning the track, or NONE when there is no such clip. The
      * caller gets one answer and one test rather than an index it then has to
      * remember to bounds-check. */
-    inline UInt16 track(CharSeq name)
+    inline UInt16 track(const CharSeq name)
     {
         if(name == nullptr)
         {
             return NONE;
         }
-        for(Size i = 0; i < COUNT; ++i)
+        for(const auto i : CLIPS)
         {
-            if(sameName(name, CLIPS[i].name))
+            if(sameName(name, i.name))
             {
-                return CLIPS[i].track;
+                return i.track;
             }
         }
         return NONE;
@@ -131,25 +128,25 @@ namespace bibo
      * Returns nullptr rather than "?" so a caller can decide how to render an
      * unnamed track - the console prints the number, and inventing a string
      * here would push that decision somewhere it cannot be seen. */
-    inline CharSeq nameOf(UInt16 t)
+    inline CharSeq nameOf(const UInt16 t)
     {
-        for(Size i = 0; i < COUNT; ++i)
+        for(const auto i : CLIPS)
         {
-            if(CLIPS[i].track == t)
+            if(i.track == t)
             {
-                return CLIPS[i].name;
+                return i.name;
             }
         }
         return nullptr;
     }
 
-    inline CharSeq means(CharSeq name)
+    inline CharSeq means(const CharSeq name)
     {
-        for(Size i = 0; i < COUNT; ++i)
+        for(const auto i : CLIPS)
         {
-            if(sameName(name, CLIPS[i].name))
+            if(sameName(name, i.name))
             {
-                return CLIPS[i].means;
+                return i.means;
             }
         }
         return nullptr;
@@ -161,16 +158,14 @@ namespace bibo
     inline UInt16 highest(Void)
     {
         UInt16 top = 0;
-        for(Size i = 0; i < COUNT; ++i)
+        for(const auto i : CLIPS)
         {
-            if(CLIPS[i].track > top)
+            if(i.track > top)
             {
-                top = CLIPS[i].track;
+                top = i.track;
             }
         }
         return top;
     }
 
-  } /* namespace sfx */
-
-} /* namespace bibo */
+}

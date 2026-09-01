@@ -103,7 +103,7 @@ namespace bibo
     /* ---------------------------------------------------------------------
      * One step. Returns what to steer, or valid=false if there is no path.
      * ------------------------------------------------------------------- */
-    inline Aim follow(Follower* f, const Path* path, geom::Pose pose, Float32 speed)
+    inline Aim follow(Follower* f, const Path* path, geom::Pose pose, const Float32 speed)
     {
         Aim aim;
 
@@ -114,7 +114,7 @@ namespace bibo
 
         /* Speed-scaled, floored, capped. The floor is load-bearing: at rest the
          * product is zero and the curvature would divide by it. */
-        Float32 ld = f->perMs * ((speed < 0.0f) ? -speed : speed);
+        Float32 ld = f->perMs * (speed < 0.0f ? -speed : speed);
         if(ld < f->minM)
         {
             ld = f->minM;
@@ -130,7 +130,7 @@ namespace bibo
         /* ARRIVED is checked against the END, not the index. A follower that
          * decided it had arrived because it ran out of path would also decide
          * that the moment it lost track of where it was. */
-        if(geom::distance(geom::Vec2{ pose.x, pose.y }, last) <= f->arriveM)
+        if(geom::distance(geom::Vec2{ .x = pose.x, .y = pose.y }, last) <= f->arriveM)
         {
             aim.valid   = true;
             aim.arrived = true;
@@ -143,10 +143,10 @@ namespace bibo
          * Forward only. Walks past everything already within the lookahead, so
          * the goal is the first point still further away than ld. */
         const Float32 ldSq = ld * ld;
-        const geom::Vec2 here{ pose.x, pose.y };
+        const geom::Vec2 here{ .x = pose.x, .y = pose.y };
 
         Size i = f->at;
-        while((i + 1u) < path->n
+        while(i + 1u < path->n
               && geom::distanceSq(here, path->pts[i]) <= ldSq)
         {
             ++i;
@@ -202,11 +202,11 @@ namespace bibo
          * at exactly the moment precision matters most. */
         const geom::Vec2 local = geom::toLocal(pose, goal);
         const Float32    dist  = geom::distance(here, goal);
-        const Float32    use   = (dist > 0.01f) ? dist : 0.01f;
+        const Float32    use   = dist > 0.01f ? dist : 0.01f;
 
         aim.goal       = goal;
         aim.crossTrack = local.y;
-        aim.curvature  = (2.0f * local.y) / (use * use);
+        aim.curvature  = 2.0f * local.y / (use * use);
         aim.steer      = kin::clampSteer(
                              kin::steerFor(aim.curvature, f->wheelbase),
                              f->maxSteer);

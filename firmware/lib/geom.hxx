@@ -30,14 +30,11 @@
  * arithmetic that is never more accurate than the encoder feeding it. */
 #include <math.h>
 
-namespace bibo
+namespace bibo::geom
 {
 
-  namespace geom
-  {
-
-    #define GEOM_PI  3.14159265358979f
-    #define GEOM_TAU 6.28318530717959f
+#define GEOM_PI  3.14159265358979f
+#define GEOM_TAU 6.28318530717959f
 
     struct Vec2
     {
@@ -76,7 +73,7 @@ namespace bibo
 
     /* The SHORT way from `from` to `to`. This is the one a heading controller
      * wants; plain subtraction is the one that drives the long way round. */
-    inline Float32 angleDelta(Float32 from, Float32 to)
+    inline Float32 angleDelta(const Float32 from, const Float32 to)
     {
         return wrapPi(to - from);
     }
@@ -86,14 +83,14 @@ namespace bibo
      * The squared form is offered because most uses COMPARE distances, and a
      * comparison does not need the square root - which on an M33 without a
      * hardware divide is worth avoiding inside a loop over a path. */
-    inline Float32 distanceSq(Vec2 a, Vec2 b)
+    inline Float32 distanceSq(const Vec2 a, const Vec2 b)
     {
         const Float32 dx = b.x - a.x;
         const Float32 dy = b.y - a.y;
-        return (dx * dx) + (dy * dy);
+        return dx * dx + dy * dy;
     }
 
-    inline Float32 distance(Vec2 a, Vec2 b)
+    inline Float32 distance(const Vec2 a, const Vec2 b)
     {
         return sqrtf(distanceSq(a, b));
     }
@@ -106,7 +103,7 @@ namespace bibo
      * result is the whole answer - a goal with positive y is to the left and
      * the car steers left. Getting the rotation backwards produces a controller
      * that steers away from the path and looks like an unstable gain. */
-    inline Vec2 toLocal(Pose p, Vec2 world)
+    inline Vec2 toLocal(const Pose& p, const Vec2 world)
     {
         const Float32 dx = world.x - p.x;
         const Float32 dy = world.y - p.y;
@@ -115,24 +112,22 @@ namespace bibo
         const Float32 s = sinf(p.heading);
 
         Vec2 out;
-        out.x = (dx * c) + (dy * s);
-        out.y = (-dx * s) + (dy * c);
+        out.x = dx * c + dy * s;
+        out.y = -dx * s + dy * c;
         return out;
     }
 
     /* The inverse, for turning something the car worked out about itself back
      * into a place on the map. */
-    inline Vec2 toWorld(Pose p, Vec2 local)
+    inline Vec2 toWorld(const Pose& p, const Vec2 local)
     {
         const Float32 c = cosf(p.heading);
         const Float32 s = sinf(p.heading);
 
         Vec2 out;
-        out.x = p.x + (local.x * c) - (local.y * s);
-        out.y = p.y + (local.x * s) + (local.y * c);
+        out.x = p.x + local.x * c - local.y * s;
+        out.y = p.y + local.x * s + local.y * c;
         return out;
     }
 
-  } /* namespace geom */
-
-} /* namespace bibo */
+}

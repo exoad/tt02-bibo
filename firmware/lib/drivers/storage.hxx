@@ -98,7 +98,7 @@ namespace bibo
 
     /* ---- the wire ------------------------------------------------------------ */
 
-    inline UInt8 xfer(const Card* c, UInt8 out)
+    inline UInt8 xfer(const Card* c, const UInt8 out)
     {
         UInt8 in = 0xFF;
         spi::transfer(c->sck, &out, &in, 1);
@@ -131,7 +131,7 @@ namespace bibo
      * The card answers with 0xFF while it thinks. R1 is the first byte with the top
      * bit clear, and 0xFF back after eight tries means it never answered at all.
      */
-    inline UInt8 command(const Card* c, UInt8 cmd, UInt32 arg, UInt8 crc)
+    inline UInt8 command(const Card* c, const UInt8 cmd, const UInt32 arg, const UInt8 crc)
     {
         static_cast<Void>(xfer(c, static_cast<UInt8>(0x40 | cmd)));
         static_cast<Void>(xfer(c, static_cast<UInt8>(arg >> 24)));
@@ -152,7 +152,7 @@ namespace bibo
     }
 
     /* CMD55 then the command - which is what an "application" command is. */
-    inline UInt8 appCommand(const Card* c, UInt8 cmd, UInt32 arg)
+    inline UInt8 appCommand(const Card* c, const UInt8 cmd, const UInt32 arg)
     {
         static_cast<Void>(command(c, 55, 0, 0x01));
         return command(c, cmd, arg, 0x01);
@@ -168,7 +168,7 @@ namespace bibo
      * they are the same fact - `kind` stays sd::KIND_NONE and there is nothing to
      * talk to.
      */
-    [[nodiscard]] static Bool openOn(Card* c, Pin sck, Pin mosi, Pin miso, Pin cs)
+    [[nodiscard]] static Bool openOn(Card* c, const Pin sck, const Pin mosi, const Pin miso, const Pin cs)
     {
         if(c == nullptr)
         {
@@ -234,7 +234,7 @@ namespace bibo
             {
                 r7[i] = xfer(c, 0xFF);
             }
-            v2 = (r7[2] == 0x01 && r7[3] == 0xAA);
+            v2 = r7[2] == 0x01 && r7[3] == 0xAA;
         }
 
         /* ---- ACMD41: start initialisation, and wait for it -------------------
@@ -310,13 +310,13 @@ namespace bibo
                 static_cast<Void>(xfer(c, 0xFF));
                 static_cast<Void>(xfer(c, 0xFF));
 
-                if((csd[0] >> 6) == 1)
+                if(csd[0] >> 6 == 1)
                 {
                     /* CSD version 2: C_SIZE is 22 bits and capacity is
                      * (C_SIZE + 1) * 512 KB, so blocks = (C_SIZE + 1) * 1024. */
-                    const UInt32 cSize = ((static_cast<UInt32>(csd[7] & 0x3F)) << 16)
-                                       | ((static_cast<UInt32>(csd[8])) << 8)
-                                       | (static_cast<UInt32>(csd[9]));
+                    const UInt32 cSize = (static_cast<UInt32>(csd[7] & 0x3F) << 16)
+                                       | (static_cast<UInt32>(csd[8]) << 8)
+                                       | static_cast<UInt32>(csd[9]);
                     c->blocks = (cSize + 1u) * 1024u;
                 }
                 else
@@ -324,9 +324,9 @@ namespace bibo
                     /* CSD version 1, on the small old cards. The size is spread
                      * across three fields and scaled by two exponents, which is
                      * exactly why version 2 replaced it. */
-                    const UInt32 cSize = (((static_cast<UInt32>(csd[6] & 0x03)) << 10)
-                                          | ((static_cast<UInt32>(csd[7])) << 2)
-                                          | ((static_cast<UInt32>(csd[8])) >> 6));
+                    const UInt32 cSize = (static_cast<UInt32>(csd[6] & 0x03) << 10)
+                                         | (static_cast<UInt32>(csd[7]) << 2)
+                                         | (static_cast<UInt32>(csd[8]) >> 6);
                     const UInt32 mult  = static_cast<UInt32>(((csd[9] & 0x03) << 1)
                                                    | (csd[10] >> 7));
                     const UInt32 rdLen = static_cast<UInt32>(csd[5] & 0x0F);
@@ -353,7 +353,7 @@ namespace bibo
     /* Capacity in megabytes, for showing a person. */
     inline UInt32 megabytes(const Card* c)
     {
-        return (c->blocks / 2048u);
+        return c->blocks / 2048u;
     }
 
     static const Utf8* kindName(const Card* c)
@@ -376,14 +376,14 @@ namespace bibo
      * `block` is a BLOCK index, always - the byte-versus-block distinction is
      * handled here so no caller has to remember which kind of card it has.
      */
-    [[nodiscard]] static Bool readBlock(const Card* c, UInt32 block, UInt8* out)
+    [[nodiscard]] static Bool readBlock(const Card* c, const UInt32 block, UInt8* out)
     {
         if(c->kind == KIND_NONE || out == nullptr)
         {
             return false;
         }
 
-        const UInt32 addr = c->blockAddressed ? block : (block * SD_BLOCK_SIZE);
+        const UInt32 addr = c->blockAddressed ? block : block * SD_BLOCK_SIZE;
 
         select(c);
         if(command(c, 17, addr, 0x01) != 0x00)
@@ -427,14 +427,14 @@ namespace bibo
      * for a surprisingly long time after a write, and returning early means the
      * next command lands while it is still busy and quietly fails.
      */
-    [[nodiscard]] static Bool writeBlock(const Card* c, UInt32 block, const UInt8* data)
+    [[nodiscard]] static Bool writeBlock(const Card* c, const UInt32 block, const UInt8* data)
     {
         if(c->kind == KIND_NONE || data == nullptr)
         {
             return false;
         }
 
-        const UInt32 addr = c->blockAddressed ? block : (block * SD_BLOCK_SIZE);
+        const UInt32 addr = c->blockAddressed ? block : block * SD_BLOCK_SIZE;
 
         select(c);
         if(command(c, 24, addr, 0x01) != 0x00)

@@ -61,18 +61,15 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-namespace bibo
+namespace bibo::gfx
 {
-
-  namespace gfx
-  {
 
     /* ---- colour --------------------------------------------------------------
      *
      * 16-bit 5-6-5, the panel's own format.
      */
     /* The same packing, named for the layer a sketch is working in. */
-    constexpr UInt16 rgb(UInt32 r, UInt32 g, UInt32 b)
+    constexpr UInt16 rgb(const UInt32 r, const UInt32 g, const UInt32 b)
     {
         return tft::rgb(r, g, b);
     }
@@ -97,7 +94,7 @@ namespace bibo
      * the channels would carry into each other and a half-way blend of red and blue
      * would come out an unrelated colour.
      */
-    inline UInt16 blend(UInt16 a, UInt16 b, UInt8 t)
+    inline UInt16 blend(const UInt16 a, const UInt16 b, const UInt8 t)
     {
         const UInt32 ar = (a >> 11) & 0x1F;
         const UInt32 ag = (a >> 5)  & 0x3F;
@@ -108,19 +105,19 @@ namespace bibo
         const UInt32 bb = b & 0x1F;
 
         const UInt32 it = 255u - static_cast<UInt32>(t);
-        const UInt32 r  = ((ar * it) + (br * static_cast<UInt32>(t))) / 255u;
-        const UInt32 g  = ((ag * it) + (bg * static_cast<UInt32>(t))) / 255u;
-        const UInt32 bl = ((ab * it) + (bb * static_cast<UInt32>(t))) / 255u;
+        const UInt32 r  = (ar * it + br * static_cast<UInt32>(t)) / 255u;
+        const UInt32 g  = (ag * it + bg * static_cast<UInt32>(t)) / 255u;
+        const UInt32 bl = (ab * it + bb * static_cast<UInt32>(t)) / 255u;
 
         return static_cast<UInt16>((r << 11) | (g << 5) | bl);
     }
 
-    inline UInt16 dim(UInt16 c, UInt8 amount)
+    inline UInt16 dim(const UInt16 c, const UInt8 amount)
     {
         return blend(c, BLACK, amount);
     }
 
-    inline UInt16 lighten(UInt16 c, UInt8 amount)
+    inline UInt16 lighten(const UInt16 c, const UInt8 amount)
     {
         return blend(c, WHITE, amount);
     }
@@ -129,28 +126,28 @@ namespace bibo
      * Hue 0-359, saturation and value 0-255. Integer throughout - no float, no
      * table - so a rainbow sweep costs nothing on a chip that would rather not.
      */
-    inline UInt16 hsv(Int32 hue, UInt8 sat, UInt8 val)
+    inline UInt16 hsv(Int32 hue, const UInt8 sat, const UInt8 val)
     {
-        hue = ((hue % 360) + 360) % 360;
+        hue = (hue % 360 + 360) % 360;
 
-        const UInt32 region = static_cast<UInt32>(hue / 60);
-        const UInt32 rem    = static_cast<UInt32>((hue - static_cast<Int32>(region * 60u)) * 255 / 60);
+        const auto region = static_cast<UInt32>(hue / 60);
+        const auto rem    = static_cast<UInt32>((hue - static_cast<Int32>(region * 60u)) * 255 / 60);
 
-        const UInt32 p = (static_cast<UInt32>(val) * (255u - sat)) / 255u;
-        const UInt32 q = (static_cast<UInt32>(val) * (255u - ((sat * rem) / 255u))) / 255u;
-        const UInt32 t = (static_cast<UInt32>(val) * (255u - ((sat * (255u - rem)) / 255u))) / 255u;
+        const UInt32 p = static_cast<UInt32>(val) * (255u - sat) / 255u;
+        const UInt32 q = static_cast<UInt32>(val) * (255u - sat * rem / 255u) / 255u;
+        const UInt32 t = static_cast<UInt32>(val) * (255u - sat * (255u - rem) / 255u) / 255u;
 
         UInt32 r = 0;
         UInt32 g = 0;
         UInt32 b = 0;
         switch(region)
         {
-        case 0:  r = val; g = t;   b = p;   break;
-        case 1:  r = q;   g = val; b = p;   break;
-        case 2:  r = p;   g = val; b = t;   break;
-        case 3:  r = p;   g = q;   b = val; break;
-        case 4:  r = t;   g = p;   b = val; break;
-        default: r = val; g = p;   b = q;   break;
+            case 0:  r = val; g = t;   b = p;   break;
+            case 1:  r = q;   g = val; b = p;   break;
+            case 2:  r = p;   g = val; b = t;   break;
+            case 3:  r = p;   g = q;   b = val; break;
+            case 4:  r = t;   g = p;   b = val; break;
+            default: r = val; g = p;   b = q;   break;
         }
         return rgb(r, g, b);
     }
@@ -301,12 +298,12 @@ namespace bibo
         /* Whether open() succeeded. A canvas that did not open still
          * draws - into its buffer, harmlessly - so this is the only
          * way to find out. */
-        Bool  ok() const;
-        Int32 width() const;
-        Int32 height() const;
-        Box   safe() const;
+        [[nodiscard]] Bool  ok() const;
+        [[nodiscard]] Int32 width() const;
+        [[nodiscard]] Int32 height() const;
+        [[nodiscard]] Box   safe() const;
         Int32 textWidth(const Utf8* str, const Paint& paint) const;
-        Int32 textHeight(const Paint& paint) const;
+        [[nodiscard]] Int32 textHeight(const Paint& paint) const;
     };
 
     /* ===========================================================================
@@ -316,744 +313,744 @@ namespace bibo
      * canvas as a first parameter. They are not the API: Canvas's methods are,
      * and they are the only thing a sketch should name.
      * ======================================================================== */
-    namespace detail
-    {
+  namespace detail
+  {
 
       /* ---- the safe area -------------------------------------------------------
-      *
-      * Rounded corners are cut into the glass, so the outermost pixels of a panel
-      * are addressable and invisible. Anything at a corner is lost, and text along
-      * an edge vanishes into the curve.
-      *
-      * Set the inset once and lay out against these instead of against 0 and
-      * width/height. The full rectangle is still reachable - gfx::clear() fills it,
-      * and a background should - but anything that has to be READ belongs inside.
-      *
-      *     gfx::safeInset(&screen, 12);
-      *     gfx::textAt(&screen, gfx::safeLeft(&screen), gfx::safeTop(&screen), "HELLO");
-      *
-      * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
-      * for a frame to check against, then take it out.
-      */
-      inline Void safeInset(Canvas* cv, Int32 inset)
+    *
+    * Rounded corners are cut into the glass, so the outermost pixels of a panel
+    * are addressable and invisible. Anything at a corner is lost, and text along
+    * an edge vanishes into the curve.
+    *
+    * Set the inset once and lay out against these instead of against 0 and
+    * width/height. The full rectangle is still reachable - gfx::clear() fills it,
+    * and a background should - but anything that has to be READ belongs inside.
+    *
+    *     gfx::safeInset(&screen, 12);
+    *     gfx::textAt(&screen, gfx::safeLeft(&screen), gfx::safeTop(&screen), "HELLO");
+    *
+    * 12 is a reasonable start for a 1.69 inch 240x280. Turn on gfx::safeOutline()
+    * for a frame to check against, then take it out.
+    */
+      inline Void safeInset(const Canvas* cv, const Int32 inset)
       {
-        const Int32 most = ((cv->panel->width < cv->panel->height) ? cv->panel->width : cv->panel->height) / 3;
-        cv->panel->safeInset = (inset < 0) ? 0 : ((inset > most) ? most : inset);
+          const Int32 most = (cv->panel->width < cv->panel->height ? cv->panel->width : cv->panel->height) / 3;
+          cv->panel->safeInset = inset < 0 ? 0 : inset > most ? most : inset;
       }
 
       inline Int32 safeLeft(const Canvas* cv)
       {
-        return cv->panel->safeInset;
+          return cv->panel->safeInset;
       }
 
       inline Int32 safeTop(const Canvas* cv)
       {
-        return cv->panel->safeInset;
+          return cv->panel->safeInset;
       }
 
       inline Int32 safeRight(const Canvas* cv)
       {
-        return cv->panel->width - cv->panel->safeInset;
+          return cv->panel->width - cv->panel->safeInset;
       }
 
       inline Int32 safeBottom(const Canvas* cv)
       {
-        return cv->panel->height - cv->panel->safeInset;
+          return cv->panel->height - cv->panel->safeInset;
       }
 
       inline Int32 safeWidth(const Canvas* cv)
       {
-        return cv->panel->width - (2 * cv->panel->safeInset);
+          return cv->panel->width - 2 * cv->panel->safeInset;
       }
 
       inline Int32 safeHeight(const Canvas* cv)
       {
-        return cv->panel->height - (2 * cv->panel->safeInset);
+          return cv->panel->height - 2 * cv->panel->safeInset;
       }
 
       /* ---- clipping ------------------------------------------------------------ */
 
       inline Void clip(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h)
       {
-        if(x < 0)
-        {
-            w += x;
-            x = 0;
-        }
-        if(y < 0)
-        {
-            h += y;
-            y = 0;
-        }
-        if(x + w > cv->panel->width)
-        {
-            w = cv->panel->width - x;
-        }
-        if(y + h > cv->panel->height)
-        {
-            h = cv->panel->height - y;
-        }
-        if(w < 0)
-        {
-            w = 0;
-        }
-        if(h < 0)
-        {
-            h = 0;
-        }
+          if(x < 0)
+          {
+              w += x;
+              x = 0;
+          }
+          if(y < 0)
+          {
+              h += y;
+              y = 0;
+          }
+          if(x + w > cv->panel->width)
+          {
+              w = cv->panel->width - x;
+          }
+          if(y + h > cv->panel->height)
+          {
+              h = cv->panel->height - y;
+          }
+          if(w < 0)
+          {
+              w = 0;
+          }
+          if(h < 0)
+          {
+              h = 0;
+          }
 
-        cv->clipX = x;
-        cv->clipY = y;
-        cv->clipW = w;
-        cv->clipH = h;
+          cv->clipX = x;
+          cv->clipY = y;
+          cv->clipW = w;
+          cv->clipH = h;
       }
 
       inline Void clipReset(Canvas* cv)
       {
-        clip(cv, 0, 0, cv->panel->width, cv->panel->height);
+          clip(cv, 0, 0, cv->panel->width, cv->panel->height);
       }
 
       /* ---- the two primitives everything is built from -------------------------
-      *
-      * A horizontal run is the fast path in both modes: a memory fill when buffered,
-      * and ONE address window when not. Every shape below is expressed as runs for
-      * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
-      * and drawn as spans it is thirty.
-      */
-      inline Void span(Canvas* cv, Int32 x, Int32 y, Int32 len, UInt16 colour)
+    *
+    * A horizontal run is the fast path in both modes: a memory fill when buffered,
+    * and ONE address window when not. Every shape below is expressed as runs for
+    * that reason - a filled circle drawn as pixels is a thousand SPI transactions,
+    * and drawn as spans it is thirty.
+    */
+      inline Void span(Canvas* cv, Int32 x, const Int32 y, Int32 len, const UInt16 colour)
       {
-        if(len <= 0 || y < cv->clipY || y >= cv->clipY + cv->clipH)
-        {
-            return;
-        }
-        if(x < cv->clipX)
-        {
-            len -= (cv->clipX - x);
-            x = cv->clipX;
-        }
-        if(x + len > cv->clipX + cv->clipW)
-        {
-            len = (cv->clipX + cv->clipW) - x;
-        }
-        if(len <= 0)
-        {
-            return;
-        }
+          if(len <= 0 || y < cv->clipY || y >= cv->clipY + cv->clipH)
+          {
+              return;
+          }
+          if(x < cv->clipX)
+          {
+              len -= cv->clipX - x;
+              x = cv->clipX;
+          }
+          if(x + len > cv->clipX + cv->clipW)
+          {
+              len = cv->clipX + cv->clipW - x;
+          }
+          if(len <= 0)
+          {
+              return;
+          }
 
-        if(cv->buf != nullptr)
-        {
-            UInt16* p = &cv->buf[(y * PANEL_MAX_W) + x];
-            for(Int32 i = 0; i < len; ++i)
-            {
-                p[i] = colour;
-            }
-            if(y < cv->dirtyTop)
-            {
-                cv->dirtyTop = y;
-            }
-            if(y > cv->dirtyBot)
-            {
-                cv->dirtyBot = y;
-            }
-        }
-        else
-        {
-            tft::detail::rect(cv->panel, x, y, len, 1, colour);
-        }
+          if(cv->buf != nullptr)
+          {
+              UInt16* p = &cv->buf[y * PANEL_MAX_W + x];
+              for(Int32 i = 0; i < len; ++i)
+              {
+                  p[i] = colour;
+              }
+              if(y < cv->dirtyTop)
+              {
+                  cv->dirtyTop = y;
+              }
+              if(y > cv->dirtyBot)
+              {
+                  cv->dirtyBot = y;
+              }
+          }
+          else
+          {
+              tft::detail::rect(cv->panel, x, y, len, 1, colour);
+          }
       }
 
-      inline Void pixel(Canvas* cv, Int32 x, Int32 y, UInt16 colour)
+      inline Void pixel(Canvas* cv, const Int32 x, const Int32 y, const UInt16 colour)
       {
-        span(cv, x, y, 1, colour);
+          span(cv, x, y, 1, colour);
       }
 
       /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
-      * be read - so this returns black without one rather than lying. */
-      inline UInt16 peek(const Canvas* cv, Int32 x, Int32 y)
+    * be read - so this returns black without one rather than lying. */
+      inline UInt16 peek(const Canvas* cv, const Int32 x, const Int32 y)
       {
-        if(cv->buf == nullptr || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
-        {
-            return BLACK;
-        }
-        return cv->buf[(y * PANEL_MAX_W) + x];
+          if(cv->buf == nullptr || x < 0 || y < 0 || x >= cv->panel->width || y >= cv->panel->height)
+          {
+              return BLACK;
+          }
+          return cv->buf[y * PANEL_MAX_W + x];
       }
 
       /* Alpha, which needs to read what is already there and so needs the buffer. */
-      inline Void pixelBlend(Canvas* cv, Int32 x, Int32 y, UInt16 colour, UInt8 alpha)
+      inline Void pixelBlend(Canvas* cv, const Int32 x, const Int32 y, const UInt16 colour, const UInt8 alpha)
       {
-        pixel(cv, x, y, blend(peek(cv, x, y), colour, alpha));
+          pixel(cv, x, y, blend(peek(cv, x, y), colour, alpha));
       }
 
       /* ---- present ------------------------------------------------------------- */
 
       inline Void present(Canvas* cv)
       {
-        if(cv->buf == nullptr || cv->dirtyBot < cv->dirtyTop)
-        {
-            return;                     /* nothing changed; do not touch the panel */
-        }
+          if(cv->buf == nullptr || cv->dirtyBot < cv->dirtyTop)
+          {
+              return;                     /* nothing changed; do not touch the panel */
+          }
 
-        const Int32 y = cv->dirtyTop;
-        const Int32 h = (cv->dirtyBot - cv->dirtyTop) + 1;
-        const Int32 w = cv->panel->width;
+          const Int32 y = cv->dirtyTop;
+          const Int32 h = cv->dirtyBot - cv->dirtyTop + 1;
+          const Int32 w = cv->panel->width;
 
-        /* The buffer holds native-endian UInt16 and the panel wants big-endian, so
-         * this cannot be one memcpy of the frame - the bytes go out a row at a time
-         * through a swap. Still one address window and ONE transaction for the lot,
-         * which is where nearly all of the win is. */
-        UInt8 row[PANEL_MAX_W * 2];
-        tft::beginPixels(cv->panel, 0, y, w, h);
-        for(Int32 r = 0; r < h; ++r)
-        {
-            const UInt16* src = &cv->buf[((y + r) * PANEL_MAX_W)];
-            for(Int32 i = 0; i < w; ++i)
-            {
-                row[i * 2]     = static_cast<UInt8>(src[i] >> 8);
-                row[i * 2 + 1] = static_cast<UInt8>(src[i] & 0xFF);
-            }
-            spi::write(cv->panel->sck, row, static_cast<Size>(w * 2));
-        }
-        tft::endPixels(cv->panel);
+          /* The buffer holds native-endian UInt16 and the panel wants big-endian, so
+       * this cannot be one memcpy of the frame - the bytes go out a row at a time
+       * through a swap. Still one address window and ONE transaction for the lot,
+       * which is where nearly all of the win is. */
+          UInt8 row[PANEL_MAX_W * 2];
+          tft::beginPixels(cv->panel, 0, y, w, h);
+          for(Int32 r = 0; r < h; ++r)
+          {
+              const UInt16* src = &cv->buf[((y + r) * PANEL_MAX_W)];
+              for(Int32 i = 0; i < w; ++i)
+              {
+                  row[i * 2]     = static_cast<UInt8>(src[i] >> 8);
+                  row[i * 2 + 1] = static_cast<UInt8>(src[i] & 0xFF);
+              }
+              spi::write(cv->panel->sck, row, static_cast<Size>(w * 2));
+          }
+          tft::endPixels(cv->panel);
 
-        cv->dirtyTop = cv->panel->height;
-        cv->dirtyBot = -1;
+          cv->dirtyTop = cv->panel->height;
+          cv->dirtyBot = -1;
       }
 
-      inline Void clear(Canvas* cv, UInt16 colour)
+      inline Void clear(Canvas* cv, const UInt16 colour)
       {
-        for(Int32 y = 0; y < cv->panel->height; ++y)
-        {
-            span(cv, 0, y, cv->panel->width, colour);
-        }
+          for(Int32 y = 0; y < cv->panel->height; ++y)
+          {
+              span(cv, 0, y, cv->panel->width, colour);
+          }
       }
 
       /* ---- rectangles ---------------------------------------------------------- */
 
-      inline Void rectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      inline Void rectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 colour)
       {
-        for(Int32 r = 0; r < h; ++r)
-        {
-            span(cv, x, y + r, w, colour);
-        }
+          for(Int32 r = 0; r < h; ++r)
+          {
+              span(cv, x, y + r, w, colour);
+          }
       }
 
-      inline Void rect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      inline Void rect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 colour)
       {
-        if(w <= 0 || h <= 0)
-        {
-            return;
-        }
-        span(cv, x, y, w, colour);
-        span(cv, x, y + h - 1, w, colour);
-        for(Int32 r = 1; r < h - 1; ++r)
-        {
-            pixel(cv, x, y + r, colour);
-            pixel(cv, x + w - 1, y + r, colour);
-        }
+          if(w <= 0 || h <= 0)
+          {
+              return;
+          }
+          span(cv, x, y, w, colour);
+          span(cv, x, y + h - 1, w, colour);
+          for(Int32 r = 1; r < h - 1; ++r)
+          {
+              pixel(cv, x, y + r, colour);
+              pixel(cv, x + w - 1, y + r, colour);
+          }
       }
 
       /* ---- lines --------------------------------------------------------------- */
 
-      inline Void hLine(Canvas* cv, Int32 x, Int32 y, Int32 w, UInt16 colour)
+      inline Void hLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const UInt16 colour)
       {
-        span(cv, x, y, w, colour);
+          span(cv, x, y, w, colour);
       }
 
-      inline Void vLine(Canvas* cv, Int32 x, Int32 y, Int32 h, UInt16 colour)
+      inline Void vLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 h, const UInt16 colour)
       {
-        for(Int32 i = 0; i < h; ++i)
-        {
-            pixel(cv, x, y + i, colour);
-        }
+          for(Int32 i = 0; i < h; ++i)
+          {
+              pixel(cv, x, y + i, colour);
+          }
       }
 
       /*
-      * Bresenham. Integer only - no division and no floating point in the loop -
-      * which is why it has survived since 1962 and is still right on a
-      * microcontroller.
-      */
-      inline Void line(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, UInt16 colour)
+    * Bresenham. Integer only - no division and no floating point in the loop -
+    * which is why it has survived since 1962 and is still right on a
+    * microcontroller.
+    */
+      inline Void line(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const UInt16 colour)
       {
-        const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
-        const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
-        const Int32 sx = x0 < x1 ? 1 : -1;
-        const Int32 sy = y0 < y1 ? 1 : -1;
+          const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
+          const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
+          const Int32 sx = x0 < x1 ? 1 : -1;
+          const Int32 sy = y0 < y1 ? 1 : -1;
 
-        /* The axis-aligned cases are common enough - borders, grids, axes - to be
-         * worth the span path instead of stepping pixel by pixel. */
-        if(dy == 0)
-        {
-            span(cv, (x0 < x1) ? x0 : x1, y0, dx + 1, colour);
-            return;
-        }
-        if(dx == 0)
-        {
-            vLine(cv, x0, (y0 < y1) ? y0 : y1, dy + 1, colour);
-            return;
-        }
+          /* The axis-aligned cases are common enough - borders, grids, axes - to be
+       * worth the span path instead of stepping pixel by pixel. */
+          if(dy == 0)
+          {
+              span(cv, x0 < x1 ? x0 : x1, y0, dx + 1, colour);
+              return;
+          }
+          if(dx == 0)
+          {
+              vLine(cv, x0, y0 < y1 ? y0 : y1, dy + 1, colour);
+              return;
+          }
 
-        Int32 err = dx - dy;
-        Int32 x   = x0;
-        Int32 y   = y0;
+          Int32 err = dx - dy;
+          Int32 x   = x0;
+          Int32 y   = y0;
 
-        while(true)
-        {
-            pixel(cv, x, y, colour);
-            if(x == x1 && y == y1)
-            {
-                break;
-            }
-            const Int32 e2 = err * 2;
-            if(e2 > -dy)
-            {
-                err -= dy;
-                x   += sx;
-            }
-            if(e2 < dx)
-            {
-                err += dx;
-                y   += sy;
-            }
-        }
+          while(true)
+          {
+              pixel(cv, x, y, colour);
+              if(x == x1 && y == y1)
+              {
+                  break;
+              }
+              const Int32 e2 = err * 2;
+              if(e2 > -dy)
+              {
+                  err -= dy;
+                  x   += sx;
+              }
+              if(e2 < dx)
+              {
+                  err += dx;
+                  y   += sy;
+              }
+          }
       }
 
       /* ---- circles ------------------------------------------------------------- */
 
-      inline Void circle(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+      inline Void circle(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 colour)
       {
-        if(r < 0)
-        {
-            return;
-        }
-        Int32 x = 0;
-        Int32 y = r;
-        Int32 d = 1 - r;
-        while(x <= y)
-        {
-            pixel(cv, cx + x, cy + y, colour);
-            pixel(cv, cx - x, cy + y, colour);
-            pixel(cv, cx + x, cy - y, colour);
-            pixel(cv, cx - x, cy - y, colour);
-            pixel(cv, cx + y, cy + x, colour);
-            pixel(cv, cx - y, cy + x, colour);
-            pixel(cv, cx + y, cy - x, colour);
-            pixel(cv, cx - y, cy - x, colour);
-            ++x;
-            if(d < 0)
-            {
-                d += (2 * x) + 1;
-            }
-            else
-            {
-                --y;
-                d += (2 * (x - y)) + 1;
-            }
-        }
+          if(r < 0)
+          {
+              return;
+          }
+          Int32 x = 0;
+          Int32 y = r;
+          Int32 d = 1 - r;
+          while(x <= y)
+          {
+              pixel(cv, cx + x, cy + y, colour);
+              pixel(cv, cx - x, cy + y, colour);
+              pixel(cv, cx + x, cy - y, colour);
+              pixel(cv, cx - x, cy - y, colour);
+              pixel(cv, cx + y, cy + x, colour);
+              pixel(cv, cx - y, cy + x, colour);
+              pixel(cv, cx + y, cy - x, colour);
+              pixel(cv, cx - y, cy - x, colour);
+              ++x;
+              if(d < 0)
+              {
+                  d += 2 * x + 1;
+              }
+              else
+              {
+                  --y;
+                  d += 2 * (x - y) + 1;
+              }
+          }
       }
 
-      inline Void circleFill(Canvas* cv, Int32 cx, Int32 cy, Int32 r, UInt16 colour)
+      inline Void circleFill(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 colour)
       {
-        if(r < 0)
-        {
-            return;
-        }
-        Int32 x = 0;
-        Int32 y = r;
-        Int32 d = 1 - r;
-        while(x <= y)
-        {
-            span(cv, cx - x, cy + y, (2 * x) + 1, colour);
-            span(cv, cx - x, cy - y, (2 * x) + 1, colour);
-            span(cv, cx - y, cy + x, (2 * y) + 1, colour);
-            span(cv, cx - y, cy - x, (2 * y) + 1, colour);
-            ++x;
-            if(d < 0)
-            {
-                d += (2 * x) + 1;
-            }
-            else
-            {
-                --y;
-                d += (2 * (x - y)) + 1;
-            }
-        }
+          if(r < 0)
+          {
+              return;
+          }
+          Int32 x = 0;
+          Int32 y = r;
+          Int32 d = 1 - r;
+          while(x <= y)
+          {
+              span(cv, cx - x, cy + y, 2 * x + 1, colour);
+              span(cv, cx - x, cy - y, 2 * x + 1, colour);
+              span(cv, cx - y, cy + x, 2 * y + 1, colour);
+              span(cv, cx - y, cy - x, 2 * y + 1, colour);
+              ++x;
+              if(d < 0)
+              {
+                  d += 2 * x + 1;
+              }
+              else
+              {
+                  --y;
+                  d += 2 * (x - y) + 1;
+              }
+          }
       }
 
       /* ---- rounded rectangles --------------------------------------------------
-      *
-      * Filled as three bands plus four corner discs. A disc of radius r centred r in
-      * from each edge cannot reach past it, so the overdraw is free of side effects
-      * and the code stays short.
-      */
-      inline Void roundRectFill(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+    *
+    * Filled as three bands plus four corner discs. A disc of radius r centred r in
+    * from each edge cannot reach past it, so the overdraw is free of side effects
+    * and the code stays short.
+    */
+      inline Void roundRectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 colour)
       {
-        if(w <= 0 || h <= 0)
-        {
-            return;
-        }
-        const Int32 maxR = ((w < h) ? w : h) / 2;
-        if(r > maxR)
-        {
-            r = maxR;
-        }
-        if(r <= 0)
-        {
-            rectFill(cv, x, y, w, h, colour);
-            return;
-        }
+          if(w <= 0 || h <= 0)
+          {
+              return;
+          }
+          const Int32 maxR = (w < h ? w : h) / 2;
+          if(r > maxR)
+          {
+              r = maxR;
+          }
+          if(r <= 0)
+          {
+              rectFill(cv, x, y, w, h, colour);
+              return;
+          }
 
-        rectFill(cv, x + r, y, w - (2 * r), h, colour);
-        rectFill(cv, x, y + r, r, h - (2 * r), colour);
-        rectFill(cv, x + w - r, y + r, r, h - (2 * r), colour);
+          rectFill(cv, x + r, y, w - 2 * r, h, colour);
+          rectFill(cv, x, y + r, r, h - 2 * r, colour);
+          rectFill(cv, x + w - r, y + r, r, h - 2 * r, colour);
 
-        circleFill(cv, x + r,         y + r,         r, colour);
-        circleFill(cv, x + w - r - 1, y + r,         r, colour);
-        circleFill(cv, x + r,         y + h - r - 1, r, colour);
-        circleFill(cv, x + w - r - 1, y + h - r - 1, r, colour);
+          circleFill(cv, x + r,         y + r,         r, colour);
+          circleFill(cv, x + w - r - 1, y + r,         r, colour);
+          circleFill(cv, x + r,         y + h - r - 1, r, colour);
+          circleFill(cv, x + w - r - 1, y + h - r - 1, r, colour);
       }
 
-      inline Void roundRect(Canvas* cv, Int32 x, Int32 y, Int32 w, Int32 h, Int32 r, UInt16 colour)
+      inline Void roundRect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 colour)
       {
-        if(w <= 0 || h <= 0)
-        {
-            return;
-        }
-        const Int32 maxR = ((w < h) ? w : h) / 2;
-        if(r > maxR)
-        {
-            r = maxR;
-        }
-        if(r <= 0)
-        {
-            rect(cv, x, y, w, h, colour);
-            return;
-        }
+          if(w <= 0 || h <= 0)
+          {
+              return;
+          }
+          const Int32 maxR = (w < h ? w : h) / 2;
+          if(r > maxR)
+          {
+              r = maxR;
+          }
+          if(r <= 0)
+          {
+              rect(cv, x, y, w, h, colour);
+              return;
+          }
 
-        span(cv, x + r, y, w - (2 * r), colour);
-        span(cv, x + r, y + h - 1, w - (2 * r), colour);
-        vLine(cv, x, y + r, h - (2 * r), colour);
-        vLine(cv, x + w - 1, y + r, h - (2 * r), colour);
+          span(cv, x + r, y, w - 2 * r, colour);
+          span(cv, x + r, y + h - 1, w - 2 * r, colour);
+          vLine(cv, x, y + r, h - 2 * r, colour);
+          vLine(cv, x + w - 1, y + r, h - 2 * r, colour);
 
-        Int32 cx = 0;
-        Int32 cy = r;
-        Int32 d  = 1 - r;
-        while(cx <= cy)
-        {
-            pixel(cv, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
-            pixel(cv, x + r - cx,         y + h - r - 1 + cy, colour);
-            pixel(cv, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
-            pixel(cv, x + r - cy,         y + h - r - 1 + cx, colour);
+          Int32 cx = 0;
+          Int32 cy = r;
+          Int32 d  = 1 - r;
+          while(cx <= cy)
+          {
+              pixel(cv, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
+              pixel(cv, x + r - cx,         y + h - r - 1 + cy, colour);
+              pixel(cv, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
+              pixel(cv, x + r - cy,         y + h - r - 1 + cx, colour);
 
-            pixel(cv, x + w - r - 1 + cx, y + r - cy, colour);
-            pixel(cv, x + r - cx,         y + r - cy, colour);
-            pixel(cv, x + w - r - 1 + cy, y + r - cx, colour);
-            pixel(cv, x + r - cy,         y + r - cx, colour);
+              pixel(cv, x + w - r - 1 + cx, y + r - cy, colour);
+              pixel(cv, x + r - cx,         y + r - cy, colour);
+              pixel(cv, x + w - r - 1 + cy, y + r - cx, colour);
+              pixel(cv, x + r - cy,         y + r - cx, colour);
 
-            ++cx;
-            if(d < 0)
-            {
-                d += (2 * cx) + 1;
-            }
-            else
-            {
-                --cy;
-                d += (2 * (cx - cy)) + 1;
-            }
-        }
+              ++cx;
+              if(d < 0)
+              {
+                  d += 2 * cx + 1;
+              }
+              else
+              {
+                  --cy;
+                  d += 2 * (cx - cy) + 1;
+              }
+          }
       }
 
       /* ---- triangles ----------------------------------------------------------- */
 
-      inline Void triangle(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+      inline Void triangle(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const Int32 x2, const Int32 y2, const UInt16 colour)
       {
-        line(cv, x0, y0, x1, y1, colour);
-        line(cv, x1, y1, x2, y2, colour);
-        line(cv, x2, y2, x0, y0, colour);
+          line(cv, x0, y0, x1, y1, colour);
+          line(cv, x1, y1, x2, y2, colour);
+          line(cv, x2, y2, x0, y0, colour);
       }
 
       /*
-      * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
-      * that share the middle vertex, filling a span between the active edges.
-      */
-      inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, UInt16 colour)
+    * Scanline fill. Vertices sorted by y, then the triangle walked as two halves
+    * that share the middle vertex, filling a span between the active edges.
+    */
+      inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, const UInt16 colour)
       {
-        Int32 tx = 0;
-        Int32 ty = 0;
+          Int32 tx = 0;
+          Int32 ty = 0;
 
-        /* Three compare-and-swaps is a full sort for three items, and the middle
-         * one is what splits the triangle into its two scanline halves. */
-        if(y0 > y1)
-        {
-            tx = x0; x0 = x1; x1 = tx;
-            ty = y0; y0 = y1; y1 = ty;
-        }
-        if(y1 > y2)
-        {
-            tx = x1; x1 = x2; x2 = tx;
-            ty = y1; y1 = y2; y2 = ty;
-        }
-        if(y0 > y1)
-        {
-            tx = x0; x0 = x1; x1 = tx;
-            ty = y0; y0 = y1; y1 = ty;
-        }
+          /* Three compare-and-swaps is a full sort for three items, and the middle
+       * one is what splits the triangle into its two scanline halves. */
+          if(y0 > y1)
+          {
+              tx = x0; x0 = x1; x1 = tx;
+              ty = y0; y0 = y1; y1 = ty;
+          }
+          if(y1 > y2)
+          {
+              tx = x1; x1 = x2; x2 = tx;
+              ty = y1; y1 = y2; y2 = ty;
+          }
+          if(y0 > y1)
+          {
+              tx = x0; x0 = x1; x1 = tx;
+              ty = y0; y0 = y1; y1 = ty;
+          }
 
-        if(y0 == y2)
-        {
-            /* Degenerate: all three on one row. Draw the extent and stop, rather
-             * than dividing by a zero height below. */
-            Int32 lo = x0;
-            Int32 hi = x0;
-            if(x1 < lo)
-            {
-                lo = x1;
-            }
-            if(x1 > hi)
-            {
-                hi = x1;
-            }
-            if(x2 < lo)
-            {
-                lo = x2;
-            }
-            if(x2 > hi)
-            {
-                hi = x2;
-            }
-            span(cv, lo, y0, (hi - lo) + 1, colour);
-            return;
-        }
+          if(y0 == y2)
+          {
+              /* Degenerate: all three on one row. Draw the extent and stop, rather
+           * than dividing by a zero height below. */
+              Int32 lo = x0;
+              Int32 hi = x0;
+              if(x1 < lo)
+              {
+                  lo = x1;
+              }
+              if(x1 > hi)
+              {
+                  hi = x1;
+              }
+              if(x2 < lo)
+              {
+                  lo = x2;
+              }
+              if(x2 > hi)
+              {
+                  hi = x2;
+              }
+              span(cv, lo, y0, hi - lo + 1, colour);
+              return;
+          }
 
-        for(Int32 y = y0; y <= y2; ++y)
-        {
-            const Bool second = (y > y1);
+          for(Int32 y = y0; y <= y2; ++y)
+          {
+              const Bool second = y > y1;
 
-            const Int32 aY0 = y0;
-            const Int32 aY1 = y2;
-            const Int32 aX0 = x0;
-            const Int32 aX1 = x2;
+              const Int32 aY0 = y0;
+              const Int32 aY1 = y2;
+              const Int32 aX0 = x0;
+              const Int32 aX1 = x2;
 
-            const Int32 bY0 = second ? y1 : y0;
-            const Int32 bY1 = second ? y2 : y1;
-            const Int32 bX0 = second ? x1 : x0;
-            const Int32 bX1 = second ? x2 : x1;
+              const Int32 bY0 = second ? y1 : y0;
+              const Int32 bY1 = second ? y2 : y1;
+              const Int32 bX0 = second ? x1 : x0;
+              const Int32 bX1 = second ? x2 : x1;
 
-            const Int32 aDen = (aY1 - aY0);
-            const Int32 bDen = (bY1 - bY0);
+              const Int32 aDen = aY1 - aY0;
+              const Int32 bDen = bY1 - bY0;
 
-            const Int32 ax = aX0 + (((aX1 - aX0) * (y - aY0)) / ((aDen == 0) ? 1 : aDen));
-            const Int32 bx = (bDen == 0) ? bX1
-                                         : (bX0 + (((bX1 - bX0) * (y - bY0)) / bDen));
+              const Int32 ax = aX0 + (aX1 - aX0) * (y - aY0) / (aDen == 0 ? 1 : aDen);
+              const Int32 bx = bDen == 0 ? bX1
+                                   : bX0 + (bX1 - bX0) * (y - bY0) / bDen;
 
-            const Int32 lo = (ax < bx) ? ax : bx;
-            const Int32 hi = (ax < bx) ? bx : ax;
-            span(cv, lo, y, (hi - lo) + 1, colour);
-        }
+              const Int32 lo = ax < bx ? ax : bx;
+              const Int32 hi = ax < bx ? bx : ax;
+              span(cv, lo, y, hi - lo + 1, colour);
+          }
       }
 
       /* ---- text ----------------------------------------------------------------
-      *
-      * Set the colour and size on the screen once, then draw. Two ways to place it:
-      * gfx::textAt() for an absolute position, or a cursor with gfx::print() for a
-      * readout that flows down the screen.
-      */
+    *
+    * Set the colour and size on the screen once, then draw. Two ways to place it:
+    * gfx::textAt() for an absolute position, or a cursor with gfx::print() for a
+    * readout that flows down the screen.
+    */
 
-      inline Void textColour(Canvas* cv, UInt16 fg)
+      inline Void textColour(Canvas* cv, const UInt16 fg)
       {
-        cv->fg = fg;
+          cv->fg = fg;
       }
 
       /* An opaque background, which is what you want for a value that changes: the
-      * new text erases the old as it draws, with no flicker and no clear step. */
-      inline Void textBackground(Canvas* cv, UInt16 bg)
+    * new text erases the old as it draws, with no flicker and no clear step. */
+      inline Void textBackground(Canvas* cv, const UInt16 bg)
       {
-        cv->bg      = bg;
-        cv->bgSolid = true;
+          cv->bg      = bg;
+          cv->bgSolid = true;
       }
 
       /* Leave whatever is behind the glyph alone - for text over a picture. */
       inline Void textTransparent(Canvas* cv)
       {
-        cv->bgSolid = false;
+          cv->bgSolid = false;
       }
 
-      inline Void textSize(Canvas* cv, Int32 scale)
+      inline Void textSize(Canvas* cv, const Int32 scale)
       {
-        cv->textScale = (scale < 1) ? 1 : ((scale > 8) ? 8 : scale);
+          cv->textScale = scale < 1 ? 1 : scale > 8 ? 8 : scale;
       }
 
-      inline Void cursor(Canvas* cv, Int32 x, Int32 y)
+      inline Void cursor(Canvas* cv, const Int32 x, const Int32 y)
       {
-        cv->cursorX = x;
-        cv->cursorY = y;
+          cv->cursorX = x;
+          cv->cursorY = y;
       }
 
       inline Int32 textHeight(const Canvas* cv)
       {
-        return 8 * cv->textScale;
+          return 8 * cv->textScale;
       }
 
       inline Int32 charWidth(const Canvas* cv)
       {
-        return 6 * cv->textScale;
+          return 6 * cv->textScale;
       }
 
       inline Int32 textWidth(const Canvas* cv, const Utf8* str)
       {
-        Int32 n = 0;
-        while(str != nullptr && str[n] != '\0')
-        {
-            ++n;
-        }
-        return n * charWidth(cv);
+          Int32 n = 0;
+          while(str != nullptr && str[n] != '\0')
+          {
+              ++n;
+          }
+          return n * charWidth(cv);
       }
 
-      inline Void charAt(Canvas* cv, Int32 x, Int32 y, Utf8 ch)
+      inline Void charAt(Canvas* cv, const Int32 x, const Int32 y, const Utf8 ch)
       {
-        Utf8 c = ch;
-        if(c >= 'a' && c <= 'z')
-        {
-            c = static_cast<Utf8>(c - 'a' + 'A');
-        }
-        if(c < 32 || c > 90)
-        {
-            c = '?';
-        }
+          Utf8 c = ch;
+          if(c >= 'a' && c <= 'z')
+          {
+              c = static_cast<Utf8>(c - 'a' + 'A');
+          }
+          if(c < 32 || c > 90)
+          {
+              c = '?';
+          }
 
-        const UInt8* const glyph = tft::detail::FONT5X7[c - 32];
+          const UInt8* const glyph = tft::detail::FONT5X7[c - 32];
 
-        for(Int32 col = 0; col < 6; ++col)
-        {
-            const UInt8 bits = (col < 5) ? glyph[col] : 0x00;
+          for(Int32 col = 0; col < 6; ++col)
+          {
+              const UInt8 bits = col < 5 ? glyph[col] : 0x00;
 
-            for(Int32 row = 0; row < 8; ++row)
-            {
-                const Bool on = (row < 7) && (((bits >> row) & 1u) != 0u);
-                if(!on && !cv->bgSolid)
-                {
-                    continue;                   /* see through to what is behind */
-                }
-                rectFill(cv, x + (col * cv->textScale), y + (row * cv->textScale),
-                            cv->textScale, cv->textScale, on ? cv->fg : cv->bg);
-            }
-        }
+              for(Int32 row = 0; row < 8; ++row)
+              {
+                  const Bool on = row < 7 && ((bits >> row) & 1u) != 0u;
+                  if(!on && !cv->bgSolid)
+                  {
+                      continue;                   /* see through to what is behind */
+                  }
+                  rectFill(cv, x + col * cv->textScale, y + row * cv->textScale,
+                           cv->textScale, cv->textScale, on ? cv->fg : cv->bg);
+              }
+          }
       }
 
-      inline Void textAt(Canvas* cv, Int32 x, Int32 y, const Utf8* str)
+      inline Void textAt(Canvas* cv, const Int32 x, const Int32 y, const Utf8* str)
       {
-        Int32 cx = x;
-        while(str != nullptr && *str != '\0')
-        {
-            charAt(cv, cx, y, *str);
-            cx += charWidth(cv);
-            ++str;
-        }
+          Int32 cx = x;
+          while(str != nullptr && *str != '\0')
+          {
+              charAt(cv, cx, y, *str);
+              cx += charWidth(cv);
+              ++str;
+          }
       }
 
 
       /* `x` is the left edge, the centre or the right edge depending on `align` -
-      * which is what makes a value that changes width stay put. */
-      inline Void textAligned(Canvas* cv, Int32 x, Int32 y, const Utf8* str, Align align)
+    * which is what makes a value that changes width stay put. */
+      inline Void textAligned(Canvas* cv, const Int32 x, const Int32 y, const Utf8* str, const Align align)
       {
-        const Int32 w  = textWidth(cv, str);
-        Int32       at = x;
-        if(align == ALIGN_CENTRE)
-        {
-            at = x - (w / 2);
-        }
-        else if(align == ALIGN_RIGHT)
-        {
-            at = x - w;
-        }
-        textAt(cv, at, y, str);
+          const Int32 w  = textWidth(cv, str);
+          Int32       at = x;
+          if(align == ALIGN_CENTRE)
+          {
+              at = x - w / 2;
+          }
+          else if(align == ALIGN_RIGHT)
+          {
+              at = x - w;
+          }
+          textAt(cv, at, y, str);
       }
 
       /* Draws at the cursor and advances it, so consecutive calls flow. */
       inline Void print(Canvas* cv, const Utf8* str)
       {
-        textAt(cv, cv->cursorX, cv->cursorY, str);
-        cv->cursorX += textWidth(cv, str);
+          textAt(cv, cv->cursorX, cv->cursorY, str);
+          cv->cursorX += textWidth(cv, str);
       }
 
       inline Void printLine(Canvas* cv, const Utf8* str)
       {
-        textAt(cv, cv->cursorX, cv->cursorY, str);
-        cv->cursorY += textHeight(cv) + (2 * cv->textScale);
+          textAt(cv, cv->cursorX, cv->cursorY, str);
+          cv->cursorY += textHeight(cv) + 2 * cv->textScale;
       }
 
       /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
-      * screen and forty characters already overflow it at size 1. */
+    * screen and forty characters already overflow it at size 1. */
       inline Void printf(Canvas* cv, const Utf8* fmt, ...)
       {
-        Utf8    buf[64];
-        va_list ap;
-        va_start(ap, fmt);
-        vsnprintf(buf, sizeof(buf), fmt, ap);
-        va_end(ap);
-        print(cv, buf);
+          Utf8    buf[64];
+          va_list ap;
+          va_start(ap, fmt);
+          vsnprintf(buf, sizeof(buf), fmt, ap);
+          va_end(ap);
+          print(cv, buf);
       }
 
       /*
-      * Draws the safe area's boundary. A calibration aid, not decoration: run it,
-      * look at the panel, and change the inset until the frame is fully visible with
-      * a little to spare. Then take the call out.
-      */
-      inline Void safeOutline(Canvas* cv, UInt16 colour)
+    * Draws the safe area's boundary. A calibration aid, not decoration: run it,
+    * look at the panel, and change the inset until the frame is fully visible with
+    * a little to spare. Then take the call out.
+    */
+      inline Void safeOutline(Canvas* cv, const UInt16 colour)
       {
-        rect(cv, safeLeft(cv), safeTop(cv),
-                safeWidth(cv), safeHeight(cv), colour);
+          rect(cv, safeLeft(cv), safeTop(cv),
+               safeWidth(cv), safeHeight(cv), colour);
       }
 
       /* ---- start --------------------------------------------------------------- */
 
       /*
-      * Brings up the panel AND attaches the back buffer.
-      *
-      * Returns what tft::open returns, which can only tell you the SPI pins were valid
-      * - see the note in st77xx.h about the panel being write-only.
-      */
-      [[nodiscard]] static Bool open(Canvas* cv, tft::Screen* panel, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+    * Brings up the panel AND attaches the back buffer.
+    *
+    * Returns what tft::open returns, which can only tell you the SPI pins were valid
+    * - see the note in st77xx.h about the panel being write-only.
+    */
+      [[nodiscard]] static Bool open(Canvas* cv, tft::Screen* panel, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff)
       {
-        cv->panel = panel;
+          cv->panel = panel;
 
-        /* The drawing state starts here rather than in the driver. tft::openOn
-         * used to zero these, which meant a panel arrived pre-loaded with a text
-         * colour and a clip rectangle it had no business having an opinion on. */
-        cv->buf       = nullptr;
-        cv->dirtyTop  = h;
-        cv->dirtyBot  = -1;
-        cv->clipX     = 0;
-        cv->clipY     = 0;
-        cv->clipW     = w;
-        cv->clipH     = h;
-        cv->cursorX   = 0;
-        cv->cursorY   = 0;
-        cv->fg        = WHITE;
-        cv->bg        = BLACK;
-        cv->bgSolid   = true;
-        cv->textScale = 1;
+          /* The drawing state starts here rather than in the driver. tft::openOn
+       * used to zero these, which meant a panel arrived pre-loaded with a text
+       * colour and a clip rectangle it had no business having an opinion on. */
+          cv->buf       = nullptr;
+          cv->dirtyTop  = h;
+          cv->dirtyBot  = -1;
+          cv->clipX     = 0;
+          cv->clipY     = 0;
+          cv->clipW     = w;
+          cv->clipH     = h;
+          cv->cursorX   = 0;
+          cv->cursorY   = 0;
+          cv->fg        = WHITE;
+          cv->bg        = BLACK;
+          cv->bgSolid   = true;
+          cv->textScale = 1;
 
-        if(!tft::open(cv->panel, w, h, xoff, yoff))
-        {
-            return false;
-        }
+          if(!tft::open(cv->panel, w, h, xoff, yoff))
+          {
+              return false;
+          }
 
-        /* One buffer, so the FIRST screen to ask gets it. A second screen still
-         * works and simply draws straight at its panel - which is the honest
-         * outcome, and better than two screens quietly sharing one buffer. */
-        if(!bufTaken)
-        {
-            bufTaken = true;
-            cv->buf      = buf;
-        }
+          /* One buffer, so the FIRST screen to ask gets it. A second screen still
+       * works and simply draws straight at its panel - which is the honest
+       * outcome, and better than two screens quietly sharing one buffer. */
+          if(!bufTaken)
+          {
+              bufTaken = true;
+              cv->buf      = buf;
+          }
 
-        clipReset(cv);
-        clear(cv, BLACK);
-        present(cv);
-        return true;
+          clipReset(cv);
+          clear(cv, BLACK);
+          present(cv);
+          return true;
       }
 
-    } /* namespace detail */
+  } /* namespace detail */
 
     /* ===========================================================================
      * Canvas, the API.
@@ -1062,7 +1059,7 @@ namespace bibo
      * The value is not in what they do, it is in what a frame LOOKS like once
      * they exist - see the header comment at the top of this file.
      * ======================================================================== */
-    inline Canvas& Canvas::clear(UInt16 colour)
+    inline Canvas& Canvas::clear(const UInt16 colour)
     {
         detail::clear(this, colour);
         return *this;
@@ -1077,12 +1074,12 @@ namespace bibo
         detail::clipReset(this);
         return *this;
     }
-    inline Canvas& Canvas::safeInset(Int32 px)
+    inline Canvas& Canvas::safeInset(const Int32 px)
     {
         detail::safeInset(this, px);
         return *this;
     }
-    inline Canvas& Canvas::safeOutline(UInt16 colour)
+    inline Canvas& Canvas::safeOutline(const UInt16 colour)
     {
         detail::safeOutline(this, colour);
         return *this;
@@ -1093,61 +1090,61 @@ namespace bibo
         return *this;
     }
 
-    inline Canvas& Canvas::pixel(Point p, UInt16 colour)
+    inline Canvas& Canvas::pixel(const Point p, const UInt16 colour)
     {
         detail::pixel(this, p.x, p.y, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::line(Point a, Point b, UInt16 colour)
+    inline Canvas& Canvas::line(const Point a, const Point b, const UInt16 colour)
     {
         detail::line(this, a.x, a.y, b.x, b.y, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::rect(const Box& b, UInt16 colour)
+    inline Canvas& Canvas::rect(const Box& b, const UInt16 colour)
     {
         detail::rect(this, b.x, b.y, b.w, b.h, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::rectFill(const Box& b, UInt16 colour)
+    inline Canvas& Canvas::rectFill(const Box& b, const UInt16 colour)
     {
         detail::rectFill(this, b.x, b.y, b.w, b.h, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::roundRect(const Box& b, Int32 radius, UInt16 colour)
+    inline Canvas& Canvas::roundRect(const Box& b, const Int32 radius, const UInt16 colour)
     {
         detail::roundRect(this, b.x, b.y, b.w, b.h, radius, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::roundRectFill(const Box& b, Int32 radius, UInt16 colour)
+    inline Canvas& Canvas::roundRectFill(const Box& b, const Int32 radius, const UInt16 colour)
     {
         detail::roundRectFill(this, b.x, b.y, b.w, b.h, radius, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::circle(Point centre, Int32 radius, UInt16 colour)
+    inline Canvas& Canvas::circle(const Point centre, const Int32 radius, const UInt16 colour)
     {
         detail::circle(this, centre.x, centre.y, radius, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::circleFill(Point centre, Int32 radius, UInt16 colour)
+    inline Canvas& Canvas::circleFill(const Point centre, const Int32 radius, const UInt16 colour)
     {
         detail::circleFill(this, centre.x, centre.y, radius, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::triangle(Point a, Point b, Point cc, UInt16 colour)
+    inline Canvas& Canvas::triangle(const Point a, const Point b, const Point cc, const UInt16 colour)
     {
         detail::triangle(this, a.x, a.y, b.x, b.y, cc.x, cc.y, colour);
         return *this;
     }
 
-    inline Canvas& Canvas::triangleFill(Point a, Point b, Point cc, UInt16 colour)
+    inline Canvas& Canvas::triangleFill(const Point a, const Point b, const Point cc, const UInt16 colour)
     {
         detail::triangleFill(this, a.x, a.y, b.x, b.y, cc.x, cc.y, colour);
         return *this;
@@ -1159,7 +1156,7 @@ namespace bibo
     inline Void applyPaint(Canvas* cv, const Paint& p)
     {
         detail::textColour(cv, p.fg);
-        detail::textSize(cv, (p.size > 0) ? p.size : 1);
+        detail::textSize(cv, p.size > 0 ? p.size : 1);
         if(p.bgSolid)
         {
             detail::textBackground(cv, p.bg);
@@ -1170,21 +1167,21 @@ namespace bibo
         }
     }
 
-    inline Canvas& Canvas::text(Point at, const Utf8* str, const Paint& paint)
+    inline Canvas& Canvas::text(const Point at, const Utf8* str, const Paint& paint)
     {
         applyPaint(this, paint);
         detail::textAt(this, at.x, at.y, str);
         return *this;
     }
 
-    inline Canvas& Canvas::text(Point at, const Utf8* str, const Paint& paint, Align align)
+    inline Canvas& Canvas::text(const Point at, const Utf8* str, const Paint& paint, const Align align)
     {
         applyPaint(this, paint);
         detail::textAligned(this, at.x, at.y, str, align);
         return *this;
     }
 
-    inline Canvas& Canvas::printf(Point at, const Paint& paint, const Utf8* fmt, ...)
+    inline Canvas& Canvas::printf(const Point at, const Paint& paint, const Utf8* fmt, ...)
     {
         Utf8    buf[64];
         va_list ap;
@@ -1203,31 +1200,30 @@ namespace bibo
     }
 
     inline Int32 Canvas::width() const
-
     {
-
         return panel->width;
-
     }
+
     inline Int32 Canvas::height() const
     {
         return panel->height;
     }
+
     inline Box Canvas::safe() const
     {
-        return Box{ detail::safeLeft(this), detail::safeTop(this),
-                    detail::safeWidth(this), detail::safeHeight(this) };
+        return Box{ .x = detail::safeLeft(this), .y = detail::safeTop(this),
+            .w = detail::safeWidth(this), .h = detail::safeHeight(this) };
     }
 
     inline Int32 Canvas::textWidth(const Utf8* str, const Paint& paint) const
     {
-        const Int32 scale = (paint.size > 0) ? paint.size : 1;
-        return (str == nullptr) ? 0 : static_cast<Int32>(text::len(str)) * 6 * scale;
+        const Int32 scale = paint.size > 0 ? paint.size : 1;
+        return str == nullptr ? 0 : static_cast<Int32>(text::len(str)) * 6 * scale;
     }
 
     inline Int32 Canvas::textHeight(const Paint& paint) const
     {
-        return 8 * ((paint.size > 0) ? paint.size : 1);
+        return 8 * (paint.size > 0 ? paint.size : 1);
     }
 
     /* ---------------------------------------------------------------------------
@@ -1247,12 +1243,10 @@ namespace bibo
 
     inline Canvas open(tft::Screen* panel, const PanelSize& g)
     {
-        Canvas cv;
+        Canvas cv{};
         cv.opened = detail::open(&cv, panel, g.w, g.h, g.xoff, g.yoff);
         return cv;
     }
 
 
-  } // namespace gfx
-
-} // namespace bibo
+}

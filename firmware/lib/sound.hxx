@@ -40,11 +40,8 @@
 #include "sfx.hxx"
 #include "drivers/dfplayer.hxx"
 
-namespace bibo
+namespace bibo::sound
 {
-
-  namespace sound
-  {
 
     /* ---- state, one copy - the same deal chassis.hxx and lights.hxx make -- */
     inline dfplayer::Bus bus;
@@ -156,15 +153,15 @@ namespace bibo
     /* ---- settings ---------------------------------------------------------
      *
      * Clamped by the driver, remembered here so a reset can put them back. */
-    inline Void setVolume(UInt8 v)
+    inline Void setVolume(const UInt8 v)
     {
-        level = (v > DFP_VOLUME_MAX) ? DFP_VOLUME_MAX : v;
+        level = v > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : v;
         dfplayer::volume(&bus, level);
     }
 
-    inline Void setEq(UInt8 e)
+    inline Void setEq(const UInt8 e)
     {
-        tone = (e > DFP_EQ_MAX) ? DFP_EQ_MAX : e;
+        tone = e > DFP_EQ_MAX ? DFP_EQ_MAX : e;
         dfplayer::eq(&bus, tone);
     }
 
@@ -188,7 +185,7 @@ namespace bibo
         RESULT_RESERVED    /* track 0 - 0000.mp3 is not a playable file */
     };
 
-    inline Result playTrack(UInt16 t)
+    inline Result playTrack(const UInt16 t)
     {
         if(!up)
         {
@@ -230,7 +227,7 @@ namespace bibo
 
     /* By NAME. The lookup is sfx's - case-insensitive and whole-string - so a
      * caller never sees a track number unless it wants one. */
-    inline Result play(CharSeq clip)
+    inline Result play(const CharSeq clip)
     {
         const UInt16 t = sfx::track(clip);
         if(t == sfx::NONE)
@@ -242,17 +239,17 @@ namespace bibo
 
     /* One line each, so a caller can report a refusal without a switch of its
      * own and every place that refuses says the same words. */
-    inline CharSeq why(Result r)
+    inline CharSeq why(const Result r)
     {
         switch(r)
         {
-        case RESULT_OK:       return "ok";
-        case RESULT_CLOSED:   return "the speaker was never opened";
-        case RESULT_NO_CARD:  return "the card is not mounted";
-        case RESULT_NO_CLIP:  return "no clip by that name";
-        case RESULT_PAST_END: return "that clip is past the end of the card";
-        case RESULT_RESERVED: return "track 0 is reserved - files start at 1";
-        default:             return "?";
+            case RESULT_OK:       return "ok";
+            case RESULT_CLOSED:   return "the speaker was never opened";
+            case RESULT_NO_CARD:  return "the card is not mounted";
+            case RESULT_NO_CLIP:  return "no clip by that name";
+            case RESULT_PAST_END: return "that clip is past the end of the card";
+            case RESULT_RESERVED: return "track 0 is reserved - files start at 1";
+            default:             return "?";
         }
     }
 
@@ -271,6 +268,4 @@ namespace bibo
         dfplayer::play(&bus);
     }
 
-  } /* namespace sound */
-
-} /* namespace bibo */
+}

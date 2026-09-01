@@ -25,11 +25,8 @@
 
 #include "types.hxx"
 
-namespace bibo
+namespace bibo::control
 {
-
-  namespace control
-  {
 
     /* ---- feedforward ------------------------------------------------------
      *
@@ -70,14 +67,14 @@ namespace bibo
      * So the static term is gated on the target being non-zero, not on the
      * MEASUREMENT being non-zero - gating on measurement would mean a stopped
      * car could never start. */
-    inline Float32 predict(const Feedforward* f, Float32 vTarget, Float32 aTarget)
+    inline Float32 predict(const Feedforward* f, const Float32 vTarget, const Float32 aTarget)
     {
         if(f == nullptr)
         {
             return 0.0f;
         }
 
-        Float32 out = (f->gainV * vTarget) + (f->gainA * aTarget);
+        Float32 out = f->gainV * vTarget + f->gainA * aTarget;
 
         if(vTarget > 0.0f)
         {
@@ -148,7 +145,7 @@ namespace bibo
      * winds the integral up for as long as it is held, and the car leaps when
      * it comes free. Clamping alone does not fix that; it only bounds how long
      * the leap lasts. */
-    inline Float32 step(Pid* p, Float32 setpoint, Float32 measured, Float32 dtS)
+    inline Float32 step(Pid* p, const Float32 setpoint, const Float32 measured, const Float32 dtS)
     {
         if(p == nullptr)
         {
@@ -182,8 +179,8 @@ namespace bibo
 
         const Float32 add = p->ki * error * dtS;
 
-        const Bool high = (p->outMax > p->outMin) && (without >= p->outMax);
-        const Bool low  = (p->outMax > p->outMin) && (without <= p->outMin);
+        const Bool high = p->outMax > p->outMin && without >= p->outMax;
+        const Bool low  = p->outMax > p->outMin && without <= p->outMin;
 
         /* Integrate unless that would push further into a limit we are already
          * against. Error pointing back toward the middle always integrates. */
@@ -233,11 +230,9 @@ namespace bibo
     /* Feedforward plus correction, which is the arrangement the whole file is
      * arguing for. Kept as one call so the ORDER cannot be got wrong at a call
      * site - the model first, the correction on top of it. */
-    inline Float32 command(const Feedforward* f, Pid* p, Demand d, Float32 v, Float32 dt)
+    inline Float32 command(const Feedforward* f, Pid* p, const Demand d, const Float32 v, const Float32 dt)
     {
         return predict(f, d.v, d.a) + step(p, d.v, v, dt);
     }
 
-  } /* namespace control */
-
-} /* namespace bibo */
+}

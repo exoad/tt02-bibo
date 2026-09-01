@@ -222,7 +222,7 @@ namespace bibo
      * budget needs to know the mode. */
     [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget);
 
-    [[nodiscard]] static Bool setMode(Vl53* v, Mode mode)
+    [[nodiscard]] static Bool setMode(Vl53* v, const Mode mode)
     {
         if(!v->ok)
         {
@@ -280,7 +280,7 @@ namespace bibo
      * Must be set - the configuration block alone does not leave a usable budget,
      * and a sensor without one ranges happily and cannot see past about a metre.
      */
-    [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget)
+    [[nodiscard]] static Bool setBudget(Vl53* v, const Budget budget)
     {
         if(!v->ok)
         {
@@ -293,7 +293,7 @@ namespace bibo
 
         v->budget = budget;
 
-        const UInt16* row = (v->mode == MODE_SHORT)
+        const UInt16* row = v->mode == MODE_SHORT
                           ? BUDGET_SHORT[static_cast<Int32>(budget)]
                           : BUDGET_LONG[static_cast<Int32>(budget)];
 
@@ -313,7 +313,7 @@ namespace bibo
      * On a pad the caller names. For a sensor that is not on the installed
      * map - a second one on another bus, or a bench rig.
      */
-    [[nodiscard]] static Bool openOn(Vl53* v, Pin sda, UInt8 addr)
+    [[nodiscard]] static Bool openOn(Vl53* v, const Pin sda, const UInt8 addr)
     {
         if(v == nullptr)
         {
@@ -408,7 +408,7 @@ namespace bibo
             UInt8 mux = 0;
             if(i2c::readReg16U8(sda, addr, VL53_REG_GPIO_HV_MUX, &mux))
             {
-                v->intPolarity = ((mux & 0x10u) != 0u) ? 0u : 1u;
+                v->intPolarity = (mux & 0x10u) != 0u ? 0u : 1u;
             }
         }
 
@@ -435,7 +435,7 @@ namespace bibo
      * so. Several devices share one bus and each opening it would be each one
      * deciding the clock for all of them.
      */
-    [[nodiscard]] static Bool open(Vl53* v, UInt8 addr)
+    [[nodiscard]] static Bool open(Vl53* v, const UInt8 addr)
     {
         return openOn(v, pins::active().i2cSda, addr);
     }
@@ -594,7 +594,7 @@ namespace bibo
         }
     }
 
-    static const Utf8* statusName(UInt8 status)
+    static const Utf8* statusName(const UInt8 status)
     {
         switch(status)
         {

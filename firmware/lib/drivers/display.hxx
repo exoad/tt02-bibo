@@ -125,7 +125,7 @@ namespace bibo
      * function adds is argument types, a return type, and evaluating each
      * argument exactly once. A macro doing arithmetic evaluates whatever you
      * hand it as many times as its body mentions it. */
-    constexpr UInt16 rgb(UInt32 r, UInt32 g, UInt32 b)
+    constexpr UInt16 rgb(const UInt32 r, const UInt32 g, const UInt32 b)
     {
         return static_cast<UInt16>(((r & 0xF8u) << 8)
                                  | ((g & 0xFCu) << 3)
@@ -190,12 +190,12 @@ namespace bibo
 
     inline Int32 width(const Screen* s)
     {
-        return (s != nullptr) ? s->width : 0;
+        return s != nullptr ? s->width : 0;
     }
 
     inline Int32 height(const Screen* s)
     {
-        return (s != nullptr) ? s->height : 0;
+        return s != nullptr ? s->height : 0;
     }
 
     /* ---- the wire ------------------------------------------------------------
@@ -223,7 +223,7 @@ namespace bibo
     }
 
     /* A command and its parameters, as one transaction. `n` may be 0. */
-    inline Void write(const Screen* s, UInt8 cmd, const UInt8* params, Size n)
+    inline Void write(const Screen* s, const UInt8 cmd, const UInt8* params, const Size n)
     {
         select(s);
 
@@ -239,12 +239,12 @@ namespace bibo
         deselect(s);
     }
 
-    inline Void cmd(const Screen* s, UInt8 c)
+    inline Void cmd(const Screen* s, const UInt8 c)
     {
         write(s, c, nullptr, 0);
     }
 
-    inline Void cmd1(const Screen* s, UInt8 c, UInt8 p)
+    inline Void cmd1(const Screen* s, const UInt8 c, const UInt8 p)
     {
         write(s, c, &p, 1);
     }
@@ -254,7 +254,7 @@ namespace bibo
      * into it", which is why there is no per-pixel addressing anywhere below - the
      * controller advances its own cursor and wraps at the right edge.
      */
-    inline Void window(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+    inline Void window(const Screen* s, const Int32 x, const Int32 y, const Int32 w, const Int32 h)
     {
         const Int32 x0 = x + s->xoff;
         const Int32 y0 = y + s->yoff;
@@ -282,7 +282,7 @@ namespace bibo
      * RAMWR is exactly the command whose data must not be separated from it, since
      * its "parameters" are the whole image.
      */
-    inline Void beginPixels(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h)
+    inline Void beginPixels(const Screen* s, const Int32 x, const Int32 y, const Int32 w, const Int32 h)
     {
         window(s, x, y, w, h);
 
@@ -320,7 +320,7 @@ namespace bibo
     namespace detail
     {
 
-      inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, UInt16 colour)
+      inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, const UInt16 colour)
       {
         if(w <= 0 || h <= 0)
         {
@@ -366,12 +366,12 @@ namespace bibo
         endPixels(s);
       }
 
-      inline Void fill(const Screen* s, UInt16 colour)
+      inline Void fill(const Screen* s, const UInt16 colour)
       {
         rect(s, 0, 0, s->width, s->height, colour);
       }
 
-      inline Void pixel(const Screen* s, Int32 x, Int32 y, UInt16 colour)
+      inline Void pixel(const Screen* s, const Int32 x, const Int32 y, const UInt16 colour)
       {
         rect(s, x, y, 1, 1, colour);
       }
@@ -460,7 +460,7 @@ namespace bibo
       * costs at most 1536 bytes of stack and turns a character into one address
       * setup and one burst.
       */
-      inline Void drawChar(const Screen* s, Int32 x, Int32 y, Utf8 ch, UInt16 fg, UInt16 bg, Int32 scale)
+      inline Void drawChar(const Screen* s, const Int32 x, const Int32 y, const Utf8 ch, const UInt16 fg, const UInt16 bg, Int32 scale)
       {
         if(scale < 1)
         {
@@ -511,8 +511,8 @@ namespace bibo
 
                 /* The sixth column is the gap between characters, DRAWN rather than
                  * skipped so overwriting text leaves no comb of old pixels. */
-                const UInt8 bits = (gc < 5) ? glyph[gc] : 0x00;
-                const Bool  on   = (gr < 7) && (((bits >> gr) & 1u) != 0u);
+                const UInt8 bits = gc < 5 ? glyph[gc] : 0x00;
+                const Bool  on   = gr < 7 && ((bits >> gr) & 1u) != 0u;
 
                 cell[at++] = on ? fgHi : bgHi;
                 cell[at++] = on ? fgLo : bgLo;
@@ -524,7 +524,7 @@ namespace bibo
         endPixels(s);
       }
 
-      inline Void text(const Screen* s, Int32 x, Int32 y, const Utf8* str, UInt16 fg, UInt16 bg, Int32 scale)
+      inline Void text(const Screen* s, const Int32 x, const Int32 y, const Utf8* str, const UInt16 fg, const UInt16 bg, const Int32 scale)
       {
         Int32 cx = x;
         while(str != nullptr && *str != '\0')
@@ -546,7 +546,7 @@ namespace bibo
      * is write-only and cannot be checked, which is exactly why a first sketch
      * draws a test pattern rather than trusting a return code.
      */
-    [[nodiscard]] static Bool openOn(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff, Pin sck, Pin mosi, Pin cs, Pin dc, Pin res)
+    [[nodiscard]] static Bool openOn(Screen* s, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff, const Pin sck, const Pin mosi, const Pin cs, const Pin dc, const Pin res)
     {
         if(s == nullptr)
         {
@@ -555,10 +555,10 @@ namespace bibo
 
         /* Clamped to what the controller can address, so a typo produces a wrong
          * picture rather than a window running off the end of its RAM. */
-        s->width  = (w <= 0) ? PANEL_MAX_W : ((w > PANEL_MAX_W) ? PANEL_MAX_W : w);
-        s->height = (h <= 0) ? PANEL_MAX_H : ((h > PANEL_MAX_H) ? PANEL_MAX_H : h);
-        s->xoff   = (xoff < 0) ? 0 : xoff;
-        s->yoff   = (yoff < 0) ? 0 : yoff;
+        s->width  = w <= 0 ? PANEL_MAX_W : w > PANEL_MAX_W ? PANEL_MAX_W : w;
+        s->height = h <= 0 ? PANEL_MAX_H : h > PANEL_MAX_H ? PANEL_MAX_H : h;
+        s->xoff   = xoff < 0 ? 0 : xoff;
+        s->yoff   = yoff < 0 ? 0 : yoff;
 
         s->sck  = sck;
         s->mosi = mosi;
@@ -665,7 +665,7 @@ namespace bibo
     }
 
     /* The same, on this project's pins. What a sketch normally calls. */
-    [[nodiscard]] static Bool open(Screen* s, Int32 w, Int32 h, Int32 xoff, Int32 yoff)
+    [[nodiscard]] static Bool open(Screen* s, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff)
     {
         /* The pads THIS PROGRAM declared, not the defines above. The display's
          * wiring used to be fixed when the firmware was compiled, so a sketch
@@ -711,7 +711,7 @@ namespace bibo
     /* Colour inversion at the controller. ST7789 glass is wired inverted, which
      * is why PANEL_INVERT exists and why open() already sets this - flipping it
      * afterwards is for looking at a panel you are not sure about. */
-    inline Void invert(const Screen* s, Bool on)
+    inline Void invert(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x21 : 0x20);   /* INVON / INVOFF */
     }
@@ -720,14 +720,14 @@ namespace bibo
      * backlight off: on a board with BLK tied to 3V3 a sleeping panel is a lit
      * rectangle of nothing, which looks like a crash. Turn the backlight down
      * too if there is one. */
-    inline Void sleep(const Screen* s, Bool on)
+    inline Void sleep(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x10 : 0x11);   /* SLPIN / SLPOUT */
         timing::ms(on ? 5u : 120u);         /* SLPOUT needs the long wait */
     }
 
     /* Blanks the output without sleeping. Faster to come back from than sleep. */
-    inline Void display(const Screen* s, Bool on)
+    inline Void display(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x29 : 0x28);   /* DISPON / DISPOFF */
     }
@@ -746,13 +746,13 @@ namespace bibo
      * call that silently does nothing is indistinguishable from a broken panel,
      * and the fix is a wire rather than a line of code.
      */
-    [[nodiscard]] static Bool brightness(const Screen* s, Float32 level)
+    [[nodiscard]] static Bool brightness(const Screen* s, const Float32 level)
     {
         if(!hasBacklight(s))
         {
             return false;
         }
-        pwm::write(s->blk, (level < 0.0f) ? 0.0f : (level > 1.0f) ? 1.0f : level);
+        pwm::write(s->blk, level < 0.0f ? 0.0f : level > 1.0f ? 1.0f : level);
         return true;
     }
 
