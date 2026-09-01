@@ -18,19 +18,19 @@ struct LidarPoint
 struct LidarFrame
 {
     Vec<LidarPoint> points;
-    Float32 hz           = 0.0f;   // rotation rate reported by the SDK
-    Int32   validCount  = 0;      // points with distMm > 0
-    Float32 maxDistMm  = 0.0f;
+    Float32 hz = 0.0f;   // rotation rate reported by the SDK
+    Int32   validCount = 0;      // points with distMm > 0
+    Float32 maxDistMm = 0.0f;
 };
 
 struct LidarDeviceInfo
 {
-    Int32         model    = 0;
+    Int32         model = 0;
     Int32         fwMajor = 0;
     Int32         fwMinor = 0;
-    Int32         hwRev   = 0;
+    Int32         hwRev = 0;
     Str serial;          // 32 hex chars
-    Int32         health   = -1;   // 0=good 1=warning 2=error, -1=unknown
+    Int32         health = -1;   // 0=good 1=warning 2=error, -1=unknown
 };
 
 // What the SDK negotiated at start-scan. The C1 picks a mode; these fields say
@@ -38,16 +38,16 @@ struct LidarDeviceInfo
 struct LidarScanInfo
 {
     Str mode;                 // mode name reported by the SDK
-    Int32         modeId        = -1;
-    Float32     usPerSample   = 0.0f; // sample period -> theoretical sample rate
+    Int32         modeId = -1;
+    Float32     usPerSample = 0.0f; // sample period -> theoretical sample rate
     Float32       maxDistanceM = 0.0f; // mode's own range ceiling
 };
 
 // Session counters, since start().
 struct LidarStats
 {
-    UInt64 frames   = 0;   // revolutions delivered to the UI
-    UInt64 points   = 0;   // measurements across all revolutions
+    UInt64 frames = 0;   // revolutions delivered to the UI
+    UInt64 points = 0;   // measurements across all revolutions
     UInt32       timeouts = 0;   // grab timeouts (a dropped revolution)
     Float64             uptimeS = 0.0; // since start() succeeded
 };
@@ -72,7 +72,7 @@ public:
     LidarSource();
     ~LidarSource();
 
-    LidarSource(const LidarSource&)            = delete;
+    LidarSource(const LidarSource&) = delete;
     LidarSource& operator=(const LidarSource&) = delete;
 
     // Non-blocking. Spins up the worker; watch state() for the outcome.

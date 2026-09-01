@@ -140,9 +140,9 @@ namespace diag
                   Size     len = 0;
                   if(severityAt(text, j, sev, len))
                   {
-                      out.file     = text.substr(0, open);
-                      out.line     = line;
-                      out.column   = col;
+                      out.file = text.substr(0, open);
+                      out.line = line;
+                      out.column = col;
                       out.severity = sev;
 
                       Size m = text.find(':', j + len);
@@ -170,7 +170,7 @@ namespace diag
               continue;
           }
 
-          Size  j    = i + 1;
+          Size  j = i + 1;
           Int32 line = 0;
           while(j < text.size() && digit(text[j]))
           {
@@ -214,11 +214,11 @@ namespace diag
               ++m;
           }
 
-          out.file     = text.substr(0, i);
-          out.line     = line;
-          out.column   = col;
+          out.file = text.substr(0, i);
+          out.line = line;
+          out.column = col;
           out.severity = sev;
-          out.message  = text.substr(m);
+          out.message = text.substr(m);
           return true;
       }
 

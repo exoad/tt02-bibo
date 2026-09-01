@@ -114,9 +114,9 @@ namespace bibo::control
         Float32 outMax = 0.0f; /* output units; outMax <= outMin disables clamping */
 
         /* ---- state ---- */
-        Float32 integral  = 0.0f;
-        Float32 lastMeas  = 0.0f;
-        Bool    primed    = false;
+        Float32 integral = 0.0f;
+        Float32 lastMeas = 0.0f;
+        Bool    primed = false;
     };
 
     /**
@@ -133,7 +133,7 @@ namespace bibo::control
         }
         p->integral = 0.0f;
         p->lastMeas = 0.0f;
-        p->primed   = false;
+        p->primed = false;
     }
 
     /**
@@ -195,7 +195,7 @@ namespace bibo::control
             dTerm = -p->kd * ((measured - p->lastMeas) / dtS);
         }
         p->lastMeas = measured;
-        p->primed   = true;
+        p->primed = true;
 
         /* Provisional, to find out whether integrating would saturate. */
         const Float32 without = pTerm + dTerm + p->integral;
@@ -203,7 +203,7 @@ namespace bibo::control
         const Float32 add = p->ki * error * dtS;
 
         const Bool high = p->outMax > p->outMin && without >= p->outMax;
-        const Bool low  = p->outMax > p->outMin && without <= p->outMin;
+        const Bool low = p->outMax > p->outMin && without <= p->outMin;
 
         /* Integrate unless that pushes further into a limit already reached. */
         if(!((high && add > 0.0f) || (low && add < 0.0f)))

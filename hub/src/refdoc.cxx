@@ -34,8 +34,8 @@ namespace refdoc
 
     struct Cursor
     {
-        const Str* src  = nullptr;
-        Size       at   = 0;
+        const Str* src = nullptr;
+        Size       at = 0;
         Int32      line = 1;
 
         [[nodiscard]] Bool done() const
@@ -265,7 +265,7 @@ namespace refdoc
         {
             if(cur.done())
             {
-                err     = "reached the end of the file inside <" + out.name + ">";
+                err = "reached the end of the file inside <" + out.name + ">";
                 errLine = out.line;
                 return false;
             }
@@ -305,22 +305,22 @@ namespace refdoc
                     if(rel.empty())
                     {
                         out.kids.push_back(
-                            includeError("<Include> with no file attribute",
-                                         kid.line));
+                            includeError("<Include> with no file attribute", kid.line)
+                        );
                     }
                     else if(ctx.depth >= MAX_INCLUDE_DEPTH)
                     {
                         out.kids.push_back(includeError(
-                            "includes nested more than "
-                                + std::to_string(MAX_INCLUDE_DEPTH)
-                                + " deep - is a document including itself?",
-                            kid.line));
+                            "includes nested more than " + std::to_string(MAX_INCLUDE_DEPTH) + " deep - is a document including itself?",
+                            kid.line
+                        ));
                     }
                     else if(ctx.baseDir.empty())
                     {
                         out.kids.push_back(includeError(
-                            "cannot resolve " + rel + " - this document was parsed"
-                            " without a folder to resolve against", kid.line));
+                            "cannot resolve " + rel + " - this document was parsed" " without a folder to resolve against",
+                            kid.line
+                        ));
                     }
                     else
                     {
@@ -329,14 +329,13 @@ namespace refdoc
 
                         if(body.empty())
                         {
-                            out.kids.push_back(includeError(
-                                "cannot read " + rel, kid.line));
+                            out.kids.push_back(includeError("cannot read " + rel, kid.line));
                         }
                         else
                         {
                             Ctx sub2;
                             sub2.baseDir = ctx.baseDir;
-                            sub2.depth   = ctx.depth + 1;
+                            sub2.depth = ctx.depth + 1;
 
                             Node  inner;
                             Str   ierr;
@@ -344,8 +343,9 @@ namespace refdoc
                             if(!parseDoc(body, sub2, inner, ierr, iline))
                             {
                                 out.kids.push_back(includeError(
-                                    rel + " line " + std::to_string(iline) + ": "
-                                        + ierr, kid.line));
+                                    rel + " line " + std::to_string(iline) + ": " + ierr,
+                                    kid.line
+                                ));
                             }
                             else
                             {
@@ -364,7 +364,7 @@ namespace refdoc
             }
 
             const Int32 ln = cur.line;
-            Str         t  = readText(cur);
+            Str         t = readText(cur);
             if(!t.empty())
             {
                 Node run;
@@ -382,7 +382,7 @@ namespace refdoc
 
         if(cur.peek() == '/')
         {
-            err     = "a closing tag with nothing open";
+            err = "a closing tag with nothing open";
             errLine = out.line;
             return false;
         }
@@ -393,7 +393,7 @@ namespace refdoc
         }
         if(out.name.empty())
         {
-            err     = "a '<' with no element name after it";
+            err = "a '<' with no element name after it";
             errLine = out.line;
             return false;
         }
@@ -416,7 +416,7 @@ namespace refdoc
             }
             if(cur.done())
             {
-                err     = "the file ends inside the tag <" + out.name + ">";
+                err = "the file ends inside the tag <" + out.name + ">";
                 errLine = out.line;
                 return false;
             }
@@ -437,7 +437,7 @@ namespace refdoc
             skipSpace(cur);
             if(cur.peek() != '=')
             {
-                err     = "the attribute " + a.name + " has no value";
+                err = "the attribute " + a.name + " has no value";
                 errLine = cur.line;
                 return false;
             }
@@ -448,7 +448,7 @@ namespace refdoc
             // accepted.
             if(cur.peek() != '"')
             {
-                err     = a.name + " must be in double quotes";
+                err = a.name + " must be in double quotes";
                 errLine = cur.line;
                 return false;
             }
@@ -464,7 +464,7 @@ namespace refdoc
             }
             if(cur.done())
             {
-                err     = a.name + " has no closing quote";
+                err = a.name + " has no closing quote";
                 errLine = cur.line;
                 return false;
             }
@@ -483,7 +483,7 @@ namespace refdoc
 
             if(cur.done())
             {
-                err     = "the file ends inside <" + out.name + ">";
+                err = "the file ends inside <" + out.name + ">";
                 errLine = out.line;
                 return false;
             }
@@ -504,7 +504,7 @@ namespace refdoc
         skipSpace(cur);
         if(cur.peek() != '>')
         {
-            err     = "the closing tag for <" + out.name + "> is malformed";
+            err = "the closing tag for <" + out.name + "> is malformed";
             errLine = cur.line;
             return false;
         }
@@ -580,7 +580,7 @@ namespace refdoc
     struct Run
     {
         Str   text;
-        ImU32 col  = ui::ansi::WHITE;
+        ImU32 col = ui::ansi::WHITE;
         Bool  mono = false;
     };
 
@@ -593,7 +593,7 @@ namespace refdoc
             {
                 Run r;
                 r.text = k.text;
-                r.col  = col;
+                r.col = col;
                 r.mono = mono;
                 out.push_back(std::move(r));
                 continue;
@@ -625,7 +625,7 @@ namespace refdoc
     {
         const Float32 spaceW = ImGui::CalcTextSize(" ").x;
 
-        Float32 x     = 0.0f;
+        Float32 x = 0.0f;
         Bool    empty = true;   // nothing on the current line yet
 
         // A space owed to the NEXT word, and it must outlive the run it was found
@@ -672,17 +672,16 @@ namespace refdoc
                 Float32 adv = (gap && !empty) ? spaceW : 0.0f;
                 if(!empty && (x + adv + w) > width)
                 {
-                    x     = 0.0f;
+                    x = 0.0f;
                     empty = true;
-                    adv   = 0.0f;
+                    adv = 0.0f;
                 }
                 if(!empty)
                 {
                     ImGui::SameLine(0.0f, adv);
                 }
 
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(r.col), "%s",
-                                   word.c_str());
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(r.col), "%s", word.c_str());
 
                 if(r.mono && ui::fonts.mono != nullptr)
                 {
@@ -691,7 +690,7 @@ namespace refdoc
 
                 x    += adv + w;
                 empty = false;
-                gap   = false;
+                gap = false;
             }
         }
 
@@ -728,7 +727,10 @@ namespace refdoc
 
         const ImVec2 p1 = ImGui::GetCursorScreenPos();
         ImGui::GetWindowDrawList()->AddRectFilled(
-            ImVec2(p0.x, p0.y), ImVec2(p0.x + 2.0f, p1.y - 2.0f), col);
+            ImVec2(p0.x, p0.y),
+            ImVec2(p0.x + 2.0f, p1.y - 2.0f),
+            col
+        );
 
         ImGui::Spacing();
     }
@@ -782,7 +784,7 @@ namespace refdoc
 
         const Float32 lineH = ImGui::GetTextLineHeight();
         const Float32 charW = ImGui::CalcTextSize("0").x;
-        const Float32 pad   = 6.0f;
+        const Float32 pad = 6.0f;
 
         // Wide enough for the largest number actually printed.
         Int32 digits = 1;
@@ -793,15 +795,14 @@ namespace refdoc
         const Float32 gutter = (static_cast<Float32>(digits) * charW) + pad * 2.0f;
 
         const ImVec2   p0 = ImGui::GetCursorScreenPos();
-        const Float32  h  = (static_cast<Float32>(lines.size()) * lineH)
+        const Float32  h = (static_cast<Float32>(lines.size()) * lineH)
                           + pad * 2.0f;
         ImDrawList*    dl = ImGui::GetWindowDrawList();
 
         // Painted before the text: the height is known from the line count.
         dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG0_H);
         dl->AddRectFilled(p0, ImVec2(p0.x + gutter, p0.y + h), syn::gruv::BG1);
-        dl->AddRect(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG3,
-                    0.0f, 0, 1.0f);
+        dl->AddRect(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG3, 0.0f, 0, 1.0f);
 
         // `inBlock` carries a block comment opened on an earlier line, so it is
         // taken by reference and must live outside the loop.
@@ -811,11 +812,10 @@ namespace refdoc
         for(Size i = 0; i < lines.size(); ++i)
         {
             const Str&    ln = lines[i];
-            const Float32 y  = p0.y + pad + (static_cast<Float32>(i) * lineH);
+            const Float32 y = p0.y + pad + (static_cast<Float32>(i) * lineH);
 
             Array<Char, 16> num;
-            std::snprintf(num.data(), num.size(), "%*d", digits,
-                          static_cast<Int32>(i + 1));
+            std::snprintf(num.data(), num.size(), "%*d", digits, static_cast<Int32>(i + 1));
             dl->AddText(ImVec2(p0.x + pad, y), syn::gruv::FG4, num.data());
 
             syn::tokenize(ln, inBlock, spans);
@@ -856,16 +856,15 @@ namespace refdoc
                 continue;
             }
 
-            const Char* num   = p.attr("n", "?");
-            const Char* name  = p.attr("name", "?");
-            const Char* cls   = p.attr("class", "");
+            const Char* num = p.attr("n", "?");
+            const Char* name = p.attr("name", "?");
+            const Char* cls = p.attr("class", "");
             const Bool  check = p.hasAttr("check");
 
             const ImU32 col32 = classColor(cls);
 
             // The pad number is always dim and always first.
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                               "%3s", num);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY), "%3s", num);
             ImGui::SameLine(0.0f, 8.0f);
 
             if(ui::fonts.mono != nullptr)
@@ -881,8 +880,7 @@ namespace refdoc
             if(check)
             {
                 ImGui::SameLine(0.0f, 6.0f);
-                ImGui::TextColored(
-                    ImGui::ColorConvertU32ToFloat4(ui::ansi::BRYELLOW), "check");
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRYELLOW), "check");
             }
 
             Vec<Run> runs;
@@ -890,8 +888,7 @@ namespace refdoc
             if(!runs.empty())
             {
                 ImGui::SameLine(0.0f, 10.0f);
-                drawRuns(runs, std::max(80.0f, ImGui::GetContentRegionAvail().x),
-                         0.0f);
+                drawRuns(runs, std::max(80.0f, ImGui::GetContentRegionAvail().x), 0.0f);
             }
         }
     }
@@ -918,9 +915,9 @@ namespace refdoc
 
     struct Pen
     {
-        ImU32   col   = ui::ansi::BRWHITE;
+        ImU32   col = ui::ansi::BRWHITE;
         Float32 width = 1.0f;
-        Float32 text  = 12.0f;
+        Float32 text = 12.0f;
 
         // -1 left, 0 centered, +1 right. The x in drawText is the ANCHOR; this
         // says which part of the string lands on it. Without it, right-aligning a
@@ -1093,7 +1090,7 @@ namespace refdoc
         const Float32 scale = measure / natW;
 
         const ImVec2 origin = ImGui::GetCursorScreenPos();
-        ImDrawList*  dl     = ImGui::GetWindowDrawList();
+        ImDrawList*  dl = ImGui::GetWindowDrawList();
 
         const auto at = [&](Float32 x, Float32 y)
         {
@@ -1111,13 +1108,13 @@ namespace refdoc
         Size at0 = 0;
         while(at0 <= src.size())
         {
-            const Size nl   = src.find('\n', at0);
+            const Size nl = src.find('\n', at0);
             const Str  line = src.substr(at0, (nl == Str::npos) ? Str::npos
                                                                : (nl - at0));
             at0 = (nl == Str::npos) ? (src.size() + 1) : (nl + 1);
             ++lineNo;
 
-            const Words a  = split(line);
+            const Words a = split(line);
             if(a.count() == 0)
             {
                 continue;
@@ -1136,8 +1133,9 @@ namespace refdoc
             {
                 if(!colorByName(a.str(1), pen.col))
                 {
-                    errs.push_back("line " + std::to_string(lineNo)
-                                   + ": no color called " + a.str(1));
+                    errs.push_back(
+                        "line " + std::to_string(lineNo) + ": no color called " + a.str(1)
+                    );
                 }
             }
             else if(cmd == "setWidth" && a.count() >= 2)
@@ -1165,24 +1163,22 @@ namespace refdoc
                 }
                 else
                 {
-                    errs.push_back("line " + std::to_string(lineNo)
-                                   + ": setTextAlign wants left, center or right");
+                    errs.push_back(
+                        "line " + std::to_string(lineNo) + ": setTextAlign wants left, center or right"
+                    );
                 }
             }
             else if(cmd == "drawLine" && a.count() >= 5)
             {
-                dl->AddLine(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)),
-                            pen.col, th);
+                dl->AddLine(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)), pen.col, th);
             }
             else if(cmd == "drawRect" && a.count() >= 5)
             {
-                dl->AddRect(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)),
-                            pen.col, 0.0f, 0, th);
+                dl->AddRect(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)), pen.col, 0.0f, 0, th);
             }
             else if(cmd == "fillRect" && a.count() >= 5)
             {
-                dl->AddRectFilled(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)),
-                                  pen.col, 0.0f);
+                dl->AddRectFilled(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)), pen.col, 0.0f);
             }
             else if(cmd == "drawCircle" && a.count() >= 4)
             {
@@ -1194,20 +1190,29 @@ namespace refdoc
             }
             else if(cmd == "drawTriangle" && a.count() >= 7)
             {
-                dl->AddTriangle(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)),
-                                at(a.num(5), a.num(6)), pen.col, th);
+                dl->AddTriangle(
+                    at(a.num(1), a.num(2)),
+                    at(a.num(3), a.num(4)),
+                    at(a.num(5), a.num(6)),
+                    pen.col,
+                    th
+                );
             }
             else if(cmd == "fillTriangle" && a.count() >= 7)
             {
-                dl->AddTriangleFilled(at(a.num(1), a.num(2)), at(a.num(3), a.num(4)),
-                                      at(a.num(5), a.num(6)), pen.col);
+                dl->AddTriangleFilled(
+                    at(a.num(1), a.num(2)),
+                    at(a.num(3), a.num(4)),
+                    at(a.num(5), a.num(6)),
+                    pen.col
+                );
             }
             else if(cmd == "drawText" && a.count() >= 4)
             {
                 ImFont* f = (ui::fonts.small != nullptr) ? ui::fonts.small
                                                          : ImGui::GetFont();
                 const Float32 px = std::max(8.0f, len(pen.text));
-                const Str     t  = a.str(3);
+                const Str     t = a.str(3);
 
                 // Measured, not estimated: the renderer knows the font, the
                 // document does not.
@@ -1226,8 +1231,11 @@ namespace refdoc
             else
             {
                 // Named, not swallowed.
-                errs.push_back("line " + std::to_string(lineNo) + ": "
-                               + (a.count() < 2 ? cmd : (cmd + " - wrong arguments")));
+                errs.push_back(
+                    "line " + std::to_string(lineNo) + ": " + (a.count() < 2 ? cmd : (
+                        cmd + " - wrong arguments"
+                    ))
+                );
             }
         }
 
@@ -1235,8 +1243,11 @@ namespace refdoc
 
         for(const Str& e : errs)
         {
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRRED),
-                               "Draw: %s", e.c_str());
+            ImGui::TextColored(
+                ImGui::ColorConvertU32ToFloat4(ui::ansi::BRRED),
+                "Draw: %s",
+                e.c_str()
+            );
         }
         ImGui::Spacing();
     }
@@ -1277,10 +1288,11 @@ namespace refdoc
         ImGui::Spacing();
 
         // Borders: a column needs an edge for the eye to run down.
-        if(ImGui::BeginTable("##bdoctable", cols,
-                             ImGuiTableFlags_Borders
-                             | ImGuiTableFlags_RowBg
-                             | ImGuiTableFlags_SizingStretchProp))
+        if(ImGui::BeginTable(
+            "##bdoctable",
+            cols,
+            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp
+        ))
         {
             for(const Node& r : n.kids)
             {
@@ -1302,14 +1314,11 @@ namespace refdoc
 
                     const Char* cls = cell.attr("class", "");
                     const ImU32 col = head ? ui::ansi::BRWHITE
-                                           : (cls[0] != '\0' ? classColor(cls)
-                                                             : ui::ansi::WHITE);
+                                           : (cls[0] != '\0' ? classColor(cls) : ui::ansi::WHITE);
 
                     Vec<Run> runs;
                     collect(cell, runs, col, false);
-                    drawRuns(runs, std::max(60.0f,
-                                            ImGui::GetContentRegionAvail().x),
-                             0.0f);
+                    drawRuns(runs, std::max(60.0f, ImGui::GetContentRegionAvail().x), 0.0f);
                 }
             }
             ImGui::EndTable();
@@ -1321,7 +1330,7 @@ namespace refdoc
     Void pinout(const Node& n, Float32 width)
     {
         const Char* title = n.attr("title", "Pinout");
-        const Char* pkg   = n.attr("package", "");
+        const Char* pkg = n.attr("package", "");
         const Char* pitch = n.attr("pitch", "");
 
         ImGui::Spacing();
@@ -1329,15 +1338,22 @@ namespace refdoc
 
         const ImVec2 ph = ImGui::GetCursorScreenPos();
         ImGui::GetWindowDrawList()->AddLine(
-            ImVec2(ph.x, ph.y), ImVec2(ph.x + width, ph.y), ui::ansi::GRID, 1.0f);
+            ImVec2(ph.x, ph.y),
+            ImVec2(ph.x + width, ph.y),
+            ui::ansi::GRID,
+            1.0f
+        );
         ImGui::Spacing();
 
         if(pkg[0] != '\0' || pitch[0] != '\0')
         {
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                               "%s%s%s", pkg,
-                               (pkg[0] != '\0' && pitch[0] != '\0') ? "   " : "",
-                               pitch);
+            ImGui::TextColored(
+                ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
+                "%s%s%s",
+                pkg,
+                (pkg[0] != '\0' && pitch[0] != '\0') ? " " : "",
+                pitch
+            );
             ImGui::Spacing();
         }
 
@@ -1372,9 +1388,13 @@ namespace refdoc
             {
                 ImGui::TableNextColumn();
                 const Char* s = c->attr("side", "");
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                                   "%s  %s - %s", s, c->attr("from", ""),
-                                   c->attr("to", ""));
+                ImGui::TextColored(
+                    ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
+                    "%s %s - %s",
+                    s,
+                    c->attr("from", ""),
+                    c->attr("to", "")
+                );
                 ImGui::Spacing();
                 pinColumn(*c);
             }
@@ -1385,9 +1405,13 @@ namespace refdoc
             for(const Node* c : cols)
             {
                 const Char* s = c->attr("side", "");
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                                   "%s  %s - %s", s, c->attr("from", ""),
-                                   c->attr("to", ""));
+                ImGui::TextColored(
+                    ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
+                    "%s %s - %s",
+                    s,
+                    c->attr("from", ""),
+                    c->attr("to", "")
+                );
                 ImGui::Spacing();
                 pinColumn(*c);
                 ImGui::Spacing();
@@ -1411,7 +1435,11 @@ namespace refdoc
             // label at the body size and cannot be told otherwise.
             const ImVec2 p = ImGui::GetCursorScreenPos();
             ImGui::GetWindowDrawList()->AddLine(
-                ImVec2(p.x, p.y), ImVec2(p.x + width, p.y), ui::ansi::GRID, 1.0f);
+                ImVec2(p.x, p.y),
+                ImVec2(p.x + width, p.y),
+                ui::ansi::GRID,
+                1.0f
+            );
             ImGui::Spacing();
         }
         body(n, width);
@@ -1466,14 +1494,11 @@ namespace refdoc
                     {
                         continue;
                     }
-                    ImGui::TextColored(
-                        ImGui::ColorConvertU32ToFloat4(ui::ansi::BRCYAN), "-");
+                    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRCYAN), "-");
                     ImGui::SameLine(0.0f, 8.0f);
                     Vec<Run> runs;
                     collect(it, runs, ui::ansi::WHITE, false);
-                    drawRuns(runs, std::max(120.0f,
-                                            ImGui::GetContentRegionAvail().x),
-                             0.0f);
+                    drawRuns(runs, std::max(120.0f, ImGui::GetContentRegionAvail().x), 0.0f);
                     ImGui::Spacing();
                 }
                 ImGui::Spacing();
@@ -1540,7 +1565,7 @@ namespace refdoc
             skipSpace(cur);
             if(cur.done())
             {
-                err     = "the file has no <Doc> in it";
+                err = "the file has no <Doc> in it";
                 errLine = 1;
                 return false;
             }
@@ -1566,7 +1591,7 @@ namespace refdoc
 
         if(out.name != "Doc")
         {
-            err     = "the root element is <" + out.name + ">, not <Doc>";
+            err = "the root element is <" + out.name + ">, not <Doc>";
             errLine = out.line;
             return false;
         }
@@ -1579,7 +1604,7 @@ namespace refdoc
   {
       Ctx ctx;
       ctx.baseDir = baseDir;
-      ctx.depth   = 0;
+      ctx.depth = 0;
 
       Doc d;
       if(!parseDoc(text, ctx, d.root, d.error, d.errorLine))
@@ -1598,21 +1623,24 @@ namespace refdoc
         {
             if(std::isupper(static_cast<UInt8>(n.name[0])) == 0)
             {
-                out.push_back("element <" + n.name + "> is not PascalCase (line "
-                              + std::to_string(n.line) + ")");
+                out.push_back(
+                    "element <" + n.name + "> is not PascalCase (line " + std::to_string(n.line) + ")"
+                );
             }
             for(const Attr& a : n.attrs)
             {
                 if(std::isupper(static_cast<UInt8>(a.name[0])) != 0)
                 {
-                    out.push_back("attribute " + a.name + " is not camelCase (line "
-                                  + std::to_string(n.line) + ")");
+                    out.push_back(
+                        "attribute " + a.name + " is not camelCase (line " + std::to_string(n.line) + ")"
+                    );
                 }
             }
             if(n.name == "Pin" && !n.hasAttr("name"))
             {
-                out.push_back("a <Pin> with no name attribute (line "
-                              + std::to_string(n.line) + ")");
+                out.push_back(
+                    "a <Pin> with no name attribute (line " + std::to_string(n.line) + ")"
+                );
             }
         }
         for(const Node& k : n.kids)
@@ -1645,9 +1673,12 @@ namespace refdoc
       // THE COST: the page can be panned entirely out of sight, which looks like
       // a broken renderer. Double-click (below) puts it back.
       // ---------------------------------------------------------------------
-      ImGui::BeginChild("##bdocpage", size, ImGuiChildFlags_None,
-                        ImGuiWindowFlags_NoScrollbar
-                        | ImGuiWindowFlags_NoScrollWithMouse);
+      ImGui::BeginChild(
+          "##bdocpage",
+          size,
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+      );
 
       const Bool over = ImGui::IsWindowHovered(
           ImGuiHoveredFlags_ChildWindows
@@ -1668,8 +1699,7 @@ namespace refdoc
               // which reflow against `measure` rather than scaling.
               const Float32 was = view.zoom;
               const Float32 now = std::min(4.0f,
-                                           std::max(0.4f,
-                                                    was * std::pow(1.15f, wheel)));
+                                           std::max(0.4f, was * std::pow(1.15f, wheel)));
 
               if(now != was)
               {
@@ -1736,11 +1766,11 @@ namespace refdoc
       // measure/naturalWidth, carries the same factor as the font push - so text
       // and diagrams grow together. Clamping the measure to the panel width broke
       // that: past the clamp the type grew and the diagrams did not.
-      const Float32 avail   = ImGui::GetContentRegionAvail().x;
-      const Float32 base    = std::min(std::max(avail - 24.0f, 200.0f),
+      const Float32 avail = ImGui::GetContentRegionAvail().x;
+      const Float32 base = std::min(std::max(avail - 24.0f, 200.0f),
                                        780.0f * dpiScale);
       const Float32 measure = base * view.zoom;
-      const Float32 pad     = std::max(0.0f, (avail - measure) * 0.5f);
+      const Float32 pad = std::max(0.0f, (avail - measure) * 0.5f);
 
       // THE PAN IS APPLIED HERE, and the two axes need DIFFERENT mechanisms.
       //
@@ -1780,19 +1810,27 @@ namespace refdoc
       {
           // The error where the page would have been: a blank panel cannot be
           // told from an empty document.
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRRED),
-                             "this document does not parse");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::ansi::BRRED),
+              "this document does not parse"
+          );
           ImGui::Spacing();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::WHITE),
-                             "line %d: %s", d.errorLine, d.error.c_str());
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::ansi::WHITE),
+              "line %d: %s",
+              d.errorLine,
+              d.error.c_str()
+          );
           ImGui::Spacing();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                             "Switch to Source above to see it.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
+              "Switch to Source above to see it."
+          );
           return;
       }
 
       const Char* title = d.root.attr("title", "");
-      const Char* sub   = d.root.attr("subtitle", "");
+      const Char* sub = d.root.attr("subtitle", "");
 
       if(title[0] != '\0')
       {
@@ -1810,20 +1848,17 @@ namespace refdoc
           const Char* cat = d.root.attr("category", "");
           if(cat[0] != '\0')
           {
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRCYAN),
-                                 "%s", cat);
+              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRCYAN), "%s", cat);
               if(sub[0] != '\0')
               {
                   ImGui::SameLine(0.0f, 8.0f);
-                  ImGui::TextColored(
-                      ImGui::ColorConvertU32ToFloat4(ui::ansi::GRID), "|");
+                  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRID), "|");
                   ImGui::SameLine(0.0f, 8.0f);
               }
           }
           if(sub[0] != '\0')
           {
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                                 "%s", sub);
+              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY), "%s", sub);
           }
 
           if(ui::fonts.small != nullptr)

@@ -79,12 +79,12 @@ namespace mapgeo
               static_cast<Void>(f1);
 
               Corner k;
-              k.x       = hit.x;
-              k.y       = hit.y;
-              k.angDeg  = 180.0f - turn;
+              k.x = hit.x;
+              k.y = hit.y;
+              k.angDeg = 180.0f - turn;
               k.rangeMm = r;
-              k.a0      = std::atan2(d1y * s1, d1x * s1);
-              k.a1      = std::atan2(d2y * s2, d2x * s2);
+              k.a0 = std::atan2(d1y * s1, d1x * s1);
+              k.a1 = std::atan2(d2y * s2, d2x * s2);
               out.push_back(k);
 
               if(out.size() >= CORNER_MAX)
@@ -97,9 +97,9 @@ namespace mapgeo
 
   Void computeReach(const PolarScan& in, Float32 halfW, Float32* out)
   {
-      const Float32* clr    = in.r;
-      const Bool*    seen   = in.seen;
-      const Int32    bins   = in.bins;
+      const Float32* clr = in.r;
+      const Bool*    seen = in.seen;
+      const Int32    bins = in.bins;
       const Float32  binDeg = in.binDeg;
 
       // Beyond this offset nothing in spec can block: at 72 deg the perpendicular
@@ -147,15 +147,15 @@ namespace mapgeo
 
   Bool estimateHeading(const PolarScan& refScan, const PolarScan& curScan, Float32& outDeg, Float32& outScore)
   {
-      outDeg   = 0.0f;
+      outDeg = 0.0f;
       outScore = 0.0f;
 
-      const Float32* ref     = refScan.r;
+      const Float32* ref = refScan.r;
       const Bool*    refSeen = refScan.seen;
-      const Float32* cur     = curScan.r;
+      const Float32* cur = curScan.r;
       const Bool*    curSeen = curScan.seen;
-      const Int32    bins    = refScan.bins;
-      const Float32  binDeg  = refScan.binDeg;
+      const Int32    bins = refScan.bins;
+      const Float32  binDeg = refScan.binDeg;
 
       if(ref == nullptr || cur == nullptr || refSeen == nullptr
          || curSeen == nullptr || bins < 8)
@@ -180,7 +180,7 @@ namespace mapgeo
       for(Int32 k = 0; k < bins; ++k)
       {
           Float64 sum = 0.0;
-          Int32   n   = 0;
+          Int32   n = 0;
 
           for(Int32 i = 0; i < bins; ++i)
           {
@@ -206,14 +206,14 @@ namespace mapgeo
               : FLT_MAX;
       }
 
-      Int32   best     = -1;
+      Int32   best = -1;
       Float32 bestCost = FLT_MAX;
       for(Int32 k = 0; k < bins; ++k)
       {
           if(cost[static_cast<Size>(k)] < bestCost)
           {
               bestCost = cost[static_cast<Size>(k)];
-              best     = k;
+              best = k;
           }
       }
 
@@ -292,7 +292,7 @@ namespace mapgeo
   Float32 polarArea(const Float32* r, Int32 bins, Float32 binDeg)
   {
       const Float32 step = binDeg * (PI_F / 180.0f);
-      const Float64 k    = 0.5 * static_cast<Float64>(std::sin(step));
+      const Float64 k = 0.5 * static_cast<Float64>(std::sin(step));
 
       Float64 a = 0.0;
       for(Int32 i = 0; i < bins; ++i)

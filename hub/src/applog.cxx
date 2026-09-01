@@ -21,7 +21,7 @@ namespace applog
     constexpr Size MAX_SESSIONS = 20;
 
     Mutex mu;
-    FILE* file    = nullptr;
+    FILE* file = nullptr;
     Bool  started = false;
     Str   filePath;
 
@@ -116,7 +116,7 @@ namespace applog
       {
           return;
       }
-      started    = true;
+      started = true;
       startTicks = nowMs();
 
       const Str d = dir();
@@ -131,11 +131,20 @@ namespace applog
       ::GetLocalTime(&t);
 
       Array<Char, 64> name;
-      std::snprintf(name.data(), name.size(), "session-%04d%02d%02d-%02d%02d%02d.log",
-                    t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+      std::snprintf(
+          name.data(),
+          name.size(),
+          "session-%04d%02d%02d-%02d%02d%02d.log",
+          t.wYear,
+          t.wMonth,
+          t.wDay,
+          t.wHour,
+          t.wMinute,
+          t.wSecond
+      );
 
       filePath = d + "\\" + name.data();
-      file     = std::fopen(filePath.c_str(), "wb");
+      file = std::fopen(filePath.c_str(), "wb");
       if(file == nullptr)
       {
           filePath.clear();
@@ -143,10 +152,21 @@ namespace applog
       }
 
       std::fprintf(file, "bibo session log\n");
-      std::fprintf(file, "started %04d-%02d-%02d %02d:%02d:%02d local\n",
-                   t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-      std::fprintf(file, "command line: %s\n",
-                   (::GetCommandLineA() != nullptr) ? ::GetCommandLineA() : "?");
+      std::fprintf(
+          file,
+          "started %04d-%02d-%02d %02d:%02d:%02d local\n",
+          t.wYear,
+          t.wMonth,
+          t.wDay,
+          t.wHour,
+          t.wMinute,
+          t.wSecond
+      );
+      std::fprintf(
+          file,
+          "command line: %s\n",
+          (::GetCommandLineA() != nullptr) ? ::GetCommandLineA() : "?"
+      );
       std::fprintf(file, "%s\n", Str(70, '-').c_str());
       std::fflush(file);
   }
@@ -157,8 +177,11 @@ namespace applog
       if(file != nullptr)
       {
           std::fprintf(file, "%s\n", Str(70, '-').c_str());
-          std::fprintf(file, "[%8.3f] INFO  app    session ended\n",
-                       static_cast<Float64>(nowMs() - startTicks) / 1000.0);
+          std::fprintf(
+              file,
+              "[%8.3f] INFO app session ended\n",
+              static_cast<Float64>(nowMs() - startTicks) / 1000.0
+          );
           std::fclose(file);
           file = nullptr;
       }
@@ -181,11 +204,14 @@ namespace applog
       // Seconds since start, then level, then a fixed-width tag. Fixed width so
       // the message column lines up and the file is scannable rather than merely
       // readable.
-      std::fprintf(file, "[%8.3f] %s %-6s %s\n",
-                   static_cast<Float64>(nowMs() - startTicks) / 1000.0,
-                   levelName(level),
-                   (tag != nullptr) ? tag : "-",
-                   body.data());
+      std::fprintf(
+          file,
+          "[%8.3f] %s %-6s %s\n",
+          static_cast<Float64>(nowMs() - startTicks) / 1000.0,
+          levelName(level),
+          (tag != nullptr) ? tag : "-",
+          body.data()
+      );
 
       // Anything that went wrong is flushed at once. A crash after a warning must
       // still leave the warning on disk - that is most of the value here.

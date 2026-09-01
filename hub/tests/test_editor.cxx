@@ -30,7 +30,7 @@ namespace
 {
 
   Int32 failures = 0;
-  Int32 checks   = 0;
+  Int32 checks = 0;
 
   Void check(Bool ok, const Char* what)
   {
@@ -54,8 +54,7 @@ namespace
       if(got != want)
       {
           ++failures;
-          std::printf("  FAIL  %s\n         got  \"%s\"\n         want \"%s\"\n",
-                      what, got.c_str(), want.c_str());
+          std::printf(" FAIL %s\n got \"%s\"\n want \"%s\"\n", what, got.c_str(), want.c_str());
       }
       else
       {
@@ -191,7 +190,7 @@ namespace
       checkStr(e.text(), "keep", "u undoes it");
       {
           ed::Key k;
-          k.ch   = 'r';
+          k.ch = 'r';
           k.ctrl = true;
           e.key(k);
       }
@@ -470,8 +469,7 @@ namespace
       hits.clear();
       cmpl::suggest("gpio", hits, 8);
       check(!hits.empty(), "gpio matches something");
-      checkStr(hits[0]->name, "gpioOpen",
-               "shorter names rank first: gpioOpen before gpioToggle");
+      checkStr(hits[0]->name, "gpioOpen", "shorter names rank first: gpioOpen before gpioToggle");
 
       hits.clear();
       cmpl::suggest("servo", hits, 8);
@@ -577,8 +575,7 @@ Void testYankRegister()
         type(e, "gg");
         type(e, "yG");
 
-        checkStr(e.yankText(), "alpha\nbeta\ngamma\n",
-                 "gg yG yanks every line into the register");
+        checkStr(e.yankText(), "alpha\nbeta\ngamma\n", "gg yG yanks every line into the register");
         check(e.yankIsLinewise(), "gg yG is linewise");
         check(e.text() == "alpha\nbeta\ngamma", "yanking changes nothing");
     }
@@ -641,8 +638,11 @@ Void testYankRegister()
         check(e.yankIsLinewise(), "setYank keeps linewise");
 
         type(e, "p");
-        checkStr(e.text(), "alpha\nfrom elsewhere",
-                 "p puts linewise clipboard text on its own line");
+        checkStr(
+            e.text(),
+            "alpha\nfrom elsewhere",
+            "p puts linewise clipboard text on its own line"
+        );
     }
 
     {
@@ -704,10 +704,11 @@ Void testSearch()
         f.setCursor(1, 1);
         type(f, "/zzz");
         enter(f);
-        check(f.cursor().line == 1 && f.cursor().col == 1,
-              "a search with no match leaves the caret alone");
-        checkStr(f.takeMessage(), "pattern not found: zzz",
-                 "and says so on the status line");
+        check(
+            f.cursor().line == 1 && f.cursor().col == 1,
+            "a search with no match leaves the caret alone"
+        );
+        checkStr(f.takeMessage(), "pattern not found: zzz", "and says so on the status line");
     }
 
     // Smartcase: lowercase is insensitive, any capital makes it exact.
@@ -754,8 +755,7 @@ Void testSearch()
         f.setText("abc");
         type(f, "/ab");
         enter(f);
-        checkStr(f.takeSubmittedCommand(), "",
-                 "a search does not submit a command to the host");
+        checkStr(f.takeSubmittedCommand(), "", "a search does not submit a command to the host");
     }
 }
 
@@ -954,8 +954,7 @@ Void testIndentAndCase()
         e.setText("x\n\ny");
         e.setCursor(0, 0);
         type(e, "3>>");
-        checkStr(e.text(), "    x\n\n    y",
-                 "a blank line is left blank rather than filled with spaces");
+        checkStr(e.text(), " x\n\n y", "a blank line is left blank rather than filled with spaces");
     }
 
     {

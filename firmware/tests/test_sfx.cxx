@@ -27,7 +27,7 @@
 using namespace bibo;
 
 static Int32 failures = 0;
-static Int32 checks   = 0;
+static Int32 checks = 0;
 
 /**
  * @brief Records a pass/fail check and prints its outcome.
@@ -122,9 +122,12 @@ Int32 main(Void)
         {
             if(sfx::CLIPS[a].track == sfx::CLIPS[b].track)
             {
-                printf("        note: %s and %s are both track %u\n",
-                       sfx::CLIPS[a].name, sfx::CLIPS[b].name,
-                       static_cast<UInt32>(sfx::CLIPS[a].track));
+                printf(
+                    " note: %s and %s are both track %u\n",
+                    sfx::CLIPS[a].name,
+                    sfx::CLIPS[b].name,
+                    static_cast<UInt32>(sfx::CLIPS[a].track)
+                );
                 ++shared;
             }
         }
@@ -142,8 +145,7 @@ Int32 main(Void)
     }
     check(lost == 0, "every name looks up to its own track");
 
-    check(sfx::track("definitelyNotAClip") == sfx::NONE,
-          "an unknown name is NONE, not a track");
+    check(sfx::track("definitelyNotAClip") == sfx::NONE, "an unknown name is NONE, not a track");
     check(sfx::track("") == sfx::NONE, "the empty name is NONE");
     check(sfx::track(nullptr) == sfx::NONE, "a null name is NONE, not a crash");
 
@@ -156,15 +158,15 @@ Int32 main(Void)
     {
         Utf8 longer[64];
         snprintf(longer, sizeof(longer), "%sXX", sfx::CLIPS[0].name);
-        check(sfx::track(longer) == sfx::NONE,
-              "a longer name that starts with a real one does not match");
+        check(
+            sfx::track(longer) == sfx::NONE,
+            "a longer name that starts with a real one does not match"
+        );
     }
 
     /* ---- the reverse direction ------------------------------------------ */
-    check(sfx::nameOf(sfx::CLIPS[0].track) != nullptr,
-          "a known track has a name");
-    check(sfx::nameOf(60000u) == nullptr,
-          "an unknown track has no name, and says so with nullptr");
+    check(sfx::nameOf(sfx::CLIPS[0].track) != nullptr, "a known track has a name");
+    check(sfx::nameOf(60000u) == nullptr, "an unknown track has no name, and says so with nullptr");
 
     /*
      * ---- zero is the sentinel and must never BE a clip -------------------

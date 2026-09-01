@@ -105,8 +105,12 @@ namespace
               return "cannot open " + friendly + " (in use by another program)";
           default: {
               Array<Char, 64> buf;
-              std::snprintf(buf.data(), buf.size(), " (win32 error %lu)",
-                            static_cast<unsigned long>(err));
+              std::snprintf(
+                  buf.data(),
+                  buf.size(),
+                  " (win32 error %lu)",
+                  static_cast<unsigned long>(err)
+              );
               return "cannot open " + friendly + buf.data();
           }
       }
@@ -217,7 +221,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
     // out here because the SDK never takes ownership of it - unbindAndClose()
     // only close()s it - so this thread has to free it on every exit path.
     Bool      scanning = false;
-    IChannel* channel  = nullptr;
+    IChannel* channel = nullptr;
 
     do
     {
@@ -246,8 +250,11 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             // Distinguishes "not plugged in" from "another program has it",
             // which are the two causes and want completely different actions
             // from the person reading it.
-            setLost(port, ::GetLastError(),
-                    "cannot open " + port + " - another program may have it");
+            setLost(
+                port,
+                ::GetLastError(),
+                "cannot open " + port + " - another program may have it"
+            );
             break;
         }
 
@@ -262,15 +269,20 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         }
 
         LidarDeviceInfo di;
-        di.model    = static_cast<Int32>(rawInfo.model);
+        di.model = static_cast<Int32>(rawInfo.model);
         di.fwMajor = rawInfo.firmware_version >> 8;
         di.fwMinor = rawInfo.firmware_version & 0xFF;
-        di.hwRev   = static_cast<Int32>(rawInfo.hardware_version);
+        di.hwRev = static_cast<Int32>(rawInfo.hardware_version);
 
         Array<Char, 33> hex;
         for(Int32 i = 0; i < 16; ++i)
         {
-            std::snprintf(hex.data() + i * 2, 3, "%02X", static_cast<unsigned>(rawInfo.serialnum[i]));
+            std::snprintf(
+                hex.data() + i * 2,
+                3,
+                "%02X",
+                static_cast<unsigned>(rawInfo.serialnum[i])
+            );
         }
         di.serial = hex.data();
 
@@ -319,8 +331,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
         // invisible to the operator.
         {
             LidarScanInfo si;
-            si.modeId        = static_cast<Int32>(mode.id);
-            si.usPerSample    = mode.us_per_sample;
+            si.modeId = static_cast<Int32>(mode.id);
+            si.usPerSample = mode.us_per_sample;
             si.maxDistanceM = mode.max_distance;
 
             // scan_mode is a fixed 64-byte field, zero-padded but not
@@ -367,16 +379,14 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                         setError("failed to restart scan on " + port);
                         break;
                     }
-                    state.store(LidarState::LIDAR_STATE_SCANNING,
-                                std::memory_order_release);
+                    state.store(LidarState::LIDAR_STATE_SCANNING, std::memory_order_release);
                 }
                 else
                 {
                     drv->stop();
                     sleepMs(200);
                     drv->setMotorSpeed(0);
-                    state.store(LidarState::LIDAR_STATE_IDLE,
-                                std::memory_order_release);
+                    state.store(LidarState::LIDAR_STATE_IDLE, std::memory_order_release);
                 }
                 motorRunning = want;
                 consecutiveTimeouts = 0;
@@ -405,8 +415,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                     // No code to offer - the SDK swallowed it - so the port
                     // enumeration decides on its own, which is the signal that
                     // was authoritative anyway.
-                    setLost(port, 0,
-                            "device stopped responding on " + port);
+                    setLost(port, 0, "device stopped responding on " + port);
                     break;
                 }
                 continue;
@@ -419,7 +428,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             drv->getFrequency(mode, nodes.data(), count, freq);
 
             staging.points.clear();
-            staging.hz          = freq;
+            staging.hz = freq;
             staging.validCount = 0;
             staging.maxDistMm = 0.0f;
 
@@ -428,8 +437,8 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                 LidarPoint p;
                 // angle_z_q14 is q14 fixed point scaled so that 1.0 == 90 deg.
                 p.angleDeg = (nodes[i].angle_z_q14 * 90.0f) / 16384.0f;
-                p.distMm   = nodes[i].dist_mm_q2 / 4.0f;
-                p.quality   = static_cast<UInt8>((nodes[i].quality >>
+                p.distMm = nodes[i].dist_mm_q2 / 4.0f;
+                p.quality = static_cast<UInt8>((nodes[i].quality >>
                                         SL_LIDAR_RESP_MEASUREMENT_QUALITY_SHIFT));
 
                 if(p.distMm > 0.0f)
@@ -508,9 +517,9 @@ Void LidarSource::start(const Str& port, Int32 baud)
     {
         LockGuard<Mutex> lock(pimpl->mtx);
         pimpl->errorMsg = Str();
-        pimpl->devInfo  = LidarDeviceInfo();
+        pimpl->devInfo = LidarDeviceInfo();
         pimpl->scanInfo = LidarScanInfo();
-        pimpl->frame     = LidarFrame();
+        pimpl->frame = LidarFrame();
         pimpl->frameSeq = 0;
     }
     pimpl->lastSeenSeq = 0;
@@ -595,8 +604,8 @@ LidarScanInfo LidarSource::scanInfo() const
 LidarStats LidarSource::stats() const
 {
     LidarStats s;
-    s.frames   = pimpl->statFrames.load(std::memory_order_relaxed);
-    s.points   = pimpl->statPoints.load(std::memory_order_relaxed);
+    s.frames = pimpl->statFrames.load(std::memory_order_relaxed);
+    s.points = pimpl->statPoints.load(std::memory_order_relaxed);
     s.timeouts = pimpl->statTimeouts.load(std::memory_order_relaxed);
 
     if(pimpl->scanStarted.load(std::memory_order_acquire))
@@ -633,8 +642,7 @@ Str LidarSource::preferredPort()
     Str found;
 
     HKEY key = nullptr;
-    if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM",
-                      0, KEY_READ, &key) != ERROR_SUCCESS)
+    if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &key) != ERROR_SUCCESS)
     {
         return found;
     }
@@ -647,7 +655,16 @@ Str LidarSource::preferredPort()
         DWORD dlen = static_cast<DWORD>(sizeof(data));
         DWORD type = 0;
 
-        const LONG r = RegEnumValueA(key, i, name.data(), &nlen, nullptr, &type, data, &dlen);
+        const LONG r = RegEnumValueA(
+            key,
+            i,
+            name.data(),
+            &nlen,
+            nullptr,
+            &type,
+            data,
+            &dlen
+        );
         if(r != ERROR_SUCCESS)
         {
             break;

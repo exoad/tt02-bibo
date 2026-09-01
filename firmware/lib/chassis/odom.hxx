@@ -95,9 +95,9 @@ namespace bibo::odom
      */
     struct Config
     {
-        Float32 wheelMm     = ODOM_WHEEL_MM;      ///< Rolling wheel diameter, millimeters.
+        Float32 wheelMm = ODOM_WHEEL_MM;      ///< Rolling wheel diameter, millimeters.
         Float32 ticksPerRev = ODOM_TICKS_PER_REV; ///< Sensor ticks per revolution of the magnet's shaft.
-        Float32 gearRatio   = ODOM_GEAR_RATIO;    ///< Revolutions of that shaft per wheel revolution.
+        Float32 gearRatio = ODOM_GEAR_RATIO;    ///< Revolutions of that shaft per wheel revolution.
 
         /**
          * Set this yourself once the three above are MEASURED rather than
@@ -105,7 +105,7 @@ namespace bibo::odom
          * for having been typed in - so it is a claim the person who measured
          * makes, and calibrated() only ever repeats it.
          */
-        Bool    measured    = false;
+        Bool    measured = false;
     };
 
     inline Config tuning;
@@ -184,9 +184,9 @@ namespace bibo::odom
         volatile UInt32 ticks = 0u; ///< Raw tick count since the last reset().
 
         UInt32  lastTicks = 0u;    ///< ticks as of the previous update() call.
-        UInt64  lastUs    = 0u;    ///< Timestamp of the previous update() call, microseconds.
-        Float32 speed     = 0.0f;   /* meters per second, filtered */
-        Bool    primed    = false; ///< False until the first update() call has run.
+        UInt64  lastUs = 0u;    ///< Timestamp of the previous update() call, microseconds.
+        Float32 speed = 0.0f;   /* meters per second, filtered */
+        Bool    primed = false; ///< False until the first update() call has run.
     };
 
     /**
@@ -221,11 +221,11 @@ namespace bibo::odom
         {
             return;
         }
-        w->ticks     = 0u;
+        w->ticks = 0u;
         w->lastTicks = 0u;
-        w->lastUs    = nowUs;
-        w->speed     = 0.0f;
-        w->primed    = false;
+        w->lastUs = nowUs;
+        w->speed = 0.0f;
+        w->primed = false;
     }
 
     /**
@@ -286,8 +286,8 @@ namespace bibo::odom
         if(!w->primed)
         {
             w->lastTicks = now;
-            w->lastUs    = nowUs;
-            w->primed    = true;
+            w->lastUs = nowUs;
+            w->primed = true;
             return 0.0f;
         }
 
@@ -303,11 +303,11 @@ namespace bibo::odom
          * right delta. This car is forward-only, so ticks never count down.
          */
         const UInt32  dTicks = now - w->lastTicks;
-        const Float32 raw    = static_cast<Float32>(dTicks) * metersPerTick()
+        const Float32 raw = static_cast<Float32>(dTicks) * metersPerTick()
                                / dtS;
 
         w->lastTicks = now;
-        w->lastUs    = nowUs;
+        w->lastUs = nowUs;
 
         if(tauS <= 0.0f)
         {

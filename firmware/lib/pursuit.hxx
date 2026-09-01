@@ -68,7 +68,7 @@ namespace bibo
     struct Path
     {
         const geom::Vec2* pts = nullptr;
-        Size              n   = 0u;
+        Size              n = 0u;
     };
 
     /**
@@ -77,15 +77,15 @@ namespace bibo
     struct Follower
     {
         /* Lookahead = clamp(perMs * speed, minM, maxM). */
-        Float32 minM  = 0.35f;   /* meters, the lookahead floor          */
-        Float32 maxM  = 1.50f;   /* meters, the lookahead ceiling        */
+        Float32 minM = 0.35f;   /* meters, the lookahead floor          */
+        Float32 maxM = 1.50f;   /* meters, the lookahead ceiling        */
         Float32 perMs = 0.7f;    /* meters of lookahead per m/s of speed */
 
         /* Within this of the last point, the path is finished. */
         Float32 arriveM = 0.25f; /* meters */
 
         Float32 wheelbase = KIN_WHEELBASE_M; /* meters, see kinematics.hxx */
-        Float32 maxSteer  = KIN_MAX_STEER_RAD; /*
+        Float32 maxSteer = KIN_MAX_STEER_RAD; /*
         Float32 maxSteer  = KIN_MAX_STEER_RAD;  * radians, ditto - both are
                                                  * UNMEASURED PLACEHOLDERS
                                                  */
@@ -99,13 +99,13 @@ namespace bibo
      */
     struct Aim
     {
-        Bool       valid     = false;  /* false: nothing to steer toward */
-        Bool       arrived   = false;  /* the end is within arriveM      */
+        Bool       valid = false;  /* false: nothing to steer toward */
+        Bool       arrived = false;  /* the end is within arriveM      */
         geom::Vec2 goal;               /* world frame                    */
         Float32    lookahead = 0.0f;
         Float32    curvature = 0.0f;   /* 1/meters, + is left            */
-        Float32    steer     = 0.0f;   /* radians, clamped to maxSteer   */
-        Float32    fraction  = 0.0f;   /* -1..1, what drive::steer wants */
+        Float32    steer = 0.0f;   /* radians, clamped to maxSteer   */
+        Float32    fraction = 0.0f;   /* -1..1, what drive::steer wants */
         Float32    crossTrack = 0.0f;  /* meters, + is left of the path  */
     };
 
@@ -170,9 +170,9 @@ namespace bibo
          */
         if(geom::distance(geom::Vec2{ .x = pose.x, .y = pose.y }, last) <= f->arriveM)
         {
-            aim.valid   = true;
+            aim.valid = true;
             aim.arrived = true;
-            aim.goal    = last;
+            aim.goal = last;
             return aim;
         }
 
@@ -217,7 +217,7 @@ namespace bibo
             if(geom::distanceSq(here, path->pts[k]) >= ldSq)
             {
                 goal = path->pts[k];
-                got  = true;
+                got = true;
                 break;
             }
         }
@@ -247,17 +247,15 @@ namespace bibo
          * at exactly the moment precision matters most.
          */
         const geom::Vec2 local = geom::toLocal(pose, goal);
-        const Float32    dist  = geom::distance(here, goal);
-        const Float32    use   = dist > 0.01f ? dist : 0.01f;
+        const Float32    dist = geom::distance(here, goal);
+        const Float32    use = dist > 0.01f ? dist : 0.01f;
 
-        aim.goal       = goal;
+        aim.goal = goal;
         aim.crossTrack = local.y;
-        aim.curvature  = 2.0f * local.y / (use * use);
-        aim.steer      = kin::clampSteer(
-                             kin::steerFor(aim.curvature, f->wheelbase),
-                             f->maxSteer);
-        aim.fraction   = kin::steerFraction(aim.steer, f->maxSteer);
-        aim.valid      = true;
+        aim.curvature = 2.0f * local.y / (use * use);
+        aim.steer = kin::clampSteer(kin::steerFor(aim.curvature, f->wheelbase), f->maxSteer);
+        aim.fraction = kin::steerFraction(aim.steer, f->maxSteer);
+        aim.valid = true;
         return aim;
     }
 

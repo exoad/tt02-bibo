@@ -13,7 +13,7 @@
 namespace
 {
 
-  Int32 checks   = 0;
+  Int32 checks = 0;
   Int32 failures = 0;
 
   Void check(Bool ok, const Char* what)
@@ -70,12 +70,13 @@ namespace
   {
       std::printf("\n-- text is not code --\n");
 
-      check(count("serialPrint(\"int is wrong here\");") == 0,
-            "a builtin named in a STRING is not a violation");
+      check(
+          count("serialPrint(\"int is wrong here\");") == 0,
+          "a builtin named in a STRING is not a violation"
+      );
       check(count("// int x, in a comment") == 0,
             "a line comment is not code");
-      check(count("/* int x */ Int32 y = 0;") == 0,
-            "a block comment is not code");
+      check(count("/* int x */ Int32 y = 0;") == 0, "a block comment is not code");
 
       // A block comment spanning lines, which is most of this project's headers.
       const Str block =
@@ -93,10 +94,11 @@ namespace
   {
       std::printf("\n-- names --\n");
 
-      check(flags("Void DoThing(Int32 x)", "camelCase"),
-            "a PascalCase function is flagged");
-      check(flags("static Void do_thing(Int32 x)", "camelCase"),
-            "a snake_case function is flagged");
+      check(flags("Void DoThing(Int32 x)", "camelCase"), "a PascalCase function is flagged");
+      check(
+          flags("static Void do_thing(Int32 x)", "camelCase"),
+          "a snake_case function is flagged"
+      );
       check(count("Void doThing(Int32 x)") == 0, "camelCase function is fine");
       check(count("static Bool isReady(Void)") == 0, "static camelCase is fine");
 
@@ -128,8 +130,10 @@ namespace
       check(flags("    else { y = 1; }", "one-lined"), "a one-lined else is flagged");
 
       // The case that would ruin every table in the tree if it fired.
-      check(count("    { Icon::ICON_RADAR, \"radar\" },") == 0,
-            "an aggregate ROW is data, not a body");
+      check(
+          count(" { Icon::ICON_RADAR, \"radar\" },") == 0,
+          "an aggregate ROW is data, not a body"
+      );
       check(count("    { 1, 2, 3 },") == 0, "a plain initializer row is fine");
       check(count("    Int32 empty[] = {};") == 0, "an empty brace pair is fine");
   }
@@ -138,13 +142,14 @@ namespace
   {
       std::printf("\n-- C is not C++ --\n");
 
-      check(flags("Vec<std::string> names;", "shared.hxx alias"),
-            "an unaliased std type is flagged in C++");
+      check(
+          flags("Vec<std::string> names;", "shared.hxx alias"),
+          "an unaliased std type is flagged in C++"
+      );
 
       // The firmware is C. It has shared.h, not shared.hxx, and no std at all -
       // so a C file must not be judged by C++ rules.
-      check(count("struct thing", lint::Lang::LANG_C) > 0,
-            "naming rules still apply to C");
+      check(count("struct thing", lint::Lang::LANG_C) > 0, "naming rules still apply to C");
 
       check(lint::langOf("sketch.c") == lint::Lang::LANG_C, ".c is C");
       check(lint::langOf("pico2w.h") == lint::Lang::LANG_C, ".h is C in this tree");
@@ -156,15 +161,16 @@ namespace
   {
       std::printf("\n-- positions --\n");
 
-      const Vec<diag::Item> v = lint::check("Int32 a = 0;\nint b = 0;\n",
-                                            lint::Lang::LANG_CPP);
+      const Vec<diag::Item> v = lint::check("Int32 a = 0;\nint b = 0;\n", lint::Lang::LANG_CPP);
       check(v.size() == 1, "one violation on the second line");
       if(!v.empty())
       {
           check(v[0].line == 2, "reported on line 2, 1-based");
           check(v[0].column == 1, "column is 1-based");
-          check(v[0].severity == diag::Severity::SEVERITY_WARN,
-                "style issues are warnings, not errors");
+          check(
+              v[0].severity == diag::Severity::SEVERITY_WARN,
+              "style issues are warnings, not errors"
+          );
       }
   }
 
@@ -209,8 +215,7 @@ namespace
       {
           for(const diag::Item& d : v)
           {
-              std::printf("        line %d col %d: %s\n",
-                          d.line, d.column, d.message.c_str());
+              std::printf(" line %d col %d: %s\n", d.line, d.column, d.message.c_str());
           }
       }
       check(v.empty(), "a conforming file produces NO diagnostics");
@@ -228,7 +233,7 @@ Int32 lintFiles(Int32 argc, Utf8** argv)
     for(Int32 a = 1; a < argc; ++a)
     {
         const Str  path = argv[a];
-        std::FILE* f    = std::fopen(path.c_str(), "rb");
+        std::FILE* f = std::fopen(path.c_str(), "rb");
         if(f == nullptr)
         {
             continue;
@@ -246,8 +251,7 @@ Int32 lintFiles(Int32 argc, Utf8** argv)
         const Vec<diag::Item> v = lint::check(text, lint::langOf(path));
         for(const diag::Item& d : v)
         {
-            std::printf("%s:%d:%d: %s\n", path.c_str(), d.line, d.column,
-                        d.message.c_str());
+            std::printf("%s:%d:%d: %s\n", path.c_str(), d.line, d.column, d.message.c_str());
         }
         total += static_cast<Int32>(v.size());
     }

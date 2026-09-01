@@ -58,17 +58,17 @@ namespace scenegpu
     ID3D11Device*        dev = nullptr;
     ID3D11DeviceContext* ctx = nullptr;
 
-    ID3D11VertexShader*      vs         = nullptr;
-    ID3D11PixelShader*       ps         = nullptr;
-    ID3D11InputLayout*       layout     = nullptr;
-    ID3D11Buffer*            cbuf       = nullptr;
-    ID3D11Buffer*            vbuf       = nullptr;
-    Int32                    vbufCap    = 0;
+    ID3D11VertexShader*      vs = nullptr;
+    ID3D11PixelShader*       ps = nullptr;
+    ID3D11InputLayout*       layout = nullptr;
+    ID3D11Buffer*            cbuf = nullptr;
+    ID3D11Buffer*            vbuf = nullptr;
+    Int32                    vbufCap = 0;
     ID3D11RasterizerState*   rasterizer = nullptr;
-    ID3D11DepthStencilState* dsOpaque   = nullptr;
-    ID3D11DepthStencilState* dsBlended  = nullptr;
-    ID3D11BlendState*        blendOn    = nullptr;
-    ID3D11SamplerState*      sampler    = nullptr;
+    ID3D11DepthStencilState* dsOpaque = nullptr;
+    ID3D11DepthStencilState* dsBlended = nullptr;
+    ID3D11BlendState*        blendOn = nullptr;
+    ID3D11SamplerState*      sampler = nullptr;
 
     // The 1x1 white texel untextured geometry samples.
     ID3D11Texture2D*          whiteTex = nullptr;
@@ -123,14 +123,14 @@ namespace scenegpu
         releaseTargets();
 
         D3D11_TEXTURE2D_DESC td = {};
-        td.Width            = static_cast<UINT>(w);
-        td.Height           = static_cast<UINT>(h);
-        td.MipLevels        = 1;
-        td.ArraySize        = 1;
-        td.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.Width = static_cast<UINT>(w);
+        td.Height = static_cast<UINT>(h);
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         td.SampleDesc.Count = 1;
-        td.Usage            = D3D11_USAGE_DEFAULT;
-        td.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
         if(FAILED(dev->CreateTexture2D(&td, nullptr, &colorTex)))
         {
@@ -149,7 +149,7 @@ namespace scenegpu
         }
 
         D3D11_TEXTURE2D_DESC dd = td;
-        dd.Format    = DXGI_FORMAT_D32_FLOAT;
+        dd.Format = DXGI_FORMAT_D32_FLOAT;
         dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
         if(FAILED(dev->CreateTexture2D(&dd, nullptr, &depthTex)))
         {
@@ -180,9 +180,9 @@ namespace scenegpu
         vbufCap = ((count * 3) / 2 + 4096);
 
         D3D11_BUFFER_DESC bd = {};
-        bd.ByteWidth      = static_cast<UINT>(vbufCap * static_cast<Int32>(sizeof(Vertex)));
-        bd.Usage          = D3D11_USAGE_DYNAMIC;
-        bd.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
+        bd.ByteWidth = static_cast<UINT>(vbufCap * static_cast<Int32>(sizeof(Vertex)));
+        bd.Usage = D3D11_USAGE_DYNAMIC;
+        bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
         if(FAILED(dev->CreateBuffer(&bd, nullptr, &vbuf)))
@@ -208,13 +208,24 @@ namespace scenegpu
 
       ID3DBlob* vsBlob = nullptr;
       ID3DBlob* psBlob = nullptr;
-      ID3DBlob* err    = nullptr;
+      ID3DBlob* err = nullptr;
 
       const UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL3;
       const Size srcLen = std::strlen(SHADER_SRC);
 
-      if(FAILED(::D3DCompile(SHADER_SRC, srcLen, nullptr, nullptr, nullptr,
-                             "VSMain", "vs_5_0", flags, 0, &vsBlob, &err)))
+      if(FAILED(::D3DCompile(
+          SHADER_SRC,
+          srcLen,
+          nullptr,
+          nullptr,
+          nullptr,
+          "VSMain",
+          "vs_5_0",
+          flags,
+          0,
+          &vsBlob,
+          &err
+      )))
       {
           release(err);
           shutdown();
@@ -222,8 +233,19 @@ namespace scenegpu
       }
       release(err);
 
-      if(FAILED(::D3DCompile(SHADER_SRC, srcLen, nullptr, nullptr, nullptr,
-                             "PSMain", "ps_5_0", flags, 0, &psBlob, &err)))
+      if(FAILED(::D3DCompile(
+          SHADER_SRC,
+          srcLen,
+          nullptr,
+          nullptr,
+          nullptr,
+          "PSMain",
+          "ps_5_0",
+          flags,
+          0,
+          &psBlob,
+          &err
+      )))
       {
           release(err);
           release(vsBlob);
@@ -232,10 +254,18 @@ namespace scenegpu
       }
       release(err);
 
-      if(FAILED(dev->CreateVertexShader(vsBlob->GetBufferPointer(),
-                                        vsBlob->GetBufferSize(), nullptr, &vs))
-         || FAILED(dev->CreatePixelShader(psBlob->GetBufferPointer(),
-                                          psBlob->GetBufferSize(), nullptr, &ps)))
+      if(FAILED(dev->CreateVertexShader(
+          vsBlob->GetBufferPointer(),
+          vsBlob->GetBufferSize(),
+          nullptr,
+          &vs
+      ))
+         || FAILED(dev->CreatePixelShader(
+             psBlob->GetBufferPointer(),
+             psBlob->GetBufferSize(),
+             nullptr,
+             &ps
+         )))
       {
           release(vsBlob);
           release(psBlob);
@@ -248,8 +278,13 @@ namespace scenegpu
           { "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM,  0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
           { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
       };
-      if(FAILED(dev->CreateInputLayout(elems, 3, vsBlob->GetBufferPointer(),
-                                       vsBlob->GetBufferSize(), &layout)))
+      if(FAILED(dev->CreateInputLayout(
+          elems,
+          3,
+          vsBlob->GetBufferPointer(),
+          vsBlob->GetBufferSize(),
+          &layout
+      )))
       {
           release(vsBlob);
           release(psBlob);
@@ -260,9 +295,9 @@ namespace scenegpu
       release(psBlob);
 
       D3D11_BUFFER_DESC cb = {};
-      cb.ByteWidth      = 16 * sizeof(Float32);
-      cb.Usage          = D3D11_USAGE_DYNAMIC;
-      cb.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+      cb.ByteWidth = 16 * sizeof(Float32);
+      cb.Usage = D3D11_USAGE_DYNAMIC;
+      cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
       cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
       if(FAILED(dev->CreateBuffer(&cb, nullptr, &cbuf)))
       {
@@ -273,8 +308,8 @@ namespace scenegpu
       // Cull NOTHING: the depth buffer decides visibility, so a mesh with
       // inconsistent winding renders correctly instead of developing holes.
       D3D11_RASTERIZER_DESC rd = {};
-      rd.FillMode        = D3D11_FILL_SOLID;
-      rd.CullMode        = D3D11_CULL_NONE;
+      rd.FillMode = D3D11_FILL_SOLID;
+      rd.CullMode = D3D11_CULL_NONE;
       rd.DepthClipEnable = TRUE;
       if(FAILED(dev->CreateRasterizerState(&rd, &rasterizer)))
       {
@@ -283,9 +318,9 @@ namespace scenegpu
       }
 
       D3D11_DEPTH_STENCIL_DESC ds = {};
-      ds.DepthEnable    = TRUE;
+      ds.DepthEnable = TRUE;
       ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-      ds.DepthFunc      = D3D11_COMPARISON_LESS;
+      ds.DepthFunc = D3D11_COMPARISON_LESS;
       if(FAILED(dev->CreateDepthStencilState(&ds, &dsOpaque)))
       {
           shutdown();
@@ -302,13 +337,13 @@ namespace scenegpu
       }
 
       D3D11_BLEND_DESC bd = {};
-      bd.RenderTarget[0].BlendEnable           = TRUE;
-      bd.RenderTarget[0].SrcBlend              = D3D11_BLEND_SRC_ALPHA;
-      bd.RenderTarget[0].DestBlend             = D3D11_BLEND_INV_SRC_ALPHA;
-      bd.RenderTarget[0].BlendOp               = D3D11_BLEND_OP_ADD;
-      bd.RenderTarget[0].SrcBlendAlpha         = D3D11_BLEND_ONE;
-      bd.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_INV_SRC_ALPHA;
-      bd.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
+      bd.RenderTarget[0].BlendEnable = TRUE;
+      bd.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+      bd.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+      bd.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+      bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+      bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+      bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
       bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
       if(FAILED(dev->CreateBlendState(&bd, &blendOn)))
       {
@@ -317,7 +352,7 @@ namespace scenegpu
       }
 
       D3D11_SAMPLER_DESC sd = {};
-      sd.Filter   = D3D11_FILTER_MIN_MAG_MIP_POINT;   // a palette atlas; do not blur it
+      sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;   // a palette atlas; do not blur it
       sd.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
       sd.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
       sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -331,13 +366,13 @@ namespace scenegpu
       D3D11_TEXTURE2D_DESC wd = {};
       wd.Width = wd.Height = 1;
       wd.MipLevels = wd.ArraySize = 1;
-      wd.Format            = DXGI_FORMAT_R8G8B8A8_UNORM;
-      wd.SampleDesc.Count  = 1;
-      wd.Usage             = D3D11_USAGE_IMMUTABLE;
-      wd.BindFlags         = D3D11_BIND_SHADER_RESOURCE;
+      wd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      wd.SampleDesc.Count = 1;
+      wd.Usage = D3D11_USAGE_IMMUTABLE;
+      wd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
       D3D11_SUBRESOURCE_DATA wsd = {};
-      wsd.pSysMem     = &WHITE;
+      wsd.pSysMem = &WHITE;
       wsd.SysMemPitch = 4;
       if(FAILED(dev->CreateTexture2D(&wd, &wsd, &whiteTex))
          || FAILED(dev->CreateShaderResourceView(whiteTex, nullptr, &whiteSrv)))
@@ -404,7 +439,7 @@ namespace scenegpu
       t.v[0] = a;
       t.v[1] = b;
       t.v[2] = c;
-      t.tex  = tex;
+      t.tex = tex;
       opaqueTris.push_back(t);
   }
 
@@ -418,7 +453,7 @@ namespace scenegpu
       t.v[0] = a;
       t.v[1] = b;
       t.v[2] = c;
-      t.tex  = tex;
+      t.tex = tex;
       blendedTris.push_back(t);
   }
 
@@ -442,8 +477,11 @@ namespace scenegpu
       // Opaque triangles may be reordered freely - the depth buffer decides, not
       // the order - so they group by texture to collapse draw calls. Blended ones
       // may NOT: they sort back to front, and the batching must follow that.
-      std::stable_sort(opaqueTris.begin(), opaqueTris.end(),
-                       [](const Tri& x, const Tri& y) { return x.tex < y.tex; });
+      std::stable_sort(
+          opaqueTris.begin(),
+          opaqueTris.end(),
+          [](const Tri& x, const Tri& y) { return x.tex < y.tex; }
+      );
 
       const auto viewDepth = [&](const Tri& t) {
           // w after the row-vector transform is the view-space depth.
@@ -454,8 +492,11 @@ namespace scenegpu
           }
           return d;
       };
-      std::stable_sort(blendedTris.begin(), blendedTris.end(),
-                       [&](const Tri& x, const Tri& y) { return viewDepth(x) > viewDepth(y); });
+      std::stable_sort(
+          blendedTris.begin(),
+          blendedTris.end(),
+          [&](const Tri& x, const Tri& y) { return viewDepth(x) > viewDepth(y); }
+      );
 
       const Int32 total = static_cast<Int32>((opaqueTris.size() + blendedTris.size()) * 3);
       if(!ensureVertexBuffer(total))
@@ -470,7 +511,7 @@ namespace scenegpu
       }
 
       Vertex* out = static_cast<Vertex*>(ms.pData);
-      Int32   n   = 0;
+      Int32   n = 0;
       for(const Tri& t : opaqueTris)
       {
           for(Int32 i = 0; i < 3; ++i)
@@ -501,8 +542,8 @@ namespace scenegpu
       ctx->OMSetRenderTargets(1, &rtv, depthDsv);
 
       D3D11_VIEWPORT vp = {};
-      vp.Width    = static_cast<FLOAT>(rtW);
-      vp.Height   = static_cast<FLOAT>(rtH);
+      vp.Width = static_cast<FLOAT>(rtW);
+      vp.Height = static_cast<FLOAT>(rtH);
       vp.MaxDepth = 1.0f;
       ctx->RSSetViewports(1, &vp);
 
@@ -536,8 +577,10 @@ namespace scenegpu
                   (tex != 0) ? reinterpret_cast<ID3D11ShaderResourceView*>(tex) : whiteSrv;
               ctx->PSSetShaderResources(0, 1, &srv);
 
-              ctx->Draw(static_cast<UINT>((j - i) * 3),
-                        static_cast<UINT>(base + static_cast<Int32>(i) * 3));
+              ctx->Draw(
+                  static_cast<UINT>((j - i) * 3),
+                  static_cast<UINT>(base + static_cast<Int32>(i) * 3)
+              );
               i = j;
           }
       };

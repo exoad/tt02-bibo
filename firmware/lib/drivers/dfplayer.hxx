@@ -127,7 +127,7 @@ namespace bibo::dfplayer
      */
     inline Void open(Bus* bus, uart_inst_t* port, const Pin tx, const Pin rx, const Int32 busyPin)
     {
-        bus->port    = port;
+        bus->port = port;
         bus->busyPin = busyPin;
 
         uart::open(port, 9600, tx, rx);
@@ -185,8 +185,11 @@ namespace bibo::dfplayer
      */
     inline Void volume(const Bus* bus, const UInt8 level)
     {
-        send(bus, DFP_CMD_VOLUME,
-             static_cast<UInt16>(level > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : level));
+        send(
+            bus,
+            DFP_CMD_VOLUME,
+            static_cast<UInt16>(level > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : level)
+        );
     }
 
     /**
@@ -200,8 +203,7 @@ namespace bibo::dfplayer
      */
     inline Void eq(const Bus* bus, const UInt8 mode)
     {
-        send(bus, DFP_CMD_EQ,
-             static_cast<UInt16>(mode > DFP_EQ_MAX ? DFP_EQ_MAX : mode));
+        send(bus, DFP_CMD_EQ, static_cast<UInt16>(mode > DFP_EQ_MAX ? DFP_EQ_MAX : mode));
     }
 
     /**
@@ -224,9 +226,11 @@ namespace bibo::dfplayer
      */
     inline Void playFolder(const Bus* bus, const UInt8 folder, const UInt8 track)
     {
-        send(bus, DFP_CMD_FOLDER,
-             static_cast<UInt16>((static_cast<UInt32>(folder) << 8u)
-                                 | static_cast<UInt32>(track)));
+        send(
+            bus,
+            DFP_CMD_FOLDER,
+            static_cast<UInt16>((static_cast<UInt32>(folder) << 8u) | static_cast<UInt32>(track))
+        );
     }
 
     /**

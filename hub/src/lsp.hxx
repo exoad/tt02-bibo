@@ -71,7 +71,7 @@ namespace lsp
       UInt64    serial = 0;   // increments per reply; 0 means "nothing yet"
       Str       path;
       Int32     line = -1;    // 0-based, as LSP counts
-      Int32     col  = -1;
+      Int32     col = -1;
       Vec<Item> items;
   };
 
@@ -130,7 +130,7 @@ namespace lsp
       UInt64 serial = 0;    // increments per reply; 0 means "nothing yet"
       Str    path;
       Int32  line = -1;     // 0-based, the position that was asked about
-      Int32  col  = -1;
+      Int32  col = -1;
       Str    sig;
       Str    doc;
   };

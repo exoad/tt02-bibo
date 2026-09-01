@@ -17,12 +17,12 @@ namespace
 {
 
   // Bounds taken from the verified behavior of this device.
-  constexpr Int32   RUN_SECONDS   = 8;
-  constexpr Int32   MIN_FRAMES    = 30;
-  constexpr Float32 MIN_HZ        = 9.0f;
-  constexpr Float32 MAX_HZ        = 13.0f;
-  constexpr Int32   MIN_POINTS    = 350;
-  constexpr Int32   MAX_POINTS    = 550;
+  constexpr Int32   RUN_SECONDS = 8;
+  constexpr Int32   MIN_FRAMES = 30;
+  constexpr Float32 MIN_HZ = 9.0f;
+  constexpr Float32 MAX_HZ = 13.0f;
+  constexpr Int32   MIN_POINTS = 350;
+  constexpr Int32   MAX_POINTS = 550;
 
   // The motor spins up over the first couple of seconds: it starts fast and
   // sparse (~355 points at ~14Hz) and settles to ~510 points at ~9.8Hz. That
@@ -110,20 +110,20 @@ Int32 main(Int32 argc, Char** argv)
     std::printf("-- start() returned, state=%s --\n", stateName(src.state()));
 
     // ---- poll loop --------------------------------------------------------
-    Int32    frames        = 0;
-    Int32    printed       = 0;
-    Bool   infoShown    = false;
-    Bool   sawScanning  = false;
-    Float64 hzSum        = 0.0;
-    Int32    hzN          = 0;
-    Int64  ptsSum       = 0;
-    Int32    ptsMin       = 1 << 30;
-    Int32    ptsMax       = 0;
-    Float64 validPctSum  = 0.0;
+    Int32    frames = 0;
+    Int32    printed = 0;
+    Bool   infoShown = false;
+    Bool   sawScanning = false;
+    Float64 hzSum = 0.0;
+    Int32    hzN = 0;
+    Int64  ptsSum = 0;
+    Int32    ptsMin = 1 << 30;
+    Int32    ptsMax = 0;
+    Float64 validPctSum = 0.0;
     // Spin-up frames, tracked only so they can be shown.
-    Int32    warmPtsMin  = 1 << 30;
-    Int32    warmPtsMax  = 0;
-    Float32  warmHzMax   = 0.0f;
+    Int32    warmPtsMin = 1 << 30;
+    Int32    warmPtsMax = 0;
+    Float32  warmHzMax = 0.0f;
     LidarDeviceInfo di;
 
     const TimePoint t0 = monoNow();
@@ -152,8 +152,14 @@ Int32 main(Int32 argc, Char** argv)
         if(!infoShown && st == LidarState::LIDAR_STATE_SCANNING)
         {
             di = src.info();
-            std::printf("  device: model=%d fw=%d.%02d hw=%d health=%d\n",
-                        di.model, di.fwMajor, di.fwMinor, di.hwRev, di.health);
+            std::printf(
+                " device: model=%d fw=%d.%02d hw=%d health=%d\n",
+                di.model,
+                di.fwMajor,
+                di.fwMinor,
+                di.hwRev,
+                di.health
+            );
             std::printf("  serial: %s\n\n", di.serial.c_str());
             infoShown = true;
         }
@@ -199,8 +205,14 @@ Int32 main(Int32 argc, Char** argv)
             // show the stream is live and the numbers are sane.
             if(frames <= 5 || frames % 10 == 0)
             {
-                std::printf("  frame %3d  pts=%4d  hz=%5.2f  valid=%5.1f%%  max=%7.1fmm\n",
-                            frames, n, frame.hz, vp, frame.maxDistMm);
+                std::printf(
+                    " frame %3d pts=%4d hz=%5.2f valid=%5.1f%% max=%7.1fmm\n",
+                    frames,
+                    n,
+                    frame.hz,
+                    vp,
+                    frame.maxDistMm
+                );
                 ++printed;
             }
         }
@@ -230,59 +242,88 @@ Int32 main(Int32 argc, Char** argv)
     // up. Draining it here is expected and correct. What must NOT happen is the
     // same frame being handed out twice - that is the sequence counter's job.
     LidarFrame after;
-    Bool drained  = src.poll(after);
+    Bool drained = src.poll(after);
     Bool repeated = src.poll(after);
-    std::printf("  poll() after stop: drained=%s repeated=%s\n",
-                drained ? "true" : "false", repeated ? "true" : "false");
+    std::printf(
+        " poll() after stop: drained=%s repeated=%s\n",
+        drained ? "true" : "false",
+        repeated ? "true" : "false"
+    );
 
     // ---- verdict ----------------------------------------------------------
     std::printf("\n=== summary ===\n");
-    const Int32    steady  = hzN;
-    const Float64 avgHz  = steady ? hzSum / steady : 0.0;
+    const Int32    steady = hzN;
+    const Float64 avgHz = steady ? hzSum / steady : 0.0;
     const Float64 avgPts = steady ? static_cast<Float64>(ptsSum) / steady : 0.0;
-    const Float64 avgValidPct  = steady ? validPctSum / steady : 0.0;
+    const Float64 avgValidPct = steady ? validPctSum / steady : 0.0;
 
-    std::printf("  ran %.1fs, %d frames total (%d spin-up, %d steady)\n",
-                secs, frames, frames < SPIN_UP_FRAMES ? frames : SPIN_UP_FRAMES, steady);
+    std::printf(
+        " ran %.1fs, %d frames total (%d spin-up, %d steady)\n",
+        secs,
+        frames,
+        frames < SPIN_UP_FRAMES ? frames : SPIN_UP_FRAMES,
+        steady
+    );
     if(warmPtsMax)
     {
-        std::printf("  spin-up: points %d..%d, peak hz %.2f (expected, motor accelerating)\n",
-                    warmPtsMin, warmPtsMax, warmHzMax);
+        std::printf(
+            " spin-up: points %d..%d, peak hz %.2f (expected, motor accelerating)\n",
+            warmPtsMin,
+            warmPtsMax,
+            warmHzMax
+        );
     }
-    std::printf("  steady : hz avg %.2f | points avg %.0f (min %d max %d) | valid avg %.1f%%\n",
-                avgHz, avgPts, steady ? ptsMin : 0, ptsMax, avgValidPct);
+    std::printf(
+        " steady : hz avg %.2f | points avg %.0f (min %d max %d) | valid avg %.1f%%\n",
+        avgHz,
+        avgPts,
+        steady ? ptsMin : 0,
+        ptsMax,
+        avgValidPct
+    );
     std::printf("\n");
 
     Check check;
-    check(!ports.empty(), "listPorts non-empty",
-          std::to_string(ports.size()) + " port(s)");
+    check(!ports.empty(), "listPorts non-empty", std::to_string(ports.size()) + " port(s)");
     check(portListed, "target port enumerated", port);
     check(sawScanning, "reached Scanning state", "");
-    check(src.error().empty(), "no error message",
-          src.error().empty() ? "" : src.error());
+    check(src.error().empty(), "no error message", src.error().empty() ? "" : src.error());
 
     check(di.model == 65, "device model == 65", std::to_string(di.model));
-    check(di.fwMajor == 1 && di.fwMinor == 2, "firmware == 1.02",
-          std::to_string(di.fwMajor) + "." + std::to_string(di.fwMinor));
+    check(
+        di.fwMajor == 1 && di.fwMinor == 2,
+        "firmware == 1.02",
+        std::to_string(di.fwMajor) + "." + std::to_string(di.fwMinor)
+    );
     check(di.hwRev == 18, "hardware rev == 18", std::to_string(di.hwRev));
     check(di.serial == "A11FE18AC1EA9ED2B29C92F522BB466C", "serial matches", di.serial);
     check(di.health == 0, "health == 0 (good)", std::to_string(di.health));
 
     check(frames >= MIN_FRAMES, "frames >= 30", std::to_string(frames));
-    check(steady > 0 && avgHz >= MIN_HZ && avgHz <= MAX_HZ,
-          "steady hz in 9..13", fmtValue("%.2f", avgHz));
-    check(steady > 0 && ptsMin >= MIN_POINTS && ptsMax <= MAX_POINTS,
-          "steady points in 350..550",
-          std::to_string(steady ? ptsMin : 0) + ".." + std::to_string(ptsMax));
+    check(
+        steady > 0 && avgHz >= MIN_HZ && avgHz <= MAX_HZ,
+        "steady hz in 9..13",
+        fmtValue("%.2f", avgHz)
+    );
+    check(
+        steady > 0 && ptsMin >= MIN_POINTS && ptsMax <= MAX_POINTS,
+        "steady points in 350..550",
+        std::to_string(steady ? ptsMin : 0) + ".." + std::to_string(ptsMax)
+    );
     check(avgValidPct > 50.0, "valid points > 50%", fmtValue("%.1f%%", avgValidPct));
 
     check(!repeated, "no frame re-delivered", "");
     check(stopMs < 3000.0, "stop() under 3s", fmtValue("%.0f ms", stopMs));
-    check(src.state() == LidarState::LIDAR_STATE_IDLE, "state Idle after stop",
-          stateName(src.state()));
+    check(
+        src.state() == LidarState::LIDAR_STATE_IDLE,
+        "state Idle after stop",
+        stateName(src.state())
+    );
 
-    std::printf("\n%s (%d check(s) failed)\n",
-                check.failures == 0 ? "OVERALL: PASS" : "OVERALL: FAIL",
-                check.failures);
+    std::printf(
+        "\n%s (%d check(s) failed)\n",
+        check.failures == 0 ? "OVERALL: PASS" : "OVERALL: FAIL",
+        check.failures
+    );
     return check.failures == 0 ? 0 : 1;
 }

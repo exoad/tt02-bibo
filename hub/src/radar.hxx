@@ -120,9 +120,9 @@ public:
     lights::Input lighting;
 
     // ---- overlays -------------------------------------------------------
-    Bool showGrid    = true;
-    Bool showTrail   = true;
-    Bool showLabels  = true;   // range-ring and compass labels
+    Bool showGrid = true;
+    Bool showTrail = true;
+    Bool showLabels = true;   // range-ring and compass labels
     Bool showNearest = true;   // ring around the closest return
 
     // ---- readouts, written by draw(), read by the caller's HUD ----------
@@ -136,12 +136,12 @@ public:
     ImVec2 centerPx = ImVec2(0.0f, 0.0f);
     Float32 radiusPx = 0.0f;
 
-    Bool    cursorValid      = false;
-    Float32 cursorRangeMm    = 0.0f;   // from the sensor
+    Bool    cursorValid = false;
+    Float32 cursorRangeMm = 0.0f;   // from the sensor
     Float32 cursorBearingDeg = 0.0f;
 
-    Bool    hasNearest        = false;
-    Float32 nearestMm         = 0.0f;
+    Bool    hasNearest = false;
+    Float32 nearestMm = 0.0f;
     Float32 nearestBearingDeg = 0.0f;
 
     Bool    measuring = false;
@@ -207,9 +207,9 @@ private:
 
     // View: world point shown at the widget center, and the zoom.
     ImVec2  viewCenterMm = ImVec2(0.0f, 0.0f);
-    Float32 pxPerMm      = 0.0f;      // 0 until the first draw sizes it
-    Bool    autoFit      = true;
-    Float32 autoRangeMm  = 4000.0f;   // eased target radius while auto-fitting
+    Float32 pxPerMm = 0.0f;      // 0 until the first draw sizes it
+    Bool    autoFit = true;
+    Float32 autoRangeMm = 4000.0f;   // eased target radius while auto-fitting
 
     // Recent per-revolution fit distances. The auto-fit target is the largest
     // of these rather than the newest, so the view only shrinks once the scene
@@ -231,5 +231,5 @@ private:
 
     Bool    measureActive = false;
     ImVec2  measureFromMm = ImVec2(0.0f, 0.0f);
-    ImVec2  measureToMm   = ImVec2(0.0f, 0.0f);
+    ImVec2  measureToMm = ImVec2(0.0f, 0.0f);
 };

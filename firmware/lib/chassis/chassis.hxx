@@ -208,9 +208,9 @@ namespace bibo::drive
 
     /* ---- state --------------------------------------------------------------- */
 
-    inline Bool  up    = false;
-    inline Bool  escArmed   = false;
-    inline Bool  servoLive  = false;
+    inline Bool  up = false;
+    inline Bool  escArmed = false;
+    inline Bool  servoLive = false;
 
     /*
      * The working limits, widened only on purpose: they start at the calibration
@@ -219,8 +219,8 @@ namespace bibo::drive
      */
     inline Int32 servoMin = SERVO_DEFAULT_MIN;
     inline Int32 servoMax = SERVO_DEFAULT_MAX;
-    inline Int32 escMin   = ESC_DEFAULT_MIN;
-    inline Int32 escMax   = ESC_DEFAULT_MAX;
+    inline Int32 escMin = ESC_DEFAULT_MIN;
+    inline Int32 escMax = ESC_DEFAULT_MAX;
 
     /*
      * Where the wheels actually point straight. DRIVE_NEUTRAL_US is the middle of
@@ -231,16 +231,16 @@ namespace bibo::drive
     inline Int32 servoCenterUs = STEER_CAL_CENTER;
 
     inline Int32 servoTarget = STEER_CAL_CENTER;
-    inline Int32 servoNow    = STEER_CAL_CENTER;
-    inline Int32 escTarget   = DRIVE_NEUTRAL_US;
-    inline Int32 escNow      = DRIVE_NEUTRAL_US;
+    inline Int32 servoNow = STEER_CAL_CENTER;
+    inline Int32 escTarget = DRIVE_NEUTRAL_US;
+    inline Int32 escNow = DRIVE_NEUTRAL_US;
 
     /*
      * How fast an output may move, in microseconds per tick. Runtime, because the
      * right answer changes with the job: slow while finding an end stop with the
      * horn off, fast while driving.
      */
-    inline Int32 steerSlewUs    = STEER_SLEW_US;
+    inline Int32 steerSlewUs = STEER_SLEW_US;
     inline Int32 throttleSlewUs = THROTTLE_SLEW_US;
 
     /* When the slew limiter may next take a step. */
@@ -364,12 +364,12 @@ namespace bibo::drive
          * ESC at neutral while leaving it armed, so the next throttleUs() went
          * through on what reads as a fresh bring-up.
          */
-        escArmed  = false;
+        escArmed = false;
         escTarget = DRIVE_NEUTRAL_US;
-        escNow    = DRIVE_NEUTRAL_US;
+        escNow = DRIVE_NEUTRAL_US;
 
         slewNextAt = timing::armMs(SLEW_TICK_MS);
-        up  = true;
+        up = true;
     }
 
     /**
@@ -395,7 +395,7 @@ namespace bibo::drive
 
         if(servoLive && servoNow != servoTarget)
         {
-            const Int32 d    = servoTarget - servoNow;
+            const Int32 d = servoTarget - servoNow;
             const Int32 step = d > steerSlewUs ? steerSlewUs
                                    : d < -steerSlewUs ? -steerSlewUs : d;
             servoNow += step;
@@ -405,7 +405,7 @@ namespace bibo::drive
         /* A disarmed ESC is walked back to neutral: a step there is itself a jolt. */
         if(const Int32 want = escArmed ? escTarget : DRIVE_NEUTRAL_US; escNow != want)
         {
-            const Int32 d    = want - escNow;
+            const Int32 d = want - escNow;
             const Int32 step = d > throttleSlewUs ? throttleSlewUs
                                    : d < -throttleSlewUs ? -throttleSlewUs : d;
             escNow += step;
@@ -433,12 +433,12 @@ namespace bibo::drive
      */
     inline Void stop(Void)
     {
-        escArmed    = false;
-        escTarget   = DRIVE_NEUTRAL_US;
-        escNow      = DRIVE_NEUTRAL_US;
+        escArmed = false;
+        escTarget = DRIVE_NEUTRAL_US;
+        escNow = DRIVE_NEUTRAL_US;
         servoTarget = servoCenterUs;
-        servoNow    = servoCenterUs;
-        servoLive   = false;
+        servoNow = servoCenterUs;
+        servoLive = false;
 
         if(up)
         {
@@ -456,20 +456,20 @@ namespace bibo::drive
     inline State read(Void)
     {
         State s{};
-        s.servoUs       = servoNow;
+        s.servoUs = servoNow;
         s.servoTargetUs = servoTarget;
-        s.escUs         = escNow;
-        s.escTargetUs   = escTarget;
-        s.escArmed      = escArmed;
-        s.servoLive     = servoLive;
-        s.centerUs      = servoCenterUs;
-        s.steerMilli    = steerFromUs(servoTarget);
+        s.escUs = escNow;
+        s.escTargetUs = escTarget;
+        s.escArmed = escArmed;
+        s.servoLive = servoLive;
+        s.centerUs = servoCenterUs;
+        s.steerMilli = steerFromUs(servoTarget);
         s.steerNowMilli = steerFromUs(servoNow);
-        s.servoMinUs    = servoMin;
-        s.servoMaxUs    = servoMax;
-        s.escMinUs      = escMin;
-        s.escMaxUs      = escMax;
-        s.steerSlewUs    = steerSlewUs;
+        s.servoMinUs = servoMin;
+        s.servoMaxUs = servoMax;
+        s.escMinUs = escMin;
+        s.escMaxUs = escMax;
+        s.steerSlewUs = steerSlewUs;
         s.throttleSlewUs = throttleSlewUs;
         return s;
     }
@@ -560,7 +560,7 @@ namespace bibo::drive
     {
         if(on && !servoLive)
         {
-            servoNow  = servoCenterUs;
+            servoNow = servoCenterUs;
             servoLive = true;
             servo::writeUs(PIN_SERVO, static_cast<UInt32>(servoNow));
             return;
@@ -675,9 +675,9 @@ namespace bibo::drive
             return false;
         }
 
-        servoMin      = lo2;
-        servoMax      = hi2;
-        servoTarget   = clamp(servoTarget, servoMin, servoMax);
+        servoMin = lo2;
+        servoMax = hi2;
+        servoTarget = clamp(servoTarget, servoMin, servoMax);
         servoCenterUs = clamp(servoCenterUs, servoMin, servoMax);
         return true;
     }
@@ -698,7 +698,7 @@ namespace bibo::drive
      */
     inline Void arm(const Bool on)
     {
-        escArmed  = on;
+        escArmed = on;
         escTarget = DRIVE_NEUTRAL_US;
     }
 
@@ -762,8 +762,8 @@ namespace bibo::drive
             return false;
         }
 
-        escMin    = lo2;
-        escMax    = hi2;
+        escMin = lo2;
+        escMax = hi2;
         escTarget = clamp(escTarget, escMin, escMax);
         return true;
     }

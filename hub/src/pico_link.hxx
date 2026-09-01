@@ -37,7 +37,7 @@ enum class PicoState
 // One logged line, in either direction.
 struct PicoLine
 {
-    Float64      tS      = 0.0;    // seconds since the link was opened
+    Float64      tS = 0.0;    // seconds since the link was opened
     Bool        outgoing = false;  // true = host -> Pico
     Str text;
 
@@ -58,7 +58,7 @@ public:
     PicoLink();
     ~PicoLink();
 
-    PicoLink(const PicoLink&)            = delete;
+    PicoLink(const PicoLink&) = delete;
     PicoLink& operator=(const PicoLink&) = delete;
 
     // Non-blocking. Watch state() for the outcome.

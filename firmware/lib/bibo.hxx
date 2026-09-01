@@ -144,3 +144,4 @@
 
 #include "chassis/cal.hxx"
 #include "chassis/chassis.hxx"
+#include "shared.hxx"

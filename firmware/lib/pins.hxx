@@ -61,12 +61,12 @@ namespace bibo::pins
     struct Map
     {
         /* chassis */
-        Int32 servo     = NONE;
-        Int32 esc       = NONE;
+        Int32 servo = NONE;
+        Int32 esc = NONE;
 
         /* buses */
-        Int32 i2cSda    = NONE;
-        Int32 i2cScl    = NONE;
+        Int32 i2cSda = NONE;
+        Int32 i2cScl = NONE;
 
         /*
          * sound - the DFPlayer Mini. THE DIRECTIONS ARE THE SILICON'S: on RP2350
@@ -75,21 +75,21 @@ namespace bibo::pins
          * write succeeds, and no byte leaves the chip. soundBusy is the module's
          * own output and is LOW WHILE PLAYING, the only honest end-of-track.
          */
-        Int32 soundTx   = NONE;
-        Int32 soundRx   = NONE;
+        Int32 soundTx = NONE;
+        Int32 soundRx = NONE;
         Int32 soundBusy = NONE;
 
         /* lamps, in lights::Lamp order */
-        Int32 headL     = NONE;
-        Int32 headR     = NONE;
-        Int32 tailL     = NONE;
-        Int32 tailR     = NONE;
-        Int32 indFL     = NONE;
-        Int32 indFR     = NONE;
-        Int32 indRL     = NONE;
-        Int32 indRR     = NONE;
-        Int32 revL      = NONE;
-        Int32 revR      = NONE;
+        Int32 headL = NONE;
+        Int32 headR = NONE;
+        Int32 tailL = NONE;
+        Int32 tailR = NONE;
+        Int32 indFL = NONE;
+        Int32 indFR = NONE;
+        Int32 indRL = NONE;
+        Int32 indRR = NONE;
+        Int32 revL = NONE;
+        Int32 revR = NONE;
 
         /*
          * the SPI display. SCK and MOSI are fixed by the silicon for a given
@@ -99,33 +99,34 @@ namespace bibo::pins
          * rejects it, so a second device on this SCK/MOSI wants a bus concept
          * rather than another pair of pin fields.
          */
-        Int32 tftSck    = NONE;
-        Int32 tftMosi   = NONE;
-        Int32 tftCs     = NONE;
-        Int32 tftDc     = NONE;
-        Int32 tftRes    = NONE;
+        Int32 tftSck = NONE;
+        Int32 tftMosi = NONE;
+        Int32 tftCs = NONE;
+        Int32 tftDc = NONE;
+        Int32 tftRes = NONE;
 
         /* Backlight. NONE means tied to 3V3 and always on, as these boards ship. */
-        Int32 tftBlk    = NONE;
+        Int32 tftBlk = NONE;
 
         /* sensors */
         /*
          * The MicroSD module. Its own SPI pads, NOT the panel's - the two would
          * be one bus at different clocks, and begin() rejects shared pads.
          */
-        Int32 sdSck     = NONE;
-        Int32 sdMosi    = NONE;
-        Int32 sdMiso    = NONE;
-        Int32 sdCs      = NONE;
+        Int32 sdSck = NONE;
+        Int32 sdMosi = NONE;
+        Int32 sdMiso = NONE;
+        Int32 sdCs = NONE;
 
-        Int32 encoder   = NONE;
+        Int32 encoder = NONE;
     };
 
     constexpr Size FIELD_COUNT = 28;
 
-    static_assert(sizeof(Map) == FIELD_COUNT * sizeof(Int32),
-                  "pins::Map must be exactly FIELD_COUNT Int32 fields - a role "
-                  "was added without updating FIELD_COUNT and NAMES");
+    static_assert(
+        sizeof(Map) == FIELD_COUNT * sizeof(Int32),
+        "pins::Map must be exactly FIELD_COUNT Int32 fields - a role " "was added without updating FIELD_COUNT and NAMES"
+    );
 
     inline CharSeq NAMES[FIELD_COUNT] =
     {
@@ -177,36 +178,36 @@ namespace bibo::pins
     {
         Map m;
 
-        m.servo     = 0;
-        m.esc       = 1;
+        m.servo = 0;
+        m.esc = 1;
 
-        m.i2cSda    = 4;
-        m.i2cScl    = 5;
+        m.i2cSda = 4;
+        m.i2cScl = 5;
 
-        m.soundTx   = 14;   /* -> module RX, through 1k */
-        m.soundRx   = 15;   /* <- module TX             */
+        m.soundTx = 14;   /* -> module RX, through 1k */
+        m.soundRx = 15;   /* <- module TX             */
         m.soundBusy = 9;    /* LOW while playing        */
 
-        m.headL     = 11;
-        m.headR     = 10;
-        m.tailL     = NONE; /* was 15, now soundRx */
-        m.tailR     = NONE; /* was 14, now soundTx */
-        m.indFL     = 13;
-        m.indFR     = 12;
+        m.headL = 11;
+        m.headR = 10;
+        m.tailL = NONE; /* was 15, now soundRx */
+        m.tailR = NONE; /* was 14, now soundTx */
+        m.indFL = 13;
+        m.indFR = 12;
 
-        m.tftSck    = 18;   /* SPI0 SCK, fixed by the silicon */
-        m.tftMosi   = 19;   /* SPI0 TX                        */
-        m.tftCs     = 17;
-        m.tftDc     = 21;
-        m.tftRes    = 20;
+        m.tftSck = 18;   /* SPI0 SCK, fixed by the silicon */
+        m.tftMosi = 19;   /* SPI0 TX                        */
+        m.tftCs = 17;
+        m.tftDc = 21;
+        m.tftRes = 20;
 
         /* Where the module GOES. Headers unsoldered, so sd::open() fails until then. */
-        m.sdSck     = 26;
-        m.sdMosi    = 27;
-        m.sdMiso    = 28;
-        m.sdCs      = 22;
+        m.sdSck = 26;
+        m.sdMosi = 27;
+        m.sdMiso = 28;
+        m.sdCs = 22;
 
-        m.encoder   = NONE; /* GP15 was earmarked; sound has it */
+        m.encoder = NONE; /* GP15 was earmarked; sound has it */
 
         return m;
     }
@@ -222,8 +223,8 @@ namespace bibo::pins
 
     /* Where the last begin() found a problem, so a caller can name the pins. */
     inline Int32 clashPin = NONE;
-    inline Size  clashA   = 0;
-    inline Size  clashB   = 0;
+    inline Size  clashA = 0;
+    inline Size  clashB = 0;
 
     /**
      * @brief Validates a map and, if it is sound, installs it as the pins
@@ -266,8 +267,8 @@ namespace bibo::pins
             if(f[a] < 0 || f[a] > MAX_GPIO)
             {
                 clashPin = f[a];
-                clashA   = a;
-                clashB   = a;
+                clashA = a;
+                clashB = a;
                 return false;
             }
             for(Size b = a + 1; b < FIELD_COUNT; ++b)
@@ -275,8 +276,8 @@ namespace bibo::pins
                 if(f[b] != NONE && f[a] == f[b])
                 {
                     clashPin = f[a];
-                    clashA   = a;
-                    clashB   = b;
+                    clashA = a;
+                    clashB = b;
                     return false;
                 }
             }
@@ -353,13 +354,24 @@ namespace bibo::pins
         }
         if(clashA == clashB)
         {
-            text::format(buf, sizeof(buf), "pin %s is GP%d, which is not a pad",
-                         NAMES[clashA], clashPin);
+            text::format(
+                buf,
+                sizeof(buf),
+                "pin %s is GP%d, which is not a pad",
+                NAMES[clashA],
+                clashPin
+            );
         }
         else
         {
-            text::format(buf, sizeof(buf), "pins %s and %s both want GP%d",
-                         NAMES[clashA], NAMES[clashB], clashPin);
+            text::format(
+                buf,
+                sizeof(buf),
+                "pins %s and %s both want GP%d",
+                NAMES[clashA],
+                NAMES[clashB],
+                clashPin
+            );
         }
         return buf;
     }
@@ -443,8 +455,9 @@ namespace bibo::pins
         return true;
     }
 
-    static_assert(carIsSound(),
-                  "two roles in pins::car() claim the same GPIO, or a pad is "
-                  "not 0-29 - read car() above and decide which one gets it");
+    static_assert(
+        carIsSound(),
+        "two roles in pins::car() claim the same GPIO, or a pad is " "not 0-29 - read car() above and decide which one gets it"
+    );
 
 }

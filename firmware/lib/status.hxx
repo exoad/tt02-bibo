@@ -23,8 +23,8 @@ namespace bibo::status
 {
 
     /* 0 means not blinking: solid at whatever status::solid() last set. */
-    inline Float32 hzNow  = 0.0f;
-    inline Bool    lit    = false;
+    inline Float32 hzNow = 0.0f;
+    inline Bool    lit = false;
     inline UInt64  nextUs = 0;
 
     /**
@@ -55,8 +55,8 @@ namespace bibo::status
     inline Bool open(Void)
     {
         const Bool ok = led::open();
-        hzNow  = 0.0f;
-        lit    = false;
+        hzNow = 0.0f;
+        lit = false;
         nextUs = 0;
         led::write(false);
         return ok;
@@ -70,7 +70,7 @@ namespace bibo::status
     inline Void solid(const Bool on)
     {
         hzNow = 0.0f;
-        lit   = on;
+        lit = on;
         led::write(on);
     }
 
@@ -89,7 +89,7 @@ namespace bibo::status
             solid(false);
             return;
         }
-        hzNow  = hz;
+        hzNow = hz;
         nextUs = timing::nowUs() + halfPeriodUs(hz);
     }
 

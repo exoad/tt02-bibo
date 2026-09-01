@@ -54,10 +54,10 @@ namespace
 
   Vec<Str> lidarPorts;
   Vec<const Char*> portItems;
-  Int32   portIndex  = -1;
-  Int32   baudIndex  = 0;     // 460800, the only rate a C1 has
+  Int32   portIndex = -1;
+  Int32   baudIndex = 0;     // 460800, the only rate a C1 has
   Int32   rangeIndex = 0;     // Fit
-  Float32 uiDpiScale         = 1.0f;
+  Float32 uiDpiScale = 1.0f;
 
   LidarFrame latestFrame;
   Bool       haveFrame = false;
@@ -71,20 +71,20 @@ namespace
   // Recomputed once per revolution, not per UI frame. LidarFrame's own counts are
   // raw, so everything spec-bounded is derived here.
 
-  Float32 meanMm   = 0.0f;
+  Float32 meanMm = 0.0f;
   Float32 maxRangeMm = 0.0f;
   Float32 pointsPs = 0.0f;
 
   // Return classification. These four sum to the revolution's sample count.
-  Int32 nInspec   = 0;
+  Int32 nInspec = 0;
   Int32 nNoreturn = 0;   // dist == 0, the device saw nothing that way
-  Int32 nToonear  = 0;   // 0 < dist < 50 mm, housing reflection
-  Int32 nToofar   = 0;   // dist > 12 m, beyond the rated range
+  Int32 nToonear = 0;   // 0 < dist < 50 mm, housing reflection
+  Int32 nToofar = 0;   // dist > 12 m, beyond the rated range
 
   // Signal quality, over in-spec returns only.
   Float32 qMean = 0.0f;
-  Int32   qMin  = 0;
-  Int32   qMax  = 0;
+  Int32   qMin = 0;
+  Int32   qMax = 0;
 
   constexpr Int32 QUALITY_BUCKETS = 16;         // 0..63 folded into 16 bins
   Array<Float32, QUALITY_BUCKETS> qHist= {};
@@ -121,7 +121,7 @@ namespace
   // the filter being retyped.
   Set<Int32> logSel;
   Int32      logSelAnchor = -1;   // for shift-click runs. -1 = nothing anchored
-  Bool       logShowPoll  = false;
+  Bool       logShowPoll = false;
 
   // Whether the most recent line SENT was one of the hub's own polls, so the
   // replies that follow it can be marked the same way. See pumpData().
@@ -134,7 +134,7 @@ namespace
 
   // Result of the last BOOTSEL touch, so a failure is not silent.
   Bool bootselDone = false;
-  Bool bootselOk   = false;
+  Bool bootselOk = false;
 
   // The modal lives at the root of the frame and this raises it: a popup's
   // identity is its ID stack, so OpenPopup and BeginPopupModal sit at one level.
@@ -148,19 +148,19 @@ namespace
 
   struct VehicleStatus
   {
-      Bool               have      = false;
-      Float64             seenAt   = 0.0;   // ImGui::GetTime() when the line landed
+      Bool               have = false;
+      Float64             seenAt = 0.0;   // ImGui::GetTime() when the line landed
       UInt64 uptimeMs = 0;
-      long               a         = 0;
-      long               b         = 0;
-      Int32                servoUs  = 0;
-      Int32                escUs    = 0;
-      UInt64 lastMs   = 0;     // field 6, tracks uptime - last command
+      long               a = 0;
+      long               b = 0;
+      Int32                servoUs = 0;
+      Int32                escUs = 0;
+      UInt64 lastMs = 0;     // field 6, tracks uptime - last command
   };
 
   VehicleStatus vehicleStatus;
   Bool          vehUnsupported = false;   // `?` was answered, but not with an S line
-  Bool          vehAwait       = false;   // `?` sent, first reply not yet seen
+  Bool          vehAwait = false;   // `?` sent, first reply not yet seen
   Str   lastCmd;                  // last line we sent, trimmed
 
   // ---- what pico_debug reports about itself ---------------------------------
@@ -182,21 +182,21 @@ namespace
   // ---- what the board says is attached ------------------------------------
   // The hub cannot see the Pico's pins; these are answers, and `tofAsked`
   // separates "no" from "not yet".
-  Bool   sensorsAsked  = false;
-  Bool   sensorI2c     = false;
-  Bool   sensorTof     = false;
+  Bool   sensorsAsked = false;
+  Bool   sensorI2c = false;
+  Bool   sensorTof = false;
 
   // The newest range and its status. A distance that arrived with a bad status
   // is not a shorter distance - it is not a distance - so the two never separate.
-  Int32   tofMm        = 0;
-  Int32   tofStatus    = 255;
+  Int32   tofMm = 0;
+  Int32   tofStatus = 255;
 
   // The rates that came with the newest reading, in the sensor's own 16.16 fixed
   // point, or -1 when the firmware did not send them. Strong signal at short
   // range means something really is that close (lens film is the classic); weak
   // signal with a high ambient means it is blinded by room infrared.
-  Int32   tofSignal    = -1;
-  Int32   tofAmbient   = -1;
+  Int32   tofSignal = -1;
+  Int32   tofAmbient = -1;
 
   // Which distance mode the board is in. The firmware boots in LONG, so that is
   // what this starts as - it is a mirror of the board's state, not a request.
@@ -205,12 +205,12 @@ namespace
   // ---- the drive channels -------------------------------------------------
   // Mirrors of the BOARD's state, not requests: it owns the limits and the arming,
   // so safety survives the hub disconnecting.
-  Bool  driveKnown   = false;
-  Int32 driveServo   = 1500;   // what the board is outputting
-  Int32 driveServoT  = 1500;   // what it is heading toward
-  Int32 driveEsc     = 1500;
-  Int32 driveEscT    = 1500;
-  Bool  driveArmed   = false;
+  Bool  driveKnown = false;
+  Int32 driveServo = 1500;   // what the board is outputting
+  Int32 driveServoT = 1500;   // what it is heading toward
+  Int32 driveEsc = 1500;
+  Int32 driveEscT = 1500;
+  Bool  driveArmed = false;
 
   // Whether the board is driving the steering pin at all - not the same as what
   // position it holds. A released servo holds nothing, which is the safe state.
@@ -218,7 +218,7 @@ namespace
 
   // Where the board thinks center is. Not 1500 in general - see the calibration
   // block below for why that matters more than it sounds.
-  Int32 driveServoC  = 1500;
+  Int32 driveServoC = 1500;
 
   // How fast the board lets an output move, in microseconds per 20 ms tick.
   // 8 is 400 us/s, which walks this car's 430 us of travel in about a second.
@@ -248,10 +248,10 @@ namespace
   // What was last SENT, so a command only goes out when the answer changes: at
   // 60 fps the naive version is sixty commands a second per axis.
   Int32   wasdSentSteer = 0;      // -1, 0, +1
-  Int32   wasdSentEsc   = 0;      // 0 = neutral, else the cap
-  Float64 wasdFedAt     = 0.0;    // last keepalive, for the board's deadman
+  Int32   wasdSentEsc = 0;      // 0 = neutral, else the cap
+  Float64 wasdFedAt = 0.0;    // last keepalive, for the board's deadman
 
-  Int32 driveEscSlew     = 8;
+  Int32 driveEscSlew = 8;
   Int32 driveEscSlewWant = 8;
   Bool  driveEscSlewHeld = false;
 
@@ -263,13 +263,13 @@ namespace
 
   // Steering as a fraction of this car's travel, -1 to +1. The board sends it in
   // thousandths so no float has to survive a printf on a microcontroller.
-  Float32 driveSteer     = 0.0f;
+  Float32 driveSteer = 0.0f;
 
   // Where the wheels ACTUALLY are, as against driveSteer which is where they were
   // told to go; the slew limiter is the difference. The drawing must use THIS
   // one - drivePump only moves servoNow while the servo is live, so the target
   // would turn the on-screen wheels while the indicator stayed dark.
-  Float32 driveSteerNow  = 0.0f;
+  Float32 driveSteerNow = 0.0f;
   Float32 driveSteerWant = 0.0f;
   Bool    driveSteerHeld = false;
 
@@ -280,11 +280,11 @@ namespace
   // whole-tooth intervals. Three places on purpose: the working copy here,
   // settings (survives a restart) and firmware/lib/chassis/cal.hxx on commit
   // (survives a reflash, and is what other code can read).
-  Int32 calLeft   = 1300;
+  Int32 calLeft = 1300;
   Int32 calCenter = 1500;
-  Int32 calRight  = 1700;
+  Int32 calRight = 1700;
   Bool  calLoaded = false;
-  Bool  calDirty  = false;
+  Bool  calDirty = false;
 
   // What the header on disk says, so the view can show whether the working copy
   // has drifted from what the firmware would actually be built with.
@@ -295,7 +295,7 @@ namespace
   // ---- the indicator scaffolding. TEMPORARY - see firmware/lib/lights.h ----
   // What the BOARD says its lamps are doing: the rule runs in the firmware (the
   // car must indicate with no laptop attached) and this only draws the answer.
-  Int32   boardTurn     = 0;       // -1 left, 0 off, +1 right
+  Int32   boardTurn = 0;       // -1 left, 0 off, +1 right
   Bool    boardLightsOn = true;
   Float64 lightsLastPoll = 0.0;
 
@@ -313,20 +313,20 @@ namespace
 
   Int32 driveServoMin = 1300;
   Int32 driveServoMax = 1700;
-  Int32 driveEscMin   = 1500;
-  Int32 driveEscMax   = 1600;
+  Int32 driveEscMin = 1500;
+  Int32 driveEscMax = 1600;
 
   // What the sliders are showing. Separate from the board's value so dragging is
   // smooth - the replies arrive every 200 ms and would snap the handle.
   Int32 driveServoWant = 1500;
-  Int32 driveEscWant   = 1500;
+  Int32 driveEscWant = 1500;
 
   // ---- the sweep ----------------------------------------------------------
   // Driven from the hub, not the board: in firmware it would be a car that can
   // start moving on its own because of something left running in a UI.
-  Bool    driveSweep     = false;
+  Bool    driveSweep = false;
   Float64 driveSweepNext = 0.0;
-  Int32   driveSweepDir  = 1;
+  Int32   driveSweepDir = 1;
 
   // The limits the user is editing, separate from what the board has accepted.
   // Widening is two steps - type it, then apply it - or it is no limit at all.
@@ -345,9 +345,9 @@ namespace
   // Whether a slider handle is under the user's thumb RIGHT NOW. Per-slider, not
   // "is anything active": replies must move everything except the handle held.
   Bool driveServoHeld = false;
-  Bool driveEscHeld   = false;
+  Bool driveEscHeld = false;
   Float64 tofLastReply = 0.0;
-  UInt64  tofReplies   = 0;
+  UInt64  tofReplies = 0;
 
   // A rolling history for the strip chart. Fixed size, oldest overwritten - a
   // chart that grows without bound is a leak with a picture on it.
@@ -383,72 +383,72 @@ namespace
   // ---- the Sound view. TEMPORARY -----------------------------------------
   // Scaffolding for bringing the DFPlayer up on a breadboard. Sound belongs in
   // the cue system - cue.hxx already carries a `tone` field waiting for it.
-  Bool    soundReady    = false;
-  Int32   soundVol      = 8;
-  Int32   soundVolMax   = 30;
-  Int32   soundTrack    = 1;
-  Str     soundBusy     = "unwired";
-  Int32   soundTx       = -1;
-  Int32   soundRx       = -1;
-  Int32   soundBusyGp   = -1;
+  Bool    soundReady = false;
+  Int32   soundVol = 8;
+  Int32   soundVolMax = 30;
+  Int32   soundTrack = 1;
+  Str     soundBusy = "unwired";
+  Int32   soundTx = -1;
+  Int32   soundRx = -1;
+  Int32   soundBusyGp = -1;
 
   // How many tracks the CARD holds, 0 for "not asked yet or did not answer". The
   // hub keeps no list, so adding a track to the card is the whole of adding one.
-  Int32   soundFiles     = 0;
-  Int32   soundEq        = 0;
+  Int32   soundFiles = 0;
+  Int32   soundEq = 0;
   Float64 soundLastPoll = 0.0;
 
-  Str     cueSpeaking  = "none";
-  Int32   cueStepNow   = 0;
-  Int32   cueLoopNow   = 0;
-  Int32   cueKinds     = 0;
-  Float64 cueLastPoll  = 0.0;
+  Str     cueSpeaking = "none";
+  Int32   cueStepNow = 0;
+  Int32   cueLoopNow = 0;
+  Int32   cueKinds = 0;
+  Float64 cueLastPoll = 0.0;
 
   Bool   dbgUnsupported = false;
-  Bool   dbgAwait       = false;
-  Float64 dbgLastPoll   = 0.0;
+  Bool   dbgAwait = false;
+  Float64 dbgLastPoll = 0.0;
 
   Void resetBoardStatus()
   {
-      debugStatus             = DebugStatus();
+      debugStatus = DebugStatus();
       dbgUnsupported = false;
-      sensorsAsked   = false;
+      sensorsAsked = false;
 
       // Asked again on the next connection: the list belongs to the running
       // firmware, and a reflash between connections is the ordinary case here.
       cueList.clear();
       cueListAsked = false;
-      cueSpeaking  = "none";
-      sensorI2c      = false;
-      sensorTof      = false;
-      tofMm          = 0;
-      tofStatus      = 255;
-      tofReplies     = 0;
-      tofHistoryAt   = 0;
+      cueSpeaking = "none";
+      sensorI2c = false;
+      sensorTof = false;
+      tofMm = 0;
+      tofStatus = 255;
+      tofReplies = 0;
+      tofHistoryAt = 0;
       tofHistoryWrapped = false;
-      tofSeenMin     = 0;
-      tofSeenMax     = 0;
-      tofSignal      = -1;
-      tofAmbient     = -1;
-      tofModeShort   = false;
-      driveKnown     = false;
-      driveArmed     = false;
-      driveServoOn   = false;
-      driveServoC    = 1500;
-      driveSlew      = 8;
-      driveSlewWant  = 8;
-      driveSlewHeld  = false;
-      driveSteer     = 0.0f;
+      tofSeenMin = 0;
+      tofSeenMax = 0;
+      tofSignal = -1;
+      tofAmbient = -1;
+      tofModeShort = false;
+      driveKnown = false;
+      driveArmed = false;
+      driveServoOn = false;
+      driveServoC = 1500;
+      driveSlew = 8;
+      driveSlewWant = 8;
+      driveSlewHeld = false;
+      driveSteer = 0.0f;
       driveSteerWant = 0.0f;
       driveSteerHeld = false;
-      driveServo     = 1500;
-      driveServoT    = 1500;
-      driveEsc       = 1500;
-      driveEscT      = 1500;
+      driveServo = 1500;
+      driveServoT = 1500;
+      driveEsc = 1500;
+      driveEscT = 1500;
       driveServoWant = 1500;
-      driveEscWant   = 1500;
-      dbgAwait       = false;
-      dbgLastPoll   = 0.0;
+      driveEscWant = 1500;
+      dbgAwait = false;
+      dbgLastPoll = 0.0;
   }
 
   // ----------------------------------------------------------------- flash ---
@@ -502,7 +502,7 @@ namespace
   // Its own column, not a sidebar section: it is the one panel you read WHILE
   // doing something else, and the sidebar left it four lines tall.
   Float32 consoleLogicalW = 380.0f;
-  Bool    consoleOpen     = false;
+  Bool    consoleOpen = false;
 
   constexpr Float32 CONSOLE_MIN_W = 260.0f;
   constexpr Float32 CONSOLE_DEF_W = 380.0f;
@@ -515,7 +515,7 @@ namespace
   constexpr Float32 CODE_TREE_MAX_W = 640.0f;
   constexpr Float32 CODE_TREE_DEF_W = 240.0f;
 
-  Float32 codeTreeLogicalW  = CODE_TREE_DEF_W;
+  Float32 codeTreeLogicalW = CODE_TREE_DEF_W;
   Bool    codeTreeCollapsed = false;
 
   // ---- the Reference view is gone ------------------------------------------
@@ -627,19 +627,32 @@ namespace
       Str out;
       std::snprintf(buf.data(), buf.size(), "w %.0f\n", static_cast<Float64>(sidebarLogicalW));
       out += buf.data();
-      std::snprintf(buf.data(), buf.size(), "t %.0f %d\n",
-                    static_cast<Float64>(codeTreeLogicalW),
-                    codeTreeCollapsed ? 1 : 0);
+      std::snprintf(
+          buf.data(),
+          buf.size(),
+          "t %.0f %d\n",
+          static_cast<Float64>(codeTreeLogicalW),
+          codeTreeCollapsed ? 1 : 0
+      );
       out += buf.data();
-      std::snprintf(buf.data(), buf.size(), "k %.0f %d\n",
-                    static_cast<Float64>(consoleLogicalW),
-                    consoleOpen ? 1 : 0);
+      std::snprintf(
+          buf.data(),
+          buf.size(),
+          "k %.0f %d\n",
+          static_cast<Float64>(consoleLogicalW),
+          consoleOpen ? 1 : 0
+      );
       out += buf.data();
 
       for(Int32 k = 0; k < SECTION_COUNT; ++k)
       {
-          std::snprintf(buf.data(), buf.size(), "s %d %d\n",
-                        sectionOrder[k], sectionFloating[sectionOrder[k]] ? 1 : 0);
+          std::snprintf(
+              buf.data(),
+              buf.size(),
+              "s %d %d\n",
+              sectionOrder[k],
+              sectionFloating[sectionOrder[k]] ? 1 : 0
+          );
           out += buf.data();
       }
       settings::write("panels.txt", out);
@@ -647,15 +660,15 @@ namespace
 
   // --tab <name> opens one section at startup, for screenshots. The lidar sub-tab
   // names still work and open Sensors with that readout showing.
-  Int32 forceSection    = -1;
-  Int32 forceSub        = -1;
+  Int32 forceSection = -1;
+  Int32 forceSub = -1;
   Int32 forceTabFrames = 0;   // a tab bar only honors SetSelected once laid out
 
   // Map layers. Only the RPLIDAR exists today; the rest are declared so that
   // wiring one later is filling in a row rather than redesigning the screen.
-  Bool layerLidar     = true;
+  Bool layerLidar = true;
   Bool layerLidarPrev = true;
-  Int32  selSensor      = 0;    // which sensor the telemetry sub-tabs describe
+  Int32  selSensor = 0;    // which sensor the telemetry sub-tabs describe
 
   // The recorder. A second RadarView, so its trail, mode and accumulated map are
   // its own - scrubbing must not disturb the live map, nor the reverse.
@@ -696,7 +709,7 @@ namespace
   // Last-write time of the open file, for noticing an edit made outside the app.
   // Zero means "not watching" - a file we have never successfully stat'd.
   UInt64 codeFileStamp = 0;
-  Int32  codeWatchIn   = 0;      // frames until the next stat
+  Int32  codeWatchIn = 0;      // frames until the next stat
 
   // ---- where you were in each file -----------------------------------------
   //
@@ -710,8 +723,8 @@ namespace
   struct CodeSpot
   {
       Float32 scrollY = 0.0f;
-      Int32   line    = 0;
-      Int32   col     = 0;
+      Int32   line = 0;
+      Int32   col = 0;
   };
   HashMap<Str, CodeSpot> codeSpots;
 
@@ -742,9 +755,9 @@ namespace
       Size     at = 0;
       while(at <= out.size())
       {
-          const Size sep  = out.find('\\', at);
+          const Size sep = out.find('\\', at);
           const Size stop = (sep == Str::npos) ? out.size() : sep;
-          const Str  seg  = out.substr(at, stop - at);
+          const Str  seg = out.substr(at, stop - at);
 
           if(seg == ".." && !parts.empty() && parts.back() != "..")
           {
@@ -815,11 +828,11 @@ namespace
 
           const Str dir = dirOf(path);
 
-          Size at   = 0;
+          Size at = 0;
           Int32 lineNo = 0;
           while(at <= text.size())
           {
-              const Size nl   = text.find('\n', at);
+              const Size nl = text.find('\n', at);
               const Size stop = (nl == Str::npos) ? text.size() : nl;
               Str        line = text.substr(at, stop - at);
               ++lineNo;
@@ -922,8 +935,8 @@ namespace
 
   // Autosave. Counted in frames from the last edit rather than on a wall clock,
   // so it fires a moment after you STOP typing rather than mid-word.
-  Bool  codeAutosave     = true;
-  Int32 codeAutosaveIn   = 0;
+  Bool  codeAutosave = true;
+  Int32 codeAutosaveIn = 0;
 
   // A file the tree wants to act on, resolved after the menu closes - deleting an
   // entry while iterating the list that drew it is how a tree crashes.
@@ -941,19 +954,19 @@ namespace
   // Set when an operation made us drop the Pico link, so it can be restored.
   // Frame-counted: the board re-enumerates a second or two AFTER the script exits.
   Bool  picoRelinkWanted = false;
-  Int32 picoRelinkIn     = 0;
+  Int32 picoRelinkIn = 0;
   Str   picoRelinkPort;
 
-  CodeOp codeOp         = CodeOp::CODE_OP_NONE;
+  CodeOp codeOp = CodeOp::CODE_OP_NONE;
   // Which image the last Build was for, so the Flash that follows writes the same
   // one. "pico_debug" is the only target guaranteed to exist.
   Str    codeFlashTarget = "pico_debug";
 
-  Bool    recArmed   = false;   // capturing
+  Bool    recArmed = false;   // capturing
   Bool    recPlaying = false;
-  Float64 recStartS  = 0.0;     // clock at the moment recording began
-  Float64 recPlayS   = 0.0;     // playback position, seconds into the recording
-  Size    recIndex   = 0;       // revolution currently shown
+  Float64 recStartS = 0.0;     // clock at the moment recording began
+  Float64 recPlayS = 0.0;     // playback position, seconds into the recording
+  Size    recIndex = 0;       // revolution currently shown
   Str     recStatus;            // last save/load result, shown to the user
   Bool    recStatusBad = false;
 
@@ -1082,8 +1095,7 @@ namespace
       {
           for(Int32 i = 0; i < static_cast<Int32>(lidarPorts.size()); ++i)
           {
-              if(_stricmp(lidarPorts[static_cast<Size>(i)].c_str(),
-                          wasSelected.c_str()) == 0)
+              if(_stricmp(lidarPorts[static_cast<Size>(i)].c_str(), wasSelected.c_str()) == 0)
               {
                   portIndex = i;
                   return;
@@ -1143,14 +1155,14 @@ namespace
 
   // Set when the user presses Disconnect, cleared when they press Connect. A
   // device reappearing reconnects EXCEPT after a deliberate Disconnect.
-  Bool picoUserDisconnected  = false;
+  Bool picoUserDisconnected = false;
 
   // ---- the car's address on the network -------------------------------------
   // Typed once and remembered. The ADDRESS only: the network password never
   // reaches the hub, it goes person -> board over the USB console and lives in
   // the board's RAM until reset. See firmware/lib/net.h.
   Array<Char, 64> wifiHost{};
-  Bool wifiHostLoaded  = false;
+  Bool wifiHostLoaded = false;
 
   const Char* const WIFI_HOST_FILE = "car-address.txt";
 
@@ -1199,9 +1211,11 @@ namespace
   {
       picoUserDisconnected = false;
 
-      LOG_INFO("pico", "connect requested: port=%s",
-               (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size()))
-                   ? picoPorts[picoIndex].c_str() : "(none)");
+      LOG_INFO(
+          "pico",
+          "connect requested: port=%s",
+          (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size())) ? picoPorts[picoIndex].c_str() : "(none)"
+      );
       if(picoIndex < 0 || picoIndex >= static_cast<Int32>(picoPorts.size()))
       {
           return;
@@ -1303,7 +1317,7 @@ namespace
               if(const Size cut = rest.find(" - "); cut != Str::npos)
               {
                   CueEntry e;
-                  e.name  = rest.substr(0, cut);
+                  e.name = rest.substr(0, cut);
                   e.means = rest.substr(cut + 3);
 
                   // "name [mode]" -> the two of them. Firmware predating the
@@ -1333,7 +1347,7 @@ namespace
           }
 
           dbgUnsupported = false;
-          dbgAwait       = false;
+          dbgAwait = false;
           return;
       }
 
@@ -1369,15 +1383,15 @@ namespace
               return Str(q, n);
           };
 
-          soundReady  = (word("ready=", "no") == "yes");
+          soundReady = (word("ready=", "no") == "yes");
           soundVolMax = num("max=", 30);
-          soundTrack  = num("track=", soundTrack);
-          soundBusy   = word("busy=", "unwired");
-          soundTx     = num("tx=", -1);
-          soundRx     = num("rx=", -1);
+          soundTrack = num("track=", soundTrack);
+          soundBusy = word("busy=", "unwired");
+          soundTx = num("tx=", -1);
+          soundRx = num("rx=", -1);
           soundBusyGp = num("busyGp=", -1);
-          soundFiles  = num("files=", soundFiles);
-          soundEq     = num("eq=", soundEq);
+          soundFiles = num("files=", soundFiles);
+          soundEq = num("eq=", soundEq);
 
           // The volume follows the board EXCEPT while the slider is held. See
           // above: the reply is older than the drag.
@@ -1408,7 +1422,7 @@ namespace
           // PERSON raised. Both matter, and they look identical on the lamps.
           for(CueEntry& c : cueList)
           {
-              c.on      = false;
+              c.on = false;
               c.latched = false;
           }
 
@@ -1434,7 +1448,7 @@ namespace
                   {
                       if(c.name == tok)
                       {
-                          c.on      = true;
+                          c.on = true;
                           c.latched = lat;
                       }
                   }
@@ -1598,9 +1612,9 @@ namespace
 
       if(t.compare(0, 7, "OK stop") == 0)
       {
-          driveArmed     = false;
+          driveArmed = false;
           driveServoWant = 1500;
-          driveEscWant   = 1500;
+          driveEscWant = 1500;
           LOG_INFO("pico", "stop acknowledged");
           return;
       }
@@ -1620,8 +1634,7 @@ namespace
           }
           sensorsAsked = true;
 
-          LOG_INFO("pico", "sensors: i2c=%d tof=%d",
-                   sensorI2c ? 1 : 0, sensorTof ? 1 : 0);
+          LOG_INFO("pico", "sensors: i2c=%d tof=%d", sensorI2c ? 1 : 0, sensorTof ? 1 : 0);
           return;
       }
 
@@ -1637,17 +1650,17 @@ namespace
 
           // Signal and ambient are optional: older firmware sends two fields and
           // newer sends four, so read however many arrived.
-          Int32 mm  = 0;
-          Int32 st  = 0;
+          Int32 mm = 0;
+          Int32 st = 0;
           Int32 sig = -1;
           Int32 amb = -1;
           const Int32 got = std::sscanf(a, "%d %d %d %d", &mm, &st, &sig, &amb);
           if(got >= 2)
           {
-              tofSignal  = (got >= 3) ? sig : -1;
+              tofSignal = (got >= 3) ? sig : -1;
               tofAmbient = (got >= 4) ? amb : -1;
-              tofMm        = mm;
-              tofStatus    = st;
+              tofMm = mm;
+              tofStatus = st;
               tofLastReply = ImGui::GetTime();
               ++tofReplies;
 
@@ -1677,7 +1690,7 @@ namespace
 
       if(t.compare(0, 12, "ERR tof abse") == 0)
       {
-          sensorTof    = false;
+          sensorTof = false;
           sensorsAsked = true;
           return;
       }
@@ -1695,7 +1708,7 @@ namespace
           // Anything else in reply to STATUS means this firmware has no such
           // command. Stop asking.
           dbgUnsupported = true;
-          dbgAwait       = false;
+          dbgAwait = false;
       }
 
       UInt64 up = 0, last = 0;
@@ -1704,26 +1717,34 @@ namespace
 
       // sscanf_s rather than sscanf: no %s or %c here, so it needs no extra size
       // arguments, and it keeps /W4 clean without _CRT_SECURE_NO_WARNINGS.
-      if(sscanf_s(t.c_str(), "S %llu %ld %ld %d %d %llu",
-                   &up, &a, &b, &servo, &esc, &last) == 6)
+      if(sscanf_s(
+          t.c_str(),
+          "S %llu %ld %ld %d %d %llu",
+          &up,
+          &a,
+          &b,
+          &servo,
+          &esc,
+          &last
+      ) == 6)
       {
-          vehicleStatus.have      = true;
-          vehicleStatus.seenAt   = ImGui::GetTime();
+          vehicleStatus.have = true;
+          vehicleStatus.seenAt = ImGui::GetTime();
           vehicleStatus.uptimeMs = up;
-          vehicleStatus.a         = a;
-          vehicleStatus.b         = b;
-          vehicleStatus.servoUs  = servo;
-          vehicleStatus.escUs    = esc;
-          vehicleStatus.lastMs   = last;
+          vehicleStatus.a = a;
+          vehicleStatus.b = b;
+          vehicleStatus.servoUs = servo;
+          vehicleStatus.escUs = esc;
+          vehicleStatus.lastMs = last;
           vehUnsupported = false;
-          vehAwait       = false;
+          vehAwait = false;
           return;
       }
 
       if(vehAwait)
       {
           vehUnsupported = true;
-          vehAwait       = false;
+          vehAwait = false;
       }
   }
 
@@ -1898,7 +1919,7 @@ namespace
       // ~10 Hz. The sensor's own measurement is slower than this, so asking
       // faster would only be told "busy" more often.
       static Float64 lastAsk = 0.0;
-      const Float64  now     = ImGui::GetTime();
+      const Float64  now = ImGui::GetTime();
       if(now - lastAsk < 0.1)
       {
           return;
@@ -2043,9 +2064,9 @@ namespace
       static Array<Bool, 360> binSeen;
       std::memset(binSeen.data(), 0, (binSeen.size() * sizeof(Bool)));
 
-      Float64 sum   = 0.0;
+      Float64 sum = 0.0;
       Float64 qSum = 0.0;
-      Int32    n     = 0;
+      Int32    n = 0;
       Float32  maxMm = 0.0f;
       Int32    qLo = 255, qHi = 0;
 
@@ -2111,11 +2132,11 @@ namespace
       }
 
       nInspec = n;
-      meanMm  = n ? static_cast<Float32>((sum / n)) : 0.0f;
+      meanMm = n ? static_cast<Float32>((sum / n)) : 0.0f;
       maxRangeMm = maxMm;
-      qMean   = n ? static_cast<Float32>((qSum / n)) : 0.0f;
-      qMin    = n ? qLo : 0;
-      qMax    = n ? qHi : 0;
+      qMean = n ? static_cast<Float32>((qSum / n)) : 0.0f;
+      qMin = n ? qLo : 0;
+      qMax = n ? qHi : 0;
 
       Int32 covered = 0;
       for(Int32 i = 0; i < 360; ++i)
@@ -2171,8 +2192,13 @@ namespace
       Array<Char, 32> stamp;
       std::strftime(stamp.data(), stamp.size(), "%Y%m%d-%H%M", &lt);
 
-      std::snprintf(backupBuf.data(), backupBuf.size(), "%s\\vendor\\pico-flash-%s.uf2",
-                    root.empty() ? "." : root.c_str(), stamp.data());
+      std::snprintf(
+          backupBuf.data(),
+          backupBuf.size(),
+          "%s\\vendor\\pico-flash-%s.uf2",
+          root.empty() ? "." : root.c_str(),
+          stamp.data()
+      );
   }
 
   // The most useful line of the flash/build log: the last one the script marked as
@@ -2216,12 +2242,11 @@ namespace
           return;
       }
 
-      picoRelinkPort   = picoLink.port();
+      picoRelinkPort = picoLink.port();
       picoRelinkWanted = true;
-      picoRelinkIn     = 0;      // armed by the operation finishing, not yet
+      picoRelinkIn = 0;      // armed by the operation finishing, not yet
 
-      LOG_INFO("flash", "releasing %s so the 1200-baud touch can open it",
-               picoRelinkPort.c_str());
+      LOG_INFO("flash", "releasing %s so the 1200-baud touch can open it", picoRelinkPort.c_str());
       picoLink.disconnect();
   }
 
@@ -2260,10 +2285,8 @@ namespace
       if(codeEditor.dirty())
       {
           codeMessage = "changed on disk - save or reload to resolve";
-          ui::setNote(codeView, "changed on disk (buffer is modified)",
-                      ImGui::GetTime());
-          LOG_WARN("code", "%s changed on disk while the buffer was dirty",
-                   codePath.c_str());
+          ui::setNote(codeView, "changed on disk (buffer is modified)", ImGui::GetTime());
+          LOG_WARN("code", "%s changed on disk while the buffer was dirty", codePath.c_str());
           return;
       }
 
@@ -2340,8 +2363,7 @@ namespace
       // so forFile() would compare against an empty name and drop every one of
       // them. It does not need filtering either - it is recomputed from the open
       // buffer on open and after each pause in typing, so it cannot be stale.
-      codeView.diags.insert(codeView.diags.end(),
-                            codeLintDiags.begin(), codeLintDiags.end());
+      codeView.diags.insert(codeView.diags.end(), codeLintDiags.begin(), codeLintDiags.end());
 
       for(const diag::Item& d : diag::forFile(codeLspDiags, codePath))
       {
@@ -2409,7 +2431,7 @@ namespace
   Void pumpDeviceScan()
   {
       // ~2 s at 60 fps. Only fires when a notification did not.
-      constexpr Int32 IDLE_FRAMES  = 120;
+      constexpr Int32 IDLE_FRAMES = 120;
 
       // ~0.4 s. Long enough for the serial driver to have registered the port,
       // short enough that plugging a board in feels immediate.
@@ -2429,14 +2451,14 @@ namespace
       if(++deviceScanIdle >= IDLE_FRAMES)
       {
           deviceScanIdle = 0;
-          due            = true;
+          due = true;
       }
       if(!due)
       {
           return;
       }
 
-      const Bool hadPico  = (picoIndex >= 0);
+      const Bool hadPico = (picoIndex >= 0);
       const Bool hadLidar = (portIndex >= 0);
 
       refreshPicoPorts();
@@ -2448,8 +2470,7 @@ namespace
       // explicit Disconnect.
       if(!hadPico && picoIndex >= 0)
       {
-          LOG_INFO("pico", "board appeared on %s",
-                   picoPorts[static_cast<Size>(picoIndex)].c_str());
+          LOG_INFO("pico", "board appeared on %s", picoPorts[static_cast<Size>(picoIndex)].c_str());
 
           const PicoState ps = picoLink.state();
           if(!picoUserDisconnected
@@ -2462,8 +2483,11 @@ namespace
 
       if(!hadLidar && portIndex >= 0)
       {
-          LOG_INFO("lidar", "RPLIDAR adapter appeared on %s",
-                   lidarPorts[static_cast<Size>(portIndex)].c_str());
+          LOG_INFO(
+              "lidar",
+              "RPLIDAR adapter appeared on %s",
+              lidarPorts[static_cast<Size>(portIndex)].c_str()
+          );
 
           if(!lidarUserDisconnected && !lidarSource.connected()
              && lidarSource.state() != LidarState::LIDAR_STATE_CONNECTING)
@@ -2494,16 +2518,14 @@ namespace
           if(_stricmp(picoPorts[i].c_str(), picoRelinkPort.c_str()) == 0)
           {
               picoIndex = i;
-              LOG_INFO("pico", "board is back on %s; reconnecting",
-                       picoRelinkPort.c_str());
+              LOG_INFO("pico", "board is back on %s; reconnecting", picoRelinkPort.c_str());
               connectPico();
               return;
           }
       }
       // The port did not come back under the same name. Leaving it disconnected
       // is right: the Link panel shows what happened and a person can pick.
-      LOG_WARN("pico", "%s did not come back after the operation",
-               picoRelinkPort.c_str());
+      LOG_WARN("pico", "%s did not come back after the operation", picoRelinkPort.c_str());
   }
 
   Void pumpFlash()
@@ -2525,14 +2547,16 @@ namespace
           }
 
           const Bool bad = ln.find("[error]") != Str::npos;
-          ::applog::writef(bad ? ::applog::Level::LEVEL_ERROR
-                               : ::applog::Level::LEVEL_DEBUG,
-                           "script", "%s", ln.c_str());
+          ::applog::writef(
+              bad ? ::applog::Level::LEVEL_ERROR : ::applog::Level::LEVEL_DEBUG,
+              "script",
+              "%s",
+              ln.c_str()
+          );
       }
       if(flashLog.size() > FLASH_LOG_MAX)
       {
-          flashLog.erase(flashLog.begin(),
-                            flashLog.begin() + (flashLog.size() - FLASH_LOG_MAX));
+          flashLog.erase(flashLog.begin(), flashLog.begin() + (flashLog.size() - FLASH_LOG_MAX));
       }
 
       // An operation ending changes the world - a build makes a .uf2 appear, a
@@ -2557,13 +2581,17 @@ namespace
               // build output so the marks and the failure cannot disagree.
               {
                   const Vec<diag::Item> all = diag::parseAll(flashLog);
-                  codeDiags       = diag::forFile(all, codePath);
+                  codeDiags = diag::forFile(all, codePath);
                   refreshCodeDiags();
 
                   if(!codeDiags.empty())
                   {
-                      LOG_INFO("code", "%d diagnostic(s) for %s",
-                               static_cast<Int32>(codeDiags.size()), codeName.c_str());
+                      LOG_INFO(
+                          "code",
+                          "%d diagnostic(s) for %s",
+                          static_cast<Int32>(codeDiags.size()),
+                          codeName.c_str()
+                      );
                   }
               }
 
@@ -2575,7 +2603,7 @@ namespace
               {
                   if(s == FlashState::FLASH_STATE_SUCCESS)
                   {
-                      codeOp      = CodeOp::CODE_OP_FLASHING;
+                      codeOp = CodeOp::CODE_OP_FLASHING;
                       codeMessage = "built; flashing " + codeFlashTarget;
                       LOG_INFO("code", "build ok; flashing %s", codeFlashTarget.c_str());
                       releasePicoPortForBoardOp();
@@ -2583,7 +2611,7 @@ namespace
                   }
                   else
                   {
-                      codeOp      = CodeOp::CODE_OP_NONE;
+                      codeOp = CodeOp::CODE_OP_NONE;
                       codeMessage = "build failed: " + lastFlashError();
                       LOG_ERROR("code", "build failed: %s", lastFlashError().c_str());
                   }
@@ -2673,10 +2701,12 @@ namespace
   {
       lidarUserDisconnected = false;
 
-      LOG_INFO("lidar", "connect requested: port=%s baud=%d",
-               (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
-                   ? lidarPorts[portIndex].c_str() : "(none)",
-               BAUDS[baudIndex].rate);
+      LOG_INFO(
+          "lidar",
+          "connect requested: port=%s baud=%d",
+          (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size())) ? lidarPorts[portIndex].c_str() : "(none)",
+          BAUDS[baudIndex].rate
+      );
       if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size()))
       {
           return;
@@ -2684,7 +2714,7 @@ namespace
 
       radarView.clear();
       haveFrame = false;
-      hzCount   = 0;
+      hzCount = 0;
       lidarSource.start(lidarPorts[portIndex], BAUDS[baudIndex].rate);
   }
 
@@ -2710,18 +2740,23 @@ namespace
 
       ImDrawList* dl = ImGui::GetWindowDrawList();
       ImFont* f = ui::fonts.small ? ui::fonts.small : ImGui::GetFont();
-      const Float32 px  = f->LegacySize;
+      const Float32 px = f->LegacySize;
       const Float32 pad = 14.0f * uiDpiScale;
 
       const Char* stateText = lidarStateText();
-      const ImU32 accent     = lidarStateColorOnViewport();
+      const ImU32 accent = lidarStateColorOnViewport();
 
       // ---- top left: state + connection -----------------------------------
       Float32 x = p0.x + pad;
       const Float32 y = p0.y + pad;
 
-      ui::led(dl, ImVec2(x + px * 0.28f, y + px * 0.55f), px * 0.24f, accent,
-              lidarSource.state() != LidarState::LIDAR_STATE_IDLE);
+      ui::led(
+          dl,
+          ImVec2(x + px * 0.28f, y + px * 0.55f),
+          px * 0.24f,
+          accent,
+          lidarSource.state() != LidarState::LIDAR_STATE_IDLE
+      );
       x += px * 0.85f;
       dl->AddText(f, px, ImVec2(x, y), accent, stateText);
       x += f->CalcTextSizeA(px, FLT_MAX, 0.0f, stateText).x + 12.0f * uiDpiScale;
@@ -2729,15 +2764,25 @@ namespace
       if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
       {
           Array<Char, 64> conn;
-          std::snprintf(conn.data(), conn.size(), "%s  -  %d baud",
-                        lidarPorts[portIndex].c_str(), BAUDS[baudIndex].rate);
+          std::snprintf(
+              conn.data(),
+              conn.size(),
+              "%s - %d baud",
+              lidarPorts[portIndex].c_str(),
+              BAUDS[baudIndex].rate
+          );
           dl->AddText(f, px, ImVec2(x, y), ui::plot::LABEL, conn.data());
       }
 
       // ---- top right: throughput ------------------------------------------
       Array<Char, 96> thru;
-      std::snprintf(thru.data(), thru.size(), "%.0f pts/s   %.0f fps",
-                    pointsPs, ImGui::GetIO().Framerate);
+      std::snprintf(
+          thru.data(),
+          thru.size(),
+          "%.0f pts/s %.0f fps",
+          pointsPs,
+          ImGui::GetIO().Framerate
+      );
       const Float32 tw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, thru.data()).x;
       dl->AddText(f, px, ImVec2(p0.x + size.x - pad - tw, y), ui::plot::LABEL, thru.data());
 
@@ -2751,8 +2796,13 @@ namespace
       }
       else if(radarView.cursorValid)
       {
-          std::snprintf(read.data(), read.size(), "%.1f deg   %.2f m",
-                        radarView.cursorBearingDeg, radarView.cursorRangeMm / 1000.0f);
+          std::snprintf(
+              read.data(),
+              read.size(),
+              "%.1f deg %.2f m",
+              radarView.cursorBearingDeg,
+              radarView.cursorRangeMm / 1000.0f
+          );
       }
 
       if(read[0])
@@ -2763,18 +2813,32 @@ namespace
           // A raised plate, the same treatment the buttons get: a readout sitting
           // on the display still belongs to the machine around it.
           ui::plate(bp, be, IM_COL32(0x33, 0x36, 0x3B, 0xF2), ImGui::GetStyle().FrameRounding);
-          dl->AddText(f, px, ImVec2(bp.x + 9.0f * uiDpiScale, bp.y + 6.0f * uiDpiScale),
-                      IM_COL32(235, 238, 242, 255), read.data());
+          dl->AddText(
+              f,
+              px,
+              ImVec2(bp.x + 9.0f * uiDpiScale, bp.y + 6.0f * uiDpiScale),
+              IM_COL32(235, 238, 242, 255),
+              read.data()
+          );
       }
 
       // ---- bottom right: zoom state ----------------------------------------
       Array<Char, 96> zoom;
-      std::snprintf(zoom.data(), zoom.size(), "%s   %.1f m across",
-                    radarView.isAutoFit() ? "fit" : "manual",
-                    radarView.visibleRangeMm() * 2.0f / 1000.0f);
+      std::snprintf(
+          zoom.data(),
+          zoom.size(),
+          "%s %.1f m across",
+          radarView.isAutoFit() ? "fit" : "manual",
+          radarView.visibleRangeMm() * 2.0f / 1000.0f
+      );
       const Float32 zw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, zoom.data()).x;
-      dl->AddText(f, px, ImVec2(p0.x + size.x - pad - zw, p0.y + size.y - pad - px),
-                  ui::plot::LABEL, zoom.data());
+      dl->AddText(
+          f,
+          px,
+          ImVec2(p0.x + size.x - pad - zw, p0.y + size.y - pad - px),
+          ui::plot::LABEL,
+          zoom.data()
+      );
 
       // ---- second line, top left: the active mode and its reading ----------
       // A mode is a picture until it produces a number. This is where the number
@@ -2858,7 +2922,7 @@ namespace
   struct BarPen
   {
       ImDrawList* dl = nullptr;
-      Float32     x  = 0.0f;   // advances left to right
+      Float32     x = 0.0f;   // advances left to right
       Float32     cy = 0.0f;   // the centerline, in screen space
   };
 
@@ -2917,8 +2981,9 @@ namespace
       Int32 n = 3;
       if(spaceW > 0.0f)
       {
-          n = static_cast<Int32>(std::ceil((ui::iconSize()
-                                            + ImGui::GetStyle().ItemInnerSpacing.x) / spaceW));
+          n = static_cast<Int32>(std::ceil(
+              (ui::iconSize() + ImGui::GetStyle().ItemInnerSpacing.x) / spaceW
+          ));
       }
       if(n < 1)
       {
@@ -2938,12 +3003,14 @@ namespace
       {
           return;
       }
-      const ImVec2  a  = ImGui::GetItemRectMin();
-      const ImVec2  b  = ImGui::GetItemRectMax();
+      const ImVec2  a = ImGui::GetItemRectMin();
+      const ImVec2  b = ImGui::GetItemRectMax();
       const Float32 sz = ui::iconSize();
-      ui::iconAt(ImGui::GetWindowDrawList(), ic,
-                 ImVec2(a.x + ImGui::GetStyle().FramePadding.x,
-                        a.y + ((b.y - a.y) - sz) * 0.5f));
+      ui::iconAt(
+          ImGui::GetWindowDrawList(),
+          ic,
+          ImVec2(a.x + ImGui::GetStyle().FramePadding.x, a.y + ((b.y - a.y) - sz) * 0.5f)
+      );
   }
 
   // The UI zoom: A- / A+ and the current percentage, right-aligned in the bar and
@@ -2955,12 +3022,16 @@ namespace
       const ImGuiStyle& sty = ImGui::GetStyle();
 
       Array<Char, 16> pct;
-      std::snprintf(pct.data(), pct.size(), "%d%%",
-                    static_cast<Int32>(ui::userScale() * 100.0f + 0.5f));
+      std::snprintf(
+          pct.data(),
+          pct.size(),
+          "%d%%",
+          static_cast<Int32>(ui::userScale() * 100.0f + 0.5f)
+      );
 
       const Float32 btnW = ImGui::CalcTextSize("A+").x + sty.FramePadding.x * 2.0f;
       const Float32 pctW = ImGui::CalcTextSize("000%").x;
-      const Float32 gap  = sty.ItemInnerSpacing.x;
+      const Float32 gap = sty.ItemInnerSpacing.x;
       const Float32 need = btnW * 2.0f + pctW + gap * 2.0f;
 
       const Float32 x0 = rightEdge - need;
@@ -2989,12 +3060,14 @@ namespace
 
       // The percentage is text, so it centers on the line directly - and inside
       // its OWN slot, sized for "000%" so the buttons never move.
-      const ImVec2   psz  = ImGui::CalcTextSize(pct.data());
+      const ImVec2   psz = ImGui::CalcTextSize(pct.data());
       const Float32  slot = x0 + btnW + gap;
-      const Float32  px   = slot + ((pctW - psz.x) * 0.5f);
-      ImGui::GetWindowDrawList()->AddText(ImVec2(px, cy - psz.y * 0.5f),
-                                          ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                                          pct.data());
+      const Float32  px = slot + ((pctW - psz.x) * 0.5f);
+      ImGui::GetWindowDrawList()->AddText(
+          ImVec2(px, cy - psz.y * 0.5f),
+          ImGui::GetColorU32(ImGuiCol_TextDisabled),
+          pct.data()
+      );
 
       // An invisible hit box, so click-to-reset and the tooltip still work now the
       // text is drawn. Over the whole SLOT, so the target does not shrink.
@@ -3033,7 +3106,7 @@ namespace
 
       BarPen pen;
       pen.dl = ImGui::GetWindowDrawList();
-      pen.x  = p0.x;
+      pen.x = p0.x;
       pen.cy = p0.y + av.y * 0.5f;   // the one centerline everything shares
 
       // The zoom control first, so the fields know where they have to stop.
@@ -3043,18 +3116,27 @@ namespace
       Array<Char, 64> lidarExtra= {};
       if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
       {
-          std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s  %.1f Hz",
-                        (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
-                            ? lidarPorts[portIndex].c_str() : "",
-                        haveFrame ? latestFrame.hz : 0.0f);
+          std::snprintf(
+              lidarExtra.data(),
+              lidarExtra.size(),
+              "%s %.1f Hz",
+              (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size())) ? lidarPorts[portIndex].c_str() : "",
+              haveFrame ? latestFrame.hz : 0.0f
+          );
       }
       else if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
       {
           std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s", lidarPorts[portIndex].c_str());
       }
 
-      stripField(pen, ui::Icon::ICON_RADAR, "LIDAR", lidarStateColor(),
-                 lidarStateText(), lidarExtra.data());
+      stripField(
+          pen,
+          ui::Icon::ICON_RADAR,
+          "LIDAR",
+          lidarStateColor(),
+          lidarStateText(),
+          lidarExtra.data()
+      );
 
       // ---- pico link -------------------------------------------------------
       stripSep(pen);
@@ -3063,21 +3145,39 @@ namespace
           ? (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size())
                  ? picoPorts[picoIndex] : Str())
           : picoLink.port();
-      stripField(pen, ui::Icon::ICON_PROCESSOR, "PICO", picoStateColor(ps),
-                 picoStateText(ps), pport.c_str());
+      stripField(
+          pen,
+          ui::Icon::ICON_PROCESSOR,
+          "PICO",
+          picoStateColor(ps),
+          picoStateText(ps),
+          pport.c_str()
+      );
 
       // ---- board -----------------------------------------------------------
       stripSep(pen);
       const BoardStatus brd = picoFlash.board();
       if(brd.bootsel)
       {
-          stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::WARN, "BOOTSEL",
-                     brd.drive.c_str());
+          stripField(
+              pen,
+              ui::Icon::ICON_FIRMWARE,
+              "BOARD",
+              ui::sem::WARN,
+              "BOOTSEL",
+              brd.drive.c_str()
+          );
       }
       else if(brd.present)
       {
-          stripField(pen, ui::Icon::ICON_FIRMWARE, "BOARD", ui::sem::GOOD, "Running",
-                     brd.program.c_str());
+          stripField(
+              pen,
+              ui::Icon::ICON_FIRMWARE,
+              "BOARD",
+              ui::sem::GOOD,
+              "Running",
+              brd.program.c_str()
+          );
       }
       else
       {
@@ -3092,18 +3192,36 @@ namespace
           stripSep(pen);
           if(fs == FlashState::FLASH_STATE_WORKING)
           {
-              stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::WARN, "running",
-                         picoFlash.currentOp().c_str());
+              stripField(
+                  pen,
+                  ui::Icon::ICON_BUILD,
+                  "OP",
+                  ui::sem::WARN,
+                  "running",
+                  picoFlash.currentOp().c_str()
+              );
           }
           else if(fs == FlashState::FLASH_STATE_SUCCESS)
           {
-              stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::GOOD, "done",
-                         picoFlash.currentOp().c_str());
+              stripField(
+                  pen,
+                  ui::Icon::ICON_BUILD,
+                  "OP",
+                  ui::sem::GOOD,
+                  "done",
+                  picoFlash.currentOp().c_str()
+              );
           }
           else if(fs == FlashState::FLASH_STATE_FAILED)
           {
-              stripField(pen, ui::Icon::ICON_BUILD, "OP", ui::sem::BAD, "FAILED",
-                         picoFlash.currentOp().c_str());
+              stripField(
+                  pen,
+                  ui::Icon::ICON_BUILD,
+                  "OP",
+                  ui::sem::BAD,
+                  "FAILED",
+                  picoFlash.currentOp().c_str()
+              );
           }
           else
           {
@@ -3130,11 +3248,15 @@ namespace
       // A lamp beside every state, so the column scans as a row of indicators
       // before any of it is read as words.
       {
-          const Float32 r  = ImGui::GetFontSize() * 0.20f;
+          const Float32 r = ImGui::GetFontSize() * 0.20f;
           const ImVec2  cp = ImGui::GetCursorScreenPos();
-          ui::led(ImGui::GetWindowDrawList(),
-                  ImVec2(cp.x + r * 1.8f, cp.y + ImGui::GetTextLineHeight() * 0.5f),
-                  r, col, lit);
+          ui::led(
+              ImGui::GetWindowDrawList(),
+              ImVec2(cp.x + r * 1.8f, cp.y + ImGui::GetTextLineHeight() * 0.5f),
+              r,
+              col,
+              lit
+          );
           ImGui::Dummy(ImVec2(r * 3.8f, ImGui::GetTextLineHeight()));
           ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
       }
@@ -3150,8 +3272,7 @@ namespace
   Void drawSubsystems()
   {
 
-      if(!ImGui::BeginTable("subsys", 3,
-                             ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
+      if(!ImGui::BeginTable("subsys", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
       {
           return;
       }
@@ -3159,28 +3280,48 @@ namespace
       // The RPLIDAR deliberately has no row here: the Sensors section below in
       // this same column, and the strip at the top, already carry it.
       const PicoState ps = picoLink.state();
-      subsystemRow(ui::Icon::ICON_LINK, "Pico link", picoStateColor(ps), picoStateText(ps),
-                   picoLink.port().c_str(), ps != PicoState::PICO_STATE_DISCONNECTED);
+      subsystemRow(
+          ui::Icon::ICON_LINK,
+          "Pico link",
+          picoStateColor(ps),
+          picoStateText(ps),
+          picoLink.port().c_str(),
+          ps != PicoState::PICO_STATE_DISCONNECTED
+      );
 
       const BoardStatus brd = picoFlash.board();
       if(brd.bootsel)
       {
-          subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::WARN, "BOOTSEL",
-                       brd.drive.c_str());
+          subsystemRow(
+              ui::Icon::ICON_FIRMWARE,
+              "Board firmware",
+              ui::sem::WARN,
+              "BOOTSEL",
+              brd.drive.c_str()
+          );
       }
       else if(brd.present)
       {
           // The board NAME once the firmware has answered ID, else the chip.
           // "RP2350" is true of both boards here and distinguishes neither.
-          subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::GOOD,
-                       brd.program.empty() ? "running" : brd.program.c_str(),
-                       debugStatus.boardName.empty()
-                           ? brd.chip.c_str()
-                           : debugStatus.boardName.c_str());
+          subsystemRow(
+              ui::Icon::ICON_FIRMWARE,
+              "Board firmware",
+              ui::sem::GOOD,
+              brd.program.empty() ? "running" : brd.program.c_str(),
+              debugStatus.boardName.empty() ? brd.chip.c_str() : debugStatus.boardName.c_str()
+          );
       }
       else
       {
-          subsystemRow(ui::Icon::ICON_FIRMWARE, "Board firmware", ui::sem::MUTED, "absent", "", false);
+          subsystemRow(
+              ui::Icon::ICON_FIRMWARE,
+              "Board firmware",
+              ui::sem::MUTED,
+              "absent",
+              "",
+              false
+          );
       }
 
       // Nothing below is connected, so nothing below reports a value.
@@ -3188,21 +3329,46 @@ namespace
       subsystemRow(ui::Icon::ICON_SERVO,   "ESC (GP1)",             ui::sem::MUTED, "not driven", "", false);
       // All four XSHUT pins have an LED on them now - GP11/GP10 the headlights,
       // GP13/GP12 the front indicators. The row says where the SENSORS are going.
-      subsystemRow(ui::Icon::ICON_TOF,     "ToF bumpers (GP10-13)", ui::sem::WARN,  "lamps on those pins", "", false);
-      subsystemRow(ui::Icon::ICON_ENCODER, "Wheel encoder (GP15)",  ui::sem::MUTED, "not wired",  "", false);
+      subsystemRow(
+          ui::Icon::ICON_TOF,
+          "ToF bumpers (GP10-13)",
+          ui::sem::WARN,
+          "lamps on those pins",
+          "",
+          false
+      );
+      subsystemRow(
+          ui::Icon::ICON_ENCODER,
+          "Wheel encoder (GP15)",
+          ui::sem::MUTED,
+          "not wired",
+          "",
+          false
+      );
       subsystemRow(ui::Icon::ICON_IMU,     "IMU (I2C)",             ui::sem::MUTED, "not wired",  "", false);
       subsystemRow(ui::Icon::ICON_STORAGE, "MicroSD (SPI)",         ui::sem::MUTED, "no header",  "", false);
       // Was "not built" for the whole of phase 2, and is now a real answer.
       if(picoLink.wireless())
       {
-          subsystemRow(ui::Icon::ICON_NETWORK, "UDP link", picoStateColor(ps),
-                       picoStateText(ps), picoLink.port().c_str(), true);
+          subsystemRow(
+              ui::Icon::ICON_NETWORK,
+              "UDP link",
+              picoStateColor(ps),
+              picoStateText(ps),
+              picoLink.port().c_str(),
+              true
+          );
       }
       else
       {
-          subsystemRow(ui::Icon::ICON_NETWORK, "UDP link", ui::sem::MUTED,
-                       "not in use",
-                       wifiHost[0] != '\0' ? wifiHost.data() : "", false);
+          subsystemRow(
+              ui::Icon::ICON_NETWORK,
+              "UDP link",
+              ui::sem::MUTED,
+              "not in use",
+              wifiHost[0] != '\0' ? wifiHost.data() : "",
+              false
+          );
       }
 
       ImGui::EndTable();
@@ -3218,7 +3384,7 @@ namespace
   {
       loadWifiHost();
 
-      const PicoState ps   = picoLink.state();
+      const PicoState ps = picoLink.state();
       const Bool      live = picoLink.wireless()
                           && (ps == PicoState::PICO_STATE_CONNECTED
                               || ps == PicoState::PICO_STATE_CONNECTING);
@@ -3227,8 +3393,12 @@ namespace
 
       ImGui::BeginDisabled(live);
       ImGui::SetNextItemWidth(-FLT_MIN);
-      if(ImGui::InputTextWithHint("##carip", "the car's address, e.g. 192.168.1.42",
-                                  wifiHost.data(), wifiHost.size()))
+      if(ImGui::InputTextWithHint(
+          "##carip",
+          "the car's address, e.g. 192.168.1.42",
+          wifiHost.data(),
+          wifiHost.size()
+      ))
       {
           settings::write(WIFI_HOST_FILE, Str(wifiHost.data()));
       }
@@ -3237,21 +3407,18 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "Where the car is on the network.\n"
-              "\n"
-              "The board says it. Plug it in, and on the console:\n"
-              "\n"
-              "    WIFI JOIN <your network> <your password>\n"
-              "\n"
-              "It answers with its address once the router has given it one.\n"
-              "The password stays between you and the board - it is never sent\n"
-              "here, never written to disk, and a reset forgets it.");
+              "Where the car is on the network.\n" "\n" "The board says it. Plug it in, and on the console:\n" "\n" " WIFI JOIN <your network> <your password>\n" "\n" "It answers with its address once the router has given it one.\n" "The password stays between you and the board - it is never sent\n" "here, never written to disk, and a reset forgets it."
+          );
       }
 
       if(live)
       {
-          if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Drop the Wi-Fi link",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_PLUG_DISCONNECT,
+              "Drop the Wi-Fi link",
+              ImVec2(-FLT_MIN, bh),
+              ui::Tint::TINT_WARN
+          ))
           {
               LOG_INFO("pico", "wireless link dropped by user");
               picoUserDisconnected = true;
@@ -3267,8 +3434,12 @@ namespace
           const Bool ready = (wifiHost[0] != '\0') && !wired;
 
           ImGui::BeginDisabled(!ready);
-          if(ui::iconButton(ui::Icon::ICON_NETWORK, "Link over Wi-Fi",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+          if(ui::iconButton(
+              ui::Icon::ICON_NETWORK,
+              "Link over Wi-Fi",
+              ImVec2(-FLT_MIN, bh),
+              ui::Tint::TINT_GOOD
+          ))
           {
               LOG_INFO("pico", "linking to %s over UDP", wifiHost.data());
               picoUserDisconnected = false;
@@ -3281,8 +3452,8 @@ namespace
               if(wired)
               {
                   ImGui::SetTooltip(
-                      "The cable link is open. Disconnect it first - one link at\n"
-                      "a time, or two consoles would be talking over each other.");
+                      "The cable link is open. Disconnect it first - one link at\n" "a time, or two consoles would be talking over each other."
+                  );
               }
               else if(wifiHost[0] == '\0')
               {
@@ -3291,14 +3462,8 @@ namespace
               else
               {
                   ImGui::SetTooltip(
-                      "Sends the same commands to the same firmware, over UDP\n"
-                      "port 4242 instead of the cable.\n"
-                      "\n"
-                      "It stays amber until the board actually answers. UDP has\n"
-                      "no connection to make, so anything else would report a\n"
-                      "car that is switched off as present.\n"
-                      "\n"
-                      "Flashing still needs the cable.");
+                      "Sends the same commands to the same firmware, over UDP\n" "port 4242 instead of the cable.\n" "\n" "It stays amber until the board actually answers. UDP has\n" "no connection to make, so anything else would report a\n" "car that is switched off as present.\n" "\n" "Flashing still needs the cable."
+                  );
               }
           }
       }
@@ -3306,7 +3471,7 @@ namespace
 
   Void drawQuickActions()
   {
-      const Float32 bh   = ImGui::GetFrameHeight() * 1.2f;
+      const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
       const Bool  busy = picoFlash.busy();
 
       ImGui::SeparatorText("Quick actions");
@@ -3325,11 +3490,12 @@ namespace
               const Bool spinning = lidarSource.motorEnabled();
               // Amber to stop a spinning rotor, green to start one: the tint is
               // the claim about what pressing it does, and it flips with the verb.
-              if(ui::iconButton(spinning ? ui::Icon::ICON_MOTOR_STOP
-                                         : ui::Icon::ICON_MOTOR_RUN,
-                                spinning ? "Stop motor" : "Start motor",
-                                ImVec2(-FLT_MIN, bh),
-                                spinning ? ui::Tint::TINT_WARN : ui::Tint::TINT_GOOD))
+              if(ui::iconButton(
+                  spinning ? ui::Icon::ICON_MOTOR_STOP : ui::Icon::ICON_MOTOR_RUN,
+                  spinning ? "Stop motor" : "Start motor",
+                  ImVec2(-FLT_MIN, bh),
+                  spinning ? ui::Tint::TINT_WARN : ui::Tint::TINT_GOOD
+              ))
               {
                   lidarSource.setMotorEnabled(!spinning);
               }
@@ -3337,8 +3503,12 @@ namespace
           else
           {
               ImGui::BeginDisabled(lidarPorts.empty());
-              if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect lidar",
-                                ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+              if(ui::iconButton(
+                  ui::Icon::ICON_PLUG_CONNECT,
+                  "Connect lidar",
+                  ImVec2(-FLT_MIN, bh),
+                  ui::Tint::TINT_GOOD
+              ))
               {
                   connect();
               }
@@ -3349,14 +3519,17 @@ namespace
           const PicoState ps = picoLink.state();
           if(ps == PicoState::PICO_STATE_CONNECTED || ps == PicoState::PICO_STATE_CONNECTING)
           {
-              if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Disconnect Pico",
-                                ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+              if(ui::iconButton(
+                  ui::Icon::ICON_PLUG_DISCONNECT,
+                  "Disconnect Pico",
+                  ImVec2(-FLT_MIN, bh),
+                  ui::Tint::TINT_WARN
+              ))
               {
                   // Deliberate, so a rescan must not grab the port straight back.
                   // ONLY the button sets this: a flash or BOOTSEL touch is not
                   // intent and must not stop the board reconnecting.
-                  LOG_INFO("pico", "disconnect requested by user (state=%s)",
-                           picoStateText(ps));
+                  LOG_INFO("pico", "disconnect requested by user (state=%s)", picoStateText(ps));
                   picoUserDisconnected = true;
                   picoLink.disconnect();
                   LOG_INFO("pico", "disconnect returned");
@@ -3368,8 +3541,12 @@ namespace
               // with no explanation reads as a broken one. It gets a reason.
               const Bool noPico = (picoIndex < 0);
               ImGui::BeginDisabled(noPico);
-              if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect Pico",
-                                ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+              if(ui::iconButton(
+                  ui::Icon::ICON_PLUG_CONNECT,
+                  "Connect Pico",
+                  ImVec2(-FLT_MIN, bh),
+                  ui::Tint::TINT_GOOD
+              ))
               {
                   connectPico();
               }
@@ -3379,14 +3556,8 @@ namespace
                  && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
               {
                   ImGui::SetTooltip(
-                      "No Pico found.\n\n"
-                      "Plug the board in - it is detected automatically, and this "
-                      "button enables itself\nwithin about a second. Nothing "
-                      "needs pressing first.\n\n"
-                      "If it stays grayed: the board is running a sketch that "
-                      "never called serialOpen(),\nso it never enumerated over "
-                      "USB. Hold BOOTSEL while plugging the cable in\nand flash "
-                      "it again.");
+                      "No Pico found.\n\n" "Plug the board in - it is detected automatically, and this " "button enables itself\nwithin about a second. Nothing " "needs pressing first.\n\n" "If it stays grayed: the board is running a sketch that " "never called serialOpen(),\nso it never enumerated over " "USB. Hold BOOTSEL while plugging the cable in\nand flash " "it again."
+                  );
               }
           }
 
@@ -3396,8 +3567,12 @@ namespace
           {
               const Bool havePort = !picoLink.port().empty() || picoIndex >= 0;
               ImGui::BeginDisabled(!havePort);
-              if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reboot to BOOTSEL...",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+              if(ui::iconButton(
+                  ui::Icon::ICON_REBOOT,
+                  "Reboot to BOOTSEL...",
+                  ImVec2(-FLT_MIN, bh),
+                  ui::Tint::TINT_WARN
+              ))
               {
                   openBootsel = true;
               }
@@ -3419,8 +3594,10 @@ namespace
       // one, so a failure is not silent. Only once one has been attempted.
       if(bootselDone)
       {
-          colored(bootselOk ? ui::sem::GOOD : ui::sem::BAD,
-                  bootselOk ? "BOOTSEL touch sent" : "BOOTSEL touch failed");
+          colored(
+              bootselOk ? ui::sem::GOOD : ui::sem::BAD,
+              bootselOk ? "BOOTSEL touch sent" : "BOOTSEL touch failed"
+          );
       }
   }
 
@@ -3476,15 +3653,8 @@ namespace
                  && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
               {
                   ImGui::SetTooltip(
-                      "Not a rate the C1 has.\n"
-                      "\n"
-                      "The C1M1 datasheet lists 460800 and nothing else - no\n"
-                      "minimum, no maximum, no alternative. Other RPLIDAR models\n"
-                      "do run at 115200, which is where the expectation comes\n"
-                      "from, and it is why this is grayed rather than absent.\n"
-                      "\n"
-                      "Selecting it would open the port and then receive nothing,\n"
-                      "which looks like a dead sensor rather than a wrong number.");
+                      "Not a rate the C1 has.\n" "\n" "The C1M1 datasheet lists 460800 and nothing else - no\n" "minimum, no maximum, no alternative. Other RPLIDAR models\n" "do run at 115200, which is where the expectation comes\n" "from, and it is why this is grayed rather than absent.\n" "\n" "Selecting it would open the port and then receive nothing,\n" "which looks like a dead sensor rather than a wrong number."
+                  );
               }
           }
           ImGui::EndCombo();
@@ -3494,8 +3664,12 @@ namespace
       const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
       if(busy)
       {
-          if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Disconnect",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_PLUG_DISCONNECT,
+              "Disconnect",
+              ImVec2(-FLT_MIN, bh),
+              ui::Tint::TINT_WARN
+          ))
           {
               lidarUserDisconnected = true;
               lidarSource.stop();
@@ -3504,8 +3678,12 @@ namespace
       else
       {
           ImGui::BeginDisabled(lidarPorts.empty());
-          if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+          if(ui::iconButton(
+              ui::Icon::ICON_PLUG_CONNECT,
+              "Connect",
+              ImVec2(-FLT_MIN, bh),
+              ui::Tint::TINT_GOOD
+          ))
           {
               connect();
           }
@@ -3513,7 +3691,7 @@ namespace
       }
 
       const Str        err = lidarSource.error();
-      const LidarState ls  = lidarSource.state();
+      const LidarState ls = lidarSource.state();
 
       if(!err.empty() && ls == LidarState::LIDAR_STATE_ERROR)
       {
@@ -3599,21 +3777,31 @@ namespace
 
   Void tabLive()
   {
-      Array<Char, 24> hz    = {'-', '-'};
-      Array<Char, 24> pts   = {'-', '-'};
+      Array<Char, 24> hz = {'-', '-'};
+      Array<Char, 24> pts = {'-', '-'};
       Array<Char, 24> valid = {'-', '-'};
       Array<Char, 24> nearS = {'-', '-'};
       Array<Char, 24> meanS = {'-', '-'};
-      Array<Char, 24> maxS  = {'-', '-'};
+      Array<Char, 24> maxS = {'-', '-'};
 
       if(haveFrame)
       {
           std::snprintf(hz.data(),  hz.size(),  "%.1f", latestFrame.hz);
-          std::snprintf(pts.data(), sizeof(pts.data()), "%d",   static_cast<Int32>(latestFrame.points.size()));
+          std::snprintf(
+              pts.data(),
+              sizeof(pts.data()),
+              "%d",
+              static_cast<Int32>(latestFrame.points.size())
+          );
 
           const Float64 frac = latestFrame.points.empty()
                             ? 0.0 : static_cast<Float64>(nInspec) / static_cast<Float64>(latestFrame.points.size());
-          std::snprintf(valid.data(), sizeof(valid.data()), "%d%%", static_cast<Int32>((frac * 100.0 + 0.5)));
+          std::snprintf(
+              valid.data(),
+              sizeof(valid.data()),
+              "%d%%",
+              static_cast<Int32>((frac * 100.0 + 0.5))
+          );
 
           if(radarView.hasNearest)
           {
@@ -3635,17 +3823,8 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "Returns inside 0.05-12 m, as a share of the revolution.\n"
-                  "\n"
-                  "12 m is the WHITE figure. The C1M1 datasheet gives two ranges:\n"
-                  "0.05-12 m against a 70%% reflective target and only 0.05-6 m\n"
-                  "against a 10%% one. A dark surface at 8 m is outside what the\n"
-                  "sensor is specified to see, and it is counted here as in-spec\n"
-                  "regardless - nothing in the stream says how reflective the\n"
-                  "thing it hit was.\n"
-                  "\n"
-                  "So on a dark scene this reads high. It is a coverage figure,\n"
-                  "not a guarantee.");
+                  "Returns inside 0.05-12 m, as a share of the revolution.\n" "\n" "12 m is the WHITE figure. The C1M1 datasheet gives two ranges:\n" "0.05-12 m against a 70%% reflective target and only 0.05-6 m\n" "against a 10%% one. A dark surface at 8 m is outside what the\n" "sensor is specified to see, and it is counted here as in-spec\n" "regardless - nothing in the stream says how reflective the\n" "thing it hit was.\n" "\n" "So on a dark scene this reads high. It is a coverage figure,\n" "not a guarantee."
+              );
           }
 
           ImGui::TableNextRow();
@@ -3659,13 +3838,34 @@ namespace
       }
 
       Array<Char, 48> overlay;
-      std::snprintf(overlay.data(), overlay.size(), "rotation  %.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
-      ImGui::PlotLines("##hz", hzHist.data(), hzCount, 0, overlay.data(),
-                       0.0f, 15.0f, ImVec2(-FLT_MIN, 46.0f * uiDpiScale));
+      std::snprintf(
+          overlay.data(),
+          overlay.size(),
+          "rotation %.1f Hz",
+          haveFrame ? latestFrame.hz : 0.0f
+      );
+      ImGui::PlotLines(
+          "##hz",
+          hzHist.data(),
+          hzCount,
+          0,
+          overlay.data(),
+          0.0f,
+          15.0f,
+          ImVec2(-FLT_MIN, 46.0f * uiDpiScale)
+      );
 
       ImGui::TextDisabled("Clearance by sector (m, capped %.1f)", CLEARANCE_CAP_M);
-      ImGui::PlotHistogram("##sectors", sectorM.data(), SECTORS, 0, nullptr,
-                           0.0f, CLEARANCE_CAP_M, ImVec2(-FLT_MIN, 58.0f * uiDpiScale));
+      ImGui::PlotHistogram(
+          "##sectors",
+          sectorM.data(),
+          SECTORS,
+          0,
+          nullptr,
+          0.0f,
+          CLEARANCE_CAP_M,
+          ImVec2(-FLT_MIN, 58.0f * uiDpiScale)
+      );
   }
 
   Void tabSignal()
@@ -3676,8 +3876,7 @@ namespace
 
       ImGui::TextDisabled("Returns this revolution (%d samples)", total);
 
-      if(ImGui::BeginTable("returns", 3, ImGuiTableFlags_SizingStretchSame |
-                                          ImGuiTableFlags_RowBg))
+      if(ImGui::BeginTable("returns", 3, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_RowBg))
       {
           auto cell = [&](const Char* label, Int32 n, ImU32 col)
           {
@@ -3714,10 +3913,17 @@ namespace
 
       // Signal quality is reported per measurement by the device and is otherwise
       // completely invisible - it is the main clue when returns start dropping.
-      ImGui::TextDisabled("Signal quality  (mean %.1f, range %d-%d of 63)",
-                          qMean, qMin, qMax);
-      ImGui::PlotHistogram("##qhist", qHist.data(), QUALITY_BUCKETS, 0, nullptr,
-                           0.0f, qHistMax, ImVec2(-FLT_MIN, 62.0f * uiDpiScale));
+      ImGui::TextDisabled("Signal quality (mean %.1f, range %d-%d of 63)", qMean, qMin, qMax);
+      ImGui::PlotHistogram(
+          "##qhist",
+          qHist.data(),
+          QUALITY_BUCKETS,
+          0,
+          nullptr,
+          0.0f,
+          qHistMax,
+          ImVec2(-FLT_MIN, 62.0f * uiDpiScale)
+      );
   }
 
   Void tabScan()
@@ -3731,12 +3937,13 @@ namespace
       {
           keyValue("Mode", "%s", si.mode.empty() ? "--" : si.mode.c_str());
           keyValue("Mode id", "%d", si.modeId);
-          keyValue("Sample period", si.usPerSample > 0 ? "%.2f us" : "--",
-                   si.usPerSample);
-          keyValue("Sample rate", si.usPerSample > 0 ? "%.2f kHz" : "--",
-                   si.usPerSample > 0 ? 1000.0f / si.usPerSample : 0.0f);
-          keyValue("Mode max range", si.maxDistanceM > 0 ? "%.1f m" : "--",
-                   si.maxDistanceM);
+          keyValue("Sample period", si.usPerSample > 0 ? "%.2f us" : "--", si.usPerSample);
+          keyValue(
+              "Sample rate",
+              si.usPerSample > 0 ? "%.2f kHz" : "--",
+              si.usPerSample > 0 ? 1000.0f / si.usPerSample : 0.0f
+          );
+          keyValue("Mode max range", si.maxDistanceM > 0 ? "%.1f m" : "--", si.maxDistanceM);
           keyValue("Angular res", angRes > 0 ? "%.2f deg" : "--", angRes);
           keyValue("Coverage", "%.0f%% of 360 deg", coverageDeg * 100.0f);
           ImGui::EndTable();
@@ -3744,14 +3951,22 @@ namespace
 
       ImGui::Spacing();
       ImGui::TextDisabled("Range distribution (0 - 12 m, 0.5 m bins)");
-      ImGui::PlotHistogram("##dhist", distHist.data(), DIST_BUCKETS, 0, nullptr,
-                           0.0f, distHistMax, ImVec2(-FLT_MIN, 70.0f * uiDpiScale));
+      ImGui::PlotHistogram(
+          "##dhist",
+          distHist.data(),
+          DIST_BUCKETS,
+          0,
+          nullptr,
+          0.0f,
+          distHistMax,
+          ImVec2(-FLT_MIN, 70.0f * uiDpiScale)
+      );
   }
 
   Void tabDevice()
   {
       const LidarDeviceInfo info = lidarSource.info();
-      const LidarStats      st   = lidarSource.stats();
+      const LidarStats      st = lidarSource.stats();
       const Bool known = !info.serial.empty();
 
       if(ImGui::BeginTable("dev", 2, ImGuiTableFlags_SizingStretchProp))
@@ -3781,8 +3996,11 @@ namespace
           keyValue("Revolutions", "%llu", st.frames);
           keyValue("Measurements", "%llu", st.points);
           keyValue("Dropped revs", "%u", st.timeouts);
-          keyValue("Avg rate", st.uptimeS > 1.0 ? "%.2f Hz" : "--",
-                   st.uptimeS > 1.0 ? static_cast<Float64>(st.frames) / st.uptimeS : 0.0);
+          keyValue(
+              "Avg rate",
+              st.uptimeS > 1.0 ? "%.2f Hz" : "--",
+              st.uptimeS > 1.0 ? static_cast<Float64>(st.frames) / st.uptimeS : 0.0
+          );
 
           // The time-of-flight core drifts with die temperature, so ranges are
            // not trustworthy for the first two minutes. Measured on this unit.
@@ -3825,27 +4043,27 @@ namespace
 
       const Bool isCar = (radarView.ego == scene3d::EgoView::EGO_VIEW_CAR);
 
-      if(ui::segmentedIconButton(ui::Icon::ICON_SCENE_FIT, "Car", isCar,
-                                 ImVec2(w, 0.0f)))
+      if(ui::segmentedIconButton(ui::Icon::ICON_SCENE_FIT, "Car", isCar, ImVec2(w, 0.0f)))
       {
           radarView.ego = scene3d::EgoView::EGO_VIEW_CAR;
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("The TT-02, to scale: 442 x 186 mm.\n"
-                            "What will be there once it is built.");
+          ImGui::SetTooltip(
+              "The TT-02, to scale: 442 x 186 mm.\n" "What will be there once it is built."
+          );
       }
 
       ImGui::SameLine();
-      if(ui::segmentedIconButton(ui::Icon::ICON_RADAR, "Sensor", !isCar,
-                                 ImVec2(w, 0.0f)))
+      if(ui::segmentedIconButton(ui::Icon::ICON_RADAR, "Sensor", !isCar, ImVec2(w, 0.0f)))
       {
           radarView.ego = scene3d::EgoView::EGO_VIEW_SENSOR;
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("The RPLIDAR C1 alone, to scale: 55.6 x 55.6 x 41.3 mm.\n"
-                            "What is actually on the desk.");
+          ImGui::SetTooltip(
+              "The RPLIDAR C1 alone, to scale: 55.6 x 55.6 x 41.3 mm.\n" "What is actually on the desk."
+          );
       }
 
       ImGui::PopID();
@@ -3882,27 +4100,37 @@ namespace
           const Float32 lockW = ImGui::CalcTextSize("World").x
                               + ImGui::GetStyle().FramePadding.x * 2.0f;
 
-          if(ui::segmentedIconButton(ui::Icon::ICON_SCENE_FIT, "Car",
-                                     radarView.cam.lockToCar, ImVec2(lockW, 0.0f)))
+          if(ui::segmentedIconButton(
+              ui::Icon::ICON_SCENE_FIT,
+              "Car",
+              radarView.cam.lockToCar,
+              ImVec2(lockW, 0.0f)
+          ))
           {
               radarView.cam.lockToCar = true;
           }
           if(ImGui::IsItemHovered())
           {
-              ImGui::SetTooltip("The car stays centered. Orbit and zoom still work; "
-                                "panning does not, because that is what locked means.");
+              ImGui::SetTooltip(
+                  "The car stays centered. Orbit and zoom still work; " "panning does not, because that is what locked means."
+              );
           }
 
           ImGui::SameLine();
-          if(ui::segmentedIconButton(ui::Icon::ICON_DIM_3D, "World",
-                                     !radarView.cam.lockToCar, ImVec2(lockW, 0.0f)))
+          if(ui::segmentedIconButton(
+              ui::Icon::ICON_DIM_3D,
+              "World",
+              !radarView.cam.lockToCar,
+              ImVec2(lockW, 0.0f)
+          ))
           {
               radarView.cam.lockToCar = false;
           }
           if(ImGui::IsItemHovered())
           {
-              ImGui::SetTooltip("Free camera. Right-drag pans anywhere and the car "
-                                "can leave the frame.");
+              ImGui::SetTooltip(
+                  "Free camera. Right-drag pans anywhere and the car " "can leave the frame."
+              );
           }
 
           ImGui::PopID();
@@ -3918,7 +4146,7 @@ namespace
               // Straight down, which is the flat map's viewpoint - so the two
               // dimensions can be compared without guessing at the orientation.
               radarView.cam.pitch = 1.52f;
-              radarView.cam.yaw   = 0.0f;
+              radarView.cam.yaw = 0.0f;
           }
           return;
       }
@@ -4034,7 +4262,7 @@ namespace
   // by the caller. --view <map|3d|record|code|range|drive|sound|flash|reference>
   // preselects a central tab at startup, held a few frames because a tab bar only
   // honors SetSelected once it has laid its items out.
-  Int32 forceView        = -1;   // -1 none, 0 = 2D, 1 = 3D, 2+ board index + 2
+  Int32 forceView = -1;   // -1 none, 0 = 2D, 1 = 3D, 2+ board index + 2
   Int32 forceViewFrames = 0;
 
   Int32 modeToggleRows();
@@ -4133,8 +4361,7 @@ namespace
       ImGui::Spacing();
       ImGui::TextUnformatted(what);
       ImGui::Spacing();
-      ImGui::PushStyleColor(ImGuiCol_Text,
-                            ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
       ImGui::TextUnformatted(read);
       ImGui::PopStyleColor();
 
@@ -4177,8 +4404,7 @@ namespace
       ImGui::Spacing();
       ImGui::TextUnformatted(info.what);
       ImGui::Spacing();
-      ImGui::PushStyleColor(ImGuiCol_Text,
-                            ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
       ImGui::TextUnformatted(info.read);
       ImGui::PopStyleColor();
 
@@ -4192,10 +4418,10 @@ namespace
 
   Bool modeToggleScrolls(Float32 contentW)
   {
-      const Int32   n    = activeModeCount();
+      const Int32   n = activeModeCount();
       const Int32   topN = (n + modeToggleRows() - 1) / modeToggleRows();
-      const Float32 gap  = ImGui::GetStyle().ItemSpacing.x;
-      const Float32 w    = (contentW - gap * static_cast<Float32>(topN - 1))
+      const Float32 gap = ImGui::GetStyle().ItemSpacing.x;
+      const Float32 w = (contentW - gap * static_cast<Float32>(topN - 1))
                          / static_cast<Float32>(topN);
       return w < (118.0f * uiDpiScale);
   }
@@ -4203,16 +4429,16 @@ namespace
   Void drawModeToggle()
   {
       const ImGuiStyle& sty = ImGui::GetStyle();
-      const Int32   n    = activeModeCount();
-      const Float32 gap  = sty.ItemSpacing.x;
+      const Int32   n = activeModeCount();
+      const Float32 gap = sty.ItemSpacing.x;
       const Int32   rows = modeToggleRows();
 
       // Rows follow the mode count: the flat map's nine wrap to two, the scene's
       // four sit on one. Below a legible width the strip scrolls sideways.
-      const Float32 avail   = ImGui::GetContentRegionAvail().x;
-      const Int32   topN    = (n + rows - 1) / rows;
+      const Float32 avail = ImGui::GetContentRegionAvail().x;
+      const Int32   topN = (n + rows - 1) / rows;
       const Bool    scrolls = modeToggleScrolls(avail);
-      const Float32 w        = scrolls
+      const Float32 w = scrolls
                              ? 118.0f * uiDpiScale
                              : (avail - gap * static_cast<Float32>(topN - 1))
                                    / static_cast<Float32>(topN);
@@ -4221,17 +4447,20 @@ namespace
                            + sty.ItemSpacing.y * static_cast<Float32>(rows - 1)
                            + (scrolls ? sty.ScrollbarSize : 0.0f);
 
-      ImGui::BeginChild("##modes", ImVec2(0.0f, stripH), ImGuiChildFlags_None,
-                        scrolls ? ImGuiWindowFlags_HorizontalScrollbar
-                                : ImGuiWindowFlags_NoScrollbar);
+      ImGui::BeginChild(
+          "##modes",
+          ImVec2(0.0f, stripH),
+          ImGuiChildFlags_None,
+          scrolls ? ImGuiWindowFlags_HorizontalScrollbar : ImGuiWindowFlags_NoScrollbar
+      );
 
       const Float32 modeX = ImGui::GetCursorPosX();
 
       for(Int32 i = 0; i < n; ++i)
       {
           const Bool  second = (i >= topN);
-          const Int32 rowN   = second ? (n - topN) : topN;
-          const Int32 col    = second ? (i - topN) : i;
+          const Int32 rowN = second ? (n - topN) : topN;
+          const Int32 col = second ? (i - topN) : i;
 
           // Cells keep a uniform width WITHIN a row so each row reads as one
           // strip; the rows do not have to match each other.
@@ -4258,8 +4487,12 @@ namespace
               const ui::Icon ic = static_cast<ui::Icon>(
                   static_cast<Int32>(ui::Icon::ICON_SCENE_CLOUD) + i);
 
-              if(ui::segmentedIconButton(ic, scene3d::sceneModeName(m),
-                                         radarView.scene == m, ImVec2(cellW, 0.0f)))
+              if(ui::segmentedIconButton(
+                  ic,
+                  scene3d::sceneModeName(m),
+                  radarView.scene == m,
+                  ImVec2(cellW, 0.0f)
+              ))
               {
                   radarView.scene = m;
               }
@@ -4274,8 +4507,12 @@ namespace
               const ui::Icon ic = static_cast<ui::Icon>(
                   static_cast<Int32>(ui::Icon::ICON_MODE_POINTS) + i);
 
-              if(ui::segmentedIconButton(ic, mapModeName(m),
-                                         radarView.mode == m, ImVec2(cellW, 0.0f)))
+              if(ui::segmentedIconButton(
+                  ic,
+                  mapModeName(m),
+                  radarView.mode == m,
+                  ImVec2(cellW, 0.0f)
+              ))
               {
                   radarView.mode = m;
               }
@@ -4309,24 +4546,30 @@ namespace
 
       if(recArmed)
       {
-          std::snprintf(line.data(), line.size(), "RECORDING  -  %zu revolutions",
-                        recording.count());
+          std::snprintf(line.data(), line.size(), "RECORDING - %zu revolutions", recording.count());
           col = ui::sem::BAD;
       }
       else if(!recording.empty())
       {
-          std::snprintf(line.data(), line.size(),
-                        "%s  -  revolution %zu of %zu  -  %.2f s",
-                        recPlaying ? "PLAYING" : "PAUSED",
-                        recIndex + 1u, recording.count(), recPlayS);
+          std::snprintf(
+              line.data(),
+              line.size(),
+              "%s - revolution %zu of %zu - %.2f s",
+              recPlaying ? "PLAYING" : "PAUSED",
+              recIndex + 1u,
+              recording.count(),
+              recPlayS
+          );
           col = recPlaying ? ui::sem::GOOD : ui::sem::WARN;
       }
       else
       {
-          std::snprintf(line.data(), line.size(), "%s",
-                        (lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
-                            ? "live  -  press Record to capture"
-                            : "no lidar; connect one to record");
+          std::snprintf(
+              line.data(),
+              line.size(),
+              "%s",
+              (lidarSource.state() == LidarState::LIDAR_STATE_SCANNING) ? "live - press Record to capture" : "no lidar; connect one to record"
+          );
       }
 
       dl->AddText(f, fs, ImVec2(p0.x + pad, p0.y + pad), col, line.data());
@@ -4348,17 +4591,16 @@ namespace
       }
       else
       {
-          if(ui::iconButton(ui::Icon::ICON_RECORD, "Record", ImVec2(0, 0),
-                            ui::Tint::TINT_BAD))
+          if(ui::iconButton(ui::Icon::ICON_RECORD, "Record", ImVec2(0, 0), ui::Tint::TINT_BAD))
           {
               // A new take replaces the old one: silently appending two runs into
               // one file would be worse than losing the first.
               recording.clear();
-              recIndex   = 0;
-              recPlayS   = 0.0;
+              recIndex = 0;
+              recPlayS = 0.0;
               recPlaying = false;
-              recArmed   = true;
-              recStartS  = ImGui::GetTime();
+              recArmed = true;
+              recStartS = ImGui::GetTime();
               recStatus.clear();
           }
       }
@@ -4427,8 +4669,7 @@ namespace
           {
               items.push_back(f.c_str());
           }
-          ui::combo("##recfile", &recFileIndex, items.data(),
-                    static_cast<Int32>(items.size()));
+          ui::combo("##recfile", &recFileIndex, items.data(), static_cast<Int32>(items.size()));
       }
 
       ImGui::SameLine();
@@ -4477,8 +4718,7 @@ namespace
       }
       else
       {
-          if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", ImVec2(0, 0),
-                                ui::Tint::TINT_GOOD))
+          if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", ImVec2(0, 0), ui::Tint::TINT_GOOD))
           {
               // Replaying from the end restarts, rather than sitting there doing
               // nothing and looking broken.
@@ -4495,12 +4735,11 @@ namespace
       Int32 idx = static_cast<Int32>(recIndex);
 
       ImGui::SetNextItemWidth(-ImGui::GetFontSize() * 22.0f);
-      if(ImGui::SliderInt("##scrub", &idx, 0,
-                          (n > 0u) ? static_cast<Int32>(n - 1u) : 0, "rev %d"))
+      if(ImGui::SliderInt("##scrub", &idx, 0, (n > 0u) ? static_cast<Int32>(n - 1u) : 0, "rev %d"))
       {
-          recIndex       = static_cast<Size>(idx);
-          recPlayS       = recording.at(recIndex).tS;
-          recPlaying     = false;      // dragging the scrub means you want to look
+          recIndex = static_cast<Size>(idx);
+          recPlayS = recording.at(recIndex).tS;
+          recPlaying = false;      // dragging the scrub means you want to look
           recPendingSeek = true;
       }
       ImGui::EndDisabled();
@@ -4508,19 +4747,22 @@ namespace
       ImGui::SameLine();
       if(recArmed)
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
-                             "REC  %zu rev  %.1f s  %.1f MB",
-                             recording.count(),
-                             ImGui::GetTime() - recStartS,
-                             static_cast<Float64>(recording.pointCount() * 8u)
-                                 / (1024.0 * 1024.0));
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
+              "REC %zu rev %.1f s %.1f MB",
+              recording.count(),
+              ImGui::GetTime() - recStartS,
+              static_cast<Float64>(recording.pointCount() * 8u) / (1024.0 * 1024.0)
+          );
       }
       else if(!recording.empty())
       {
-          ImGui::Text("%zu rev  %.1f s  %.1f MB", recording.count(),
-                      recording.durationS(),
-                      static_cast<Float64>(recording.pointCount() * 8u)
-                          / (1024.0 * 1024.0));
+          ImGui::Text(
+              "%zu rev %.1f s %.1f MB",
+              recording.count(),
+              recording.durationS(),
+              static_cast<Float64>(recording.pointCount() * 8u) / (1024.0 * 1024.0)
+          );
       }
       else
       {
@@ -4532,7 +4774,9 @@ namespace
           ImGui::SameLine();
           ImGui::TextColored(
               ImGui::ColorConvertU32ToFloat4(recStatusBad ? ui::sem::BAD : ui::sem::GOOD),
-              "%s", recStatus.c_str());
+              "%s",
+              recStatus.c_str()
+          );
       }
   }
 
@@ -4629,11 +4873,11 @@ namespace
       // Linted immediately rather than half a second later: opening a file and
       // seeing nothing, then seeing marks appear, reads as a glitch.
       codeLintDiags = lint::check(codeEditor.text(), lint::langOf(codePath));
-      codeLintIn    = 30;
+      codeLintIn = 30;
       refreshCodeDiags();
       rebuildMacroIndex();
       codeFileStamp = sketch::stamp(path);
-      codeMessage   = "opened " + name;
+      codeMessage = "opened " + name;
       ui::setNote(codeView, "opened " + name, ImGui::GetTime());
   }
 
@@ -4655,7 +4899,7 @@ namespace
           if(ImGui::ArrowButton("##treeopen", ImGuiDir_Right))
           {
               codeTreeCollapsed = false;
-              panelLayoutDirty  = true;
+              panelLayoutDirty = true;
           }
           if(ImGui::IsItemHovered())
           {
@@ -4670,7 +4914,7 @@ namespace
       if(ImGui::ArrowButton("##treeclose", ImGuiDir_Left))
       {
           codeTreeCollapsed = true;
-          panelLayoutDirty  = true;
+          panelLayoutDirty = true;
       }
       if(ImGui::IsItemHovered())
       {
@@ -4689,7 +4933,7 @@ namespace
       if(rescanIn <= 0)
       {
           libFiles = sketch::list();
-          fwFiles  = sketch::listFirmware();
+          fwFiles = sketch::listFirmware();
           rescanIn = 120;          // ~2 s at 60 fps
       }
       --rescanIn;
@@ -4710,16 +4954,14 @@ namespace
           const Float32 textH = ImGui::GetTextLineHeight();
           if(textH > iconH)
           {
-              ImGui::SetCursorPosY(ImGui::GetCursorPosY()
-                                   + ((textH - iconH) * 0.5f));
+              ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ((textH - iconH) * 0.5f));
           }
 
           ui::icon(ic);
           ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
           if(label != 0)
           {
-              ImGui::PushStyleColor(ImGuiCol_Text,
-                                    ImGui::ColorConvertU32ToFloat4(label));
+              ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(label));
           }
           const Bool hit = ImGui::Selectable(name.c_str(), sel);
           if(label != 0)
@@ -4795,19 +5037,24 @@ namespace
 
           const ImU32 body = open ? IM_COL32(0xD8, 0x9E, 0x3C, 0xFF)
                                   : IM_COL32(0xB0, 0x82, 0x33, 0xFF);
-          const ImU32 tab  = IM_COL32(0x8A, 0x66, 0x28, 0xFF);
+          const ImU32 tab = IM_COL32(0x8A, 0x66, 0x28, 0xFF);
 
           // The tab, along the top-left.
-          dl->AddRectFilled(ImVec2(x0 + sz * 0.06f, y0 + sz * 0.18f),
-                            ImVec2(x0 + sz * 0.46f, y0 + sz * 0.34f),
-                            tab, sz * 0.06f);
+          dl->AddRectFilled(
+              ImVec2(x0 + sz * 0.06f, y0 + sz * 0.18f),
+              ImVec2(x0 + sz * 0.46f, y0 + sz * 0.34f),
+              tab,
+              sz * 0.06f
+          );
 
           // The body. An open folder is drawn a touch shallower so the lid reads
           // as tipped rather than as a different rectangle.
-          dl->AddRectFilled(ImVec2(x0 + sz * 0.06f, y0 + sz * 0.30f),
-                            ImVec2(x0 + sz * 0.94f,
-                                   y0 + sz * (open ? 0.80f : 0.86f)),
-                            body, sz * 0.08f);
+          dl->AddRectFilled(
+              ImVec2(x0 + sz * 0.06f, y0 + sz * 0.30f),
+              ImVec2(x0 + sz * 0.94f, y0 + sz * (open ? 0.80f : 0.86f)),
+              body,
+              sz * 0.08f
+          );
 
           ImGui::Dummy(ImVec2(sz, ImGui::GetTextLineHeight()));
       };
@@ -4869,11 +5116,11 @@ namespace
                   return _stricmp(a.c_str(), b.c_str()) < 0;
               };
 
-              std::sort(node.dirs.begin(), node.dirs.end(),
-                        [&byName](const FwNode& a, const FwNode& b)
-                        {
-                            return byName(a.name, b.name);
-                        });
+              std::sort(
+                  node.dirs.begin(),
+                  node.dirs.end(),
+                  [&byName](const FwNode& a, const FwNode& b) { return byName(a.name, b.name); }
+              );
               std::sort(node.files.begin(), node.files.end(), byName);
 
               for(FwNode& d : node.dirs)
@@ -4916,7 +5163,7 @@ namespace
               for(const Str& f : node.files)
               {
                   const Str rel = prefix + f;
-                  const Str p   = dir + "\\" + rel;
+                  const Str p = dir + "\\" + rel;
 
                   // A document is not code and should not look like it. The
                   // header test has to know about .hxx as well as .h.
@@ -4931,12 +5178,16 @@ namespace
 
                   // The LEAF name in the tree, the RELATIVE path everywhere else:
                   // two main.c in different folders must not look like one row.
-                  if(row(f, p, _stricmp(p.c_str(), codePath.c_str()) == 0,
-                         doc ? ui::Icon::ICON_DOC
-                             : (hdr ? ui::Icon::ICON_FIRMWARE
-                                    : ui::Icon::ICON_CODE),
-                         false,
-                         doc ? ui::ansi::BRCYAN : 0u))
+                  if(row(
+                      f,
+                      p,
+                      _stricmp(p.c_str(), codePath.c_str()) == 0,
+                      doc ? ui::Icon::ICON_DOC : (
+                          hdr ? ui::Icon::ICON_FIRMWARE : ui::Icon::ICON_CODE
+                      ),
+                      false,
+                      doc ? ui::ansi::BRCYAN : 0u
+                  ))
                   {
                       openCodeFile(p, rel);
                   }
@@ -5035,7 +5286,7 @@ namespace
           if(saveSketch())
           {
               codeFlashTarget = sketch::targetFor(codePath);
-              codeOp          = CodeOp::CODE_OP_BUILDING;
+              codeOp = CodeOp::CODE_OP_BUILDING;
               picoFlash.build(codeFlashTarget);
           }
           return;
@@ -5081,19 +5332,18 @@ namespace
           ImGui::SameLine();
           ImGui::SetCursorPosX(std::max(
               ImGui::GetCursorPosX(),
-              ImGui::GetWindowWidth() - dw - ImGui::GetStyle().WindowPadding.x));
+              ImGui::GetWindowWidth() - dw - ImGui::GetStyle().WindowPadding.x
+          ));
 
-          if(ui::iconButton(ui::Icon::ICON_REFERENCE, "Docs",
-                            ImVec2(dw, ImGui::GetFrameHeight())))
+          if(ui::iconButton(ui::Icon::ICON_REFERENCE, "Docs", ImVec2(dw, ImGui::GetFrameHeight())))
           {
               sketch::openDocs();
           }
           if(ImGui::IsItemHovered())
           {
-              ImGui::SetTooltip("The firmware API reference, in your browser.\n\n"
-                                "Generated from firmware/lib, so a signature there "
-                                "is the one\nthat compiles. Builds on first use - "
-                                "a few seconds - instant after.");
+              ImGui::SetTooltip(
+                  "The firmware API reference, in your browser.\n\n" "Generated from firmware/lib, so a signature there " "is the one\nthat compiles. Builds on first use - " "a few seconds - instant after."
+              );
           }
       }
 
@@ -5119,13 +5369,17 @@ namespace
 
       // "Run", the verb every IDE uses; what it ACTUALLY does - compile, then
       // overwrite the board's flash - is in the tooltip. Amber, not green.
-      if(ui::iconButton(ui::Icon::ICON_PLAY, "Run",
-                        ImVec2(120.0f * uiDpiScale, bh), ui::Tint::TINT_WARN))
+      if(ui::iconButton(
+          ui::Icon::ICON_PLAY,
+          "Run",
+          ImVec2(120.0f * uiDpiScale, bh),
+          ui::Tint::TINT_WARN
+      ))
       {
           if(saveSketch())
           {
               codeFlashTarget = target;
-              codeOp          = CodeOp::CODE_OP_BUILDING;
+              codeOp = CodeOp::CODE_OP_BUILDING;
               picoFlash.build(target);
           }
       }
@@ -5134,20 +5388,18 @@ namespace
       {
           if(onHeader)
           {
-              ImGui::SetTooltip("%s is a header.\n\n"
-                                "Headers are included by other files rather than "
-                                "compiled on their own,\nso there is nothing here "
-                                "to build. Open a .c file - the arrow beside this "
-                                "button\nlists the ones that can be flashed.",
-                                codeName.c_str());
+              ImGui::SetTooltip(
+                  "%s is a header.\n\n" "Headers are included by other files rather than " "compiled on their own,\nso there is nothing here " "to build. Open a .c file - the arrow beside this " "button\nlists the ones that can be flashed.",
+                  codeName.c_str()
+              );
           }
           else
           {
-              ImGui::SetTooltip("Build & Flash: %s\n\n"
-                                "Compiles %s\nand writes it to the board, "
-                                "replacing what is on it.",
-                                target.c_str(),
-                                codePath.empty() ? "(unsaved)" : codePath.c_str());
+              ImGui::SetTooltip(
+                  "Build & Flash: %s\n\n" "Compiles %s\nand writes it to the board, " "replacing what is on it.",
+                  target.c_str(),
+                  codePath.empty() ? "(unsaved)" : codePath.c_str()
+              );
           }
       }
 
@@ -5173,8 +5425,7 @@ namespace
           ImGui::Separator();
           ImGui::TextUnformatted(codeName.empty() ? "(unsaved)" : codeName.c_str());
           ImGui::TextDisabled("%s", codePath.empty() ? "" : codePath.c_str());
-          ImGui::TextDisabled("target %s  ->  firmware/build/%s.uf2",
-                              target.c_str(), target.c_str());
+          ImGui::TextDisabled("target %s -> firmware/build/%s.uf2", target.c_str(), target.c_str());
 
           ImGui::Separator();
           ImGui::TextDisabled("firmware");
@@ -5187,7 +5438,7 @@ namespace
               ImGui::PushID(path.c_str());
               const Bool open = !codePath.empty()
                              && _stricmp(path.c_str(), codePath.c_str()) == 0;
-              const Bool hit  = ui::iconMenuItem(ic, name.c_str(), note, enabled, open);
+              const Bool hit = ui::iconMenuItem(ic, name.c_str(), note, enabled, open);
               ImGui::PopID();
               return hit;
           };
@@ -5198,7 +5449,7 @@ namespace
           {
               const Bool hdr = endsWith(n, ".h") || endsWith(n, ".hxx");
               const Bool doc = refdoc::isDocPath(n);
-              const Str  p   = fwd + "\\" + n;
+              const Str  p = fwd + "\\" + n;
 
               // Which image this file ends up in, said out loud: it is what Build
               // & Flash acts on and it is not guessable from a filename.
@@ -5206,11 +5457,13 @@ namespace
 
               // A header is not a translation unit. Listed so this matches the
               // tree, disabled so it cannot be chosen and then quietly do nothing.
-              if(entry(hdr ? ui::Icon::ICON_FIRMWARE
-                           : (doc ? ui::Icon::ICON_DOC : ui::Icon::ICON_CODE),
-                       n, p,
-                       hdr ? "header" : (tgt.empty() ? nullptr : tgt.c_str()),
-                       !hdr))
+              if(entry(
+                  hdr ? ui::Icon::ICON_FIRMWARE : (doc ? ui::Icon::ICON_DOC : ui::Icon::ICON_CODE),
+                  n,
+                  p,
+                  hdr ? "header" : (tgt.empty() ? nullptr : tgt.c_str()),
+                  !hdr
+              ))
               {
                   openCodeFile(p, n);
               }
@@ -5220,8 +5473,7 @@ namespace
       }
 
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_BUILD, "Build",
-                        ImVec2(130.0f * uiDpiScale, bh)))
+      if(ui::iconButton(ui::Icon::ICON_BUILD, "Build", ImVec2(130.0f * uiDpiScale, bh)))
       {
           if(saveSketch())
           {
@@ -5255,8 +5507,11 @@ namespace
 
       if(busy)
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "%s...", picoFlash.currentOp().c_str());
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "%s...",
+              picoFlash.currentOp().c_str()
+          );
       }
       else if(!codeMessage.empty())
       {
@@ -5267,12 +5522,15 @@ namespace
                         || codeMessage.find("not a command") != Str::npos;
           ImGui::TextColored(
               ImGui::ColorConvertU32ToFloat4(bad ? ui::sem::BAD : ui::sem::GOOD),
-              "%s", codeMessage.c_str());
+              "%s",
+              codeMessage.c_str()
+          );
       }
       else
       {
-          ImGui::TextDisabled("i insert - esc normal - :w save - / find - "
-                              "ciw change word - . repeat");
+          ImGui::TextDisabled(
+              "i insert - esc normal - :w save - / find - " "ciw change word - . repeat"
+          );
       }
   }
 
@@ -5305,7 +5563,7 @@ namespace
   // because the indices have moved before; drawTabbedViews clamps out of range.
   constexpr Int32 RANGE_VIEW = 4;
   constexpr Int32 DRIVE_VIEW = RANGE_VIEW + 1;
-  constexpr Int32 CUE_VIEW   = DRIVE_VIEW + 1;
+  constexpr Int32 CUE_VIEW = DRIVE_VIEW + 1;
 
   // TEMPORARY. Goes when sound moves into the cue system, and it is LAST in the
   // order so removing it cannot renumber anything else.
@@ -5380,16 +5638,19 @@ namespace
       }
       ImGui::SameLine(0.0f, 16.0f);
 
-      if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reset / mount card",
-                        ImVec2(220.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(
+          ui::Icon::ICON_REBOOT,
+          "Reset / mount card",
+          ImVec2(220.0f * uiDpiScale, 0.0f)
+      ))
       {
           sendPico("SOUND RESET");
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("Resets the module and waits ~2 s for the card.\n"
-                            "Needed once after the module is powered up.\n"
-                            "The console goes quiet while it waits.");
+          ImGui::SetTooltip(
+              "Resets the module and waits ~2 s for the card.\n" "Needed once after the module is powered up.\n" "The console goes quiet while it waits."
+          );
       }
 
       // ---- volume -----------------------------------------------------------
@@ -5407,15 +5668,18 @@ namespace
       }
 
       ImGui::SameLine(0.0f, 12.0f);
-      colored(soundVol > (soundVolMax / 2) ? ui::sem::WARN : ui::ansi::GRAY,
-                  "%d / %d", soundVol, soundVolMax);
+      colored(
+          soundVol > (soundVolMax / 2) ? ui::sem::WARN : ui::ansi::GRAY,
+          "%d / %d",
+          soundVol,
+          soundVolMax
+      );
 
       // Named steps rather than a bare number: "8" means nothing until you have
       // been deafened once, and these modules are painful well below half.
       const auto vol = [](const Char* label, Int32 level, const Char* why)
       {
-          if(ui::iconButton(ui::Icon::ICON_SIGNAL, label,
-                            ImVec2(96.0f * uiDpiScale, 0.0f)))
+          if(ui::iconButton(ui::Icon::ICON_SIGNAL, label, ImVec2(96.0f * uiDpiScale, 0.0f)))
           {
               Array<Char, 48> cmd;
               std::snprintf(cmd.data(), cmd.size(), "SOUND VOL %d", level);
@@ -5433,8 +5697,11 @@ namespace
       ImGui::SameLine();
       vol("Half", 15,  "15 of 30. Loud in a room.");
       ImGui::SameLine();
-      vol("Max", 30,   "30 of 30, and there is nothing above it - the\n"
-                       "protocol range is 0-30, and the module clamps.");
+      vol(
+          "Max",
+          30,
+          "30 of 30, and there is nothing above it - the\n" "protocol range is 0-30, and the module clamps."
+      );
 
       // ---- tone -------------------------------------------------------------
       // NOT a second volume, and labeled so - it is what people reach for at 30.
@@ -5456,8 +5723,7 @@ namespace
           const Bool on = (soundEq == e);
           if(on)
           {
-              ImGui::PushStyleColor(ImGuiCol_Button,
-                                    ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD));
+              ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD));
           }
           if(ImGui::Button(EQ_NAME[e], ImVec2(74.0f * uiDpiScale, 0.0f)))
           {
@@ -5482,25 +5748,27 @@ namespace
       // hub nor the firmware keeps a list: adding an mp3 is the whole of adding.
       if(soundFiles > 0)
       {
-          colored(ui::ansi::GRAY, "%d track%s on the card",
-                  soundFiles, (soundFiles == 1) ? "" : "s");
+          colored(
+              ui::ansi::GRAY,
+              "%d track%s on the card",
+              soundFiles,
+              (soundFiles == 1) ? "" : "s"
+          );
       }
       else
       {
           ImGui::TextDisabled("card not counted yet");
       }
       ImGui::SameLine(0.0f, 12.0f);
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Count",
-                        ImVec2(110.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Count", ImVec2(110.0f * uiDpiScale, 0.0f)))
       {
           sendPico("SOUND FILES");
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("Asks the module how many files the card holds.\n"
-                            "The only command here that waits for an answer,\n"
-                            "so a reply also proves the module is powered,\n"
-                            "has a card, and its TX reaches the Pico.");
+          ImGui::SetTooltip(
+              "Asks the module how many files the card holds.\n" "The only command here that waits for an answer,\n" "so a reply also proves the module is powered,\n" "has a card, and its TX reaches the Pico."
+          );
       }
 
       ImGui::SetNextItemWidth(120.0f * uiDpiScale);
@@ -5547,8 +5815,7 @@ namespace
       ImGui::Spacing();
 
       // PLAY is green and wide: it is the thing this view is for.
-      if(ui::iconButton(ui::Icon::ICON_PLAY, "Play",
-                        ImVec2(160.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", ImVec2(160.0f * uiDpiScale, 0.0f)))
       {
           Array<Char, 48> cmd;
           std::snprintf(cmd.data(), cmd.size(), "SOUND PLAY %d", soundTrack);
@@ -5556,33 +5823,28 @@ namespace
       }
 
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause",
-                        ImVec2(120.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause", ImVec2(120.0f * uiDpiScale, 0.0f)))
       {
           sendPico("SOUND PAUSE");
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_PLAY, "Resume",
-                        ImVec2(120.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Resume", ImVec2(120.0f * uiDpiScale, 0.0f)))
       {
           sendPico("SOUND RESUME");
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop",
-                        ImVec2(120.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop", ImVec2(120.0f * uiDpiScale, 0.0f)))
       {
           sendPico("SOUND STOP");
       }
 
       ImGui::Spacing();
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Prev",
-                        ImVec2(110.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Prev", ImVec2(110.0f * uiDpiScale, 0.0f)))
       {
           sendPico("SOUND PREV");
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Next",
-                        ImVec2(110.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Next", ImVec2(110.0f * uiDpiScale, 0.0f)))
       {
           sendPico("SOUND NEXT");
       }
@@ -5613,10 +5875,15 @@ namespace
           ImGui::SameLine(0.0f, 12.0f);
 
           const Float32 t = static_cast<Float32>(ImGui::GetTime());
-          ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                                ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD));
-          ImGui::ProgressBar(0.5f + 0.5f * std::sin(t * 6.0f),
-                             ImVec2(200.0f * uiDpiScale, 0.0f), "");
+          ImGui::PushStyleColor(
+              ImGuiCol_PlotHistogram,
+              ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD)
+          );
+          ImGui::ProgressBar(
+              0.5f + 0.5f * std::sin(t * 6.0f),
+              ImVec2(200.0f * uiDpiScale, 0.0f),
+              ""
+          );
           ImGui::PopStyleColor();
       }
       else
@@ -5637,10 +5904,9 @@ namespace
 
   Void drawCueBody(Float32 w, Float32 h)
   {
-      ImGui::BeginChild("##cueboard", ImVec2(w, h), ImGuiChildFlags_None,
-                        ImGuiWindowFlags_None);
+      ImGui::BeginChild("##cueboard", ImVec2(w, h), ImGuiChildFlags_None, ImGuiWindowFlags_None);
 
-      const ImVec2 p0     = ImGui::GetCursorScreenPos();
+      const ImVec2 p0 = ImGui::GetCursorScreenPos();
       const Bool   linkUp = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
 
       // ---- what the car is saying right now --------------------------------
@@ -5650,8 +5916,7 @@ namespace
                          && cueSpeaking != "none" && cueSpeaking != "-";
 
       ImGui::AlignTextToFramePadding();
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                         "Saying");
+      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "Saying");
       ImGui::SameLine();
 
       if(!linkUp)
@@ -5662,8 +5927,12 @@ namespace
       {
           colored(ui::sem::GOOD, "%s", cueSpeaking.c_str());
           ImGui::SameLine();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "step %d, pass %d", cueStepNow, cueLoopNow + 1);
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "step %d, pass %d",
+              cueStepNow,
+              cueLoopNow + 1
+          );
       }
       else
       {
@@ -5680,9 +5949,10 @@ namespace
           ImGui::Spacing();
           if(!linkUp)
           {
-              colored(ui::sem::MUTED,
-                      "The cues come from the board, so this fills in when it is\n"
-                      "connected. Nothing about them is stored on this side.");
+              colored(
+                  ui::sem::MUTED,
+                  "The cues come from the board, so this fills in when it is\n" "connected. Nothing about them is stored on this side."
+              );
           }
           else if(!cueListAsked)
           {
@@ -5690,12 +5960,10 @@ namespace
           }
           else
           {
-              colored(ui::sem::WARN,
-                      "The board answered CUE LIST with nothing.\n"
-                      "\n"
-                      "Either the firmware on it predates the cue system, or it\n"
-                      "was built with no cues in the table. Reflash and it will\n"
-                      "fill in - the list is asked again on every connection.");
+              colored(
+                  ui::sem::WARN,
+                  "The board answered CUE LIST with nothing.\n" "\n" "Either the firmware on it predates the cue system, or it\n" "was built with no cues in the table. Reflash and it will\n" "fill in - the list is asked again on every connection."
+              );
           }
 
           ui::screenInset(p0, ImVec2(p0.x + w, p0.y + h));
@@ -5705,9 +5973,9 @@ namespace
 
       // Columns from the width, not a fixed count. A name and a sentence need
       // room; two cramped columns are worse than one honest one.
-      const Float32 avail   = ImGui::GetContentRegionAvail().x;
+      const Float32 avail = ImGui::GetContentRegionAvail().x;
       const Float32 cellMin = 260.0f * uiDpiScale;
-      const Int32   cols    = std::max(1, static_cast<Int32>(avail / cellMin));
+      const Int32   cols = std::max(1, static_cast<Int32>(avail / cellMin));
 
       const Float32 btnH = ImGui::GetFrameHeight() * 1.9f;
 
@@ -5742,8 +6010,7 @@ namespace
                   *q = static_cast<Char>(std::toupper(static_cast<UInt8>(*q)));
               }
 
-              if(ui::iconButton(ui::Icon::ICON_LAMP, label.data(),
-                                ImVec2(-FLT_MIN, btnH), tint))
+              if(ui::iconButton(ui::Icon::ICON_LAMP, label.data(), ImVec2(-FLT_MIN, btnH), tint))
               {
                   Array<Char, 80> cmd;
 
@@ -5776,16 +6043,19 @@ namespace
                                    : "\n\nUP, because the car raised it. Pressing"
                                      " takes it over.";
 
-                  ImGui::SetTooltip("CUE %s\n\n%s\n\n%s%s",
-                                    c.name.c_str(), c.means.c_str(), what, who);
+                  ImGui::SetTooltip(
+                      "CUE %s\n\n%s\n\n%s%s",
+                      c.name.c_str(),
+                      c.means.c_str(),
+                      what,
+                      who
+                  );
               }
 
               // The sentence the FIRMWARE gives it, not one written here. If it
               // reads badly that is a prompt to fix cue.hxx, where it belongs.
-              ImGui::PushStyleColor(ImGuiCol_Text,
-                                    ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
-              ImGui::PushTextWrapPos(ImGui::GetCursorPosX()
-                                     + ImGui::GetContentRegionAvail().x);
+              ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED));
+              ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
               ImGui::TextUnformatted(c.means.c_str());
               ImGui::PopTextWrapPos();
               ImGui::PopStyleColor();
@@ -5794,8 +6064,8 @@ namespace
               {
                   ImGui::TextColored(
                       ImGui::ColorConvertU32ToFloat4(
-                          c.on ? (c.latched ? ui::sem::GOOD : ui::sem::WARN)
-                               : ui::sem::MUTED),
+                          c.on ? (c.latched ? ui::sem::GOOD : ui::sem::WARN) : ui::sem::MUTED
+                      ),
                       "%s%s", c.play.c_str(),
                       !c.on ? "" : (c.latched ? "  -  you" : "  -  the car"));
               }
@@ -5815,8 +6085,11 @@ namespace
       // NOT disabled when the link is down: a stop you cannot press is worse than
       // one that presses and does nothing.
       ui::pushTint(ui::Tint::TINT_WARN);
-      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop the cue",
-                        ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.4f)))
+      if(ui::iconButton(
+          ui::Icon::ICON_MOTOR_STOP,
+          "Stop the cue",
+          ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.4f)
+      ))
       {
           sendPico("CUE STOP");
           LOG_INFO("cue", "stopped");
@@ -5826,23 +6099,17 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "Ends whatever cue is running and hands its channels back.\n"
-              "\n"
-              "A cue OWNS every channel its steps mention for its whole\n"
-              "duration, dark steps included - which is what makes a flash\n"
-              "visible when the headlights are already on. Stopping it gives\n"
-              "those channels back to the car, so the tails and indicators go\n"
-              "back to following what the car is doing.\n"
-              "\n"
-              "Not the emergency stop. This stops the car TALKING, not the car.");
+              "Ends whatever cue is running and hands its channels back.\n" "\n" "A cue OWNS every channel its steps mention for its whole\n" "duration, dark steps included - which is what makes a flash\n" "visible when the headlights are already on. Stopping it gives\n" "those channels back to the car, so the tails and indicators go\n" "back to following what the car is doing.\n" "\n" "Not the emergency stop. This stops the car TALKING, not the car."
+          );
       }
 
       ImGui::Spacing();
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                         "%d cue%s, read from the board on connect."
-                         "  Green is yours, amber is the car's.",
-                         static_cast<Int32>(cueList.size()),
-                         cueList.size() == 1 ? "" : "s");
+      ImGui::TextColored(
+          ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+          "%d cue%s, read from the board on connect." " Green is yours, amber is the car's.",
+          static_cast<Int32>(cueList.size()),
+          cueList.size() == 1 ? "" : "s"
+      );
 
       ui::screenInset(p0, ImVec2(p0.x + w, p0.y + h));
       ImGui::EndChild();
@@ -5854,23 +6121,25 @@ namespace
   // are different problems, and the top strip keeps them apart.
   Void drawRangeBody(Float32 w, Float32 h)
   {
-      ImGui::BeginChild("##range", ImVec2(w, h), ImGuiChildFlags_None,
-                        ImGuiWindowFlags_NoScrollbar
-                        | ImGuiWindowFlags_NoScrollWithMouse);
+      ImGui::BeginChild(
+          "##range",
+          ImVec2(w, h),
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+      );
 
       const ImVec2 p0 = ImGui::GetCursorScreenPos();
       ImDrawList*  dl = ImGui::GetWindowDrawList();
 
-      dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h),
-                        ui::ansi::BLACK);
+      dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), ui::ansi::BLACK);
 
-      const Float32 pad  = 16.0f * uiDpiScale;
+      const Float32 pad = 16.0f * uiDpiScale;
       const Bool    live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
 
       // ---- the top strip: is there a sensor at all ------------------------
       {
           const Char* what = nullptr;
-          ImU32       col  = ui::sem::MUTED;
+          ImU32       col = ui::sem::MUTED;
 
           if(!live)
           {
@@ -5879,32 +6148,36 @@ namespace
           else if(!sensorsAsked)
           {
               what = "asking the board what is attached...";
-              col  = ui::sem::WARN;
+              col = ui::sem::WARN;
           }
           else if(!sensorI2c)
           {
               what = "no I2C bus on the board";
-              col  = ui::sem::BAD;
+              col = ui::sem::BAD;
           }
           else if(!sensorTof)
           {
               // MUTED, not BAD: nothing is broken, there is simply no ToF wired to
               // this car yet. "no I2C bus" above stays BAD - that one IS a fault.
               what = "no VL53L1X wired - nothing at 0x29";
-              col  = ui::sem::MUTED;
+              col = ui::sem::MUTED;
           }
           else
           {
               what = "VL53L1X on I2C0, GP4 / GP5";
-              col  = ui::sem::GOOD;
+              col = ui::sem::GOOD;
           }
 
-          ui::iconAt(dl, sensorTof ? ui::Icon::ICON_STATUS_OK
-                                   : ui::Icon::ICON_STATUS_IDLE,
-                     ImVec2(p0.x + pad, p0.y + pad));
-          dl->AddText(ImVec2(p0.x + pad + ui::iconSize() + 8.0f * uiDpiScale,
-                             p0.y + pad),
-                      col, what);
+          ui::iconAt(
+              dl,
+              sensorTof ? ui::Icon::ICON_STATUS_OK : ui::Icon::ICON_STATUS_IDLE,
+              ImVec2(p0.x + pad, p0.y + pad)
+          );
+          dl->AddText(
+              ImVec2(p0.x + pad + ui::iconSize() + 8.0f * uiDpiScale, p0.y + pad),
+              col,
+              what
+          );
       }
 
       // ---- the mode switch ------------------------------------------------
@@ -5912,10 +6185,11 @@ namespace
       // about 4 m and is easily blinded. Which is right depends on the room.
       if(live && sensorTof)
       {
-          ImGui::SetCursorScreenPos(ImVec2(p0.x + w - 190.0f * uiDpiScale,
-                                           p0.y + pad - 4.0f * uiDpiScale));
-          if(ui::segmentedButton("Short", tofModeShort,
-                                 ImVec2(88.0f * uiDpiScale, 0.0f)))
+          ImGui::SetCursorScreenPos(ImVec2(
+              p0.x + w - 190.0f * uiDpiScale,
+              p0.y + pad - 4.0f * uiDpiScale
+          ));
+          if(ui::segmentedButton("Short", tofModeShort, ImVec2(88.0f * uiDpiScale, 0.0f)))
           {
               tofModeShort = true;
               sendPico("TOF MODE SHORT");
@@ -5923,28 +6197,12 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "Short range - reaches about 1.3 m\n"
-                  "\n"
-                  "The laser pulses at a HIGHER frequency, which narrows the\n"
-                  "window the sensor accepts a return in. A narrower window lets\n"
-                  "in less of everything else, so stray infrared is rejected -\n"
-                  "which is what actually limits this sensor outdoors.\n"
-                  "\n"
-                  "Use it when: there is sunlight, a halogen or an incandescent\n"
-                  "lamp about, or the target is dark or angled. All of those\n"
-                  "weaken the return relative to the background.\n"
-                  "\n"
-                  "The trade is only reach. Accuracy is no worse - if anything\n"
-                  "it is steadier, because there is less to confuse it.\n"
-                  "\n"
-                  "This is the mode a bumper wants. Nothing useful for stopping\n"
-                  "a car is more than a meter away, and daylight is exactly the\n"
-                  "condition it has to work in.");
+                  "Short range - reaches about 1.3 m\n" "\n" "The laser pulses at a HIGHER frequency, which narrows the\n" "window the sensor accepts a return in. A narrower window lets\n" "in less of everything else, so stray infrared is rejected -\n" "which is what actually limits this sensor outdoors.\n" "\n" "Use it when: there is sunlight, a halogen or an incandescent\n" "lamp about, or the target is dark or angled. All of those\n" "weaken the return relative to the background.\n" "\n" "The trade is only reach. Accuracy is no worse - if anything\n" "it is steadier, because there is less to confuse it.\n" "\n" "This is the mode a bumper wants. Nothing useful for stopping\n" "a car is more than a meter away, and daylight is exactly the\n" "condition it has to work in."
+              );
           }
 
           ImGui::SameLine(0.0f, 2.0f);
-          if(ui::segmentedButton("Long", !tofModeShort,
-                                 ImVec2(88.0f * uiDpiScale, 0.0f)))
+          if(ui::segmentedButton("Long", !tofModeShort, ImVec2(88.0f * uiDpiScale, 0.0f)))
           {
               tofModeShort = false;
               sendPico("TOF MODE LONG");
@@ -5952,23 +6210,8 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "Long range - reaches about 4 m indoors\n"
-                  "\n"
-                  "A LOWER pulse frequency and a wider acceptance window, so a\n"
-                  "faint return from something far away still counts. That same\n"
-                  "width is what lets ambient infrared in, and daylight has a\n"
-                  "great deal of it.\n"
-                  "\n"
-                  "Use it when: indoors, away from a window, and you need to see\n"
-                  "past a meter or so.\n"
-                  "\n"
-                  "The 4 m on the box assumes a white target, a dark room and a\n"
-                  "long timing budget. A dark or angled surface returns far less\n"
-                  "light and will fall well short of it.\n"
-                  "\n"
-                  "Watch the signal and ambient figures below: if ambient starts\n"
-                  "to approach signal, this mode is being blinded and Short will\n"
-                  "do better even though it reaches less far.");
+                  "Long range - reaches about 4 m indoors\n" "\n" "A LOWER pulse frequency and a wider acceptance window, so a\n" "faint return from something far away still counts. That same\n" "width is what lets ambient infrared in, and daylight has a\n" "great deal of it.\n" "\n" "Use it when: indoors, away from a window, and you need to see\n" "past a meter or so.\n" "\n" "The 4 m on the box assumes a white target, a dark room and a\n" "long timing budget. A dark or angled surface returns far less\n" "light and will fall well short of it.\n" "\n" "Watch the signal and ambient figures below: if ambient starts\n" "to approach signal, this mode is being blinded and Short will\n" "do better even though it reaches less far."
+              );
           }
       }
 
@@ -5984,8 +6227,7 @@ namespace
           // Aligned with the LABEL above it rather than with the status lamp, so
           // the block has one left edge.
           const Float32 textX = p0.x + pad + ui::iconSize() + 8.0f * uiDpiScale;
-          dl->AddText(ImVec2(textX, top + 8.0f * uiDpiScale),
-                      ui::sem::MUTED, hint);
+          dl->AddText(ImVec2(textX, top + 8.0f * uiDpiScale), ui::sem::MUTED, hint);
 
           // The bezel, which this path used to skip - so the view lost its frame
           // in precisely the states somebody spends the most time looking at.
@@ -6001,26 +6243,34 @@ namespace
           Array<Char, 32> buf;
           std::snprintf(buf.data(), buf.size(), good ? "%d" : "----", tofMm);
 
-          ImFont* const f  = ui::fonts.big ? ui::fonts.big : ImGui::GetFont();
+          ImFont* const f = ui::fonts.big ? ui::fonts.big : ImGui::GetFont();
           const Float32 fs = (f != nullptr && f->LegacySize > 0.0f)
                            ? f->LegacySize * 2.0f
                            : ImGui::GetFontSize() * 3.0f;
 
-          dl->AddText(f, fs, ImVec2(p0.x + pad, top),
-                      good ? ui::ansi::BRWHITE : ui::sem::MUTED, buf.data());
+          dl->AddText(
+              f,
+              fs,
+              ImVec2(p0.x + pad, top),
+              good ? ui::ansi::BRWHITE : ui::sem::MUTED,
+              buf.data()
+          );
 
           const Float32 numW = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf.data()).x;
-          dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
-                             top + fs * 0.55f),
-                      ui::sem::MUTED, "mm");
+          dl->AddText(
+              ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale, top + fs * 0.55f),
+              ui::sem::MUTED,
+              "mm"
+          );
 
           if(good)
           {
-              std::snprintf(buf.data(), buf.size(), "%d.%02d m",
-                            tofMm / 1000, (tofMm % 1000) / 10);
-              dl->AddText(ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale,
-                                 top + fs * 0.05f),
-                          ui::plot::OK, buf.data());
+              std::snprintf(buf.data(), buf.size(), "%d.%02d m", tofMm / 1000, (tofMm % 1000) / 10);
+              dl->AddText(
+                  ImVec2(p0.x + pad + numW + 10.0f * uiDpiScale, top + fs * 0.05f),
+                  ui::plot::OK,
+                  buf.data()
+              );
           }
 
           // The status, spelled out. A bad reading is not a short reading.
@@ -6033,8 +6283,7 @@ namespace
                 : (tofStatus == 4) ? "hardware fault"
                 : (tofStatus == 5) ? "wrapped target - an echo from further away"
                 : "no reading";
-              dl->AddText(ImVec2(p0.x + pad, top + fs + 4.0f * uiDpiScale),
-                          ui::sem::WARN, why);
+              dl->AddText(ImVec2(p0.x + pad, top + fs + 4.0f * uiDpiScale), ui::sem::WARN, why);
           }
       }
 
@@ -6042,8 +6291,8 @@ namespace
       // A number alone is hard to WATCH: a hand moved and a trace following it
       // says the sensor is tracking.
       const Float32 chartTop = top + 92.0f * uiDpiScale;
-      const Float32 chartH   = std::max(60.0f, (p0.y + h) - chartTop - 62.0f * uiDpiScale);
-      const Float32 chartW   = w - (2.0f * pad);
+      const Float32 chartH = std::max(60.0f, (p0.y + h) - chartTop - 62.0f * uiDpiScale);
+      const Float32 chartW = w - (2.0f * pad);
 
       const ImVec2 c0(p0.x + pad, chartTop);
       const ImVec2 c1(c0.x + chartW, chartTop + chartH);
@@ -6058,15 +6307,20 @@ namespace
       for(Int32 g = 1; g < 4; ++g)
       {
           const Float32 gy = c1.y - (chartH * (static_cast<Float32>(g) / 4.0f));
-          dl->AddLine(ImVec2(c0.x, gy), ImVec2(c1.x, gy),
-                      IM_COL32(0x26, 0x28, 0x2E, 0xFF));
+          dl->AddLine(ImVec2(c0.x, gy), ImVec2(c1.x, gy), IM_COL32(0x26, 0x28, 0x2E, 0xFF));
 
           Array<Char, 16> lab;
-          std::snprintf(lab.data(), lab.size(), "%.1fm",
-                        static_cast<Float64>(FULL_MM * (static_cast<Float32>(g) / 4.0f)
-                                             / 1000.0f));
-          dl->AddText(ImVec2(c0.x + 4.0f, gy - 14.0f * uiDpiScale),
-                      IM_COL32(0x50, 0x52, 0x58, 0xFF), lab.data());
+          std::snprintf(
+              lab.data(),
+              lab.size(),
+              "%.1fm",
+              static_cast<Float64>(FULL_MM * (static_cast<Float32>(g) / 4.0f) / 1000.0f)
+          );
+          dl->AddText(
+              ImVec2(c0.x + 4.0f, gy - 14.0f * uiDpiScale),
+              IM_COL32(0x50, 0x52, 0x58, 0xFF),
+              lab.data()
+          );
       }
 
       {
@@ -6088,13 +6342,12 @@ namespace
                   Float32 v = tofHistory[idx] / FULL_MM;
                   v = (v < 0.0f) ? 0.0f : ((v > 1.0f) ? 1.0f : v);
 
-                  const ImVec2 pt(c0.x + (static_cast<Float32>(i) * step),
-                                  c1.y - (v * chartH));
+                  const ImVec2 pt(c0.x + (static_cast<Float32>(i) * step), c1.y - (v * chartH));
                   if(havePrev)
                   {
                       dl->AddLine(prev, pt, ui::plot::OK, 1.6f);
                   }
-                  prev     = pt;
+                  prev = pt;
                   havePrev = true;
               }
           }
@@ -6109,19 +6362,27 @@ namespace
               // diagnostic and it is scale-free.
               if(tofSignal >= 0)
               {
-                  std::snprintf(buf.data(), buf.size(),
-                                "seen %d - %d mm   %llu readings   "
-                                "signal %d   ambient %d",
-                                tofSeenMin, tofSeenMax,
-                                static_cast<unsigned long long>(tofReplies),
-                                tofSignal, tofAmbient);
+                  std::snprintf(
+                      buf.data(),
+                      buf.size(),
+                      "seen %d - %d mm %llu readings " "signal %d ambient %d",
+                      tofSeenMin,
+                      tofSeenMax,
+                      static_cast<unsigned long long>(tofReplies),
+                      tofSignal,
+                      tofAmbient
+                  );
               }
               else
               {
-                  std::snprintf(buf.data(), buf.size(),
-                                "seen %d - %d mm     %llu readings",
-                                tofSeenMin, tofSeenMax,
-                                static_cast<unsigned long long>(tofReplies));
+                  std::snprintf(
+                      buf.data(),
+                      buf.size(),
+                      "seen %d - %d mm %llu readings",
+                      tofSeenMin,
+                      tofSeenMax,
+                      static_cast<unsigned long long>(tofReplies)
+                  );
               }
           }
           else
@@ -6159,8 +6420,7 @@ namespace
 
               if(why != nullptr)
               {
-                  dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale),
-                              ui::sem::WARN, why);
+                  dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale), ui::sem::WARN, why);
               }
           }
 
@@ -6168,8 +6428,7 @@ namespace
           if(tofReplies > 0 && age > 1.0)
           {
               std::snprintf(buf.data(), buf.size(), "last reply %.0f s ago", age);
-              dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale),
-                          ui::sem::WARN, buf.data());
+              dl->AddText(ImVec2(c0.x, c1.y + 26.0f * uiDpiScale), ui::sem::WARN, buf.data());
           }
       }
 
@@ -6238,13 +6497,20 @@ namespace
   {
       if(picoFlash.busy())
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "%s...", picoFlash.currentOp().c_str());
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "%s...",
+              picoFlash.currentOp().c_str()
+          );
           return;
       }
 
-      if(ui::iconButton(ui::Icon::ICON_FLASH, "Flash Debug / Blink",
-                        ImVec2(280.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+      if(ui::iconButton(
+          ui::Icon::ICON_FLASH,
+          "Flash Debug / Blink",
+          ImVec2(280.0f * uiDpiScale, 0.0f),
+          ui::Tint::TINT_WARN
+      ))
       {
           // flash.ps1 does the 1200-baud touch itself, and it cannot open the
           // port while this app is holding it.
@@ -6254,11 +6520,9 @@ namespace
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("Builds firmware/app/main.c and writes it to the "
-                            "board.\n\nThis OVERWRITES whatever sketch is on "
-                            "there. The\nsource is untouched - rebuild and "
-                            "reflash it from the\nCode view whenever you want "
-                            "it back.");
+          ImGui::SetTooltip(
+              "Builds firmware/app/main.c and writes it to the " "board.\n\nThis OVERWRITES whatever sketch is on " "there. The\nsource is untouched - rebuild and " "reflash it from the\nCode view whenever you want " "it back."
+          );
       }
   }
 
@@ -6305,9 +6569,9 @@ namespace
       if(std::sscanf(txt.c_str(), "%d %d %d", &l, &c, &r) == 3
          && l > 0 && c > 0 && r > 0 && l < c && c < r)
       {
-          calLeft   = l;
+          calLeft = l;
           calCenter = c;
-          calRight  = r;
+          calRight = r;
       }
   }
 
@@ -6462,8 +6726,12 @@ namespace
 
       if(need < 0 || static_cast<Size>(need) >= buf.size())
       {
-          LOG_WARN("drive", "cal.hxx would be %d bytes, buffer is %d - not written",
-                   need, static_cast<Int32>(buf.size()));
+          LOG_WARN(
+              "drive",
+              "cal.hxx would be %d bytes, buffer is %d - not written",
+              need,
+              static_cast<Int32>(buf.size())
+          );
           return Str();
       }
 
@@ -6516,8 +6784,7 @@ namespace
   {
       ImGui::PushID(label);
 
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                         "%-10s", label);
+      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "%-10s", label);
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip("%s", help);
@@ -6527,7 +6794,7 @@ namespace
       ImGui::SetNextItemWidth(110.0f * uiDpiScale);
       if(ImGui::InputInt("##us", value, 1, 10))
       {
-          *value  = clampInt(*value, 1000, 2000);
+          *value = clampInt(*value, 1000, 2000);
           calDirty = true;
           saveCalibration();
       }
@@ -6536,27 +6803,23 @@ namespace
       ImGui::BeginDisabled(!driveKnown);
       if(ui::button("Set to here", ImVec2(120.0f * uiDpiScale, 0.0f)))
       {
-          *value   = driveServoT;
+          *value = driveServoT;
           calDirty = true;
           saveCalibration();
       }
       ImGui::EndDisabled();
       if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
-          ImGui::SetTooltip("Records where the servo is being told to hold, right\n"
-                            "now, as this point.\n"
-                            "\n"
-                            "The TARGET, not the output - the output is mid-ramp\n"
-                            "half the time, and a number the servo was only\n"
-                            "passing through is not a position anyone looked at.");
+          ImGui::SetTooltip(
+              "Records where the servo is being told to hold, right\n" "now, as this point.\n" "\n" "The TARGET, not the output - the output is mid-ramp\n" "half the time, and a number the servo was only\n" "passing through is not a position anyone looked at."
+          );
       }
 
       ImGui::SameLine();
       ImGui::BeginDisabled(!driveServoOn);
-      if(ui::button(driveServoOn ? "Go" : "Go (off)",
-                    ImVec2(60.0f * uiDpiScale, 0.0f)))
+      if(ui::button(driveServoOn ? "Go" : "Go (off)", ImVec2(60.0f * uiDpiScale, 0.0f)))
       {
-          driveSweep     = false;
+          driveSweep = false;
           driveServoWant = *value;
           Array<Char, 32> cmd;
           std::snprintf(cmd.data(), cmd.size(), "SERVO %d", *value);
@@ -6565,10 +6828,9 @@ namespace
       ImGui::EndDisabled();
       if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
-          ImGui::SetTooltip("Drives the servo to this point, so you can check it\n"
-                            "is still where you thought it was.\n"
-                            "\n"
-                            "Needs the servo engaged.");
+          ImGui::SetTooltip(
+              "Drives the servo to this point, so you can check it\n" "is still where you thought it was.\n" "\n" "Needs the servo engaged."
+          );
       }
 
       ImGui::PopID();
@@ -6578,7 +6840,7 @@ namespace
   // ui::led throws a halo when lit, so it reads as emitting.
   Void driveLamp(Bool lit, ImU32 color, const Char* label)
   {
-      const Float32 r  = 4.0f * uiDpiScale;
+      const Float32 r = 4.0f * uiDpiScale;
       const ImVec2  at = ImGui::GetCursorScreenPos();
       const Float32 mid = at.y + (ImGui::GetTextLineHeight() * 0.5f);
 
@@ -6609,7 +6871,7 @@ namespace
   // One wheel, rotated about its own center.
   Void drawWheel(ImDrawList* dl, const ImVec2& c, Float32 hw, Float32 hh, Float32 deg, ImU32 fill, ImU32 edge)
   {
-      const Float32 r  = deg * 3.14159265f / 180.0f;
+      const Float32 r = deg * 3.14159265f / 180.0f;
       const Float32 cs = std::cos(r);
       const Float32 sn = std::sin(r);
 
@@ -6620,8 +6882,10 @@ namespace
       ImVec2 p[4];
       for(Int32 i = 0; i < 4; ++i)
       {
-          p[i] = ImVec2(c.x + (corner[i].x * cs) - (corner[i].y * sn),
-                        c.y + (corner[i].x * sn) + (corner[i].y * cs));
+          p[i] = ImVec2(
+              c.x + (corner[i].x * cs) - (corner[i].y * sn),
+              c.y + (corner[i].x * sn) + (corner[i].y * cs)
+          );
       }
 
       // Outline over a near-black fill, not a solid: the fill only stops the beam
@@ -6688,8 +6952,8 @@ namespace
       // One spacing in from the edge. Flush against it the last glyph is clipped
       // by the panel's own clip rect - "lock to lock 1.10 s" lost its s.
       const Float32 pad = ImGui::GetStyle().ItemSpacing.x;
-      const Float32 w   = ImGui::CalcTextSize(text).x;
-      const Float32 x   = ImGui::GetCursorPosX()
+      const Float32 w = ImGui::CalcTextSize(text).x;
+      const Float32 x = ImGui::GetCursorPosX()
                         + ImGui::GetContentRegionAvail().x - w - pad;
 
       ImGui::SameLine();
@@ -6706,10 +6970,10 @@ namespace
       ImVec2  p0{ 0.0f, 0.0f };
       Float32 w = 0.0f;
       Float32 h = 0.0f;
-      Float32 steerN    = 0.0f;   // -1 left, +1 right
-      Float32 powerN    = 0.0f;   // 0..1 of commanded throttle
+      Float32 steerN = 0.0f;   // -1 left, +1 right
+      Float32 powerN = 0.0f;   // 0..1 of commanded throttle
       Bool    servoLive = false;
-      Bool    armed     = false;
+      Bool    armed = false;
   };
 
   // The lamp model is ten wide on both rows - the level and the pin it is
@@ -6718,13 +6982,13 @@ namespace
 
   Void drawChassis(ImDrawList* dl, const ChassisFrame& f, const LampRow& lamp, const LampRow& pins)
   {
-      const ImVec2& p0        = f.p0;
-      const Float32 w         = f.w;
-      const Float32 h         = f.h;
-      const Float32 steerN    = f.steerN;
-      const Float32 powerN    = f.powerN;
+      const ImVec2& p0 = f.p0;
+      const Float32 w = f.w;
+      const Float32 h = f.h;
+      const Float32 steerN = f.steerN;
+      const Float32 powerN = f.powerN;
       const Bool    servoLive = f.servoLive;
-      const Bool    armed     = f.armed;
+      const Bool    armed = f.armed;
       const Int32* const lampPin = pins.data();
       const ImVec2 p1(p0.x + w, p0.y + h);
 
@@ -6736,8 +7000,8 @@ namespace
 
       // Everything is derived from the wheelbase, so the drawing scales with the
       // panel rather than being a pile of tuned pixels.
-      const Float32 byH  = h * 0.62f;
-      const Float32 byW  = w * 0.46f;
+      const Float32 byH = h * 0.62f;
+      const Float32 byW = w * 0.46f;
       const Float32 base = (byH < byW) ? byH : byW;   // front axle to rear axle
 
       const Float32 axleF = mid.y - (base * 0.5f);
@@ -6747,7 +7011,7 @@ namespace
       const Float32 wheelH = base * 0.20f;
       const Float32 wheelW = base * 0.075f;
 
-      const Float32 beamT  = base * 0.045f;           // half-thickness of a beam
+      const Float32 beamT = base * 0.045f;           // half-thickness of a beam
       const Float32 shaftT = base * 0.030f;
 
       // Structure is one color and one color only: anything that changes color in
@@ -6772,16 +7036,19 @@ namespace
           const auto oneLamp = [&](Float32 x, Float32 y, Int32 idx, ImU32 col)
           {
               const Bool wired = (lampPin[idx] >= 0);
-              const Bool lit   = wired && (lamp[idx] > 0);
+              const Bool lit = wired && (lamp[idx] > 0);
 
               if(wired)
               {
                   ui::led(dl, ImVec2(x, y), lampR, col, lit);
               }
-              dl->AddCircle(ImVec2(x, y), lampR,
-                            wired ? ((col & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT))
-                                  : unwired,
-                            0, WIRE_W);
+              dl->AddCircle(
+                  ImVec2(x, y),
+                  lampR,
+                  wired ? ((col & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT)) : unwired,
+                  0,
+                  WIRE_W
+              );
           };
 
           oneLamp(mid.x - lampX, lampFY, 4, ui::ansi::BRYELLOW);   // indL
@@ -6794,27 +7061,50 @@ namespace
 
       // The shaft: an outline, and a fill that grows as a BAR rather than a tint -
       // you cannot tell 40% from 60% by hue. It fills from the rear axle forward.
-      dl->AddRectFilled(ImVec2(mid.x - shaftT, axleF),
-                        ImVec2(mid.x + shaftT, axleR), WIRE_VOID, 0.0f);
+      dl->AddRectFilled(
+          ImVec2(mid.x - shaftT, axleF),
+          ImVec2(mid.x + shaftT, axleR),
+          WIRE_VOID,
+          0.0f
+      );
 
       if(g > 0.0f)
       {
           const Float32 fillTop = axleR - ((axleR - axleF) * g);
-          dl->AddRectFilled(ImVec2(mid.x - shaftT, fillTop),
-                            ImVec2(mid.x + shaftT, axleR), ui::ansi::BRGREEN, 0.0f);
+          dl->AddRectFilled(
+              ImVec2(mid.x - shaftT, fillTop),
+              ImVec2(mid.x + shaftT, axleR),
+              ui::ansi::BRGREEN,
+              0.0f
+          );
       }
 
-      dl->AddRect(ImVec2(mid.x - shaftT, axleF),
-                  ImVec2(mid.x + shaftT, axleR),
-                  armed ? ui::ansi::BRGREEN : frame, 0.0f, 0, WIRE_W);
+      dl->AddRect(
+          ImVec2(mid.x - shaftT, axleF),
+          ImVec2(mid.x + shaftT, axleR),
+          armed ? ui::ansi::BRGREEN : frame,
+          0.0f,
+          0,
+          WIRE_W
+      );
 
       // ---- the two axle beams ---------------------------------------------
       const auto beam = [&](Float32 y)
       {
-          dl->AddRectFilled(ImVec2(mid.x - track, y - beamT),
-                            ImVec2(mid.x + track, y + beamT), WIRE_VOID, 0.0f);
-          dl->AddRect(ImVec2(mid.x - track, y - beamT),
-                      ImVec2(mid.x + track, y + beamT), frame, 0.0f, 0, WIRE_W);
+          dl->AddRectFilled(
+              ImVec2(mid.x - track, y - beamT),
+              ImVec2(mid.x + track, y + beamT),
+              WIRE_VOID,
+              0.0f
+          );
+          dl->AddRect(
+              ImVec2(mid.x - track, y - beamT),
+              ImVec2(mid.x + track, y + beamT),
+              frame,
+              0.0f,
+              0,
+              WIRE_W
+          );
       };
       beam(axleF);
       beam(axleR);
@@ -6835,8 +7125,24 @@ namespace
       const ImU32 frontFill = WIRE_VOID;
       const ImU32 frontEdge = servoLive ? ui::ansi::BRCYAN : ui::ansi::IDLE;
 
-      drawWheel(dl, ImVec2(mid.x - track, axleF), wheelW, wheelH, deg, frontFill, frontEdge);
-      drawWheel(dl, ImVec2(mid.x + track, axleF), wheelW, wheelH, deg, frontFill, frontEdge);
+      drawWheel(
+          dl,
+          ImVec2(mid.x - track, axleF),
+          wheelW,
+          wheelH,
+          deg,
+          frontFill,
+          frontEdge
+      );
+      drawWheel(
+          dl,
+          ImVec2(mid.x + track, axleF),
+          wheelW,
+          wheelH,
+          deg,
+          frontFill,
+          frontEdge
+      );
       hub(mid.x - track, axleF);
       hub(mid.x + track, axleF);
 
@@ -6845,8 +7151,24 @@ namespace
       const ImU32 rearFill = WIRE_VOID;
       const ImU32 rearEdge = armed ? ui::ansi::BRGREEN : ui::ansi::IDLE;
 
-      drawWheel(dl, ImVec2(mid.x - track, axleR), wheelW, wheelH, 0.0f, rearFill, rearEdge);
-      drawWheel(dl, ImVec2(mid.x + track, axleR), wheelW, wheelH, 0.0f, rearFill, rearEdge);
+      drawWheel(
+          dl,
+          ImVec2(mid.x - track, axleR),
+          wheelW,
+          wheelH,
+          0.0f,
+          rearFill,
+          rearEdge
+      );
+      drawWheel(
+          dl,
+          ImVec2(mid.x + track, axleR),
+          wheelW,
+          wheelH,
+          0.0f,
+          rearFill,
+          rearEdge
+      );
       hub(mid.x - track, axleR);
       hub(mid.x + track, axleR);
 
@@ -6854,18 +7176,27 @@ namespace
       const ImU32 faint = ui::ansi::IDLE;
 
       const Char* const FRONT = "FRONT";
-      const Char* const REAR  = "REAR";
-      dl->AddText(ImVec2(mid.x - (ImGui::CalcTextSize(FRONT).x * 0.5f),
-                         p0.y + (6.0f * uiDpiScale)), faint, FRONT);
-      dl->AddText(ImVec2(mid.x - (ImGui::CalcTextSize(REAR).x * 0.5f),
-                         p1.y - (20.0f * uiDpiScale)), faint, REAR);
+      const Char* const REAR = "REAR";
+      dl->AddText(
+          ImVec2(mid.x - (ImGui::CalcTextSize(FRONT).x * 0.5f), p0.y + (6.0f * uiDpiScale)),
+          faint,
+          FRONT
+      );
+      dl->AddText(
+          ImVec2(mid.x - (ImGui::CalcTextSize(REAR).x * 0.5f), p1.y - (20.0f * uiDpiScale)),
+          faint,
+          REAR
+      );
 
       // The angle beside the front axle: a number and a picture of the same
       // thing, because one is checkable and the other is fast.
       Array<Char, 24> deglabel;
       std::snprintf(deglabel.data(), deglabel.size(), "%+.0f deg", static_cast<Float64>(deg));
-      dl->AddText(ImVec2(mid.x + track + (wheelW * 2.6f), axleF - (7.0f * uiDpiScale)),
-                  servoLive ? ui::ansi::BRYELLOW : faint, deglabel.data());
+      dl->AddText(
+          ImVec2(mid.x + track + (wheelW * 2.6f), axleF - (7.0f * uiDpiScale)),
+          servoLive ? ui::ansi::BRYELLOW : faint,
+          deglabel.data()
+      );
 
       // A hard border rather than the bevelled inset the rest of the panel uses.
       // The inset is a molding, and this is a screen.
@@ -6880,8 +7211,7 @@ namespace
   {
       // Scrolls with the wheel. Do NOT copy ImGuiWindowFlags_NoScrollWithMouse
       // from the map views - it is right there because the wheel ZOOMS.
-      ImGui::BeginChild("##drive", ImVec2(w, h), ImGuiChildFlags_None,
-                        ImGuiWindowFlags_None);
+      ImGui::BeginChild("##drive", ImVec2(w, h), ImGuiChildFlags_None, ImGuiWindowFlags_None);
 
       // The cut-out this view sits in, recessed like the other views. The bezel is
       // drawn LAST, over the content, so it shadows the top edge.
@@ -6892,41 +7222,36 @@ namespace
       if(!live)
       {
           driveServoHeld = false;
-          driveEscHeld   = false;
-          driveKnown     = false;
+          driveEscHeld = false;
+          driveKnown = false;
 
           const PicoState st = picoLink.state();
 
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "Pico not connected.");
-          ui::screenInset(drivePanel0,
-                          ImVec2(drivePanel0.x + w, drivePanel0.y + h));
+          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "Pico not connected.");
+          ui::screenInset(drivePanel0, ImVec2(drivePanel0.x + w, drivePanel0.y + h));
 
           // A board that is PRESENT but will not talk is a different problem from
           // a board that is not there, and the fix for it is not "try again".
           if(st == PicoState::PICO_STATE_ERROR)
           {
               ImGui::Spacing();
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                                 "The port is there and will not open.");
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                                 "Most often this is the firmware, not the cable.\n"
-                                 "\n"
-                                 "A sketch that never opens a serial console still\n"
-                                 "enumerates a COM port - Windows keeps offering it,\n"
-                                 "and every attempt to open it hangs. From out here\n"
-                                 "that is indistinguishable from a dead board.\n"
-                                 "\n"
-                                 "This view needs the Debug / Blink firmware\n"
-                                 "(firmware/app/main.c). Flashing a sketch from the\n"
-                                 "Code view REPLACES it - they are separate programs\n"
-                                 "and only one can be on the board at a time.");
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                  "The port is there and will not open."
+              );
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                  "Most often this is the firmware, not the cable.\n" "\n" "A sketch that never opens a serial console still\n" "enumerates a COM port - Windows keeps offering it,\n" "and every attempt to open it hangs. From out here\n" "that is indistinguishable from a dead board.\n" "\n" "This view needs the Debug / Blink firmware\n" "(firmware/app/main.c). Flashing a sketch from the\n" "Code view REPLACES it - they are separate programs\n" "and only one can be on the board at a time."
+              );
 
               const Str err = picoLink.error();
               if(!err.empty())
               {
-                  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                                     "  %s", err.c_str());
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                      " %s",
+                      err.c_str()
+                  );
               }
 
               ImGui::Spacing();
@@ -6950,23 +7275,20 @@ namespace
               pollPico("DRIVE");
           }
 
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "The board is not answering drive commands.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "The board is not answering drive commands."
+          );
           ImGui::Spacing();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "This view needs the Debug / Blink firmware "
-                             "(firmware/app/main.c).\n"
-                             "\n"
-                             "If you have flashed a sketch from the Code view, "
-                             "that REPLACED it -\n"
-                             "the two are separate programs and only one can be "
-                             "on the board at a time.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "This view needs the Debug / Blink firmware " "(firmware/app/main.c).\n" "\n" "If you have flashed a sketch from the Code view, " "that REPLACED it -\n" "the two are separate programs and only one can be " "on the board at a time."
+          );
           ImGui::Spacing();
 
           drawDriveFlashButton();
 
-          ui::screenInset(drivePanel0,
-                          ImVec2(drivePanel0.x + w, drivePanel0.y + h));
+          ui::screenInset(drivePanel0, ImVec2(drivePanel0.x + w, drivePanel0.y + h));
           ImGui::EndChild();
           return;
       }
@@ -6996,12 +7318,12 @@ namespace
               if(driveServoWant >= driveServoMax)
               {
                   driveServoWant = driveServoMax;
-                  driveSweepDir  = -1;
+                  driveSweepDir = -1;
               }
               else if(driveServoWant <= driveServoMin)
               {
                   driveServoWant = driveServoMin;
-                  driveSweepDir  = 1;
+                  driveSweepDir = 1;
               }
               Array<Char, 32> cmd;
               std::snprintf(cmd.data(), cmd.size(), "SERVO %d", driveServoWant);
@@ -7018,8 +7340,8 @@ namespace
           // car adrift in a meter of black, which reads as a rendering fault.
           const Float32 full = ImGui::GetContentRegionAvail().x;
           const Float32 want = 460.0f * uiDpiScale;
-          const Float32 caw  = (full < want) ? full : want;
-          const Float32 cah  = 250.0f * uiDpiScale;
+          const Float32 caw = (full < want) ? full : want;
+          const Float32 cah = 250.0f * uiDpiScale;
 
           const ImVec2 here = ImGui::GetCursorScreenPos();
           const ImVec2 cp0(here.x + ((full - caw) * 0.5f), here.y);
@@ -7028,25 +7350,19 @@ namespace
           // output - the bar below shows what is actually being given.
           const Float32 power = throttleFraction(driveEscT);
 
-          drawChassis(ImGui::GetWindowDrawList(),
-                      ChassisFrame{ cp0, caw, cah, driveSteerNow, power,
-                                    driveServoOn, driveArmed },
-                      boardLamp, boardLampPin);
+          drawChassis(
+              ImGui::GetWindowDrawList(),
+              ChassisFrame{ cp0, caw, cah, driveSteerNow, power, driveServoOn, driveArmed },
+              boardLamp,
+              boardLampPin
+          );
 
           ImGui::Dummy(ImVec2(full, cah));
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "The car from above, drawn from what the BOARD reports.\n"
-                  "\n"
-                  "Front wheels turn with the steering. They go dark when the\n"
-                  "servo is released, because a released servo holds nothing and\n"
-                  "the wheels are wherever the ground last left them - drawing\n"
-                  "them straight would be the display inventing a fact.\n"
-                  "\n"
-                  "Rear wheels warm with throttle. They do not spin: nothing on\n"
-                  "this car measures speed yet, so brightness is a COMMAND and\n"
-                  "not a reading, and that difference is worth being able to see.");
+                  "The car from above, drawn from what the BOARD reports.\n" "\n" "Front wheels turn with the steering. They go dark when the\n" "servo is released, because a released servo holds nothing and\n" "the wheels are wherever the ground last left them - drawing\n" "them straight would be the display inventing a fact.\n" "\n" "Rear wheels warm with throttle. They do not spin: nothing on\n" "this car measures speed yet, so brightness is a COMMAND and\n" "not a reading, and that difference is worth being able to see."
+              );
           }
       }
 
@@ -7060,8 +7376,11 @@ namespace
       if(driveServoOn)
       {
           ui::pushTint(ui::Tint::TINT_WARN);
-          if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Release the servo",
-                            ImVec2(240.0f * uiDpiScale, 0.0f)))
+          if(ui::iconButton(
+              ui::Icon::ICON_MOTOR_STOP,
+              "Release the servo",
+              ImVec2(240.0f * uiDpiScale, 0.0f)
+          ))
           {
               driveSweep = false;
               sendPico("SERVO OFF");
@@ -7070,12 +7389,8 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "Stops the pulse. The servo goes limp - no holding torque, no\n"
-                  "current, nothing to push against.\n"
-                  "\n"
-                  "This is the thing to reach for when it is leaning on the\n"
-                  "frame. A better number will not help; not being asked to hold\n"
-                  "a position at all is what helps.");
+                  "Stops the pulse. The servo goes limp - no holding torque, no\n" "current, nothing to push against.\n" "\n" "This is the thing to reach for when it is leaning on the\n" "frame. A better number will not help; not being asked to hold\n" "a position at all is what helps."
+              );
           }
 
           ImGui::SameLine();
@@ -7084,19 +7399,19 @@ namespace
 
       else
       {
-          if(ui::iconButton(ui::Icon::ICON_MOTOR_RUN, "Engage the servo",
-                            ImVec2(240.0f * uiDpiScale, 0.0f)))
+          if(ui::iconButton(
+              ui::Icon::ICON_MOTOR_RUN,
+              "Engage the servo",
+              ImVec2(240.0f * uiDpiScale, 0.0f)
+          ))
           {
               sendPico("SERVO ON");
           }
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "Starts driving GP0, from neutral, slewed.\n"
-                  "\n"
-                  "Everything below is remembered while released and takes\n"
-                  "effect when you engage - so you can set a value first and\n"
-                  "then commit to it, rather than the other way round.");
+                  "Starts driving GP0, from neutral, slewed.\n" "\n" "Everything below is remembered while released and takes\n" "effect when you engage - so you can set a value first and\n" "then commit to it, rather than the other way round."
+              );
           }
 
           ImGui::SameLine();
@@ -7104,23 +7419,22 @@ namespace
 
           // A band across the controls it applies to, because what is explained is
           // that ALL of them are inert. ONE line, not a bordered placard.
-          const ImVec2  a  = ImGui::GetCursorScreenPos();
+          const ImVec2  a = ImGui::GetCursorScreenPos();
           const Float32 bh = ImGui::GetTextLineHeight() + 6.0f * uiDpiScale;
           ImDrawList*   dl = ImGui::GetWindowDrawList();
-          dl->AddRectFilled(a, ImVec2(a.x + 3.0f * uiDpiScale, a.y + bh),
-                            ui::sem::WARN, 0.0f);
+          dl->AddRectFilled(a, ImVec2(a.x + 3.0f * uiDpiScale, a.y + bh), ui::sem::WARN, 0.0f);
 
           ImGui::Dummy(ImVec2(0.0f, 3.0f * uiDpiScale));
           ImGui::Indent(10.0f);
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "Released - the controls below set a target only.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "Released - the controls below set a target only."
+          );
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "The slider and the steps write a target that the board\n"
-                  "remembers. Nothing reaches the servo until you engage it,\n"
-                  "at which point it walks to that target at the Response\n"
-                  "rate rather than jumping.");
+                  "The slider and the steps write a target that the board\n" "remembers. Nothing reaches the servo until you engage it,\n" "at which point it walks to that target at the Response\n" "rate rather than jumping."
+              );
           }
           ImGui::Unindent(10.0f);
           ImGui::Dummy(ImVec2(0.0f, 3.0f * uiDpiScale));
@@ -7134,31 +7448,23 @@ namespace
       {
           driveSweep = false;
           Array<Char, 32> cmd;
-          std::snprintf(cmd.data(), cmd.size(), "STEER %.3f",
-                        static_cast<Float64>(driveSteerWant));
+          std::snprintf(cmd.data(), cmd.size(), "STEER %.3f", static_cast<Float64>(driveSteerWant));
           sendPico(cmd.data());
       }
       driveSteerHeld = ImGui::IsItemActive();
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "-1 is full lock one way, +1 the other, 0 is wheels straight.\n"
-              "\n"
-              "The two sides are scaled SEPARATELY, from the calibration. This\n"
-              "car throws %d us one way from center and %d the other, so half\n"
-              "left and half right are not the same number of microseconds -\n"
-              "and anything that added a fixed amount to a midpoint would pull\n"
-              "to one side every time it was asked for half.\n"
-              "\n"
-              "This is the command the autonomy layer should use. Nothing above\n"
-              "the calibration needs to know what a microsecond is.",
-              driveServoC - driveServoMin, driveServoMax - driveServoC);
+              "-1 is full lock one way, +1 the other, 0 is wheels straight.\n" "\n" "The two sides are scaled SEPARATELY, from the calibration. This\n" "car throws %d us one way from center and %d the other, so half\n" "left and half right are not the same number of microseconds -\n" "and anything that added a fixed amount to a midpoint would pull\n" "to one side every time it was asked for half.\n" "\n" "This is the command the autonomy layer should use. Nothing above\n" "the calibration needs to know what a microsecond is.",
+              driveServoC - driveServoMin,
+              driveServoMax - driveServoC
+          );
       }
 
       ImGui::SameLine();
       if(ui::button("Straight", ImVec2(-FLT_MIN, 0.0f)))
       {
-          driveSweep     = false;
+          driveSweep = false;
           driveSteerWant = 0.0f;
           sendPico("STEER 0");
       }
@@ -7167,8 +7473,10 @@ namespace
       // A slider rather than presets: the useful rate is found by moving it and
       // watching. LOGARITHMIC, because 1 to 20 is where "creeps" becomes "moves".
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "Response  -  how fast the servo may move");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "Response - how fast the servo may move"
+          );
 
           // The reading goes on the HEAD's line rather than beside the slider,
           // which is what lets the slider run to the shared right edge.
@@ -7177,16 +7485,25 @@ namespace
               const Int32 travel = driveServoMax - driveServoMin;
 
               Array<Char, 64> r;
-              std::snprintf(r.data(), r.size(), "%d us/s   lock to lock %.2f s",
-                            perSec,
-                            (perSec > 0) ? (static_cast<Float64>(travel) / perSec)
-                                         : 0.0);
+              std::snprintf(
+                  r.data(),
+                  r.size(),
+                  "%d us/s lock to lock %.2f s",
+                  perSec,
+                  (perSec > 0) ? (static_cast<Float64>(travel) / perSec) : 0.0
+              );
               driveReading(ui::sem::MUTED, r.data());
           }
 
           ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-          if(ImGui::SliderInt("##slew", &driveSlewWant, 1, 200, "%d us/tick",
-                              ImGuiSliderFlags_Logarithmic))
+          if(ImGui::SliderInt(
+              "##slew",
+              &driveSlewWant,
+              1,
+              200,
+              "%d us/tick",
+              ImGuiSliderFlags_Logarithmic
+          ))
           {
               Array<Char, 32> cmd;
               std::snprintf(cmd.data(), cmd.size(), "SLEW STEER %d", driveSlewWant);
@@ -7197,25 +7514,8 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "Microseconds of pulse the board may move an output, per\n"
-                  "20 ms tick. It governs the steering AND the throttle.\n"
-                  "\n"
-                  "The scale is logarithmic: the interesting range is the\n"
-                  "bottom, where the difference between creeping and moving\n"
-                  "lives, and a linear track would bury it in the first tenth.\n"
-                  "\n"
-                  "  ~2    creeps - slow enough to stop the moment a linkage\n"
-                  "        binds, which is what finding an end stop wants\n"
-                  "  8     the default. A slider dragged end to end sweeps\n"
-                  "        rather than flinging the servo at a stop\n"
-                  "  ~40   lock to lock in about a fifth of a second, quick\n"
-                  "        enough to correct a line\n"
-                  "  200   faster than the servo can physically follow, so the\n"
-                  "        limit stops being this software and starts being\n"
-                  "        the hardware\n"
-                  "\n"
-                  "Not saved by itself - Write to firmware, under Throttle\n"
-                  "range, is what keeps it across a reflash.");
+                  "Microseconds of pulse the board may move an output, per\n" "20 ms tick. It governs the steering AND the throttle.\n" "\n" "The scale is logarithmic: the interesting range is the\n" "bottom, where the difference between creeping and moving\n" "lives, and a linear track would bury it in the first tenth.\n" "\n" " ~2 creeps - slow enough to stop the moment a linkage\n" " binds, which is what finding an end stop wants\n" " 8 the default. A slider dragged end to end sweeps\n" " rather than flinging the servo at a stop\n" " ~40 lock to lock in about a fifth of a second, quick\n" " enough to correct a line\n" " 200 faster than the servo can physically follow, so the\n" " limit stops being this software and starts being\n" " the hardware\n" "\n" "Not saved by itself - Write to firmware, under Throttle\n" "range, is what keeps it across a reflash."
+              );
           }
 
       }
@@ -7233,12 +7533,13 @@ namespace
           }
 
       ImGui::Spacing();
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                         "Raw microseconds  -  for calibrating, not for driving");
+      ImGui::TextColored(
+          ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+          "Raw microseconds - for calibrating, not for driving"
+      );
 
       ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-      if(ImGui::SliderInt("##servo", &driveServoWant,
-                          driveServoMin, driveServoMax, "%d us"))
+      if(ImGui::SliderInt("##servo", &driveServoWant, driveServoMin, driveServoMax, "%d us"))
       {
           Array<Char, 32> cmd;
           std::snprintf(cmd.data(), cmd.size(), "SERVO %d", driveServoWant);
@@ -7248,21 +7549,16 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "1500 us is center. The range is %d-%d, which the BOARD sets.\n"
-              "\n"
-              "Deliberately narrower than the servo's own 1000-2000: a TT-02's\n"
-              "steering binds against its linkage well before the servo's limits,\n"
-              "and a servo pushing a stop stalls and cooks itself.\n"
-              "\n"
-              "Widen it in firmware once the real end stops are known - with the\n"
-              "servo horn OFF, so being wrong costs nothing.",
-              driveServoMin, driveServoMax);
+              "1500 us is center. The range is %d-%d, which the BOARD sets.\n" "\n" "Deliberately narrower than the servo's own 1000-2000: a TT-02's\n" "steering binds against its linkage well before the servo's limits,\n" "and a servo pushing a stop stalls and cooks itself.\n" "\n" "Widen it in firmware once the real end stops are known - with the\n" "servo horn OFF, so being wrong costs nothing.",
+              driveServoMin,
+              driveServoMax
+          );
       }
 
       ImGui::SameLine();
       if(ui::button("Center", ImVec2(-FLT_MIN, 0.0f)))
       {
-          driveSweep     = false;
+          driveSweep = false;
           driveServoWant = 1500;
           sendPico("SERVO CENTER");
       }
@@ -7271,9 +7567,9 @@ namespace
       // A slider feels out where things are; a number says exactly where.
       const auto nudge = [](Int32 by)
       {
-          driveSweep      = false;
+          driveSweep = false;
           driveServoWant += by;
-          driveServoWant  = clampInt(driveServoWant, driveServoMin, driveServoMax);
+          driveServoWant = clampInt(driveServoWant, driveServoMin, driveServoMax);
           Array<Char, 32> cmd;
           std::snprintf(cmd.data(), cmd.size(), "SERVO %d", driveServoWant);
           sendPico(cmd.data());
@@ -7292,33 +7588,30 @@ namespace
           }
           if(!driveServoOn && ImGui::IsItemHovered())
           {
-              ImGui::SetTooltip("Sets the target. The servo is released, so\n"
-                                "nothing moves until you engage it.");
+              ImGui::SetTooltip(
+                  "Sets the target. The servo is released, so\n" "nothing moves until you engage it."
+              );
           }
       }
 
       ImGui::SameLine(0.0f, 12.0f);
       ImGui::BeginDisabled(!driveServoOn);
-      if(ui::segmentedIconButton(driveSweep ? ui::Icon::ICON_PAUSE
-                                            : ui::Icon::ICON_PLAY,
-                                 "Sweep", driveSweep,
-                                 ImVec2(110.0f * uiDpiScale, 0.0f)))
+      if(ui::segmentedIconButton(
+          driveSweep ? ui::Icon::ICON_PAUSE : ui::Icon::ICON_PLAY,
+          "Sweep",
+          driveSweep,
+          ImVec2(110.0f * uiDpiScale, 0.0f)
+      ))
       {
-          driveSweep     = !driveSweep;
+          driveSweep = !driveSweep;
           driveSweepNext = ImGui::GetTime();
       }
       ImGui::EndDisabled();
       if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
           ImGui::SetTooltip(
-              "Walks the servo between its limits, back and forth.\n"
-              "\n"
-              "For watching the linkage move through its whole travel and seeing\n"
-              "whether anything binds or fouls before you trust a number.\n"
-              "\n"
-              "Driven from the hub, not the board, and it stops the moment this\n"
-              "view is not on screen - a servo cycling behind a tab nobody is\n"
-              "looking at is exactly what should not be possible.");
+              "Walks the servo between its limits, back and forth.\n" "\n" "For watching the linkage move through its whole travel and seeing\n" "whether anything binds or fouls before you trust a number.\n" "\n" "Driven from the hub, not the board, and it stops the moment this\n" "view is not on screen - a servo cycling behind a tab nobody is\n" "looking at is exactly what should not be possible."
+          );
       }
 
       // ONE status line for the whole steering section: what the board is actually
@@ -7327,38 +7620,49 @@ namespace
           Array<Char, 96> st;
           if(driveServoOn)
           {
-              std::snprintf(st.data(), st.size(), "%+.2f   %d us   target %d us",
-                            static_cast<Float64>(driveSteer), driveServo, driveServoT);
+              std::snprintf(
+                  st.data(),
+                  st.size(),
+                  "%+.2f %d us target %d us",
+                  static_cast<Float64>(driveSteer),
+                  driveServo,
+                  driveServoT
+              );
           }
           else
           {
-              std::snprintf(st.data(), st.size(), "%+.2f   target %d us   not driven",
-                            static_cast<Float64>(driveSteer), driveServoT);
+              std::snprintf(
+                  st.data(),
+                  st.size(),
+                  "%+.2f target %d us not driven",
+                  static_cast<Float64>(driveSteer),
+                  driveServoT
+              );
           }
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "%s", st.data());
       }
 
 
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "Servo horn OFF while you find these.");
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "Engage, step until the output shaft reaches each end,\n"
-                             "and press Set to here. With the horn off, being wrong\n"
-                             "costs nothing at all.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "Servo horn OFF while you find these."
+          );
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "Engage, step until the output shaft reaches each end,\n" "and press Set to here. With the horn off, being wrong\n" "costs nothing at all."
+          );
           ImGui::Spacing();
 
-          calRow("Max left", "Full lock one way. Where the STEERING stops, which is\n"
-                             "not where the servo stops - the linkage binds first,\n"
-                             "and the servo will happily keep pushing past it.",
-                 &calLeft);
-          calRow("Center",   "Wheels straight ahead.\n"
-                             "\n"
-                             "The one that matters most and the one nobody measures.\n"
-                             "1500 us is the middle of the SERVO's range and says\n"
-                             "nothing about the CAR's - the horn only meets its\n"
-                             "spline at whole-tooth intervals, so straight-ahead\n"
-                             "lands wherever it lands.",
-                 &calCenter);
+          calRow(
+              "Max left",
+              "Full lock one way. Where the STEERING stops, which is\n" "not where the servo stops - the linkage binds first,\n" "and the servo will happily keep pushing past it.",
+              &calLeft
+          );
+          calRow(
+              "Center",
+              "Wheels straight ahead.\n" "\n" "The one that matters most and the one nobody measures.\n" "1500 us is the middle of the SERVO's range and says\n" "nothing about the CAR's - the horn only meets its\n" "spline at whole-tooth intervals, so straight-ahead\n" "lands wherever it lands.",
+              &calCenter
+          );
           calRow("Max right", "Full lock the other way.", &calRight);
 
           ImGui::Spacing();
@@ -7366,16 +7670,23 @@ namespace
           const Bool ordered = (calLeft < calCenter && calCenter < calRight);
           if(!ordered)
           {
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
-                                 "Left must be below center, and center below right.");
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                                 "If your steering runs the other way, swap which end\n"
-                                 "you call left - the firmware only needs the order.");
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
+                  "Left must be below center, and center below right."
+              );
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                  "If your steering runs the other way, swap which end\n" "you call left - the firmware only needs the order."
+              );
           }
 
           ImGui::BeginDisabled(!ordered || !driveKnown);
-          if(ui::iconButton(ui::Icon::ICON_SEND, "Send to the board",
-                            ImVec2(200.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_SEND,
+              "Send to the board",
+              ImVec2(200.0f * uiDpiScale, 0.0f),
+              ui::Tint::TINT_WARN
+          ))
           {
               Array<Char, 48> cmd;
               std::snprintf(cmd.data(), cmd.size(), "SERVOLIMITS %d %d", calLeft, calRight);
@@ -7386,17 +7697,18 @@ namespace
           ImGui::EndDisabled();
           if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
           {
-              ImGui::SetTooltip("Applies these to the RUNNING board so you can try\n"
-                                "them immediately.\n"
-                                "\n"
-                                "Lost on the next reboot - Write to firmware is what\n"
-                                "makes them stick.");
+              ImGui::SetTooltip(
+                  "Applies these to the RUNNING board so you can try\n" "them immediately.\n" "\n" "Lost on the next reboot - Write to firmware is what\n" "makes them stick."
+              );
           }
 
           ImGui::SameLine();
           ImGui::BeginDisabled(!ordered);
-          if(ui::iconButton(ui::Icon::ICON_SAVE, "Write to firmware",
-                            ImVec2(210.0f * uiDpiScale, 0.0f)))
+          if(ui::iconButton(
+              ui::Icon::ICON_SAVE,
+              "Write to firmware",
+              ImVec2(210.0f * uiDpiScale, 0.0f)
+          ))
           {
               const Str path = steeringCalPath();
               const Str text = steeringCalText();
@@ -7414,25 +7726,20 @@ namespace
               else if(sketch::save(path, text, err))
               {
                   calWritten = text;
-                  calDirty   = false;
+                  calDirty = false;
                   LOG_INFO("drive", "wrote %s", path.c_str());
               }
               else
               {
-                  LOG_WARN("drive", "could not write cal.h: %s",
-                           err.c_str());
+                  LOG_WARN("drive", "could not write cal.h: %s", err.c_str());
               }
           }
           ImGui::EndDisabled();
           if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
           {
-              ImGui::SetTooltip("Writes firmware/lib/chassis/cal.h - the three\n"
-                                "steering numbers AND the throttle range the\n"
-                                "board is currently using.\n"
-                                "\n"
-                                "main.c includes it, so these become the limits and\n"
-                                "the center the board comes up with. Reflash after\n"
-                                "writing or the board keeps running the old ones.");
+              ImGui::SetTooltip(
+                  "Writes firmware/lib/chassis/cal.h - the three\n" "steering numbers AND the throttle range the\n" "board is currently using.\n" "\n" "main.c includes it, so these become the limits and\n" "the center the board comes up with. Reflash after\n" "writing or the board keeps running the old ones."
+              );
           }
 
           // Whether what is on screen matches what the firmware would build with.
@@ -7444,14 +7751,20 @@ namespace
               if(calWritten.empty()
                  || !readCalNumbers(calWritten, fl, fc, fr))
               {
-                  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                                     "cal.h could not be read.");
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                      "cal.h could not be read."
+                  );
               }
               else if(fl != calLeft || fc != calCenter || fr != calRight)
               {
-                  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                                     "cal.h still says %d / %d / %d.",
-                                     fl, fc, fr);
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                      "cal.h still says %d / %d / %d.",
+                      fl,
+                      fc,
+                      fr
+                  );
               }
               else if(Int32 tl = 0, th = 0;
                       !readThrottleNumbers(calWritten, tl, th)
@@ -7459,41 +7772,46 @@ namespace
               {
                   // The steering matches and the throttle does not - what a header
                   // written before the throttle was persisted looks like.
-                  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                                     "Steering matches; the throttle range in "
-                                     "cal.h does not.");
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                      "Steering matches; the throttle range in " "cal.h does not."
+                  );
               }
               else
               {
-                  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD),
-                                     "Matches cal.h - the firmware would "
-                                     "build with these.");
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD),
+                      "Matches cal.h - the firmware would " "build with these."
+                  );
               }
           }
 
-          if(ui::iconButton(ui::Icon::ICON_CODE, "Open cal.h",
-                            ImVec2(210.0f * uiDpiScale, 0.0f)))
+          if(ui::iconButton(ui::Icon::ICON_CODE, "Open cal.h", ImVec2(210.0f * uiDpiScale, 0.0f)))
           {
               const Str path = steeringCalPath();
               if(!path.empty())
               {
                   openCodeFile(path, "cal.h");
-                  forceView       = 3;
+                  forceView = 3;
                   forceViewFrames = 4;
               }
           }
           if(ImGui::IsItemHovered())
           {
-              ImGui::SetTooltip("Opens the generated header in the Code view, so\n"
-                                "the numbers are readable as code rather than only\n"
-                                "as boxes in a panel.");
+              ImGui::SetTooltip(
+                  "Opens the generated header in the Code view, so\n" "the numbers are readable as code rather than only\n" "as boxes in a panel."
+              );
           }
 
           if(driveKnown)
           {
-              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                                 "The board is currently using  %d / %d / %d.",
-                                 driveServoMin, driveServoC, driveServoMax);
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                  "The board is currently using %d / %d / %d.",
+                  driveServoMin,
+                  driveServoC,
+                  driveServoMax
+              );
           }
 
           ImGui::TreePop();
@@ -7504,12 +7822,14 @@ namespace
       // calibration above clamps to what the board already accepts.
       if(ImGui::TreeNode("Limits  -  widen to find the real end stops"))
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "Take the servo horn OFF first.");
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "The linkage binds before the servo's own limits do,\n"
-                             "and a servo pushing a stop stalls and cooks itself.\n"
-                             "With the horn off, being wrong costs nothing.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "Take the servo horn OFF first."
+          );
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "The linkage binds before the servo's own limits do,\n" "and a servo pushing a stop stalls and cooks itself.\n" "With the horn off, being wrong costs nothing."
+          );
           ImGui::Spacing();
 
           if(!driveLimitsDirty)
@@ -7531,12 +7851,21 @@ namespace
           }
 
           ImGui::BeginDisabled(!driveLimitsDirty);
-          if(ui::iconButton(ui::Icon::ICON_SAVE, "Apply to the board",
-                            ImVec2(220.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_SAVE,
+              "Apply to the board",
+              ImVec2(220.0f * uiDpiScale, 0.0f),
+              ui::Tint::TINT_WARN
+          ))
           {
               Array<Char, 48> cmd;
-              std::snprintf(cmd.data(), cmd.size(), "SERVOLIMITS %d %d",
-                            driveLimitLo, driveLimitHi);
+              std::snprintf(
+                  cmd.data(),
+                  cmd.size(),
+                  "SERVOLIMITS %d %d",
+                  driveLimitLo,
+                  driveLimitHi
+              );
               sendPico(cmd.data());
               driveLimitsDirty = false;
           }
@@ -7549,14 +7878,10 @@ namespace
               driveLimitsDirty = false;
           }
 
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "The board clamps to 1000-2000 whatever is asked, and\n"
-                             "pulls the current target and center back inside a\n"
-                             "narrowed range.\n"
-                             "\n"
-                             "Widen here to go looking; record what you find in the\n"
-                             "Calibration block above, which is what gets written\n"
-                             "into the firmware.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "The board clamps to 1000-2000 whatever is asked, and\n" "pulls the current target and center back inside a\n" "narrowed range.\n" "\n" "Widen here to go looking; record what you find in the\n" "Calibration block above, which is what gets written\n" "into the firmware."
+          );
           ImGui::TreePop();
       }
 
@@ -7569,8 +7894,12 @@ namespace
           const Float32 frac = throttleFraction(driveEsc);
 
           Array<Char, 32> r;
-          std::snprintf(r.data(), r.size(), "%.0f%%",
-                        static_cast<Float64>((driveArmed ? frac : 0.0f) * 100.0f));
+          std::snprintf(
+              r.data(),
+              r.size(),
+              "%.0f%%",
+              static_cast<Float64>((driveArmed ? frac : 0.0f) * 100.0f)
+          );
           driveReading(driveArmed ? ui::sem::WARN : ui::sem::MUTED, r.data());
       }
 
@@ -7584,20 +7913,13 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "The ESC ignores every throttle command until this is on.\n"
-              "\n"
-              "BEFORE ARMING:\n"
-              "  - the car on a stand, wheels off the ground\n"
-              "  - common ground between the Pico and the ESC (mandatory)\n"
-              "  - the BEC 5 V NOT connected while USB is\n"
-              "\n"
-              "Enforced on the BOARD, not here. This checkbox is the reminder.");
+              "The ESC ignores every throttle command until this is on.\n" "\n" "BEFORE ARMING:\n" " - the car on a stand, wheels off the ground\n" " - common ground between the Pico and the ESC (mandatory)\n" " - the BEC 5 V NOT connected while USB is\n" "\n" "Enforced on the BOARD, not here. This checkbox is the reminder."
+          );
       }
 
       ImGui::BeginDisabled(!driveArmed);
       ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-      if(ImGui::SliderInt("##esc", &driveEscWant,
-                          driveEscMin, driveEscMax, "%d us"))
+      if(ImGui::SliderInt("##esc", &driveEscWant, driveEscMin, driveEscMax, "%d us"))
       {
           Array<Char, 32> cmd;
           std::snprintf(cmd.data(), cmd.size(), "ESC %d", driveEscWant);
@@ -7609,14 +7931,10 @@ namespace
       if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
           ImGui::SetTooltip(
-              "1500 us is neutral. The range is %d-%d - forward only, and barely.\n"
-              "\n"
-              "1600 is a crawl on a bench. Reverse is not offered at all: a\n"
-              "QuicRun needs a brake-then-reverse sequence, and getting that\n"
-              "wrong on a stand is how a gearbox meets a workbench.\n"
-              "\n"
-              "The board ramps toward whatever you set rather than jumping to it.",
-              driveEscMin, driveEscMax);
+              "1500 us is neutral. The range is %d-%d - forward only, and barely.\n" "\n" "1600 is a crawl on a bench. Reverse is not offered at all: a\n" "QuicRun needs a brake-then-reverse sequence, and getting that\n" "wrong on a stand is how a gearbox meets a workbench.\n" "\n" "The board ramps toward whatever you set rather than jumping to it.",
+              driveEscMin,
+              driveEscMax
+          );
       }
 
       ImGui::SameLine();
@@ -7631,7 +7949,7 @@ namespace
       const auto nudgeEsc = [](Int32 by)
       {
           driveEscWant += by;
-          driveEscWant  = clampInt(driveEscWant, driveEscMin, driveEscMax);
+          driveEscWant = clampInt(driveEscWant, driveEscMin, driveEscMax);
           Array<Char, 32> cmd;
           std::snprintf(cmd.data(), cmd.size(), "ESC %d", driveEscWant);
           sendPico(cmd.data());
@@ -7642,13 +7960,17 @@ namespace
       {
           const Float32 barW = ImGui::GetContentRegionAvail().x - (120.0f * uiDpiScale);
           const Float32 barH = 10.0f * uiDpiScale;
-          const ImVec2  b0   = ImGui::GetCursorScreenPos();
-          ImDrawList*   dl   = ImGui::GetWindowDrawList();
+          const ImVec2  b0 = ImGui::GetCursorScreenPos();
+          ImDrawList*   dl = ImGui::GetWindowDrawList();
 
           const Float32 frac = throttleFraction(driveEsc);
 
-          dl->AddRectFilled(b0, ImVec2(b0.x + barW, b0.y + barH),
-                            IM_COL32(0x14, 0x15, 0x18, 0xFF), 2.0f);
+          dl->AddRectFilled(
+              b0,
+              ImVec2(b0.x + barW, b0.y + barH),
+              IM_COL32(0x14, 0x15, 0x18, 0xFF),
+              2.0f
+          );
 
           constexpr Int32 SEGS = 10;
           const Float32 segW = (barW - (2.0f * uiDpiScale) * (SEGS - 1)) / SEGS;
@@ -7656,13 +7978,17 @@ namespace
           {
               const Float32 at = static_cast<Float32>(i + 1) / SEGS;
               const Bool    on = driveArmed && (frac >= at - (0.5f / SEGS));
-              const Float32 x  = b0.x + (i * (segW + 2.0f * uiDpiScale));
+              const Float32 x = b0.x + (i * (segW + 2.0f * uiDpiScale));
 
               // The top of the range is amber: the last blocks are the ones worth
               // noticing before pressing anything else.
               const ImU32 lit = (i >= SEGS - 3) ? ui::sem::WARN : ui::sem::GOOD;
-              dl->AddRectFilled(ImVec2(x, b0.y), ImVec2(x + segW, b0.y + barH),
-                                on ? lit : IM_COL32(0x26, 0x28, 0x2C, 0xFF), 1.0f);
+              dl->AddRectFilled(
+                  ImVec2(x, b0.y),
+                  ImVec2(x + segW, b0.y + barH),
+                  on ? lit : IM_COL32(0x26, 0x28, 0x2C, 0xFF),
+                  1.0f
+              );
           }
           ui::screenInset(b0, ImVec2(b0.x + barW, b0.y + barH), 0.7f);
 
@@ -7689,31 +8015,49 @@ namespace
 
       {
           Array<Char, 64> line;
-          std::snprintf(line.data(), line.size(), "output %d us   target %d us   %s",
-                        driveEsc, driveEscT, driveArmed ? "ARMED" : "disarmed");
+          std::snprintf(
+              line.data(),
+              line.size(),
+              "output %d us target %d us %s",
+              driveEsc,
+              driveEscT,
+              driveArmed ? "ARMED" : "disarmed"
+          );
           driveLamp(driveArmed, driveArmed ? ui::sem::BAD : ui::sem::MUTED, line.data());
       }
 
       // Response belongs WITH the thing it governs, not in a settings pile at the
       // top of the page.
       ImGui::Spacing();
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                         "Response  -  how fast the ESC may move");
+      ImGui::TextColored(
+          ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+          "Response - how fast the ESC may move"
+      );
 
       {
           const Int32 perSec = driveEscSlew * 50;
-          const Int32 span   = driveEscMax - driveEscMin;
+          const Int32 span = driveEscMax - driveEscMin;
 
           Array<Char, 64> r;
-          std::snprintf(r.data(), r.size(), "%d us/s   idle to full %.2f s",
-                        perSec,
-                        (perSec > 0) ? (static_cast<Float64>(span) / perSec) : 0.0);
+          std::snprintf(
+              r.data(),
+              r.size(),
+              "%d us/s idle to full %.2f s",
+              perSec,
+              (perSec > 0) ? (static_cast<Float64>(span) / perSec) : 0.0
+          );
           driveReading(ui::sem::MUTED, r.data());
       }
 
       ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-      if(ImGui::SliderInt("##slewesc", &driveEscSlewWant, 1, 200, "%d us/tick",
-                          ImGuiSliderFlags_Logarithmic))
+      if(ImGui::SliderInt(
+          "##slewesc",
+          &driveEscSlewWant,
+          1,
+          200,
+          "%d us/tick",
+          ImGuiSliderFlags_Logarithmic
+      ))
       {
           Array<Char, 40> cmd;
           std::snprintf(cmd.data(), cmd.size(), "SLEW THROTTLE %d", driveEscSlewWant);
@@ -7724,34 +8068,24 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "How fast the ESC's pulse may move, per 20 ms tick. Separate\n"
-              "from the steering, and it should be: a servo wants to arrive\n"
-              "promptly, an ESC wants to be led there.\n"
-              "\n"
-              "This is the one that decides whether the car pulls away or\n"
-              "lurches. Throttle slammed on spins the wheels; slammed off\n"
-              "pitches the car onto its nose; and a brushed motor asked for\n"
-              "a step change draws a spike the BEC feels.\n"
-              "\n"
-              "The usable range is only %d us wide (%d to %d), so a rate\n"
-              "that feels gentle on the steering's %d us of travel crosses\n"
-              "the whole throttle band in a fraction of the time.\n"
-              "\n"
-              "Not saved by itself - Write to firmware, under Throttle\n"
-              "range, is what keeps it across a reflash.",
-              driveEscMax - driveEscMin, driveEscMin, driveEscMax,
-              calRight - calLeft);
+              "How fast the ESC's pulse may move, per 20 ms tick. Separate\n" "from the steering, and it should be: a servo wants to arrive\n" "promptly, an ESC wants to be led there.\n" "\n" "This is the one that decides whether the car pulls away or\n" "lurches. Throttle slammed on spins the wheels; slammed off\n" "pitches the car onto its nose; and a brushed motor asked for\n" "a step change draws a spike the BEC feels.\n" "\n" "The usable range is only %d us wide (%d to %d), so a rate\n" "that feels gentle on the steering's %d us of travel crosses\n" "the whole throttle band in a fraction of the time.\n" "\n" "Not saved by itself - Write to firmware, under Throttle\n" "range, is what keeps it across a reflash.",
+              driveEscMax - driveEscMin,
+              driveEscMin,
+              driveEscMax,
+              calRight - calLeft
+          );
       }
 
       if(ImGui::TreeNode("Throttle range  -  widen once the car is on a stand"))
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
-                             "Wheels off the ground before touching this.");
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "The board will not go above 1700 whatever is asked,\n"
-                             "and reverse stays unreachable - a QuicRun needs a\n"
-                             "brake-then-reverse sequence, and getting that wrong on\n"
-                             "a stand is how a gearbox meets a workbench.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+              "Wheels off the ground before touching this."
+          );
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "The board will not go above 1700 whatever is asked,\n" "and reverse stays unreachable - a QuicRun needs a\n" "brake-then-reverse sequence, and getting that wrong on\n" "a stand is how a gearbox meets a workbench."
+          );
           ImGui::Spacing();
 
           if(!driveEscLimitsDirty)
@@ -7773,12 +8107,21 @@ namespace
           }
 
           ImGui::BeginDisabled(!driveEscLimitsDirty);
-          if(ui::iconButton(ui::Icon::ICON_SAVE, "Apply to the board##esc",
-                            ImVec2(220.0f * uiDpiScale, 0.0f), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_SAVE,
+              "Apply to the board##esc",
+              ImVec2(220.0f * uiDpiScale, 0.0f),
+              ui::Tint::TINT_WARN
+          ))
           {
               Array<Char, 48> cmd;
-              std::snprintf(cmd.data(), cmd.size(), "ESCLIMITS %d %d",
-                            driveEscLimitLo, driveEscLimitHi);
+              std::snprintf(
+                  cmd.data(),
+                  cmd.size(),
+                  "ESCLIMITS %d %d",
+                  driveEscLimitLo,
+                  driveEscLimitHi
+              );
               sendPico(cmd.data());
               driveEscLimitsDirty = false;
           }
@@ -7805,7 +8148,7 @@ namespace
               if(!wasdOn)
               {
                   wasdSentSteer = 0;
-                  wasdSentEsc   = 0;
+                  wasdSentEsc = 0;
                   sendPico("STEER 0");
                   sendPico("ESC NEUTRAL");
               }
@@ -7813,20 +8156,8 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "A / D   steer to FULL LOCK while held\n"
-                  "W       forward at the cap below\n"
-                  "S       brake to neutral\n"
-                  "\n"
-                  "Hold to drive - releasing a key stops that axis. The keys do\n"
-                  "nothing while you are typing in the console, the code editor,\n"
-                  "or any text field, and nothing while the link is down.\n"
-                  "\n"
-                  "S is a BRAKE, not reverse. The drivetrain is forward-only and\n"
-                  "the throttle clamp turns any number below idle INTO idle, so\n"
-                  "there is no value that means backwards.\n"
-                  "\n"
-                  "The board stops itself if this window stops sending for 400 ms,\n"
-                  "which is what covers the app being minimised, hung or closed.");
+                  "A / D steer to FULL LOCK while held\n" "W forward at the cap below\n" "S brake to neutral\n" "\n" "Hold to drive - releasing a key stops that axis. The keys do\n" "nothing while you are typing in the console, the code editor,\n" "or any text field, and nothing while the link is down.\n" "\n" "S is a BRAKE, not reverse. The drivetrain is forward-only and\n" "the throttle clamp turns any number below idle INTO idle, so\n" "there is no value that means backwards.\n" "\n" "The board stops itself if this window stops sending for 400 ms,\n" "which is what covers the app being minimised, hung or closed."
+              );
           }
 
           // What is missing, named: enabling this does NOT arm the ESC or engage
@@ -7848,36 +8179,24 @@ namespace
               colored(ui::sem::GOOD, "live");
           }
 
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "Forward cap");
+          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), "Forward cap");
 
           {
               Array<Char, 48> r;
-              std::snprintf(r.data(), r.size(), "%d us above idle",
-                            wasdCapNow() - driveEscMin);
+              std::snprintf(r.data(), r.size(), "%d us above idle", wasdCapNow() - driveEscMin);
               driveReading(ui::sem::MUTED, r.data());
           }
 
           ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
-          ImGui::SliderInt("##wasdcap", &wasdCapUs, driveEscMin, wasdCapCeil(),
-                           "%d us");
+          ImGui::SliderInt("##wasdcap", &wasdCapUs, driveEscMin, wasdCapCeil(), "%d us");
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "How much throttle W asks for.\n"
-                  "\n"
-                  "Runs from the measured idle of %d up to %d and STOPS there -\n"
-                  "the ceiling is the slider's own end, not a default you can\n"
-                  "slide past. Nine microseconds, about a sixth of this car's\n"
-                  "%d us band.\n"
-                  "\n"
-                  "It is low because the keyboard is digital: W is fully on or\n"
-                  "fully off, with none of the feathering a trigger gives you, so\n"
-                  "the only thing keeping it sane is the number it slams to.\n"
-                  "\n"
-                  "Raising the ceiling is a code change, on purpose. Nothing you\n"
-                  "can do here while the car is moving raises it.",
-                  driveEscMin, wasdCapCeil(), driveEscMax - driveEscMin);
+                  "How much throttle W asks for.\n" "\n" "Runs from the measured idle of %d up to %d and STOPS there -\n" "the ceiling is the slider's own end, not a default you can\n" "slide past. Nine microseconds, about a sixth of this car's\n" "%d us band.\n" "\n" "It is low because the keyboard is digital: W is fully on or\n" "fully off, with none of the feathering a trigger gives you, so\n" "the only thing keeping it sane is the number it slams to.\n" "\n" "Raising the ceiling is a code change, on purpose. Nothing you\n" "can do here while the car is moving raises it.",
+                  driveEscMin,
+                  wasdCapCeil(),
+                  driveEscMax - driveEscMin
+              );
           }
       }
 
@@ -7890,13 +8209,14 @@ namespace
       // sits. Idle is the pulse at which the motor sits still; this is how far
       // past that counts as going somewhere.
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "Tail lamps  -  how much throttle counts as moving");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              "Tail lamps - how much throttle counts as moving"
+          );
 
           {
               const Bool lit = (boardLamp[2] > 0) || (boardLamp[3] > 0);
-              driveReading(lit ? ui::sem::BAD : ui::sem::MUTED,
-                           lit ? "lit" : "dark");
+              driveReading(lit ? ui::sem::BAD : ui::sem::MUTED, lit ? "lit" : "dark");
           }
 
           ImGui::SetNextItemWidth(-DRIVE_TAIL_W * uiDpiScale);
@@ -7911,23 +8231,11 @@ namespace
           if(ImGui::IsItemHovered())
           {
               ImGui::SetTooltip(
-                  "The tail lamps are lit whenever the car is not being driven,\n"
-                  "and go out once the throttle clears idle by this much.\n"
-                  "\n"
-                  "Zero means the lamps go out the instant the throttle leaves\n"
-                  "idle, which lights them off for a car that has not really\n"
-                  "pulled away. Wind it up until they stay on at a crawl and go\n"
-                  "out when the car actually goes somewhere.\n"
-                  "\n"
-                  "Mirrored for reverse: this far BELOW neutral counts as being\n"
-                  "driven backwards, and lights the reverse lamps instead.\n"
-                  "\n"
-                  "Idle here is %d us and full throttle is %d, so the whole\n"
-                  "usable range is %d us wide.\n"
-                  "\n"
-                  "Not saved to the board's calibration by itself - Write to\n"
-                  "firmware, under Throttle range, is what makes it stick.",
-                  driveEscMin, driveEscMax, driveEscMax - driveEscMin);
+                  "The tail lamps are lit whenever the car is not being driven,\n" "and go out once the throttle clears idle by this much.\n" "\n" "Zero means the lamps go out the instant the throttle leaves\n" "idle, which lights them off for a car that has not really\n" "pulled away. Wind it up until they stay on at a crawl and go\n" "out when the car actually goes somewhere.\n" "\n" "Mirrored for reverse: this far BELOW neutral counts as being\n" "driven backwards, and lights the reverse lamps instead.\n" "\n" "Idle here is %d us and full throttle is %d, so the whole\n" "usable range is %d us wide.\n" "\n" "Not saved to the board's calibration by itself - Write to\n" "firmware, under Throttle range, is what makes it stick.",
+                  driveEscMin,
+                  driveEscMax,
+                  driveEscMax - driveEscMin
+              );
           }
 
       }
@@ -7938,27 +8246,20 @@ namespace
       ImGui::Separator();
       ImGui::Spacing();
 
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                         "Nothing here jumps. The board walks each output toward\n"
-                         "its target a few microseconds at a time, so a slider\n"
-                         "dragged end to end produces a sweep rather than a step.");
+      ImGui::TextColored(
+          ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+          "Nothing here jumps. The board walks each output toward\n" "its target a few microseconds at a time, so a slider\n" "dragged end to end produces a sweep rather than a step."
+      );
 
       // ---- the wiring this view assumes ----------------------------------
       // A signal wire in the wrong hole looks exactly like firmware that does not
       // work, and the two are debugged very differently.
       if(ImGui::TreeNode("Wiring"))
       {
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
-                             "  servo signal  ->  GP0\n"
-                             "  ESC signal    ->  GP1\n"
-                             "  ESC ground    ->  a Pico GND  (mandatory)\n"
-                             "\n"
-                             "The ESC's BEC 5 V goes NOWHERE while USB is plugged\n"
-                             "in - two supplies fighting over one rail is how a\n"
-                             "Pico stops being a Pico.\n"
-                             "\n"
-                             "Nothing else is assumed connected. This view does not\n"
-                             "need the display or the ToF sensor.");
+          ImGui::TextColored(
+              ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+              " servo signal -> GP0\n" " ESC signal -> GP1\n" " ESC ground -> a Pico GND (mandatory)\n" "\n" "The ESC's BEC 5 V goes NOWHERE while USB is plugged\n" "in - two supplies fighting over one rail is how a\n" "Pico stops being a Pico.\n" "\n" "Nothing else is assumed connected. This view does not\n" "need the display or the ToF sensor."
+          );
           ImGui::TreePop();
       }
 
@@ -7970,31 +8271,40 @@ namespace
   // it - the SAME editor and file underneath, so one click says which is wrong.
   Void drawDocPane(Float32 w, Float32 h)
   {
-      ImGui::BeginChild("##docpane", ImVec2(w, h), ImGuiChildFlags_None,
-                        ImGuiWindowFlags_NoScrollbar
-                        | ImGuiWindowFlags_NoScrollWithMouse);
+      ImGui::BeginChild(
+          "##docpane",
+          ImVec2(w, h),
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+      );
 
       // A different document starts on the page. Somebody opening a pinout wants
       // the pinout, and the last file's mode is not a preference about this one.
       if(docModeFor != codePath)
       {
-          docModeFor    = codePath;
+          docModeFor = codePath;
           docModeSource = false;
       }
 
       // ---- the toggle -------------------------------------------------------
       const Float32 bh = ImGui::GetFrameHeight();
 
-      if(ui::iconButton(ui::Icon::ICON_REFERENCE, "Page",
-                        ImVec2(84.0f * uiDpiScale, bh),
-                        docModeSource ? ui::Tint::TINT_NONE : ui::Tint::TINT_GOOD))
+      if(ui::iconButton(
+          ui::Icon::ICON_REFERENCE,
+          "Page",
+          ImVec2(84.0f * uiDpiScale, bh),
+          docModeSource ? ui::Tint::TINT_NONE : ui::Tint::TINT_GOOD
+      ))
       {
           docModeSource = false;
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_CODE, "Source",
-                        ImVec2(94.0f * uiDpiScale, bh),
-                        docModeSource ? ui::Tint::TINT_GOOD : ui::Tint::TINT_NONE))
+      if(ui::iconButton(
+          ui::Icon::ICON_CODE,
+          "Source",
+          ImVec2(94.0f * uiDpiScale, bh),
+          docModeSource ? ui::Tint::TINT_GOOD : ui::Tint::TINT_NONE
+      ))
       {
           docModeSource = true;
       }
@@ -8017,8 +8327,7 @@ namespace
       ImGui::SameLine();
       if(!docParsed.ok())
       {
-          colored(ui::sem::BAD, "line %d: %s", docParsed.errorLine,
-                  docParsed.error.c_str());
+          colored(ui::sem::BAD, "line %d: %s", docParsed.errorLine, docParsed.error.c_str());
       }
       else
       {
@@ -8031,9 +8340,12 @@ namespace
           }
           else
           {
-              colored(ui::sem::WARN, "%d style note%s",
-                      static_cast<Int32>(notes.size()),
-                      notes.size() == 1 ? "" : "s");
+              colored(
+                  ui::sem::WARN,
+                  "%d style note%s",
+                  static_cast<Int32>(notes.size()),
+                  notes.size() == 1 ? "" : "s"
+              );
               if(ImGui::IsItemHovered())
               {
                   Str all;
@@ -8053,15 +8365,13 @@ namespace
 
       if(docModeSource)
       {
-          ui::drawCode(codeView, codeEditor,
-                       ImVec2(w, std::max(60.0f, rest)), ImGui::GetTime());
+          ui::drawCode(codeView, codeEditor, ImVec2(w, std::max(60.0f, rest)), ImGui::GetTime());
       }
       else
       {
           // One renderer, shared. The page's frame - scroll, Ctrl+wheel zoom, drag
           // to pan - lives in refdoc, so a document behaves the same everywhere.
-          refdoc::drawPage(docParsed, ImVec2(w, std::max(60.0f, rest)),
-                           docView, uiDpiScale);
+          refdoc::drawPage(docParsed, ImVec2(w, std::max(60.0f, rest)), docView, uiDpiScale);
       }
 
       ImGui::EndChild();
@@ -8086,24 +8396,42 @@ namespace
           // at once in the floating layout - each draw sees the flag it needs.
           radarView.is3D = (view == 1);
 
-          ImGui::BeginChild("##map", ImVec2(w, h), ImGuiChildFlags_None,
-                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+          ImGui::BeginChild(
+              "##map",
+              ImVec2(w, h),
+              ImGuiChildFlags_None,
+              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+          );
           radarView.draw(ImGui::GetContentRegionAvail());
           drawMapHud(p0, ImVec2(w, h));
           ImGui::GetWindowDrawList()->AddRect(
-              p0, ImVec2(p0.x + w, p0.y + h),
-              IM_COL32(0x3A, 0x3A, 0x3A, 0xFF), 0.0f, 0, 1.0f);
+              p0,
+              ImVec2(p0.x + w, p0.y + h),
+              IM_COL32(0x3A, 0x3A, 0x3A, 0xFF),
+              0.0f,
+              0,
+              1.0f
+          );
           ImGui::EndChild();
       }
       else if(view == 2)
       {
-          ImGui::BeginChild("##recmap", ImVec2(w, h), ImGuiChildFlags_None,
-                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+          ImGui::BeginChild(
+              "##recmap",
+              ImVec2(w, h),
+              ImGuiChildFlags_None,
+              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+          );
           recView.draw(ImGui::GetContentRegionAvail());
           drawRecorderHud(p0, ImVec2(w, h));
           ImGui::GetWindowDrawList()->AddRect(
-              p0, ImVec2(p0.x + w, p0.y + h),
-              IM_COL32(0x3A, 0x3A, 0x3A, 0xFF), 0.0f, 0, 1.0f);
+              p0,
+              ImVec2(p0.x + w, p0.y + h),
+              IM_COL32(0x3A, 0x3A, 0x3A, 0xFF),
+              0.0f,
+              0,
+              1.0f
+          );
           ImGui::EndChild();
       }
       else if(view == 3)
@@ -8119,8 +8447,7 @@ namespace
               const Vec<Str> first = sketch::list();
               if(!first.empty())
               {
-                  openCodeFile(sketch::pathOf(first.front()),
-                               "sketches\\" + first.front());
+                  openCodeFile(sketch::pathOf(first.front()), "sketches\\" + first.front());
               }
           }
 
@@ -8132,8 +8459,10 @@ namespace
           const Float32 treeW = codeTreeCollapsed
               ? ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.x * 2.0f
               : std::max(CODE_TREE_MIN_W * uiDpiScale,
-                         std::min(codeTreeLogicalW * uiDpiScale,
-                                  std::min(CODE_TREE_MAX_W * uiDpiScale, w * 0.6f)));
+                         std::min(
+                             codeTreeLogicalW * uiDpiScale,
+                             std::min(CODE_TREE_MAX_W * uiDpiScale, w * 0.6f)
+                         ));
 
           drawCodeTree(treeW, h);
           ImGui::SameLine(0.0f, 0.0f);
@@ -8159,8 +8488,7 @@ namespace
           }
           else
           {
-              ui::drawCode(codeView, codeEditor, ImVec2(editW, h),
-                           ImGui::GetTime());
+              ui::drawCode(codeView, codeEditor, ImVec2(editW, h), ImGui::GetTime());
           }
           handleCodeCommand();
       }
@@ -8299,7 +8627,7 @@ namespace
           if(open)
           {
               centralView = v;
-              wsFocused   = v;
+              wsFocused = v;
               drawViewBody(v, mapW, viewH);
               ImGui::EndTabItem();
           }
@@ -8307,17 +8635,19 @@ namespace
 
       // Right-aligned, so opening the console is where the tabs END rather than a
       // second row of chrome above them.
-      if(ImGui::TabItemButton(consoleOpen ? "  Console  <  " : "  >  Console  ",
-                              ImGuiTabItemFlags_Trailing
-                              | ImGuiTabItemFlags_NoTooltip))
+      if(ImGui::TabItemButton(
+          consoleOpen ? " Console < " : " > Console ",
+          ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip
+      ))
       {
-          consoleOpen      = !consoleOpen;
+          consoleOpen = !consoleOpen;
           panelLayoutDirty = true;
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("The serial and build logs, in a column on the left.\n"
-                            "Ctrl+` toggles it.");
+          ImGui::SetTooltip(
+              "The serial and build logs, in a column on the left.\n" "Ctrl+` toggles it."
+          );
       }
 
       ImGui::EndTabBar();
@@ -8336,8 +8666,12 @@ namespace
       // on a board tab rather than disabled, so the board gets the height back.
       if(ctrlH > 0.0f)
       {
-          ImGui::BeginChild("##controls", ImVec2(mapW, ctrlH), ImGuiChildFlags_None,
-                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+          ImGui::BeginChild(
+              "##controls",
+              ImVec2(mapW, ctrlH),
+              ImGuiChildFlags_None,
+              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+          );
           drawCentralControls(centralView);
           ImGui::EndChild();
       }
@@ -8349,11 +8683,11 @@ namespace
 
   Void drawPicoLinkBlock()
   {
-      const ImGuiStyle& sty  = ImGui::GetStyle();
-      const PicoState   st   = picoLink.state();
+      const ImGuiStyle& sty = ImGui::GetStyle();
+      const PicoState   st = picoLink.state();
       const Bool        live = (st == PicoState::PICO_STATE_CONNECTED);
       const Bool        busy = live || st == PicoState::PICO_STATE_CONNECTING;
-      const Float32       bh   = ImGui::GetFrameHeight() * 1.2f;
+      const Float32       bh = ImGui::GetFrameHeight() * 1.2f;
 
       ImGui::SeparatorText("Link");
 
@@ -8368,7 +8702,12 @@ namespace
       else
       {
           ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - refreshW - sty.ItemSpacing.x);
-          ui::combo("##picoport", &picoIndex, picoItems.data(), static_cast<Int32>(picoItems.size()));
+          ui::combo(
+              "##picoport",
+              &picoIndex,
+              picoItems.data(),
+              static_cast<Int32>(picoItems.size())
+          );
       }
       ImGui::EndDisabled();
 
@@ -8380,8 +8719,12 @@ namespace
 
       if(busy)
       {
-          if(ui::iconButton(ui::Icon::ICON_PLUG_DISCONNECT, "Disconnect",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_PLUG_DISCONNECT,
+              "Disconnect",
+              ImVec2(-FLT_MIN, bh),
+              ui::Tint::TINT_WARN
+          ))
           {
               picoLink.disconnect();
           }
@@ -8389,8 +8732,12 @@ namespace
       else
       {
           ImGui::BeginDisabled(picoIndex < 0);
-          if(ui::iconButton(ui::Icon::ICON_PLUG_CONNECT, "Connect",
-                            ImVec2(-FLT_MIN, bh), ui::Tint::TINT_GOOD))
+          if(ui::iconButton(
+              ui::Icon::ICON_PLUG_CONNECT,
+              "Connect",
+              ImVec2(-FLT_MIN, bh),
+              ui::Tint::TINT_GOOD
+          ))
           {
               connectPico();
           }
@@ -8435,8 +8782,11 @@ namespace
           ImGui::TableNextColumn();
           ImGui::TextDisabled("Last line");
           ImGui::TableNextColumn();
-          colored((age >= 0.0 && age < 2.0) ? ui::sem::GOOD
-                  : (live ? ui::sem::WARN : ui::sem::MUTED), "%s", ageS.data());
+          colored(
+              (age >= 0.0 && age < 2.0) ? ui::sem::GOOD : (live ? ui::sem::WARN : ui::sem::MUTED),
+              "%s",
+              ageS.data()
+          );
 
           ImGui::EndTable();
       }
@@ -8444,7 +8794,7 @@ namespace
 
   Void drawPicoCommands()
   {
-      const ImGuiStyle& sty  = ImGui::GetStyle();
+      const ImGuiStyle& sty = ImGui::GetStyle();
       const Bool        live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
 
       ImGui::SeparatorText("Commands");
@@ -8516,7 +8866,7 @@ namespace
       ImGui::SeparatorText("Controller state");
 
       Array<Char, 24> servo = {'-', '-'};
-      Array<Char, 24> esc   = {'-', '-'};
+      Array<Char, 24> esc = {'-', '-'};
       if(vehicleStatus.have)
       {
           std::snprintf(servo.data(), servo.size(), "%d", vehicleStatus.servoUs);
@@ -8527,8 +8877,7 @@ namespace
       // second value against the far edge and the pair stops reading as a pair.
       const Float32 tableW = std::min(520.0f * uiDpiScale, ImGui::GetContentRegionAvail().x);
 
-      if(ImGui::BeginTable("pwm", 2, ImGuiTableFlags_SizingStretchSame,
-                            ImVec2(tableW, 0.0f)))
+      if(ImGui::BeginTable("pwm", 2, ImGuiTableFlags_SizingStretchSame, ImVec2(tableW, 0.0f)))
       {
           ImGui::TableNextRow();
           ImGui::TableNextColumn();
@@ -8542,8 +8891,7 @@ namespace
 
       // Everything the board reports about itself, and "--" for everything it does
       // not. The reply row is the only thing saying which firmware is answering.
-      if(ImGui::BeginTable("vehstat", 2, ImGuiTableFlags_SizingStretchProp,
-                            ImVec2(tableW, 0.0f)))
+      if(ImGui::BeginTable("vehstat", 2, ImGuiTableFlags_SizingStretchProp, ImVec2(tableW, 0.0f)))
       {
           const BoardStatus brd = picoFlash.board();
           keyValue("Program", "%s", brd.program.empty() ? "--" : brd.program.c_str());
@@ -8609,16 +8957,11 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "Work the lamps out from what the car is doing.\n\n"
-              "Steering past %.0f%% of lock indicates that way and holds until it\n"
-              "unwinds past %.0f%%. Any drop in throttle lights the brakes for\n"
-              "%.0f ms. Armed turns the tail lights on.\n\n"
-              "Both are guesses from the outputs - there is no brake pedal and no\n"
-              "indicator stalk on this car, and no encoder yet, so \"braking\" means\n"
-              "the throttle was reduced rather than the car actually slowed.",
+              "Work the lamps out from what the car is doing.\n\n" "Steering past %.0f%% of lock indicates that way and holds until it\n" "unwinds past %.0f%%. Any drop in throttle lights the brakes for\n" "%.0f ms. Armed turns the tail lights on.\n\n" "Both are guesses from the outputs - there is no brake pedal and no\n" "indicator stalk on this car, and no encoder yet, so \"braking\" means\n" "the throttle was reduced rather than the car actually slowed.",
               static_cast<Float64>(lights::AutoConfig{}.turnOnAbs * 100.0f),
               static_cast<Float64>(lights::AutoConfig{}.turnOffAbs * 100.0f),
-              lights::AutoConfig{}.brakeHoldS * 1000.0);
+              lights::AutoConfig{}.brakeHoldS * 1000.0
+          );
       }
 
       if(autoLights)
@@ -8659,9 +9002,12 @@ namespace
           {
               ImGui::SameLine();
           }
-          if(ui::segmentedIconButton(HEAD_ICONS[i], HEADS[i].label,
-                                     lightInput.head == HEADS[i].v,
-                                     ImVec2(third, 0.0f)))
+          if(ui::segmentedIconButton(
+              HEAD_ICONS[i],
+              HEADS[i].label,
+              lightInput.head == HEADS[i].v,
+              ImVec2(third, 0.0f)
+          ))
           {
               lightInput.head = HEADS[i].v;
           }
@@ -8693,14 +9039,22 @@ namespace
           if(TURNS[i].v == lights::Turn::TURN_HAZARD)
           {
               ui::pushTint(t);
-              hit = ui::segmentedIconButton(ui::Icon::ICON_HAZARD, TURNS[i].label,
-                                            sel, ImVec2(quarter, 0.0f));
+              hit = ui::segmentedIconButton(
+                  ui::Icon::ICON_HAZARD,
+                  TURNS[i].label,
+                  sel,
+                  ImVec2(quarter, 0.0f)
+              );
               ui::popTint(t);
           }
           else if(TURNS[i].v == lights::Turn::TURN_OFF)
           {
-              hit = ui::segmentedIconButton(ui::Icon::ICON_STATUS_IDLE, TURNS[i].label,
-                                            sel, ImVec2(quarter, 0.0f));
+              hit = ui::segmentedIconButton(
+                  ui::Icon::ICON_STATUS_IDLE,
+                  TURNS[i].label,
+                  sel,
+                  ImVec2(quarter, 0.0f)
+              );
           }
           else
           {
@@ -8717,9 +9071,9 @@ namespace
       ui::checkbox("Brake", &lightInput.brake);
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("Tail and brake are the same red lamp - 30%% and 100%%.\n"
-                            "With an indicator running, that side alternates and the\n"
-                            "other stays solid. Try Brake with Right.");
+          ImGui::SetTooltip(
+              "Tail and brake are the same red lamp - 30%% and 100%%.\n" "With an indicator running, that side alternates and the\n" "other stays solid. Try Brake with Right."
+          );
       }
       ImGui::SameLine();
       ui::checkbox("Reverse", &lightInput.reverse);
@@ -8853,8 +9207,8 @@ namespace
           return;
       }
 
-      Size  i     = 0;
-      ImU32 body  = ui::ansi::WHITE;
+      Size  i = 0;
+      ImU32 body = ui::ansi::WHITE;
       ImU32 first = 0;          // 0 = no override for the first word
 
       if(s[0] == '[')
@@ -8876,7 +9230,7 @@ namespace
               {
                   // ninja's progress counter. Gray: it is a COUNTER, not a
                   // verdict, and it is the same on every successful build.
-                  head  = ui::ansi::GRAY;
+                  head = ui::ansi::GRAY;
                   first = ui::ansi::BRWHITE;   // ...but "Linking" is worth seeing
               }
               else if(_stricmp(tag.c_str(), "error") == 0
@@ -8968,8 +9322,7 @@ namespace
       // are tabs of one console and must not look like two programs.
       ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::ansi::BLACK);
 
-      ImGui::BeginChild(id, size, ImGuiChildFlags_None,
-                        ImGuiWindowFlags_HorizontalScrollbar);
+      ImGui::BeginChild(id, size, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
       {
           // Pushed and popped INSIDE the child: a font push that straddles
           // Begin/EndChild renders as a blank white window - see drawSerialConsole.
@@ -8982,8 +9335,10 @@ namespace
               static Vec<LogRun> runs;
 
               // The runs butt against each other, so no horizontal item spacing.
-              ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                                  ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
+              ImGui::PushStyleVar(
+                  ImGuiStyleVar_ItemSpacing,
+                  ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y)
+              );
 
               ImGuiListClipper clipper;
               clipper.Begin(static_cast<Int32>(flashLog.size()));
@@ -9009,8 +9364,10 @@ namespace
                               ImGui::SameLine(0.0f, 0.0f);
                           }
                           ImGui::PushStyleColor(ImGuiCol_Text, runs[k].col);
-                          ImGui::TextUnformatted(s.c_str() + runs[k].begin,
-                                                 s.c_str() + runs[k].end);
+                          ImGui::TextUnformatted(
+                              s.c_str() + runs[k].begin,
+                              s.c_str() + runs[k].end
+                          );
                           ImGui::PopStyleColor();
                       }
                   }
@@ -9031,10 +9388,10 @@ namespace
 
   Void drawFlashControls()
   {
-      const ImGuiStyle& sty  = ImGui::GetStyle();
-      const BoardStatus brd  = picoFlash.board();
+      const ImGuiStyle& sty = ImGui::GetStyle();
+      const BoardStatus brd = picoFlash.board();
       const Bool        busy = picoFlash.busy();
-      const Float32       bh   = ImGui::GetFrameHeight() * 1.2f;
+      const Float32       bh = ImGui::GetFrameHeight() * 1.2f;
 
       // ---- board -----------------------------------------------------------
       ImGui::SeparatorText("Board");
@@ -9053,8 +9410,11 @@ namespace
           }
           else if(brd.present)
           {
-              colored(ui::sem::GOOD, "Running  -  %s",
-                      brd.port.empty() ? "no serial port" : brd.port.c_str());
+              colored(
+                  ui::sem::GOOD,
+                  "Running - %s",
+                  brd.port.empty() ? "no serial port" : brd.port.c_str()
+              );
           }
           else
           {
@@ -9076,13 +9436,16 @@ namespace
 
           if(brd.present && !brd.bootsel)
           {
-              ImGui::TextDisabled("%s%s%s", brd.chip.c_str(),
-                                  brd.program.empty() ? "" : "   ", brd.program.c_str());
+              ImGui::TextDisabled(
+                  "%s%s%s",
+                  brd.chip.c_str(),
+                  brd.program.empty() ? "" : " ",
+                  brd.program.c_str()
+              );
           }
           else if(brd.bootsel)
           {
-              ImGui::TextDisabled("%s%sbootloader",
-                                  brd.chip.c_str(), brd.chip.empty() ? "" : "   ");
+              ImGui::TextDisabled("%s%sbootloader", brd.chip.c_str(), brd.chip.empty() ? "" : " ");
           }
           else
           {
@@ -9109,8 +9472,12 @@ namespace
       ImGui::SeparatorText("Backup");
 
       ImGui::SetNextItemWidth(-FLT_MIN);
-      ImGui::InputTextWithHint("##backupout", "output .uf2 path",
-                               backupBuf.data(), backupBuf.size());
+      ImGui::InputTextWithHint(
+          "##backupout",
+          "output .uf2 path",
+          backupBuf.data(),
+          backupBuf.size()
+      );
 
       ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
       if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
@@ -9126,8 +9493,7 @@ namespace
       const Float32 half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
 
       ImGui::BeginDisabled(busy);
-      if(ui::iconButton(ui::Icon::ICON_REBOOT, "To BOOTSEL", ImVec2(half, bh),
-                        ui::Tint::TINT_WARN))
+      if(ui::iconButton(ui::Icon::ICON_REBOOT, "To BOOTSEL", ImVec2(half, bh), ui::Tint::TINT_WARN))
       {
           picoLink.disconnect();
           releasePicoPortForBoardOp();
@@ -9149,9 +9515,9 @@ namespace
   // OpenPopup and BeginPopupModal must be drawn by the same function.
   Void drawFlashCatalog()
   {
-      const ImGuiStyle& sty  = ImGui::GetStyle();
+      const ImGuiStyle& sty = ImGui::GetStyle();
       const Bool        busy = picoFlash.busy();
-      const Float32     bh   = ImGui::GetFrameHeight() * 1.2f;
+      const Float32     bh = ImGui::GetFrameHeight() * 1.2f;
 
       // ---- catalog ----------------------------------------------------------
       ImGui::Spacing();
@@ -9188,8 +9554,7 @@ namespace
               }
               else
               {
-                  colored(ui::sem::WARN, "%s",
-                          e.buildable ? "not built yet" : "missing on disk");
+                  colored(ui::sem::WARN, "%s", e.buildable ? "not built yet" : "missing on disk");
               }
 
               // Which board the image is FOR, stated nowhere else: a .uf2 carries
@@ -9217,13 +9582,17 @@ namespace
           ImGui::SameLine();
 
           ImGui::BeginDisabled(busy || !e.present);
-          if(ui::iconButton(ui::Icon::ICON_FLASH, "Flash...", ImVec2(half, bh),
-                            ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_FLASH,
+              "Flash...",
+              ImVec2(half, bh),
+              ui::Tint::TINT_WARN
+          ))
           {
-              confirmId   = e.id;
+              confirmId = e.id;
               confirmName = e.name;
               confirmPath = e.uf2Path;
-              openConfirm   = true;
+              openConfirm = true;
           }
           ImGui::EndDisabled();
 
@@ -9262,11 +9631,13 @@ namespace
           ImGui::Spacing();
           ImGui::BulletText("The board reboots into the bootloader and the COM port drops.");
           ImGui::BulletText("The existing firmware is replaced, not saved.");
-          ImGui::BulletText("There is no undo: unless that firmware is in the catalog\n"
-                            "above, the only way back is a backup you took first.");
+          ImGui::BulletText(
+              "There is no undo: unless that firmware is in the catalog\n" "above, the only way back is a backup you took first."
+          );
           ImGui::Spacing();
-          ImGui::TextWrapped("If you are unsure what is on the board, cancel and press "
-                             "\"Back up board flash\" first.");
+          ImGui::TextWrapped(
+              "If you are unsure what is on the board, cancel and press " "\"Back up board flash\" first."
+          );
           ImGui::PopTextWrapPos();
 
           ImGui::Separator();
@@ -9278,8 +9649,12 @@ namespace
 
           ImGui::SameLine();
           // Red: this is the point of no return - it overwrites the board.
-          if(ui::iconButton(ui::Icon::ICON_FLASH, "Flash it",
-                            ImVec2(260.0f * uiDpiScale, bh), ui::Tint::TINT_BAD))
+          if(ui::iconButton(
+              ui::Icon::ICON_FLASH,
+              "Flash it",
+              ImVec2(260.0f * uiDpiScale, bh),
+              ui::Tint::TINT_BAD
+          ))
           {
               // flash.ps1 does the 1200-baud touch itself, and it cannot open the
               // port while this app has it.
@@ -9312,16 +9687,16 @@ namespace
   namespace ansi
   {
 
-    constexpr ImU32 BLACK   = IM_COL32(0x0A, 0x0A, 0x0A, 0xFF);   // the ground
-    constexpr ImU32 RED     = IM_COL32(0xCD, 0x32, 0x32, 0xFF);
-    constexpr ImU32 GREEN   = IM_COL32(0x3F, 0xC0, 0x50, 0xFF);
-    constexpr ImU32 YELLOW  = IM_COL32(0xCD, 0xAA, 0x2E, 0xFF);
-    constexpr ImU32 BLUE    = IM_COL32(0x40, 0x80, 0xD0, 0xFF);
+    constexpr ImU32 BLACK = IM_COL32(0x0A, 0x0A, 0x0A, 0xFF);   // the ground
+    constexpr ImU32 RED = IM_COL32(0xCD, 0x32, 0x32, 0xFF);
+    constexpr ImU32 GREEN = IM_COL32(0x3F, 0xC0, 0x50, 0xFF);
+    constexpr ImU32 YELLOW = IM_COL32(0xCD, 0xAA, 0x2E, 0xFF);
+    constexpr ImU32 BLUE = IM_COL32(0x40, 0x80, 0xD0, 0xFF);
     constexpr ImU32 MAGENTA = IM_COL32(0xB0, 0x5C, 0xC0, 0xFF);
-    constexpr ImU32 CYAN    = IM_COL32(0x35, 0xB5, 0xB5, 0xFF);
-    constexpr ImU32 WHITE   = IM_COL32(0xC8, 0xC8, 0xC8, 0xFF);
-    constexpr ImU32 GRAY    = IM_COL32(0x66, 0x66, 0x66, 0xFF);
-    constexpr ImU32 BRIGHT  = IM_COL32(0xEE, 0xEE, 0xEE, 0xFF);
+    constexpr ImU32 CYAN = IM_COL32(0x35, 0xB5, 0xB5, 0xFF);
+    constexpr ImU32 WHITE = IM_COL32(0xC8, 0xC8, 0xC8, 0xFF);
+    constexpr ImU32 GRAY = IM_COL32(0x66, 0x66, 0x66, 0xFF);
+    constexpr ImU32 BRIGHT = IM_COL32(0xEE, 0xEE, 0xEE, 0xFF);
 
   }
 
@@ -9374,9 +9749,9 @@ namespace
       ui::checkbox("Polling", &logShowPoll);
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("Show the traffic the hub generates on its own:\n"
-                            "DRIVE, LIGHTS, STATUS and TOF polls, and their\n"
-                            "replies. Anything you send by hand always shows.");
+          ImGui::SetTooltip(
+              "Show the traffic the hub generates on its own:\n" "DRIVE, LIGHTS, STATUS and TOF polls, and their\n" "replies. Anything you send by hand always shows."
+          );
       }
 
       ImGui::SameLine();
@@ -9395,8 +9770,9 @@ namespace
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("Copy every line currently shown - what the filter\n"
-                            "left, in the order it is on screen.");
+          ImGui::SetTooltip(
+              "Copy every line currently shown - what the filter\n" "left, in the order it is on screen."
+          );
       }
 
       ImGui::SetNextItemWidth(-FLT_MIN);
@@ -9421,16 +9797,23 @@ namespace
                              - static_cast<Int32>(logShown.size());
           if(hidden > 0)
           {
-              ImGui::TextDisabled("%d of %d lines   -   %d hidden   -   %llu sent / %llu received",
-                                  static_cast<Int32>(logShown.size()),
-                                  static_cast<Int32>(picoLog.size()), hidden,
-                                  picoLink.txLines(), picoLink.rxLines());
+              ImGui::TextDisabled(
+                  "%d of %d lines - %d hidden - %llu sent / %llu received",
+                  static_cast<Int32>(logShown.size()),
+                  static_cast<Int32>(picoLog.size()),
+                  hidden,
+                  picoLink.txLines(),
+                  picoLink.rxLines()
+              );
           }
           else
           {
-              ImGui::TextDisabled("%d lines   -   %llu sent / %llu received",
-                                  static_cast<Int32>(picoLog.size()),
-                                  picoLink.txLines(), picoLink.rxLines());
+              ImGui::TextDisabled(
+                  "%d lines - %llu sent / %llu received",
+                  static_cast<Int32>(picoLog.size()),
+                  picoLink.txLines(),
+                  picoLink.rxLines()
+              );
           }
       }
 
@@ -9441,8 +9824,12 @@ namespace
       ImGui::PushStyleColor(ImGuiCol_HeaderActive,  IM_COL32(0x2A, 0x44, 0x60, 0xFF));
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
-      ImGui::BeginChild("##console", size, ImGuiChildFlags_None,
-                        ImGuiWindowFlags_HorizontalScrollbar);
+      ImGui::BeginChild(
+          "##console",
+          size,
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_HorizontalScrollbar
+      );
 
       // The font is pushed and popped INSIDE the child: ImGui compares the style
       // and font stack sizes at Begin against End, and an unbalanced frame renders
@@ -9459,19 +9846,24 @@ namespace
               for(Int32 r = clipper.DisplayStart; r < clipper.DisplayEnd; ++r)
               {
                   const Int32     idx = logShown[r];
-                  const PicoLine& ln  = picoLog[idx];
+                  const PicoLine& ln = picoLog[idx];
 
                   Array<Char, 512> buf;
-                  std::snprintf(buf.data(), buf.size(), "%8.2f  %c  %s",
-                                ln.tS, ln.outgoing ? '>' : '<', ln.text.c_str());
+                  std::snprintf(
+                      buf.data(),
+                      buf.size(),
+                      "%8.2f %c %s",
+                      ln.tS,
+                      ln.outgoing ? '>' : '<',
+                      ln.text.c_str()
+                  );
 
                   // A Selectable rather than plain text, so lines can be
                   // highlighted and copied: click, shift-click, ctrl-click.
                   ImGui::PushStyleColor(ImGuiCol_Text, consoleColor(ln));
                   ImGui::PushID(idx);
                   const Bool wasSel = (logSel.count(idx) != 0);
-                  if(ImGui::Selectable(buf.data(), wasSel,
-                                       ImGuiSelectableFlags_AllowDoubleClick))
+                  if(ImGui::Selectable(buf.data(), wasSel, ImGuiSelectableFlags_AllowDoubleClick))
                   {
                       const ImGuiIO& io = ImGui::GetIO();
                       if(io.KeyShift && logSelAnchor >= 0)
@@ -9550,8 +9942,7 @@ namespace
               out += "\n";
           }
           ImGui::SetClipboardText(out.c_str());
-          LOG_INFO("console", "copied %d selected line(s)",
-                   static_cast<Int32>(logSel.size()));
+          LOG_INFO("console", "copied %d selected line(s)", static_cast<Int32>(logSel.size()));
       }
 
       // Sticks to the bottom only while the view already is at the bottom, so
@@ -9614,7 +10005,7 @@ namespace
       // The SERIAL port. Over a wireless link picoLink.port() is "192.168.1.42:4242"
       // and a 1200-baud touch on that is not a thing: BOOTSEL always needs the cable.
       const Str linkPort = picoLink.wireless() ? Str() : picoLink.port();
-      const Str bport    = linkPort.empty()
+      const Str bport = linkPort.empty()
           ? (picoIndex >= 0 && picoIndex < static_cast<Int32>(picoPorts.size())
                  ? picoPorts[picoIndex] : Str())
           : linkPort;
@@ -9630,14 +10021,17 @@ namespace
       if(ImGui::BeginPopupModal("Reboot to BOOTSEL?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
       {
           ImGui::PushTextWrapPos(420.0f * uiDpiScale);
-          ImGui::TextWrapped("This reboots %s into the RP2350 USB bootloader.",
-                             bport.empty() ? "the board" : bport.c_str());
+          ImGui::TextWrapped(
+              "This reboots %s into the RP2350 USB bootloader.",
+              bport.empty() ? "the board" : bport.c_str()
+          );
           ImGui::Spacing();
           ImGui::BulletText("Whatever the board is running stops immediately.");
           ImGui::BulletText("The serial link drops and the port disappears.");
           ImGui::BulletText("It remounts as the RP2350 mass-storage drive.");
-          ImGui::BulletText("It does not come back until a .uf2 is copied onto it,\n"
-                            "or the board is power-cycled.");
+          ImGui::BulletText(
+              "It does not come back until a .uf2 is copied onto it,\n" "or the board is power-cycled."
+          );
           ImGui::PopTextWrapPos();
 
           ImGui::Separator();
@@ -9648,11 +10042,15 @@ namespace
           }
 
           ImGui::SameLine();
-          if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reboot to BOOTSEL",
-                            ImVec2(260.0f * uiDpiScale, bh), ui::Tint::TINT_WARN))
+          if(ui::iconButton(
+              ui::Icon::ICON_REBOOT,
+              "Reboot to BOOTSEL",
+              ImVec2(260.0f * uiDpiScale, bh),
+              ui::Tint::TINT_WARN
+          ))
           {
               picoLink.disconnect();
-              bootselOk   = PicoLink::bootselTouch(bport);
+              bootselOk = PicoLink::bootselTouch(bport);
               bootselDone = true;
               refreshPicoPorts();
               ImGui::CloseCurrentPopup();
@@ -9721,8 +10119,8 @@ namespace
           }
       }
 
-      sectionOrder[to]   = moved;
-      panelLayoutDirty   = true;
+      sectionOrder[to] = moved;
+      panelLayoutDirty = true;
   }
 
   // The tear-off button, at the right end of the row the header owns. Call it
@@ -9732,7 +10130,7 @@ namespace
   Bool tearOffButton(Int32 id, Bool floating)
   {
       const Char*   lbl = floating ? "dock" : "float";
-      const Float32 w   = ImGui::CalcTextSize(lbl).x
+      const Float32 w = ImGui::CalcTextSize(lbl).x
                         + ImGui::GetStyle().FramePadding.x * 2.0f;
 
       const Float32 x = ImGui::GetContentRegionMax().x - w
@@ -9743,8 +10141,9 @@ namespace
       const Bool hit = ImGui::Button(lbl, ImVec2(w, 0.0f));
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip(floating ? "Put this panel back in the column"
-                                     : "Tear this panel off into its own window");
+          ImGui::SetTooltip(
+              floating ? "Put this panel back in the column" : "Tear this panel off into its own window"
+          );
       }
       ImGui::PopID();
       return hit;
@@ -9758,15 +10157,15 @@ namespace
   {
       // The hub's own idea of what it is asking for is reset too, or the sliders
       // fight the board back to the old target on the next poll.
-      driveSweep     = false;
+      driveSweep = false;
       driveServoWant = 1500;
-      driveEscWant   = 1500;
+      driveEscWant = 1500;
 
       // Keyboard drive goes off, not just to neutral. A stop that leaves the
       // thing that was driving still armed is a stop you have to press twice.
-      wasdOn        = false;
+      wasdOn = false;
       wasdSentSteer = 0;
-      wasdSentEsc   = 0;
+      wasdSentEsc = 0;
 
       sendPico("STOP");
       LOG_WARN("drive", "emergency stop (%s)", how);
@@ -9809,8 +10208,11 @@ namespace
   Void drawEmergencyStop(Float32 width)
   {
       ui::pushTint(ui::Tint::TINT_BAD);
-      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP  [SPACE]",
-                        ImVec2(width, ImGui::GetFrameHeight() * 2.0f)))
+      if(ui::iconButton(
+          ui::Icon::ICON_MOTOR_STOP,
+          "STOP [SPACE]",
+          ImVec2(width, ImGui::GetFrameHeight() * 2.0f)
+      ))
       {
           emergencyStop("button");
       }
@@ -9819,24 +10221,8 @@ namespace
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
-              "Everything off.\n"
-              "\n"
-              "The ESC to neutral and disarmed, the steering RELEASED, and any\n"
-              "lamp being held on by hand handed back to the car.\n"
-              "\n"
-              "Released, not centered. Center is only a safe place to leave a\n"
-              "servo if 1500 us is where the linkage wants to sit - if the horn\n"
-              "is a tooth off its spline it is not, and centering would just be\n"
-              "pushing somewhere else. Nothing to push with is the only stop\n"
-              "that works on every car.\n"
-              "\n"
-              "Not slewed. A stop that eases in is not a stop.\n"
-              "\n"
-              "SPACE does the same thing from anywhere in the program, as long\n"
-              "as this window has focus. The one place it does not is while you\n"
-              "are typing - in the console, a text field, or the code editor -\n"
-              "because there space is a character, and a stop that fired on\n"
-              "every word typed would be switched off by the end of the day.");
+              "Everything off.\n" "\n" "The ESC to neutral and disarmed, the steering RELEASED, and any\n" "lamp being held on by hand handed back to the car.\n" "\n" "Released, not centered. Center is only a safe place to leave a\n" "servo if 1500 us is where the linkage wants to sit - if the horn\n" "is a tooth off its spline it is not, and centering would just be\n" "pushing somewhere else. Nothing to push with is the only stop\n" "that works on every car.\n" "\n" "Not slewed. A stop that eases in is not a stop.\n" "\n" "SPACE does the same thing from anywhere in the program, as long\n" "as this window has focus. The one place it does not is while you\n" "are typing - in the console, a text field, or the code editor -\n" "because there space is a character, and a stop that fired on\n" "every word typed would be switched off by the end of the day."
+          );
       }
   }
 
@@ -9846,8 +10232,12 @@ namespace
       // be a child: ImGui puts the cursor back at the WINDOW's left content edge
       // after an item, so without one the column lands on the console.
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-      ImGui::BeginChild("##sidebarcol", ImVec2(width, height), ImGuiChildFlags_None,
-                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+      ImGui::BeginChild(
+          "##sidebarcol",
+          ImVec2(width, height),
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+      );
       ImGui::PopStyleVar();
 
       const Float32 stopH = ImGui::GetFrameHeight() * 2.0f;
@@ -9856,8 +10246,12 @@ namespace
 
       const Float32 rest = height - stopH - ImGui::GetStyle().ItemSpacing.y * 2.0f;
 
-      ImGui::BeginChild("##sidebar", ImVec2(width, std::max(40.0f, rest)),
-                        ImGuiChildFlags_None, ImGuiWindowFlags_None);
+      ImGui::BeginChild(
+          "##sidebar",
+          ImVec2(width, std::max(40.0f, rest)),
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_None
+      );
 
       Int32 dragFrom = -1, dragTo = -1;
 
@@ -9882,15 +10276,16 @@ namespace
               if(ui::iconsReady())
               {
                   ui::iconAt(ImGui::GetWindowDrawList(), e.icon,
-                             ImVec2(a2.x + ImGui::GetStyle().FramePadding.x
-                                         + ImGui::GetFontSize() * 1.35f,
-                                    a2.y + ((b2.y - a2.y) - ui::iconSize()) * 0.5f));
+                             ImVec2(
+                                 a2.x + ImGui::GetStyle().FramePadding.x + ImGui::GetFontSize() * 1.35f,
+                                 a2.y + ((b2.y - a2.y) - ui::iconSize()) * 0.5f
+                             ));
               }
 
               if(tearOffButton(e.id, true))
               {
                   sectionFloating[e.id] = false;
-                  panelLayoutDirty      = true;
+                  panelLayoutDirty = true;
               }
               continue;
           }
@@ -9922,7 +10317,7 @@ namespace
               if(const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("BIBO_SECTION"))
               {
                   dragFrom = *static_cast<const Int32*>(pl->Data);
-                  dragTo   = slot;
+                  dragTo = slot;
               }
               ImGui::EndDragDropTarget();
           }
@@ -9932,15 +10327,16 @@ namespace
           if(ui::iconsReady())
           {
               ui::iconAt(ImGui::GetWindowDrawList(), e.icon,
-                         ImVec2(hp.x + ImGui::GetStyle().FramePadding.x
-                                     + ImGui::GetFontSize() * 1.35f,
-                                hp.y + ((hq.y - hp.y) - ui::iconSize()) * 0.5f));
+                         ImVec2(
+                             hp.x + ImGui::GetStyle().FramePadding.x + ImGui::GetFontSize() * 1.35f,
+                             hp.y + ((hq.y - hp.y) - ui::iconSize()) * 0.5f
+                         ));
           }
 
           if(tearOffButton(e.id, false))
           {
               sectionFloating[e.id] = true;
-              panelLayoutDirty      = true;
+              panelLayoutDirty = true;
           }
 
           // A named section is no use if it opened below the fold. Scrolling to
@@ -9985,15 +10381,19 @@ namespace
           // First appearance only: after that ImGui's ini has the position the user
           // dragged it to, and forcing one would undo it on every launch.
           const ImGuiViewport* vp = ImGui::GetMainViewport();
-          ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f
-                                             + static_cast<Float32>(slot) * 24.0f * uiDpiScale,
-                                         vp->WorkPos.y + 80.0f * uiDpiScale
-                                             + static_cast<Float32>(slot) * 24.0f * uiDpiScale),
+          ImGui::SetNextWindowPos(ImVec2(
+              vp->WorkPos.x + vp->WorkSize.x * 0.5f + static_cast<Float32>(slot) * 24.0f * uiDpiScale,
+              vp->WorkPos.y + 80.0f * uiDpiScale + static_cast<Float32>(slot) * 24.0f * uiDpiScale
+          ),
                                   ImGuiCond_FirstUseEver);
-          ImGui::SetNextWindowSize(ImVec2(420.0f * uiDpiScale, 380.0f * uiDpiScale),
-                                   ImGuiCond_FirstUseEver);
-          ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * uiDpiScale, 120.0f * uiDpiScale),
-                                              ImVec2(FLT_MAX, FLT_MAX));
+          ImGui::SetNextWindowSize(
+              ImVec2(420.0f * uiDpiScale, 380.0f * uiDpiScale),
+              ImGuiCond_FirstUseEver
+          );
+          ImGui::SetNextWindowSizeConstraints(
+              ImVec2(240.0f * uiDpiScale, 120.0f * uiDpiScale),
+              ImVec2(FLT_MAX, FLT_MAX)
+          );
 
           Bool open = true;
           if(ImGui::Begin(e.title, &open))
@@ -10009,7 +10409,7 @@ namespace
           if(!open)
           {
               sectionFloating[e.id] = false;
-              panelLayoutDirty      = true;
+              panelLayoutDirty = true;
           }
       }
   }
@@ -10049,13 +10449,13 @@ namespace
       if(active)
       {
           consoleLogicalW += ImGui::GetIO().MouseDelta.x / uiDpiScale;
-          consoleLogicalW  = std::max(CONSOLE_MIN_W, std::min(1600.0f, consoleLogicalW));
+          consoleLogicalW = std::max(CONSOLE_MIN_W, std::min(1600.0f, consoleLogicalW));
           panelLayoutDirty = true;
       }
 
       if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
       {
-          consoleLogicalW  = CONSOLE_DEF_W;
+          consoleLogicalW = CONSOLE_DEF_W;
           panelLayoutDirty = true;
       }
 
@@ -10065,11 +10465,15 @@ namespace
       ImDrawList*   dl = ImGui::GetWindowDrawList();
       const Float32 cx = at.x + thickness * 0.5f;
       const Float32 cy = at.y + h * 0.5f;
-      const Float32 r  = 1.5f * uiDpiScale;
+      const Float32 r = 1.5f * uiDpiScale;
       for(Int32 k = -1; k <= 1; ++k)
       {
-          dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
-                              r, col, 8);
+          dl->AddCircleFilled(
+              ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
+              r,
+              col,
+              8
+          );
       }
   }
 
@@ -10113,7 +10517,7 @@ namespace
       // column dragged to a width you cannot grab the edge of.
       if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
       {
-          sidebarLogicalW  = 400.0f;
+          sidebarLogicalW = 400.0f;
           panelLayoutDirty = true;
       }
 
@@ -10125,11 +10529,15 @@ namespace
       ImDrawList* dl = ImGui::GetWindowDrawList();
       const Float32 cx = at.x + thickness * 0.5f;
       const Float32 cy = at.y + h * 0.5f;
-      const Float32 r  = 1.5f * uiDpiScale;
+      const Float32 r = 1.5f * uiDpiScale;
       for(Int32 k = -1; k <= 1; ++k)
       {
-          dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
-                              r, col, 8);
+          dl->AddCircleFilled(
+              ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
+              r,
+              col,
+              8
+          );
       }
   }
 
@@ -10149,8 +10557,7 @@ namespace
       if(active)
       {
           codeTreeLogicalW += ImGui::GetIO().MouseDelta.x / uiDpiScale;
-          codeTreeLogicalW = std::max(CODE_TREE_MIN_W,
-                                      std::min(CODE_TREE_MAX_W, codeTreeLogicalW));
+          codeTreeLogicalW = std::max(CODE_TREE_MIN_W, std::min(CODE_TREE_MAX_W, codeTreeLogicalW));
           panelLayoutDirty = true;
       }
 
@@ -10166,11 +10573,15 @@ namespace
       ImDrawList* dl = ImGui::GetWindowDrawList();
       const Float32 cx = at.x + thickness * 0.5f;
       const Float32 cy = at.y + h * 0.5f;
-      const Float32 r  = 1.5f * uiDpiScale;
+      const Float32 r = 1.5f * uiDpiScale;
       for(Int32 k = -1; k <= 1; ++k)
       {
-          dl->AddCircleFilled(ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
-                              r, col, 8);
+          dl->AddCircleFilled(
+              ImVec2(cx, cy + static_cast<Float32>(k) * 6.0f * uiDpiScale),
+              r,
+              col,
+              8
+          );
       }
   }
 
@@ -10227,11 +10638,11 @@ Void app::init(Float32 dpiScale)
             {
                 if(_stricmp(__argv[i + 1], mapModeName(static_cast<MapMode>(m))) == 0)
                 {
-                    radarView.mode  = static_cast<MapMode>(m);
-                    radarView.is3D  = false;
-                    forceView       = 0;
+                    radarView.mode = static_cast<MapMode>(m);
+                    radarView.is3D = false;
+                    forceView = 0;
                     forceViewFrames = 4;
-                    centralView     = 0;
+                    centralView = 0;
                 }
             }
             continue;
@@ -10244,14 +10655,16 @@ Void app::init(Float32 dpiScale)
             for(Int32 m = 0;
                 m < static_cast<Int32>(scene3d::SceneMode::SCENE_MODE_COUNT); ++m)
             {
-                if(_stricmp(__argv[i + 1],
-                            scene3d::sceneModeName(static_cast<scene3d::SceneMode>(m))) == 0)
+                if(_stricmp(
+                    __argv[i + 1],
+                    scene3d::sceneModeName(static_cast<scene3d::SceneMode>(m))
+                ) == 0)
                 {
                     radarView.scene = static_cast<scene3d::SceneMode>(m);
-                    radarView.is3D  = true;
-                    forceView       = 1;
+                    radarView.is3D = true;
+                    forceView = 1;
                     forceViewFrames = 4;
-                    centralView     = 1;
+                    centralView = 1;
                 }
             }
             continue;
@@ -10343,8 +10756,8 @@ Void app::init(Float32 dpiScale)
             {
                 if(_stricmp(__argv[i + 1], t.name) == 0)
                 {
-                    forceSection    = t.sec;
-                    forceSub        = t.sub;
+                    forceSection = t.sec;
+                    forceSub = t.sub;
                     forceTabFrames = 4;
                 }
             }
@@ -10373,14 +10786,14 @@ Void app::init(Float32 dpiScale)
 
         if(i + 1 < __argc && __argv[i + 1][0] != '-')
         {
-            const Char* want  = __argv[i + 1];
+            const Char* want = __argv[i + 1];
             Bool        found = false;
             for(Int32 p = 0; p < static_cast<Int32>(lidarPorts.size()); ++p)
             {
                 if(_stricmp(lidarPorts[p].c_str(), want) == 0)
                 {
                     portIndex = p;
-                    found     = true;
+                    found = true;
                 }
             }
 
@@ -10448,9 +10861,9 @@ Void updateAutoLights()
     }
 
     lights::Drive d;
-    d.steer      = driveSteer;
+    d.steer = driveSteer;
     d.throttleUs = driveEsc;
-    d.armed      = driveArmed;
+    d.armed = driveArmed;
 
     lightInput = lights::detect(autoLightState, d, ImGui::GetTime());
 }
@@ -10513,7 +10926,7 @@ Void updateKeyboardDrive()
         else
         {
             const Int32 us = wasdCapNow();
-            driveEscWant   = us;
+            driveEscWant = us;
 
             Array<Char, 32> cmd;
             std::snprintf(cmd.data(), cmd.size(), "ESC %d", us);
@@ -10554,7 +10967,7 @@ Void app::frame()
     // measures the state it is about to render.
     if(ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_GraveAccent))
     {
-        consoleOpen      = !consoleOpen;
+        consoleOpen = !consoleOpen;
         panelLayoutDirty = true;
     }
 
@@ -10562,10 +10975,11 @@ Void app::frame()
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
 
-    ImGui::Begin("##root", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::Begin(
+        "##root",
+        nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+    );
 
     const ImGuiStyle& sty = ImGui::GetStyle();
 
@@ -10573,7 +10987,7 @@ Void app::frame()
     // Sized to whichever is taller, the type or the icons, plus its padding:
     // sizing to the text alone is what cropped the old lamps.
     const Float32 stripPad = 6.0f * uiDpiScale;
-    const Float32 stripH   = std::max(ImGui::GetTextLineHeight(), ui::iconSize())
+    const Float32 stripH = std::max(ImGui::GetTextLineHeight(), ui::iconSize())
                            + stripPad * 2.0f;
 
     // ---- map + sidebar ---------------------------------------------------
@@ -10583,7 +10997,7 @@ Void app::frame()
 
     // The column's width is the user's - see sidebarSplitter() - and a LOGICAL
     // width, so its contents lay out against a number DPI and zoom do not move.
-    const Float32 gap   = std::max(sty.ItemSpacing.x, 8.0f * uiDpiScale);
+    const Float32 gap = std::max(sty.ItemSpacing.x, 8.0f * uiDpiScale);
     const Float32 sideW = sidebarWidth(avail.x);
 
     // The console column, when open, comes off the LEFT before anything else is
@@ -10593,9 +11007,9 @@ Void app::frame()
 
     // Sized for the view on screen, which is why centralView is kept across
     // frames. A view with no controls costs no height - the spacing goes too.
-    const Float32 mapW  = avail.x - sideW - gap - consW - consGap;
+    const Float32 mapW = avail.x - sideW - gap - consW - consGap;
     const Float32 ctrlH = centralControlHeight(centralView, mapW);
-    const Float32 mapH  = avail.y - ctrlH - (ctrlH > 0.0f ? sty.ItemSpacing.y : 0.0f);
+    const Float32 mapH = avail.y - ctrlH - (ctrlH > 0.0f ? sty.ItemSpacing.y : 0.0f);
 
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
@@ -10615,8 +11029,12 @@ Void app::frame()
         // WINDOW's left content edge. Zero padding, popped at once.
         ImGui::SetCursorScreenPos(ImVec2(midX, p0.y));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::BeginChild("##centralcol", ImVec2(mapW, avail.y), ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::BeginChild(
+            "##centralcol",
+            ImVec2(mapW, avail.y),
+            ImGuiChildFlags_None,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+        );
         ImGui::PopStyleVar();
 
         drawMapRegion(mapW, mapH, ctrlH);
@@ -10636,23 +11054,26 @@ Void app::frame()
         const ImVec2 wp = ImGui::GetWindowPos();
         const ImVec2 ws = ImGui::GetWindowSize();
 
-        ImGui::SetCursorScreenPos(ImVec2(wp.x + sty.WindowPadding.x,
-                                         wp.y + ws.y - sty.WindowPadding.y - stripH));
+        ImGui::SetCursorScreenPos(ImVec2(
+            wp.x + sty.WindowPadding.x,
+            wp.y + ws.y - sty.WindowPadding.y - stripH
+        ));
 
         // A hairline above it, so the bar reads as chrome rather than as more
         // content that happens to be at the bottom.
         ImGui::GetWindowDrawList()->AddLine(
             ImVec2(wp.x, wp.y + ws.y - sty.WindowPadding.y - stripH - 1.0f),
             ImVec2(wp.x + ws.x, wp.y + ws.y - sty.WindowPadding.y - stripH - 1.0f),
-            ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::GetColorU32(ImGuiCol_Separator)
+        );
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-                            ImVec2(12.0f * uiDpiScale, stripPad));
-        ImGui::BeginChild("##statusbar",
-                          ImVec2(ws.x - sty.WindowPadding.x * 2.0f, stripH),
-                          ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoScrollbar
-                          | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * uiDpiScale, stripPad));
+        ImGui::BeginChild(
+            "##statusbar",
+            ImVec2(ws.x - sty.WindowPadding.x * 2.0f, stripH),
+            ImGuiChildFlags_None,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+        );
         drawStatusBar();
         ImGui::EndChild();
         ImGui::PopStyleVar();
@@ -10668,7 +11089,7 @@ Void app::frame()
             recPlayS += static_cast<Float64>(ImGui::GetIO().DeltaTime);
             if(recPlayS >= recording.durationS())
             {
-                recPlayS   = recording.durationS();
+                recPlayS = recording.durationS();
                 recPlaying = false;    // holds on the last frame
             }
         }
@@ -10678,7 +11099,7 @@ Void app::frame()
         const rec::Rev& r = recording.at(recIndex);
         LidarFrame lf;
         lf.points = r.points;
-        lf.hz     = r.hz;
+        lf.hz = r.hz;
         for(const LidarPoint& p : lf.points)
         {
             if(p.distMm > 0.0f)

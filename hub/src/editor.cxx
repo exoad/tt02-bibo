@@ -80,11 +80,11 @@ namespace ed
       lines.push_back(acc);
 
       cur = Cursor();
-      md  = Mode::MODE_NORMAL;
+      md = Mode::MODE_NORMAL;
       undoStack.clear();
       redoStack.clear();
       pendCount = 0;
-      pendOp    = 0;
+      pendOp = 0;
       cmdLine.clear();
       dirtyFlag = false;
   }
@@ -121,7 +121,7 @@ namespace ed
   Void Editor::setCursor(Int32 l, Int32 c)
   {
       cur.line = l;
-      cur.col  = c;
+      cur.col = c;
       clampCursor();
   }
 
@@ -134,11 +134,11 @@ namespace ed
       }
       if(m == Mode::MODE_NORMAL)
       {
-          pendCount   = 0;
-          pendOp      = 0;
-          pendFind    = 0;
+          pendCount = 0;
+          pendOp = 0;
+          pendFind = 0;
           pendObjKind = 0;
-          pendMark    = 0;
+          pendMark = 0;
           pendOpCount = 0;
       }
       clampCursor();
@@ -185,7 +185,7 @@ namespace ed
       }
 
       from = a;
-      to   = b;
+      to = b;
       return true;
   }
 
@@ -224,7 +224,7 @@ namespace ed
 
       Snapshot s;
       s.lines = lines;
-      s.cur   = cur;
+      s.cur = cur;
       undoStack.push_back(std::move(s));
       if(undoStack.size() > MAX_UNDO)
       {
@@ -244,11 +244,11 @@ namespace ed
       }
       Snapshot now;
       now.lines = lines;
-      now.cur   = cur;
+      now.cur = cur;
       redoStack.push_back(std::move(now));
 
       lines = undoStack.back().lines;
-      cur   = undoStack.back().cur;
+      cur = undoStack.back().cur;
       undoStack.pop_back();
       dirtyFlag = true;
       clampCursor();
@@ -263,11 +263,11 @@ namespace ed
       }
       Snapshot now;
       now.lines = lines;
-      now.cur   = cur;
+      now.cur = cur;
       undoStack.push_back(std::move(now));
 
       lines = redoStack.back().lines;
-      cur   = redoStack.back().cur;
+      cur = redoStack.back().cur;
       redoStack.pop_back();
       dirtyFlag = true;
       clampCursor();
@@ -277,7 +277,7 @@ namespace ed
 
   Void Editor::insertChar(Char c)
   {
-      Str&        s    = lines[static_cast<Size>(cur.line)];
+      Str&        s = lines[static_cast<Size>(cur.line)];
       const Char  next = (cur.col < static_cast<Int32>(s.size()))
                        ? s[static_cast<Size>(cur.col)] : '\0';
 
@@ -340,7 +340,7 @@ namespace ed
               Int32 depth = 0;
               for(Int32 l = cur.line; l >= 0; --l)
               {
-                  const Str& t   = lines[static_cast<Size>(l)];
+                  const Str& t = lines[static_cast<Size>(l)];
                   const Int32 from = (l == cur.line) ? cur.col - 2
                                                      : static_cast<Int32>(t.size()) - 1;
                   for(Int32 i = from; i >= 0; --i)
@@ -369,8 +369,8 @@ namespace ed
 
   Void Editor::newlineWithIndent()
   {
-      Str&        s    = lines[static_cast<Size>(cur.line)];
-      const Int32 ind  = indentOf(cur.line);
+      Str&        s = lines[static_cast<Size>(cur.line)];
+      const Int32 ind = indentOf(cur.line);
       const Char  prev = (cur.col > 0) ? s[static_cast<Size>(cur.col - 1)] : '\0';
       const Char  next = (cur.col < static_cast<Int32>(s.size()))
                        ? s[static_cast<Size>(cur.col)] : '\0';
@@ -386,10 +386,9 @@ namespace ed
       if(prev == '{' && next == '}')
       {
           lines.insert(lines.begin() + cur.line + 1, Str(static_cast<Size>(newInd), ' '));
-          lines.insert(lines.begin() + cur.line + 2,
-                       Str(static_cast<Size>(ind), ' ') + tail);
+          lines.insert(lines.begin() + cur.line + 2, Str(static_cast<Size>(ind), ' ') + tail);
           cur.line += 1;
-          cur.col   = newInd;
+          cur.col = newInd;
           return;
       }
 
@@ -401,17 +400,16 @@ namespace ed
       }
       tail.erase(0, cut);
 
-      lines.insert(lines.begin() + cur.line + 1,
-                   Str(static_cast<Size>(newInd), ' ') + tail);
+      lines.insert(lines.begin() + cur.line + 1, Str(static_cast<Size>(newInd), ' ') + tail);
       cur.line += 1;
-      cur.col   = newInd;
+      cur.col = newInd;
   }
 
   Void Editor::backspace()
   {
       if(cur.col > 0)
       {
-          Str&       s    = lines[static_cast<Size>(cur.line)];
+          Str&       s = lines[static_cast<Size>(cur.line)];
           const Char left = s[static_cast<Size>(cur.col - 1)];
           const Char right = (cur.col < static_cast<Int32>(s.size()))
                            ? s[static_cast<Size>(cur.col)] : '\0';
@@ -456,7 +454,7 @@ namespace ed
       lines[static_cast<Size>(cur.line - 1)] += lines[static_cast<Size>(cur.line)];
       lines.erase(lines.begin() + cur.line);
       cur.line -= 1;
-      cur.col   = prevLen;
+      cur.col = prevLen;
   }
 
   Void Editor::insertText(const Str& s)
@@ -480,12 +478,12 @@ namespace ed
           {
               // A pasted newline must NOT re-indent: the text already carries its
               // own indentation and doing both doubles it.
-              Str& ln  = lines[static_cast<Size>(cur.line)];
+              Str& ln = lines[static_cast<Size>(cur.line)];
               Str  tail = ln.substr(static_cast<Size>(cur.col));
               ln.erase(static_cast<Size>(cur.col));
               lines.insert(lines.begin() + cur.line + 1, tail);
               cur.line += 1;
-              cur.col   = 0;
+              cur.col = 0;
               continue;
           }
           lines[static_cast<Size>(cur.line)].insert(static_cast<Size>(cur.col), 1, c);
@@ -526,7 +524,7 @@ namespace ed
 
       pushUndo();
 
-      Str&        s     = lines[static_cast<Size>(cur.line)];
+      Str&        s = lines[static_cast<Size>(cur.line)];
       const Int32 start = cur.col - static_cast<Int32>(word.size());
       s.erase(static_cast<Size>(start), word.size());
       s.insert(static_cast<Size>(start), with);
@@ -545,8 +543,8 @@ namespace ed
 
       pushUndo();
 
-      Str&        s   = lines[static_cast<Size>(cur.line)];
-      const Int32 at  = std::min(cur.col, static_cast<Int32>(s.size()));
+      Str&        s = lines[static_cast<Size>(cur.line)];
+      const Int32 at = std::min(cur.col, static_cast<Int32>(s.size()));
       s.insert(static_cast<Size>(at), with);
       cur.col = at + static_cast<Int32>(with.size());
       clampCursor();
@@ -571,12 +569,12 @@ namespace ed
           break;
 
       case 'k':
-          p.line   = std::max(0, p.line - n);
+          p.line = std::max(0, p.line - n);
           linewise = true;
           break;
 
       case 'j':
-          p.line   = std::min(lineCount() - 1, p.line + n);
+          p.line = std::min(lineCount() - 1, p.line + n);
           linewise = true;
           break;
 
@@ -599,7 +597,7 @@ namespace ed
       // in one press and in five.
       case 'W':
       {
-          const Str& sl  = line(p.line);
+          const Str& sl = line(p.line);
           const Int32 len = static_cast<Int32>(sl.size());
           for(Int32 i = 0; i < n; ++i)
           {
@@ -634,7 +632,7 @@ namespace ed
 
       case 'E':
       {
-          const Str& sl  = line(p.line);
+          const Str& sl = line(p.line);
           const Int32 len = static_cast<Int32>(sl.size());
           for(Int32 i = 0; i < n; ++i)
           {
@@ -654,22 +652,20 @@ namespace ed
       // Screen-relative, which is why the view has to be pushed in. Without a
       // viewport these would silently mean something else.
       case 'H':
-          p.line   = std::max(0, std::min(lineCount() - 1, viewFirst + (n - 1)));
-          p.col    = indentOf(p.line);
+          p.line = std::max(0, std::min(lineCount() - 1, viewFirst + (n - 1)));
+          p.col = indentOf(p.line);
           linewise = true;
           break;
 
       case 'M':
-          p.line   = std::max(0, std::min(lineCount() - 1,
-                                          viewFirst + (viewSpan / 2)));
-          p.col    = indentOf(p.line);
+          p.line = std::max(0, std::min(lineCount() - 1, viewFirst + (viewSpan / 2)));
+          p.col = indentOf(p.line);
           linewise = true;
           break;
 
       case 'L':
-          p.line   = std::max(0, std::min(lineCount() - 1,
-                                          viewFirst + viewSpan - n));
-          p.col    = indentOf(p.line);
+          p.line = std::max(0, std::min(lineCount() - 1, viewFirst + viewSpan - n));
+          p.col = indentOf(p.line);
           linewise = true;
           break;
 
@@ -686,9 +682,9 @@ namespace ed
 
       case 'G':
           // With a count, G is "go to line N"; without, "go to the last line".
-          p.line   = (count > 0) ? std::min(lineCount() - 1, count - 1)
+          p.line = (count > 0) ? std::min(lineCount() - 1, count - 1)
                                  : lineCount() - 1;
-          p.col    = indentOf(p.line);
+          p.col = indentOf(p.line);
           linewise = true;
           break;
 
@@ -696,7 +692,7 @@ namespace ed
       {
           for(Int32 r = 0; r < n; ++r)
           {
-              const Str& s   = line(p.line);
+              const Str& s = line(p.line);
               const Int32 len = static_cast<Int32>(s.size());
 
               if(p.col >= len)
@@ -763,7 +759,7 @@ namespace ed
       {
           for(Int32 r = 0; r < n; ++r)
           {
-              const Str& s   = line(p.line);
+              const Str& s = line(p.line);
               const Int32 len = static_cast<Int32>(s.size());
               ++p.col;
               while(p.col < len && space(s[static_cast<Size>(p.col)]))
@@ -802,7 +798,7 @@ namespace ed
 
   Void Editor::setYank(const Str& text, Bool linewise)
   {
-      yankBuf      = text;
+      yankBuf = text;
       yankLinewise = linewise;
   }
 
@@ -837,21 +833,25 @@ namespace ed
       {
           const Str& s = line(a.line);
           const Int32 from = std::min(a.col, static_cast<Int32>(s.size()));
-          const Int32 to   = std::min(b.col, static_cast<Int32>(s.size()));
+          const Int32 to = std::min(b.col, static_cast<Int32>(s.size()));
           yankBuf = s.substr(static_cast<Size>(from), static_cast<Size>(to - from));
           return;
       }
 
-      yankBuf = line(a.line).substr(static_cast<Size>(std::min(a.col,
-                    static_cast<Int32>(line(a.line).size()))));
+      yankBuf = line(a.line).substr(static_cast<Size>(std::min(
+          a.col,
+          static_cast<Int32>(line(a.line).size())
+      )));
       yankBuf.push_back('\n');
       for(Int32 l = a.line + 1; l < b.line; ++l)
       {
           yankBuf += line(l);
           yankBuf.push_back('\n');
       }
-      yankBuf += line(b.line).substr(0, static_cast<Size>(std::min(b.col,
-                     static_cast<Int32>(line(b.line).size()))));
+      yankBuf += line(b.line).substr(0, static_cast<Size>(std::min(
+          b.col,
+          static_cast<Int32>(line(b.line).size())
+      )));
   }
 
   Void Editor::deleteRange(Cursor a, Cursor b, Bool linewise, Bool yank)
@@ -871,23 +871,23 @@ namespace ed
       if(linewise)
       {
           const Int32 from = std::max(0, a.line);
-          const Int32 to   = std::min(lineCount() - 1, b.line);
+          const Int32 to = std::min(lineCount() - 1, b.line);
           lines.erase(lines.begin() + from, lines.begin() + to + 1);
           if(lines.empty())
           {
               lines.push_back(Str());
           }
           cur.line = std::min(from, lineCount() - 1);
-          cur.col  = indentOf(cur.line);
+          cur.col = indentOf(cur.line);
           clampCursor();
           return;
       }
 
       if(a.line == b.line)
       {
-          Str&        s  = lines[static_cast<Size>(a.line)];
-          const Int32 f  = std::min(a.col, static_cast<Int32>(s.size()));
-          const Int32 t  = std::min(b.col, static_cast<Int32>(s.size()));
+          Str&        s = lines[static_cast<Size>(a.line)];
+          const Int32 f = std::min(a.col, static_cast<Int32>(s.size()));
+          const Int32 t = std::min(b.col, static_cast<Int32>(s.size()));
           s.erase(static_cast<Size>(f), static_cast<Size>(t - f));
           cur = Cursor{ a.line, f };
           clampCursor();
@@ -895,11 +895,15 @@ namespace ed
       }
 
       Str head = lines[static_cast<Size>(a.line)].substr(0,
-                     static_cast<Size>(std::min(a.col,
-                         static_cast<Int32>(lines[static_cast<Size>(a.line)].size()))));
+                     static_cast<Size>(std::min(
+                         a.col,
+                         static_cast<Int32>(lines[static_cast<Size>(a.line)].size())
+                     )));
       Str tail = lines[static_cast<Size>(b.line)].substr(
-                     static_cast<Size>(std::min(b.col,
-                         static_cast<Int32>(lines[static_cast<Size>(b.line)].size()))));
+                     static_cast<Size>(std::min(
+                         b.col,
+                         static_cast<Int32>(lines[static_cast<Size>(b.line)].size())
+                     )));
 
       lines.erase(lines.begin() + a.line, lines.begin() + b.line + 1);
       lines.insert(lines.begin() + a.line, head + tail);
@@ -939,12 +943,12 @@ namespace ed
           const Int32 at = beforeCursor ? cur.line : cur.line + 1;
           lines.insert(lines.begin() + at, add.begin(), add.end());
           cur.line = at;
-          cur.col  = indentOf(cur.line);
+          cur.col = indentOf(cur.line);
           clampCursor();
           return;
       }
 
-      Str&        s  = lines[static_cast<Size>(cur.line)];
+      Str&        s = lines[static_cast<Size>(cur.line)];
       const Int32 at = beforeCursor ? cur.col
                                     : std::min(cur.col + 1, static_cast<Int32>(s.size()));
       s.insert(static_cast<Size>(at), yankBuf);
@@ -957,8 +961,8 @@ namespace ed
   Bool Editor::key(const Key& k)
   {
       const Cursor           beforeCur = cur;
-      const Size             beforeN   = lines.size();
-      const Str              beforeL   = lines[static_cast<Size>(
+      const Size             beforeN = lines.size();
+      const Str              beforeL = lines[static_cast<Size>(
                                             std::min<Int32>(cur.line, lineCount() - 1))];
 
       // ---- recording for `.` -------------------------------------------------
@@ -972,7 +976,7 @@ namespace ed
       // pending. Anything else - the motion after an operator, every character of
       // an insert - appends to the recording already running.
       const UInt64 seqBefore = changeSeq;
-      Bool         dotKey    = false;
+      Bool         dotKey = false;
       if(!replaying)
       {
           const Bool idle = (md == Mode::MODE_NORMAL) && (pendOp == 0)
@@ -1127,7 +1131,7 @@ namespace ed
   Void Editor::setViewport(Int32 firstLine, Int32 lineSpan)
   {
       viewFirst = std::max(0, firstLine);
-      viewSpan  = std::max(1, lineSpan);
+      viewSpan = std::max(1, lineSpan);
   }
 
   // ------------------------------------------------------------------- search
@@ -1194,7 +1198,7 @@ namespace ed
     Int32 rfindIn(const Str& hay, const Str& pat, Int32 before, Bool caseless)
     {
         Int32 best = -1;
-        Int32 at   = 0;
+        Int32 at = 0;
         while(true)
         {
             const Int32 hit = findIn(hay, pat, at, caseless);
@@ -1203,7 +1207,7 @@ namespace ed
                 break;
             }
             best = hit;
-            at   = hit + 1;
+            at = hit + 1;
         }
         return best;
     }
@@ -1318,7 +1322,7 @@ namespace ed
 
   Bool Editor::findInLine(Char cmd, Char target, Int32 count, Cursor& out) const
   {
-      const Str&  sl  = line(cur.line);
+      const Str&  sl = line(cur.line);
       const Int32 len = static_cast<Int32>(sl.size());
       const Bool  fwd = (cmd == 'f' || cmd == 't');
 
@@ -1373,7 +1377,7 @@ namespace ed
 
   Bool Editor::matchBracket(Cursor& out) const
   {
-      const Str&  sl  = line(cur.line);
+      const Str&  sl = line(cur.line);
       const Int32 len = static_cast<Int32>(sl.size());
 
       // vim scans FORWARD along the line for the first bracket, so % works from
@@ -1395,7 +1399,7 @@ namespace ed
 
       const Char open = sl[static_cast<Size>(at)];
       Char       want = 0;
-      Bool       fwd  = true;
+      Bool       fwd = true;
       switch(open)
       {
       case '(':
@@ -1431,8 +1435,8 @@ namespace ed
 
       while(l >= 0 && l < lineCount())
       {
-          const Str&  ls  = line(l);
-          const Int32 ln  = static_cast<Int32>(ls.size());
+          const Str&  ls = line(l);
+          const Int32 ln = static_cast<Int32>(ls.size());
 
           while(c >= 0 && c < ln)
           {
@@ -1468,7 +1472,7 @@ namespace ed
   Bool Editor::textObject(Char kind, Char obj, Cursor& a, Cursor& b, Bool& linewise) const
   {
       linewise = false;
-      const Str&  sl  = line(cur.line);
+      const Str&  sl = line(cur.line);
       const Int32 len = static_cast<Int32>(sl.size());
 
       if(obj == 'w' || obj == 'W')
@@ -1533,7 +1537,7 @@ namespace ed
 
       // Brackets. Scans outward from the caret across lines, so ci{ works from
       // anywhere inside a function body.
-      Char openCh  = 0;
+      Char openCh = 0;
       Char closeCh = 0;
       switch(obj)
       {
@@ -1657,10 +1661,10 @@ namespace ed
       // the start of the line rather than by nesting.
       if(obj == '"' || obj == '\'' || obj == '`')
       {
-          Int32 openAt  = -1;
+          Int32 openAt = -1;
           Int32 closeAt = -1;
-          Bool  inside  = false;
-          Int32 last    = -1;
+          Bool  inside = false;
+          Int32 last = -1;
 
           for(Int32 i = 0; i < len; ++i)
           {
@@ -1675,14 +1679,14 @@ namespace ed
               if(!inside)
               {
                   inside = true;
-                  last   = i;
+                  last = i;
               }
               else
               {
                   inside = false;
                   if(cur.col >= last && cur.col <= i)
                   {
-                      openAt  = last;
+                      openAt = last;
                       closeAt = i;
                       break;
                   }
@@ -1766,7 +1770,7 @@ namespace ed
   Void Editor::indentLines(Int32 first, Int32 last, Bool rightwards)
   {
       first = std::max(0, first);
-      last  = std::min(lineCount() - 1, last);
+      last = std::min(lineCount() - 1, last);
       if(first > last)
       {
           return;
@@ -1800,7 +1804,7 @@ namespace ed
           }
       }
       cur.line = std::max(first, std::min(cur.line, last));
-      cur.col  = indentOf(cur.line);
+      cur.col = indentOf(cur.line);
   }
 
   // ------------------------------------------------------------ :s/foo/bar/
@@ -1848,7 +1852,7 @@ namespace ed
           parts[which].push_back(spec[i]);
       }
 
-      const Str& pat  = parts[0];
+      const Str& pat = parts[0];
       const Str& repl = parts[1];
       const Str& flag = parts[2];
       if(pat.empty())
@@ -1856,13 +1860,13 @@ namespace ed
           return;
       }
 
-      const Bool all      = flag.find('g') != Str::npos;
+      const Bool all = flag.find('g') != Str::npos;
       const Bool caseless = (flag.find('i') != Str::npos) || !patternHasUpper(pat);
 
       const Int32 from = wholeFile ? 0 : cur.line;
-      const Int32 to   = wholeFile ? (lineCount() - 1) : cur.line;
+      const Int32 to = wholeFile ? (lineCount() - 1) : cur.line;
 
-      Int32 hits  = 0;
+      Int32 hits = 0;
       Int32 touchedLines = 0;
       Bool  first = true;
 
@@ -1907,9 +1911,15 @@ namespace ed
       }
       else
       {
-          std::snprintf(buf.data(), buf.size(), "%d substitution%s on %d line%s",
-                        hits, hits == 1 ? "" : "s",
-                        touchedLines, touchedLines == 1 ? "" : "s");
+          std::snprintf(
+              buf.data(),
+              buf.size(),
+              "%d substitution%s on %d line%s",
+              hits,
+              hits == 1 ? "" : "s",
+              touchedLines,
+              touchedLines == 1 ? "" : "s"
+          );
       }
       message = buf.data();
       clampCursor();
@@ -1919,11 +1929,11 @@ namespace ed
   {
       if(k.sp == Special::SPECIAL_ESC)
       {
-          pendCount   = 0;
-          pendOp      = 0;
-          pendFind    = 0;
+          pendCount = 0;
+          pendOp = 0;
+          pendFind = 0;
           pendObjKind = 0;
-          pendMark    = 0;
+          pendMark = 0;
           pendOpCount = 0;
           return;
       }
@@ -1980,13 +1990,13 @@ namespace ed
       if(k.ctrl && (c == 'd' || c == 'D'))
       {
           cur.line = std::min(lineCount() - 1, cur.line + std::max(1, viewSpan / 2));
-          cur.col  = indentOf(cur.line);
+          cur.col = indentOf(cur.line);
           return;
       }
       if(k.ctrl && (c == 'u' || c == 'U'))
       {
           cur.line = std::max(0, cur.line - std::max(1, viewSpan / 2));
-          cur.col  = indentOf(cur.line);
+          cur.col = indentOf(cur.line);
           return;
       }
 
@@ -2013,7 +2023,7 @@ namespace ed
           if(c == 'g')
           {
               cur.line = (pendCount > 0) ? std::min(lineCount() - 1, pendCount - 1) : 0;
-              cur.col  = indentOf(cur.line);
+              cur.col = indentOf(cur.line);
           }
           else if(c == 'e')
           {
@@ -2046,10 +2056,10 @@ namespace ed
           const Char cmd = pendFind;
           pendFind = 0;
 
-          const Char op    = pendOp;
+          const Char op = pendOp;
           const Int32 total = std::max(1, pendCount) * std::max(1, pendOpCount);
-          pendOp      = 0;
-          pendCount   = 0;
+          pendOp = 0;
+          pendCount = 0;
           pendOpCount = 0;
 
           if(c < 32 || c >= 127)
@@ -2057,7 +2067,7 @@ namespace ed
               return;
           }
 
-          lastFindCmd  = cmd;
+          lastFindCmd = cmd;
           lastFindChar = c;
 
           Cursor to;
@@ -2086,8 +2096,8 @@ namespace ed
           pendObjKind = 0;
 
           const Char op = pendOp;
-          pendOp      = 0;
-          pendCount   = 0;
+          pendOp = 0;
+          pendCount = 0;
           pendOpCount = 0;
 
           Cursor a;
@@ -2107,7 +2117,7 @@ namespace ed
           pendMark = 0;
 
           const Char op = pendOp;
-          pendOp    = 0;
+          pendOp = 0;
           pendCount = 0;
 
           if(c < 32 || c >= 127)
@@ -2214,15 +2224,15 @@ namespace ed
           const Int32 count = (pendCount == 0 && pendOpCount == 0)
                             ? 0
                             : (std::max(1, pendCount) * std::max(1, pendOpCount));
-          pendCount   = 0;
+          pendCount = 0;
           pendOpCount = 0;
 
           // Doubling the operator (dd, cc, yy, >>, <<) acts on whole lines.
           if(c == op)
           {
-              const Int32 n    = std::max(1, count);
-              Cursor      a    = Cursor{ cur.line, 0 };
-              Cursor      b    = Cursor{ std::min(lineCount() - 1, cur.line + n - 1), 0 };
+              const Int32 n = std::max(1, count);
+              Cursor      a = Cursor{ cur.line, 0 };
+              Cursor      b = Cursor{ std::min(lineCount() - 1, cur.line + n - 1), 0 };
 
               if(op == '>' || op == '<')
               {
@@ -2287,7 +2297,7 @@ namespace ed
           Bool   linewise = false;
           if(motion(c, count, to, linewise))
           {
-              cur       = to;
+              cur = to;
               pendCount = 0;
               return;
           }
@@ -2315,10 +2325,9 @@ namespace ed
       {
           pushUndo();
           const Int32 ind = indentOf(cur.line);
-          const Str&  s   = line(cur.line);
+          const Str&  s = line(cur.line);
           const Int32 extra = (!s.empty() && s[s.size() - 1] == '{') ? INDENT : 0;
-          lines.insert(lines.begin() + cur.line + 1,
-                       Str(static_cast<Size>(ind + extra), ' '));
+          lines.insert(lines.begin() + cur.line + 1, Str(static_cast<Size>(ind + extra), ' '));
           ++cur.line;
           cur.col = ind + extra;
           setMode(Mode::MODE_INSERT);
@@ -2400,7 +2409,7 @@ namespace ed
           if(cur.line + 1 < lineCount())
           {
               pushUndo();
-              Str& s    = lines[static_cast<Size>(cur.line)];
+              Str& s = lines[static_cast<Size>(cur.line)];
               Str  next = lines[static_cast<Size>(cur.line + 1)];
 
               Size cut = 0;
@@ -2466,7 +2475,7 @@ namespace ed
           {
               break;
           }
-          lastSearch    = w;
+          lastSearch = w;
           searchForward = (c == '*');
           runSearch(lastSearch, searchForward, count);
           break;
@@ -2633,7 +2642,7 @@ namespace ed
           Bool   linewise = false;
           if(motion(c, pendCount, to, linewise))
           {
-              cur       = to;
+              cur = to;
               pendCount = 0;
               return;
           }
@@ -2714,7 +2723,7 @@ namespace ed
               const Bool fwd = (cmdPrefix == '/');
               if(!cmdLine.empty())
               {
-                  lastSearch    = cmdLine;
+                  lastSearch = cmdLine;
                   searchForward = fwd;
               }
               setMode(Mode::MODE_NORMAL);
@@ -2730,8 +2739,8 @@ namespace ed
           if(!cmdLine.empty() && cmdLine.find_first_not_of("0123456789") == Str::npos)
           {
               const Int32 n = std::atoi(cmdLine.c_str());
-              cur.line  = std::max(0, std::min(lineCount() - 1, n - 1));
-              cur.col   = indentOf(cur.line);
+              cur.line = std::max(0, std::min(lineCount() - 1, n - 1));
+              cur.col = indentOf(cur.line);
               submitted.clear();
           }
           // :s and :%s likewise - substitution is buffer work, not file work.

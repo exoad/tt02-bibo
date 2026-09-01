@@ -43,8 +43,8 @@ namespace bibo::geom
      */
     struct Pose
     {
-        Float32 x       = 0.0f;
-        Float32 y       = 0.0f;
+        Float32 x = 0.0f;
+        Float32 y = 0.0f;
         Float32 heading = 0.0f;
     };
 

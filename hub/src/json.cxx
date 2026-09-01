@@ -24,7 +24,7 @@ namespace js
     struct Reader
     {
         const Str* src = nullptr;
-        Size       at  = 0;
+        Size       at = 0;
         Bool       bad = false;
 
         [[nodiscard]] Bool done() const
@@ -217,13 +217,13 @@ namespace js
                             else
                             {
                                 r.at = save;
-                                cp   = 0xFFFDu;
+                                cp = 0xFFFDu;
                             }
                         }
                         else
                         {
                             r.at = save;
-                            cp   = 0xFFFDu;
+                            cp = 0xFFFDu;
                         }
                     }
                     else
@@ -361,13 +361,13 @@ namespace js
         else if(r.src->compare(r.at, 4, "true") == 0)
         {
             out.type = Type::TYPE_BOOL;
-            out.b    = true;
+            out.b = true;
             r.at += 4;
         }
         else if(r.src->compare(r.at, 5, "false") == 0)
         {
             out.type = Type::TYPE_BOOL;
-            out.b    = false;
+            out.b = false;
             r.at += 5;
         }
         else if(r.src->compare(r.at, 4, "null") == 0)
@@ -396,8 +396,7 @@ namespace js
                 }
             }
             out.type = Type::TYPE_NUMBER;
-            out.num  = std::strtod(r.src->substr(begin, r.at - begin).c_str(),
-                                   nullptr);
+            out.num = std::strtod(r.src->substr(begin, r.at - begin).c_str(), nullptr);
         }
         else
         {
@@ -451,7 +450,7 @@ namespace js
       Value out;
       parseValue(r, out);
 
-      ok        = !r.bad;
+      ok = !r.bad;
       stoppedAt = r.at;
 
       if(!ok)
@@ -499,8 +498,12 @@ namespace js
               if(static_cast<UInt8>(c) < 0x20u)
               {
                   Array<Char, 8> buf;
-                  std::snprintf(buf.data(), buf.size(), "\\u%04X",
-                                static_cast<UInt32>(static_cast<UInt8>(c)));
+                  std::snprintf(
+                      buf.data(),
+                      buf.size(),
+                      "\\u%04X",
+                      static_cast<UInt32>(static_cast<UInt8>(c))
+                  );
                   out += buf.data();
               }
               else

@@ -76,10 +76,10 @@ namespace bibo::kin
     struct Config
     {
         Float32 wheelbase = KIN_WHEELBASE_M;   /* meters, front axle to rear */
-        Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, the smaller lock  */
+        Float32 maxSteer = KIN_MAX_STEER_RAD; /* radians, the smaller lock  */
 
         /* As with odometry: a claim the person who measured makes. */
-        Bool    measured  = false;
+        Bool    measured = false;
     };
 
     inline Config tuning;
@@ -238,15 +238,20 @@ namespace bibo::kin
      * @return the pose after driving the arc for dtS seconds; unchanged from
      *         `p` when dtS or wheelbase is not positive
      */
-    inline geom::Pose integrate(const geom::Pose& p, const Float32 v, const Float32 steerRad,
-                                const Float32 wheelbase, const Float32 dtS)
+    inline geom::Pose integrate(
+        const geom::Pose& p,
+        const Float32 v,
+        const Float32 steerRad,
+        const Float32 wheelbase,
+        const Float32 dtS
+    )
     {
         if(dtS <= 0.0f || wheelbase <= 0.0f)
         {
             return p;
         }
 
-        const Float32 ds     = v * dtS;                                /* meters */
+        const Float32 ds = v * dtS;                                /* meters */
         const Float32 dTheta = ds * tanf(steerRad) / wheelbase;      /* radians */
 
         geom::Pose out = p;
@@ -260,7 +265,7 @@ namespace bibo::kin
         else
         {
             const Float32 radius = ds / dTheta;
-            const Float32 next   = p.heading + dTheta;
+            const Float32 next = p.heading + dTheta;
 
             out.x += radius * (sinf(next) - sinf(p.heading));
             out.y -= radius * (cosf(next) - cosf(p.heading));
@@ -330,7 +335,12 @@ namespace bibo::kin
      * @param dtS the step duration, seconds; must be positive
      * @return the pose after driving the arc for dtS seconds
      */
-    inline geom::Pose integrate(const geom::Pose& p, const Float32 v, const Float32 steerRad, const Float32 dtS)
+    inline geom::Pose integrate(
+        const geom::Pose& p,
+        const Float32 v,
+        const Float32 steerRad,
+        const Float32 dtS
+    )
     {
         return integrate(p, v, steerRad, tuning.wheelbase, dtS);
     }

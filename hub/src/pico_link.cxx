@@ -39,9 +39,9 @@ namespace
   // --- tunables ---------------------------------------------------------------
 
   constexpr Size MAX_LOG_LINES = 4000;   // bounded backlog; oldest dropped
-  constexpr Size MAX_TX_QUEUE  = 1024;   // bounded send queue
-  constexpr Size MAX_LINE_LEN  = 2048;   // longer input lines are truncated
-  constexpr DWORD  READ_CHUNK   = 4096;
+  constexpr Size MAX_TX_QUEUE = 1024;   // bounded send queue
+  constexpr Size MAX_LINE_LEN = 2048;   // longer input lines are truncated
+  constexpr DWORD  READ_CHUNK = 4096;
   constexpr DWORD  READ_TIMEOUT_MS = 30;   // read wakeup period == send latency
   constexpr Int32    DEFAULT_BAUD = 115200;
 
@@ -76,7 +76,13 @@ namespace
       }
 
       Array<Char, 64> buf;
-      _snprintf_s(buf.data(), buf.size(), _TRUNCATE, " (error %lu)", static_cast<unsigned long>(code));
+      _snprintf_s(
+          buf.data(),
+          buf.size(),
+          _TRUNCATE,
+          " (error %lu)",
+          static_cast<unsigned long>(code)
+      );
 
       Str out = what;
       if(!tail.empty())
@@ -166,10 +172,10 @@ namespace
       Void pushLine(Bool outgoing, Str text, Bool poll = false)
       {
           PicoLine ln;
-          ln.tS      = elapsedS();
+          ln.tS = elapsedS();
           ln.outgoing = outgoing;
-          ln.text     = std::move(text);
-          ln.poll     = poll;
+          ln.text = std::move(text);
+          ln.poll = poll;
 
           LockGuard<Mutex> lk(mu);
           log.push_back(std::move(ln));
@@ -213,23 +219,23 @@ namespace
           return false;
       }
 
-      dcb.BaudRate         = static_cast<DWORD>(baud);
-      dcb.ByteSize         = 8;
-      dcb.Parity           = NOPARITY;
-      dcb.StopBits         = ONESTOPBIT;
-      dcb.fBinary          = TRUE;
-      dcb.fParity          = FALSE;
-      dcb.fOutxCtsFlow     = FALSE;
-      dcb.fOutxDsrFlow     = FALSE;
-      dcb.fDsrSensitivity  = FALSE;
+      dcb.BaudRate = static_cast<DWORD>(baud);
+      dcb.ByteSize = 8;
+      dcb.Parity = NOPARITY;
+      dcb.StopBits = ONESTOPBIT;
+      dcb.fBinary = TRUE;
+      dcb.fParity = FALSE;
+      dcb.fOutxCtsFlow = FALSE;
+      dcb.fOutxDsrFlow = FALSE;
+      dcb.fDsrSensitivity = FALSE;
       dcb.fTXContinueOnXoff= TRUE;
-      dcb.fOutX            = FALSE;
-      dcb.fInX             = FALSE;
-      dcb.fErrorChar       = FALSE;
-      dcb.fNull            = FALSE;
-      dcb.fAbortOnError    = FALSE;
-      dcb.fDtrControl      = assertDtr ? DTR_CONTROL_ENABLE : DTR_CONTROL_DISABLE;
-      dcb.fRtsControl      = assertDtr ? RTS_CONTROL_ENABLE : RTS_CONTROL_DISABLE;
+      dcb.fOutX = FALSE;
+      dcb.fInX = FALSE;
+      dcb.fErrorChar = FALSE;
+      dcb.fNull = FALSE;
+      dcb.fAbortOnError = FALSE;
+      dcb.fDtrControl = assertDtr ? DTR_CONTROL_ENABLE : DTR_CONTROL_DISABLE;
+      dcb.fRtsControl = assertDtr ? RTS_CONTROL_ENABLE : RTS_CONTROL_DISABLE;
 
       if(!SetCommState(h, &dcb))
       {
@@ -268,8 +274,7 @@ namespace
       HashSet<Str> out;
 
       HKEY key = nullptr;
-      if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0,
-                        KEY_READ, &key) != ERROR_SUCCESS)
+      if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &key) != ERROR_SUCCESS)
       {
           return out;
       }
@@ -280,9 +285,18 @@ namespace
           BYTE  data[512];
           DWORD nameLen = static_cast<DWORD>(name.size());
           DWORD dataLen = static_cast<DWORD>(sizeof(data));
-          DWORD type     = 0;
+          DWORD type = 0;
 
-          LONG rc = RegEnumValueA(key, i, name.data(), &nameLen, nullptr, &type, data, &dataLen);
+          LONG rc = RegEnumValueA(
+              key,
+              i,
+              name.data(),
+              &nameLen,
+              nullptr,
+              &type,
+              data,
+              &dataLen
+          );
           if(rc == ERROR_NO_MORE_ITEMS)
           {
               break;
@@ -317,10 +331,16 @@ namespace
       }
 
       Array<Char, 128> buf;
-      DWORD len  = static_cast<DWORD>(buf.size());
+      DWORD len = static_cast<DWORD>(buf.size());
       DWORD type = 0;
-      LONG  rc   = RegQueryValueExA(k, "PortName", nullptr, &type,
-                                    reinterpret_cast<BYTE*>(buf.data()), &len);
+      LONG  rc = RegQueryValueExA(
+          k,
+          "PortName",
+          nullptr,
+          &type,
+          reinterpret_cast<BYTE*>(buf.data()),
+          &len
+      );
       RegCloseKey(k);
 
       if(rc != ERROR_SUCCESS || type != REG_SZ || len == 0)
@@ -339,8 +359,13 @@ namespace
   Void enumViaRegistry(Vec<Str>& out)
   {
       HKEY usb = nullptr;
-      if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Enum\\USB", 0,
-                        KEY_READ, &usb) != ERROR_SUCCESS)
+      if(RegOpenKeyExA(
+          HKEY_LOCAL_MACHINE,
+          "SYSTEM\\CurrentControlSet\\Enum\\USB",
+          0,
+          KEY_READ,
+          &usb
+      ) != ERROR_SUCCESS)
       {
           return;
       }
@@ -349,7 +374,16 @@ namespace
       {
           Array<Char, 512> dev;
           DWORD devLen = static_cast<DWORD>(dev.size());
-          LONG  rc = RegEnumKeyExA(usb, i, dev.data(), &devLen, nullptr, nullptr, nullptr, nullptr);
+          LONG  rc = RegEnumKeyExA(
+              usb,
+              i,
+              dev.data(),
+              &devLen,
+              nullptr,
+              nullptr,
+              nullptr,
+              nullptr
+          );
           if(rc != ERROR_SUCCESS)
           {
               break;
@@ -369,7 +403,16 @@ namespace
           {
               Array<Char, 512> inst;
               DWORD instLen = static_cast<DWORD>(inst.size());
-              if(RegEnumKeyExA(devk, j, inst.data(), &instLen, nullptr, nullptr, nullptr, nullptr)
+              if(RegEnumKeyExA(
+                  devk,
+                  j,
+                  inst.data(),
+                  &instLen,
+                  nullptr,
+                  nullptr,
+                  nullptr,
+                  nullptr
+              )
                   != ERROR_SUCCESS)
               {
                   break;
@@ -428,11 +471,16 @@ namespace
       for(DWORD i = 0; SetupDiEnumDeviceInfo(set, i, &info); ++i)
       {
           Array<Char, 1024> hwid= {0};
-          DWORD hwidLen   = 0;
-          if(!SetupDiGetDeviceRegistryPropertyA(set, &info, SPDRP_HARDWAREID, nullptr,
-                                                 reinterpret_cast<BYTE*>(hwid.data()),
-                                                 static_cast<DWORD>(hwid.size() - 2),
-                                                 &hwidLen))
+          DWORD hwidLen = 0;
+          if(!SetupDiGetDeviceRegistryPropertyA(
+              set,
+              &info,
+              SPDRP_HARDWAREID,
+              nullptr,
+              reinterpret_cast<BYTE*>(hwid.data()),
+              static_cast<DWORD>(hwid.size() - 2),
+              &hwidLen
+          ))
           {
               continue;
           }
@@ -459,9 +507,16 @@ namespace
           }
 
           Array<Char, 128> buf;
-          DWORD len  = static_cast<DWORD>(buf.size());
+          DWORD len = static_cast<DWORD>(buf.size());
           DWORD type = 0;
-          if(RegQueryValueExA(k, "PortName", nullptr, &type, reinterpret_cast<BYTE*>(buf.data()), &len)
+          if(RegQueryValueExA(
+              k,
+              "PortName",
+              nullptr,
+              &type,
+              reinterpret_cast<BYTE*>(buf.data()),
+              &len
+          )
                   == ERROR_SUCCESS &&
               type == REG_SZ && len > 0)
           {
@@ -553,7 +608,7 @@ namespace
       sockaddr_in peer;
       ZeroMemory(&peer, sizeof(peer));
       peer.sin_family = AF_INET;
-      peer.sin_port   = htons(port);
+      peer.sin_port = htons(port);
       if(inet_pton(AF_INET, host.c_str(), &peer.sin_addr) != 1)
       {
           setErrorIf(myGen, "not an IPv4 address: " + host);
@@ -564,9 +619,7 @@ namespace
       SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
       if(s == INVALID_SOCKET)
       {
-          setErrorIf(myGen,
-                     winErrText("socket failed",
-                                static_cast<DWORD>(WSAGetLastError())));
+          setErrorIf(myGen, winErrText("socket failed", static_cast<DWORD>(WSAGetLastError())));
           setStateIf(myGen, PicoState::PICO_STATE_ERROR);
           return;
       }
@@ -583,8 +636,13 @@ namespace
       // A timeout rather than a blocking read, so the transmit queue is looked at
       // even when the board is saying nothing.
       DWORD rcvTimeout = static_cast<DWORD>(UDP_RECV_TIMEOUT_MS);
-      setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
-                 reinterpret_cast<const Char*>(&rcvTimeout), sizeof(rcvTimeout));
+      setsockopt(
+          s,
+          SOL_SOCKET,
+          SO_RCVTIMEO,
+          reinterpret_cast<const Char*>(&rcvTimeout),
+          sizeof(rcvTimeout)
+      );
 
       // No bind: an unbound UDP socket picks an ephemeral local port on the first
       // send, and the board replies to whatever it hears from.
@@ -659,9 +717,14 @@ namespace
       auto sendLine = [&](const Str& line) -> Bool
       {
           const Int32 n = static_cast<Int32>(line.size());
-          return sendto(s, line.data(), n, 0,
-                        reinterpret_cast<const sockaddr*>(&peer),
-                        static_cast<Int32>(sizeof(peer))) == n;
+          return sendto(
+              s,
+              line.data(),
+              n,
+              0,
+              reinterpret_cast<const sockaddr*>(&peer),
+              static_cast<Int32>(sizeof(peer))
+          ) == n;
       };
 
       Float64 lastHelloS = -1.0;
@@ -694,9 +757,10 @@ namespace
               {
                   // A failed sendto on UDP is a LOCAL problem - no route, no
                   // adapter - not the peer refusing, so the link stays up.
-                  setErrorIf(myGen,
-                             winErrText("send failed",
-                                        static_cast<DWORD>(WSAGetLastError())));
+                  setErrorIf(
+                      myGen,
+                      winErrText("send failed", static_cast<DWORD>(WSAGetLastError()))
+                  );
                   continue;
               }
               tx.fetch_add(1, std::memory_order_relaxed);
@@ -739,9 +803,7 @@ namespace
               {
                   // WSAECONNRESET on a UDP socket is an ICMP port-unreachable,
                   // which happens on every board reset - a silence, not a fault.
-                  setErrorIf(myGen,
-                             winErrText("receive failed",
-                                        static_cast<DWORD>(code)));
+                  setErrorIf(myGen, winErrText("receive failed", static_cast<DWORD>(code)));
                   setStateIf(myGen, PicoState::PICO_STATE_ERROR);
                   break;
               }
@@ -755,8 +817,7 @@ namespace
               {
                   setErrorIf(myGen,
                              "no reply from " + host + " for "
-                                 + std::to_string(
-                                       static_cast<Int32>(UDP_SILENCE_LIMIT_S))
+                                 + std::to_string(static_cast<Int32>(UDP_SILENCE_LIMIT_S))
                                  + " s - out of range, powered down, or rebooted");
                   setStateIf(myGen, PicoState::PICO_STATE_UNPLUGGED);
                   break;
@@ -806,7 +867,7 @@ namespace
 
           {
               const DWORD     code = ::GetLastError();
-              const dev::Loss why  = dev::classify(port, code);
+              const dev::Loss why = dev::classify(port, code);
               if(why == dev::Loss::LOSS_UNPLUGGED)
               {
                   setErrorIf(myGen, dev::describe(why, "Pico", port));
@@ -834,11 +895,11 @@ namespace
       // "return as soon as anything is there, else give up after N ms" recipe.
       COMMTIMEOUTS to;
       ZeroMemory(&to, sizeof(to));
-      to.ReadIntervalTimeout         = MAXDWORD;
-      to.ReadTotalTimeoutMultiplier  = MAXDWORD;
-      to.ReadTotalTimeoutConstant    = READ_TIMEOUT_MS;
+      to.ReadIntervalTimeout = MAXDWORD;
+      to.ReadTotalTimeoutMultiplier = MAXDWORD;
+      to.ReadTotalTimeoutConstant = READ_TIMEOUT_MS;
       to.WriteTotalTimeoutMultiplier = 0;
-      to.WriteTotalTimeoutConstant   = 1000;
+      to.WriteTotalTimeoutConstant = 1000;
       if(!SetCommTimeouts(h, &to))
       {
           setErrorIf(myGen, winErrText("SetCommTimeouts failed", GetLastError()));
@@ -861,7 +922,7 @@ namespace
 
       Str accum;          // partial line carried across reads
       Bool        pendingCr = false;
-      Bool        overlong   = false;
+      Bool        overlong = false;
       Vec<Char> buf(READ_CHUNK);
 
       auto emit = [&](Str text)
@@ -886,9 +947,9 @@ namespace
           Bool writeFailed = false;
           for(auto& item : outbound)
           {
-              Str&        line    = item.text;
+              Str&        line = item.text;
               DWORD       written = 0;
-              const DWORD n       = static_cast<DWORD>(line.size());
+              const DWORD n = static_cast<DWORD>(line.size());
               if(!WriteFile(h, line.data(), n, &written, nullptr) || written != n)
               {
                   setErrorIf(myGen, winErrText("write failed", GetLastError()));
@@ -1098,8 +1159,7 @@ Void PicoLink::connect(const Str& port, Int32 baud)
     LinkImplBody* raw = pimpl;   // Impl derives from LinkImplBody
     try
     {
-        pimpl->worker = Thread(LinkImpl_run_trampoline, raw, port, useBaud,
-                               myGen);
+        pimpl->worker = Thread(LinkImpl_run_trampoline, raw, port, useBaud, myGen);
     }
     catch(...)
     {
@@ -1149,8 +1209,7 @@ Void PicoLink::connectUdp(const Str& host, UInt16 port)
     LinkImplBody* raw = pimpl;
     try
     {
-        pimpl->worker = Thread(LinkImpl_runUdp_trampoline, raw, host, port,
-                               myGen);
+        pimpl->worker = Thread(LinkImpl_runUdp_trampoline, raw, host, port, myGen);
     }
     catch(...)
     {
@@ -1381,8 +1440,15 @@ Bool PicoLink::bootselTouch(const Str& port)
 
     const Str path = devicePath(port);
 
-    HANDLE h = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                           OPEN_EXISTING, 0, nullptr);
+    HANDLE h = CreateFileA(
+        path.c_str(),
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_EXISTING,
+        0,
+        nullptr
+    );
     if(h == INVALID_HANDLE_VALUE)
     {
         return false;   // the only failure the contract reports

@@ -17,24 +17,24 @@ namespace ui
     // Pulled down a step for density; at 1.5x DPI the body face lands at ~22
     // physical px.
     inline constexpr Float32 SMALL = 13.0f;   // captions, axis labels, HUD
-    inline constexpr Float32 BODY  = 15.0f;   // default UI text
+    inline constexpr Float32 BODY = 15.0f;   // default UI text
     inline constexpr Float32 TITLE = 17.0f;   // section headings
-    inline constexpr Float32 STAT  = 21.0f;   // metric values
-    inline constexpr Float32 BIG   = 26.0f;   // hero numerals
-    inline constexpr Float32 CODE  = 15.0f;   // source text in the editor
+    inline constexpr Float32 STAT = 21.0f;   // metric values
+    inline constexpr Float32 BIG = 26.0f;   // hero numerals
+    inline constexpr Float32 CODE = 15.0f;   // source text in the editor
   }
 
   struct Fonts
   {
       ImFont* small = nullptr;
-      ImFont* body  = nullptr;
+      ImFont* body = nullptr;
       ImFont* title = nullptr;
-      ImFont* stat  = nullptr;
-      ImFont* big   = nullptr;
+      ImFont* stat = nullptr;
+      ImFont* big = nullptr;
 
       // Monospaced, for the code editor and anywhere a column must line up. Falls
       // back to `body` if no mono face is installed.
-      ImFont* mono  = nullptr;
+      ImFont* mono = nullptr;
   };
 
   extern Fonts fonts;
@@ -56,49 +56,49 @@ namespace ui
   {
 
     // ---- the sixteen -------------------------------------------------------
-    inline constexpr ImU32 BLACK     = IM_COL32(0x00, 0x00, 0x00, 0xFF);
-    inline constexpr ImU32 RED       = IM_COL32(0xCD, 0x00, 0x00, 0xFF);
-    inline constexpr ImU32 GREEN     = IM_COL32(0x00, 0xCD, 0x00, 0xFF);
-    inline constexpr ImU32 YELLOW    = IM_COL32(0xCD, 0xCD, 0x00, 0xFF);
-    inline constexpr ImU32 BLUE      = IM_COL32(0x00, 0x00, 0xEE, 0xFF);
-    inline constexpr ImU32 MAGENTA   = IM_COL32(0xCD, 0x00, 0xCD, 0xFF);
-    inline constexpr ImU32 CYAN      = IM_COL32(0x00, 0xCD, 0xCD, 0xFF);
-    inline constexpr ImU32 WHITE     = IM_COL32(0xE5, 0xE5, 0xE5, 0xFF);
+    inline constexpr ImU32 BLACK = IM_COL32(0x00, 0x00, 0x00, 0xFF);
+    inline constexpr ImU32 RED = IM_COL32(0xCD, 0x00, 0x00, 0xFF);
+    inline constexpr ImU32 GREEN = IM_COL32(0x00, 0xCD, 0x00, 0xFF);
+    inline constexpr ImU32 YELLOW = IM_COL32(0xCD, 0xCD, 0x00, 0xFF);
+    inline constexpr ImU32 BLUE = IM_COL32(0x00, 0x00, 0xEE, 0xFF);
+    inline constexpr ImU32 MAGENTA = IM_COL32(0xCD, 0x00, 0xCD, 0xFF);
+    inline constexpr ImU32 CYAN = IM_COL32(0x00, 0xCD, 0xCD, 0xFF);
+    inline constexpr ImU32 WHITE = IM_COL32(0xE5, 0xE5, 0xE5, 0xFF);
 
-    inline constexpr ImU32 GRAY      = IM_COL32(0x7F, 0x7F, 0x7F, 0xFF);
-    inline constexpr ImU32 BRRED     = IM_COL32(0xFF, 0x00, 0x00, 0xFF);
-    inline constexpr ImU32 BRGREEN   = IM_COL32(0x00, 0xFF, 0x00, 0xFF);
-    inline constexpr ImU32 BRYELLOW  = IM_COL32(0xFF, 0xFF, 0x00, 0xFF);
-    inline constexpr ImU32 BRBLUE    = IM_COL32(0x5C, 0x5C, 0xFF, 0xFF);
+    inline constexpr ImU32 GRAY = IM_COL32(0x7F, 0x7F, 0x7F, 0xFF);
+    inline constexpr ImU32 BRRED = IM_COL32(0xFF, 0x00, 0x00, 0xFF);
+    inline constexpr ImU32 BRGREEN = IM_COL32(0x00, 0xFF, 0x00, 0xFF);
+    inline constexpr ImU32 BRYELLOW = IM_COL32(0xFF, 0xFF, 0x00, 0xFF);
+    inline constexpr ImU32 BRBLUE = IM_COL32(0x5C, 0x5C, 0xFF, 0xFF);
     inline constexpr ImU32 BRMAGENTA = IM_COL32(0xFF, 0x00, 0xFF, 0xFF);
-    inline constexpr ImU32 BRCYAN    = IM_COL32(0x00, 0xFF, 0xFF, 0xFF);
-    inline constexpr ImU32 BRWHITE   = IM_COL32(0xFF, 0xFF, 0xFF, 0xFF);
+    inline constexpr ImU32 BRCYAN = IM_COL32(0x00, 0xFF, 0xFF, 0xFF);
+    inline constexpr ImU32 BRWHITE = IM_COL32(0xFF, 0xFF, 0xFF, 0xFF);
 
     // ---- what each one means on the map ------------------------------------
 
     // Distance: red near, yellow mid, green far - a traffic light. NOT cyan at the
     // far end: cyan is the heading marker.
     inline constexpr ImU32 RAMP_NEAR = BRRED;
-    inline constexpr ImU32 RAMP_MID  = BRYELLOW;
-    inline constexpr ImU32 RAMP_FAR  = BRGREEN;
+    inline constexpr ImU32 RAMP_MID = BRYELLOW;
+    inline constexpr ImU32 RAMP_FAR = BRGREEN;
 
     // Furniture. GRID and AXIS are the ONE allowed departure from the sixteen: a
     // range grid at full brightness competes with the returns it measures. Still
     // neutral, not tinted.
-    inline constexpr ImU32 GRID       = IM_COL32(0x3A, 0x3A, 0x3A, 0xFF);
+    inline constexpr ImU32 GRID = IM_COL32(0x3A, 0x3A, 0x3A, 0xFF);
     inline constexpr ImU32 GRID_MAJOR = GRAY;
-    inline constexpr ImU32 AXIS       = IM_COL32(0x26, 0x26, 0x26, 0xFF);
+    inline constexpr ImU32 AXIS = IM_COL32(0x26, 0x26, 0x26, 0xFF);
 
-    inline constexpr ImU32 LABEL      = WHITE;
-    inline constexpr ImU32 HEADING    = BRCYAN;
-    inline constexpr ImU32 NEAREST    = BRRED;
-    inline constexpr ImU32 MEASURE    = BRYELLOW;
+    inline constexpr ImU32 LABEL = WHITE;
+    inline constexpr ImU32 HEADING = BRCYAN;
+    inline constexpr ImU32 NEAREST = BRRED;
+    inline constexpr ImU32 MEASURE = BRYELLOW;
 
     // Status, on the map.
-    inline constexpr ImU32 OK    = BRGREEN;
-    inline constexpr ImU32 WARN  = BRYELLOW;
-    inline constexpr ImU32 BAD   = BRRED;
-    inline constexpr ImU32 IDLE  = GRAY;
+    inline constexpr ImU32 OK = BRGREEN;
+    inline constexpr ImU32 WARN = BRYELLOW;
+    inline constexpr ImU32 BAD = BRRED;
+    inline constexpr ImU32 IDLE = GRAY;
 
   }
 
@@ -109,25 +109,25 @@ namespace ui
     // is ONE palette in this program - do not reintroduce a second, softer set.
 
     inline constexpr ImU32 RAMP_NEAR = ansi::RAMP_NEAR;
-    inline constexpr ImU32 RAMP_MID  = ansi::RAMP_MID;
-    inline constexpr ImU32 RAMP_FAR  = ansi::RAMP_FAR;
+    inline constexpr ImU32 RAMP_MID = ansi::RAMP_MID;
+    inline constexpr ImU32 RAMP_FAR = ansi::RAMP_FAR;
 
-    inline constexpr ImU32 GRID       = ansi::GRID;
+    inline constexpr ImU32 GRID = ansi::GRID;
     inline constexpr ImU32 GRID_MAJOR = ansi::GRID_MAJOR;
-    inline constexpr ImU32 AXIS       = ansi::AXIS;
-    inline constexpr ImU32 LABEL      = ansi::LABEL;
-    inline constexpr ImU32 HEADING    = ansi::HEADING;
-    inline constexpr ImU32 HUB        = ansi::BRCYAN;
-    inline constexpr ImU32 HUB_CORE   = ansi::BRWHITE;
-    inline constexpr ImU32 NEAREST    = ansi::NEAREST;
-    inline constexpr ImU32 MEASURE    = ansi::MEASURE;
+    inline constexpr ImU32 AXIS = ansi::AXIS;
+    inline constexpr ImU32 LABEL = ansi::LABEL;
+    inline constexpr ImU32 HEADING = ansi::HEADING;
+    inline constexpr ImU32 HUB = ansi::BRCYAN;
+    inline constexpr ImU32 HUB_CORE = ansi::BRWHITE;
+    inline constexpr ImU32 NEAREST = ansi::NEAREST;
+    inline constexpr ImU32 MEASURE = ansi::MEASURE;
 
-    inline constexpr ImU32 OK      = ansi::OK;
-    inline constexpr ImU32 WARN    = ansi::WARN;
-    inline constexpr ImU32 BAD     = ansi::BAD;
-    inline constexpr ImU32 IDLE    = ansi::IDLE;
+    inline constexpr ImU32 OK = ansi::OK;
+    inline constexpr ImU32 WARN = ansi::WARN;
+    inline constexpr ImU32 BAD = ansi::BAD;
+    inline constexpr ImU32 IDLE = ansi::IDLE;
 
-    inline constexpr ImU32 ACCENT  = ansi::BRCYAN;
+    inline constexpr ImU32 ACCENT = ansi::BRCYAN;
 
   }
 
@@ -136,8 +136,8 @@ namespace ui
   namespace accent
   {
 
-    inline constexpr ImU32 CYAN      = ansi::CYAN;
-    inline constexpr ImU32 CYAN_HI   = ansi::BRCYAN;
+    inline constexpr ImU32 CYAN = ansi::CYAN;
+    inline constexpr ImU32 CYAN_HI = ansi::BRCYAN;
 
   }
 
@@ -149,8 +149,8 @@ namespace ui
   {
 
     inline constexpr ImU32 ASSIGNED = ansi::BRCYAN;                       // ours: strongest
-    inline constexpr ImU32 POWER    = ansi::GRAY;                        // structural: quiet
-    inline constexpr ImU32 FREE     = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);  // unused: quietest
+    inline constexpr ImU32 POWER = ansi::GRAY;                        // structural: quiet
+    inline constexpr ImU32 FREE = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);  // unused: quietest
 
   }
 
@@ -162,9 +162,9 @@ namespace ui
   {
 
     // Forwarded to the viewport set: one green means one thing everywhere.
-    inline constexpr ImU32 GOOD  = plot::OK;     // healthy, connected, in spec
-    inline constexpr ImU32 WARN  = plot::WARN;   // degraded, waiting, out of spec
-    inline constexpr ImU32 BAD   = plot::BAD;    // failed, disconnected, error
+    inline constexpr ImU32 GOOD = plot::OK;     // healthy, connected, in spec
+    inline constexpr ImU32 WARN = plot::WARN;   // degraded, waiting, out of spec
+    inline constexpr ImU32 BAD = plot::BAD;    // failed, disconnected, error
     inline constexpr ImU32 MUTED = plot::IDLE;   // absent, idle, not applicable
 
   }
@@ -195,8 +195,8 @@ namespace ui
   // says the display is, this is what the person wants. They MULTIPLY, and the
   // product is what every size derives from. Applied to fonts AND geometry
   // together: scaling only the type blows the layout apart.
-  inline constexpr Float32 USER_SCALE_MIN  = 0.75f;
-  inline constexpr Float32 USER_SCALE_MAX  = 2.00f;
+  inline constexpr Float32 USER_SCALE_MIN = 0.75f;
+  inline constexpr Float32 USER_SCALE_MAX = 2.00f;
   inline constexpr Float32 USER_SCALE_STEP = 0.05f;
 
   [[nodiscard]] Float32 userScale();

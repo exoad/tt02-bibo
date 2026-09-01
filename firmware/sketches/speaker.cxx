@@ -138,8 +138,8 @@ int main(Void)
      * the installed map rather than these three numbers.
      */
     pins::Map wiring;
-    wiring.soundTx   = SOUND_TX;
-    wiring.soundRx   = SOUND_RX;
+    wiring.soundTx = SOUND_TX;
+    wiring.soundRx = SOUND_RX;
     wiring.soundBusy = SOUND_BUSY;
 
     /*
@@ -154,10 +154,13 @@ int main(Void)
     }
 
     dfplayer::Bus sound;
-    dfplayer::open(&sound, uart0,
-                   pins::active().soundTx,
-                   pins::active().soundRx,
-                   pins::active().soundBusy);
+    dfplayer::open(
+        &sound,
+        uart0,
+        pins::active().soundTx,
+        pins::active().soundRx,
+        pins::active().soundBusy
+    );
 
     /*
      * Two seconds while the card mounts. A play sent before this is simply

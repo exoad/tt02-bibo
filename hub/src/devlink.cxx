@@ -100,7 +100,7 @@ namespace dev
               return ports;              // cannot tell; NOT "nothing attached"
           }
 
-          const Char* p   = buf.data();
+          const Char* p = buf.data();
           const Char* end = buf.data() + n;
           while(p < end && *p != '\0')
           {
@@ -169,8 +169,7 @@ namespace dev
       }
 
       HKEY key = nullptr;
-      if(::RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM",
-                         0, KEY_READ, &key) != ERROR_SUCCESS)
+      if(::RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &key) != ERROR_SUCCESS)
       {
           return PortKind::PORT_KIND_UNKNOWN;
       }
@@ -185,8 +184,16 @@ namespace dev
           DWORD dlen = static_cast<DWORD>(sizeof(data));
           DWORD type = 0;
 
-          const LONG r = ::RegEnumValueA(key, i, name.data(), &nlen, nullptr, &type,
-                                         data, &dlen);
+          const LONG r = ::RegEnumValueA(
+              key,
+              i,
+              name.data(),
+              &nlen,
+              nullptr,
+              &type,
+              data,
+              &dlen
+          );
           if(r != ERROR_SUCCESS)
           {
               break;

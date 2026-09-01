@@ -26,14 +26,14 @@ namespace mapgeo
   {
     WorldPt a{ 0.0f, 0.0f }, b{ 0.0f, 0.0f };
       Float32 lenMm = 0.0f;
-      Float32 deg   = 0.0f;    // 0 = up, undirected, [0,180)
+      Float32 deg = 0.0f;    // 0 = up, undirected, [0,180)
   };
 
   // Where two walls meet.
   struct Corner
   {
       Float32 x = 0.0f, y = 0.0f;
-      Float32 angDeg  = 0.0f;   // the included angle you would see
+      Float32 angDeg = 0.0f;   // the included angle you would see
       Float32 rangeMm = 0.0f;
       Float32 a0 = 0.0f, a1 = 0.0f;   // arm directions, radians, for drawing
   };
@@ -88,7 +88,7 @@ namespace mapgeo
   // ---------------------------------------------------------------------------
   inline constexpr Float32 CORNER_MIN_DEG = 35.0f;
   inline constexpr Float32 CORNER_NEAR_MM = 220.0f;
-  inline constexpr Size    CORNER_MAX     = 32u;
+  inline constexpr Size    CORNER_MAX = 32u;
 
   Void findCorners(const Vec<WallSeg>& w, Vec<Corner>& out, Float32 minRangeMm, Float32 maxRangeMm);
 
@@ -107,9 +107,9 @@ namespace mapgeo
   // ---------------------------------------------------------------------------
   struct PolarScan
   {
-      const Float32* r      = nullptr;   // free radius per bin, mm
-      const Bool*    seen   = nullptr;   // does this bin have evidence
-      Int32          bins   = 0;
+      const Float32* r = nullptr;   // free radius per bin, mm
+      const Bool*    seen = nullptr;   // does this bin have evidence
+      Int32          bins = 0;
       Float32        binDeg = 0.0f;
   };
 

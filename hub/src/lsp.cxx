@@ -265,7 +265,7 @@ namespace lsp
         Size i = 0;
         while(i <= raw.size())
         {
-            const Size nl   = raw.find('\n', i);
+            const Size nl = raw.find('\n', i);
             const Size stop = (nl == Str::npos) ? raw.size() : nl;
             Str        line = raw.substr(i, stop - i);
             while(!line.empty() && (line.back() == '\r' || line.back() == ' '))
@@ -325,7 +325,7 @@ namespace lsp
     struct Impl
     {
         // ---- the child ----
-        HANDLE proc    = nullptr;
+        HANDLE proc = nullptr;
         HANDLE toChild = nullptr;    // our end of its stdin
         HANDLE frChild = nullptr;    // our end of its stdout
 
@@ -404,9 +404,12 @@ namespace lsp
         Void send(const Str& body)
         {
             Array<Char, 64> head;
-            std::snprintf(head.data(), head.size(),
-                          "Content-Length: %llu\r\n\r\n",
-                          static_cast<unsigned long long>(body.size()));
+            std::snprintf(
+                head.data(),
+                head.size(),
+                "Content-Length: %llu\r\n\r\n",
+                static_cast<unsigned long long>(body.size())
+            );
 
             {
                 LockGuard<Mutex> lk(outMu);
@@ -452,9 +455,13 @@ namespace lsp
             while(written < msg.size())
             {
                 DWORD      got = 0;
-                const BOOL ok  = WriteFile(s.toChild, msg.data() + written,
-                                           static_cast<DWORD>(msg.size() - written),
-                                           &got, nullptr);
+                const BOOL ok = WriteFile(
+                    s.toChild,
+                    msg.data() + written,
+                    static_cast<DWORD>(msg.size() - written),
+                    &got,
+                    nullptr
+                );
                 if(!ok || got == 0)
                 {
                     return;   // the child is gone; readerLoop reports it
@@ -489,7 +496,7 @@ namespace lsp
         out.clear();
         for(;;)
         {
-            Char  c     = 0;
+            Char  c = 0;
             DWORD chunk = 0;
             if(!ReadFile(h, &c, 1, &chunk, nullptr) || chunk == 0)
             {
@@ -542,8 +549,7 @@ namespace lsp
                 // Case-insensitive: misreading the header name fails silently.
                 if(line.size() > 15 && _strnicmp(line.c_str(), "Content-Length:", 15) == 0)
                 {
-                    length = static_cast<Size>(std::strtoull(line.c_str() + 15,
-                                                             nullptr, 10));
+                    length = static_cast<Size>(std::strtoull(line.c_str() + 15, nullptr, 10));
                     sawLen = true;
                 }
             }
@@ -553,8 +559,10 @@ namespace lsp
                 // A stream whose framing is wrong cannot be resynchronised.
                 s.running.store(false);
                 s.st.store(State::STATE_FAILED);
-                s.sayf("clangd: bad frame header (length %llu)",
-                       static_cast<unsigned long long>(length));
+                s.sayf(
+                    "clangd: bad frame header (length %llu)",
+                    static_cast<unsigned long long>(length)
+                );
                 s.outCv.notify_one();
                 return;
             }
@@ -587,15 +595,17 @@ namespace lsp
             }
 
             // ---- the message ----
-            Bool      ok      = false;
+            Bool      ok = false;
             Size      stopped = 0;
-            js::Value msg     = js::parse(body, ok, stopped);
+            js::Value msg = js::parse(body, ok, stopped);
             if(!ok)
             {
                 // Carry on: the framing is still sound, because the length told us
                 // exactly where the message ended.
-                s.sayf("clangd: unreadable reply at byte %llu",
-                       static_cast<unsigned long long>(stopped));
+                s.sayf(
+                    "clangd: unreadable reply at byte %llu",
+                    static_cast<unsigned long long>(stopped)
+                );
                 continue;
             }
 
@@ -612,9 +622,12 @@ namespace lsp
         if(!msg.at("method").isNull() && !msg.at("id").isNull())
         {
             Array<Char, 96> buf;
-            std::snprintf(buf.data(), buf.size(),
-                          "{\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":null}",
-                          msg.at("id").integer());
+            std::snprintf(
+                buf.data(),
+                buf.size(),
+                "{\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":null}",
+                msg.at("id").integer()
+            );
             s.send(buf.data());
             return;
         }
@@ -630,7 +643,7 @@ namespace lsp
                 Str minePath;
                 {
                     LockGuard<Mutex> lk(s.uriMu);
-                    mine     = s.openUri;
+                    mine = s.openUri;
                     minePath = s.openPath;
                 }
                 if(!mine.empty() && sameUri(msg.at("params").at("uri").string(), mine))
@@ -655,7 +668,7 @@ namespace lsp
 
                         // LSP counts lines and characters from ZERO; diag::Item
                         // holds what a compiler said, and those count from one.
-                        it.line   = d.at("range").at("start").at("line").integer(0) + 1;
+                        it.line = d.at("range").at("start").at("line").integer(0) + 1;
                         it.column = d.at("range").at("start").at("character").integer(0) + 1;
 
                         // LSP severity: 1 error, 2 warning, 3 information,
@@ -679,7 +692,7 @@ namespace lsp
                     }
 
                     LockGuard<Mutex> lk(s.diagMu);
-                    s.diags      = got;
+                    s.diags = got;
                     s.diagsFresh = true;
                 }
             }
@@ -742,11 +755,11 @@ namespace lsp
             {
                 LockGuard<Mutex> lk(s.infoMu);
                 built.serial = s.info.serial + 1u;
-                built.path   = s.info.path;    // set by askInfo()
-                built.line   = s.info.line;
-                built.col    = s.info.col;
-                s.info       = std::move(built);
-                s.infoFresh  = true;
+                built.path = s.info.path;    // set by askInfo()
+                built.line = s.info.line;
+                built.col = s.info.col;
+                s.info = std::move(built);
+                s.infoFresh = true;
             }
             return;
         }
@@ -761,7 +774,7 @@ namespace lsp
         // The result is either a CompletionList (an object with `items`) or a
         // bare array. clangd sends the first; the protocol allows both.
         const js::Value& result = msg.at("result");
-        const js::Value& items  = result.isArray() ? result : result.at("items");
+        const js::Value& items = result.isArray() ? result : result.at("items");
 
         Answer built;
         built.items.reserve(items.size() < MAX_ITEMS ? items.size() : MAX_ITEMS);
@@ -778,8 +791,8 @@ namespace lsp
             }
 
             out.detail = it.at("detail").string();
-            out.doc    = firstLine(it.at("documentation"));
-            out.kind   = kindOf(it.at("kind").integer(6));
+            out.doc = firstLine(it.at("documentation"));
+            out.kind = kindOf(it.at("kind").integer(6));
 
             built.items.push_back(std::move(out));
         }
@@ -787,10 +800,10 @@ namespace lsp
         {
             LockGuard<Mutex> lk(s.answerMu);
             built.serial = s.answer.serial + 1u;
-            built.path   = s.answer.path;    // set by ask(), see below
-            built.line   = s.answer.line;
-            built.col    = s.answer.col;
-            s.answer      = std::move(built);
+            built.path = s.answer.path;    // set by ask(), see below
+            built.line = s.answer.line;
+            built.col = s.answer.col;
+            s.answer = std::move(built);
             s.answerFresh = true;
         }
     }
@@ -915,8 +928,14 @@ namespace lsp
         }
 
         Array<Char, MAX_PATH> found = {};
-        if(SearchPathA(nullptr, "clangd.exe", nullptr,
-                       static_cast<DWORD>(found.size()), found.data(), nullptr) != 0)
+        if(SearchPathA(
+            nullptr,
+            "clangd.exe",
+            nullptr,
+            static_cast<DWORD>(found.size()),
+            found.data(),
+            nullptr
+        ) != 0)
         {
             return Str(found.data());
         }
@@ -946,8 +965,8 @@ namespace lsp
           return false;
       }
 
-      const Str root   = PicoFlash::repoRoot();
-      const Str ccDir  = root + "\\firmware\\build";
+      const Str root = PicoFlash::repoRoot();
+      const Str ccDir = root + "\\firmware\\build";
       const Str ccPath = ccDir + "\\compile_commands.json";
 
       const Str driver = driverFromDatabase(ccPath);
@@ -960,7 +979,7 @@ namespace lsp
       }
 
       SECURITY_ATTRIBUTES sa{};
-      sa.nLength        = sizeof(sa);
+      sa.nLength = sizeof(sa);
       sa.bInheritHandle = TRUE;
 
       Pipe in;    // parent writes in.wr  -> child reads in.rd  as stdin
@@ -973,8 +992,7 @@ namespace lsp
           closeHandle(out.rd);
           closeHandle(out.wr);
           s.st.store(State::STATE_FAILED);
-          s.sayf("clangd: CreatePipe failed (%lu)",
-                 static_cast<unsigned long>(GetLastError()));
+          s.sayf("clangd: CreatePipe failed (%lu)", static_cast<unsigned long>(GetLastError()));
           return false;
       }
 
@@ -984,12 +1002,12 @@ namespace lsp
       SetHandleInformation(out.rd, HANDLE_FLAG_INHERIT, 0);
 
       STARTUPINFOA si{};
-      si.cb          = sizeof(si);
-      si.dwFlags     = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+      si.cb = sizeof(si);
+      si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
       si.wShowWindow = SW_HIDE;
-      si.hStdInput   = in.rd;
-      si.hStdOutput  = out.wr;
-      si.hStdError   = nullptr;   // clangd's log; we do not read it, so drop it
+      si.hStdInput = in.rd;
+      si.hStdOutput = out.wr;
+      si.hStdError = nullptr;   // clangd's log; we do not read it, so drop it
 
       // --log=error, not the default: the info log is a few hundred lines per
       // parse into a handle nobody drains, which eventually blocks clangd.
@@ -1009,9 +1027,18 @@ namespace lsp
       mutableCmd.push_back('\0');
 
       PROCESS_INFORMATION pi{};
-      const BOOL ok = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
-                                     TRUE, CREATE_NO_WINDOW, nullptr,
-                                     root.c_str(), &si, &pi);
+      const BOOL ok = CreateProcessA(
+          nullptr,
+          mutableCmd.data(),
+          nullptr,
+          nullptr,
+          TRUE,
+          CREATE_NO_WINDOW,
+          nullptr,
+          root.c_str(),
+          &si,
+          &pi
+      );
 
       closeHandle(in.rd);    // the child's ends; the parent must not hold them
       closeHandle(out.wr);
@@ -1022,13 +1049,12 @@ namespace lsp
           closeHandle(in.wr);
           closeHandle(out.rd);
           s.st.store(State::STATE_FAILED);
-          s.sayf("clangd: could not start %s (%lu)", exe.c_str(),
-                 static_cast<unsigned long>(err));
+          s.sayf("clangd: could not start %s (%lu)", exe.c_str(), static_cast<unsigned long>(err));
           return false;
       }
 
       CloseHandle(pi.hThread);
-      s.proc    = pi.hProcess;
+      s.proc = pi.hProcess;
       s.toChild = in.wr;
       s.frChild = out.rd;
 
@@ -1040,13 +1066,13 @@ namespace lsp
       }
       {
           LockGuard<Mutex> lk(s.answerMu);
-          s.answer      = Answer();
+          s.answer = Answer();
           s.answerFresh = false;
       }
       s.inFlight.store(-1);
       s.openPath.clear();
       s.sentVersion = 0;
-      s.docVersion  = 1;
+      s.docVersion = 1;
 
       s.running.store(true);
       s.st.store(State::STATE_STARTING);
@@ -1134,7 +1160,7 @@ namespace lsp
 
       // Handed over even when EMPTY: clangd publishes a complete set every time,
       // so an empty one means the file just became clean.
-      out          = s.diags;
+      out = s.diags;
       s.diagsFresh = false;
       return true;
   }
@@ -1180,12 +1206,12 @@ namespace lsp
               // openPath joins openUri under this lock: the reader thread needs
               // the PATH for a diagnostic, and reading it unguarded races on a Str.
               LockGuard<Mutex> lk(s.uriMu);
-              s.openUri  = uri;
+              s.openUri = uri;
               s.openPath = path;
           }
           s.parsed.store(false);     // a new file: nothing is built for it yet
 
-          s.docVersion  = 1;
+          s.docVersion = 1;
           s.sentVersion = version;
       }
       else if(version != s.sentVersion)
@@ -1214,7 +1240,7 @@ namespace lsp
 
   Bool ask(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
   {
-      Impl&     s   = impl();
+      Impl&     s = impl();
       const Str uri = syncDoc(path, text, version);
       if(uri.empty() || !astReady())
       {
@@ -1229,7 +1255,7 @@ namespace lsp
           LockGuard<Mutex> lk(s.answerMu);
           s.answer.path = path;
           s.answer.line = line;
-          s.answer.col  = col;
+          s.answer.col = col;
       }
       s.inFlight.store(id);
 
@@ -1254,14 +1280,14 @@ namespace lsp
       {
           return false;
       }
-      out           = s.answer;
+      out = s.answer;
       s.answerFresh = false;
       return true;
   }
 
   Bool askInfo(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
   {
-      Impl&     s   = impl();
+      Impl&     s = impl();
       const Str uri = syncDoc(path, text, version);
       if(uri.empty() || !astReady())
       {
@@ -1276,7 +1302,7 @@ namespace lsp
           LockGuard<Mutex> lk(s.infoMu);
           s.info.path = path;
           s.info.line = line;
-          s.info.col  = col;
+          s.info.col = col;
       }
       s.infoInFlight.store(id);
 
@@ -1301,7 +1327,7 @@ namespace lsp
       {
           return false;
       }
-      out         = s.info;
+      out = s.info;
       s.infoFresh = false;
       return true;
   }

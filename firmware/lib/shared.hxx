@@ -56,26 +56,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 
 /* ---- integers ------------------------------------------------------------ */
-using Int8    = std::int8_t;
-using Int16   = std::int16_t;
-using Int32   = std::int32_t;
-using Int64   = std::int64_t;
+using Int8 = std::int8_t;
+using Int16 = std::int16_t;
+using Int32 = std::int32_t;
+using Int64 = std::int64_t;
 
-using UInt8   = std::uint8_t;
-using UInt16  = std::uint16_t;
-using UInt32  = std::uint32_t;
-using UInt64  = std::uint64_t;
+using UInt8 = std::uint8_t;
+using UInt16 = std::uint16_t;
+using UInt32 = std::uint32_t;
+using UInt64 = std::uint64_t;
 
-using Size    = std::size_t;
-using UPtr    = std::uintptr_t;
+using Size = std::size_t;
+using UPtr = std::uintptr_t;
 
 /* ---- floating point ------------------------------------------------------ */
 using Float32 = float;
 using Float64 = double;
 
 /* ---- other fundamentals -------------------------------------------------- */
-using Bool    = bool;
-using Void    = void;
+using Bool = bool;
+using Void = void;
 
 /*
  * ---- text ----------------------------------------------------------------
@@ -90,12 +90,12 @@ using Void    = void;
  * the order did not matter, because a macro body is not looked at until it is
  * used. An alias is.
  */
-using Utf8      = char;
-using Utf8Byte  = unsigned char;
-using Utf16     = std::uint16_t;
-using Utf32     = std::uint32_t;
+using Utf8 = char;
+using Utf8Byte = unsigned char;
+using Utf16 = std::uint16_t;
+using Utf32 = std::uint32_t;
 
-using CharSeq   = const Utf8*;
+using CharSeq = const Utf8*;
 using CharSeq16 = const Utf16*;
 using CharSeq32 = const Utf32*;
 

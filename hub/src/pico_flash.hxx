@@ -27,7 +27,7 @@ struct FirmwareEntry
     Str board;
 
     // Filled in by refreshCatalog() from the filesystem.
-    Bool        present    = false;
+    Bool        present = false;
     Int64   sizeBytes = 0;
     Str builtAt;      // local time of the .uf2's mtime, "" if absent
 };
@@ -57,7 +57,7 @@ public:
     PicoFlash();
     ~PicoFlash();
 
-    PicoFlash(const PicoFlash&)            = delete;
+    PicoFlash(const PicoFlash&) = delete;
     PicoFlash& operator=(const PicoFlash&) = delete;
 
     // ---- catalog --------------------------------------------------------
