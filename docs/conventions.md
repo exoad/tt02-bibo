@@ -301,7 +301,7 @@ surrounding history.
 | Enum members | `SCREAMING_SNAKE_CASE`, **prefixed with the enum name** — `MapMode::MAP_MODE_POINTS`. Checked since 2026-08-30: 224 comply, and `lights::Lamp` is a written-down waiver rather than an exception nobody can see |
 | Namespaces | lowercase — `ui`, `board`, `app` |
 | Headers | `.hxx`, `#pragma once` — **no `#ifndef` guards**. There are no `.h` headers of ours left; `hub/src/resource.h` is the one exception, because `rc.exe` compiles it |
-| Vocabulary | `shared/shared.hxx` for the hub, `firmware/lib/types.hxx` for the firmware. Two files kept in step by hand — not because one is C any more, but because the firmware is freestanding: no heap, no exceptions, no STL, so every template in `shared.hxx` is unusable there. Nothing ever includes both |
+| Vocabulary | `shared/shared.hxx` for the hub, `firmware/lib/shared.hxx` for the firmware. Two files kept in step by hand — not because one is C any more, but because the firmware is freestanding: no heap, no exceptions, no STL, so every template in `shared.hxx` is unusable there. Nothing ever includes both |
 | Braces | Allman, everywhere. **Never one-lined** — a body never shares a line with its head, however short. That includes a body with no braces at all: `if(x) return;` is a body on its head's line |
 | Namespaces | Allman brace, and the body **indented one level** — see below |
 | Aggregate rows | a table row like `{ Icon::ICON_RADAR, "radar" },` stays on one line. That is *data*, not a body |
@@ -912,7 +912,7 @@ firmware/
 
 | a file in | may include |
 |---|---|
-| `lib/` | `types.hxx`, `hal.hxx` — hal is the floor everything stands on |
+| `lib/` | `shared.hxx`, `hal.hxx` — hal is the floor everything stands on |
 | `lib/drivers/` | `../hal.hxx` |
 | `lib/chassis/` | `../hal.hxx`, `cal.hxx` |
 | `app/`, `sketches/` | `../lib/bibo.hxx` — and nothing else of ours. The `../lib/` is part of the rule: the bare spelling compiles only because `-Ifirmware/lib` is set |

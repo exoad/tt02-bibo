@@ -386,7 +386,7 @@ namespace sketch
       // inventing a binding to demonstrate. Pretending otherwise would be worse
       // than leaving the phase out.
       //
-      // manbox style throughout: the types.hxx aliases, Allman braces, `while(...)`
+      // manbox style throughout: the shared.hxx aliases, Allman braces, `while(...)`
       // with no space, SCREAMING_SNAKE macros, named casts, and the namespaces the
       // library now has.
       return

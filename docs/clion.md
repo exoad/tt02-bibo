@@ -89,7 +89,7 @@ Nothing else is needed. CLion auto-detects the Visual Studio 2022 toolchain, and
 ## If `Int32` is red in firmware/ but the includes are fine
 
 A different fault from the two above, and the giveaway is that it survives
-attaching the project. `firmware/lib/types.hxx` fails on `#include <cstddef>`,
+attaching the project. `firmware/lib/shared.hxx` fails on `#include <cstddef>`,
 so every alias it defines — `Int32`, `UInt8`, `Bool`, `Void` — is an unknown
 type name in every firmware file at once.
 

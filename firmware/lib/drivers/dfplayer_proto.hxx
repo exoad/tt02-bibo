@@ -8,7 +8,7 @@
  * here to know what the bytes on the wire mean.
  *
  * SEPARATE FROM dfplayer.hxx SO IT CAN BE TESTED ON THE HOST. This half needs
- * only types.hxx - no UART, no GPIO, no SDK - and that is a property worth
+ * only shared.hxx - no UART, no GPIO, no SDK - and that is a property worth
  * keeping for exactly the reason lib/text.hxx says it: a thing that can only be
  * exercised by flashing a microcontroller is a thing nobody exercises.
  *
@@ -37,7 +37,7 @@
  */
 #pragma once
 
-#include "../types.hxx"
+#include "../shared.hxx"
 
 namespace bibo::dfplayer
 {

@@ -35,11 +35,16 @@
 // either a qualified spelling in every header or a `using namespace` in one, and
 // `using namespace` in a header is exactly what the style guide forbids.
 //
-// The counterpart is firmware/lib/types.hxx. The two are kept in step by hand
-// and deliberately do not share a file - not because one is C any more (the
-// firmware is C++ now too), but because the firmware is freestanding: no heap,
-// no exceptions, no STL. Every template below would be unusable there, and a
-// header that tried to serve both would be mostly #ifdef.
+// The counterpart is firmware/lib/shared.hxx - same name on purpose, because it
+// is the same idea for the other side. They are kept in step by hand and
+// deliberately do not share a file - not because one is C any more (the firmware
+// is C++ now too), but because the firmware is freestanding: no heap, no
+// exceptions, no STL. Every template below would be unusable there, and a header
+// that tried to serve both would be mostly #ifdef.
+//
+// Nothing includes both, and nothing can: the hub puts only ../shared on its
+// include path and firmware targets only firmware/lib, so `#include
+// "shared.hxx"` resolves to exactly one file on each side.
 // ---------------------------------------------------------------------------
 #pragma once
 

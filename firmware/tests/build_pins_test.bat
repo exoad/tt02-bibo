@@ -2,7 +2,7 @@
 REM Builds and (with "run") executes the lib/pins.hxx tests.
 REM   firmware\tests\build_pins_test.bat [run]   - compile, optionally run
 REM Compiled for the HOST with MSVC, not for the board: the header needs nothing
-REM from the Pico SDK, only lib/types.hxx, and that is worth keeping - code only
+REM from the Pico SDK, only lib/shared.hxx, and that is worth keeping - code only
 REM exercised by flashing a microcontroller is code nobody exercises.
 REM MSVC takes the language from the file extension; a rename would change it.
 

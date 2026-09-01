@@ -50,10 +50,10 @@ DIRS = [
 #   - .hpp: a header that must compile as C is a .h (docs/conventions.md).
 C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 
-# shared.hxx and types.hxx are WHERE the aliasing happens, so they are exempt
+# shared.hxx and shared.hxx are WHERE the aliasing happens, so they are exempt
 # from the rule that everything else use the aliases - the same carve-out that
 # lets firmware/lib/text.hxx name strtol.
-VOCAB_FILES  = {'shared.hxx', 'types.hxx'}
+VOCAB_FILES  = {'shared.hxx', 'shared.hxx'}
 VOCAB_WAIVES = {'unaliased std type', 'bare builtin type'}
 
 def strip_noise(text):
@@ -377,14 +377,14 @@ for name in [r[0] for r in RULES]:
 # an editor without the project loaded underlines every include in the library.
 LAYERS = {
     # hal.h is the floor everything stands on, so lib root may name it. pins.hxx
-    # sits beside types.hxx: it declares facts and includes nothing but types,
+    # sits beside shared.hxx: it declares facts and includes nothing but types,
     # so naming pins::SERVO instead of 0 is reading downward, not sideways.
-    'firmware/lib':          {'types.hxx', 'hal.hxx', 'pins.hxx'},
-    # ../types.hxx so a driver's PROTOCOL half can reach the vocabulary without
+    'firmware/lib':          {'shared.hxx', 'hal.hxx', 'pins.hxx'},
+    # ../shared.hxx so a driver's PROTOCOL half can reach the vocabulary without
     # the SDK - that is what makes dfplayer_proto.hxx testable off the bench.
     # ../pins.hxx: a driver reads the pin map it was WIRED with rather than
     # holding pad numbers, a downward read and not a reach at another driver.
-    'firmware/lib/drivers':  {'../hal.hxx', '../types.hxx', '../pins.hxx',
+    'firmware/lib/drivers':  {'../hal.hxx', '../shared.hxx', '../pins.hxx',
                               'dfplayer_proto.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
@@ -416,27 +416,27 @@ LAYER_EXTRA = {
     'firmware/lib/gfx.hxx':  {'drivers/display.hxx'},
     # pins.hxx formats its own conflict message, so it names text.hxx - a leaf,
     # so this is a sideways reach that cannot cycle.
-    'firmware/lib/pins.hxx': {'types.hxx', 'text.hxx'},
+    'firmware/lib/pins.hxx': {'shared.hxx', 'text.hxx'},
     # hal.hxx names the host-test fake behind #ifdef BIBO_FAKE_HAL, off in every
     # image this project flashes - the one place the library reaches into tests/.
-    'firmware/lib/hal.hxx': {'types.hxx', '../tests/fakes/hal.hxx'},
+    'firmware/lib/hal.hxx': {'shared.hxx', '../tests/fakes/hal.hxx'},
     # boot.hxx is serial + the pin map + a visible refusal: the one lib-root
     # file that legitimately needs pins.
     'firmware/lib/boot.hxx': {'hal.hxx', 'pins.hxx'},
     # sfx.hxx is names and numbers - what the clips on the card MEAN. No SDK, so
     # its table can be tested without a board.
-    'firmware/lib/sfx.hxx': {'types.hxx'},
+    'firmware/lib/sfx.hxx': {'shared.hxx'},
     # control.hxx is arithmetic - PID and feedforward - and odom.hxx turns ticks
     # into meters. Neither touches hardware, which is what lets both be tested
     # on the host against invented inputs.
-    'firmware/lib/control.hxx': {'types.hxx'},
+    'firmware/lib/control.hxx': {'shared.hxx'},
     # The autonomy maths, pure and portable, a strict stack each naming only the
     # one below: geom, kinematics, pursuit, then plan.
-    'firmware/lib/geom.hxx': {'types.hxx'},
+    'firmware/lib/geom.hxx': {'shared.hxx'},
     'firmware/lib/kinematics.hxx': {'geom.hxx'},
     'firmware/lib/pursuit.hxx': {'geom.hxx', 'kinematics.hxx'},
     'firmware/lib/plan.hxx': {'geom.hxx', 'pursuit.hxx'},
-    'firmware/lib/chassis/odom.hxx': {'../types.hxx'},
+    'firmware/lib/chassis/odom.hxx': {'../shared.hxx'},
     # sound.hxx owns the speaker, so it reaches down to the driver and sideways
     # to the clip table and the pin map.
     'firmware/lib/sound.hxx': {'hal.hxx', 'pins.hxx', 'sfx.hxx',
@@ -874,7 +874,7 @@ for path in files:
 # the global namespace, one file at a time, which is how the prefixes decayed.
 #
 # NOT LISTED: hal.hxx (deliberately many namespaces - it is THE BOARD - checked
-# as a set below), types.hxx (the vocabulary itself, not a module), cal.hxx
+# as a set below), shared.hxx (the vocabulary itself, not a module), cal.hxx
 # (hub-generated, and macros besides), bibo.hxx (the umbrella, declares nothing).
 MODULE_NAMESPACE = {
     'boot.hxx':     'boot',

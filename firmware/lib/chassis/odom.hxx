@@ -38,7 +38,7 @@
  */
 #pragma once
 
-#include "../types.hxx"
+#include "../shared.hxx"
 
 namespace bibo::odom
 {

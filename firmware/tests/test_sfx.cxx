@@ -14,7 +14,7 @@
  * fault - a wire, a card, a supply. That is the whole reason this is checked
  * here instead of by listening.
  *
- * Compiled for the HOST: sfx.hxx needs types.hxx and text.hxx and nothing else.
+ * Compiled for the HOST: sfx.hxx needs shared.hxx and text.hxx and nothing else.
  *
  * Exits 0 on PASS, 1 on FAIL.
  */

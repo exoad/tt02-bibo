@@ -29,7 +29,7 @@
  */
 #pragma once
 
-#include "../../lib/types.hxx"
+#include "../../lib/shared.hxx"
 #include "../../lib/pins.hxx"
 
 #include <stdarg.h>

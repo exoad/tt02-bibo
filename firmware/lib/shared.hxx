@@ -28,21 +28,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 /*
- * From manbox (github.com/exoad/manbox), C_STYLE_GUIDE.md. This is the C
- * counterpart of shared/shared.hpp, which the HUB uses. This one lives in
- * firmware/lib because the firmware is its only caller. The two are kept in
- * step by hand; they are the same vocabulary spelled the way C - the same vocabulary, spelled the way C
- * spells it, so a value that is an Int32 in the viewer is an Int32 in the
- * firmware too.
+ * The firmware's vocabulary and idiom. From manbox (github.com/exoad/manbox),
+ * C_STYLE_GUIDE.md.
  *
- * The two headers sit side by side and are kept in step by hand. They are not
- * one file because C has no templates and no namespaces, and a header trying to
- * serve both languages would be mostly #ifdef.
+ * ONE NAME, TWO FILES, ON PURPOSE. shared/shared.hxx is the hub's; this is the
+ * firmware's. Same name because they are the same idea - an Int32 in the hub is
+ * an Int32 on the board - and separate files because the firmware is
+ * FREESTANDING: no heap, no exceptions, no STL, so the hub's templates are
+ * unusable here. Nothing ever includes both, and nothing can: firmware targets
+ * put only firmware/lib on the include path, the hub only ../shared.
  *
- * The Utf16/Utf32 typedefs at the bottom are a LOCAL ADDITION: the upstream
- * header uses those names in the CharSeq16/CharSeq32 macros without defining
- * them, so the macros do not compile as they stand. They are declared here so
- * the header is usable as written. Everything above that block is upstream.
+ * They are kept in step by hand, and only where it makes sense to. The hub has
+ * ISize; this has the idiom macros below, which the hub has no use for.
+ *
+ * Utf16/Utf32 are a LOCAL ADDITION - upstream names them in CharSeq16/CharSeq32
+ * without defining them, so the header does not compile as it stands.
  */
 
 #pragma once
@@ -116,4 +116,36 @@ using CharSeq32 = const Utf32*;
 #ifndef STRINGIFY
 #define STRINGIFY_INNER(x) #x
 #define STRINGIFY(x) STRINGIFY_INNER(x)
+#endif
+
+/*
+ * ---- idiom ---------------------------------------------------------------
+ *
+ * Guarded like STRINGIFY: these are ordinary enough names that a vendor header
+ * could claim one, and a redefinition warning in a build this quiet is noise
+ * nobody reads.
+ */
+
+/*
+ * PROGRAM - an entry point, spelled the one way that is correct everywhere.
+ *
+ * `int`, NOT Int32, and that is the whole reason this exists. int32_t is
+ * `long int` on arm-none-eabi and `int` on MSVC - same size, same
+ * representation, a different type as far as the language cares - so
+ * `Int32 main` compiles clean on the host and the board rejects it:
+ *
+ *     error: '::main' must return 'int'
+ *
+ * Host suites cannot catch that; only a board build can. It has been
+ * rediscovered three times. main's signature is the C runtime's contract
+ * rather than this project's vocabulary, so it is spelled the runtime's way,
+ * once, here.
+ */
+#ifndef PROGRAM
+#define PROGRAM int main(Void)
+#endif
+
+/* An intentional forever loop. Takes its own braces: FOREVER { ... } */
+#ifndef FOREVER
+#define FOREVER while(true)
 #endif

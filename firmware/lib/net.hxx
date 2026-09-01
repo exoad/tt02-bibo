@@ -17,7 +17,7 @@
  */
 #pragma once
 
-#include "types.hxx"
+#include "shared.hxx"
 #include "hal.hxx"
 
 /*

@@ -3,7 +3,7 @@
     python hub/tools/gen_test_db.py
 
 The suites are built by build_*_test.bat with MSVC and appear in no CMake
-project, so an editor calls every alias in shared.hxx and types.hxx unknown. A
+project, so an editor calls every alias in shared.hxx and shared.hxx unknown. A
 .clangd cannot fix it: firmware/.clangd sets `CompilationDatabase: build`, so
 clangd INFERS the command from app/main.cxx, cross-compiled for arm-none-eabi,
 and flags cannot cancel a wrong target. Regenerate after adding a suite or an

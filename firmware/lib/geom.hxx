@@ -13,7 +13,7 @@
  */
 #pragma once
 
-#include "types.hxx"
+#include "shared.hxx"
 
 /* The float forms deliberately: the double ones pull in software double-precision on an M33. */
 #include <math.h>
