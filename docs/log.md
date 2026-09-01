@@ -5,6 +5,51 @@ recording success** — the failures are what cost time and what gets forgotten.
 
 ---
 
+## 2026-09-01 — the icon becomes the car, and CI becomes possible
+
+`make_icon.ps1` draws a car head-on now instead of a radar sweep: silver cabin,
+blue body, dark grille with a badge, amber lamps, tyres. Same graphite plate and
+bevel, same generated-not-drawn rule. The composition is Fugue's `car.png` —
+which is already the icon the hub shows for anything to do with the vehicle — so
+the app icon and the UI icon are the same car. Redrawn from primitives, because
+Fugue is 16×16 and an icon needs 256.
+
+The **green status LED is gone**. It sat in the bottom-right corner, which the
+radar left empty and the car's right rear wheel now occupies; a bright dot on a
+black one reads as a defect, not an accent.
+
+Checked at every size rather than at 256 only, which is the size nobody uses. A
+contact sheet of all eight entries showed the grille and badge turning to grey
+mud below 24 px, so both now drop out there — the two amber lamps against blue
+are what carry the shape down to 16.
+
+**Twenty-two `.bat` files each named `Visual Studio\2022\Community`**, character
+for character. True on this desk and nowhere else: Community is one of four
+editions and GitHub's runners carry Enterprise, so every one of them failed
+there with "vcvarsall.bat is not recognized" — a wrong path wearing the costume
+of a broken build. The tree was unbuildable on any machine but this one, and
+that was invisible because there had only ever been one machine.
+`tools\find_vs.bat` asks `vswhere` once, and the twenty-two ask it.
+
+Two things that cost time. `%ProgramFiles(x86)%` inside an `if (...)` block
+dies with **"\Microsoft was unexpected at this time"** — cmd expands variables
+while it *parses* the block, so the `)` in `(x86)` closes it early; the helper
+uses `goto`. And the first rewrite pass put one `..` too few in every path,
+because `%~dp0` is already the script's *directory* — caught by resolving all 22
+against the filesystem instead of reading the diff.
+
+Six workflows where there were none: audit, tests (Linux, g++ **and** clang++),
+firmware (both boards), analysis (cppcheck + this repo's own clang-tidy), CodeQL,
+and one Windows job for the hub. The suites turning out to build on Linux was
+measured, not assumed — 194 checks under g++ — and that is the difference
+between a 1× runner and a 2× one.
+
+`hub\tests\build_test.bat` is deliberately **not** in CI. It opens COM7 at
+460800 and talks to a real RPLIDAR C1; on a runner it fails with "COM7 is gone",
+which is the right answer to the wrong question.
+
+---
+
 ## 2026-08-28 - a second board, the lighting model, and four self-inflicted bugs
 
 A long day. The parts that cost time are the four things that were wrong,
