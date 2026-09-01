@@ -83,7 +83,8 @@ if /i "%BOARD%"=="pico2_w" (
 
 set "PICO_SDK_PATH=%ROOT%\vendor\pico-sdk"
 
-set "VSROOT=C:\Program Files\Microsoft Visual Studio\2022\Community"
+call "%~dp0..\tools\find_vs.bat"
+if errorlevel 1 exit /b 1
 set "CMAKE=%VSROOT%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 set "NINJA=%VSROOT%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
 set "ARMBIN=C:\msys64\mingw64\bin"

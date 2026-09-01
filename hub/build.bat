@@ -32,7 +32,9 @@ if /i "%~1"=="clean" (
 rem --- MSVC x64 environment ---------------------------------------------------
 rem  vcvarsall may print a harmless "'vswhere.exe' is not recognized" line.
 echo [env] Visual Studio 2022 x64
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+call "%~dp0..\tools\find_vs.bat"
+if errorlevel 1 exit /b 1
+call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x64
 if errorlevel 1 (
     echo [error] vcvarsall.bat failed
     exit /b 1
