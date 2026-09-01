@@ -1,0 +1,28 @@
+# The same check list as .clangd, for the tools that do not read .clangd.
+#
+# THERE ARE TWO CONFIG FORMATS AND THEY DO NOT SEE EACH OTHER. clangd reads
+# .clangd (Diagnostics.ClangTidy) and drives the hub's Code view; the
+# clang-tidy binary, CI, and CLion's own inspection read .clang-tidy. With only
+# the first, `clang-tidy -p hub/src <file>` ran its DEFAULT checks and reported
+# almost nothing - which reads exactly like a clean file.
+#
+# Keep the two lists in step. They are short on purpose.
+
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  portability-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-using,
+  modernize-loop-convert,
+  readability-braces-around-statements,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-unhandled-exception-at-new
+
+# Ours only. vendor/ is upstream and hub/third_party holds imgui.
+HeaderFilterRegex: '(hub[/\\]src|firmware[/\\]lib|shared|pilot[/\\]src|lidar[/\\]bridge)'
+
+FormatStyle: none
