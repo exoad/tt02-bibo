@@ -1374,12 +1374,12 @@ namespace bibo::gfx
        */
       inline Void printf(Canvas* cv, const Utf8* fmt, ...)
       {
-          Utf8    text[64];
+          Utf8    msg[64];
           va_list ap;
           va_start(ap, fmt);
-          vsnprintf(text, sizeof(text), fmt, ap);
+          vsnprintf(msg, sizeof(msg), fmt, ap);
           va_end(ap);
-          print(cv, text);
+          print(cv, msg);
       }
 
       /*
@@ -1597,14 +1597,14 @@ namespace bibo::gfx
 
     inline Canvas& Canvas::printf(const Point at, const Paint& paint, const Utf8* fmt, ...)
     {
-        Utf8    text[64];
+        Utf8    msg[64];
         va_list ap;
         va_start(ap, fmt);
-        vsnprintf(text, sizeof(text), fmt, ap);
+        vsnprintf(msg, sizeof(msg), fmt, ap);
         va_end(ap);
 
         applyPaint(this, paint);
-        detail::textAt(this, at.x, at.y, text);
+        detail::textAt(this, at.x, at.y, msg);
         return *this;
     }
 

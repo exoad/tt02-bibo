@@ -644,7 +644,7 @@ namespace bibo::tof
      * @param v the sensor to restart; must have opened successfully
      * @return true once both the clear and the start have been written
      */
-    [[nodiscard]] static Bool clearInterruptAndStart(Vl53* v)
+    [[nodiscard]] static Bool clearInterruptAndStart(const Vl53* v)
     {
         return clear(v) && startRanging(v);
     }
