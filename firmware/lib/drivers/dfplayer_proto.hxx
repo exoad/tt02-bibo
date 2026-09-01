@@ -150,7 +150,8 @@ namespace bibo::dfplayer
    */
   inline Void frame(UInt8* out, const UInt8 cmd, const UInt8 ack, const UInt16 param)
   {
-  const auto paramHi = static_cast<UInt8>((param >> 8) & 0xFFu);
+  const auto paramHi = static_cast<UInt8>((static_cast<UInt32>(param) >> 8u)
+                                          & 0xFFu);
   const auto paramLo = static_cast<UInt8>(param & 0xFFu);
 
   const auto sum = static_cast<UInt16>(0xFFu + 0x06u + cmd + ack
@@ -164,7 +165,7 @@ namespace bibo::dfplayer
   out[4] = ack;
   out[5] = paramHi;
   out[6] = paramLo;
-  out[7] = static_cast<UInt8>((chk >> 8) & 0xFFu);
+  out[7] = static_cast<UInt8>((static_cast<UInt32>(chk) >> 8u) & 0xFFu);
   out[8] = static_cast<UInt8>(chk & 0xFFu);
   out[9] = 0xEFu;
   }

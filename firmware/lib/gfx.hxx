@@ -118,13 +118,16 @@ namespace bibo::gfx
      */
     inline UInt16 blend(const UInt16 a, const UInt16 b, const UInt8 t)
     {
-        const UInt32 ar = (a >> 11) & 0x1F;
-        const UInt32 ag = (a >> 5)  & 0x3F;
-        const UInt32 ab = a & 0x1F;
+        const UInt32 au = static_cast<UInt32>(a);
+        const UInt32 bu = static_cast<UInt32>(b);
 
-        const UInt32 br = (b >> 11) & 0x1F;
-        const UInt32 bg = (b >> 5)  & 0x3F;
-        const UInt32 bb = b & 0x1F;
+        const UInt32 ar = (au >> 11u) & 0x1Fu;
+        const UInt32 ag = (au >> 5u)  & 0x3Fu;
+        const UInt32 ab = au & 0x1Fu;
+
+        const UInt32 br = (bu >> 11u) & 0x1Fu;
+        const UInt32 bg = (bu >> 5u)  & 0x3Fu;
+        const UInt32 bb = bu & 0x1Fu;
 
         const UInt32 it = 255u - static_cast<UInt32>(t);
         const UInt32 r  = (ar * it + br * static_cast<UInt32>(t)) / 255u;
@@ -1283,7 +1286,10 @@ namespace bibo::gfx
 
               for(Int32 row = 0; row < 8; ++row)
               {
-                  const Bool on = row < 7 && ((bits >> row) & 1u) != 0u;
+                  const Bool on = row < 7
+                                  && ((static_cast<UInt32>(bits)
+                                       >> static_cast<UInt32>(row))
+                                      & 1u) != 0u;
                   if(!on && !cv->bgSolid)
                   {
                       continue;                   /* see through to what is behind */

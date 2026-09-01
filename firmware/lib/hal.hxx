@@ -1867,7 +1867,8 @@ namespace bibo
         {
             return false;
         }
-        *out = static_cast<UInt16>((static_cast<UInt16>(b[0]) << 8) | b[1]);
+        *out = static_cast<UInt16>((static_cast<UInt32>(b[0]) << 8u)
+                                   | static_cast<UInt32>(b[1]));
         return true;
     }
 
