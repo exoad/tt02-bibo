@@ -1,17 +1,10 @@
 @echo off
 REM Builds and (with "run") executes the lib/text.hxx parser tests.
-REM
-REM   firmware\tests\build_text_test.bat        - compile only
-REM   firmware\tests\build_text_test.bat run    - compile then run
-REM
-REM Compiled for the HOST with MSVC, not for the board. text.hxx needs nothing
-REM from the Pico SDK - only lib/types.hxx - and that is a property worth keeping:
-REM a parser that can only be exercised by flashing a microcontroller is a
-REM parser nobody exercises.
-REM
-REM forces C. These are .c files and MSVC decides the language from the
-REM extension, but saying so keeps a rename from silently compiling C as C++,
-REM where several things here mean something subtly different.
+REM   firmware\tests\build_text_test.bat [run]   - compile, optionally run
+REM Compiled for the HOST with MSVC, not for the board: text.hxx needs nothing
+REM from the Pico SDK, only lib/types.hxx, and that is worth keeping - a parser
+REM only exercised by flashing a microcontroller is a parser nobody exercises.
+REM MSVC takes the language from the file extension; a rename would change it.
 
 setlocal
 set HERE=%~dp0
@@ -40,13 +33,9 @@ if errorlevel 1 (
 
 echo [ok] %HERE%build\test_text.exe
 
-REM An EARLY RETURN, not an if-block, and the reason is a cmd.exe
-REM parsing rule that cost every one of these scripts its exit code:
-REM `exit /b %errorlevel%` inside `if ... ( ... )` is expanded when
-REM cmd parses the BLOCK, which is before the test has run. All 11
-REM scripts exited 0 while printing OVERALL: FAIL, so not one of them
-REM could ever have gated a commit. Out here the expansion happens
-REM when the line is reached.
+REM An EARLY RETURN, not an if-block: `exit /b %errorlevel%` inside
+REM `if ... ( ... )` expands when cmd PARSES the block, before the test has run.
+REM All 11 scripts once exited 0 while printing OVERALL: FAIL.
 if /i not "%~1"=="run" exit /b 0
 "%HERE%build\test_text.exe"
 exit /b %errorlevel%

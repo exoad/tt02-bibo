@@ -14,13 +14,12 @@ namespace ui
   namespace
   {
 
-    // Scratch reused across lines and frames. The tokenizer clears it, so this only
-    // exists to stop a per-line vector allocation sixty times a second.
+    // Scratch reused across lines and frames, to avoid a per-line allocation sixty
+    // times a second. The tokenizer clears it.
     Vec<syn::Span> spans;
 
-    // Whether a /* was open at the START of each line. Rebuilt whenever the buffer
-    // changes, because a block comment opened at line 3 changes the color of line
-    // 400 and the renderer only ever sees the forty lines that are on screen.
+    // Whether a block comment was open at the START of each line. Rebuilt whenever
+    // the buffer changes: one opened at line 3 colors line 400.
     Vec<Bool> blockAt;
 
     Void rebuildBlockFlags(const ed::Editor& e)
@@ -88,25 +87,20 @@ namespace ui
     };
 
     // Below this many characters the popup would offer half the table and get in
-    // the way. Two is enough to cut forty entries to a handful.
+    // the way.
     constexpr Size MIN_PREFIX = 2;
 
-    // How many rows are on screen at once. Past this the list scrolls rather
-    // than growing: a popup taller than this covers the code the suggestion is
-    // about, and clangd routinely offers two hundred names in a namespace.
+    // Rows on screen at once; past this the list scrolls rather than growing over
+    // the code. clangd routinely offers two hundred names in a namespace.
     constexpr Int32 MAX_VISIBLE = 10;
 
-    // How many are kept behind the scroll. Enough that scrolling is worth having
-    // and bounded so a completion at file scope - where the answer is "every
-    // name in the SDK" - does not turn into a thousand-row list nobody reads
-    // past the tenth entry of anyway.
+    // How many are kept behind the scroll, bounded so a completion at file scope
+    // does not become a thousand-row list.
     constexpr Size MAX_KEPT = 200;
 
     // ---- diagnostics -----------------------------------------------------
-    //
-    // Three places drew this color from the same ternary and a fourth was
-    // about to. One function, so a note can never come out yellow in the
-    // gutter and blue under the text.
+    // One function, so a note can never come out yellow in the gutter and blue
+    // under the text.
     ImU32 severityColor(diag::Severity s) noexcept
     {
         switch(s)
@@ -129,23 +123,16 @@ namespace ui
         }
     }
 
-    // How wide the hover panel gets before a message wraps.
-    //
-    // Compiler messages are not short - a template error runs to hundreds of
-    // characters and gcc's "In included file:" chains carry their own newlines.
-    // A panel that grows to fit one of those covers the code it is about.
+    // How wide the hover panel gets before a message wraps. A template error runs
+    // to hundreds of characters, and a panel fitting one covers the code.
     constexpr Size HOVER_COLS = 76;
 
-    // And how many overlapping diagnostics are shown before it just says how
-    // many more there are. One position routinely collects an error plus the
-    // three notes explaining it.
+    // How many overlapping diagnostics are shown before it just says how many more
+    // there are. One position routinely collects an error plus its notes.
     constexpr Size HOVER_MAX = 4;
 
-    // Breaks `text` at spaces so no line exceeds `cols` cells.
-    //
-    // Newlines already in the message are kept: gcc puts the file chain of an
-    // include error on its own lines and running them together loses the one
-    // piece of structure the message had.
+    // Breaks `text` at spaces so no line exceeds `cols` cells. Newlines already in
+    // the message are KEPT: gcc puts an include error's file chain on its own lines.
     Void wrapTo(const Str& text, Size cols, Vec<Str>& out)
     {
         Str line;
@@ -177,9 +164,8 @@ namespace ui
                 continue;
             }
 
-            // Back up to the last space, so a word is not cut in half. A token
-            // with no space in it - a mangled name, a long path - is hard-broken
-            // instead, because the alternative is a panel wider than the pane.
+            // Back up to the last space so a word is not cut in half; a token with
+            // no space in it is hard-broken instead.
             const Size sp = line.find_last_of(' ');
             if(sp == Str::npos || sp < cols / 3u)
             {
@@ -228,11 +214,9 @@ namespace ui
     }
 
     // ---- one popup, two sources ------------------------------------------
-    //
-    // Rows point at strings owned elsewhere - the table's are static, clangd's
-    // live in v.lspAnswer - and both outlive the frame. Copying them into the
-    // row would be tidier and would also mean allocating a few hundred strings
-    // sixty times a second for a list that is thrown away each frame.
+    // Rows point at strings owned elsewhere - the table's are static, clangd's live
+    // in v.lspAnswer - and both outlive the frame. Copying them would be a few
+    // hundred allocations a frame for a list thrown away each frame.
     struct Row
     {
         const Char* name    = nullptr;
@@ -260,12 +244,9 @@ namespace ui
         return true;
     }
 
-    // Whether the reply in hand is about the word being typed right now.
-    //
-    // clangd answers a question asked several frames ago. If the caret has since
-    // left the line, or moved before the start of the word the answer was for,
-    // the items are about a different place and showing them would be confident
-    // and wrong - the failure mode this whole project keeps removing.
+    // Whether the reply in hand is about the word being typed RIGHT NOW. clangd
+    // answers a question asked several frames ago; if the caret has since left the
+    // line or the word's start, showing the items is confidently wrong.
     Bool answerFits(const CodeView& v, const ed::Editor& e, Int32 startCol) noexcept
     {
         return v.lspAnswer.serial != 0
@@ -274,21 +255,15 @@ namespace ui
             && v.lspAnswer.col  <= e.cursor().col;
     }
 
-    // Builds the list the popup shows: clangd's answer first, then anything the
-    // hand-written table has that clangd did not mention.
-    //
-    // clangd goes first because it is answering about THIS translation unit -
-    // it knows `pins::Map` has a field called `soundBusy` and the table never
-    // will. The table goes second because it is the only source that survives
-    // clangd being absent, still parsing, or dead, and because its one-line docs
-    // are better than the ones a header actually carries.
+    // Builds the list the popup shows: clangd's answer first, since it answers
+    // about THIS translation unit; then whatever the hand-written table adds, since
+    // the table is the only source that survives clangd being absent or dead.
     Void gather(const CodeView& v, const ed::Editor& e, Int32 startCol, Vec<Row>& out)
     {
         out.clear();
 
-        // An empty prefix is only ever a member trigger. Everywhere else it
-        // would mean "offer the entire table on a keystroke", which is why
-        // MIN_PREFIX exists.
+        // An empty prefix is only ever a member trigger; everywhere else it would
+        // mean offering the entire table on one keystroke.
         if(v.popupPrefix.empty() && !v.popupTrigger)
         {
             return;
@@ -302,9 +277,8 @@ namespace ui
                 {
                     break;
                 }
-                // clangd filtered for the prefix as it stood when we asked; the
-                // user has usually typed more since. Filtering again here is
-                // what keeps the list correct in the gap before the next reply.
+                // clangd filtered for the prefix as it stood when we asked; the user
+                // has usually typed more since. Refiltering covers that gap.
                 if(!startsWithFold(it.name, v.popupPrefix))
                 {
                     continue;
@@ -320,9 +294,8 @@ namespace ui
             }
         }
 
-        // The table has nothing useful to say after a member operator: it does
-        // not know what `gfx::` contains, and offering its forty names on the
-        // strength of an empty prefix would bury whatever clangd found.
+        // The table has nothing useful to say after a member operator, and its
+        // forty names on an empty prefix would bury whatever clangd found.
         if(v.popupPrefix.empty())
         {
             return;
@@ -347,10 +320,8 @@ namespace ui
                 }
                 dup = true;
 
-                // The same name from both sources. Keep clangd's row - its
-                // detail is the real signature - but take the table's doc if
-                // clangd had none, which is most of the time: a one-line summary
-                // written for a reader beats an empty column.
+                // The same name from both sources: keep clangd's row - its detail is
+                // the real signature - but take the table's doc if clangd had none.
                 if((r.doc == nullptr || r.doc[0] == 0)
                    && it->doc != nullptr && it->doc[0] != 0)
                 {
@@ -372,19 +343,11 @@ namespace ui
         }
     }
 
-    // Whether the caret sits just after `::`, `.` or `->`.
-    //
-    // WHY THIS EXISTS. Without it the popup needs two characters of a name
-    // before it says anything, and `dfplayer::` followed by a blank is exactly
-    // the moment you do not know what to type. Two characters is the right rule
-    // for a general prefix - a popup on every single letter is a popup in the
-    // way - but after a member operator there is nothing to guess at: the set of
-    // legal next words is small, known, and the whole reason a language server
-    // is here.
-    //
-    // NOT INSIDE A COMMENT OR STRING, which is what the tokenizer is for. Prose
-    // is full of full stops, and a completion list appearing after every
-    // sentence in a doc comment would make this feature something to switch off.
+    // Whether the caret sits just after `::`, `.` or `->` - where MIN_PREFIX is the
+    // wrong rule, because the set of legal next words is small and known and
+    // `dfplayer::` followed by a blank is exactly when you do not know what to
+    // type. NOT INSIDE A COMMENT OR STRING, which is what the tokenizer is for:
+    // prose is full of full stops.
     Bool afterMember(const ed::Editor& e, Bool blockOpen)
     {
         const Str&  line = e.line(e.cursor().line);
@@ -456,18 +419,14 @@ namespace ui
   {
       ImGuiIO& io = ImGui::GetIO();
 
-      // Collect clangd's reply once, at the top, so every use of it below sees
-      // the same list. Taking it mid-frame would swap the strings out from under
-      // the Row pointers built from them.
+      // Collect clangd's reply ONCE, at the top: taking it mid-frame would swap the
+      // strings out from under the Row pointers built from them.
       static_cast<Void>(lsp::take(v.lspAnswer));
 
       ImFont* const font = (fonts.mono != nullptr) ? fonts.mono : fonts.body;
 
-      // Multiplied by fontScale() so the editor takes part in the floating
-      // workspace's optical zoom. Without it the panel grows and the text does
-      // not, which reads as the editor reflowing rather than zooming - more
-      // columns at the same size, when what was wanted was the same columns
-      // bigger.
+      // Multiplied by fontScale() so the editor takes part in the workspace's
+      // optical zoom - without it the panel grows and the text does not.
       const Float32 fontSz = ((font != nullptr && font->LegacySize > 0.0f)
                               ? font->LegacySize : ImGui::GetFontSize())
                            * fontScale();
@@ -486,14 +445,9 @@ namespace ui
       ImDrawList*   dl       = ImGui::GetWindowDrawList();
 
       const Float32 lineH    = ImGui::GetTextLineHeight();
-      // The character cell, rounded to a WHOLE pixel.
-      //
-      // Everything on screen is placed at `column * charW`, so this one number has
-      // to be exact or nothing lines up. Left fractional it accumulates: at 12.43
-      // px per cell, column 60 is three quarters of a character away from where
-      // the grid says it is, and the caret ends up sitting between two glyphs.
-      // Rounded to the nearest whole pixel the grid is closed, and a monospace
-      // face at a whole-pixel advance is what a terminal has always done.
+      // The character cell, rounded to a WHOLE pixel. Everything is placed at
+      // `column * charW`, so a fractional value accumulates: at 12.43 px per cell,
+      // column 60 is three quarters of a character off.
       Float32 charW = ImGui::CalcTextSize("0").x;
       charW = (charW > 1.0f) ? static_cast<Float32>(static_cast<Int32>(charW + 0.5f))
                              : 1.0f;
@@ -503,17 +457,15 @@ namespace ui
       // so it does not jump a pixel when the file crosses 100 lines.
       Array<Char, 16> numBuf;
       std::snprintf(numBuf.data(), numBuf.size(), "%d", std::max(1, e.lineCount()));
-      // +3 rather than +2: one column for the diagnostic mark on the left, and
-      // one of margin on each side of the number itself.
+      // +3: one column for the diagnostic mark, one of margin either side.
       const Float32 gutterW = (static_cast<Float32>(std::strlen(numBuf.data())) + 3.0f) * charW;
 
       const Float32 textX   = origin.x + gutterW;
       const Float32 viewH   = std::max(lineH, region.y - statusH);
 
       // ---- input ------------------------------------------------------------
-      // An invisible button over the text area gives us a click target and a
-      // hovered test without drawing anything. Focus is sticky: click in to take
-      // the keyboard, click anywhere else to give it back.
+      // An invisible button gives a click target and a hovered test. Focus is
+      // sticky: click in to take the keyboard, elsewhere to give it back.
       ImGui::SetCursorScreenPos(origin);
       ImGui::InvisibleButton("##codehit", ImVec2(std::max(1.0f, region.x),
                                                  std::max(1.0f, viewH)));
@@ -540,7 +492,7 @@ namespace ui
       Bool changed = false;
 
       // Anything the editor wants to say - "3 lines yanked", "already at oldest
-      // change". It produced these all along and nothing ever showed them.
+      // change".
       {
           const Str msg = e.takeMessage();
           if(!msg.empty())
@@ -550,14 +502,10 @@ namespace ui
       }
 
       // ---- every yank leaves the app ---------------------------------------
-      //
-      // Done after the keys of the PREVIOUS frame have been applied, so it
-      // catches a yank however it happened: yy, yG, y in visual mode, x, D, or
-      // the delete half of any operator. The register is the single thing they
-      // all write, so watching it costs one string compare and cannot miss one.
-      //
-      // Empty is not pushed. Clearing somebody's clipboard is never what they
-      // wanted, and the register is briefly empty at the start of every yank.
+      // After the PREVIOUS frame's keys are applied, so it catches a yank however
+      // it happened - yy, yG, visual y, x, D, or any operator's delete half; the
+      // register is the one thing they all write. Empty is NOT pushed: it is
+      // briefly empty at the start of every yank.
       if(e.yankText() != v.lastYank)
       {
           v.lastYank = e.yankText();
@@ -569,17 +517,16 @@ namespace ui
 
       if(v.focused)
       {
-          // Tell ImGui we own the keyboard this frame, so nothing else in the app
-          // acts on the same presses. Without this, typing `f` in the editor could
-          // also trip a global shortcut somewhere else.
+          // We own the keyboard this frame, so typing `f` here cannot also trip a
+          // global shortcut elsewhere.
           ImGui::SetNextFrameWantCaptureKeyboard(true);
 
           const Bool ctrl = io.KeyCtrl;
 
           // ---- the completion popup eats its keys FIRST ---------------------
-          // Up/Down/Tab/Enter/Escape mean something different while a list is
-          // open, and the editor must not also act on them. Anything not claimed
-          // here falls through untouched.
+          // Up/Down/Tab/Enter/Escape mean something different while a list is open
+          // and the editor must not also act on them. Anything unclaimed falls
+          // through untouched.
           Bool eatEnter = false;
           Bool eatTab   = false;
           Bool eatEsc   = false;
@@ -608,8 +555,7 @@ namespace ui
                       v.popupSel = (v.popupSel + n - 1) % n;
                   }
 
-                  // A page at a time, for a list that is now long enough to have
-                  // pages.
+                  // A page at a time, for a list long enough to have pages.
                   if(ImGui::IsKeyPressed(ImGuiKey_PageDown, true))
                   {
                       v.popupSel = std::min(n - 1, v.popupSel + MAX_VISIBLE);
@@ -628,8 +574,7 @@ namespace ui
                   if(accept)
                   {
                       // insertCompletion, not replaceWordBeforeCursor: after a
-                      // member operator there is no partial word to replace and
-                      // the accepted name has to go in as it stands.
+                      // member operator there is no partial word to replace.
                       e.insertCompletion(hits[static_cast<Size>(v.popupSel)].name);
                       v.popupOpen = false;
                       v.dismissed = true;      // do not reopen on this word
@@ -693,8 +638,8 @@ namespace ui
               v.lastKeyS    = nowS;
           }
 
-          // Then printable characters, straight off the platform's queue so the
-          // keyboard layout, shift and dead keys are all already resolved.
+          // Then printable characters, straight off the platform's queue, so layout,
+          // shift and dead keys are already resolved.
           for(Int32 i = 0; i < io.InputQueueCharacters.Size; ++i)
           {
               const ImWchar wc = io.InputQueueCharacters[i];
@@ -708,21 +653,14 @@ namespace ui
               }
 
               // ---- p and P pull from the system clipboard ------------------
+              // Checked one keystroke before the put rather than every frame:
+              // opening the clipboard takes a global lock, and grabbing it sixty
+              // times a second makes copying flaky across the whole desktop.
               //
-              // Checked here, one keystroke before the put, rather than every
-              // frame: opening the clipboard takes a global lock, and a program
-              // that grabs it sixty times a second is a program that makes
-              // copying flaky everywhere else on the desktop.
-              //
-              // Only in normal and visual mode. In insert mode `p` is the letter
-              // p, and clobbering the register every time somebody types the word
-              // "open" would be a genuinely baffling bug.
-              //
-              // Adopted only when the clipboard differs from what we last saw. A
-              // yank inside the editor already pushed its text out, so the two
-              // match and the register is left exactly as vim left it - including
-              // whether it was linewise, which the newline guess below cannot
-              // always recover.
+              // NORMAL AND VISUAL ONLY - in insert mode `p` is the letter p.
+              // Adopted only when the clipboard DIFFERS from what we last saw, so a
+              // yank made in the editor leaves the register in vim's own state,
+              // including linewise, which the newline guess below cannot recover.
               const Char ch = static_cast<Char>(wc);
               if((ch == 'p' || ch == 'P')
                  && (e.mode() == ed::Mode::MODE_NORMAL
@@ -735,8 +673,7 @@ namespace ui
                       Str text = clip;
 
                       // CRLF in, LF held internally - the same normalization
-                      // sketch::load() does, and for the same reason: every line
-                      // ending in this editor is one byte.
+                      // sketch::load() does: every line ending here is one byte.
                       Str lf;
                       lf.reserve(text.size());
                       for(const Char c : text)
@@ -762,18 +699,15 @@ namespace ui
           io.InputQueueCharacters.resize(0);
 
           // ---- reopen / close decision --------------------------------------
-          // Recomputed from the buffer every frame rather than tracked as a state
-          // machine: the word under the caret is the truth, and anything that
-          // moves the caret - a click, a motion, an undo - then does the right
-          // thing for free.
+          // Recomputed from the buffer every frame, not tracked as a state machine:
+          // the word under the caret is the truth, so anything that moves the caret
+          // does the right thing for free.
           const Str word = (e.mode() == ed::Mode::MODE_INSERT) ? e.wordBeforeCursor()
                                                                : Str();
 
-          // blockAt is rebuilt further down, so on the first frame it is empty
-          // and on a frame after an edit it is one behind. Neither matters here:
-          // the flag only decides whether the caret is inside a block comment,
-          // and being wrong for one frame costs a popup that appears or does not
-          // and is corrected on the next.
+          // blockAt is rebuilt further down, so it is empty on the first frame and
+          // one behind after an edit. Harmless: it only decides whether the caret
+          // is inside a block comment, and one wrong frame self-corrects.
           const Int32 cl        = e.cursor().line;
           const Bool  blockOpen = (cl >= 0 && cl < static_cast<Int32>(blockAt.size()))
                                 ? blockAt[static_cast<Size>(cl)] : false;
@@ -793,17 +727,13 @@ namespace ui
 
           const Int32 startCol = e.cursor().col - static_cast<Int32>(word.size());
 
-          // What makes the popup worth opening at all: a long enough prefix, or
-          // a member operator the caret is sitting right after.
+          // A long enough prefix, or a member operator the caret sits right after.
           const Bool wanted = (word.size() >= MIN_PREFIX || trigger) && !v.dismissed;
 
           // ---- ask clangd ---------------------------------------------------
-          //
-          // Only when the caret has moved since the last question, and never
-          // while one is outstanding. That pair is the whole rate limit: the
-          // next question goes out when the previous answer lands, so the
-          // request rate is the round-trip rate and cannot run ahead of it
-          // however fast the user types.
+          // Only when the caret has moved since the last question, and never while
+          // one is outstanding. That pair is the whole rate limit: the request rate
+          // becomes the round-trip rate, however fast the user types.
           if(wanted
              && !v.lspPath.empty()
              && lsp::state() == lsp::State::STATE_READY
@@ -813,11 +743,10 @@ namespace ui
               const Str    text = e.text();
               const UInt64 h    = hashOf(text);
 
-              // Only remember WHERE we asked if the question was taken. Refused
-              // while clangd is still parsing, and recording the position anyway
-              // would mean never asking again until the caret moved - so the
-              // popup would sit on the hand-written table for the rest of the
-              // session and look exactly like a working feature.
+              // Only remember WHERE we asked if the question was TAKEN. It is
+              // refused while clangd parses, and recording the position anyway
+              // means never asking again until the caret moves - after which the
+              // popup sits on the table and looks like a working feature.
               if(lsp::ask(v.lspPath, text, h, e.cursor().line, e.cursor().col))
               {
                   v.lspAskLine = e.cursor().line;
@@ -875,9 +804,8 @@ namespace ui
 
       dl->PushClipRect(origin, ImVec2(origin.x + region.x, origin.y + viewH), true);
 
-      // The block-comment carry has to be right for the FIRST visible line, and
-      // that depends on every line above it - so it is recomputed whenever the
-      // line count or the buffer changes. Cheap: a sketch is tens of lines.
+      // The block-comment carry must be right for the FIRST visible line, which
+      // depends on every line above it - so it is rebuilt whenever the buffer does.
       if(blockAt.size() != static_cast<Size>(e.lineCount()) + 1 || changed)
       {
           rebuildBlockFlags(e);
@@ -887,23 +815,17 @@ namespace ui
       const Int32 last  = std::min(e.lineCount() - 1,
                                    first + static_cast<Int32>(viewH / lineH) + 1);
 
-      // H, M, L and Ctrl-D/Ctrl-U mean "the screen", not "the buffer", so the
-      // editor is told where the screen is - from the same two numbers the drawing
-      // below uses, which is what keeps them from ever disagreeing.
+      // H, M, L and Ctrl-D/Ctrl-U mean "the screen", not "the buffer", so the editor
+      // is told where it is - from the same two numbers the drawing below uses.
       e.setViewport(first, std::max(1, static_cast<Int32>(viewH / lineH)));
 
       ed::Cursor selA, selB;
       const Bool hasSel = e.selection(selA, selB);
 
       // ---- what the pointer is over ------------------------------------------
-      //
-      // Collected while the rows are drawn rather than recomputed afterwards,
-      // because the row's y and the span's x are already in hand here and
-      // deriving them twice is how the two end up disagreeing by a pixel.
-      //
-      // Only while the editor is hovered and nothing is being dragged: a
-      // tooltip that appears mid-selection is a tooltip covering the thing you
-      // are selecting.
+      // Collected while the rows are drawn, not recomputed after: deriving the
+      // row's y and span's x twice is how the two end up a pixel apart. Only while
+      // hovered and undragged, so a tooltip cannot cover a live selection.
       Vec<const diag::Item*> underPointer;
       ImVec2                 underAt(0.0f, 0.0f);
 
@@ -924,16 +846,10 @@ namespace ui
           }
 
           // ---- line number -------------------------------------------------
-          //
-          // RELATIVE in every mode except insert, and absolute on the caret's own
-          // line. That is vim's `number` + `relativenumber`, and it is not a
-          // stylistic choice: relative numbers exist so `12j` and `4dd` can be
-          // read straight off the screen without counting, which is the entire
-          // point of operator-plus-count editing.
-          //
-          // Insert mode switches to absolute because there are no counted motions
-          // to serve there, and because a compiler error says "line 42", not
-          // "line 42 relative to wherever your caret happens to be".
+          // RELATIVE except in insert, absolute on the caret's own line - vim's
+          // `number` + `relativenumber`, so `12j` and `4dd` can be read off the
+          // screen. Insert goes absolute: no counted motions there, and a compiler
+          // error says "line 42".
           const Bool onCaret  = (l == e.cursor().line);
           const Bool absolute = onCaret || (e.mode() == ed::Mode::MODE_INSERT);
 
@@ -941,9 +857,8 @@ namespace ui
                                        : std::abs(l - e.cursor().line);
           std::snprintf(numBuf.data(), numBuf.size(), "%d", shown);
           const Float32 numW = static_cast<Float32>(std::strlen(numBuf.data())) * charW;
-          // The caret's own number is left-aligned and bright; the relative ones
-          // are right-aligned against it, so the column of distances reads as a
-          // ruler rather than as a list of numbers.
+          // The caret's own number is left-aligned and bright, the relative ones
+          // right-aligned against it, so the column reads as a ruler.
           const Float32 numX = onCaret
               ? (origin.x + charW)
               : (origin.x + gutterW - charW - numW);
@@ -965,10 +880,8 @@ namespace ui
                   dl->AddCircleFilled(ImVec2(origin.x + r * 1.6f, y + lineH * 0.5f),
                                       r, mc, 10);
 
-                  // The whole gutter row is the target, not the four-pixel dot.
-                  // The dot is a MARK - something to notice from across the
-                  // screen - and asking anyone to land on it with a pointer
-                  // would make it a worse one.
+                  // The whole gutter ROW is the target, not the four-pixel dot,
+                  // which is a mark to notice rather than to land a pointer on.
                   if(wantHover && underPointer.empty()
                      && io.MousePos.x >= origin.x && io.MousePos.x < textX
                      && io.MousePos.y >= y && io.MousePos.y < y + lineH)
@@ -1008,8 +921,7 @@ namespace ui
           syn::tokenize(src, open, spans);
 
           // ---- diagnostic underline ------------------------------------------
-          // A squiggle would be prettier and is not worth the vertex count at
-          // 60 fps; a flat rule under the span says the same thing.
+          // A flat rule, not a squiggle - not worth the vertex count at 60 fps.
           if(!v.diags.empty())
           {
               for(const diag::Item& d : v.diags)
@@ -1019,8 +931,8 @@ namespace ui
                       continue;
                   }
 
-                  // Column 0 means the compiler did not say where, so the whole
-                  // line is marked rather than a span being invented for it.
+                  // Column 0 means the compiler did not say where, so the whole line
+                  // is marked rather than a span invented for it.
                   const Int32 from = (d.column > 0) ? (d.column - 1) : 0;
                   const Int32 to   = (d.column > 0) ? std::min(len, from + 9) : len;
                   if(to <= from)
@@ -1036,17 +948,14 @@ namespace ui
                   dl->AddLine(ImVec2(x0, uy), ImVec2(x1, uy),
                               uc, std::max(1.0f, 1.5f * dpiScale()));
 
-                  // The hit box is the TEXT, the full row height, not the rule
-                  // under it. Nobody hovers a one-pixel line on purpose; they
-                  // put the pointer on the word that is wrong.
+                  // The hit box is the TEXT at full row height, not the one-pixel
+                  // rule under it.
                   if(wantHover && underPointer.empty()
                      && io.MousePos.x >= x0 && io.MousePos.x < x1
                      && io.MousePos.y >= y && io.MousePos.y < y + lineH)
                   {
                       // Everything overlapping that cell, not just this one: an
-                      // error and the notes explaining it land on the same
-                      // column, and showing one of them is showing the wrong
-                      // half of the answer.
+                      // error and its explaining notes land on the same column.
                       for(const diag::Item& o : v.diags)
                       {
                           if(o.line != l + 1)
@@ -1068,20 +977,11 @@ namespace ui
               }
           }
 
-          // ONE CELL AT A TIME, and this is the whole reason the caret used to
-          // drift.
-          //
-          // Drawing a span with a single AddText lets ImGui advance by the FONT's
-          // own glyph advance between characters, while the caret advances by
-          // `charW`. The two differ by a fraction of a pixel, which is invisible
-          // for three characters and half a cell by column forty - so the caret
-          // slowly slid off the text and ended up between two glyphs. A long
-          // comment is one span, which is exactly where it showed worst.
-          //
-          // Per-cell placement makes the grid the single source of truth: the
-          // glyph and the caret are computed by the same expression, so they
-          // cannot disagree. Whitespace is skipped, which in indented code is a
-          // large fraction of the cells.
+          // ONE CELL AT A TIME, which is why the caret no longer drifts: a span
+          // drawn with a single AddText advances by the FONT's glyph advance while
+          // the caret advances by `charW`, and the fractional difference is half a
+          // cell by column forty. Per-cell placement makes the grid the one source
+          // of truth. Whitespace is skipped.
           for(const syn::Span& s : spans)
           {
               const ImU32 col = syn::colorFor(s.role);
@@ -1116,8 +1016,7 @@ namespace ui
                                - v.scrollY;
 
               // Block caret in normal mode, bar in insert - the same signal vim
-              // gives, and the fastest way to see which mode you are in without
-              // looking away from what you are typing.
+              // gives.
               if(e.mode() == ed::Mode::MODE_INSERT)
               {
                   dl->AddRectFilled(ImVec2(cx, cy),
@@ -1135,22 +1034,16 @@ namespace ui
       dl->PopClipRect();
 
       // ---- what the pointer is resting on -------------------------------------
-      //
-      // The compiler already said what is wrong with that line. Until now it
-      // said it in the build pane, which means reading a message in one place
-      // and finding the column it belongs to in another. The underline was
-      // already there; this is the half that tells you what it means.
-      //
-      // Suppressed while the completion list is up. Two panels a few pixels
-      // apart, one of which you are typing into, is worse than either alone -
-      // and the one you are typing into wins.
+      // The message beside its underline, rather than in the build pane. Suppressed
+      // while the completion list is up: two panels a few pixels apart, one of
+      // which you are typing into, is worse than either alone.
       if(!underPointer.empty() && !v.popupOpen)
       {
           const Float32 pad  = 8.0f * dpiScale();
           const Float32 rowH = lineH;
 
-          // Lay the whole thing out first, so the box is sized to what it will
-          // actually hold rather than to a guess that has to be clamped after.
+          // Laid out first, so the box is sized to what it holds rather than to a
+          // guess that has to be clamped after.
           struct HoverRow
           {
               Str   text;
@@ -1212,9 +1105,8 @@ namespace ui
           const Float32 boxW = wide + pad * 2.0f;
           const Float32 boxH = rowH * static_cast<Float32>(rows.size()) + pad;
 
-          // Under the underlined text, and above it when there is no room -
-          // the same rule the completion list follows, so the two never appear
-          // to come from different programs.
+          // Under the underlined text, above it when there is no room - the same
+          // rule the completion list follows.
           Float32 hx = underAt.x;
           Float32 hy = underAt.y + lineH + 3.0f * dpiScale();
           if(hy + boxH > origin.y + viewH)
@@ -1236,9 +1128,8 @@ namespace ui
 
               if(r.text.empty())
               {
-                  // The blank row between two diagnostics is drawn as a rule.
-                  // Whitespace alone reads as a gap in the panel rather than as
-                  // a boundary between two separate things.
+                  // A rule, not whitespace: a gap reads as padding rather than as a
+                  // boundary between two separate diagnostics.
                   fg->AddLine(ImVec2(hx + pad, ry + rowH * 0.5f),
                               ImVec2(hx + boxW - pad, ry + rowH * 0.5f),
                               syn::gruv::BG3);
@@ -1269,9 +1160,8 @@ namespace ui
               const Int32 sel = std::max(0, std::min(v.popupSel, n - 1));
 
               // ---- the visible window ----
-              // Ten rows, and the selection drags it. Clamped after, so a list
-              // that just filtered down from two hundred to three does not leave
-              // the window parked past the end showing nothing.
+              // The selection drags it, clamped after - so a list that just
+              // filtered from two hundred to three is not parked past the end.
               const Int32 shown = std::min(n, MAX_VISIBLE);
 
               if(sel < v.popupTop)
@@ -1284,10 +1174,8 @@ namespace ui
               }
               v.popupTop = std::max(0, std::min(v.popupTop, n - shown));
 
-              // Widest name and widest detail ACROSS THE WHOLE LIST, not just
-              // the visible rows: sizing to the window would make the box change
-              // width as it scrolls, which reads as the list jumping rather than
-              // moving.
+              // Widest name and detail ACROSS THE WHOLE LIST, not just the visible
+              // rows: sizing to the window makes the box change width as it scrolls.
               Float32 nameW = 0.0f;
               Float32 detW  = 0.0f;
               for(const Row& it : hits)
@@ -1300,8 +1188,7 @@ namespace ui
               }
 
               // clangd's `detail` is a full C++ type and can be a hundred
-              // characters. Cap the column so one std::vector<...> signature
-              // cannot push the box off the side of the pane.
+              // characters; capped so one cannot push the box off the pane.
               detW = std::min(detW, charW * 44.0f);
 
               const Float32 pad   = 8.0f * dpiScale();
@@ -1311,8 +1198,8 @@ namespace ui
               const Float32 boxW  = tagW + nameW + pad * 2.0f + detW + pad * 2.0f + barW;
               const Float32 boxH  = rowH * static_cast<Float32>(shown) + pad;
 
-              // Anchored to the START of the word, so the list lines up with what
-              // it is completing rather than with the caret.
+              // Anchored to the START of the word, not the caret, so the list lines
+              // up with what it is completing.
               Float32 px = textX + static_cast<Float32>(startCol) * charW;
               Float32 py = origin.y
                          + static_cast<Float32>(e.cursor().line + 1) * lineH - v.scrollY;
@@ -1326,11 +1213,9 @@ namespace ui
 
               px = std::max(origin.x, std::min(px, origin.x + region.x - boxW));
 
-              // NO WHEEL SCROLLING HERE, deliberately. The buffer's own wheel
-              // handler runs three hundred lines earlier, before this box has a
-              // position, so a wheel over the popup would move the list AND the
-              // code underneath it. The list is driven by the keys that were
-              // already driving it - arrows, ctrl-N/P, and now page up and down.
+              // NO WHEEL SCROLLING HERE: the buffer's own wheel handler runs long
+              // before this box has a position, so a wheel over the popup would
+              // move the list AND the code under it. Keys only.
               ImDrawList* fg = ImGui::GetForegroundDrawList();
               fg->AddRectFilled(ImVec2(px, py), ImVec2(px + boxW, py + boxH),
                                 syn::gruv::BG1, 3.0f * dpiScale());
@@ -1346,9 +1231,8 @@ namespace ui
 
                   if(idx == sel)
                   {
-                      // Stops short of the scroll track, so the highlight does
-                      // not paint over the one thing that says where in the list
-                      // you are.
+                      // Stops short of the scroll track, so the highlight does not
+                      // paint over the one thing saying where in the list you are.
                       fg->AddRectFilled(ImVec2(px + 2.0f, ry),
                                         ImVec2(px + boxW - barW - 2.0f, ry + rowH),
                                         syn::gruv::BG2);
@@ -1370,9 +1254,8 @@ namespace ui
               }
 
               // ---- the scroll indicator ----
-              // Position only, and no dragging. What it is for is answering "is
-              // there more below" - a question the list cannot answer on its own
-              // once it stops showing all of itself.
+              // Position only, no dragging. It answers "is there more below" - a
+              // question the list cannot answer once it stops showing all of itself.
               if(n > shown)
               {
                   const Float32 trackX = px + boxW - barW - 2.0f * dpiScale();
@@ -1392,12 +1275,9 @@ namespace ui
                                     syn::gruv::GRAY);
               }
 
-              // The selected entry's one-line doc, under the box. Only one, so
-              // the popup stays a list rather than becoming a manual.
-              //
-              // The count rides along on the right, because "10 of 137" is the
-              // difference between a list that is short and a list that is
-              // showing you its first ten.
+              // The selected entry's one-line doc, under the box - only one, so the
+              // popup stays a list. "10 of 137" on the right separates a short list
+              // from a truncated one.
               const Row& cur = hits[static_cast<Size>(sel)];
 
               Array<Char, 96> tally;
@@ -1445,8 +1325,7 @@ namespace ui
       const Float32 pad = 6.0f * dpiScale();
       const Float32 ty  = sy + 3.0f * dpiScale();
 
-      // The mode badge, in the mode's own color. Reversed like vim's, so it is
-      // legible at a glance rather than being one more word on a gray bar.
+      // The mode badge, in the mode's own color, reversed like vim's.
       {
           const Char*   mn = modeName(e.mode());
           const Float32 mw = ImGui::CalcTextSize(mn).x;
@@ -1462,16 +1341,10 @@ namespace ui
           dl->AddText(ImVec2(origin.x + region.x - pw - pad, ty), syn::gruv::FG4, pos.data());
 
           // ---- clangd, always ------------------------------------------------
-          //
-          // Present in every state rather than only when something is wrong. An
-          // empty completion list is the same picture whether the server has
-          // nothing to suggest, has not finished parsing, or is not running at
-          // all, and those are three different situations with three different
-          // things to do about them. A word on the status bar is the cheapest
-          // possible way to never have to guess which one you are looking at.
-          //
-          // It also says when a question is IN FLIGHT, which is the state that
-          // otherwise looks exactly like "no suggestions".
+          // Present in every state, not only when wrong: an empty completion list
+          // looks identical whether the server has nothing to suggest, is still
+          // parsing, or is not running - and it also says when a question is IN
+          // FLIGHT, which otherwise looks like "no suggestions".
           Float32 rightOf = origin.x + region.x - pw - pad * 3.0f;
           {
               const Char* tag = "clangd";
@@ -1503,10 +1376,8 @@ namespace ui
               rightOf -= tw + pad * 2.0f;
           }
 
-          // The middle slot, in priority order: what you are typing, then what
-          // just happened, then a hint. A transient note outranks the hint
-          // because it is news; the command line outranks everything because you
-          // are looking straight at it.
+          // The middle slot, in priority order: the command line (you are looking
+          // straight at it), then a transient note, then a hint.
           Str   mid;
           ImU32 midCol = syn::gruv::GRAY;
 
@@ -1523,8 +1394,8 @@ namespace ui
               {
                   mid = v.note;
 
-                  // Fades out rather than vanishing. A message that disappears
-                  // between glances is one you are never sure you saw.
+                  // Fades rather than vanishing: a message that disappears between
+                  // glances is one you are never sure you saw.
                   Float32 a = 1.0f;
                   if(age > NOTE_HOLD_S)
                   {
@@ -1543,10 +1414,9 @@ namespace ui
           }
           else if(lsp::state() == lsp::State::STATE_FAILED)
           {
-              // OUTRANKS "click to edit" on purpose. The tag on the right says
-              // THAT it failed; this says WHY, in the failure's own words -
-              // "not installed" and "exited during startup" want different
-              // things done about them and a red word cannot tell them apart.
+              // OUTRANKS "click to edit" on purpose: the tag on the right says
+              // THAT it failed, this says WHY. "not installed" and "exited during
+              // startup" want different things done about them.
               mid    = lsp::status();
               midCol = syn::gruv::RED;
           }

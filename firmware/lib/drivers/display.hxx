@@ -79,7 +79,6 @@
 namespace bibo::tft
 {
 
-    /* ===== the one line to change ============================================= */
     /**
      * @brief Selects the panel controller this file drives.
      *
@@ -87,7 +86,6 @@ namespace bibo::tft
      */
 #define PANEL_ST7789 1
 #define PANEL_ST7735 0
-    /* ========================================================================== */
 
 #if PANEL_ST7789
     /**
@@ -182,13 +180,11 @@ namespace bibo::tft
      */
     struct Screen
     {
-        /* geometry, in pixels */
         Int32 width;
         Int32 height;
         Int32 xoff;
         Int32 yoff;
 
-        /* pins */
         Pin sck;
         Pin mosi;
         Pin cs;
@@ -239,19 +235,9 @@ namespace bibo::tft
     }
 
     /*
-     * ---- the wire ------------------------------------------------------------
-     *
-     * CS LOW means "this transaction is mine"; raising it ENDS the transaction.
-     *
-     * That is why these are bracketed rather than each call driving CS itself. A
-     * command and its parameters are ONE transaction: raise CS between them and the
-     * controller treats the parameters as a fresh transaction beginning with no
-     * command, and throws them away.
-     *
-     * The failure that produces is deeply unhelpful, and cost a day. SLPOUT takes
-     * no parameters, so the panel still wakes and the backlight still comes on -
-     * but COLMOD, MADCTL, CASET, RASET and RAMWR all lose their data and nothing is
-     * ever drawn. A lit blank screen and a dead wire look identical.
+     * ---- the wire: CS LOW claims the bus and raising it ENDS the transaction, so
+     * a command and its parameters go out bracketed. Split them and the parameters
+     * are discarded - a lost COLMOD or RAMWR is a lit blank screen, not a dark one.
      */
     /**
      * @brief Pulls CS low, claiming the SPI bus for this panel's transaction.
@@ -287,12 +273,12 @@ namespace bibo::tft
     {
         select(s);
 
-        gpio::write(s->dc, false);              /* low = this byte is a command */
+        gpio::write(s->dc, false);              /* low = command, high = parameters */
         spi::writeByte(s->sck, cmd);
 
         if(params != nullptr && n > 0)
         {
-            gpio::write(s->dc, true);           /* high = these are its parameters */
+            gpio::write(s->dc, true);
             spi::write(s->sck, params, n);
         }
 
@@ -402,7 +388,6 @@ namespace bibo::tft
         gpio::write(s->dc, false);
         spi::writeByte(s->sck, 0x2C);           /* RAMWR */
         gpio::write(s->dc, true);
-        /* CS stays LOW; the caller streams pixels now. */
     }
 
     /**
@@ -415,13 +400,7 @@ namespace bibo::tft
         deselect(s);
     }
 
-    /*
-     * ---- drawing -------------------------------------------------------------
-     *
-     * These go STRAIGHT to the panel and ignore any back buffer. They are the
-     * driver's own drawing, for bring-up and for sketches that want nothing else.
-     * gfx.h is the layer that buffers.
-     */
+    /* ---- drawing: straight to the panel, no back buffer. gfx.h is what buffers. */
 
     /**
      * @brief Internal drawing primitives that predate gfx.hxx; NOT the
@@ -519,9 +498,6 @@ namespace bibo::tft
             rect(s, x, y, 1, 1, color);
         }
 
-        /*
-       * ---- text ----------------------------------------------------------------
-      */
         /**
        * @brief A 5x7 pixel font, five bytes per glyph, one byte per column,
        * bit 0 at the top.
@@ -646,11 +622,7 @@ namespace bibo::tft
             const Int32 w = 6 * scale;
             const Int32 h = 8 * scale;
 
-            /*
-         * Off-screen entirely: nothing to do. Partial overlap is not clipped here -
-         * the caller lays text out, and half a character is worse to look at than a
-         * missing one.
-         */
+            /* Off-screen: nothing drawn. Partial overlap is not clipped either - half a character is worse to look at than a missing one. */
             if(x < 0 || y < 0 || x + w > s->width || y + h > s->height)
             {
                 return;
@@ -671,10 +643,7 @@ namespace bibo::tft
                 {
                     const Int32 gc = col / scale;
 
-                    /*
-                 * The sixth column is the gap between characters, DRAWN rather than
-                 * skipped so overwriting text leaves no comb of old pixels.
-                 */
+                    /* The sixth column is the inter-character gap, DRAWN rather than skipped so overwriting text leaves no comb of old pixels. */
                     const UInt8 bits = gc < 5 ? glyph[gc] : 0x00;
                     const Bool  on   = gr < 7
                                        && ((static_cast<UInt32>(bits)
@@ -749,10 +718,6 @@ namespace bibo::tft
             return false;
         }
 
-        /*
-         * Clamped to what the controller can address, so a typo produces a wrong
-         * picture rather than a window running off the end of its RAM.
-         */
         s->width  = w <= 0 ? PANEL_MAX_W : w > PANEL_MAX_W ? PANEL_MAX_W : w;
         s->height = h <= 0 ? PANEL_MAX_H : h > PANEL_MAX_H ? PANEL_MAX_H : h;
         s->xoff   = xoff < 0 ? 0 : xoff;
@@ -764,12 +729,6 @@ namespace bibo::tft
         s->dc   = dc;
         s->res  = res;
 
-        /*
-         * Zero means "the whole rectangle is visible". A panel with rounded
-         * corners is told its real inset by whoever knows the glass - see the
-         * field's own note above. The DRAWING state that used to be zeroed here
-         * belongs to gfx::Canvas now.
-         */
         s->safeInset = 0;
 
         gpio::open(s->dc, PIN_DIR_OUT);
@@ -780,17 +739,9 @@ namespace bibo::tft
             return false;
         }
 
-        /*
-         * Mode 3. spi_init leaves mode 0, and an ST7789 on the wrong mode reads
-         * every byte shifted and behaves exactly as though nothing was sent.
-         */
+        /* Mode 3. spi_init leaves mode 0, and an ST7789 on the wrong mode reads every byte shifted and looks like nothing was sent. */
         spi::mode(s->sck, true, true);
 
-        /*
-         * Hardware reset. The delays are from the datasheet and are not padding:
-         * talking to the controller before it has finished resetting is the classic
-         * way to get a panel that works only every other power-up.
-         */
         gpio::write(s->res, true);
         timing::ms(50);
         gpio::write(s->res, false);
@@ -805,11 +756,7 @@ namespace bibo::tft
 
 #if PANEL_ST7735
         {
-            /*
-             * Frame rate and power control. These are the values in every ST7735
-             * bring-up in existence; they are panel timings rather than anything
-             * derivable.
-             */
+            /* Frame rate and power control: panel timings, not derivable - the values every ST7735 bring-up uses. */
             UInt8 b[16];
 
             b[0] = 0x01;
@@ -850,10 +797,7 @@ namespace bibo::tft
         cmd1(s, 0x3A, 0x55);       /* COLMOD - 16 bit on ST7789 */
         timing::ms(10);
 
-        /*
-         * The ST7789 power and porch settings. The datasheet defaults work on some
-         * modules and not others; these are the values that work on all of them.
-         */
+        /* ST7789 power and porch. The datasheet defaults work on some modules and not others; these work on all of them. */
         {
             UInt8 p[5];
             p[0] = 0x0C;
@@ -875,11 +819,7 @@ namespace bibo::tft
         }
 #endif
 
-        /*
-         * MADCTL: row/column order and RGB-versus-BGR. 0x00 is the identity, which
-         * is right for the common modules. If red and blue come out swapped, this
-         * is the byte to change - try 0x08.
-         */
+        /* MADCTL: row/column order and RGB-versus-BGR. 0x00 is the identity; if red and blue come out swapped, try 0x08. */
         cmd1(s, 0x36, 0x00);
 
 #if PANEL_INVERT
@@ -915,15 +855,6 @@ namespace bibo::tft
      */
     [[nodiscard]] static Bool open(Screen* s, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff)
     {
-        /*
-         * The pads THIS PROGRAM declared, not the defines above. The display's
-         * wiring used to be fixed when the firmware was compiled, so a sketch
-         * that moved the panel had to edit a driver; now it is five fields in a
-         * pins::Map and no driver notices.
-         *
-         * openOn() still takes pins explicitly - for a program that wants pads
-         * outside its own map, which is legitimate and rare.
-         */
         const pins::Map& m = pins::active();
 
         if(!openOn(s, w, h, xoff, yoff,
@@ -936,10 +867,7 @@ namespace bibo::tft
         s->blk = m.tftBlk;
         if(s->blk != pins::NONE)
         {
-            /*
-             * 1 kHz: fast enough not to be seen, slow enough that the
-             * backlight driver keeps up.
-             */
+            /* 1 kHz: fast enough not to be seen, slow enough that the backlight driver keeps up. */
             pwm::open(s->blk, 1000u);
             pwm::write(s->blk, 1.0f);
         }
@@ -947,20 +875,7 @@ namespace bibo::tft
     }
 
 
-    /*
-     * ===========================================================================
-     * THE PANEL, as a component.
-     *
-     * This is the half of the split gfx does not do. gfx draws - shapes, text,
-     * a back buffer, a clip rectangle - and knows nothing about the glass it
-     * lands on. These are the things that are true of the PANEL and have no
-     * meaning on a canvas: whether it is asleep, whether the controller inverts,
-     * how bright the backlight is.
-     *
-     * A sketch uses gfx for a frame and reaches for these when it wants the
-     * hardware itself.
-     * ========================================================================
-     */
+    /* ---- the panel, as a component: sleep, inversion, backlight - true of the glass and meaningless on a canvas, which is the half gfx does not do. */
 
     /**
      * @brief Turns color inversion at the controller on or off.
@@ -995,7 +910,7 @@ namespace bibo::tft
     inline Void sleep(const Screen* s, const Bool on)
     {
         cmd(s, on ? 0x10 : 0x11);   /* SLPIN / SLPOUT */
-        timing::ms(on ? 5u : 120u);         /* SLPOUT needs the long wait */
+        timing::ms(on ? 5u : 120u);
     }
 
     /**

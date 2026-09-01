@@ -3,38 +3,16 @@
  * net - the same command link, over Wi-Fi.
  *
  * One UDP datagram is one command line, in exactly the text the USB console
- * already speaks. "ESC 1547\n" over the cable and "ESC 1547" in a datagram are
- * the same line reaching the same handler, so the command table, the console,
- * the hub and every note written about them keep working without knowing which
- * way a line arrived. A second, binary, wireless-only protocol would have been
- * a second thing to keep in step with the first.
+ * already speaks, so the command table, the console and the hub keep working
+ * without knowing which way a line arrived.
  *
- * ---- why it JOINS a network instead of making one -------------------------
- *
- * Access-point mode is the obvious shape for a car - it takes the house router
- * out of the path and works in a car park. It also needs a DHCP server, and
- * lwIP ships a client only: the server every Pico access-point example uses
- * lives in pico-examples, which is not vendored here. So joining an existing
- * network is what can be built out of what is actually on this machine, and AP
- * mode is a later job with a DHCP server in it.
- *
- * ---- the credentials are not in this repository ---------------------------
- *
- * No SSID, no password, no default. They arrive at run time over the USB
- * console - WIFI JOIN <ssid> <password> - and live in RAM until the board is
- * reset. A network password baked into a source file is a network password in
- * the commit history forever, and this repository is pushed.
- *
- * ---- what this link does NOT do -------------------------------------------
- *
- * It does not authenticate. Anything on the same network that can reach this
- * port can steer the car, and that is worth knowing rather than discovering.
- * What limits the damage is the deadman in main.c: the board stops itself when
- * the commands stop, so the worst a silent attacker achieves is a stop.
- *
- * On a board with no radio every function here is a stub that answers "no
- * radio", so main.c reads the same on both images and needs no #ifdef around
- * any call site.
+ * It JOINS a network rather than making one: access-point mode needs a DHCP
+ * server and lwIP ships a client only. Credentials never live in this
+ * repository - WIFI JOIN <ssid> <password> over the console puts them in RAM
+ * until reset. The link does not authenticate: anything that can reach this
+ * port can steer the car, and what limits the damage is the deadman in main.c,
+ * which stops the board when the commands stop. On a board with no radio every
+ * function here is a stub answering "no radio", so main.c needs no #ifdef.
  * -------------------------------------------------------------------------
  */
 #pragma once
@@ -43,10 +21,8 @@
 #include "hal.hxx"
 
 /*
- * The wireless stack, on a board that has one. UP HERE, not down inside the
- * implementation, because an #include inside a namespace drags every
- * declaration in that header into it - which for lwIP is several hundred names
- * that would end up as net::something.
+ * The wireless stack, on a board that has one. UP HERE, not inside the
+ * namespace: an #include there drags every lwIP declaration into it.
  */
 #ifdef BIBO_WIRELESS
 #include "pico/cyw43_arch.h"
@@ -64,26 +40,15 @@ namespace bibo
   namespace net
   {
 
-    /*
-     * The port. Arbitrary, above the registered range, and the same number the hub
-     * uses - hub/src/pico_link.hxx. Change one and change the other.
-     */
+    /* Arbitrary, above the registered range, and the same number hub/src/pico_link.hxx uses. */
 #define NET_PORT 4242
 
-    /*
-     * One line's worth. The same 128 as main.c's LINE_CAP, and for the same
-     * reason: no command this protocol has is anywhere near it, and a bigger
-     * buffer here would only let an over-long line travel further before being
-     * refused.
-     */
+    /* One line's worth. The same 128 as main.c's LINE_CAP. */
 #define NET_LINE_CAP 128
 
     /*
-     * How many complete lines can be held between one net::poll() and the next.
-     *
-     * The loop drains this every millisecond or so, so eight is already generous;
-     * it exists for the burst that arrives while the loop is off doing something
-     * slow, not for steady traffic.
+     * Lines held between one net::poll() and the next. The loop drains it every
+     * millisecond or so, so eight is for a burst, not for steady traffic.
      */
 #define NET_QUEUE_LINES 8
 
@@ -109,29 +74,20 @@ namespace bibo
 #ifdef BIBO_WIRELESS
 
     /*
-     * OFF, not ABSENT: this half of the file only compiles on a board that HAS the
-     * chip, so "no radio" is never the answer here. ABSENT belongs to the stub half
-     * at the bottom, and keeping the two meanings apart is what lets a caller print
-     * net::stateWord() without having to know which build it is in.
+     * OFF, not ABSENT: this half only compiles on a board that HAS the chip, so
+     * "no radio" is never the answer here. ABSENT belongs to the stub half.
      */
     inline State       stateNow  = STATE_OFF;
     inline Bool           started   = false;
     inline LineHandler handler   = nullptr;
     inline udp_pcb* pcb      = nullptr;
 
-    /*
-     * The last host that said anything. Replies go here - including replies to
-     * commands that arrived over USB, which is deliberate: a console watching
-     * wirelessly should see the whole conversation, not only its half of it.
-     */
+    /* The last host that said anything. Replies go here, USB commands included, so a wireless console sees both halves. */
     inline ip_addr_t peerAddr;
     inline UInt16    peerPort = 0;
     inline Bool      peerKnownNow = false;
 
-    /*
-     * The join in progress. cyw43's async connect keeps no copy of these, so they
-     * have to outlive the call that starts it.
-     */
+    /* The join in progress. cyw43's async connect keeps no copy of these. */
     inline Utf8 joinSsid[40];
     inline Utf8 joinPass[68];
 
@@ -141,10 +97,7 @@ namespace bibo
     inline Size  queueCount = 0;
     inline UInt32 dropped   = 0;
 
-    /*
-     * Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be
-     * - a sender is free to put two in one packet, or split one across two.
-     */
+    /* Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be. */
     inline Utf8 partial[NET_LINE_CAP];
     inline Size partialLen = 0;
 
@@ -236,12 +189,9 @@ namespace bibo
         }
 
         /*
-         * Full: drop the OLDEST, not this one.
-         *
-         * On a control link the freshest command is the one that matters - it is
-         * the one describing where the car should be NOW - and a queue that
-         * discarded arrivals would preferentially discard the newest, which is
-         * exactly backwards. Losing a stale keepalive costs nothing.
+         * Full: drop the OLDEST, not this one. On a control link the freshest
+         * command is the one that matters, so discarding arrivals instead would
+         * be exactly backwards. Losing a stale keepalive costs nothing.
          */
         if(queueCount == NET_QUEUE_LINES)
         {
@@ -278,21 +228,17 @@ namespace bibo
             else
             {
                 /*
-                 * Over-long. Drop the whole line rather than letting its tail
-                 * become a command nobody sent - the same rule, and the same
-                 * reasoning, as the USB reader in main.c.
+                 * Over-long. Drop the whole line rather than let its tail become
+                 * a command nobody sent, as the USB reader in main.c does.
                  */
                 partialLen = 0;
             }
         }
 
         /*
-         * A datagram that ends without a newline is a COMPLETE line.
-         *
-         * UDP preserves message boundaries - unlike a stream, where the end of a
-         * read means nothing - so requiring a trailing newline would silently
-         * ignore every sender that does not bother with one. Which is most of
-         * them, including a one-line test from a shell.
+         * A datagram that ends without a newline is a COMPLETE line: UDP
+         * preserves message boundaries, and most senders - a one-line test from
+         * a shell among them - do not bother with a trailing newline.
          */
         if(partialLen > 0)
         {
@@ -343,10 +289,7 @@ namespace bibo
         peerPort     = port;
         peerKnownNow = true;
 
-        /*
-         * pbufs can be chained; walking the chain is not optional even for small
-         * packets, because "small" is the sender's decision and not ours.
-         */
+        /* pbufs can be chained; walking the chain is not optional, "small" being the sender's decision. */
         for(const pbuf* q = p; q != nullptr; q = q->next)
         {
             feed(static_cast<const Utf8*>(q->payload), q->len);
@@ -375,14 +318,10 @@ namespace bibo
         }
 
         /*
-         * radio::open(), not cyw43_arch_init().
-         *
-         * The LED on this board hangs off the same chip and main() brings it up at
-         * boot, so by the time anybody asks for wireless the radio is ALREADY
-         * initialized. A second cyw43_arch_init() does not return an error - it
-         * quietly leaves the chip half re-initialized, and the next thing to touch
-         * it behaves strangely for reasons that are nowhere near the code that
-         * caused them. hal.h owns that call and answers it once.
+         * radio::open(), not cyw43_arch_init(). The LED hangs off the same chip
+         * and main() brings it up at boot, so the radio is ALREADY initialized
+         * by the time anybody asks for wireless. A second cyw43_arch_init()
+         * returns no error and quietly leaves the chip half re-initialized.
          */
         if(!radio::open())
         {
@@ -445,10 +384,7 @@ namespace bibo
                                 ? CYW43_AUTH_OPEN
                                 : CYW43_AUTH_WPA2_AES_PSK;
 
-        /*
-         * nullptr rather than an empty string for an open network: the SDK tests the
-         * pointer, not what it points at.
-         */
+        /* nullptr rather than an empty string: the SDK tests the pointer, not what it points at. */
 
         if(const CharSeq key = joinPass[0] == '\0' ? nullptr : joinPass; cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
         {

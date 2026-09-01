@@ -1,59 +1,25 @@
 /*
  * A thin wrapper over the Pico SDK, spelled the way this project spells things.
+ * The SDK is snake_case C; the rest of this project is manbox
+ * (github.com/exoad/manbox). This header is the seam: below it the SDK's
+ * spelling, above it ours, and exactly one place where they meet.
  *
- * WHY. The SDK is snake_case C with its own vocabulary (`UInt32`, `gpio_put`,
- * `absolute_time_t`); the rest of this project is manbox
- * (github.com/exoad/manbox) - PascalCase types, camelCase functions,
- * SCREAMING_SNAKE macros, and the types.h aliases. Mixing the two inside one
- * function is how a style guide quietly dies. This header is the seam: below it
- * the SDK's spelling, above it ours, and exactly one place where they meet.
- *
- * EVERYTHING IS `static inline`. There is no pico2w.c and no library to link:
- * each of these compiles down to the same instructions the raw SDK call would,
- * so the wrapper costs nothing at runtime and any target that includes the
- * header gets it. That also means a sketch can use it without touching
- * CMakeLists.txt, which is the whole point of a scratch program.
- *
- * WHAT IS NOT HERE. I2C and SPI. They are stateful, they have real
- * configuration, and a wrapper that hid that would teach the wrong thing. When
- * the ToF sensors and the SD card go on, they get their own headers with their
- * own state, not one more function in this one.
- *
- * UART WAS IN THAT LIST AND IS NOT ANY MORE, and the reason is worth reading
- * before you assume the rule was just abandoned: on RP2350 the GPIO function
- * that carries UART data is not the same number on every pad, and picking the
- * obvious one on GP14/GP15 transmits onto a flow-control line in perfect
- * silence. That is not configuration a caller should be left to discover - it
- * is exactly the kind of one-place-to-be-right this header exists for. See the
- * uart namespace below.
+ * EVERYTHING IS `static inline`. There is no library to link, so a sketch can
+ * use it without touching CMakeLists.txt and the wrapper costs nothing.
  *
  * PIN SAFETY. lib/pins.hxx is the car's map and the place to look before
  * borrowing a pad: GP0/GP1 servo and ESC, GP4/GP5 I2C, GP10-GP13 lamps on the
  * ToF XSHUT lines, GP14/GP15 the DFPlayer's UART, GP16-GP19 SPI for the SD
- * card. GP28 is free and is what the starter sketch blinks.
- *
- * Nothing HERE enforces any of that - the board cannot know what you soldered -
- * but pins.hxx does static_assert that no two subsystems claim one pad, which
- * is the half a compiler can check.
+ * card. GP28 is free and is what the starter sketch blinks. Nothing HERE
+ * enforces that, but pins.hxx static_asserts that no two subsystems claim one
+ * pad, which is the half a compiler can check.
  */
 
 #pragma once
 
 /*
- * The vocabulary: Int32, UInt16, Bool, Void, Utf8, CharSeq.
- *
- * A SIBLING of this file rather than a repo-level shared/ directory, and that
- * move is the point. It was in shared/ because the name promised it was shared
- * with the hub, and it never was - shared/shared.hpp is a separate C++ file that
- * mirrors it by hand, and exactly one file in the tree ever included the C one:
- * this header. A directory named for a relationship that does not exist is worse
- * than no directory, because it survives every reorganization on the strength of
- * its name.
- *
- * Sitting next to hal.h it also resolves for any tool that has not loaded the
- * project - a quoted include is searched relative to THIS file first - which is
- * what keeps a sketch from lighting up red in an editor that is merely not
- * configured yet.
+ * The vocabulary: Int32, UInt16, Bool, Void, Utf8, CharSeq. A SIBLING of this
+ * file, so a quoted include resolves for a tool that has not loaded the project.
  */
 #include "types.hxx"
 
@@ -62,22 +28,11 @@
 #include <stdio.h>
 
 /*
- * ---------------------------------------------------------------------------
- * BIBO_FAKE_HAL - the host-test seam.
- *
- * Defined ONLY by firmware/tests, and off in every image this project flashes.
- *
- * It exists because chassis.hxx holds the safety property - the ESC is
- * disarmed until asked - and could not be tested at all: it includes this
- * file, this file includes twelve SDK headers, and none of that compiles on a
- * laptop. The alternative was faking sixty-one SDK symbols; the modules under
- * test call seven functions between them.
- *
- * The substitution has to live HERE rather than in the build script, because
- * `#include "../hal.hxx"` from lib/chassis/ resolves next to chassis.hxx no
- * matter what the include path says - and conventions.md requires that
- * spelling for exactly the reason it now costs us this #ifdef.
- * ------------------------------------------------------------------------
+ * BIBO_FAKE_HAL - the host-test seam. Defined ONLY by firmware/tests: none of
+ * the SDK headers below compile on a laptop, and chassis.hxx holds the safety
+ * property that the ESC is disarmed until asked. The substitution lives HERE
+ * rather than in the build script, because `#include "../hal.hxx"` from
+ * lib/chassis/ resolves next to chassis.hxx whatever the include path says.
  */
 #ifdef BIBO_FAKE_HAL
 
@@ -85,11 +40,7 @@
 
 #else
 
-/*
- * pico/stdlib.h FIRST, and on its own line, because it is what drags in the
- * board header - and the board header is what decides, below, whether this
- * build has a wireless chip at all. Everything after it can then ask.
- */
+/* FIRST: it drags in the board header, which decides if there is a radio. */
 #include "pico/stdlib.h"
 
 #include "hardware/adc.h"
@@ -104,11 +55,9 @@
 #include "pico/bootrom.h"
 
 /*
- * Only on a board that HAS the chip. On a plain Pico 2 this header is still on
- * the include path - the SDK ships it unconditionally - but nothing links
- * pico_cyw43_arch, so including it here would compile and then fail at the
- * link with a wall of undefined references to a peripheral the board does not
- * physically have. Ask the board, not the SDK.
+ * Only on a board that HAS the chip: the SDK ships this header unconditionally,
+ * but a plain Pico 2 does not link pico_cyw43_arch, so including it there
+ * compiles and then fails at the link.
  */
 #if defined(CYW43_WL_GPIO_LED_PIN)
 #include "pico/cyw43_arch.h"
@@ -119,11 +68,7 @@ namespace bibo
 
   /* ---- types --------------------------------------------------------------- */
 
-  /*
-   * A GPIO number, NOT a physical pin number. GP28 is Pin 28 here and pin 34 on
-   * the board; the silkscreen and the datasheet disagree and this follows the
-   * datasheet, like the SDK does.
-   */
+  /* A GPIO number, NOT a pin number: GP28 is Pin 28 here, pin 34 on the board. */
   typedef Int32 Pin;
 
   enum PinDir
@@ -141,10 +86,7 @@ namespace bibo
 
   /* ---- constants ----------------------------------------------------------- */
 
-  /*
-   * Hobby servo pulse widths. The TT-02's Power HD 1501MG has a deadband of 4 us,
-   * so anything finer than that is noise - see docs/wiring.md.
-   */
+  /* Hobby servo pulses. The TT-02's Power HD 1501MG deadbands at 4 us. */
 #define SERVO_MIN_US 1000
 #define SERVO_MID_US 1500
 #define SERVO_MAX_US 2000
@@ -223,33 +165,22 @@ namespace bibo
 
   /*
    * ===========================================================================
-   * uart - a serial port to another chip.
+   * uart - a serial port to another chip. NOT the console: serial:: below is USB
+   * CDC to the laptop, and CMakeLists keeps UART stdio off so this one is free.
    *
-   * NOT the console. serial:: below is USB CDC and talks to the laptop; this is
-   * a wire to a part on the breadboard. The two have nothing to do with each
-   * other and CMakeLists keeps UART stdio switched off precisely so this one is
-   * free to be used for something.
-   *
-   * ---------------------------------------------------------------------------
-   * THE FUNCSEL TRAP, which cost an evening to find and is the reason this
-   * wrapper exists at all rather than every caller writing three SDK lines.
-   *
-   * gpio_set_function(pin, GPIO_FUNC_UART) is the call every example uses and it
-   * is WRONG on some pins. GPIO_FUNC_UART is funcsel 2, and on RP2350 funcsel 2
-   * means different things on different pads:
+   * THE FUNCSEL TRAP, and the reason this wrapper exists at all.
+   * gpio_set_function(pin, GPIO_FUNC_UART) is what every example uses and is
+   * WRONG on some pins: it is funcsel 2, which on RP2350 means different things
+   * on different pads.
    *
    *     GP0, GP1, GP12, GP13, GP16, GP17  funcsel 2 IS UART data. Fine.
    *     GP14, GP15                        funcsel 2 is UART0 CTS and RTS -
    *                                       FLOW CONTROL, not data.
    *
-   * On GP14/GP15 the data lines are funcsel 0x0b, which the SDK calls
-   * GPIO_FUNC_UART_AUX. Use the wrong one and the port opens, the baud rate is
-   * set, writes return normally and nothing is ever transmitted - the bytes go
-   * out on a handshake line the other end is not listening to. Nothing errors.
-   *
-   * So open() picks the funcsel from the pin rather than trusting the caller to
-   * know, and there is exactly one place in this firmware that has to be right
-   * about it.
+   * On GP14/GP15 the data lines are funcsel 0x0b, GPIO_FUNC_UART_AUX. Use the
+   * wrong one and the port opens, the baud rate is set, writes return normally
+   * and nothing is ever transmitted. Nothing errors. So open() picks the funcsel
+   * from the pin rather than trusting the caller.
    * ========================================================================
    */
   namespace uart
@@ -303,18 +234,11 @@ namespace bibo
             gpio_set_function(static_cast<UInt32>(rx), dataFunc(rx));
         }
 
-        /*
-         * 8N1 and no flow control - what every module in this drawer expects, and
-         * what the DFPlayer's datasheet specifies.
-         */
+        /* 8N1, no flow control - what the DFPlayer's datasheet specifies. */
         uart_set_format(port, 8, 1, UART_PARITY_NONE);
         uart_set_hw_flow(port, false, false);
 
-        /*
-         * FIFOs on. Without them a byte that arrives while the main loop is
-         * elsewhere is dropped, and this firmware's loop does a lot between
-         * polls.
-         */
+        /* FIFOs on, or a byte arriving while the loop is elsewhere is dropped. */
         uart_set_fifo_enabled(port, true);
 
         return got;
@@ -415,15 +339,9 @@ namespace bibo
     }
 
     /*
-     * ---- deadlines ---------------------------------------------------------
-     *
-     * A point in the future you can ask about. chassis.hxx used to reach past
-     * this file for it - absolute_time_t, make_timeout_time_ms, time_reached -
-     * because timing:: could say how long to WAIT and not when to ACT, and a
-     * slew limiter needs the second.
-     *
-     * Wrapping it is what let the chassis safety test compile on a laptop.
-     * ----------------------------------------------------------------------
+     * ---- deadlines: a point in the future you can ask about. timing:: could
+     * say how long to WAIT and not when to ACT, so chassis.hxx reached past this
+     * file for absolute_time_t; wrapping it is what let its test run on a laptop.
      */
     typedef absolute_time_t Deadline;
 
@@ -491,19 +409,11 @@ namespace bibo
     }
 
     /*
-     * ---- the second listener -------------------------------------------------
-     *
-     * Output goes to the USB console and, if something has registered here, to a
-     * second place as well - which today means the wireless link in net.h.
-     *
-     * A hook rather than a call to net.h directly, because hal.h is the layer that
-     * knows about the BOARD and net.h is a layer above it. hal.h calling upward
-     * would invert the dependency the whole library is arranged around, and would
-     * drag lwIP into the build of every program that prints anything, including
-     * the sketch target that deliberately links none of it.
-     *
-     * The mirror is handed WHOLE LINES, already formatted and still carrying their
-     * newline. That is what makes one datagram equal one command reply.
+     * ---- the second listener: output goes to the USB console and, if something
+     * has registered here, to the wireless link in net.h. A hook rather than a
+     * call to net.h directly, because calling upward would drag lwIP into every
+     * program that prints anything. Handed WHOLE LINES, still carrying their
+     * newline, so one datagram equals one command reply.
      */
     typedef Void (*Mirror)(CharSeq);
 
@@ -791,11 +701,8 @@ namespace bibo
   namespace servo
   {
     /*
-     * ---- servo and ESC ---------------------------------------------------
-     *
-     * Both the steering servo and the ESC speak the same 50 Hz pulse-width
-     * protocol, so servo::open() is what an ESC gets too.
-     * -------------------------------------------------------------------
+     * ---- servo and ESC: both speak the same 50 Hz pulse-width protocol, so
+     * servo::open() is what an ESC gets too.
      */
 
     /**
@@ -872,41 +779,20 @@ namespace bibo
   namespace led
   {
     /*
-     * ---- the onboard LED ------------------------------------------------------
+     * ---- the onboard LED, the one part of this header written twice.
      *
-     * The one part of this header where the two boards genuinely differ, so it is
-     * the one part written twice.
-     *
-     *   Pico 2 W - the LED hangs off the CYW43439 wireless chip. It is NOT a GPIO
-     *              and cannot be reached with gpio::write() at any pin number: the
-     *              chip has to be brought up first and then driven through its own
-     *              GPIO space. This catches everybody once, because the classic
+     *   Pico 2 W - the LED hangs off the CYW43439 and is NOT a GPIO: the chip is
+     *              brought up first and then driven through its own GPIO space.
      *              `gpio_put(25, 1)` from a Pico 1 example compiles, runs, and
      *              does nothing at all.
+     *   Pico 2   - GP25, a plain output. Bringing it up cannot fail.
      *
-     *   Pico 2    - the LED is exactly what you expect: GP25, a plain output.
-     *              Bringing it up cannot fail.
-     *
-     * The API above the split does not change, which is the whole point: status::open
-     * and every sketch that blinks are written once and run on either board. Only
-     * the four functions below know which board they were compiled for, and they
-     * are told by the SDK's own board header rather than by anything this project
-     * has to remember to set.
-     *
-     * led::open() must be called before any other led* function, and on the W it can
-     * FAIL - the chip is a real peripheral on a real bus. Check the return: if you
-     * ignore it, every later call silently does nothing and you will spend the
-     * evening looking at your wiring instead.
+     * Which side is compiled is decided by the SDK's own board header.
+     * led::open() must come before any other led* function and on the W it can
+     * FAIL - check the return, or every later call silently does nothing.
      */
 
-    /*
-     * Whether the lamp came up, remembered here rather than by every caller.
-     *
-     * led::write() used to drive the CYW43439 whether or not it had initialized, so
-     * each program carried its own `cyw43Ok` guard and its own copy of the reason.
-     * A guard that every caller must remember is a guard, eventually, that one of
-     * them forgets.
-     */
+    /* Whether the lamp came up, remembered here rather than by every caller. */
     inline Bool up = false;
 
 
@@ -914,18 +800,11 @@ namespace bibo
 #if defined(CYW43_WL_GPIO_LED_PIN)
 
   /*
-   * The CYW43439 is brought up ONCE, here, and everything that needs it asks
-   * through this.
-   *
-   * Two things on this board want that chip: the LED, which hangs off its GPIO,
-   * and the wireless link in net.h. They arrived a year apart and each one
-   * calling cyw43_arch_init() for itself is a second initialization of a
-   * half-initialized radio - which does not report an error, it just leaves the
-   * chip in a state where the next thing to touch it behaves oddly.
-   *
-   * So: idempotent, and the ANSWER is remembered rather than the attempt being
-   * repeated. Calling it twice is free; the second call returns what the first
-   * one found.
+   * The CYW43439 is brought up ONCE, here. Two things want that chip - the LED,
+   * which hangs off its GPIO, and the wireless link in net.h - and a second
+   * cyw43_arch_init() on a half-initialized radio reports no error, it just
+   * leaves the chip in a state where the next thing to touch it behaves oddly.
+   * So: idempotent, with the ANSWER remembered rather than the attempt repeated.
    */
 
   namespace radio
@@ -1103,10 +982,9 @@ namespace bibo
 #else
 
   /*
-   * A board with no lamp at all. Not either of ours, but the alternative to
-   * handling it is a build that fails with a macro error nobody can read, and
-   * this way a program written for the car still compiles and runs on it - it
-   * just cannot wave.
+   * A board with no lamp at all - not either of ours, but the alternative is a
+   * build failing with an unreadable macro error. A program written for the car
+   * still compiles and runs; it just cannot wave.
    */
 
   namespace radio
@@ -1209,11 +1087,8 @@ namespace bibo
   }
 
   /*
-   * ---- ADC -------------------------------------------------------------
-   *
-   * Only GP26-GP29 are ADC-capable, as channels 0-3. Passing anything else
-   * is a programming error the hardware cannot report.
-   * -----------------------------------------------------------------------
+   * ---- ADC: only GP26-GP29 are ADC-capable, as channels 0-3. Anything else is
+   * a programming error the hardware cannot report.
    */
 
   namespace adc
@@ -1276,16 +1151,10 @@ namespace bibo
   }
 
   /*
-   * ---- watchdog ----------------------------------------------------------
-   *
-   * The board resets if watchdog::feed() is not called within `ms`. On a
-   * vehicle this is the difference between "the code hung" and "the code
-   * hung and the car kept going at the last commanded throttle", so it is
-   * here from the start rather than added after the first runaway.
-   *
-   * A sketch that enables it and then blocks in a long timing::ms() WILL
-   * reset. That is the watchdog working.
-   * ------------------------------------------------------------------------
+   * ---- watchdog: the board resets if watchdog::feed() is not called within
+   * `ms`. On a vehicle that is the difference between "the code hung" and "the
+   * code hung and the car kept going at the last commanded throttle". A sketch
+   * that enables it and then blocks in a long timing::ms() WILL reset.
    */
 
   namespace watchdog
@@ -1328,28 +1197,18 @@ namespace bibo
   }
 
   /*
-   * ---- SPI -----------------------------------------------------------------
-   *
-   * A synchronous bus with a clock line, so unlike I2C it has no addresses: every
-   * device gets its own CHIP SELECT, and the one whose CS is held low is the one
-   * listening. That is why several devices can share SCK and MOSI and still not
-   * collide - and why forgetting to raise CS again is the classic way to make the
-   * next device on the bus appear broken.
-   *
-   * The RP2350 has two controllers, and which pins each can use is fixed by the
-   * silicon rather than chosen freely:
+   * ---- SPI: no addresses, so every device gets its own CHIP SELECT and the one
+   * held low is the one listening. Forgetting to raise CS again is the classic
+   * way to make the next device on the bus appear broken. The RP2350's two
+   * controllers have pins fixed by the silicon:
    *
    *   SPI0   SCK  GP2  GP6  GP18        MOSI GP3  GP7  GP19       MISO GP0 GP4 GP16
    *   SPI1   SCK  GP10 GP14 GP26        MOSI GP11 GP15 GP27       MISO GP8 GP12
    *
-   * spi::open() works out which controller the pins belong to, so a wrong pairing
-   * fails here with a false rather than silently producing a dead bus.
-   *
-   * CS is deliberately NOT handled by the hardware. The SDK's hardware CS drops
-   * between bytes, which several displays and cards read as the end of a
-   * transaction; driving it as a plain GPIO around a whole transfer is both
-   * simpler to reason about and what nearly every driver does.
-   * --------------------------------------------------------------------------
+   * spi::open() works out which controller the pins belong to, so a wrong
+   * pairing fails with a false rather than a silently dead bus. CS is
+   * deliberately NOT hardware-driven: the SDK's hardware CS drops between bytes,
+   * which several displays and cards read as the end of a transaction.
    */
 
   namespace spi
@@ -1582,21 +1441,15 @@ namespace bibo
   }
 
   /*
-   * ---- I2C -------------------------------------------------------------------
+   * ---- I2C: two wires, many devices, no chip selects - every device has an
+   * ADDRESS and the one addressed at the start of a transaction answers. Two
+   * devices shipping with the SAME address cannot share a bus, which is what the
+   * ToF sensors' XSHUT lines are for.
    *
-   * Two wires, many devices. Unlike SPI there are no chip selects: every device
-   * has an ADDRESS, and the one whose address goes out at the start of a
-   * transaction is the one that answers. That is why a display, four range
-   * sensors and an IMU can share GP4 and GP5 - and why two devices that ship with
-   * the SAME address cannot, which is what the ToF sensors' XSHUT lines are for.
-   *
-   * Both lines are OPEN DRAIN: a device can pull them low but never drive them
-   * high, so something has to pull them up. Most breakout boards have the
-   * resistors on them already; if yours does not, the bus needs about 4.7k on
-   * each line to 3V3. Without them SDA and SCL float and nothing answers, which
-   * looks exactly like a dead sensor.
-   *
-   * Which pins each controller can use is fixed by the silicon:
+   * Both lines are OPEN DRAIN: a device pulls them low and never drives them
+   * high, so the bus needs about 4.7k on each line to 3V3 (most breakouts carry
+   * it). Without pull-ups SDA and SCL float and nothing answers, which looks
+   * exactly like a dead sensor. Which pins each controller can use is fixed:
    *
    *   I2C0   SDA GP0 GP4 GP8 GP12 GP16 GP20     SCL GP1 GP5 GP9 GP13 GP17 GP21
    *   I2C1   SDA GP2 GP6 GP10 GP14 GP18 GP26    SCL GP3 GP7 GP11 GP15 GP19 GP27
@@ -1605,20 +1458,12 @@ namespace bibo
    */
 
   /*
-   * How long any single I2C transaction may take before it is abandoned.
-   *
-   * THIS IS NOT A TUNING PARAMETER, it is a safety net, and it exists because the
-   * alternative is a board that stops.
-   *
-   * The SDK's i2c_read_blocking and i2c_write_blocking block FOREVER. If a device
-   * holds SDA low - a sensor that has lost its way, a half-seated jumper, a
-   * missing pull-up - the call never returns. The program stops there, and with
-   * it the USB stack, so the board enumerates, answers nothing, and looks
-   * bricked. Every symptom points at the host.
-   *
-   * That is not hypothetical. It happened here: the range sensor stopped
-   * responding and took the whole debug link with it, and the board had to be
-   * recovered through the bootloader.
+   * How long any single I2C transaction may take before it is abandoned. NOT A
+   * TUNING PARAMETER, a safety net: the SDK's i2c_read_blocking and
+   * i2c_write_blocking block FOREVER, so a device holding SDA low - lost sensor,
+   * half-seated jumper, missing pull-up - stops the program and the USB stack
+   * with it. The board then enumerates, answers nothing and looks bricked. It
+   * has happened here and needed bootloader recovery.
    *
    * 10 ms is far longer than any transaction this project makes - a 32-byte
    * exchange at 400 kHz is under a millisecond - so a timeout means something is
@@ -1887,17 +1732,11 @@ namespace bibo
     inline Void rebootToBootsel(Void)
     {
         /*
-         * Flush and settle before going, or the last thing the program said dies
-         * with it.
-         *
-         * USB is not a wire: printf() lands in a buffer that a later poll walks out
-         * to the host, and reset_usb_boot() does not return, so anything still in
-         * that buffer is simply lost. The reboot then looks like a crash - the
-         * board vanishes mid-sentence and the one line that would have explained it
-         * is the line that went missing.
-         *
-         * The delay is for the host, not the buffer: it needs a moment to take
-         * delivery before the device it is talking to stops existing.
+         * Flush and settle before going. printf() lands in a buffer a later poll
+         * walks out to the host, and reset_usb_boot() does not return, so
+         * anything still buffered is lost and the reboot looks like a crash. The
+         * 50 ms is for the HOST, not the buffer: it needs a moment to take
+         * delivery before the device stops existing.
          */
         stdio_flush();
         sleep_ms(50);

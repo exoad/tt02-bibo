@@ -1,66 +1,31 @@
 /*
  * ---------------------------------------------------------------------------
- * cue - what the car is SAYING.
+ * cue - what the car is SAYING: which way it is about to turn, that it is not
+ * being driven, that it has stopped itself, that it has seen you. Lamps today,
+ * a buzzer later, and nothing above here changes when the buzzer arrives.
  *
- * Everything the car emits at a person: which way it is about to turn, that it
- * is not being driven, that it has stopped itself, that it has seen you. Lamps
- * today, a buzzer later, and the point of the module is that the day the buzzer
- * arrives nothing above here changes.
- *
- * ---- why this is not just "lights" ----------------------------------------
- *
- * Indicators and brake lights were rules living inside lights.h, next to the
- * pin table. That reads fine until a second way of expressing something turns
- * up - a horn, a chirp, a headlight flash - and then either the lighting file
- * grows a sound API or the sound gets its own copy of "is the car turning".
- * Two files, both deciding what the car means, is one file too many.
- *
- * So the split is by JOB, not by hardware:
+ * The split is by JOB, not by hardware:
  *
  *   cue.h      decides what the car is expressing. Knows nothing about pins.
  *   lights.h   drives the lamps it is handed. Knows nothing about why.
  *
- * A cue reaches a person through one or more CHANNELS. A channel is a group of
- * lamps - the headlights, the tails, one side's indicators - or, eventually, a
- * tone. Cues are written against channels, never against individual lamps,
- * because "flash the headlights" is the intent and "set lamp 0 and lamp 1" is
- * an implementation of it that stops being true the moment a lamp moves.
+ * A cue reaches a person through CHANNELS - a group of lamps, or eventually a
+ * tone - never through individual lamps, since "set lamp 0 and lamp 1" stops
+ * being true the moment a lamp moves.
  *
- * ---- two kinds of cue -----------------------------------------------------
+ * CONTINUOUS cues are what the car is doing right now, recomputed every tick
+ * from the drivetrain. ONE-SHOTs are a short script of steps played OVER the
+ * continuous state, and a one-shot OWNS every channel any of its steps
+ * mentions for its whole duration - which is what makes a headlight flash
+ * visible when the headlights are already on. Channels it does not mention are
+ * left alone, so the indicators blink through a flash.
  *
- * CONTINUOUS   what the car is doing right now, recomputed every tick from the
- *              drivetrain: indicating, not being driven, reversing, headlights.
- *              These are the rules that used to live in lights.h and they are
- *              unchanged - see cue::solve().
+ *     lights::open();  cue::open();  cue::tick(&in);  cue::emit(KIND_FLASH);
  *
- * ONE-SHOT     an utterance with a beginning and an end. A short script of
- *              steps, each naming which channels are lit and for how long. It
- *              plays OVER the continuous state and hands the channels it
- *              borrowed straight back.
- *
- * A one-shot cue OWNS every channel any of its steps mentions, for its whole
- * duration. That is what makes a headlight flash visible when the headlights
- * are already on: the cue takes the head channel, and its dark steps really are
- * dark. Channels it does not mention are left entirely alone, which is what
- * lets the indicators go on blinking through a flash.
- *
- * ---- calling it -----------------------------------------------------------
- *
- *     lights::open();                      the lamps, once
- *     cue::open();                         once
- *     cue::tick(&in);                      often, from the main loop
- *     cue::emit(cue::KIND_FLASH);           whenever the car has something to say
- *
- * Everything the rules read is passed IN rather than reached for, so this file
- * needs hal.h and lights.h and nothing else. Feed it the ACTUAL servo and ESC
- * output, not the targets: the slew limiter means the two differ for about a
- * second after every command, and a cue should follow the car rather than the
- * request.
- *
- * The CONTINUOUS rules are mirrored in hub/src/lights.hxx so they can be
- * watched on screen, and the constants are deliberately identical. One-shot
- * cues are not mirrored - the hub sees them the way a person does, in the lamp
- * levels the board reports.
+ * Everything the rules read is passed IN rather than reached for. Feed it the
+ * ACTUAL servo and ESC output, not the targets: the slew limiter means the two
+ * differ for about a second after every command. The CONTINUOUS rules are
+ * mirrored in hub/src/lights.hxx with deliberately identical constants.
  * -------------------------------------------------------------------------
  */
 #pragma once
@@ -72,15 +37,9 @@ namespace bibo::cue
 {
 
     /*
-     * ---- channels ------------------------------------------------------------
-     *
-     * What a cue can reach a person through. A bitmask, because an utterance is
-     * routinely more than one thing at once - the alert below is both indicator
-     * pairs AND the tails.
-     *
-     * Deliberately coarser than the lamp list. No cue wants the front left
-     * indicator on its own; wanting one side is what CUE_CH_IND_L means, and which
-     * lamps that turns out to be is lights.h's business.
+     * ---- channels: a bitmask, because an utterance is routinely more than one
+     * thing at once. Coarser than the lamp list on purpose - no cue wants the
+     * front left indicator alone, and which lamps a side is, is lights.h's.
      */
 #define CUE_CH_HEAD  0x01u
 #define CUE_CH_TAIL  0x02u
@@ -91,15 +50,10 @@ namespace bibo::cue
 #define CUE_CH_IND_BOTH (CUE_CH_IND_L | CUE_CH_IND_R)
 
     /*
-     * ---- tones ---------------------------------------------------------------
-     *
-     * NOTHING DRIVES THESE YET. There is no buzzer on the car and no pin set aside
-     * for one, so cue::soundWrite() below records the tone and returns.
-     *
-     * They are declared now, and every cue script already carries a tone per step,
-     * because the alternative is discovering later that cue::Step has no room for
-     * sound and revising every script that exists by then. A field that is always
-     * cue::TONE_NONE costs one byte per step and keeps the shape honest.
+     * ---- tones: NOTHING DRIVES THESE YET - no buzzer, no pin set aside for
+     * one, so cue::soundWrite() below records the tone and returns. Declared
+     * now, and carried by every script step, so sound does not mean revising
+     * every script that exists by then.
      */
     enum Tone
     {
@@ -119,54 +73,31 @@ namespace bibo::cue
     /*
      * ---- the flash rate, and the standard it has to sit inside ---------------
      *
-     * FMVSS 108 does not state a flash rate itself. It incorporates SAE J590 (turn
-     * signal flashers) and SAE J945 (vehicular hazard warning flashers) BY
-     * REFERENCE, and those carry the numbers:
+     * FMVSS 108 incorporates SAE J590 (turn signals) and J945 (hazard flashers)
+     * by reference, and those carry the numbers:
      *
      *   60-120 flashes per minute   for a NORMALLY OPEN (variable load) flasher
      *   90-120 flashes per minute   for a NORMALLY CLOSED (fixed load) flasher
      *
-     * plus a percent-current-on-time envelope - J945 Figure 1 - rather than a
-     * single duty figure. The practical form of that envelope is that ON must not
-     * be shorter than OFF.
+     * plus a percent-current-on-time envelope (J945 Figure 1) whose practical
+     * form is that ON must not be shorter than OFF.
      *
-     * A 2002 NHTSA interpretation extends this to non-uniform flashers: any three
-     * consecutive flashes have to fall inside the band, and the on-time rule always
-     * applies. Nothing here is non-uniform, but it is why the band is about the
-     * RATE ACHIEVED and not about the number written in a header.
-     *
-     * ---- what this was, and why it moved -----------------------------------
-     *
-     * 400 on / 267 off. That is 667 ms, which is 89.96 flashes per minute - inside
-     * the normally-open band and 0.04 fpm UNDER the floor of the normally-closed
-     * one. The comment beside it, here and in the hub, called 1.5 Hz "the legal
-     * standard", and 1.5 Hz is 90 fpm exactly: a boundary quoted as a target, then
-     * missed by rounding.
-     *
-     * 360 / 240 is 600 ms, 100.0 flashes per minute, 60% on. Inside BOTH bands with
-     * margin at either end, on longer than off, and round numbers that cannot round
-     * their way back out.
-     *
-     * This car is not road-legal and is never going on a road. The standard is used
-     * here because it is a good one - it is what makes an indicator read as an
-     * indicator to anybody who has ever driven - and not because anything requires
-     * it of a 1/10 scale model.
+     * 360 / 240 is 600 ms, 100.0 fpm, 60% on - inside BOTH bands with margin.
+     * The previous 400/267 was 667 ms, 89.96 fpm: 0.04 fpm under the
+     * normally-closed floor, from calling 1.5 Hz "the legal standard" and then
+     * missing 90 fpm exactly by rounding.
      */
 #define CUE_BLINK_ON_MS     360u
 #define CUE_BLINK_OFF_MS    240u
 #define CUE_BLINK_PERIOD_MS (CUE_BLINK_ON_MS + CUE_BLINK_OFF_MS)
 
     /*
-     * THE STANDARD, ENFORCED BY THE BUILD rather than described in a comment above
-     * two numbers somebody can edit.
-     *
-     * Stated as periods rather than rates so it is exact integer arithmetic with no
-     * division and no rounding to argue about:
+     * THE STANDARD, ENFORCED BY THE BUILD, as periods rather than rates so it
+     * is exact integer arithmetic - and the tighter of the two bands, so
+     * satisfying this satisfies both:
      *
      *     rate >=  90 fpm   <=>   60000 >=  90 * period   <=>   period <= 666 ms
      *     rate <= 120 fpm   <=>   60000 <= 120 * period   <=>   period >= 500 ms
-     *
-     * The tighter of the two bands, so satisfying this satisfies both.
      */
     static_assert(CUE_BLINK_PERIOD_MS >= 500u,
                   "flash rate over 120/min - faster than SAE J590/J945 allow");
@@ -196,23 +127,14 @@ namespace bibo::cue
     };
 
     /*
-     * How far past idle the throttle has to go before the car counts as being
-     * DRIVEN and the tails go out - and, mirrored, how far below neutral before it
-     * counts as reversing.
-     *
-     * Settable rather than fixed because it is a judgment about when "moving"
-     * starts, not a measurement: a car crawling has not really pulled away and its
-     * lamp should still be on, and where exactly that line falls is something you
-     * find by watching the car. Seeded from cal.h by the application - this file
-     * cannot reach for cal.h and should not want to, since the rule is the same on
-     * any car and only the number is this one's.
+     * How far past idle the throttle goes before the car counts as DRIVEN and
+     * the tails go out - mirrored below neutral for reversing. Settable because
+     * it is a judgment found by watching the car, not a measurement. Seeded
+     * from cal.h by the application; this file cannot reach for cal.h.
      */
     inline Int32 motionUsNow = 10;
 
-    /*
-     * Wide enough to be useful, narrow enough that a typo cannot switch the lamps
-     * off for the whole usable throttle range.
-     */
+    /* Narrow enough that a typo cannot kill the lamps over the whole range. */
 #define CUE_MOTION_US_MIN 0
 #define CUE_MOTION_US_MAX 60
 
@@ -250,19 +172,12 @@ namespace bibo::cue
      *
      * One mechanism, three ways of playing, and that is the whole API:
      *
-     *   PLAY_ONCE   run the script through `repeats` times and stop. An utterance
-     *               with a beginning and an end - flash, alert.
-     *   PLAY_LOOP   run it round until something cancels it. A blink whose rhythm
-     *               is the script's own steps - the indicators.
-     *   PLAY_HOLD   one state, held until canceled. Not really a script at all,
-     *               but expressed as one so there is nothing else to learn - the
-     *               headlights, the brake lamps, reverse.
+     *   PLAY_ONCE   run the script through `repeats` times and stop - flash, alert.
+     *   PLAY_LOOP   run it round until something cancels it - the indicators.
+     *   PLAY_HOLD   one state, held until canceled - headlights, brake, reverse.
      *
-     * This started as one-shots only, with the continuous behavior - indicators,
-     * brake, reverse - computed by hand in a solve() beside it. That split looked
-     * reasonable and was not: it meant the car had two lighting systems, one you
-     * could name and trigger and one you could not, and the second one grew every
-     * time the car learned to say something. Everything is a cue now.
+     * The continuous behavior used to be a solve() beside the one-shots, which
+     * meant two lighting systems. Everything is a cue now.
      */
     enum Play
     {
@@ -272,16 +187,10 @@ namespace bibo::cue
     };
 
     /*
-     * One step of an utterance: hold these channels, at this brightness, for this
-     * long, with this tone.
-     *
-     * A table rather than code, so adding a cue is adding data. The first thing
-     * anyone will want to do with this module is invent a new noise for a new
-     * situation, and that should not mean writing another state machine.
-     *
-     * `level` is what makes a running lamp and a brake lamp the SAME mechanism on
-     * the same bulb: one is LAMP_DIM and one is LAMP_FULL, and which of them you
-     * see is decided by priority rather than by an if inside a rule.
+     * One step: hold these channels, at this brightness, for this long, with
+     * this tone. A table rather than code, so adding a cue is adding data.
+     * `level` is what makes a running lamp and a brake lamp the SAME mechanism
+     * on one bulb - LAMP_DIM against LAMP_FULL, resolved by priority.
      */
     struct Step
     {
@@ -301,21 +210,11 @@ namespace bibo::cue
         UInt8       play;    /* a Play                                          */
     };
 
-    /*
-     * ---- the scripts ---------------------------------------------------------
-     *
-     * HOLD scripts are one step with no duration. The ms is ignored - nothing
-     * advances a held cue - and writing 0 says so.
-     */
+    /* ---- the scripts: a HOLD is one step whose ms is ignored, so write 0. --- */
 
     /*
-     * FLASH - the headlights, twice, quickly.
-     *
-     * TWO flashes and not one, deliberately. A single 90 ms blip is what a loose
-     * connection looks like, and the whole value of a cue is that it reads as
-     * something the car MEANT. Two says it on purpose. It is also what a driver
-     * does to mean "I have seen you, go ahead", which is the meaning this one
-     * carries.
+     * FLASH - the headlights, TWICE and not once: a single 90 ms blip is what a
+     * loose connection looks like. It is what a driver does to mean "after you".
      */
     static constexpr Step STEPS_FLASH[] =
     {
@@ -324,15 +223,10 @@ namespace bibo::cue
     };
 
     /*
-     * ALERT - both indicator pairs and the tails, three times.
-     *
-     * What the car says when it has stopped itself and nobody asked it to: the
-     * deadman firing, which by definition happens when the host is not listening.
-     * A message that only appears in a console is a message nobody standing next to
-     * the car can read.
-     *
-     * Slower and heavier than FLASH on purpose. The two must not be confusable at
-     * a glance - one means "after you" and the other means "something is wrong".
+     * ALERT - both indicator pairs and the tails, three times. What the car says
+     * when it has stopped itself: the deadman firing, which by definition
+     * happens when the host is not listening. Slower and heavier than FLASH on
+     * purpose, since the two must not be confusable at a glance.
      */
     static constexpr Step STEPS_ALERT[] =
     {
@@ -344,16 +238,10 @@ namespace bibo::cue
      * The indicators. 360 on, 240 off - not 50/50, because a slightly longer on
      * than off is what a real flasher does and what the eye expects.
      *
-     * HAZARD IS ITS OWN CUE rather than left and right together, and that is not
-     * tidiness. Two cues have two step clocks, and two clocks started a
-     * millisecond apart drift - so "both sides" assembled out of the two single
-     * cues would come apart into an alternating flash, which is what a film prop
-     * does and is the single most common way to get this wrong. One cue driving
-     * both sides makes being in phase structural.
-     *
-     * Front and rear on a side share one flash for the same reason. The rear pair
-     * has no LED on it yet; it is computed and reported anyway, which is what makes
-     * wiring it later a change to the pin table and nothing else.
+     * HAZARD IS ITS OWN CUE rather than left and right together: two cues have
+     * two step clocks, and two clocks started a millisecond apart drift into an
+     * alternating flash. Front and rear on a side share one flash for the same
+     * reason; the rear pair has no LED yet but is computed and reported anyway.
      */
     static constexpr Step STEPS_LEFT[] =
     {
@@ -380,16 +268,10 @@ namespace bibo::cue
     static constexpr Step STEPS_REVERSE[] = { { .ms = 0u, .lamps = CUE_CH_REV, .level = LAMP_FULL, .tone = TONE_NONE } };
 
     /*
-     * ORDER IS PRIORITY. A later cue wins a channel an earlier one also wants.
-     *
-     * Read down the list and it is a sentence about what matters more than what:
-     * being lit at all, then which way the gearbox is, then which way the car is
-     * turning, then the two things the car says on purpose. ALERT is last because
-     * "something is wrong" outranks everything, including an indicator.
-     *
-     * RUNNING before BRAKE is the whole reason `level` exists: both want the tails,
-     * BRAKE is later, so braking shows FULL over the DIM the running lamps were
-     * holding. No rule anywhere has to know about the other.
+     * ORDER IS PRIORITY. A later cue wins a channel an earlier one also wants,
+     * and ALERT is last because "something is wrong" outranks everything.
+     * RUNNING before BRAKE is the whole reason `level` exists - both want the
+     * tails, BRAKE is later, so braking shows FULL over the running lamps' DIM.
      */
     enum Kind
     {
@@ -406,10 +288,7 @@ namespace bibo::cue
         KIND_COUNT
     };
 
-    /*
-     * IN cue::Kind ORDER. The enum indexes this table directly, so a row added in
-     * the wrong place silently renames two cues at once.
-     */
+    /* IN cue::Kind ORDER - a row in the wrong place renames two cues at once. */
     static const Script SCRIPT[KIND_COUNT] =
     {
         { .name = "none",    .means = "nothing",                      .step = nullptr,          .steps = 0u, .repeats = 0u, .play = PLAY_HOLD },
@@ -425,11 +304,9 @@ namespace bibo::cue
     };
 
     /*
-     * ---- state, one copy - the same deal chassis.hxx makes ------------------
-     *
-     * PER KIND, because the car says more than one thing at a time. Headlights on,
-     * braking, and indicating left is three cues at once and is an ordinary
-     * Tuesday; the old single `kindNow` could hold exactly one of them.
+     * State, one copy - the same deal chassis.hxx makes. PER KIND, because the
+     * car says more than one thing at a time: headlights on, braking and
+     * indicating left is three cues at once.
      */
     inline Bool   up = false;
 
@@ -908,10 +785,7 @@ namespace bibo::cue
 
                 if(sc->play == PLAY_ONCE && loopIx[k] >= sc->repeats)
                 {
-                    /*
-                     * A one-shot that has finished is finished - it does not stay
-                     * latched waiting for somebody to lower it.
-                     */
+                    /* A finished one-shot does not stay latched. */
                     active[k]  = false;
                     latched[k] = false;
                     return;
@@ -944,10 +818,9 @@ namespace bibo::cue
         lights::clear(out);
 
         /*
-         * `want`, not `tone`. cue::tone() below is the accessor for exactly
-         * this value, and a local of the same name shadows it - so a later
-         * edit inside this function that meant to CALL it would silently read
-         * the half-built local instead.
+         * `want`, not `tone`: a local named `tone` would shadow the accessor
+         * below, and a later edit meaning to CALL it would read the half-built
+         * local instead.
          */
         UInt8 want = TONE_NONE;
 
@@ -1011,16 +884,13 @@ namespace bibo::cue
         const UInt64 now = timing::nowUs();
 
         /*
-         * ---- which way, with hysteresis and a minimum flash ------------------
-         *
-         * Three things here look right written down and are wrong on a car:
+         * ---- which way, with hysteresis and a minimum flash ---------------
          *   1. TWO thresholds. Steering parked on a single one makes the lamp
          *      stutter at the servo's own jitter.
-         *   2. ONE COMPLETE FLASH minimum, or a turn starting and ending inside one
-         *      blink period shows a sliver of an on-phase and vanishes.
+         *   2. ONE COMPLETE FLASH minimum, or a turn starting and ending inside
+         *      one blink period shows a sliver of an on-phase and vanishes.
          *   3. ...EXCEPT a change of side, which is immediate. Indicating left
-         *      while the wheels go right is the one thing an indicator must never
-         *      do.
+         *      while the wheels go right is what an indicator must never do.
          */
         const Int32 mag = in->steerMilli < 0 ? -in->steerMilli : in->steerMilli;
 
@@ -1041,92 +911,57 @@ namespace bibo::cue
         }
 
         /*
-         * ---- what the car wants to say --------------------------------------
-         *
-         * Every one of these is a REQUEST, overruled by anything a person has
-         * latched. The car's opinion and the operator's are the same mechanism with
-         * different priority, which is what stops "headlights on" being a special
-         * case bolted to the side of the lighting rules.
+         * ---- what the car wants to say. Every one is a REQUEST, overruled by
+         * anything a person has latched: the car's opinion and the operator's
+         * are the same mechanism at different priority.
          */
         wants(KIND_LEFT,  turnWant == TURN_LEFT  && !active[KIND_HAZARD], now);
         wants(KIND_RIGHT, turnWant == TURN_RIGHT && !active[KIND_HAZARD], now);
 
         /*
-         * Is the car being DRIVEN - either way?
-         *
-         * Forward needs to clear idle by the threshold, because idle is the pulse
-         * at which nothing turns and the microsecond after it is a car that has not
-         * really pulled away. Reverse mirrors it about neutral. Between the two the
-         * motor is doing nothing worth calling motion, and the tails stay on.
-         *
-         * Symmetric on purpose. A rule that extinguished the lamps the instant the
-         * throttle left neutral in one direction and not the other would be a rule
-         * with a side, and there is nothing about this car that has one.
+         * Is the car being DRIVEN - either way? Forward must clear idle by the
+         * threshold, since idle is the pulse at which nothing turns; reverse
+         * mirrors it about neutral, symmetric on purpose. Between the two the
+         * motor is doing nothing worth calling motion and the tails stay on.
          */
         const Bool fwd    = in->throttleUs > in->idleUs + motionUsNow;
         const Bool rev    = in->throttleUs < in->neutralUs - motionUsNow;
         const Bool driven = fwd || rev;
 
         /*
-         * The tails, as two cues on one pair of lamps.
-         *
-         * RUNNING is the dim glow that goes with the headlights. BRAKE is full, and
-         * wins because it is later in the enum. Neither knows about the other, and
-         * the thing that used to be a nested conditional inside one rule is now the
-         * ORDER of two.
-         *
-         * NO OVERRIDE from the indicators. They were interrupted until 2026-08-28,
-         * and the reason was a real convention applied to the wrong car: on many
-         * cars the rear indicator and the brake light are one bulb, so the indicator
-         * has to interrupt the brake to be seen at all. This car has separate LEDs
-         * on separate pins and a second indicator pair going on the rear, so nothing
-         * is ever competing for one bulb. Applied anyway, it made the brake light
-         * blink in antiphase to the signal beside it, which is exactly what a brake
-         * light must not do. If a shared-bulb cluster is ever fitted, that belongs
-         * in the BINDING - two lamps on one pin - and not back in here.
+         * The tails, as two cues on one pair of lamps: RUNNING is the dim glow,
+         * BRAKE is full and wins by being later in the enum. NO OVERRIDE from
+         * the indicators - interrupting the brake is a real convention for cars
+         * where the rear indicator and the brake light are ONE BULB, and on
+         * this car's separate LEDs it only made the brake light blink in
+         * antiphase to the signal beside it.
          */
         wants(KIND_BRAKE, !driven, now);
 
         /*
-         * Reverse lamps: lit while the car is being driven BACKWARDS.
-         *
-         * chassis.hxx is forward-only today - it clamps the throttle to [idle, max]
-         * and the board refuses anything below neutral - so `rev` is currently
-         * always false and these lamps never light. The rule is here anyway, and
-         * that is deliberate: reverse arrives as a brake-then-reverse sequence in
-         * the ESC, and when it does the lighting should already be right rather than
-         * being the thing somebody remembers afterwards.
+         * Reverse lamps. chassis.hxx is forward-only today - it clamps the
+         * throttle to [idle, max] - so `rev` is always false and these never
+         * light. The rule is here so the lighting is already right when reverse
+         * arrives as a brake-then-reverse sequence in the ESC.
          */
         wants(KIND_REVERSE, rev, now);
 
         /*
-         * The headlights are the one thing the car cannot know for itself - nothing
-         * it measures implies darkness - so `headOn` is a person's answer arriving
-         * through the Input, and latching it with CUE HEAD is the other way to say
-         * the same thing.
-         *
-         * RESOLVED BEFORE RUNNING, and that order is load-bearing: the running
-         * lamps follow the HEADLIGHTS, not the Input. Reading in->headOn for both
-         * left CUE HEAD lighting the heads and not the tails - the operator's
-         * switch worked on one of the two things a headlight switch does, which is
-         * the sort of half-working that gets blamed on wiring.
+         * Nothing the car measures implies darkness, so `headOn` is a person's
+         * answer arriving through the Input. RESOLVED BEFORE RUNNING, and that
+         * order is load-bearing: the running lamps follow the HEADLIGHTS, not
+         * the Input, or CUE HEAD lights the heads and not the tails.
          */
         wants(KIND_HEAD, in->headOn, now);
 
-        /*
-         * Dim tails whenever the car is lit at all. See the note above the brake:
-         * this is the lower half of one pair of lamps and BRAKE is the upper.
-         */
+        /* Dim tails whenever the car is lit at all - BRAKE is the upper half. */
         wants(KIND_RUNNING, active[KIND_HEAD], now);
 
         /*
-         * Composed EVERY tick, even with the lamps switched off.
-         *
-         * The old tick returned early when the master switch was off, which froze
-         * the turn state machine with it - so LIGHTS went on reporting whichever way
-         * the car had been turning when somebody killed the lamps. Only the WRITE is
-         * gated now, in lights.hxx. What the car means is true whether or not
-         * anything is lit to say it.
+         * Composed EVERY tick, even with the lamps switched off. Returning early
+         * on the master switch froze the turn state machine with it, so LIGHTS
+         * went on reporting whichever way the car had been turning when somebody
+         * killed the lamps. Only the WRITE is gated, in lights.hxx.
          */
         lights::Set s;
         compose(now, &s);

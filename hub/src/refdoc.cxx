@@ -21,12 +21,9 @@ namespace refdoc
     //  parsing
     // ---------------------------------------------------------------------------
 
-    // Where includes resolve from, and how deep we are.
-    //
-    // A depth limit rather than a set of visited paths: a document that includes
-    // itself is the obvious cycle, but so is A includes B includes A, and a limit
-    // catches every shape of it with one integer. Eight is far past anything a
-    // real document needs and far short of a stack overflow.
+    // Where includes resolve from, and how deep we are. A depth limit rather than
+    // a visited-path set catches every cycle shape (A->A, A->B->A) with one
+    // integer; 8 is past anything real and short of a stack overflow.
     struct Ctx
     {
         Str   baseDir;
@@ -82,11 +79,8 @@ namespace refdoc
         }
     }
 
-    // The four that have to exist, and no more.
-    //
-    // A format with a full entity table needs a table, and then it needs the table
-    // to be right. These four are the ones you cannot write any other way, which is
-    // the only reason an entity is ever needed.
+    // The four that have to exist, and no more: the ones you cannot write any
+    // other way.
     Bool entity(Cursor& cur, Str& out)
     {
         static const struct
@@ -115,12 +109,8 @@ namespace refdoc
         return false;
     }
 
-    // Text between tags, with runs of whitespace collapsed to one space.
-    //
-    // COLLAPSED, so a paragraph can be hand-wrapped in the file at whatever width
-    // reads well and still flow to the panel it is drawn in. A format that
-    // preserved the source line breaks would make every document's layout a
-    // property of the editor it was typed in.
+    // Text between tags, with runs of whitespace collapsed to one space, so a
+    // paragraph hand-wrapped in the file still reflows to the panel.
     Str readText(Cursor& cur)
     {
         Str out;
@@ -141,15 +131,10 @@ namespace refdoc
                 continue;
             }
 
-            // The LEADING space is kept too, and that is the whole point.
-            //
-            // "For <Bold>bibo</Bold> this is" is three runs, and the third one
-            // starts with the space between "</Bold>" and "this". Dropping it
-            // because the run was empty is what produced "Forbibothis" - the gap
-            // either side of every inline element silently closing up.
-            //
-            // A leading space costs nothing when it is genuinely at the start of a
-            // paragraph: drawRuns ignores a gap when the line is empty.
+            // The LEADING space is kept too: a run that starts after an inline
+            // element begins with the gap before it, and dropping it because the
+            // run was empty is what produced "Forbibothis". Harmless at a real
+            // paragraph start - drawRuns ignores a gap on an empty line.
             if(space)
             {
                 out.push_back(' ');
@@ -166,23 +151,15 @@ namespace refdoc
         return out;
     }
 
-    // Elements whose content is NOT collapsed.
-    //
-    // Everywhere else, runs of whitespace become one space so a paragraph can be
-    // hand-wrapped in the file at whatever width reads well and still flow to the
-    // panel. These two are the opposite case: the newlines and the columns ARE the
-    // content. A <Code> block showing the shape of something, flattened to one
-    // line, is showing nothing; a <Draw> program is a line per command.
+    // Elements whose content is NOT collapsed: newlines and columns ARE the
+    // content. A <Draw> program is a line per command.
     Bool rawElement(const Str& name)
     {
         return name == "Code" || name == "Draw";
     }
 
-    // Everything up to the matching close tag, verbatim.
-    //
-    // No entity expansion and no nested elements: inside a raw element a '<' is
-    // just a '<', which is what lets a Code block quote this format's own tags
-    // without every one of them needing to be written as &lt;.
+    // Everything up to the matching close tag, verbatim: no entity expansion and
+    // no nested elements, so a Code block can quote this format's own tags.
     Str readRaw(Cursor& cur, const Str& name)
     {
         const Str close = "</" + name;
@@ -213,18 +190,9 @@ namespace refdoc
 
     // ---- <Include file="..."/> ------------------------------------------------
     //
-    // C's #include, and for C's reason: a pinout is worth keeping in its own file
-    // and worth reading inside the document that explains the part.
-    //
-    // TEXTUAL, and at PARSE time. The included file's nodes are spliced in where
-    // the tag was, so by the time anything is drawn there is one tree and no
-    // renderer has to know an include ever happened. Resolving it later would mean
-    // every pass - drawing, style checking, error reporting - carrying its own idea
-    // of what the document contains.
-    //
-    // A pinout file IS a document. There is no second file type: what makes it a
-    // pinout is what is in it, not what it is called, so one can be opened and read
-    // on its own or pulled into three others.
+    // TEXTUAL, and at PARSE time: the included nodes are spliced in where the tag
+    // was, so by drawing time there is one tree and no pass has to know. An
+    // included file is an ordinary document - there is no second file type.
     Str readFile(const Str& path)
     {
         Str out;
@@ -273,11 +241,8 @@ namespace refdoc
         return out;
     }
 
-    // A node that says, visibly, that an include did not work.
-    //
-    // Rendered rather than silent, and rendered where the included content would
-    // have been. An include that quietly produces nothing is a document with a
-    // hole in it that nobody notices until the part is in their hands.
+    // A node that says, visibly and in place, that an include did not work. A
+    // silent one is a document with a hole nobody notices.
     Node includeError(const Str& what, Int32 line)
     {
         Node warn;
@@ -331,8 +296,8 @@ namespace refdoc
                     return false;
                 }
 
-                // The splice. Everything the included document holds is dropped in
-                // where the tag stood, so nothing downstream knows it happened.
+                // The splice: the included document's kids drop in where the tag
+                // stood, so nothing downstream knows it happened.
                 if(kid.name == "Include")
                 {
                     const Str rel = kid.attr("file", "");
@@ -479,9 +444,8 @@ namespace refdoc
             cur.take();
             skipSpace(cur);
 
-            // Double quotes, always. Allowing bare or single-quoted values is a
-            // small kindness that costs a parser branch and a class of confusing
-            // failures, and this format has one author.
+            // Double quotes, always: bare and single-quoted values are not
+            // accepted.
             if(cur.peek() != '"')
             {
                 err     = a.name + " must be in double quotes";
@@ -561,15 +525,11 @@ namespace refdoc
 
     // ---- headings, at three sizes ---------------------------------------------
     //
-    // 21 / 17 / 15 / 13, which is theme.hxx's STAT / TITLE / BODY / SMALL. A
-    // document with one text size is a wall, and the reason to have a document
-    // rather than a comment block is that you can skim it - which is a thing you do
-    // by size before you do it by reading.
+    // 21 / 17 / 15 / 13 - theme.hxx's STAT / TITLE / BODY / SMALL.
     //
-    // PushFont and PopFont are paired inside this function and never straddle a
-    // child window. That is not fussiness: an unbalanced font stack across
-    // EndChild renders the whole window blank white, with no error, and it has
-    // cost this project an afternoon before.
+    // PushFont/PopFont pair inside this function and never straddle a child
+    // window: an unbalanced font stack across EndChild renders the whole window
+    // blank white with no error.
     Void headingText(ImFont* f, ImU32 col, const Char* text)
     {
         if(f != nullptr)
@@ -593,17 +553,15 @@ namespace refdoc
             ImU32       col;
         };
 
-        // The same sixteen the rest of the app draws in, so a pinout here and a
-        // plot on the next screen mean the same thing by the same color.
+        // The same sixteen the rest of the app draws in.
         static constexpr Map MAP[] = {
             { "power",   ui::ansi::RED      },
             { "ground",  ui::ansi::GRAY     },
             { "serial",  ui::ansi::BRCYAN   },
             { "digital", ui::ansi::GREEN    },
             { "analog",  ui::ansi::MAGENTA  },
-            // BRIGHT blue. Plain ANSI blue is 0x0000EE, which on a black page is
-            // very nearly invisible - the USB pins were legible only if you
-            // already knew they were there.
+            // BRIGHT blue: plain ANSI blue is 0x0000EE, near-invisible on a
+            // black page.
             { "usb",     ui::ansi::BRBLUE   },
             { "audio",   ui::ansi::BRYELLOW },
             { "unused",  ui::pin::FREE      },
@@ -660,12 +618,9 @@ namespace refdoc
         }
     }
 
-    // Lays runs out word by word, wrapping at `width`.
-    //
-    // ImGui has no rich text, so a paragraph that mixes colors cannot be one
-    // TextWrapped call. Emitting a word at a time with SameLine(0,0) is the usual
-    // way round it, and the only subtlety is that the trailing space of a run has
-    // to survive - "<Bold>x</Bold> and" must not come out as "xand".
+    // Lays runs out word by word, wrapping at `width`. ImGui has no rich text, so
+    // a multi-color paragraph cannot be one TextWrapped call; a word at a time
+    // with SameLine(0,0) is the way round it.
     Void drawRuns(const Vec<Run>& runs, Float32 width, Float32 indent)
     {
         const Float32 spaceW = ImGui::CalcTextSize(" ").x;
@@ -673,13 +628,9 @@ namespace refdoc
         Float32 x     = 0.0f;
         Bool    empty = true;   // nothing on the current line yet
 
-        // Whether a space is owed to the NEXT word, and it has to outlive the run
-        // it was found in.
-        //
-        // "For <Bold>bibo</Bold> this" is three runs, and the space that separates
-        // "For" from "bibo" is the trailing character of the FIRST one. Kept inside
-        // the per-run loop it was consumed and then discarded, because the run
-        // ended before another word needed it - which is what left "Forbibo".
+        // A space owed to the NEXT word, and it must outlive the run it was found
+        // in - the separator before an inline element is the trailing character of
+        // the previous run. Scoped per-run it got discarded, leaving "Forbibo".
         Bool gap = false;
 
         if(indent > 0.0f)
@@ -693,10 +644,8 @@ namespace refdoc
             Size i = 0;
             while(i < r.text.size())
             {
-                // Whitespace before this word is the only thing that decides
-                // whether a gap is drawn, and drawing it as the SameLine SPACING
-                // rather than as a character is what keeps a wrapped line from
-                // starting with one.
+                // The gap is drawn as SameLine SPACING, not as a character, so a
+                // wrapped line never starts with one.
                 while(i < r.text.size() && r.text[i] == ' ')
                 {
                     gap = true;
@@ -764,8 +713,8 @@ namespace refdoc
         ImGui::Spacing();
     }
 
-    // A bar down the left, and the text beside it. Used by Note and Warn, which
-    // differ only in color and in how much they are asking for your attention.
+    // A bar down the left, and the text beside it. Note and Warn differ only in
+    // color.
     Void banner(const Node& n, Float32 width, ImU32 col)
     {
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -786,21 +735,11 @@ namespace refdoc
 
     // ---- <Code> as a BLOCK ------------------------------------------------
     //
-    // Gruvbox, line numbers, and the same tokenizer the editor uses.
+    // Gruvbox, line numbers, and syn::tokenize / syn::gruv - the editor's own
+    // tokenizer, NOT a second highlighter that would drift from it.
     //
-    // NOT A SECOND HIGHLIGHTER. syn::tokenize and syn::gruv already exist for
-    // the Code view, so a block here colors a snippet exactly the way the
-    // editor colors the file it came from. Writing a small independent one for
-    // documents would have been quicker and would have drifted the first time
-    // somebody taught the editor a new keyword.
-    //
-    // IT DOES NOT WRAP. Code is a shape, and a wrapped line is a different
-    // shape - an 80-column table of pins folded at 62 stops being a table. The
-    // page pans in both directions without limit now, so a long line is
-    // reachable rather than lost, which is what makes not-wrapping affordable.
-    //
-    // Inline <Code> is untouched and still a cyan run inside a sentence; only
-    // the block form is a panel.
+    // IT DOES NOT WRAP: code is a shape, and the page pans without limit. Inline
+    // <Code> is untouched - a cyan run in a sentence; only blocks are panels.
     Void codeBlock(const Node& n, Float32 width)
     {
         Str body;
@@ -812,8 +751,8 @@ namespace refdoc
             }
         }
 
-        // Split first: the number of lines decides the gutter width, and the
-        // gutter width decides where everything else starts.
+        // Split first: the line count sets the gutter width, which sets where
+        // everything else starts.
         Vec<Str> lines;
         {
             Str cur;
@@ -845,8 +784,7 @@ namespace refdoc
         const Float32 charW = ImGui::CalcTextSize("0").x;
         const Float32 pad   = 6.0f;
 
-        // Wide enough for the largest number it will actually print, so a
-        // 9-line block does not carry the gutter of a 900-line one.
+        // Wide enough for the largest number actually printed.
         Int32 digits = 1;
         for(Size t = lines.size(); t >= 10; t /= 10)
         {
@@ -859,16 +797,14 @@ namespace refdoc
                           + pad * 2.0f;
         ImDrawList*    dl = ImGui::GetWindowDrawList();
 
-        // Painted before the text, in one pass, because the height is known
-        // from the line count rather than discovered by drawing.
+        // Painted before the text: the height is known from the line count.
         dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG0_H);
         dl->AddRectFilled(p0, ImVec2(p0.x + gutter, p0.y + h), syn::gruv::BG1);
         dl->AddRect(p0, ImVec2(p0.x + width, p0.y + h), syn::gruv::BG3,
                     0.0f, 0, 1.0f);
 
-        // `inBlock` carries a /* that opened on an earlier line, which is why
-        // the tokenizer takes it by reference and why it lives out here rather
-        // than inside the loop.
+        // `inBlock` carries a block comment opened on an earlier line, so it is
+        // taken by reference and must live outside the loop.
         Bool       inBlock = false;
         Vec<syn::Span> spans;
 
@@ -904,9 +840,8 @@ namespace refdoc
             ImGui::PopFont();
         }
 
-        // Claim the space. The block was drawn straight onto the draw list, so
-        // without this the layout has no idea it happened and the next
-        // paragraph lands on top of it.
+        // Claim the space: the block went straight onto the draw list, so without
+        // this the next paragraph lands on top of it.
         ImGui::Dummy(ImVec2(width, h));
         ImGui::Spacing();
     }
@@ -928,8 +863,7 @@ namespace refdoc
 
             const ImU32 col32 = classColor(cls);
 
-            // The pad number is always dim and always first: it is the thing you
-            // count along the package with, and it is never the interesting part.
+            // The pad number is always dim and always first.
             ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                                "%3s", num);
             ImGui::SameLine(0.0f, 8.0f);
@@ -966,11 +900,8 @@ namespace refdoc
     //  <Draw> - a canvas, one command per line
     // ---------------------------------------------------------------------------
     //
-    // A pinout is a picture as much as it is a table, and some things - a
-    // connector's keying, which way a DIP is numbered, where a wire actually goes -
-    // only ever read as a drawing. This is that, without leaving the document.
-    //
-    // An imperative DSL rather than more elements, and deliberately:
+    // An imperative DSL - a list of calls against a pen state - rather than nested
+    // elements, because a drawing is a sequence, not a structure:
     //
     //   <Draw width="..." height="...">
     //     setColor cyan
@@ -978,20 +909,12 @@ namespace refdoc
     //     drawText 16 30 "VCC"
     //   </Draw>
     //
-    // Elements are good at STRUCTURE and bad at sequence. A drawing is a sequence -
-    // this on top of that, in this order - and expressing it as nested tags means
-    // one tag per primitive, attributes for coordinates, and a document three times
-    // the size saying the same thing. Every 2D library anybody has used, Flutter's
-    // Canvas included, is a list of calls against a state, so this is a list of
-    // calls against a state.
+    // COORDINATES ARE THE DOCUMENT'S OWN: <Draw> declares its natural size
+    // (default 640x320) and the renderer scales to the panel width, so a drawing
+    // stays composed at any zoom or DPI.
     //
-    // COORDINATES ARE THE DOCUMENT'S OWN. <Draw> declares its natural size and the
-    // renderer scales to whatever width the panel gives it, so a drawing composed
-    // against 640x320 stays composed at any zoom or DPI. Nothing here deals in
-    // pixels.
-    //
-    // Unknown commands are REPORTED, not ignored. A silently skipped line in a
-    // drawing is a picture that is quietly missing a wire.
+    // Unknown commands are REPORTED, not ignored: a silently skipped line is a
+    // picture quietly missing a wire.
 
     struct Pen
     {
@@ -999,14 +922,10 @@ namespace refdoc
         Float32 width = 1.0f;
         Float32 text  = 12.0f;
 
-        // -1 left, 0 centered, +1 right. The x in drawText is the ANCHOR, and this
-        // says which part of the string lands on it.
-        //
-        // Added because the first real drawing needed it: a pinout has a column of
-        // names ending at the pads, and without alignment the only way to right-
-        // align them is to guess a per-character width and subtract. That guess is
-        // wrong on any other font, and it goes wrong quietly - a column that
-        // slowly frays instead of failing.
+        // -1 left, 0 centered, +1 right. The x in drawText is the ANCHOR; this
+        // says which part of the string lands on it. Without it, right-aligning a
+        // column of pin names means guessing a per-character width - wrong on any
+        // other font, and wrong quietly.
         Int32   align = -1;
     };
 
@@ -1074,12 +993,8 @@ namespace refdoc
         return out;
     }
 
-    // A color by name, by pin class, or as #RRGGBB.
-    //
-    // The names are the sixteen the whole app draws in, so a drawing cannot invent
-    // a color that means nothing anywhere else. #RRGGBB is allowed because a
-    // drawing sometimes depicts a real-world thing - a resistor band, a connector's
-    // keying - whose color is a fact rather than a choice.
+    // A color by name (the app's sixteen), by pin class, or as #RRGGBB - the last
+    // for real-world colors, like a resistor band, that are facts not choices.
     Bool colorByName(const Str& name, ImU32& out)
     {
         struct Map
@@ -1172,13 +1087,9 @@ namespace refdoc
         const Float32 natH = std::max(1.0f, static_cast<Float32>(
                                           std::atof(n.attr("height", "320"))));
 
-        // Scaled to the measure it is given, and the measure is purely a function
-        // of the page's zoom - so a drawing grows by exactly the factor the text
-        // around it grows by.
-        //
-        // NOT capped. It was clamped to 2x, which meant that past a certain zoom
-        // the type kept growing and the diagrams stopped, which is the same
-        // disorienting mismatch from the other end.
+        // Measure is purely a function of page zoom, so a drawing grows by exactly
+        // the factor the surrounding text does. NOT capped - a 2x clamp made the
+        // type keep growing past that zoom while the diagrams stopped.
         const Float32 scale = measure / natW;
 
         const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -1217,9 +1128,8 @@ namespace refdoc
                 continue;   // a comment
             }
 
-            // Line thickness never falls below one pixel: a hairline that vanishes
-            // at small scale is a drawing that loses parts of itself when the panel
-            // is narrow.
+            // Never below one pixel: a hairline that vanishes at small scale is a
+            // drawing losing parts of itself in a narrow panel.
             const Float32 th = std::max(1.0f, len(pen.width));
 
             if(cmd == "setColor" && a.count() >= 2)
@@ -1299,8 +1209,8 @@ namespace refdoc
                 const Float32 px = std::max(8.0f, len(pen.text));
                 const Str     t  = a.str(3);
 
-                // Measured, not estimated. The renderer knows the font; a document
-                // does not and should not have to.
+                // Measured, not estimated: the renderer knows the font, the
+                // document does not.
                 Float32 dx = 0.0f;
                 if(pen.align != -1)
                 {
@@ -1315,8 +1225,7 @@ namespace refdoc
             }
             else
             {
-                // Named, not swallowed. A drawing quietly missing a wire is worse
-                // than one that says which line it could not read.
+                // Named, not swallowed.
                 errs.push_back("line " + std::to_string(lineNo) + ": "
                                + (a.count() < 2 ? cmd : (cmd + " - wrong arguments")));
             }
@@ -1334,19 +1243,13 @@ namespace refdoc
 
     // ---- <Table> --------------------------------------------------------------
     //
-    // Added because the first three documents converted from the old hardcoded
-    // pages all needed one and all had to fake it with a list. A wiring table is a
-    // grid - a name, a pin, and what it is for, lining up down the page - and a
-    // list of sentences is a worse way to read the same thing.
-    //
     //   <Table>
     //     <Row head="yes"><Cell>module</Cell><Cell>Pico</Cell><Cell>why</Cell></Row>
     //     <Row><Cell class="serial">SCL</Cell><Cell>GP18</Cell><Cell>clock</Cell></Row>
     //   </Table>
     //
-    // A cell takes inline markup like anything else, and a `class` colors it with
-    // the same pin palette the pinouts use - so a row about a serial pin is the
-    // same color as that pin in the diagram above it.
+    // A cell takes inline markup, and `class` colors it from the same pin palette
+    // the pinouts use.
     Void table(const Node& n)
     {
         Int32 cols = 0;
@@ -1373,8 +1276,7 @@ namespace refdoc
 
         ImGui::Spacing();
 
-        // Borders, because the whole point of a table over a list is that the eye
-        // can run down a column, and a column needs an edge to run along.
+        // Borders: a column needs an edge for the eye to run down.
         if(ImGui::BeginTable("##bdoctable", cols,
                              ImGuiTableFlags_Borders
                              | ImGuiTableFlags_RowBg
@@ -1448,8 +1350,6 @@ namespace refdoc
         }
 
         // Two columns side by side when there is room, stacked when there is not.
-        // A pinout squeezed into two 90-pixel columns is less readable than the
-        // same pinout in one, and the panel is resizable.
         Vec<const Node*> cols;
         for(const Node& k : n.kids)
         {
@@ -1507,9 +1407,8 @@ namespace refdoc
             ImGui::Spacing();
             headingText(ui::fonts.title, ui::ansi::BRWHITE, title);
 
-            // A rule under the heading rather than through it. SeparatorText draws
-            // the label at the body size and cannot be told otherwise, which is
-            // exactly the thing being fixed.
+            // A rule under the heading rather than SeparatorText, which draws its
+            // label at the body size and cannot be told otherwise.
             const ImVec2 p = ImGui::GetCursorScreenPos();
             ImGui::GetWindowDrawList()->AddLine(
                 ImVec2(p.x, p.y), ImVec2(p.x + width, p.y), ui::ansi::GRID, 1.0f);
@@ -1581,9 +1480,8 @@ namespace refdoc
             }
             else
             {
-                // An element the renderer does not know. Drawn as its text rather
-                // than dropped, so a typo in a tag name loses the styling and not
-                // the sentence.
+                // Unknown element: drawn as its text, so a typo in a tag name
+                // loses the styling and not the sentence.
                 paragraph(k, width, ui::ansi::GRAY, 0.0f);
             }
         }
@@ -1631,8 +1529,7 @@ namespace refdoc
   {
 
     // The whole of one file: skip to the root element, parse it, insist it is a
-    // <Doc>. Shared by the public entry point and by every include, which is what
-    // makes an included file exactly the same kind of thing as a top-level one.
+    // <Doc>. Shared by the public entry point and by every include.
     Bool parseDoc(const Str& text, const Ctx& ctx, Node& out, Str& err, Int32& errLine)
     {
         Cursor cur;
@@ -1739,26 +1636,14 @@ namespace refdoc
   Void drawPage(const Doc& d, const ImVec2& size, View& view, Float32 dpiScale)
   {
       // ---------------------------------------------------------------------
-      // NO SCROLLING. The pan is an offset applied to the content, and it is
-      // deliberately unbounded.
+      // NO SCROLLING. The pan is an unbounded offset applied to the content.
       //
-      // This used to drag with SetScrollX/SetScrollY, and ImGui CLAMPS those to
-      // [0, ScrollMax] by definition - so the page hit a wall at the top-left
-      // and could never be pushed past its own edges. That is right for a
-      // scrolled column of prose and wrong for these: a .bdoc is mostly a
-      // diagram, and a diagram is a canvas. Wanting to drag the corner of a
-      // pinout into the middle of the panel to look at it is an ordinary thing
-      // to want, and the scroll range forbade it.
+      // SetScrollX/SetScrollY cannot express this: ImGui CLAMPS them to
+      // [0, ScrollMax], so the page hit a wall at its own top-left corner. The
+      // scrollbars go with the scrolling.
       //
-      // So the child does not scroll at all - the content is drawn from a
-      // cursor offset by the pan, which can be any value in any direction. The
-      // scrollbars go with it, which is the right trade: a scrollbar on an
-      // infinite canvas is measuring nothing.
-      //
-      // THE COST is that you can pan the page entirely out of sight, and an
-      // empty panel looks like a broken renderer. Double-click puts it back -
-      // see below - and that is the whole reason this is not just an unclamped
-      // number.
+      // THE COST: the page can be panned entirely out of sight, which looks like
+      // a broken renderer. Double-click (below) puts it back.
       // ---------------------------------------------------------------------
       ImGui::BeginChild("##bdocpage", size, ImGuiChildFlags_None,
                         ImGuiWindowFlags_NoScrollbar
@@ -1770,30 +1655,17 @@ namespace refdoc
 
       const ImVec2 origin = ImGui::GetCursorScreenPos();
 
-      // THE WHEEL ZOOMS, and dragging pans. No modifier.
-      //
-      // It was Ctrl+wheel with the wheel scrolling, which is right for a wall of
-      // prose and wrong for this: most of what is in these documents is a
-      // diagram, and the thing you want to do to a diagram is get closer to it.
-      // Dragging covers what the wheel used to.
+      // THE WHEEL ZOOMS, and dragging pans. No modifier - these documents are
+      // mostly diagrams, and dragging covers what the wheel used to do.
       if(over)
       {
           const Float32 wheel = ImGui::GetIO().MouseWheel;
           if(wheel != 0.0f)
           {
-              // ZOOM ABOUT THE CURSOR, not about the top-left corner.
-              //
-              // With an unbounded pan this stops being a nicety. Zooming about
-              // the corner moves whatever you were looking at away from the
-              // pointer, and on a canvas you have already dragged somewhere
-              // that means chasing the diagram across the panel with a wheel.
-              // Holding the point under the mouse still is what makes zoom and
-              // pan feel like one gesture rather than two that fight.
-              //
-              // The page is not a pure scale - text reflows against `measure` -
-              // so this is exact for drawings and an approximation for
-              // paragraphs. The approximation is invisible; the alternative was
-              // not.
+              // ZOOM ABOUT THE CURSOR, not the corner - otherwise, with an
+              // unbounded pan, zooming means chasing the diagram across the
+              // panel. Exact for drawings; an approximation for paragraphs,
+              // which reflow against `measure` rather than scaling.
               const Float32 was = view.zoom;
               const Float32 now = std::min(4.0f,
                                            std::max(0.4f,
@@ -1820,10 +1692,8 @@ namespace refdoc
               view.panning = true;
           }
 
-          // THE WAY HOME. An unbounded pan can put the page somewhere with no
-          // edge to find it by, and an empty panel is indistinguishable from a
-          // renderer that failed. Double-click is the gesture every canvas uses
-          // for this and it costs nothing to offer.
+          // THE WAY HOME from an unbounded pan, which can leave the page with no
+          // edge to find it by.
           if(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
           {
               view = View();
@@ -1831,22 +1701,16 @@ namespace refdoc
       }
 
       // ---------------------------------------------------------------------
-      // THE DRAG CONTINUES OUTSIDE THE PANEL, and this is deliberately not
-      // inside the `over` test above.
+      // THE DRAG CONTINUES OUTSIDE THE PANEL, so this is deliberately NOT inside
+      // the `over` test above. Inside it, the pan stopped dead when the cursor
+      // crossed the panel edge mid-drag: a measured 720-pixel drag to the upper
+      // left moved the page 262 and stopped, because `over` went false.
       //
-      // It was, and the pan stopped dead the moment the cursor crossed the
-      // panel edge mid-drag - which is precisely when you are dragging a
-      // diagram in from off-screen and have the furthest to go. Measured: a
-      // 720-pixel drag to the upper left moved the page 262 and then stopped,
-      // because the cursor had left the pane and `over` went false.
+      // Latched on press, held until release, so where the mouse wanders in
+      // between does not matter.
       //
-      // Latched on the press and held until the release, so where the mouse
-      // wanders in between does not matter. That is what every map, canvas and
-      // image viewer does, and the reason it is the convention is that a hand
-      // dragging paper does not let go when it passes the edge of the desk.
-      //
-      // `+=`, not `-=`: the content follows the hand rather than running away
-      // from it. A scrollbar is the one that moves the other way.
+      // `+=`, not `-=`: the content follows the hand. A scrollbar is the one
+      // that moves the other way.
       // ---------------------------------------------------------------------
       if(!ImGui::IsMouseDown(ImGuiMouseButton_Left))
       {
@@ -1858,37 +1722,20 @@ namespace refdoc
           view.panY += ImGui::GetIO().MouseDelta.y;
       }
 
-      // PushFont, not SetWindowFontScale.
-      //
-      // SetWindowFontScale is obsolete in ImGui 1.92 - imgui.cpp calls it "not
-      // useful anymore" and imgui.h says to prefer PushFont(NULL, size). It
-      // still COMPILES, which is why this looked right and did nothing: the
-      // page never zoomed and the only evidence was that nothing happened.
-      //
-      // NULL keeps the current face and changes only the size.
+      // PushFont, not SetWindowFontScale: the latter is obsolete in ImGui 1.92
+      // and does nothing while still COMPILING - the page simply never zoomed.
+      // A null font keeps the current face and changes only the size.
       const Float32 baseSize = ImGui::GetFontSize();
       ImGui::PushFont(nullptr, baseSize * view.zoom);
 
-      // ONE SCALE FOR EVERYTHING, and this line is the whole fix.
+      // ONE SCALE FOR EVERYTHING. The BASE measure fits the panel; zoom
+      // multiplies it. Both halves matter:
       //
-      // The measure used to be clamped to the panel width. Text was scaled by the
-      // font push and drawings were scaled by measure/naturalWidth - so the
-      // moment the panel was the smaller of the two, zooming grew the type and
-      // left every diagram exactly where it was. Text and pictures pulling apart
-      // as you zoom is disorienting in a way that is hard to even name while it
-      // is happening.
-      //
-      // Unclamped, the measure is purely a function of zoom, so the drawing scale
-      // and the font scale are the same number. The page is allowed to be wider
-      // than its frame; that is what the horizontal scrollbar and dragging are
-      // for.
-      // The BASE measure fits the panel; zoom multiplies it. Both halves matter.
-      //
-      // Fitting first means a page at 1x wraps inside its frame and needs no
-      // horizontal scrolling to read - which is the ordinary case and was broken
-      // when the measure ignored the panel entirely. Multiplying by zoom after
-      // means the drawing scale, measure/naturalWidth, carries exactly the same
-      // factor as the font, so text and diagrams grow together.
+      // Fitting first means a page at 1x wraps inside its frame with no
+      // horizontal scrolling. Multiplying by zoom after means the drawing scale,
+      // measure/naturalWidth, carries the same factor as the font push - so text
+      // and diagrams grow together. Clamping the measure to the panel width broke
+      // that: past the clamp the type grew and the diagrams did not.
       const Float32 avail   = ImGui::GetContentRegionAvail().x;
       const Float32 base    = std::min(std::max(avail - 24.0f, 200.0f),
                                        780.0f * dpiScale);
@@ -1897,25 +1744,16 @@ namespace refdoc
 
       // THE PAN IS APPLIED HERE, and the two axes need DIFFERENT mechanisms.
       //
-      // Y is a cursor move: vertical position accumulates down the window, so
-      // placing the first item lower carries everything after it.
+      // Y is a cursor move: vertical position accumulates down the window.
       //
-      // X IS NOT. After every item ImGui resets CursorPos.x to the window's
-      // indent, so setting the cursor's X moves only the FIRST thing drawn and
-      // every line after it snaps back. That is exactly what happened on the
-      // first attempt here: vertical panning worked, horizontal did nothing at
-      // all, and the page looked like it was obeying one axis out of stubborn-
-      // ness. Measured across four frames - the title's top edge moved 122 ->
-      // 322 while its left edge sat at 623 in every one of them.
+      // X IS NOT. ImGui resets CursorPos.x to the window's indent after every
+      // item, so setting the cursor's X moves only the FIRST item and everything
+      // after snaps back (measured: the title's top edge moved 122 -> 322 while
+      // its left edge sat at 623 every frame). So X goes through the INDENT, and
+      // folds in with the centering pad - both are "how far right content starts".
       //
-      // So X goes through the INDENT, which is the thing those per-item resets
-      // read from. It folds in with the centering pad because they are the same
-      // quantity: how far right the content starts.
-      //
-      // Both are unbounded and negative values are the point - ImGui clips
-      // items to the window rather than refusing to place them, so a page
-      // dragged up and left simply has its corner off-panel. That is what the
-      // old SetScroll pair could not express.
+      // Both are unbounded, and negative values are the point: ImGui clips items
+      // to the window rather than refusing to place them.
       const Float32 shift = view.panX + ((pad > 1.0f) ? pad : 0.0f);
 
       ImGui::SetCursorPosY(ImGui::GetCursorPosY() + view.panY);
@@ -1930,8 +1768,8 @@ namespace refdoc
           ImGui::Unindent(shift);
       }
 
-      // Popped before the child closes. A font left pushed across EndChild is
-      // the unbalanced-stack bug that renders a window blank white.
+      // Popped before the child closes: a font left pushed across EndChild
+      // renders the window blank white.
       ImGui::PopFont();
       ImGui::EndChild();
   }
@@ -1940,8 +1778,8 @@ namespace refdoc
   {
       if(!d.ok())
       {
-          // The error where the page would have been, with the line. A blank
-          // panel cannot be told from an empty document.
+          // The error where the page would have been: a blank panel cannot be
+          // told from an empty document.
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::ansi::BRRED),
                              "this document does not parse");
           ImGui::Spacing();
@@ -1967,9 +1805,8 @@ namespace refdoc
               ImGui::PushFont(ui::fonts.small, 0.0f);
           }
 
-          // The category, if the document declares one. It had been parsed and
-          // then ignored - an attribute that documents write and nothing reads
-          // is an attribute that quietly becomes wrong.
+          // The category, if declared. It was parsed and then ignored, and an
+          // attribute nothing reads quietly becomes wrong.
           const Char* cat = d.root.attr("category", "");
           if(cat[0] != '\0')
           {

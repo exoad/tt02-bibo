@@ -1,23 +1,12 @@
-# The hub, and everything that only builds under MSVC.
-#
-# The one Windows job, and the only one billed at 2x. Everything that could
-# reasonably run on Linux already does - see tests.yml, which runs the seven
-# firmware suites under g++ and clang++ for a fifth of the cost. What is left
-# here genuinely cannot: bibo.exe is Win32 and Direct3D 11, and the rplidar
-# driver ships as a Visual Studio solution.
-#
-# THIS JOB EXISTS BECAUSE OF WHAT MSVC HIDES, not despite it. int32_t is `int`
-# on MSVC and `long int` on arm-none-eabi, which is how twenty host entry points
-# compiled clean while the board rejected three. The suites are run under BOTH
-# front ends for the same reason a second pair of eyes is worth having.
-#
-# It became possible on 2026-09-01. Before that every .bat here named
-#
-#     C:\Program Files\Microsoft Visual Studio\2022\Community
-#
+# The hub, and everything that only builds under MSVC. The one Windows job and
+# the only one billed at 2x - everything that can run on Linux already does
+# (tests.yml). bibo.exe is Win32 and Direct3D 11, and the rplidar driver ships as
+# a Visual Studio solution. The firmware suites run here too for what MSVC hides:
+# int32_t is `int` there and `long int` on arm-none-eabi, which is how twenty host
+# entry points compiled clean while the board rejected three. The .bat files must
+# reach VS through tools\find_vs.bat - they hard-coded the Community path once,
 # and these runners carry Enterprise, so all twenty-two failed with
-# "vcvarsall.bat is not recognized" - a wrong path that reads like a broken
-# build. tools\find_vs.bat asks vswhere instead.
+# "vcvarsall.bat is not recognized".
 name: hub
 
 on:
@@ -35,9 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # vendor/ is gitignored - the SDK is not part of this repository, and
-      # hub\build.bat expects it at exactly this path and builds
-      # rplidar_driver.lib from it on first run.
+      # vendor/ is gitignored, and hub\build.bat expects the SDK at exactly this
+      # path and builds rplidar_driver.lib from it on first run.
       - name: rplidar sdk
         uses: actions/checkout@v4
         with:
@@ -45,12 +33,9 @@ jobs:
           path: vendor/rplidar_sdk
           submodules: recursive
 
-      # hub/third_party/ is gitignored too, so imgui is not in the checkout
-      # either - build.bat compiles imgui.cpp and the win32/dx11 backends from
-      # here. PINNED to the version the desk builds against: imgui.h carries
-      # IMGUI_VERSION and the hub tracks 1.92.x specifically, where
-      # SetWindowFontScale was removed. Floating this would make an upstream
-      # release a change to this repository that nobody made.
+      # hub/third_party/ is gitignored too; build.bat compiles imgui.cpp and the
+      # win32/dx11 backends from here. PINNED to what the desk builds against:
+      # the hub tracks 1.92.x, where SetWindowFontScale was removed.
       - name: dear imgui
         uses: actions/checkout@v4
         with:
@@ -77,22 +62,14 @@ jobs:
           )
           dir "hub\build\bibo.exe"
 
-      # EXIT CODES, never output. Every one of these printed "OVERALL: FAIL"
-      # while exiting 0 until 2026-08-31 - `exit /b %errorlevel%` inside an
-      # if-block expands when cmd PARSES the block, before the test has run.
+      # EXIT CODES, never output: every one of these printed "OVERALL: FAIL" while
+      # exiting 0 until 2026-08-31, because `exit /b %errorlevel%` in an if-block
+      # expands when cmd PARSES it, before the test has run.
       #
-      # THREE SUITES ARE DELIBERATELY ABSENT, and all three for the same reason:
-      # they test this machine, not this code.
-      #
-      #   build_test.bat      opens COM7 at 460800 and talks to a real RPLIDAR C1
-      #   build_pico_test.bat opens COM10 and talks to a real Pico
-      #   build_devlink_test  enumerates the machine's ACTUAL serial ports - its
-      #                       own header says the point is agreeing with what
-      #                       Windows reports rather than with a mock
-      #
-      # All three pass on the desk and fail on a runner, which has no ports at
-      # all. That is the correct answer to the wrong question, and a CI job that
-      # asks it teaches everyone to ignore a red tick.
+      # THREE SUITES ARE DELIBERATELY ABSENT because they test this machine, not
+      # this code: build_test.bat opens COM7 to a real RPLIDAR C1, build_pico_test
+      # opens COM10 to a real Pico, build_devlink_test enumerates the machine's
+      # ACTUAL serial ports. A runner has none, so all three redden a good tree.
       - name: hub suites
         shell: cmd
         run: |

@@ -2,30 +2,12 @@
  * ---------------------------------------------------------------------------
  * text - the string handling this project actually does, spelled our way.
  *
- * Not a string library. There is no allocation here, no growth, no ownership -
- * a microcontroller parsing a command line needs about eight operations and
- * every one of them works on a caller's buffer.
- *
- * WHY THIS EXISTS
- *
- * Two reasons, and the second is the important one.
- *
- * 1. <string.h> is snake_case with C's vocabulary, and hal.h already draws the
- *    line that says the SDK's spelling stops at the library edge. strncmp(line,
- *    "STEER ", 6) sitting in a file where everything else is camelCase is the
- *    same leak, and it comes with a hand-counted 6 that is wrong the moment
- *    somebody renames the command.
- *
- * 2. atoi() CANNOT FAIL. It returns 0 for "0", for "banana", and for "". Every
- *    caller in this tree therefore tested `if(us == 0)` and called that an
- *    error - which works only because no legitimate pulse width is zero. That
- *    is a bug wearing a disguise: the first command that legitimately accepts 0
- *    inherits a parser that rejects it. text::toInt() returns Bool and writes
- *    through a pointer, so "0" and "not a number" are different answers.
- *
- * ---- one copy -------------------------------------------------------------
- *
- * Stateless, unlike chassis.h and status.h. Include it anywhere.
+ * Not a string library: no allocation, no growth, no ownership - everything
+ * works on a caller's buffer. It exists because <string.h> is snake_case with
+ * hand-counted lengths that go stale on a rename, and because atoi() CANNOT
+ * FAIL - it returns 0 for "0", for "banana" and for "", so every caller tested
+ * `if(us == 0)` and called that an error until a command legitimately accepts
+ * 0. text::toInt() returns Bool. Stateless: include it anywhere.
  * -------------------------------------------------------------------------
  */
 #pragma once
@@ -226,10 +208,8 @@ namespace bibo::text
         }
         for(Size i = 0; s[i] != '\0'; ++i)
         {
-            // Through UInt8 first, deliberately: toupper takes an int whose value
-            // must be representable as unsigned char, and a plain char is SIGNED on
-            // this toolchain - so a byte over 0x7F would arrive negative and the
-            // behavior would be undefined.
+            // Through UInt8 first: toupper's argument must be representable as
+            // unsigned char, and a plain char is SIGNED on this toolchain.
             s[i] = static_cast<Utf8>(
                 toupper(static_cast<UInt8>(s[i])));
         }

@@ -2,33 +2,17 @@
  * ---------------------------------------------------------------------------
  * status - the onboard LED as something a person can read across a room.
  *
- * Solid, off, or blinking at a rate you choose. That is the whole surface, and
- * it is enough: a rate carries information a single lamp cannot, and it carries
- * it without a laptop, a terminal, or the port being open at all. On a car that
- * has driven itself under a table, that is sometimes the only channel left.
- *
- * ---- why this is not just led::write ----------------------------------------
- *
- * A blink is a TIMER, and a timer somebody hand-rolls in main() is a timer that
- * gets copied into the next program with its bugs. The half-period arithmetic,
- * the "what is it doing right now" state, and the tolerance for a wireless chip
- * that never came up are all things every program wants and none should own.
- *
- * ---- calling it -----------------------------------------------------------
+ * Solid, off, or blinking at a rate you choose. A rate carries information a
+ * single lamp cannot, and carries it with no laptop and no port open at all.
  *
  *     status::open();                    once, at startup
  *     status::blink(2.0f);               two full cycles a second
  *     while(true) { status::tick(); }    often, from the main loop
  *
- * status::tick() must be called regularly or the blink stalls mid-cycle - it does
- * not run on an interrupt, on purpose. An interrupt handler that drives a
- * peripheral over a bus is a good way to find out what your bus does when it is
- * re-entered.
+ * tick() must be called regularly or the blink stalls mid-cycle - it does not
+ * run on an interrupt on purpose: a bus driven from a handler gets re-entered.
  *
- * ---- one copy -------------------------------------------------------------
- *
- * File-scope state, so this belongs to a single translation unit - the same
- * deal chassis.h makes, and for the same reason.
+ * File-scope state, so this belongs to a single translation unit.
  * -------------------------------------------------------------------------
  */
 #pragma once

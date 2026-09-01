@@ -1,15 +1,9 @@
-# Dependabot.
-#
-# Two ecosystems, and neither is the C++ - there is no package manager here.
-# The SDKs (pico-sdk, rplidar_sdk, imgui) are pinned by hand: pico-sdk and
-# picotool by tag in .github/workflows/firmware.yml, imgui by the copy in
-# hub/third_party. Dependabot cannot see any of those, so when one needs
-# raising it is a person who notices. Said plainly here because a dependabot
-# badge implies a coverage this file does not have.
-#
-# github-actions matters more than it looks: a third-party action is code
-# running with this repository's token, and the pinned versions in workflows/
-# are the only thing standing between a compromised action and that token.
+# Dependabot. Two ecosystems, and neither is the C++ - there is no package
+# manager here. The SDKs (pico-sdk and picotool by tag in workflows/firmware.yml,
+# imgui by the copy in hub/third_party) are pinned by hand and invisible to
+# Dependabot, so raising one is a person's job. github-actions matters most: a
+# third-party action runs with this repository's token, and those pinned versions
+# are the only thing standing between a compromised action and it.
 version: 2
 
 updates:
@@ -21,8 +15,7 @@ updates:
     commit-message:
       prefix: 'ci'
 
-  # The docs site. Docus/Nuxt pulls a large tree, so this is grouped - one PR a
-  # week rather than thirty.
+  # Docus/Nuxt pulls a large tree, so this is grouped - one PR a week, not thirty.
   - package-ecosystem: npm
     directory: /website
     schedule:

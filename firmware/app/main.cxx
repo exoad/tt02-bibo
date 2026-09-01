@@ -1,55 +1,26 @@
 /*
- * main - the car's program, running on the Pico 2 W.
- *
- * Phase 2 of the build order (see docs/conventions.md) was "Pico replaces receiver, USB
- * serial commands drive servo + ESC, watchdog". This file is what that phase grew
- * into: it declares the pin map, opens every subsystem, and serves the
- * line-based serial protocol a person or the hub drives the car through.
- *
- * Speaks newline-terminated ASCII over USB CDC, and over the wireless link once
- * WIFI JOIN has connected one. Every command answers with exactly one line
- * starting OK / ERR / INFO / PONG, so a host can tell a silent board from a
- * confused one. The full command list is COMMANDS, below, and is also what
- * HELP prints - it is not repeated here, so there is one place for it to go
- * stale rather than two.
+ * main - the car's program on the Pico 2 W. Declares the pin map, opens every
+ * subsystem, and serves the line protocol the hub drives the car through:
+ * newline-terminated ASCII over USB CDC, and over the wireless link once WIFI
+ * JOIN has connected one. Every command answers with exactly one line starting
+ * OK / ERR / INFO / PONG. The command list is COMMANDS, below, which is also
+ * what HELP prints.
  *
  * NOTE ON THE LED: on Pico 2 W the user LED is NOT an RP2350 GPIO. It hangs off
  * the CYW43439 wireless chip, so it needs cyw43_arch_init() before it will do
  * anything. On a non-W Pico the same LED is plain GPIO 25. Getting this wrong
  * produces firmware that runs perfectly and never blinks.
  *
- * Every snake_case identifier below is an SDK name (PICO_BOARD, uart0, and
- * the like) or a macro from one of the lib/ headers; nothing in this file
- * touches the Pico SDK or a GPIO number directly. That distinction used to
- * cut the other way - this file called the SDK straight, on the theory that
- * a wrapper between it and the silicon was one more thing that could be at
- * fault. It stopped being true once this became the car's actual program
- * rather than a bring-up sketch: everything here goes through lib/bibo.hxx,
- * two lines below, and follows docs/conventions.md like every other subsystem.
+ * Nothing here touches the Pico SDK or a GPIO number directly.
  */
 
-/*
- * stdio for printf/snprintf. It arrives transitively through pico/stdlib.h and
- * always has, which is exactly why it was missing here - a header you rely on
- * without naming is one that disappears the day the chain above it changes.
- */
-/*
- * The whole library. An application includes this and nothing else of ours -
- * see docs/conventions.md, and the style audit that enforces it.
- */
+/* The whole library; an application includes this and nothing else of ours. */
 #include "../lib/bibo.hxx"
 
 
 /*
- * The sensor drivers. This is the image the hub talks to, so it is the one
- * that has to be able to answer "what is attached and what does it say" -
- * a sketch cannot, because the hub does not know what sketch is on the board.
- */
-
-/*
  * Not LINE_MAX: POSIX reserves that name and <limits.h> defines it on some
- * newlib configurations, which would make this a redefinition rather than a
- * declaration.
+ * newlib configurations, making this a redefinition rather than a declaration.
  */
 #define LINE_CAP 128
 
@@ -66,28 +37,14 @@
 /*
  * ---- the deadman ----------------------------------------------------------
  *
- * How long the board will keep DRIVING with nothing heard from the host.
+ * How long the board keeps DRIVING with nothing heard from the host. Without
+ * it, a hub that crashed while the ESC was armed left bibo::drive::pump()
+ * writing the last throttle to the pin forever.
  *
- * There was no such limit until now, and the gap was not small: if the hub
- * crashed, hung, or was closed while the ESC was armed and moving, bibo::drive::pump()
- * went on writing the last throttle to the pin forever. On USB power the cable
- * coming out takes the board with it, which hid the problem; on the BEC it will
- * not. docs/conventions.md has described a 200 ms rule since the beginning and
- * nothing implemented it - the previous firmware, tt02_control, did have one,
- * so it was lost in the rewrite rather than never written.
- *
- * The host does not have to be a person at a keyboard, either: minimising the
- * hub stops its frame loop entirely, so anything relying on the PC to send a
- * stop stops running at exactly the moment it is needed.
- *
- * 400 ms rather than 200. The hub's own DRIVE poll runs at 250 ms and a
- * keyboard controller sends on key CHANGES rather than on a timer, so 200 would
- * trip on somebody holding W steadily and doing nothing wrong. 400 leaves one
- * missed poll of margin and is a few centimeters at the speeds this car does.
- *
- * It only applies while the car is actually being DRIVEN - armed AND commanded
- * above idle. Arming and then sitting still is not a hazard, and a timeout that
- * disarmed somebody for reading the screen is a timeout that gets switched off.
+ * 400 ms, not the 200 in docs/conventions.md: the hub's own DRIVE poll runs at
+ * 250 ms and a keyboard controller sends on key CHANGES rather than on a timer,
+ * so 200 would trip on somebody holding W steadily. Applies only while armed
+ * AND commanded above idle.
  */
 #define DEADMAN_MS 400u
 
@@ -220,10 +177,7 @@ static Void handleLed(const CharSeq arg)
 
     if(bibo::text::starts(arg, "BLINK"))
     {
-        /*
-         * bibo::text::after rather than arg + 5: the offset and the word it skips are
-         * written once, so renaming the command cannot leave a stale count.
-         */
+        /* bibo::text::after rather than arg + 5: no hand-written offset to go stale. */
         Float32 hz = 0.0f;
         if(!bibo::text::toFloat(bibo::text::after(arg, "BLINK "), &hz))
         {
@@ -252,13 +206,8 @@ static Void handleLed(const CharSeq arg)
 /*
  * ================================================================ sensors ==
  *
- * The hub cannot see what is plugged into the Pico. It can only ask, so this
- * image answers - which is what makes the difference between a UI that says
- * "not wired" because nothing is wired and one that says it because nobody
- * ever checked.
- *
- * Detection is deliberately a fact rather than a guess: a sensor is present if
- * it acknowledges its address AND identifies itself. Something else living at
+ * Detection is a fact rather than a guess: a sensor is present if it
+ * acknowledges its address AND identifies itself, so something else living at
  * 0x29 is reported as absent rather than as a broken VL53L1X.
  */
 
@@ -266,43 +215,27 @@ static Void handleLed(const CharSeq arg)
 #define SENSOR_SCL 5
 #define SENSOR_HZ  400000u
 
-/*
- * I2C addresses worth naming in a scan. Anything else is reported as a bare
- * number, which is still useful - it says something is there.
- */
+/* The scan range; anything found outside the named set prints as a number. */
 #define ADDR_SCAN_FIRST 0x08
 #define ADDR_SCAN_LAST  0x77
 
-/*
- * When the last command arrived, and whether the deadman has already fired.
- * The flag stops it stopping and reporting again every millisecond after.
- */
+/* When the last command arrived; the flag stops the deadman re-firing every ms. */
 static UInt32 lastCmdMs      = 0;
 static Bool   deadmanTripped = false;
 
 /*
  * ---- the line, as it was actually typed -----------------------------------
  *
- * handleLine() uppercases what it is given, because every command word in this
- * protocol is upper case and a person typing "ping" means PING.
- *
- * A Wi-Fi password does not work that way. Uppercasing it silently turns a
- * correct password into a wrong one, and the board then reports a failed join -
- * which reads as bad credentials, or bad range, or a bad radio, and never as
- * "the console changed what you typed".
- *
- * So the raw line is kept alongside. bibo::text::upper() rewrites in place and does not
+ * handleLine() uppercases what it is given; a Wi-Fi password does not survive
+ * that, and the failed join reads as bad credentials rather than as the console
+ * changing what was typed. bibo::text::upper() rewrites in place and does not
  * change the LENGTH of anything, so an offset into the uppercased line is the
- * same offset into this one, and cmdRawArg is that pointer. Nothing but WIFI
- * needs it.
+ * same offset into this raw copy - cmdRawArg. Nothing but WIFI needs it.
  */
 static Utf8    rawLine[LINE_CAP];
 static CharSeq cmdRawArg = "";
 
-/*
- * Which wireless state has already been announced, so a change is reported
- * once rather than every millisecond.
- */
+/* Which wireless state has been announced, so a change is reported once. */
 static bibo::net::State netReported = bibo::net::STATE_ABSENT;
 
 static Bool i2cUp   = false;
@@ -327,10 +260,8 @@ static Void sensorsOpen(Void)
     if(tofUp)
     {
         /*
-         * Checked, because a sensor that opened but never STARTED reports "not
-         * ready" for the rest of the session and looks identical to one that is
-         * simply slow. tofUp is the honest answer to "can this sensor be used",
-         * so it has to include this.
+         * Checked: a sensor that opened but never STARTED reports "not ready"
+         * for the rest of the session and looks identical to one that is slow.
          */
         tofUp = bibo::tof::startRanging(&tofFront);
     }
@@ -408,15 +339,11 @@ static Void printTof(Void)
         const UInt8  st = bibo::tof::status(&tofFront);
 
         /*
-         * The rates are read BEFORE the interrupt is cleared - they belong
-         * to THIS measurement, and clearing first would hand back whatever
-         * the next one produces.
-         *
-         * They are what turns "83 mm" from a number into a diagnosis. A
-         * strong signal at a short distance means something really is that
-         * close, which includes a protective film still on the lens; a weak
-         * signal with a high ambient means the sensor is being blinded by
-         * infrared in the room.
+         * Read BEFORE the interrupt is cleared - they belong to THIS
+         * measurement. They turn "83 mm" into a diagnosis: a strong signal at a
+         * short distance means something really is that close (a protective
+         * film still on the lens, say); a weak signal with a high ambient means
+         * the sensor is being blinded by infrared in the room.
          */
         UInt16 sig = 0;
         UInt16 amb = 0;
@@ -427,10 +354,7 @@ static Void printTof(Void)
         return;
     }
 
-    /*
-     * Not ready is not an error - the sensor takes tens of milliseconds per
-     * measurement and the host is entitled to ask more often than that.
-     */
+    /* Not an error: a measurement takes tens of ms and the host may ask faster. */
     bibo::serial::printf("OK tof busy\n");
 }
 
@@ -458,26 +382,14 @@ static Void handleTofMode(const CharSeq arg)
     }
 
     /*
-     * Stop, reconfigure, start.
+     * Stop, reconfigure, start - and all three results are CHECKED. Printing OK
+     * after a failed setMode would tell the operator the sensor is in a mode it
+     * is not in, and every reading after that is read against the wrong
+     * assumption about range and ambient rejection.
      *
-     * Changing the VCSEL period and the phase windows underneath a running
-     * measurement leaves the sensor half-configured for as long as that
-     * measurement lasts, and what it does with the result is undefined.
-     * ST's own driver brackets it this way and so does this.
-     */
-    /*
-     * THE THREE RESULTS ARE CHECKED, and this used to print OK regardless.
-     *
-     * The comment above says a half-configured sensor is undefined for as long
-     * as the measurement lasts. If setMode failed and the console still said
-     * "OK tof mode short", the operator would be told the sensor is in a mode
-     * it is not in - and every reading after that is being read against the
-     * wrong assumption about range and ambient rejection.
-     *
-     * The three are NOT chained with &&. Short-circuiting would skip
-     * clearInterruptAndStart whenever setMode failed, which leaves ranging
-     * stopped - the sensor answers "not ready" forever and nothing says why.
-     * The bracket has to close even when the middle of it did not take.
+     * NOT chained with &&: short-circuiting would skip clearInterruptAndStart
+     * whenever setMode failed, leaving ranging stopped - the sensor then answers
+     * "not ready" forever and nothing says why.
      */
     if(bibo::text::eq(arg, "SHORT") || bibo::text::eq(arg, "LONG"))
     {
@@ -498,10 +410,9 @@ static Void handleTofMode(const CharSeq arg)
         else
         {
             /*
-             * Which of the three failed, because they fail for different
-             * reasons and the fix differs: a stop that will not take is a bus
-             * problem, a mode that will not take is the sensor refusing a
-             * register write, and a start that will not take leaves it idle.
+             * Which of the three failed: a stop that will not take is a bus
+             * problem, a mode that will not take is a refused register write,
+             * and a start that will not take leaves the sensor idle.
              */
             bibo::serial::printf(
                 "ERR tof mode %s failed: stop=%d set=%d start=%d\n",
@@ -519,12 +430,9 @@ static Void handleTofMode(const CharSeq arg)
  * ================================================================== drive ==
  *
  * Console glue over lib/chassis. Everything about what is SAFE lives in the
- * module; everything here is about what to SAY.
- *
- * That split is the point. A console, a sketch and an autonomy loop each
- * carrying their own copy of "refuse throttle until armed" is three copies of a
- * rule, and the day one of them forgets is the day it matters. The module
- * refuses; this file reports the refusal.
+ * module; everything here is about what to SAY. A console, a sketch and an
+ * autonomy loop each carrying their own "refuse throttle until armed" is three
+ * copies of a rule - the module refuses, this file reports the refusal.
  */
 
 /**
@@ -555,11 +463,7 @@ static Void printDrive(Void)
  */
 static Void handleSteer(const CharSeq arg)
 {
-    /*
-     * Rejected rather than defaulted: "STEER" with nothing after it is far more
-     * likely to be a truncated command than a request to center, and guessing
-     * that it means zero would turn a typo into a movement.
-     */
+    /* Guessing that a bare STEER means zero would turn a typo into a movement. */
     if(arg[0] == '\0')
     {
         bibo::serial::printf("ERR steer wants -1.0 to 1.0\n");
@@ -626,10 +530,9 @@ static Void handleSlew(const CharSeq arg)
     }
 
     /*
-     * Reported in a unit a person thinks in as well as the one the firmware
-     * uses. "8 us per tick" is a number nobody has intuition about; "400 us/s,
-     * full travel 1100 ms" is the fact that decides whether it is fast enough
-     * to steer around something.
+     * Also reported in a unit a person thinks in: "8 us per tick" is a number
+     * nobody has intuition about; "400 us/s, full travel 1100 ms" decides
+     * whether it is fast enough to steer around something.
      */
     const bibo::drive::State d = bibo::drive::read();
     const Int32 perSec = d.steerSlewUs * (1000 / SLEW_TICK_MS);
@@ -733,9 +636,8 @@ static Void handleEscLimits(const CharSeq arg)
 static Void handleServo(const CharSeq arg)
 {
     /*
-     * OFF stops the pulse train outright. This is the panic button: a servo
-     * leaning on a frame does not need a better number, it needs to stop being
-     * told to hold a position at all.
+     * OFF stops the pulse train outright - the panic button. A servo leaning on
+     * a frame needs to stop being told to hold a position at all.
      */
     if(bibo::text::eq(arg, "OFF"))
     {
@@ -769,10 +671,7 @@ static Void handleServo(const CharSeq arg)
         return;
     }
 
-    /*
-     * A position asked for while released is remembered, not obeyed. Engaging
-     * is a separate, deliberate act - the same shape as arming the ESC.
-     */
+    /* Remembered, not obeyed: engaging is a separate act, like arming the ESC. */
     const Bool wasLive = bibo::drive::read().servoLive;
     bibo::drive::steerUs(us);
     if(!wasLive)
@@ -836,15 +735,11 @@ static Void handleEsc(const CharSeq arg)
 
 
 /*
- * ---------------------------------------------------------------------------
  * LIGHTS - the indicator scaffolding. TEMPORARY, see lib/lights.h.
  *
  * Reports which way the car thinks it is turning and whether the lamp is lit
- * this instant. The hub polls it to draw the pair in the Drive view, which is
- * the only reason the "lit" half is reported at all - a blink you can see on
- * screen at the same rate as the one on the bench is how you tell the rule is
- * running rather than the LED merely being on.
- * -------------------------------------------------------------------------
+ * this instant; the hub polls it to draw the pair in the Drive view. The "lit"
+ * half is what shows the rule is running rather than the LED merely being on.
  */
 /* The lamp names, in Lamp order, so the reply reads the way the model does. */
 static CharSeq LAMP_NAME[bibo::lights::LAMP_COUNT] =
@@ -875,12 +770,10 @@ static Void printLights(const CharSeq arg)
     const Int32   f = bibo::lights::forcedLamp();
 
     /*
-     * ONE line, not one per lamp.
-     *
-     * The hub polls this every 120 ms to draw the lamps, and eight extra lines
-     * a poll is seventy-five lines a second of serial traffic to say what fits
-     * in one. levels[] and pins[] are in Lamp order, which is the order
-     * LAMP_NAME is in and the order the model declares them.
+     * ONE line, not one per lamp: the hub polls this every 120 ms, and eight
+     * extra lines a poll is seventy-five lines a second of serial traffic to
+     * say what fits in one. levels[] and pins[] are in Lamp order, which is the
+     * order LAMP_NAME is in.
      */
     bibo::serial::printf("OK lights on=%d turn=%s forced=%s off_us=%d"
                  " levels=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u"
@@ -953,10 +846,7 @@ static Void handleLights(const CharSeq arg)
         return;
     }
 
-    /*
-     * Matched case-insensitively because handleLine has already uppercased the
-     * whole line, and the table above is spelled the way the model spells it.
-     */
+    /* handleLine has already uppercased the line; LAMP_NAME is model-spelled. */
     for(Int32 i = 0; i < bibo::lights::LAMP_COUNT; ++i)
     {
         Utf8 up[12];
@@ -984,21 +874,11 @@ static Void handleLights(const CharSeq arg)
 /*
  * ---- the command table ---------------------------------------------------
  *
- * One row per command; the dispatcher and HELP both read it.
- *
- * They used to be two lists. A chain of twenty if(bibo::text::starts(...)) blocks with
- * the argument offset written out by hand - line + 10 for "SERVOTRIM ",
- * line + 12 for "SERVOLIMITS " - and a printHelp() that spelled the same
- * commands out again in prose. Two lists of the same thing drift: the offsets
- * were a silent hazard, because miscounting one makes the argument parser read
- * from the middle of the command word and the command merely stops working.
- *
- * Matching is by WHOLE WORD, so the order of the rows means nothing. The old
- * chain worked only because SERVOTRIM and SERVOLIMITS happened to be tested
- * before SERVO, which bibo::text::starts() would otherwise have matched first.
- *
- * `usage` is what may follow the name and `what` is one line about it; HELP
- * prints them and nothing else has to be kept in step.
+ * One row per command; the dispatcher and HELP both read it. It replaced a
+ * chain of if(bibo::text::starts(...)) blocks with hand-written argument
+ * offsets, where miscounting one merely stops a command working. Matching is by
+ * WHOLE WORD, so row order means nothing - the old chain worked only because
+ * SERVOTRIM and SERVOLIMITS happened to be tested before SERVO.
  */
 /**
  * @brief A command handler: receives the text after the command word.
@@ -1097,10 +977,7 @@ static Void cmdStop(const CharSeq arg)
     bibo::drive::stop();
     bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);
 
-    /*
-     * Mid-sentence is still an output being commanded, and a stop that leaves
-     * an output commanded is not a stop.
-     */
+    /* Mid-sentence is still an output being commanded. */
     bibo::cue::silence();
 
     bibo::serial::printf("OK stop\n");
@@ -1162,10 +1039,7 @@ static Void cmdWifi(const CharSeq arg)
     }
     if(raw[n] != '\0' && raw[n] != ' ')
     {
-        /*
-         * Ran out of buffer mid-name. Say so: a truncated SSID would fail to
-         * join and look like the network was out of range.
-         */
+        /* A truncated SSID would fail to join and look like it was out of range. */
         bibo::serial::printf("ERR wifi ssid longer than %u characters\n",
                      static_cast<UInt32>(sizeof(ssid) - 1));
         return;
@@ -1182,15 +1056,11 @@ static Void cmdWifi(const CharSeq arg)
         return;
     }
 
-    /*
-     * Deliberately does not say whether it WORKED - it has not finished trying.
-     * The main loop reports the state when it changes.
-     */
+    /* Not whether it WORKED - the main loop reports the state when it changes. */
     bibo::serial::printf("OK wifi joining %s\n", ssid);
 }
 
 /*
- * ---------------------------------------------------------------------------
  * CUE - what the car is saying, and telling it to say something.
  *
  *   CUE               where it stands
@@ -1200,11 +1070,8 @@ static Void cmdWifi(const CharSeq arg)
  *   CUE <name> OFF    lower it, and hand it back to the car's own rules
  *   CUE STOP          lower everything
  *
- * The lamps are reported by LIGHTS, not here. This reports the UTTERANCE - which
- * one, how far through it is, and what it would be sounding if there were a
- * buzzer - because "the headlights blinked" and "the car said `after you`" are
- * different facts and only one of them survives being read off a lamp level.
- * -------------------------------------------------------------------------
+ * The lamps are reported by LIGHTS; this reports the UTTERANCE - which one, how
+ * far through it is, and what it would be sounding if there were a buzzer.
  */
 /**
  * @brief Answers CUE with no argument (and after every CUE command): what
@@ -1281,18 +1148,12 @@ static Void cmdCue(const CharSeq arg)
 
     if(bibo::text::eq(arg, "LIST"))
     {
-        /*
-         * One line each, the way HELP does it, so nothing has to be kept in
-         * step with a list written somewhere else.
-         */
+        /* One line each, the way HELP does it - no second list to keep in step. */
         for(Int32 k = 1; k < bibo::cue::KIND_COUNT; ++k)
         {
             /*
-             * The PLAY MODE is in the line, because it is the thing a caller
-             * has to know to use the cue: `once` ends on its own, `loop` and
-             * `hold` stay up until something lowers them. A board that listed
-             * names alone would leave every client guessing which of its
-             * buttons is a toggle.
+             * The PLAY MODE is in the line because a caller has to know it:
+             * `once` ends on its own, `loop` and `hold` stay up until lowered.
              */
             bibo::serial::printf("INFO cue %s [%s] - %s\n",
                          bibo::cue::SCRIPT[k].name,
@@ -1310,10 +1171,7 @@ static Void cmdCue(const CharSeq arg)
         return;
     }
 
-    /*
-     * "CUE LEFT OFF" - the name, then the word. Split before the lookup so a
-     * cue is never named "LEFT OFF".
-     */
+    /* "CUE LEFT OFF" - split before the lookup, so no cue is named "LEFT OFF". */
     Utf8    word[24];
     Size    n   = 0;
     CharSeq rest = arg;
@@ -1377,27 +1235,12 @@ static Void cmdBootsel(const CharSeq arg)
 
 /*
  * ===========================================================================
- * SOUND - the DFPlayer Mini.
- *
- * TEMPORARY, in the same sense the LIGHTS block below is temporary: this is
- * scaffolding for bringing a module up on a breadboard, not the shape sound
- * will have on the finished car. Sound BELONGS in the cue system - a car that
- * says "reversing" should not care whether that comes out as a lamp or a
- * chime, and cue.hxx already has a `tone` field waiting for exactly this.
- *
- * What it is NOT is a second place that decides what the car means. Nothing
- * here reacts to anything; every function is a person pressing a button.
+ * SOUND - the DFPlayer Mini. TEMPORARY bench scaffolding, not the shape sound
+ * will have on the finished car: sound BELONGS in the cue system, and cue.hxx
+ * already carries a `tone` field waiting for it. Nothing here reacts to
+ * anything; every function is a person pressing a button. The state lives in
+ * lib/sound.hxx - what is left here is console glue.
  * ========================================================================
- */
-/*
- * THE STATE MOVED TO lib/sound.hxx. What is left here is console glue.
- *
- * The Bus, the volume, the equaliser and the file count used to live in this
- * file, which works exactly as long as a PERSON is the only thing making noise.
- * The moment the CAR wants to - and cue.hxx carries a `tone` field waiting for
- * it - the cue system would have had to reach up into the application to find
- * the speaker. An app is glue over a library, not something a library reads
- * from.
  */
 
 /**
@@ -1449,10 +1292,7 @@ static Void cmdSound(const CharSeq arg)
 
     if(bibo::text::eq(arg, "RESET"))
     {
-        /*
-         * Two seconds of nothing. Said BEFORE it happens, because a console
-         * that goes quiet for two seconds looks hung.
-         */
+        /* Two seconds of nothing, said BEFORE it happens: quiet looks hung. */
         bibo::serial::printLine("INFO sound resetting, waiting for the card");
         static_cast<Void>(bibo::sound::mount());
 
@@ -1483,14 +1323,10 @@ static Void cmdSound(const CharSeq arg)
     if(bibo::text::starts(arg, "PLAY"))
     {
         /*
-         * A NAME OR A NUMBER. `SOUND PLAY hit1` reads as what the car is doing;
-         * `SOUND PLAY 2` is a fact about a filesystem. Both work, because a
-         * number is what you have before a clip has earned a name.
-         *
-         * THE DECIDING IS sound::play's, not this handler's. Everything below
-         * is turning a Result into a sentence - which is all a console should
-         * be doing, and is why a cue will be able to make the same call without
-         * reimplementing any of it.
+         * A NAME OR A NUMBER, because a number is what you have before a clip
+         * has earned a name. THE DECIDING IS sound::play's - everything below
+         * turns a Result into a sentence, which is why a cue can make the same
+         * call without reimplementing any of it.
          */
         const CharSeq want = bibo::text::after(arg, "PLAY ");
 
@@ -1498,20 +1334,14 @@ static Void cmdSound(const CharSeq arg)
 
         if(want[0] == '\0')
         {
-            /*
-             * Bare PLAY repeats, which is what a person pressing a button on a
-             * test view means by it.
-             */
+            /* Bare PLAY repeats - what a button on a test view means by it. */
             r = bibo::sound::playTrack(bibo::sound::track());
         }
         else
         {
             r = bibo::sound::play(want);
 
-            /*
-             * Not a known name - try it as a number before giving up, so the
-             * numeric form keeps working without a second command.
-             */
+            /* Not a known name - try it as a number before giving up. */
             if(r == bibo::sound::RESULT_NO_CLIP)
             {
                 Int32 n = 0;
@@ -1524,10 +1354,7 @@ static Void cmdSound(const CharSeq arg)
 
         if(r != bibo::sound::RESULT_OK)
         {
-            /*
-             * WHICH failure, because the four need four different fixes and
-             * every one of them sounds identical - like nothing at all.
-             */
+            /* WHICH failure: all four sound identical, and need four fixes. */
             bibo::serial::printf("ERR sound %s: %s\n",
                                  bibo::sound::why(r), want);
             return;
@@ -1538,12 +1365,8 @@ static Void cmdSound(const CharSeq arg)
     }
 
     /*
-     * SOUND EQ <0-5> - tone, NOT level.
-     *
-     * Here because it is what everybody reaches for when 30 is not loud enough,
-     * and it is worth being able to try rather than guess about. It cannot
-     * raise the ceiling: 30 is the top of the protocol's range and the module
-     * clamps there.
+     * SOUND EQ <0-5> - tone, NOT level. It cannot raise the ceiling: 30 is the
+     * top of the protocol's range and the module clamps there.
      */
     if(bibo::text::starts(arg, "EQ"))
     {
@@ -1561,12 +1384,7 @@ static Void cmdSound(const CharSeq arg)
         return;
     }
 
-    /*
-     * SOUND LIST - the names, what they mean, and which track each is.
-     *
-     * One line each, the way CUE LIST and HELP do it, so nothing has to be kept
-     * in step with a list written somewhere else.
-     */
+    /* SOUND LIST - the names, what they mean, and which track each is. */
     if(bibo::text::eq(arg, "LIST"))
     {
         for(auto [name, track, means] : bibo::sfx::CLIPS)
@@ -1578,9 +1396,8 @@ static Void cmdSound(const CharSeq arg)
         }
 
         /*
-         * The table's claim about the card, checked when the card has been
-         * counted. A name pointing past the end is the one failure this table
-         * can have on its own.
+         * A name pointing past the end of the card is the one failure this
+         * table can have on its own.
          */
         if(bibo::sound::count() > 0
            && bibo::sfx::highest() > bibo::sound::count())
@@ -1595,23 +1412,17 @@ static Void cmdSound(const CharSeq arg)
     }
 
     /*
-     * SOUND FILES - ask the card how many tracks it holds.
-     *
-     * The only command here that WAITS FOR AN ANSWER, which makes it the
-     * liveness test as well as the count: a module that replies is powered,
-     * listening, has a card mounted and has its TX wire on the right pad. All
-     * four at once, from one number.
-     *
-     * A silent module is reported as such rather than as zero files. Zero is a
-     * legitimate answer from an empty card and must not be confused with no
-     * answer at all.
+     * SOUND FILES - the only command here that WAITS FOR AN ANSWER, so it is
+     * the liveness test as well as the count: a module that replies is powered,
+     * listening, has a card mounted and has its TX wire on the right pad. A
+     * silent module is reported as such rather than as zero files - zero is a
+     * legitimate answer from an empty card.
      */
     if(bibo::text::eq(arg, "FILES"))
     {
         /*
-         * Re-mounts, which is what actually re-counts: the query is part of
-         * bringing the card up, and asking for the count alone would leave the
-         * two able to disagree.
+         * Re-mounts, which is what re-counts: asking for the count alone would
+         * leave the two able to disagree.
          */
         if(!bibo::sound::mount() || bibo::sound::count() == 0)
         {
@@ -1628,20 +1439,12 @@ static Void cmdSound(const CharSeq arg)
     }
 
     /*
-     * SOUND RX - whatever the module has said, as raw bytes.
-     *
-     * THE DIAGNOSTIC FOR THE CASE BUSY CANNOT SETTLE. The pin is pulled up, so
-     * "idle" and "that wire is not connected" read identically - both high.
-     * When busy never goes low there is no way to tell a module that is not
-     * playing from a module that is playing and cannot say so.
-     *
-     * The module volunteers a frame when a track ENDS even with ACK off, so
-     * bytes arriving here prove it is alive, listening and reaching the end of
-     * something. Nothing arriving points at the module, the card or the RX
-     * wire; bytes arriving while busy stays high points at the BUSY wire.
-     *
-     * Reports the count either way - "0 bytes" is an answer, and a command that
-     * prints nothing when there is nothing looks like a command that failed.
+     * SOUND RX - whatever the module has said, as raw bytes. THE DIAGNOSTIC FOR
+     * THE CASE BUSY CANNOT SETTLE: the pin is pulled up, so "idle" and "that
+     * wire is not connected" both read high. The module volunteers a frame when
+     * a track ENDS even with ACK off, so bytes arriving prove it is alive and
+     * listening; nothing arriving points at the module, the card or the RX
+     * wire, and bytes arriving while busy stays high point at the BUSY wire.
      */
     if(bibo::text::eq(arg, "RX"))
     {
@@ -1738,10 +1541,7 @@ static const Command COMMANDS[] =
     { .name = "SOUND",       .usage = " [RESET|VOL|EQ|PLAY <name|n>|LIST|FILES|RX|STOP|...]",
                                                 .what = "the speaker",                              .run = cmdSound },
 
-    /*
-     * TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
-     * the wheel encoder. See lib/lights.h.
-     */
+    /* TEMPORARY - goes when GP15 is given back to the wheel encoder. */
     { .name = "LIGHTS",      .usage = " [ON|OFF|AUTO|OFFAT <us>|<lamp>]", .what = "the lamps, and what each is doing", .run = handleLights },
 };
 
@@ -1779,10 +1579,7 @@ static Void printHelp(const CharSeq arg)
  */
 static Void handleLine(Utf8* line)
 {
-    /*
-     * A terminal decides for itself what to put at the end of a line. Without
-     * this, "PING\r" is not "PING" and a correctly typed command is refused.
-     */
+    /* A terminal picks its own line ending; without this "PING\r" is not "PING". */
     if(bibo::text::trimEnd(line) == 0)
     {
         return;
@@ -1796,10 +1593,7 @@ static Void handleLine(Utf8* line)
     lastCmdMs      = bibo::timing::nowMs();
     deadmanTripped = false;
 
-    /*
-     * "?" is HELP, and is not a row of its own: it would print as a command in
-     * its own listing, which is one more thing than anybody wants to read.
-     */
+    /* "?" is HELP, not a row of its own - it would print in its own listing. */
     if(bibo::text::eq(line, "?"))
     {
         printHelp(line);
@@ -1824,10 +1618,8 @@ static Void handleLine(Utf8* line)
 
 /*
  * `int`, not Int32, and this is the one place in the program where that is
- * right.
- *
- * C++ requires main to return literally `int`. Int32 is int32_t, and on this
- * toolchain int32_t is `long` - the same size, the same representation, a
+ * right. C++ requires main to return literally `int`; Int32 is int32_t, which
+ * on arm-none-eabi is `long int` - the same size and representation, a
  * different type as far as the language is concerned, and the compiler refuses
  * it. main's signature is the C runtime's contract, not this project's
  * vocabulary, so it is spelled the runtime's way.
@@ -1846,103 +1638,68 @@ int main(Void)
     /*
      * ---- WHAT IS WIRED WHERE, before anything is opened -------------------
      *
-     * The first act of every program in this firmware, main and sketches
-     * alike. Nothing below pins.hxx holds a GPIO number; every subsystem reads
-     * the map installed here when it opens.
-     *
-     * It must come FIRST. The map starts empty, so a subsystem opened before
-     * this binds NOTHING and is visibly dead - which is the right failure. A
-     * servo on a pad chosen by whatever ran last is worse than a servo that
-     * does not move.
-     *
-     * A failure here means two roles claim one pad. It cannot happen for the
-     * car - pins.hxx static_asserts that map at compile time - so this branch
-     * exists for the day somebody edits car() and the assert is the thing that
-     * actually catches it. Reported rather than ignored, because a car that
-     * silently ran with no pins would be a very confusing hour.
+     * The first act of every program here. Nothing below pins.hxx holds a GPIO
+     * number; every subsystem reads the map installed here when it opens. It
+     * must come FIRST - the map starts empty, so a subsystem opened before this
+     * binds NOTHING and is visibly dead, which is the right failure. A failure
+     * here means two roles claim one pad; pins.hxx static_asserts the car's map
+     * at compile time, so this branch is for the day somebody edits car().
      */
     if(!bibo::pins::begin(bibo::pins::car()))
     {
         bibo::serial::printf("ERR %s\n", bibo::pins::conflictText());
     }
 
-    /*
-     * Sensors come up at boot so SENSORS and TOF can answer immediately. A
-     * missing sensor is not a failure here - it is the answer.
-     */
+    /* At boot, so SENSORS and TOF answer at once. A missing one is the answer. */
     sensorsOpen();
 
-    /*
-     * The ESC to neutral, the steering RELEASED. See chassis.h for why those
-     * are different answers.
-     */
+    /* ESC to neutral, steering RELEASED - chassis.h says why those differ. */
     bibo::drive::open();
 
     /*
-     * Brings up whatever this board's LED hangs off.
-     *
-     * On the Pico 2 W that is the CYW43439 - slow (hundreds of ms) and able to
-     * fail, so the result is REPORTED rather than assumed: a board that answers
-     * PING but says cyw43=FAILED is a very different problem from a board that
-     * is silent. On the plain Pico 2 it is GP25 and cannot fail. Either way
-     * bibo::status::open() remembers the outcome and every later call is a no-op
-     * rather than a crash.
+     * On the Pico 2 W the LED hangs off the CYW43439 - slow (hundreds of ms)
+     * and able to fail, so the result is REPORTED: a board that answers PING
+     * but says cyw43=FAILED is a very different problem from a silent one. On
+     * the plain Pico 2 it is GP25 and cannot fail. Either way the outcome is
+     * remembered and every later call is a no-op rather than a crash.
      */
     bibo::status::open();
 
     /*
-     * The indicator lamps. TEMPORARY scaffolding on borrowed pins - lib/lights.h
-     * says which and why. Opened AFTER bibo::drive::open() so that if the two ever
-     * disagree about a pin, the drivetrain wins: a stray LED is a cosmetic
-     * fault and a servo pin that is secretly an output is not.
+     * TEMPORARY scaffolding on borrowed pins - lib/lights.h says which and why.
+     * AFTER bibo::drive::open() so the drivetrain wins any pin disagreement.
      */
     bibo::lights::open();
 
-    /*
-     * What the car SAYS with those lamps. Opened after them, because a cue with
-     * nowhere to come out of is a cue that fails silently.
-     */
+    /* After the lamps: a cue with nowhere to come out of fails silently. */
     bibo::cue::open();
 
     /*
-     * The threshold is a tuning that survives a reflash, so it lives in cal.h
-     * and is handed to the module here. cue.h cannot reach for cal.h - the
-     * layering forbids it, and rightly: the RULE is the same on any car and only
-     * the number is this one's.
+     * A tuning that survives a reflash, so it lives in cal.h and is handed over
+     * here; cue.h cannot reach for cal.h. The RULE is the same on any car and
+     * only the number is this one's.
      */
     bibo::cue::setMotionUs(LIGHT_CAL_OFF_US);
 
     /*
-     * The speaker's UART. Opening it is cheap - a baud rate and two pin
-     * functions - so it happens at boot; MOUNTING THE CARD is not, and does
-     * not. SOUND RESET pays the two seconds, and only a session that wants
-     * sound pays them at all. See cmdSound.
+     * Opening the UART is cheap - a baud rate and two pin functions - so it
+     * happens at boot. MOUNTING THE CARD is not, and does not: SOUND RESET pays
+     * the two seconds, and only a session that wants sound pays them.
      */
     bibo::sound::open();
 
-    /*
-     * Visible proof of life the moment power is applied, before any host could
-     * be listening: three quick flashes, then a slow idle heartbeat.
-     */
+    /* Proof of life before any host could be listening, then a slow heartbeat. */
     bibo::status::hello(HELLO_FLASHES, HELLO_FLASH_MS);
     bibo::status::blink(IDLE_BLINK_HZ);
 
     /*
      * ---- the wireless link ---------------------------------------------
      *
-     * Wired up, not switched on. Nothing here touches the radio until somebody
-     * sends WIFI JOIN, so the boards that will never use it - and the seconds
-     * before anybody asks - cost nothing.
-     *
-     * Two connections, and they are the two halves of the same seam:
-     *
-     *   bibo::net::setLineHandler  a line arriving in a datagram goes to the SAME
-     *                      handler a line arriving on the cable goes to. There
-     *                      is one command language, not two.
-     *   bibo::serial::setMirror    everything this program prints goes to the wireless
-     *                      peer as well as the cable, so a host that is only
-     *                      listening wirelessly sees the replies to its own
-     *                      commands - and to anybody else's.
+     * Wired up, not switched on: nothing touches the radio until WIFI JOIN.
+     * setLineHandler sends a line arriving in a datagram to the SAME handler a
+     * line off the cable goes to - one command language, not two. setMirror
+     * sends everything printed to the wireless peer as well as the cable, so a
+     * host listening only wirelessly sees the replies to its own commands.
      */
     bibo::net::setLineHandler(handleLine);
     bibo::serial::setMirror(bibo::net::sendLine);
@@ -1957,15 +1714,11 @@ int main(Void)
         bibo::status::tick();
 
         /*
-         * ---- the wireless link ------------------------------------------
-         *
-         * BEFORE the drivetrain, and before the serial read below that skips
-         * the rest of the loop on an idle millisecond.
-         *
-         * In NO_SYS mode nothing in lwIP happens on its own: no packet is
-         * received, no join completes, no timer fires except inside this call.
-         * A command that arrived wirelessly is dispatched from in here, which
-         * means it feeds the deadman exactly like one off the cable does.
+         * BEFORE the drivetrain, and before the serial read that skips the rest
+         * of the loop on an idle millisecond. In NO_SYS mode nothing in lwIP
+         * happens on its own: no packet is received, no join completes, no
+         * timer fires except inside this call. A wirelessly-arrived command is
+         * dispatched from in here, so it feeds the deadman like a cabled one.
          */
         bibo::net::poll();
 
@@ -1979,19 +1732,17 @@ int main(Void)
         }
 
         /*
-         * Walks the servo and ESC toward their targets, a few microseconds at a
-         * time. Nothing jumps: a slider dragged end to end produces a sweep
-         * rather than a step.
+         * Walks the servo and ESC toward their targets a few microseconds at a
+         * time, so a slider dragged end to end sweeps rather than steps.
          */
         bibo::drive::pump();
 
         /*
          * ---- the deadman ------------------------------------------------
          *
-         * bibo::drive::stop() FIRST, then the report. bibo::serial::printf blocks while the CDC
-         * TX buffer is full, for up to half a second, and a host that has
-         * stopped draining the port is one of the exact situations this exists
-         * for - so the car is stopped before anything is printed, not after.
+         * stop() FIRST, then the report: bibo::serial::printf blocks for up to
+         * half a second while the CDC TX buffer is full, and a host that has
+         * stopped draining the port is exactly what this exists for.
          */
         {
             const bibo::drive::State dm      = bibo::drive::read();
@@ -2002,10 +1753,9 @@ int main(Void)
                 bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);
 
                 /*
-                 * And it SAYS so, on the car, where somebody standing next to
-                 * it can see. By definition this fires when the host has
-                 * stopped listening, so a line in a console nobody is reading
-                 * is the one place the message must not only be.
+                 * And it SAYS so, on the car. This fires when the host has
+                 * stopped listening, so a line in an unread console must not be
+                 * the only place the message goes.
                  */
                 bibo::cue::emit(bibo::cue::KIND_ALERT);
 
@@ -2017,10 +1767,9 @@ int main(Void)
         }
 
         /*
-         * AFTER bibo::drive::pump, and reading the ACTUAL servo and ESC output rather
-         * than their targets. The slew limiter means the two differ for about a
-         * second after every command: reading targets would light a lamp before
-         * the car had done the thing the lamp is reporting.
+         * AFTER pump, and reading the ACTUAL output rather than the targets:
+         * the slew limiter means the two differ for about a second after every
+         * command, and targets would light a lamp before the car had acted.
          */
         {
             const bibo::drive::State d = bibo::drive::read();
@@ -2036,10 +1785,7 @@ int main(Void)
             bibo::cue::tick(&ci);
         }
 
-        /*
-         * Anything written before the host opens the port is discarded, so the
-         * banner waits for a connection rather than being lost.
-         */
+        /* Output before the host opens the port is discarded, so this waits. */
         const Bool host = bibo::serial::hostPresent();
         if(!announced && host)
         {
@@ -2060,10 +1806,7 @@ int main(Void)
 
         if(c == '\n' || c == '\r')
         {
-            /*
-             * A line that overran is discarded at its END, not where it
-             * overran - see below.
-             */
+            /* A line that overran is discarded at its END - see below. */
             if(!overlong)
             {
                 line[len] = '\0';
@@ -2083,15 +1826,10 @@ int main(Void)
         else
         {
             /*
-             * This said it dropped the line and did not.
-             *
-             * Setting len = 0 with no "swallow" state left the TAIL of an
-             * over-long line accumulating as a fresh command: a 200-byte line
-             * produced this error AND whatever bytes 129 onward happened to
-             * parse as - a command nobody sent, synthesised out of the middle
-             * of one they did. On a link that steers a vehicle that is worth
-             * more than a comment. The host side already got this right with an
-             * explicit flag; this is the same fix.
+             * len = 0 with no "swallow" state left the TAIL of an over-long
+             * line accumulating as a fresh command: a 200-byte line produced
+             * this error AND whatever bytes 129 onward parsed as - a command
+             * nobody sent. The overlong flag is what actually drops it.
              */
             len      = 0;
             overlong = true;

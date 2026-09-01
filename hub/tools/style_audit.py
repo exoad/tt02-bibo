@@ -6,11 +6,6 @@ Exits 0 when clean, 1 otherwise, so it can gate a commit.
 
 Comment- and string-aware: a rule about code must not fire on prose, and this
 file is full of prose describing the rules it enforces.
-
-Written after the 2026-08-25 audit found 151 violations - all but a handful of
-them in tests/, which the original rename pass had skipped entirely and left
-UNCOMPILABLE for weeks. A style rule nobody can check is a style rule that
-decays silently; this is the check.
 """
 import io, os, re, sys
 
@@ -22,21 +17,15 @@ def at(*parts):
     return os.path.join(ROOT, *parts)
 
 
-# Everything in this repo that is OURS. vendor/ is upstream and is not audited;
-# neither is hub/vendor's imgui copy.
-#
-# The list is explicit rather than a walk because the interesting mistake is a
-# directory nobody remembered - hub/tests/board_preview sat one level below the
-# old TESTS root and was never scanned, and firmware/ was never in scope at all.
-# A walk would have hidden that by silently including them the day they appeared;
-# an explicit list makes adding a directory a decision somebody makes.
+# Everything in this repo that is OURS. vendor/ (and hub/vendor's imgui copy)
+# is upstream and is not audited. The list is explicit rather than a walk so
+# that adding a directory is a decision somebody makes - a walk hides the
+# interesting mistake, a directory nobody remembered.
 DIRS = [
     at('hub', 'src'),
     at('hub', 'tests'),
-    # board_preview holds only a build/ directory now - no sources. Kept in
-    # the list because the point of an explicit list is that a directory
-    # appearing in it is a decision, and one that scans nothing today will
-    # scan whatever lands there tomorrow.
+    # board_preview holds only a build/ directory now - no sources. Kept so
+    # whatever lands there tomorrow is scanned.
     at('hub', 'tests', 'board_preview'),
     at('lidar', 'bridge'),
     at('firmware', 'lib'),
@@ -45,38 +34,25 @@ DIRS = [
     at('firmware', 'app'),
     at('firmware', 'sketches'),
     at('firmware', 'tests'),
-    # The companion board's program. Stubs today - the Orange Pi is not here -
-    # but in the list from its first commit rather than when it grows up,
-    # because a directory that starts unaudited is one somebody has to remember
-    # to add later, and the whole point of this list is not relying on that.
+    # The companion board's program. Stubs today - listed from its first commit
+    # so nobody has to remember to add it later.
     at('pilot', 'src'),
     at('pilot', 'tests'),
     at('shared'),
 ]
 
-# C cannot follow two of the C++ rules, so they are not applied to it:
-#
+# Rules C cannot follow, so they are not applied to it:
 #   - named casts. C has no static_cast; `(Int64) x` is the only spelling there
-#     is, and banning it would ban casting. NOT silently: the carve-out is
-#     counted and reported at the end, because firmware/ is expected to become
-#     C++ eventually and every one of those casts is work that move inherits.
-#     A waiver nobody can see is a waiver that grows.
-#   - the .hpp extension. docs/conventions.md carves this out explicitly - a
-#     header that must compile as C is a .h, and that is firmware/ and
-#     shared/shared.h.
+#     is. NOT silently: the carve-out is counted and reported at the end, since
+#     firmware/ is expected to become C++ and a waiver nobody can see grows.
 #   - static inline. In C that is the idiom for a header definition, not
-#     redundancy: without `static` each translation unit emits a copy and they
-#     collide, and without `inline` the compiler need not inline it. C++ gets
-#     internal linkage from `static` alone, which is why the rule applies there.
+#     redundancy; C++ gets internal linkage from `static` alone.
+#   - .hpp: a header that must compile as C is a .h (docs/conventions.md).
 C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 
-# shared.hxx is WHERE the aliasing happens, so it is exempt from the rule that
-# everything else use the aliases - the same carve-out, and for the same
-# reason, that lets firmware/lib/text.hxx name strtol. `using Str = std::string`
-# and sleepMs's one-line body naming std::this_thread are the file doing its
-# job, not a file that forgot the vocabulary.
-# BOTH vocabulary files. types.hxx names std::uint8_t for the same reason
-# shared.hxx names std::string: it is the file that defines the alias.
+# shared.hxx and types.hxx are WHERE the aliasing happens, so they are exempt
+# from the rule that everything else use the aliases - the same carve-out that
+# lets firmware/lib/text.hxx name strtol.
 VOCAB_FILES  = {'shared.hxx', 'types.hxx'}
 VOCAB_WAIVES = {'unaliased std type', 'bare builtin type'}
 
@@ -110,21 +86,11 @@ def strip_noise(text):
             out.append(c); i += 1
     return ''.join(out)
 
-# A cast is SYNTAX, not a list of type names.
-#
-# This rule used to enumerate the types a cast could be TO - which meant it
-# only ever found casts to types somebody had remembered to add. It missed
-# `(MINMAXINFO*)lparam` and `(const RECT*)lparam` in main.cxx and `(sl_u32)baud`
-# in lidar_source.cxx for as long as they existed, because those three names
-# were not on the list, and no list is ever finished.
-#
-# What makes a cast recognizable instead is the SHAPE: an opening paren that
-# does not follow an identifier (which would make it a call), a TYPE, a closing
-# paren, and an operand. The type is the hard part, and the project's own
-# naming convention settles it - types are PascalCase here, so a capitalised
-# name in parens is a type while `(width) * 2` is arithmetic on a camelCase
-# local. Win32 shouts (HWND, RECT, LPARAM), the standard library uses _t, and
-# Slamtec uses sl_, so those three get named explicitly.
+# A cast is SYNTAX, not a list of type names: enumerating the types a cast could
+# be TO missed `(MINMAXINFO*)lparam` and `(sl_u32)baud` for years. The SHAPE is
+# an open paren not following an identifier, a TYPE, a close paren, an operand.
+# Types are PascalCase here, so a capitalised name in parens is a type while
+# `(width) * 2` is arithmetic; Win32 shouts, the stdlib uses _t, Slamtec sl_.
 CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
              r'(?:[A-Z][A-Za-z0-9_]*(?:::[A-Za-z_]\w*)*'
              r'|\w+_t'
@@ -133,37 +99,27 @@ CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
              r'(?:\s+(?:int|long|char))?'
              r')\s*\**\s*')
 
-# Rules that match the RAW line instead of the stripped one.
-#
-# strip_noise blanks comments and string-literal CONTENTS, which is correct for
-# every rule about code and fatal for a rule about text. A hardcoded home path
-# is always inside a literal or a comment, so matching the stripped line finds
-# nothing, forever, while reporting a clean tree.
+# THE TRAP OF THIS FILE: these rules match the RAW line, not the stripped one.
+# strip_noise blanks comment and string-literal CONTENTS - correct for every
+# rule about code, fatal for a rule about TEXT. A hardcoded home path lives only
+# inside a literal or a comment, so run against the stripped copy it finds 0 of
+# its targets, forever, while reporting a clean tree.
 RAW_RULES = {'absolute user path', 'namespace trailer comment'}
 
 RULES = [
     # (name, regex, note)
 
-    # A home directory in the tree names the machine it was written on. Proposed
-    # by the other session after we each missed one: a sweep for this user's
-    # name found neither file, because a Windows path in a C++ literal doubles
-    # its backslashes and both of our greps looked for one.
-    #
-    # So it is not spelled with a name in it. `[A-Za-z]:\Users\<anybody>`
-    # keeps working for the next contributor and after the repo is public,
-    # which a pattern containing `error` would not.
-    #
-    # The username must START alphanumeric. Without that, `file:///C:/Users/...`
-    # in lsp.cxx matches on the ellipsis - a generic comment about URI shape,
-    # naming nobody.
+    # A home directory in the tree names the machine it was written on. Spelled
+    # without a name in it so it keeps working for the next contributor. The
+    # username must START alphanumeric, or `file:///C:/Users/...` in lsp.cxx
+    # matches on the ellipsis and reports a comment that names nobody.
     ('absolute user path',
      r'[A-Za-z](?::|%3[Aa])[\\/]{1,4}[Uu]sers[\\/]{1,4}'
      r'[A-Za-z0-9_][A-Za-z0-9_.-]*',
      'derive the path - a home directory in the tree names the machine'),
-    #
-    # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out: that is
-    # a named cast whose RESULT is multiplied, not a cast of `(SRC)`. Without
-    # it every correctly-written cast followed by a `*` reported itself.
+    # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out - a named
+    # cast whose RESULT is multiplied, not a cast of `(SRC)`. Without it every
+    # correctly-written cast followed by a `*` reported itself.
     ('c-style cast',
      r'(?<![A-Za-z0-9_)\]>])\(\s*' + CAST_TYPE + r'\)\s*(?!&&|\|\|)[A-Za-z_(&*]',
      'use a named cast'),
@@ -172,24 +128,19 @@ RULES = [
      r'(?<![A-Za-z_>:.])(?:unsigned\s+(?:int|char|short|long)|signed\s+char|\bint\b|\bfloat\b|\bdouble\b|\bbool\b|\bchar\b|\bsize_t\b|\bunsigned\b)(?![A-Za-z_0-9])',
      'use the shared.hxx alias'),
 
-    # `} // namespace foo` on a closing brace.
-    #
-    # A trailer naming what a brace closes is a workaround for not being able
-    # to see the opening line. Nothing verifies it, it is written once, and it
+    # `} // namespace foo`. Nothing verifies it, it is written once, and it
     # survives a rename - at which point it is confidently wrong.
     ('namespace trailer comment',
      r'^\s*\}\s*//\s*namespace\b',
      'delete it - a closing brace does not need to say what it closes'),
 
-    # `struct Foo f;` - the C89 elaborated type specifier.
-    #
-    # C++ injects a struct's name as a type name, so the keyword adds nothing.
-    # A NAME must follow the type, which is what separates a use from a
-    # definition (`struct Foo` then `{`) or a forward declaration (`struct X;`).
+    # `struct Foo f;` - the C89 elaborated type specifier. C++ injects a struct's
+    # name as a type name, so the keyword adds nothing. A NAME must follow, which
+    # separates a use from a definition or a forward declaration.
     ('elaborated type specifier',
-     # The separator between the type and the name must be real - whitespace or
-     # a star. Without that, `\w*\s*\w*` happily splits ONE identifier into two
-     # and `struct ID3D11Device;`, a forward declaration, matched as `Devic` `e`.
+     # The separator must be real - whitespace or a star. Without that,
+     # `\w*\s*\w*` splits ONE identifier in two and the forward declaration
+     # `struct ID3D11Device;` matched as `Devic` `e`.
      r'(?<![A-Za-z0-9_])struct\s+[A-Za-z_]\w*(?:\s+|\s*\*+\s*)[A-Za-z_]\w*\s*[,;=)]',
      'drop the struct keyword - in C++ the name alone is the type'),
 
@@ -199,15 +150,15 @@ RULES = [
     ('switch with space',r'\bswitch\s+\(', 'switch(...)'),
 
     # Found `static UINT DpiForWindow(HWND)` in main.cxx, three lines from the
-    # Win32 GetDpiForWindow it wraps - which is exactly why it read as fine.
+    # Win32 GetDpiForWindow it wraps - which is why it read as fine.
     ('PascalCase function',
      r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
      r'UInt16|UInt32|UInt64|Float32|Float64|Size|Str|Char|Utf8|UINT|LRESULT|HRESULT)'
      r'\s+[A-Z][A-Za-z0-9]*\s*\(',
      'functions are camelCase'),
 
-    # Found `static Void sleep_ms(Int32)` in test_pico_link.cxx, where it read
-    # as the Pico SDK call it is named after and is not.
+    # Found `static Void sleep_ms(Int32)` in test_pico_link.cxx, reading as the
+    # Pico SDK call it is named after and is not.
     ('snake_case function',
      r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
      r'UInt16|UInt32|UInt64|Float32|Float64|Size|Str|Char|Utf8)'
@@ -219,23 +170,12 @@ RULES = [
     ('g_ global',           r'\bg_[A-Za-z0-9_]+',      'camelCase, no g_'),
     ('trailing underscore', r'\b[a-z][A-Za-z0-9]*_\b(?!\s*\()', 'camelCase, no trailing _'),
 
-    # The standard library is aliased in shared/shared.hxx for the same reason
-    # the builtins are: a file that says `Int32 count` on one line and
-    # `std::vector<std::string>` on the next has two naming schemes in it.
-    #
-    # std::move, std::min, std::sort and the rest of the FUNCTIONS keep their
-    # spelling - only the TYPES are aliased, so this names them explicitly
-    # rather than banning the namespace.
-    # chrono and the file streams joined the list when they got aliases. They
-    # were the biggest hole in it: 31 raw std::chrono uses across the two
-    # files that own threaded I/O, invisible because nobody had added the
-    # name here and there was no alias to point at.
-    #
-    # `duration` but not `duration_cast`, and `this_thread::sleep_for` but not
-    # the namespace: only the TYPES are aliased, and a cast and a sleep are
-    # functions, which keep their spelling like std::move and std::sort do.
-    # The \b after `duration` is what separates the two - `duration_cast`
-    # continues with a word character, so it never matches.
+    # Only the TYPES are aliased in shared/shared.hxx, so they are named
+    # explicitly rather than banning the namespace: std::move, std::sort and
+    # duration_cast are functions and keep their spelling. The \b after
+    # `duration` is what separates it from `duration_cast`. chrono and the file
+    # streams joined late and were the biggest hole here - 31 raw std::chrono
+    # uses, invisible because there was no alias to point at.
     ('unaliased std type',
      r'\bstd::(?:vector|deque|array|map|set|unordered_map|unordered_set|pair|'
      r'tuple|string|string_view|optional|variant|function|unique_ptr|'
@@ -246,51 +186,29 @@ RULES = [
      r'|this_thread::sleep_for)\b',
      'use the shared.hxx alias (Vec, Str, Clock, TimePoint, sleepMs, ...)'),
 
-    # The fixed-width integers, bare or std:: qualified.
-    #
-    # `bare builtin type` above catches int, float, size_t and the rest, and
-    # never caught uint32_t - which was a hole the size of the whole stdint
-    # family in the one rule most likely to be relied on. Int32 and UInt8 are
-    # THE vocabulary of this project; std::int32_t is the thing they alias.
-    #
-    # Zero real uses when this went in. Rules that cost nothing on the day
-    # they are written are the ones worth writing: the alternative is finding
-    # out at 31 uses, which is where std::chrono was.
+    # The fixed-width integers, bare or std:: qualified. `bare builtin type`
+    # above never caught uint32_t - a hole the size of the whole stdint family.
+    # Zero real uses when it went in; the alternative is finding out at 31.
     ('unaliased fixed-width integer',
      r'(?<![A-Za-z0-9_:.])(?:std::)?(?:u?int(?:8|16|32|64)_t|uintptr_t'
      r'|ptrdiff_t)(?![A-Za-z0-9_])',
      'use the vocabulary alias - Int32, UInt8, UPtr, ISize'),
 
-    # Allman, everywhere. A body on the same line as its head is the one brace
-    # style question this project has already answered, and it is the one that
-    # creeps back in every time somebody writes a two-line guard clause.
-    #
-    # Aggregate rows in a table are NOT this - `{ Icon::ICON_RADAR, "radar" },`
-    # is data, and expanding it would quadruple every table in the tree for no
-    # gain. The pattern below requires a `)` or a control keyword before the
-    # brace, which is what separates a body from a row.
-    # A parameter list that does not close on its own line.
-    #
-    # DEFINITIONS and DECLARATIONS only - a CALL may wrap, and often should,
-    # because a call site's arguments are expressions and an expression is
-    # allowed to be long. A signature is a contract, and a contract you have to
-    # scroll to finish reading is one people stop reading.
-    #
-    # Anchored on a leading return type, which is what separates a signature
-    # from a call: a call starts with an identifier.
+    # Allman, everywhere. Aggregate rows in a table are NOT this - the pattern
+    # requires a `)` or a control keyword before the brace, which separates a
+    # body from a row. A parameter list that does not close on its own line:
+    # DEFINITIONS and DECLARATIONS only, since a call's arguments are
+    # expressions and may wrap. Anchored on a leading return type, since a call
+    # starts with an identifier.
     ('wrapped parameter list',
      r'^\s*(?:\[\[nodiscard\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+|const\s+)*'
      r'(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|'
      r'Float64|Size|Str|Char|Utf8|CharSeq|Pin)[\w:<>,\s\*&]*?\s[\w:~]+\s*\([^)]*$',
      'put the whole parameter list on one line'),
 
-    # `static` already gives a free function internal linkage, and a static
-    # function is only ever emitted where it is used - so `inline` adds nothing
-    # a C++ compiler did not already know. CLion says so too.
-    #
-    # C is a different language here and is waived below: `static inline` in a
-    # C header is the standard idiom for a definition that must not collide
-    # across translation units, and removing it there would be wrong.
+    # `static` already gives internal linkage and a static function is emitted
+    # only where it is used, so `inline` adds nothing. C is waived above - there
+    # `static inline` is the header-definition idiom and removing it is wrong.
     ('static inline',
      r'\bstatic\s+inline\b',
      'in C++, static already implies it - drop the inline'),
@@ -299,60 +217,32 @@ RULES = [
      r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{[^{}]*[^{}\s][^{}]*\}',
      'expand the braces onto their own lines'),
 
-    # The brace on the HEAD's line, body closing somewhere far below.
-    #
-    # The rule above cannot see this: it needs the open and close brace on one
-    # physical line, and a cuddled `{` whose body closes twenty lines later
-    # never appears on one line at all. That blind spot hid 40 of these in
-    # lidar_source.cxx and its test - the Slamtec boundary files, which were
-    # carrying the SDK's brace style rather than this project's.
-    #
-    # A lambda is the written-down exception and is filtered in EXEMPT.
+    # The brace on the HEAD's line, body closing far below. The rule above needs
+    # both braces on one physical line and so cannot see this - a blind spot
+    # that hid 40 of them in the Slamtec boundary files, which were carrying the
+    # SDK's brace style. A lambda is the written-down exception, see EXEMPT.
     ('cuddled brace',
      r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{\s*$',
      'Allman - put the brace on its own line'),
 
-    # `if(x) return;` - a body with no braces, sharing its head's line.
+    # `if(x) return;` - a body with no braces, sharing its head's line. Every
+    # other brace rule looks for a brace and this is the shape that has none:
+    # 250 across the tree. A body on the NEXT line is NOT this.
     #
-    # docs/conventions.md bans a body sharing a line with its head "however
-    # short", and a braceless statement is still a body. Nothing caught these
-    # because every other brace rule looks for a brace, and this is the shape
-    # that has none: 250 of them across the tree.
-    #
-    # A body on the NEXT line without braces is NOT this and is left alone -
-    # it does not share the head's line, which is what the rule is about.
-    # Two separate alternatives, and both had to be rewritten.
-    #
-    # The condition group was `[^;]*` for all three keywords, so NO for-loop
-    # could ever match it - a for head contains two semicolons by definition,
-    # and `for(...) r[i] = 0;` was invisible for as long as the rule existed.
-    # for gets its own alternative with `[^)]*`.
-    #
-    # And the body had to start with a LETTER, which missed every one that
-    # starts with an operator: `while(n) --n;` and `if(seen[i]) ++covered;`
-    # both walked past it. The body is now "anything that is not a brace, a
-    # comment or the end of the line", which is what the rule always meant.
-    # The head's parens are matched to THREE levels of nesting, spelled out,
-    # because a regex cannot balance them and this codebase nests two deep as a
-    # matter of course:
-    #
-    #     for(Int32 i = 0; i < static_cast<Int32>(ports.size()); ++i)
-    #
-    # A `[^)]*` head stops at the first `)` - inside static_cast - and reads
-    # `(ports.size()); ++i)` as the body, which contains a semicolon and so
-    # matched. Six correct loops in app_ui.cxx were reported as violations.
+    # Three traps, all fixed here. A `[^;]*` condition can never match a for
+    # head, which has two semicolons by definition. A body required to start
+    # with a LETTER lets `while(n) --n;` walk past. And the head's parens are
+    # matched to THREE levels because a regex cannot balance them - a `[^)]*`
+    # head stops inside static_cast and reported six correct app_ui.cxx loops.
     ('braceless one-lined body',
      r'^\s*(?:if|while|for)\s*'
      r'\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)'
      r'\s*[^\s{/;][^;]*;',
      'give the body its own braces on their own lines'),
 
-    # `Type *name` / `Type &name`.
-    #
-    # The declaration binds the * to the TYPE here - `Char* p`, not `Char *p` -
-    # because in this project a pointer to Char is a type in its own right and
-    # is spelled as one. The tree was already 604:0 and 747:0 this way when the
-    # rule was written; it is here so it stays that way, not to fix a mess.
+    # `Char* p`, not `Char *p` - a pointer to Char is a type in its own right
+    # here. The tree was already 604:0 and 747:0 this way when the rule was
+    # written; it is here so it stays that way, not to fix a mess.
     ('pointer bound to the name',
      r'\b[A-Z][A-Za-z0-9_]*\s+\*[a-z][A-Za-z0-9_]*',
      'bind the * to the type: Type* name'),
@@ -364,50 +254,36 @@ RULES = [
 
 # Lines that are legitimately exempt, with the reason.
 EXEMPT = [
-    # main.cxx resolves user32 entry points; the typedefs themselves are Win32
-    # signatures and `int` there is the OS ABI, not our code's choice.
+    # main.cxx's user32 typedefs are Win32 signatures; `int` there is the OS ABI.
     (r'typedef .*WINAPI', 'Win32 ABI signature'),
-    # `int main(` STAYS WAIVED, and the reason is measured rather than assumed.
-    #
-    # It was tried the other way on 2026-08-31: all 24 entry points converted to
-    # `Int32 main(...)`, on the reasoning that Int32 is int so the spelling is
-    # ours to choose. The host suites passed and the audit went clean, because
-    # MSVC's int32_t IS int. Both boards then failed:
-    #
-    #     main.cxx:1519:1: error: '::main' must return 'int'
-    #
-    # On arm-none-eabi, int32_t is `long int`. Same 32 bits, different type, and
-    # `long main()` is ill-formed however wide a long happens to be.
-    #
-    # So main is not an exception to the vocabulary, it is a place the LANGUAGE
-    # fixes the type - exactly like WinMain, which is why they share this line.
-    # Writing `int` there is not a lapse; writing Int32 is a portability bug
-    # that two of three toolchains cannot see.
+    # `int main(` STAYS WAIVED, measured rather than assumed. Converting all 24
+    # entry points to `Int32 main(...)` passed the host suites and went clean
+    # (MSVC's int32_t IS int), then failed on both boards with
+    # "'::main' must return 'int'" - on arm-none-eabi int32_t is `long int`,
+    # same 32 bits, different type. The LANGUAGE fixes the type here, as for
+    # WinMain; writing Int32 is a portability bug MSVC cannot see.
     (r'int APIENTRY|WinMain|int main\(', 'the platform entry point signature'),
     (r'IMGUI_IMPL_API|ImGui_ImplWin32_WndProcHandler', 'third-party signature'),
     (r'static_cast<int>|static_cast<float>|static_cast<unsigned', 'named cast to an ABI type'),
     (r'#\s*(define|include|if|ifdef|ifndef|endif|else|elif|pragma)', 'preprocessor'),
 
-    # `sizeof(Float32)` is not a cast. The cast pattern cannot tell the
-    # difference between `(T)x` and `sizeof(T) * x` without a real parser.
+    # `sizeof(Float32)` is not a cast, and the pattern cannot tell `(T)x` from
+    # `sizeof(T) * x` without a real parser.
     (r'\bsizeof\s*\(', 'sizeof, not a cast'),
 
-    # shared.hxx is where the aliases are DEFINED. `using Float32 = float;` has
-    # to name the builtin; that is the entire point of the file.
+    # shared.hxx is where the aliases are DEFINED; `using Float32 = float;` has
+    # to name the builtin.
     (r'\busing\s+\w+\s*=\s*(float|double|bool|char|int|unsigned|std::)', 'the alias definition itself'),
 
-    # shared.h is the same file for C. `typedef char Utf8;` is the definition,
-    # not a use.
+    # shared.h is the same file for C: `typedef char Utf8;` is the definition.
     (r'^\s*typedef\s+\w+\s+\w+\s*;', 'the alias definition itself'),
 
-    # A lambda body genuinely reads better on one line when it is a single
-    # expression - `[](const Str& a) { return a > b; }` as a sort predicate. The
-    # rule targets function and control-flow bodies, not these.
+    # A single-expression lambda body reads better on one line - the rule
+    # targets function and control-flow bodies, not these.
     (r'\[[^\]]*\]\s*\([^)]*\)\s*(?:->\s*[A-Za-z_:<>]+\s*)?\{', 'a lambda, not a function body'),
 
-    # A lambda's brace cuddles by convention everywhere, including here - it is
-    # an expression being passed to something, not a function body standing on
-    # its own. `const auto flush = [&]() {` is the shape.
+    # A lambda's brace cuddles by convention: `const auto flush = [&]() {` is an
+    # expression passed to something, not a function body standing on its own.
     (r'\[[&=]?[^\]]*\]\s*(?:\([^)]*\)\s*)?(?:mutable\s*)?(?:->[^{]*)?\{\s*$',
      'a lambda, not a function body'),
 ]
@@ -422,14 +298,9 @@ def is_c(path):
     """A .c or a .h.
 
     The extension IS the language now, with no carve-out list to keep in step:
-
-        .c  .h    C
-        .cxx .hxx C++
-
-    That is why the C++ half moved off .cpp/.hpp - .h was already doing double
-    duty as "a C header" and "a header somebody did not think about", and an
-    unowned .h is assumed to be C++ by most editors, which is how a C header
-    ends up flagged for using NULL instead of nullptr.
+    .c/.h are C, .cxx/.hxx are C++. The C++ half moved off .cpp/.hpp because .h
+    was doing double duty as "a C header" and "a header nobody thought about",
+    and an unowned .h is assumed C++ by most editors.
     """
     return path.endswith('.c') or path.endswith('.h')
 
@@ -445,10 +316,9 @@ def audit(paths):
             waived_here = waived_here | VOCAB_WAIVES
         for i, l in enumerate(lines):
             r = raw[i] if i < len(raw) else ''
-            # Both, not just the stripped one. A comment-only line is blank
+            # Both, not just the stripped one: a comment-only line is blank
             # AFTER stripping, so testing `l` alone hides every raw-rule hit
-            # that lives in a comment - which is where one of the two paths
-            # that prompted this rule actually sat.
+            # that lives in a comment.
             if not l.strip() and not r.strip():
                 continue
             why = exempt(r)
@@ -494,51 +364,33 @@ for name in [r[0] for r in RULES]:
     if len(v) > 24:
         print('  ... and %d more' % (len(v) - 24))
 
-# ===========================================================================
 # The structural pass: not what the code LOOKS like, but where it may reach.
-#
-# Formatting rules keep a file readable. These keep the ARCHITECTURE true - and
-# the architecture is the thing that decays silently, because every individual
-# violation is a reasonable-looking one-line include that solves somebody's
-# immediate problem.
-# ===========================================================================
+# Formatting keeps a file readable; this keeps the ARCHITECTURE true, and the
+# architecture decays one reasonable-looking include at a time.
 
 # Which layer a firmware file belongs to, and what that layer may include.
+# Strictly downward: hal knows nothing; drivers and chassis know hal; an app
+# knows only the umbrella.
 #
-# Strictly downward. hal knows nothing; drivers and chassis know hal; an app
-# knows only the umbrella. A driver that needed another driver would be two
-# things wearing one name, and the moment that is allowed the folders stop
-# meaning anything.
-#
-# The SPELLING is part of the rule, not incidental. "../hal.h" rather than
-# "hal.h" from lib/drivers/, because a quoted include is searched next to the
-# including file first and hal.h is not there - the bare form compiles only
-# because -Ifirmware/lib is set, and an editor without the project loaded then
-# underlines every include in the library at once. Allowing both spellings here
-# would let the unparseable one back in one file at a time.
+# The SPELLING is part of the rule: "../hal.h" rather than "hal.h" from
+# lib/drivers/. The bare form compiles only because -Ifirmware/lib is set, and
+# an editor without the project loaded underlines every include in the library.
 LAYERS = {
-    # hal.h is the floor everything stands on, so lib root may name it. hal.h
-    # itself only needs shared.h, and naming itself is not a thing a file does.
-    # pins.hxx sits beside types.hxx in the layering and for the same reason:
-    # it declares facts and includes nothing but types. A subsystem naming
-    # pins::SERVO instead of 0 is reading downward, not sideways.
+    # hal.h is the floor everything stands on, so lib root may name it. pins.hxx
+    # sits beside types.hxx: it declares facts and includes nothing but types,
+    # so naming pins::SERVO instead of 0 is reading downward, not sideways.
     'firmware/lib':          {'types.hxx', 'hal.hxx', 'pins.hxx'},
-    # ../types.hxx because a driver's PROTOCOL half should be able to reach the
-    # vocabulary without the SDK - that is what makes it host-testable, and
-    # dfplayer_proto.hxx exists precisely so its checksum can be exercised off
-    # the bench. dfplayer_proto.hxx because the transport half includes it.
+    # ../types.hxx so a driver's PROTOCOL half can reach the vocabulary without
+    # the SDK - that is what makes dfplayer_proto.hxx testable off the bench.
     # ../pins.hxx: a driver reads the pin map it was WIRED with rather than
-    # holding pad numbers of its own, so tft::open() asks pins::active()
-    # where the panel is. That is a downward read of a declaration, not a
-    # driver reaching at another driver.
+    # holding pad numbers, a downward read and not a reach at another driver.
     'firmware/lib/drivers':  {'../hal.hxx', '../types.hxx', '../pins.hxx',
                               'dfplayer_proto.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
-    # Renamed from scratch/ when a sketch became a file rather than a slot. The
-    # key is matched by substring against the path, so the stale name matched
-    # nothing and took BOTH this check and the libc one below off sketches
-    # entirely - silently, for as long as the rename went unnoticed here.
+    # Renamed from scratch/. The key is matched by substring against the path,
+    # so the stale name matched nothing and silently took BOTH this check and
+    # the libc one below off sketches entirely.
     'firmware/sketches':     {'../lib/bibo.hxx'},
     # A host test of ONE header includes that header, not the umbrella - the
     # umbrella drags in the SDK and these compile with MSVC.
@@ -551,60 +403,49 @@ LAYERS = {
                               '../lib/pursuit.hxx',
                               '../lib/chassis/odom.hxx',
                               # The safety property, tested on the host through
-                              # tests/fakes/hal.hxx. This is the first test of a
-                              # module that includes hal.hxx at all.
+                              # tests/fakes/hal.hxx - the first test of a module
+                              # that includes hal.hxx at all.
                               '../lib/chassis/chassis.hxx',
                               '../lib/drivers/dfplayer_proto.hxx'},
 }
 
 # gfx draws INTO a Screen, so it is the one file at lib root that legitimately
 # reaches sideways into a driver. Written down rather than special-cased in
-# silence.
+# silence - which is what every entry below is.
 LAYER_EXTRA = {
     'firmware/lib/gfx.hxx':  {'drivers/display.hxx'},
-    # pins.hxx formats its own conflict message, so it names text.hxx.
-    # text.hxx is a leaf - types.hxx and the C headers - so this is a
-    # sideways reach that cannot cycle, the same shape as gfx -> display.
+    # pins.hxx formats its own conflict message, so it names text.hxx - a leaf,
+    # so this is a sideways reach that cannot cycle.
     'firmware/lib/pins.hxx': {'types.hxx', 'text.hxx'},
-    # boot.hxx is serial + the pin map + a visible refusal, so it names
-    # both. It is the one lib-root file that legitimately needs pins.
-    # hal.hxx names the host-test fake, behind #ifdef BIBO_FAKE_HAL, which is
-    # off in every image this project flashes. It is the one place the library
-    # reaches into tests/ and it is what let the chassis safety property be
-    # tested at all.
+    # hal.hxx names the host-test fake behind #ifdef BIBO_FAKE_HAL, off in every
+    # image this project flashes - the one place the library reaches into tests/.
     'firmware/lib/hal.hxx': {'types.hxx', '../tests/fakes/hal.hxx'},
+    # boot.hxx is serial + the pin map + a visible refusal: the one lib-root
+    # file that legitimately needs pins.
     'firmware/lib/boot.hxx': {'hal.hxx', 'pins.hxx'},
-    # sfx.hxx is names and numbers - what the clips on the card MEAN. A leaf
-    # like pins: types for the vocabulary, text to compare a name. No SDK, so
-    # it compiles on the host and its table can be tested without a board.
+    # sfx.hxx is names and numbers - what the clips on the card MEAN. No SDK, so
+    # its table can be tested without a board.
     'firmware/lib/sfx.hxx': {'types.hxx'},
-    # control.hxx is arithmetic - PID and feedforward - and odom.hxx turns
-    # ticks into meters. Neither touches hardware, which is the property that
-    # lets both be tested on the host against invented inputs instead of by
-    # driving a car at something.
+    # control.hxx is arithmetic - PID and feedforward - and odom.hxx turns ticks
+    # into meters. Neither touches hardware, which is what lets both be tested
+    # on the host against invented inputs.
     'firmware/lib/control.hxx': {'types.hxx'},
-    # The autonomy maths, all pure and all portable: geom is the frame, kin is
-    # the bicycle model on top of it, pursuit is the follower on top of that.
-    # A strict stack, each naming only the one below.
+    # The autonomy maths, pure and portable, a strict stack each naming only the
+    # one below: geom, kinematics, pursuit, then plan.
     'firmware/lib/geom.hxx': {'types.hxx'},
     'firmware/lib/kinematics.hxx': {'geom.hxx'},
     'firmware/lib/pursuit.hxx': {'geom.hxx', 'kinematics.hxx'},
-    # plan sits above pursuit - it caps the speed on the arc pursuit chose, so
-    # it names the file that computes the curvature rather than recomputing it.
     'firmware/lib/plan.hxx': {'geom.hxx', 'pursuit.hxx'},
     'firmware/lib/chassis/odom.hxx': {'../types.hxx'},
-    # sound.hxx owns the speaker and names what comes out of it, so it reaches
-    # down to the driver and sideways to the clip table and the pin map. The
-    # same legitimate one-layer-above reach cue.hxx makes into lights.hxx,
-    # written down rather than waived.
+    # sound.hxx owns the speaker, so it reaches down to the driver and sideways
+    # to the clip table and the pin map.
     'firmware/lib/sound.hxx': {'hal.hxx', 'pins.hxx', 'sfx.hxx',
                                'drivers/dfplayer.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
     'firmware/lib/lights.hxx': {'hal.hxx'},
     'firmware/lib/net.hxx': {'hal.hxx'},
-    # cue.hxx DECIDES what the car expresses and lights.hxx emits it, so this is the
-    # same legitimate sideways reach gfx.hxx makes into a driver: one layer above
-    # naming the one below it, written down rather than special-cased in silence.
+    # cue.hxx DECIDES what the car expresses and lights.hxx emits it - one layer
+    # above naming the one below.
     'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
                             'pins.hxx', 'sfx.hxx', 'sound.hxx', 'boot.hxx',
@@ -646,14 +487,9 @@ for path in files:
         if not t.startswith('#include "'):
             continue
         what = t.split('"')[1]
-        # The Pico SDK is not ours and is not a layer. hal.h exists precisely to
-        # be the file that reaches into it, and an app naming pico/bootrom.h for
-        # a reboot is honest about a dependency it genuinely has. The rule this
-        # pass enforces is about the direction OUR headers point.
-        # lwIP joins the list for the same reason the SDK is on it: it is
-        # somebody else's stack, and net.h exists precisely to be the one file
-        # that reaches into it - the same job hal.h does for the SDK. The rule
-        # this pass enforces is about the direction OUR headers point.
+        # The Pico SDK and lwIP are not ours and are not layers. hal.h and net.h
+        # exist precisely to be the files that reach into somebody else's code.
+        # This pass is about the direction OUR headers point.
         if what.startswith(('pico/', 'hardware/', 'boards/', 'lwip/')):
             continue
         if what in allowed:
@@ -666,22 +502,13 @@ for path in files:
 if struct_bad == 0:
     print('  ok')
 
-# resource.h is included by app.rc, which rc.exe compiles - not a C++ compiler,
-# and not a C one either. Renaming it would break the resource build to satisfy
-# a rule about C++ headers.
+# resource.h is compiled by rc.exe, not a C or C++ compiler. Renaming it would
+# break the resource build to satisfy a rule about C++ headers.
 HEADER_EXEMPT = {'resource.h'}
 
-# ---------------------------------------------------------------------------
-# The C carve-out, counted.
-#
-# C has no static_cast, so `(Int64) x` is not a style failure there - it is the
-# only spelling C has. But docs/conventions.md says named casts EVERYWHERE that
-# the language allows them, and firmware/ is expected to move to C++.
-#
-# Silently skipping the rule would mean the size of that move is unknown until
-# somebody starts it. This prints the bill instead. It is not a violation and
-# does not fail the audit.
-# ---------------------------------------------------------------------------
+# The C carve-out, counted. C has no static_cast, but firmware/ is expected to
+# move to C++ and skipping the rule silently would leave the size of that move
+# unknown. This prints the bill. Not a violation; does not fail the audit.
 print('\n--- C-style casts in C files (legal in C, work if these become C++) ---')
 
 CAST_PAT = [r for name, r, _ in RULES if name == 'c-style cast'][0]
@@ -699,11 +526,9 @@ for path in files:
         c_casts[os.path.relpath(path, ROOT).replace('\\', '/')] = n
 
 if not c_casts:
-    # "none" reads as "no casts left to fix", and what it actually means now
-    # is "there are no C files to look in": the conversion finished, and
-    # is_c() matches nothing in scope but hub/src/resource.h, which rc.exe
-    # compiles and which contains no casts. Say which it is - a check that
-    # cannot fire should announce that, not report success.
+    # "none" reads as "no casts left to fix"; what it means now is "there are no
+    # C files to look in". Say which it is - a check that cannot fire should
+    # announce that, not report success.
     cFiles = [f for f in files if is_c(f)]
     if not cFiles:
         print('  no C files in scope - the C++ conversion is complete, and '
@@ -715,28 +540,18 @@ else:
         print('  %-40s %4d' % (path, c_casts[path]))
     print('  %-40s %4d' % ('TOTAL', sum(c_casts.values())))
 
-# ---------------------------------------------------------------------------
-# Application code uses the LIBRARY, not libc.
-#
-# firmware/lib wraps the C standard library so the project has one vocabulary:
-# serialPrintf rather than printf, textEq rather than strcmp, textInt rather
-# than atoi. The wrappers cost nothing - they are macros or static inline - and
-# the point is not speed, it is that the seam is complete. A console calling
-# printf() directly was the one place reaching past it, sixty-two times, and
-# the day the transport is not stdio that is sixty-two call sites to find
-# instead of one definition to change.
-#
-# Only app/ and scratch/ are checked. lib/ is WHERE the wrapping happens, so
-# text.h naming strtol is the wrapper doing its job.
-# ---------------------------------------------------------------------------
+# Application code uses the LIBRARY, not libc. firmware/lib wraps the C standard
+# library so the project has one vocabulary. The point is not speed, it is that
+# the seam is complete: a console calling printf() directly was sixty-two call
+# sites to find the day the transport is not stdio. Only app/ and sketches/ are
+# checked - lib/ is WHERE the wrapping happens.
 print('\n--- application code reaching past the library ---')
 
 LIBC_DIRECT = [
     ('printf',   'serial::printf'),
-    # snprintf was missing for as long as this check existed, and app/main.cxx
-    # called it twice. The negative lookbehind below is defeated by the leading
-    # `s`, so `printf` never matched it - the one libc call the rule was most
-    # sure it had covered was the one it could not see.
+    # snprintf was missing for as long as this check existed: the lookbehind
+    # below is defeated by the leading `s`, so `printf` never matched it - the
+    # one libc call the rule was surest of was the one it could not see.
     ('snprintf', 'text::format'),
     ('puts',     'serial::printLine'),
     ('fputs',    'serial::print'),
@@ -757,16 +572,11 @@ for path in files:
     code = strip_noise(rd(path))
     for i, line in enumerate(code.split('\n')):
         for name, instead in LIBC_DIRECT:
-            # Whole word followed by a paren, so snprintf does not match
-            # printf and text::len does not match strlen.
-            #
-            # The ':' in that lookbehind is what the namespaces cost this rule.
-            # serial::printf CONTAINS printf, so without it every corrected
-            # call site reported itself as the thing it had just been corrected
-            # from - the rule accusing its own fix.
-            # `.` and `>` join the lookbehind for the same reason `:` did:
-            # gfx::Canvas has a printf METHOD, and `c.printf(...)` is the
-            # library being used correctly, not libc being reached for.
+            # Whole word followed by a paren, so snprintf does not match printf.
+            # The ':' in the lookbehind is what the namespaces cost this rule:
+            # serial::printf CONTAINS printf, so without it every corrected call
+            # site reported itself - the rule accusing its own fix. `.` and `>`
+            # are there for gfx::Canvas's printf METHOD.
             if re.search(r'(?<![A-Za-z0-9_:.>])' + name + r'\s*\(', line):
                 print('  %-22s %5d  %s( -> use %s('
                       % (os.path.basename(path), i + 1, name, instead))
@@ -781,20 +591,11 @@ print('\n--- raw C arrays ---')
 # decays to a pointer at the first call and the length becomes something the
 # caller has to know by other means.
 #
-# THE CARVE-OUT IS THE ELEMENT TYPE, and it is the same seam every other rule
-# here draws. `BYTE data[512]` handed to RegEnumValueA, `WCHAR wide[MAX_PATH]`
-# to GetModuleFileNameW, `D3D11_INPUT_ELEMENT_DESC elems[]` to
-# CreateInputLayout - those are somebody else's buffers in somebody else's
-# shapes, and shared.hxx is explicit that we do not dress up a third-party API
-# to look like ours. An array of OUR types has no such excuse.
-#
-# firmware/ is exempt entirely: it is freestanding, there is no <array>, and
-# there is nothing to convert to.
-#
-# This rule went in after the fact, and the first thing it found was three
-# `Char cmd[48]` buffers added to app_ui.cxx by work that landed AFTER the
-# conversion pass - which is exactly the argument for having it: a one-off
-# sweep fixes a tree once, and a check keeps it fixed.
+# THE CARVE-OUT IS THE ELEMENT TYPE. `BYTE data[512]` handed to RegEnumValueA is
+# somebody else's buffer in somebody else's shape, and we do not dress a
+# third-party API up to look like ours. firmware/ is exempt entirely -
+# freestanding, no <array>. The first thing this found was three `Char cmd[48]`
+# buffers added AFTER the conversion pass: a sweep fixes a tree once.
 ARRAY_ELEM_OURS = re.compile(
     r'^\s*(?:static\s+|const\s+|constexpr\s+|inline\s+|mutable\s+)*'
     r'(?:const\s+)?'
@@ -823,30 +624,15 @@ if raw_arrays == 0:
 total += raw_arrays
 
 print('\n--- signatures over 100 columns ---')
-# A RATCHET, not a rule.
+# A RATCHET, not a rule. docs/conventions.md is honest that long signatures are
+# a design problem and not a formatting one, and that the work is not done. What
+# this does instead is stop the number GROWING: the budget below is what the
+# tree measured when the check went in, and the audit fails if it rises.
+# Shortening a signature lowers the budget with it.
 #
-# docs/conventions.md is honest that these are a design problem and not a
-# formatting one: a function taking eleven parameters was hard to read wrapped
-# as well, and "a parameter list never wraps" only made that visible. It
-# recorded 47 at the time, worst 167, and said the work was not done.
-#
-# It still is not. What this does instead is stop the number GROWING: the
-# budget below is what the tree measured when the check went in, and the audit
-# fails if it rises. Shortening a signature lowers the budget with it; adding a
-# twelfth parameter to something already over the line does not pass.
-#
-# 2 columns of the current figure are mine: indenting namespace bodies on
-# 2026-08-30 moved every line inside a namespace two to the right, which pushed
-# borderline signatures over. That is a real cost of that change and is
-# recorded here rather than absorbed quietly.
-# 2026-08-31: 30 -> 51. A const-correctness pass put `const ` on parameters
-# across firmware/lib - six characters each, several per signature - and 21
-# signatures that sat just under the line went over it. Nothing grew a
-# parameter; the same parameters are spelled longer.
-#
-# Recorded rather than absorbed, and the ratchet still bites: 51 is what the
-# tree measures today, so the next signature to cross the line still fails.
-# If those consts are ever reconsidered, this number comes down with them.
+# Where the figure came from: 2 columns are from indenting namespace bodies on
+# 2026-08-30, and 30 -> 51 on 2026-08-31 was a const-correctness pass across
+# firmware/lib - the same parameters spelled longer, 21 crossing the line.
 SIG_BUDGET = 51
 
 SIGNATURE = re.compile(
@@ -881,24 +667,15 @@ elif len(long_sigs) < SIG_BUDGET:
 
 print('\n--- enum member prefixes ---')
 # "Enum members: SCREAMING_SNAKE_CASE, PREFIXED WITH THE ENUM NAME" -
-# MapMode::MAP_MODE_POINTS. docs/conventions.md has said so since 2026-08-25
-# and nothing had ever checked it. 224 members already comply; they comply by
-# habit, which is the state a rule is in right before it stops being true.
-#
-# The prefix is what makes an unscoped enum safe to `using`, and what makes a
-# grep for MAP_MODE find the whole family.
+# MapMode::MAP_MODE_POINTS. Nothing had ever checked it; 224 members complied by
+# habit, which is the state a rule is in right before it stops being true. The
+# prefix is what makes an unscoped enum safe to `using` and a grep for MAP_MODE
+# find the whole family.
 
-# Lamp is the one enum that does not comply, and it is WAIVED rather than
-# silently skipped, for the reason the C-cast carve-out was: a waiver nobody
-# can see is a waiver that grows. Renaming HEAD_L to LAMP_HEAD_L is 64
-# references across six files, two of which (pins.hxx, sketches/speaker.cxx)
-# are being written right now. It is a rename to do when that lands, not
-# during.
-# Empty, and that is the point of having printed it. Lamp was the one enum in
-# the tree whose members did not carry their enum's name, waived on 2026-08-31
-# because the speaker work was mid-flight across the same files. It landed, so
-# the rename happened and the waiver came out with it. A waiver that is never
-# revisited is just a rule with an exception nobody remembers agreeing to.
+# Empty, and that is the point of having printed it. Lamp was the one enum whose
+# members did not carry their enum's name, waived on 2026-08-31 while the
+# speaker work was mid-flight across the same files. It landed, the rename
+# happened, and the waiver came out with it.
 ENUM_WAIVED = {}
 
 
@@ -964,23 +741,12 @@ for nm, why in sorted(ENUM_WAIVED.items()):
 total += enum_bad
 
 print('\n--- namespace layout ---')
-# Allman brace, and a body indented one level inside it.
+# Allman brace, and a body indented one level inside it. Two spaces per
+# namespace level - most of the firmware sits two deep (bibo::lights), and four
+# would push every real line eight columns right before it said anything.
 #
-#     namespace ui
-#     {
-#       Void draw()
-#       {
-#       }
-#     }
-#
-# Two spaces per namespace level. Most of the firmware sits two namespaces
-# deep (bibo::lights), and four would push every real line eight columns right
-# before it had said anything.
-#
-# The tree was split almost exactly in half before this rule: 45 files wrote
-# `namespace ui {` and 46 wrote the brace on its own line, and NOTHING
-# indented a body. The half that was already Allman only stayed that way
-# because the namespace-presence check above happened to require it.
+# The tree was split 45/46 on the brace before this rule, and NOTHING indented
+# a body.
 NS_SAME_LINE = re.compile(r'^\s*namespace(\s+[A-Za-z_][\w:]*)?\s*\{')
 NS_OPEN_LINE = re.compile(r'^(?P<ind>\s*)namespace(\s+[A-Za-z_][\w:]*)?\s*$')
 
@@ -1010,13 +776,10 @@ for path in files:
                 pending = True
 
         # And the BODY, which the check above cannot see: every line inside N
-        # namespaces starts at column 2N or deeper.
-        #
-        # This is here because the reindent that introduced the rule got 30
-        # lines wrong and nothing noticed. It decided a line closed its
-        # namespace by counting `}`, which is true for `} // namespace ui` and
-        # false for `struct WorldPt { Float32 x, y; };` - one brace pair on one
-        # line, opening and closing itself, left sitting at column 0.
+        # namespaces starts at column 2N or deeper. The reindent that introduced
+        # the rule got 30 lines wrong unnoticed - it decided a line closed its
+        # namespace by counting `}`, true for `} // namespace ui` and false for
+        # `struct WorldPt { Float32 x, y; };`, left sitting at column 0.
         stripped = line.strip()
         level = len(ns_stack)
         closes, opens = c.count('}'), c.count('{')
@@ -1046,13 +809,10 @@ if ns_bad_layout == 0:
 total += ns_bad_layout
 
 print('\n--- header guards ---')
-# `#pragma once`, not an #ifndef guard.
-#
-# Nothing checked this, and six firmware headers were still carrying C-era
-# guards named `_H` - hal.hxx saying `#ifndef BIBO_HAL_H` - left behind when
-# the C++ migration renamed them .h -> .hxx. A rename changed the extension
-# and not the contents, which is exactly the kind of drift a rename pass
-# leaves and nobody sees again.
+# `#pragma once`, not an #ifndef guard. Six firmware headers still carried C-era
+# guards named `_H` - hal.hxx saying `#ifndef BIBO_HAL_H` - left behind when the
+# C++ migration renamed .h -> .hxx and changed nothing else. That is the kind of
+# drift a rename pass leaves and nobody sees again.
 guard_bad = 0
 for path in files:
     if not path.endswith(('.hxx', '.h')):
@@ -1071,8 +831,8 @@ for path in files:
     f = os.path.basename(path)
     norm = path.replace('\\', '/')
 
-    # A C header under firmware/ is correctly a .h. Anywhere else, a .h is a
-    # C++ header wearing the wrong extension.
+    # A C header under firmware/ is correctly a .h; anywhere else it is a C++
+    # header wearing the wrong extension.
     if f.endswith('.h') and f not in HEADER_EXEMPT and '/firmware/' not in norm:
         print('  .h outside firmware (C++ headers are .hxx):', path)
         total += 1
@@ -1092,11 +852,8 @@ for path in files:
         if not m:
             continue
         inc = m.group(1)
-        # Third-party headers keep whatever extension upstream gave them.
         # The Pico SDK, lwIP and the rest keep whatever extension upstream gave
-        # them. hal.hxx and net.hxx exist precisely to be the files that reach
-        # into somebody else's code, and a rule about OUR extensions that
-        # flagged them would be a rule nobody could satisfy.
+        # them; hal.hxx and net.hxx exist to be the files that reach into them.
         if inc in HEADER_EXEMPT or inc.startswith(
                 ('imgui', 'sl_lidar', 'stb_',
                  'pico/', 'hardware/', 'boards/', 'lwip/')):
@@ -1109,34 +866,16 @@ for path in files:
         total += 1
 
 
-# ===========================================================================
-#  namespaces
-# ===========================================================================
+# Namespaces. This used to check module PREFIXES, because the library was C and
+# every symbol carried its module in its name. The library is C++ now and the
+# compiler enforces the boundary, so what is left to check is what it cannot:
+# that each module HAS its namespace and that it is the one everybody expects. A
+# header that quietly stops declaring one still compiles - its symbols move to
+# the global namespace, one file at a time, which is how the prefixes decayed.
 #
-# This used to check module PREFIXES, because the library was C and C has no
-# namespaces - so every symbol carried its module in its name and a rule could
-# only look at spelling. The library is C++ now and the boundary is real: the
-# compiler knows what is in namespace gpio, and gpio::write cannot quietly
-# become something else's write.
-#
-# So what is left to check is the thing the compiler cannot: that each module
-# HAS its namespace, and that it is the one everybody else expects. A header
-# that quietly stops declaring one still compiles - its symbols simply move to
-# the global namespace, one file at a time, which is exactly how the prefixes
-# decayed before anything checked them.
-#
-# WHAT IS NOT LISTED, and why:
-#
-#   hal.hxx   deliberately MANY namespaces - gpio, pwm, spi, i2c, serial, led,
-#             radio, adc, watchdog, timing, board - because it is THE BOARD and
-#             one namespace for the lot would say nothing. They are checked
-#             below as a set.
-#   types.hxx the vocabulary itself. Int32 is not in a module, and putting it in
-#             one would mean writing the namespace on every declaration in the
-#             project.
-#   cal.hxx   generated by the hub, and macros besides - the preprocessor has
-#             finished before C++ has heard of a namespace.
-#   bibo.hxx  the umbrella. Declares nothing.
+# NOT LISTED: hal.hxx (deliberately many namespaces - it is THE BOARD - checked
+# as a set below), types.hxx (the vocabulary itself, not a module), cal.hxx
+# (hub-generated, and macros besides), bibo.hxx (the umbrella, declares nothing).
 MODULE_NAMESPACE = {
     'boot.hxx':     'boot',
     'lights.hxx':   'lights',
@@ -1158,24 +897,18 @@ HAL_NAMESPACES = {'gpio', 'timing', 'serial', 'board', 'pwm', 'servo', 'led',
 print('\n--- namespaces ---')
 ns_bad = 0
 for path in files:
-    # By PATH, not just by name. hub/src/lights.hxx is the hub's own model of
-    # the same lamps and is not in namespace lights - it reported itself missing
-    # a namespace it was never supposed to have.
+    # By PATH, not just by name: hub/src/lights.hxx is the hub's own model of
+    # the same lamps and reported itself missing a namespace it never had.
     if '/firmware/lib' not in path.replace('\\', '/'):
         continue
 
     base = os.path.basename(path)
 
     if base == 'hal.hxx':
-        # `\s*` in front: a namespace inside another namespace is indented now,
-        # so `namespace gpio` sits two columns in. Anchoring at column 0 made
-        # every module in hal.hxx report itself missing the moment the bodies
-        # were indented.
-        # `bibo::gpio` counts as declaring `gpio`. The namespaces concatenated
-        # on 2026-08-31, and this check was still looking for the inner name on
-        # a line of its own - so every module in hal.hxx reported itself missing
-        # the moment the file started spelling them the way the conventions now
-        # ask for. The name after the last `::` is the one being claimed.
+        # `\s*` in front, and `(?:\w+::)*` so `bibo::gpio` counts as declaring
+        # `gpio`: namespace bodies are indented now and the names concatenated
+        # on 2026-08-31. Anchoring at column 0 on a bare inner name made every
+        # module in hal.hxx report itself missing.
         have = set(re.findall(r'^\s*namespace (?:\w+::)*(\w+)\s*$',
                               rd(path), re.M))
         for want in sorted(HAL_NAMESPACES - have):
@@ -1195,37 +928,25 @@ total += ns_bad
 
 total += struct_bad
 
-# ---------------------------------------------------------------------------
-#  Stray files in the repository root
+# Stray files in the repository root. Not a style rule - a DAMAGE rule, and the
+# only one here about the shell rather than about C++.
 #
-#  Not a style rule. A DAMAGE rule, and the only one here that is about the
-#  shell rather than about C++.
+# On 2026-08-31 a 75 GB file called `headOn` was found in the root. Nothing in
+# this repository wrote it: it came from a shell command that printed source
+# text WITHOUT QUOTING it, and the text contained an arrow -
 #
-#  On 2026-08-31 a 75 GB file called `headOn` was found in the root. It was a
-#  10.5 KB block repeated 7.4 million times - a seed doubled twenty-three
-#  times, killed part way through the twenty-fourth. Nothing in this repository
-#  wrote it: all 36 tracked scripts were searched for an append and none has
-#  one. It came from a shell command that printed source text WITHOUT QUOTING
-#  it, and the source text contained an arrow:
+#     grep -rn in->headOn .      the shell reads as
+#     grep -rn in- .  > headOn   pattern `in-`, output redirected
 #
-#      grep -rn in->headOn .      the shell reads this as
-#      grep -rn in- .  > headOn   pattern `in-`, output redirected
+# `>` truncates, so one of those costs nothing; `>>` appends, and a C++ line
+# full of shifts is full of `>>` - `(a >> 11) & 0x1F` appends to a file called
+# `11)`. Fifteen turned up in one day; fourteen were zero bytes, and the
+# fifteenth landed on a name that was also being read and grew.
 #
-#  `in->headOn` is a real expression in cue.hxx. `>` truncates, so one of those
-#  costs nothing; `>>` appends, and a C++ line full of shifts is full of `>>`:
-#
-#      (a >> 11) & 0x1F           appends to a file called `11)`
-#      bits >> row                appends to a file called `row`
-#
-#  Fifteen of these turned up in one day - `11)`, `5u)`, `8)`, `b)`, `LAMP_OFF)`
-#  - and fourteen were zero bytes and harmless. The fifteenth landed on a name
-#  that was also being read, and grew until something interrupted it.
-#
-#  The check is deliberately blunt: NOTHING untracked belongs in the root. A
-#  file here is either committed, ignored, or a mistake. Catching it at zero
-#  bytes is the entire point - the 75 GB one was invisible for hours because
-#  nothing looked, and `git status` shows it in the same undifferentiated `??`
-#  list as a new directory somebody meant to add.
+# So the check is blunt: NOTHING untracked belongs in the root. Catching it at
+# zero bytes is the point - the 75 GB one was invisible for hours because
+# nothing looked, and `git status` buries it in the same `??` list as a new
+# directory somebody meant to add.
 print('\n--- stray files in the repository root ---')
 stray_bad = 0
 try:

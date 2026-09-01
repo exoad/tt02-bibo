@@ -110,15 +110,13 @@ namespace bibo::dfplayer
 #define DFP_EQ_MAX          5u
 
   /*
-   * Where a track lives, which decides which command plays it.
-     *
-     *     mp3/0001.mp3    DFP_CMD_MP3 with 1
-     *     01/001.mp3      DFP_CMD_FOLDER with folder 1, track 1
-     *
-     * The "mp3" folder is the easier of the two and the one to start with: the
-     * name is fixed, the numbering is four digits, and the card can hold up to
-     * 3000 of them.
-     */
+   * Where a track lives decides which command plays it.
+   *
+   *     mp3/0001.mp3    DFP_CMD_MP3 with 1
+   *     01/001.mp3      DFP_CMD_FOLDER with folder 1, track 1
+   *
+   * The "mp3" folder is the one to start with: fixed name, four digits, 3000 max.
+   */
 
   /**
    * @brief How long to wait after DFP_CMD_RESET before sending anything

@@ -1,19 +1,10 @@
 # bibo.exe - the operator hub. MSVC x64.
 #
-# ---------------------------------------------------------------------------
-# build.bat REMAINS THE AUTHORITATIVE BUILD.
-#
-# This file exists so CLion (and clangd, and anything else that reads
-# compile_commands.json) can index the tree, complete a symbol and underline a
-# real error. Without a CMakeLists anywhere, CLion opens this repo as an
-# EMPTY_MODULE and gives you a text editor with syntax colouring and nothing
-# else - which is what it was doing.
-#
-# It produces the same binary as build.bat because it uses the same flags, the
-# same wildcard over src/, the same libraries and the same /MT and /LTCG. Where
-# the two could drift, the comments say which one wins. If you are shipping,
-# run build.bat; if you are reading code, use this.
-# ---------------------------------------------------------------------------
+# build.bat REMAINS THE AUTHORITATIVE BUILD. This file exists so CLion and clangd
+# can index the tree; without a CMakeLists anywhere CLion opens the repo as an
+# EMPTY_MODULE and gives you syntax colouring and nothing else. It produces the
+# same binary because it uses the same flags, wildcard, libraries, /MT and /LTCG.
+# Shipping -> build.bat. Reading code -> this.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -25,7 +16,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Hand this to CLion and to clangd. Cheap, and it is the whole point of the file.
+# Hand this to CLion and clangd - the whole point of the file.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT MSVC)
@@ -38,13 +29,8 @@ endif()
 # mismatch is a wall of LNK2038 "RuntimeLibrary mismatch" errors, not a warning.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-# ---------------------------------------------------------------------------
-# The Slamtec driver. NOT built here.
-#
-# build.bat shells out to msbuild for it when it is missing, and that is the one
-# mechanism. Rebuilding it a second way from CMake would mean two places that
-# can produce a subtly different .lib.
-# ---------------------------------------------------------------------------
+# The Slamtec driver, NOT built here: build.bat shells out to msbuild when it is
+# missing, and a second mechanism would mean two subtly different .libs.
 set(RPLIDAR_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/rplidar_sdk")
 set(RPLIDAR_LIB "${RPLIDAR_SDK}/output/x64/Release/rplidar_driver.lib")
 
@@ -55,15 +41,13 @@ if(NOT EXISTS "${RPLIDAR_LIB}")
             "then this configure will succeed.")
 endif()
 
-# ---------------------------------------------------------------------------
 # Dear ImGui. Listed, not globbed: imgui_demo.cpp is deliberately not built and
 # a wildcard would quietly pull it back in.
-# ---------------------------------------------------------------------------
 set(IMGUI "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui")
 
-# Not vendored into the repo (see .gitignore and the README's pin), so a fresh
-# clone reaches here with the directory missing. Say so plainly: the alternative
-# is six "cannot open source file" errors that do not name the cause.
+# Not vendored (see .gitignore and the README's pin), so a fresh clone arrives
+# here with the directory missing. Say so: the alternative is six "cannot open
+# source file" errors that do not name the cause.
 if(NOT EXISTS "${IMGUI}/imgui.cpp")
     message(FATAL_ERROR
             "Dear ImGui is not present:\n  ${IMGUI}\n"
@@ -84,13 +68,9 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC "${IMGUI}" "${IMGUI}/backends")
 target_compile_definitions(imgui PUBLIC _CRT_SECURE_NO_WARNINGS)
 
-# ---------------------------------------------------------------------------
-# The application.
-#
-# CONFIGURE_DEPENDS so a new .cpp in src/ is picked up without editing this
-# file - which is what build.bat's `src\*.cpp` does, and the property that
-# keeps the two from drifting every time a file is added.
-# ---------------------------------------------------------------------------
+# The application. CONFIGURE_DEPENDS so a new source in src/ is picked up
+# without editing this file - matching build.bat's wildcard, which is what keeps
+# the two from drifting every time a file is added.
 file(GLOB APP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cxx")
 
 if(NOT APP_SOURCES)
@@ -124,9 +104,8 @@ target_link_libraries(bibo PRIVATE
 # emits LNK4075 and restarts the whole link pass.
 target_link_options(bibo PRIVATE /LTCG)
 
-# build.bat pins the entry point explicitly. CMake's WIN32 flag already selects
-# /SUBSYSTEM:WINDOWS and MSVC then picks WinMainCRTStartup on its own, so this
-# is here to say that the omission is deliberate rather than forgotten.
+# No explicit entry point (build.bat pins one): WIN32 already selects
+# /SUBSYSTEM:WINDOWS and MSVC picks WinMainCRTStartup. Deliberate, not forgotten.
 
 # The exe expects assets/ beside it, exactly as build.bat's layout does.
 add_custom_command(TARGET bibo POST_BUILD
@@ -136,13 +115,8 @@ add_custom_command(TARGET bibo POST_BUILD
     COMMENT "Copying assets beside the executable"
 )
 
-# ---------------------------------------------------------------------------
-# The test binaries, so CLion lists and runs them.
-#
-# Same sources the tests\*.bat scripts compile. Those scripts stay the
-# authoritative way to run them from a terminal; this just makes the green
-# arrow in the gutter work.
-# ---------------------------------------------------------------------------
+# The test binaries, so CLion lists and runs them. Same sources the tests\*.bat
+# scripts compile; those stay authoritative from a terminal.
 enable_testing()
 
 function(add_hub_test name)
@@ -169,14 +143,10 @@ add_hub_test(test_lights
 add_hub_test(test_workspace
     tests/test_workspace.cpp src/workspace.cpp)
 
-# ---------------------------------------------------------------------------
-# The two HARDWARE tests. They need a device plugged in, so they are not part of
-# `ctest` - but they still have to be in a target.
-#
-# A source that belongs to NO target gets no include paths and no defines, and
-# the IDE renders every symbol in it unresolved. That is not a smaller problem
-# than a failing build; it is the same problem, discovered later.
-# ---------------------------------------------------------------------------
+# The two HARDWARE tests. They need a device plugged in, so they are excluded
+# from `ctest` - but they still need a target: a source belonging to NO target
+# gets no include paths and no defines, and the IDE shows every symbol in it as
+# unresolved.
 add_hub_test(test_pico_link
     tests/test_pico_link.cpp src/pico_link.cpp)
 
@@ -190,17 +160,13 @@ target_include_directories(test_lidar_source PRIVATE
 target_link_libraries(test_lidar_source PRIVATE "${RPLIDAR_LIB}")
 target_link_options(test_lidar_source PRIVATE /LTCG)
 
-# Hardware tests are not registered with CTest: a green run means "a device
-# answered", and an unplugged machine would report a failure that is about the
-# bench rather than about the code.
+# Disabled in CTest: a green run only means "a device answered", so an unplugged
+# machine would report a failure about the bench rather than the code.
 set_tests_properties(test_pico_link    PROPERTIES DISABLED TRUE)
 set_tests_properties(test_lidar_source PROPERTIES DISABLED TRUE)
 
-# ---------------------------------------------------------------------------
-# board_preview: a standalone harness that renders the Pico board view to a PNG
-# without the rest of the app. Same reason as above - it is a real source and
-# it needs a target.
-# ---------------------------------------------------------------------------
+# board_preview: standalone harness rendering the Pico board view to a PNG
+# without the rest of the app. Targeted for the same reason as above.
 add_executable(board_preview
     tests/board_preview/main.cpp
     src/board_view.cpp

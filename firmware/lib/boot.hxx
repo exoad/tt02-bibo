@@ -1,29 +1,14 @@
 /*
- * ---------------------------------------------------------------------------
- * boot - the eight lines every program started with.
+ * boot - serial::open(), pins::begin(), and something visible when the map is
+ * refused. Every image started with the same eight lines.
  *
- * serial::open(), pins::begin(), and something visible when the map is refused.
- * main.cxx, range-view.cxx and speaker.cxx each wrote their own copy, and the
- * copies had already drifted: two of the three printed a conflict message that
- * was wrong in the out-of-range case, and the three disagreed about what to do
- * afterwards.
+ * Not in pins.hxx: that file has no hardware dependency, which is what lets
+ * firmware/tests compile it on the host and check the conflict logic without a
+ * board. Reaching for serial and led from there would cost that.
  *
- * WHY THIS IS NOT IN pins.hxx
- *
- * pins.hxx has no hardware dependency at all - it is a map, a validator and
- * some names - which is what lets firmware/tests compile it on the host with
- * MSVC and check the conflict logic without a board. Reaching for serial and
- * led from there would cost that, and the test is worth more than the file
- * count.
- *
- * WHY halt() IS SEPARATE FROM begin()
- *
- * Because the right answer differs and both are defensible. A SKETCH should
- * stop: returning from main on a Pico leaves the board powered, silent and
- * indistinguishable from a crash, so speaker.cxx blinks instead and that is
- * the better instinct. The APP keeps going: a car whose lamps are unbound is
+ * halt() is separate from begin() because the right answer differs. A sketch
+ * should stop; the app keeps going, since a car whose lamps are unbound is
  * still a car whose watchdog should run. begin() reports; the caller decides.
- * -------------------------------------------------------------------------
  */
 #pragma once
 

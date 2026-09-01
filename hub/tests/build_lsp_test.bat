@@ -1,15 +1,9 @@
 @echo off
 REM Builds and (with "run") executes the clangd client tests.
-REM
-REM   tests\build_lsp_test.bat        - compile only
-REM   tests\build_lsp_test.bat run    - compile then run
-REM
-REM Talks to the REAL clangd and needs firmware\build\compile_commands.json.
-REM The test SKIPS (exit 0) when either is absent - a missing toolchain is a
-REM fact about the machine, not a defect in the code.
-REM
-REM No ImGui. lsp.cxx is Win32 and nothing else, which is what makes this
-REM runnable from a console at all.
+REM   tests\build_lsp_test.bat [run]   - compile, optionally run
+REM Talks to the REAL clangd and needs firmware\build\compile_commands.json; the
+REM test SKIPS (exit 0) when either is absent - a missing toolchain is a fact
+REM about the machine, not a defect. No ImGui: lsp.cxx is Win32 and nothing else.
 
 setlocal
 set HERE=%~dp0

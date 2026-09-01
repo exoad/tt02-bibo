@@ -1,26 +1,21 @@
 @echo off
-REM Builds lidar_bridge.exe (x64) against the rplidar_sdk driver.
-REM Run from anywhere: bridge\build.bat
+REM Builds lidar_bridge.exe (x64) against the rplidar_sdk driver. Run: bridge\build.bat
 
 setlocal
 set HERE=%~dp0
-REM The SDK lives under vendor/ at the repo root, two levels up from here.
 set ROOT=%HERE%..\..\vendor
 call "%~dp0..\..\tools\find_vs.bat"
 if errorlevel 1 exit /b 1
 set "VS=%VSROOT%"
 
-REM vcvarsall prints a harmless "'vswhere.exe' is not recognized" line when
-REM vswhere is not on PATH; the environment is still set up correctly.
+REM vcvarsall's "'vswhere.exe' is not recognized" line is harmless - env is still set.
 call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
 if errorlevel 1 (
   echo [build] vcvarsall failed
   exit /b 1
 )
 
-REM 1. Build the SDK driver static lib for x64.
-REM    Only the ultra_simple project has the win32/x64 library-path bug, so the
-REM    driver itself builds fine for x64 and we link it ourselves below.
+REM 1. SDK driver static lib for x64 (only ultra_simple has the x64 lib-path bug).
 msbuild "%ROOT%\rplidar_sdk\workspaces\vc14\sdk_and_demo.sln" ^
   -t:rplidar_driver -p:Configuration=Release -p:Platform=x64 -m -v:minimal -nologo
 if errorlevel 1 (

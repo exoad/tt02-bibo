@@ -90,22 +90,11 @@ namespace bibo::sfx
     /*
      * ---- lookup -------------------------------------------------------
      *
-     * CASE-INSENSITIVE, and that is not politeness - it is required.
-     *
-     * The console upper-cases a whole command line before dispatching it,
-     * which is why every keyword in main.cxx is written SHORT, LONG,
-     * RESET. A clip named `horn` in this table therefore arrives as HORN
-     * and a case-sensitive compare misses every single time. Found on the
-     * board: `SOUND PLAY clip2` came back "no clip named CLIP2", which
-     * reads like a missing clip and is actually a missing fold.
-     *
+     * CASE-INSENSITIVE, and that is required, not politeness: the console
+     * upper-cases a whole command line before dispatching, so a clip named
+     * `horn` arrives as HORN and a case-sensitive compare misses every time.
      * Folding here rather than upper-casing the table keeps the names
-     * readable as names. `hazardChirp` says what it is; HAZARDCHIRP is
-     * shouting a filename.
-     *
-     * Whole-string, not a prefix: `horn` must not match `hornLong`. The
-     * test asserts it, because a prefix match is a wrong NOISE rather
-     * than an error, and a wrong noise is found by ear months later.
+     * readable. Whole-string, not a prefix: `horn` must not match `hornLong`.
      */
     /**
      * @brief Compares two names, folding ASCII case and requiring a full

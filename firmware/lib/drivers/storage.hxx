@@ -145,11 +145,7 @@ namespace bibo::sd
     {
         gpio::write(c->cs, true);
 
-        /*
-         * Eight extra clocks with CS high. The specification asks for them and
-         * cards genuinely need them: they are what lets the card finish releasing
-         * the bus before anyone else uses it.
-         */
+        /* Eight extra clocks with CS high, so the card can finish releasing the bus. */
         static_cast<Void>(xfer(c, 0xFF));
     }
 
@@ -248,20 +244,14 @@ namespace bibo::sd
         c->blockAddressed = false;
         c->blocks = 0;
 
-        /*
-         * spi::openFull refuses a MISO pin that cannot carry it, which is the whole
-         * reason it takes MISO at all.
-         */
+        /* spi::openFull refuses a MISO pin that cannot carry it. */
         if(!spi::openFull(sck, mosi, miso, cs, SD_INIT_HZ))
         {
             return false;
         }
 
         /*
-         * At least 74 clocks with CS HIGH, before anything else. This is how a card
-         * is told to wake up, and skipping it is the classic reason a card works on
-         * one board and not another - some cards are more forgiving than others
-         * about how many they have had.
+         * At least 74 clocks with CS HIGH first, or some cards never wake at all.
          */
         gpio::write(cs, true);
         for(Int32 i = 0; i < 10; ++i)
@@ -287,13 +277,7 @@ namespace bibo::sd
             return false;
         }
 
-        /*
-         * ---- CMD8: which specification version? ------------------------------
-         *
-         * 0x1AA asks "are you 2.7-3.6 V, and echo 0xAA back". A v2 card answers and
-         * repeats the pattern; a v1 card rejects the command outright, which is how
-         * the two are told apart.
-         */
+        /* ---- CMD8: 0x1AA asks for 2.7-3.6 V and a 0xAA echo; a v1 card refuses - */
         Bool v2 = false;
         if((command(c, 8, 0x1AAu, 0x87) & 0x04u) == 0u)
         {
@@ -307,10 +291,7 @@ namespace bibo::sd
 
         /*
          * ---- ACMD41: start initialization, and wait for it -------------------
-         *
-         * The HCS bit says "I understand high capacity", which a card needs to hear
-         * before it will admit to being one. This can take a second on a cold card,
-         * so the loop is generous.
+         * HCS says "I understand high capacity". A cold card can take a second.
          */
         const UInt32 hcs = v2 ? 0x40000000u : 0u;
         Bool ready = false;
@@ -330,11 +311,7 @@ namespace bibo::sd
         }
 
         /*
-         * ---- CMD58: read the OCR, for the capacity class ---------------------
-         *
-         * Bit 30 - CCS - is the one that matters: set means the card is addressed
-         * in BLOCKS. Every modern card is. Getting this wrong reads sector 0 for
-         * every request, which looks like a card full of identical data.
+         * ---- CMD58: the OCR. Bit 30, CCS - set means the card is BLOCK addressed.
          */
         c->kind = v2 ? KIND_V2 : KIND_V1;
         if(v2 && command(c, 58, 0, 0x01) == 0x00)
@@ -351,11 +328,7 @@ namespace bibo::sd
             }
         }
 
-        /*
-         * ---- CMD16: 512-byte blocks --------------------------------------------
-         * Only meaningful on a byte-addressed card; harmless on the others, and
-         * sending it unconditionally means one less branch to get wrong.
-         */
+        /* ---- CMD16: 512-byte blocks; only a byte-addressed card cares -------- */
         static_cast<Void>(command(c, 16, SD_BLOCK_SIZE, 0x01));
 
         /* ---- CMD9: the CSD, for capacity ------------------------------------- */
@@ -396,9 +369,7 @@ namespace bibo::sd
                 else
                 {
                     /*
-                     * CSD version 1, on the small old cards. The size is spread
-                     * across three fields and scaled by two exponents, which is
-                     * exactly why version 2 replaced it.
+                     * CSD version 1: size across three fields, two exponents.
                      */
                     const UInt32 cSize = (static_cast<UInt32>(csd[6] & 0x03) << 10)
                                          | (static_cast<UInt32>(csd[7]) << 2)
@@ -415,7 +386,6 @@ namespace bibo::sd
 
         deselect(c);
 
-        /* The handshake is over, so the clock can go up. */
         static_cast<Void>(spi::baud(sck, SD_FAST_HZ));
         return true;
     }
@@ -504,10 +474,7 @@ namespace bibo::sd
             return false;
         }
 
-        /*
-         * The card sends 0xFF until its data is ready, then 0xFE to say "here it
-         * comes". Anything else is an error token and the read has failed.
-         */
+        /* 0xFF until the data is ready, then 0xFE. Anything else is an error token. */
         UInt8 tok = 0xFF;
         for(Int32 i = 0; i < 20000; ++i)
         {
@@ -579,10 +546,7 @@ namespace bibo::sd
         static_cast<Void>(xfer(c, 0xFF));           /* CRC, ignored */
         static_cast<Void>(xfer(c, 0xFF));
 
-        /*
-         * The bottom five bits of the response say whether it was accepted; 0x05
-         * means yes.
-         */
+        /* The bottom five bits of the response are 0x05 when the block was taken. */
         const UInt8 resp = xfer(c, 0xFF);
         if((resp & 0x1Fu) != 0x05u)
         {
