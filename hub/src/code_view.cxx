@@ -442,12 +442,9 @@ namespace ui
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 
-      ImGui::BeginChild(
-          "##code",
-          size,
-          ImGuiChildFlags_None,
-          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs
-      );
+      ImGui::BeginChild("##code", size, ImGuiChildFlags_None,
+                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+                        | ImGuiWindowFlags_NoNavInputs);
 
       const ImVec2  origin = ImGui::GetCursorScreenPos();
       const ImVec2  region = ImGui::GetContentRegionAvail();
@@ -1170,7 +1167,7 @@ namespace ui
                   std::snprintf(
                       head.data(),
                       head.size(),
-                      "%s %d:%d",
+                      "%s  %d:%d",
                       severityName(d.severity),
                       d.line,
                       d.column
@@ -1181,12 +1178,13 @@ namespace ui
                   std::snprintf(
                       head.data(),
                       head.size(),
-                      "%s line %d",
+                      "%s  line %d",
                       severityName(d.severity),
                       d.line
                   );
               }
-              rows.push_back(HoverRow{ Str(head.data()), severityColor(d.severity), true });
+              rows.push_back(HoverRow{ Str(head.data()),
+                                       severityColor(d.severity), true });
 
               Vec<Str> wrapped;
               wrapTo(d.message, HOVER_COLS, wrapped);
@@ -1297,7 +1295,8 @@ namespace ui
               {
                   break;
               }
-              chain.push_back(Step{ cur, it->second.body, it->second.file, it->second.line });
+              chain.push_back(Step{ cur, it->second.body,
+                                    it->second.file, it->second.line });
 
               // A pure rename is one identifier and nothing else.
               const Str& b = it->second.body;
@@ -1339,9 +1338,9 @@ namespace ui
 
               // The answer.
               const Str value = chain.back().body;
-              rows.push_back(
-                  MRow{ v.infoWord + " = " + (value.empty() ? Str("(defined, no value)") : value), syn::gruv::FG1 }
-              );
+              rows.push_back(MRow{ v.infoWord + "  =  "
+                                   + (value.empty() ? Str("(defined, no value)") : value),
+                                   syn::gruv::FG1 });
 
               // The path to it, only when there was one - a macro that resolves
               // in one step is its own tree and drawing it says nothing.
@@ -1356,9 +1355,9 @@ namespace ui
                           indent += "  ";
                       }
                       const Str lead = (i == 0) ? Str() : indent + "\xE2\x94\x94 ";
-                      rows.push_back(
-                          MRow{ lead + chain[i].name + " " + chain[i].body, (i + 1 == chain.size()) ? syn::gruv::FG1 : syn::gruv::GRAY }
-                      );
+                      rows.push_back(MRow{ lead + chain[i].name + "  " + chain[i].body,
+                                           (i + 1 == chain.size()) ? syn::gruv::FG1
+                                                                   : syn::gruv::GRAY });
                   }
               }
 
@@ -1374,7 +1373,8 @@ namespace ui
                       base = base.substr(sl + 1);
                   }
                   rows.push_back(MRow{ Str(), syn::gruv::BG3 });
-                  rows.push_back(MRow{ base + ":" + std::to_string(at.line), syn::gruv::GRAY });
+                  rows.push_back(MRow{ base + ":" + std::to_string(at.line),
+                                       syn::gruv::GRAY });
               }
 
               Float32 wide = 0.0f;
@@ -1459,7 +1459,8 @@ namespace ui
           {
               const Size nl = v.infoAnswer.sig.find('\n', at);
               const Size stop = (nl == Str::npos) ? v.infoAnswer.sig.size() : nl;
-              rows.push_back(InfoRow{ v.infoAnswer.sig.substr(at, stop - at), syn::gruv::FG1 });
+              rows.push_back(InfoRow{ v.infoAnswer.sig.substr(at, stop - at),
+                                      syn::gruv::FG1 });
               if(nl == Str::npos)
               {
                   break;

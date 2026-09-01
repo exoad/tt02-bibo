@@ -1948,9 +1948,8 @@ namespace
 
               const Float32 x0 = c.s0.x + static_cast<Float32>((ix - GRID_HALF)) * cellPx - pad;
 
-              out.push_back(
-                  Cell{ x0, y0, x0 + ext, y0 + ext, ramp.at(t) | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) }
-              );
+              out.push_back(Cell{ x0, y0, x0 + ext, y0 + ext,
+                                  ramp.at(t) | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) });
           }
       }
 
@@ -2149,9 +2148,8 @@ namespace
           const UInt32 a8 =
               static_cast<UInt32>((clampf(0.15f + 0.85f * v, 0.0f, 1.0f) * 255.0f + 0.5f));
 
-          out.push_back(
-              Cell{ x0, y0, x0 + ext, y0 + ext, MOTION_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) }
-          );
+          out.push_back(Cell{ x0, y0, x0 + ext, y0 + ext,
+                              MOTION_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) });
       }
 
       emitCells(c.dl, out.data(), static_cast<Int32>(out.size()), c.uv);
@@ -2796,16 +2794,12 @@ namespace
 
       // Forward reach, on the bearing the car actually points.
       const Int32 fwd = 0;    // bin 0 is centered on bearing 0 + half a bin
-      say(
-          c,
-          "car fits in %.1f m2 of %.1f m2 free (%.0f%%) | %.2f m ahead | " "%d of %d bearings blocked",
-          static_cast<Float64>(fitArea),
-          static_cast<Float64>(freeArea),
+      say(c, "car fits in %.1f m2 of %.1f m2 free (%.0f%%)  |  %.2f m ahead  |  "
+             "%d of %d bearings blocked",
+          static_cast<Float64>(fitArea), static_cast<Float64>(freeArea),
           freeArea > 0.01f ? 100.0 * static_cast<Float64>(fitArea / freeArea) : 0.0,
           static_cast<Float64>(reach[fwd] / 1000.0f),
-          blocked,
-          CLR_BINS
-      );
+          blocked, CLR_BINS);
   }
 
   // ===========================================================================
@@ -3282,7 +3276,7 @@ namespace
           std::snprintf(
               lab.data(),
               lab.size(),
-              "%.2f m %.0fx%.0f",
+              "%.2f m  %.0fx%.0f",
               static_cast<Float64>(o.nearMm / 1000.0f),
               static_cast<Float64>(along),
               static_cast<Float64>(across)
@@ -3452,9 +3446,8 @@ namespace
       taken.clear();
 
       // The sensor's own readouts are not negotiable: they claim space first.
-      taken.push_back(
-          LabelRect{ c.s0.x - 52.0f * c.dpi, c.s0.y - 26.0f * c.dpi, c.s0.x + 96.0f * c.dpi, c.s0.y + 26.0f * c.dpi }
-      );
+      taken.push_back(LabelRect{ c.s0.x - 52.0f * c.dpi, c.s0.y - 26.0f * c.dpi,
+                                 c.s0.x + 96.0f * c.dpi, c.s0.y + 26.0f * c.dpi });
 
       drawCorridor(c, halfWidth, freeAhead, taken);
 
@@ -3480,11 +3473,15 @@ namespace
           order.push_back(i);
       }
 
-      std::sort(
-          order.begin(),
-          order.end(),
-          [&](Int32 a2, Int32 b2) { const Obstacle& x = obstacles[static_cast<Size>(a2)]; const Obstacle& y = obstacles[static_cast<Size>(b2)]; if(x.inPath != y.inPath) { return x.inPath; } return x.nearMm < y.nearMm; }
-      );
+      std::sort(order.begin(), order.end(), [&](Int32 a2, Int32 b2) {
+          const Obstacle& x = obstacles[static_cast<Size>(a2)];
+          const Obstacle& y = obstacles[static_cast<Size>(b2)];
+          if(x.inPath != y.inPath)
+          {
+              return x.inPath;
+          }
+          return x.nearMm < y.nearMm;
+      });
 
       for(Int32 idx : order)
       {
@@ -3671,18 +3668,13 @@ namespace
           c.dl->AddText(f, fs, ImVec2(b.x - pad - w, y), col, rows[i].v);
       }
 
-      say(
-          c,
-          "%d objects (%d in path) | %.2f m ahead | %d in spec of %d | " "clearance %.2f m at %.0f deg | widest gap %.2f m",
-          static_cast<Int32>(obstacles.size()),
-          inPathCount,
+      say(c, "%d objects (%d in path)  |  %.2f m ahead  |  %d in spec of %d  |  "
+             "clearance %.2f m at %.0f deg  |  widest gap %.2f m",
+          static_cast<Int32>(obstacles.size()), inPathCount,
           static_cast<Float64>(freeAhead / 1000.0f),
-          inSpec,
-          total,
-          static_cast<Float64>(minClr / 1000.0f),
-          static_cast<Float64>(minClrDeg),
-          static_cast<Float64>(bestWidth / 1000.0f)
-      );
+          inSpec, total,
+          static_cast<Float64>(minClr / 1000.0f), static_cast<Float64>(minClrDeg),
+          static_cast<Float64>(bestWidth / 1000.0f));
   }
 
   // MapMode::MAP_MODE_MINIMAL. The room as one soft shape, the returns as a
@@ -4182,11 +4174,9 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
             freeR[i] = st.clrSeen[i] ? st.clr[i] : 0.0f;
             seenR[i] = st.clrSeen[i];
         }
-        mapgeo::computeReach(
-            mapgeo::PolarScan{ freeR.data(), seenR.data(), CLR_BINS, CLR_BIN_DEG },
-            EGO_WID_MM * 0.5f + 30.0f,
-            reach.data()
-        );
+        mapgeo::computeReach(mapgeo::PolarScan{ freeR.data(), seenR.data(),
+                                                CLR_BINS, CLR_BIN_DEG },
+                             EGO_WID_MM * 0.5f + 30.0f, reach.data());
         haveReach = true;
     }
 
@@ -4290,11 +4280,10 @@ Void RadarView::draw(const ImVec2& size)
     const ImVec2 p1 = ImVec2(p0.x + sz.x, p0.y + sz.y);
 
     // One hit area owns all three drag buttons, so nothing else can steal a pan.
-    ImGui::InvisibleButton(
-        "##radar_view",
-        sz,
-        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle
-    );
+    ImGui::InvisibleButton("##radar_view", sz,
+                           ImGuiButtonFlags_MouseButtonLeft |
+                           ImGuiButtonFlags_MouseButtonRight |
+                           ImGuiButtonFlags_MouseButtonMiddle);
 
     const Bool hovered = ImGui::IsItemHovered();
     const Bool active = ImGui::IsItemActive();
@@ -4647,12 +4636,9 @@ Void RadarView::draw(const ImVec2& size)
                 );
 
                 // Lit rather than outlined: a halo, the ring, then the core.
-                dl->AddCircleFilled(
-                    np,
-                    13.0f * dpi,
-                    (NEAREST_COL & 0x00FFFFFFu) | (static_cast<ImU32>(30u) << IM_COL32_A_SHIFT),
-                    20
-                );
+                dl->AddCircleFilled(np, 13.0f * dpi,
+                                    (NEAREST_COL & 0x00FFFFFFu)
+                                    | (static_cast<ImU32>(30u) << IM_COL32_A_SHIFT), 20);
                 dl->AddCircle(np, 10.0f * dpi, NEAREST_COL, 20, 1.6f * dpi);
                 dl->AddCircleFilled(np, 2.6f * dpi, NEAREST_COL, 12);
 
@@ -4722,16 +4708,10 @@ Void RadarView::draw(const ImVec2& size)
                 break;
             case GridStyle::GRID_STYLE_RADIAL:
             default:
-                drawGridLabels(
-                    dl,
-                    grid,
-                    Rect{ lab0, lab1 },
-                    Rect{ ImVec2(p0.x + 4.0f * dpi, p0.y + 4.0f * dpi), ImVec2(
-                        p1.x - 4.0f * dpi,
-                        p1.y - 4.0f * dpi
-                    ) },
-                    scale
-                );
+                drawGridLabels(dl, grid, Rect{ lab0, lab1 },
+                               Rect{ ImVec2(p0.x + 4.0f * dpi, p0.y + 4.0f * dpi),
+                                     ImVec2(p1.x - 4.0f * dpi, p1.y - 4.0f * dpi) },
+                               scale);
                 break;
             }
 

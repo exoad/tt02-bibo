@@ -42,7 +42,7 @@ static Void checkStr(const Str& got, const Char* want, const Char* what)
     check(ok, what);
     if(!ok)
     {
-        std::printf(" got \"%s\"\n want \"%s\"\n", got.c_str(), want);
+        std::printf("        got  \"%s\"\n        want \"%s\"\n", got.c_str(), want);
     }
 }
 
@@ -76,7 +76,7 @@ Int32 main()
         check(r.kind == proto::Kind::KIND_OTHER, "an unrecognized line is OTHER, not a fault");
     }
     check(proto::read("").kind == proto::Kind::KIND_EMPTY, "empty is empty");
-    check(proto::read(" \t ").kind == proto::Kind::KIND_EMPTY, "and so is whitespace");
+    check(proto::read("   \t ").kind == proto::Kind::KIND_EMPTY, "and so is whitespace");
 
     // Either line ending, since the transport may hand over either.
     checkStr(proto::read("OK led on\r\n").line, "OK led on", "CRLF is stripped from the kept line");
@@ -102,7 +102,7 @@ Int32 main()
         Int32 v = 0;
         check(proto::fieldInt(line, "esc=", v) && v == 1541, "esc= is not matched inside desc=");
         std::printf(
-            " (strstr would have returned %d here)\n",
+            "        (strstr would have returned %d here)\n",
             std::atoi(std::strstr(line.c_str(), "esc=") + 4)
         );
 

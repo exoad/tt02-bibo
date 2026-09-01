@@ -49,7 +49,7 @@ namespace
       {
           ++failures;
           std::printf(
-              " FAIL %s: got %.3f, want %.3f\n",
+              "  FAIL  %s: got %.3f, want %.3f\n",
               what,
               static_cast<Float64>(got),
               static_cast<Float64>(want)

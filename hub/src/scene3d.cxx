@@ -117,10 +117,9 @@ namespace scene3d
     {
         View v;
         const Float32 cp = std::cos(c.pitch), sp = std::sin(c.pitch);
-        v.eye = add(
-            c.target,
-            Vec3{ c.dist * cp * std::sin(c.yaw), -c.dist * cp * std::cos(c.yaw), c.dist * sp }
-        );
+        v.eye = add(c.target, Vec3{ c.dist * cp * std::sin(c.yaw),
+                                   -c.dist * cp * std::cos(c.yaw),
+                                    c.dist * sp });
 
         v.fwd = norm(sub(c.target, v.eye));
         v.right = norm(cross(v.fwd, Vec3{ 0.0f, 0.0f, 1.0f }));
@@ -389,11 +388,8 @@ namespace scene3d
             const Bool major = (i % 5) == 0;
             const ImU32 col = (i == 0)
                 ? ((ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0xB0u << IM_COL32_A_SHIFT))
-                : (
-                    major ? ((ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0x80u << IM_COL32_A_SHIFT)) : (
-                        (ui::ansi::GRID & 0x00FFFFFFu) | (0xB0u << IM_COL32_A_SHIFT)
-                    )
-                );
+                : (major ? ((ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0x80u << IM_COL32_A_SHIFT))
+                         : ((ui::ansi::GRID       & 0x00FFFFFFu) | (0xB0u << IM_COL32_A_SHIFT)));
             const Float32 w = ((i == 0) ? 1.6f : (major ? 1.3f : 1.0f)) * dpi;
 
             line3(dl, v, Vec3{ t, -far2, 0.0f }, Vec3{ t, far2, 0.0f }, col, w);
@@ -577,16 +573,11 @@ namespace scene3d
         {
             const Float32 a = static_cast<Float32>(b) * (PI_F / 180.0f);
             const Bool fwd = (b == 90);      // +y is forward
-            line3(
-                dl,
-                v,
-                Vec3{ 0.0f, 0.0f, 0.0f },
-                Vec3{ 12000.0f * std::cos(a), 12000.0f * std::sin(a), 0.0f },
-                fwd ? ((ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT)) : (
-                    (ui::ansi::AXIS & 0x00FFFFFFu) | (0xFFu << IM_COL32_A_SHIFT)
-                ),
-                (fwd ? 1.6f : 1.0f) * dpi
-            );
+            line3(dl, v, Vec3{ 0.0f, 0.0f, 0.0f },
+                  Vec3{ 12000.0f * std::cos(a), 12000.0f * std::sin(a), 0.0f },
+                  fwd ? ((ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT))
+                      : ((ui::ansi::AXIS   & 0x00FFFFFFu) | (0xFFu << IM_COL32_A_SHIFT)),
+                  (fwd ? 1.6f : 1.0f) * dpi);
         }
     }
 
@@ -736,7 +727,8 @@ namespace scene3d
                 }
                 if(got == 3)
                 {
-                    faces.push_back(Face{ idx[0], idx[1], idx[2], tex[0], tex[1], tex[2], part });
+                    faces.push_back(Face{ idx[0], idx[1], idx[2],
+                                          tex[0], tex[1], tex[2], part });
                 }
             }
         }
@@ -902,10 +894,10 @@ namespace scene3d
             //        inward-winding triangle would render black.
             //   sky  hemispheric; stops a flat-shaded model looking like paper.
             //   rim  fresnel, separating the silhouette from a dark background.
-            const Vec3 toEye = norm(sub(
-                v.eye,
-                Vec3{ (t.a.x + t.b.x + t.c.x) / 3.0f, (t.a.y + t.b.y + t.c.y) / 3.0f, (t.a.z + t.b.z + t.c.z) / 3.0f }
-            ));
+            const Vec3 toEye = norm(sub(v.eye, Vec3{
+                (t.a.x + t.b.x + t.c.x) / 3.0f,
+                (t.a.y + t.b.y + t.c.y) / 3.0f,
+                (t.a.z + t.b.z + t.c.z) / 3.0f }));
 
             const Float32 key = std::fabs(dot(t.n, LIGHT));
             const Float32 sky = 0.5f + 0.5f * t.n.z;
@@ -1112,51 +1104,31 @@ namespace scene3d
 
         // ---- front ----
         const Float32 fz = hz * 0.30f;
-        drawLamp(
-            v,
-            { .at = Vec3{ -hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f, .facingFront = true, .hue = WHITE, .level = L.headL }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f, .facingFront = true, .hue = WHITE, .level = L.headR }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ -hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f, .facingFront = true, .hue = AMBER, .level = L.indFL }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f, .facingFront = true, .hue = AMBER, .level = L.indFR }
-        );
+        drawLamp(v, { .at = Vec3{ -hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f,
+                     .facingFront = true, .hue = WHITE, .level = L.headL });
+        drawLamp(v, { .at = Vec3{  hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f,
+                     .facingFront = true, .hue = WHITE, .level = L.headR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f,
+                     .facingFront = true, .hue = AMBER, .level = L.indFL });
+        drawLamp(v, { .at = Vec3{  hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f,
+                     .facingFront = true, .hue = AMBER, .level = L.indFR });
 
         // ---- rear ----
         const Float32 rz = hz * 0.42f;
-        drawLamp(
-            v,
-            { .at = Vec3{ -hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f, .facingFront = false, .hue = RED, .level = L.tailL }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f, .facingFront = false, .hue = RED, .level = L.tailR }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ -hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f, .facingFront = false, .hue = AMBER, .level = L.indRL }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f, .facingFront = false, .hue = AMBER, .level = L.indRR }
-        );
+        drawLamp(v, { .at = Vec3{ -hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f,
+                     .facingFront = false, .hue = RED, .level = L.tailL });
+        drawLamp(v, { .at = Vec3{  hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f,
+                     .facingFront = false, .hue = RED, .level = L.tailR });
+        drawLamp(v, { .at = Vec3{ -hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f,
+                     .facingFront = false, .hue = AMBER, .level = L.indRL });
+        drawLamp(v, { .at = Vec3{  hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f,
+                     .facingFront = false, .hue = AMBER, .level = L.indRR });
 
         // Nested inside the indicator housing - small, inboard, low.
-        drawLamp(
-            v,
-            { .at = Vec3{ -hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f, .facingFront = false, .hue = WHITE, .level = L.revL }
-        );
-        drawLamp(
-            v,
-            { .at = Vec3{ hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f, .facingFront = false, .hue = WHITE, .level = L.revR }
-        );
+        drawLamp(v, { .at = Vec3{ -hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f,
+                     .facingFront = false, .hue = WHITE, .level = L.revL });
+        drawLamp(v, { .at = Vec3{  hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f,
+                     .facingFront = false, .hue = WHITE, .level = L.revR });
     }
 
     Void drawSensor(const View& v, Float32 dpi, Float32 atX, Float32 atY, Float32 atZ)
@@ -1680,7 +1652,7 @@ namespace scene3d
           n = drawReturns(v, a, true, &hidden);
           say(
               a,
-              "%d returns as columns%s | %s, orbit %.0f deg, %.1f m out",
+              "%d returns as columns%s  |  %s, orbit %.0f deg, %.1f m out",
               n,
               "",
               lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
@@ -1694,7 +1666,7 @@ namespace scene3d
           drawReturns(v, a, false, &hidden);
           say(
               a,
-              "%d wall%s as panels%s | %s, orbit %.0f deg, %.1f m out",
+              "%d wall%s as panels%s  |  %s, orbit %.0f deg, %.1f m out",
               n,
               n == 1 ? "" : "s",
               "",
@@ -1709,7 +1681,7 @@ namespace scene3d
           n = drawReturns(v, a, false, &hidden);
           say(
               a,
-              "drivable floor from %d returns | %s, orbit %.0f deg, %.1f m out",
+              "drivable floor from %d returns  |  %s, orbit %.0f deg, %.1f m out",
               n,
               lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
               static_cast<Float64>(cam.yaw * 180.0f / PI_F),
@@ -1727,7 +1699,7 @@ namespace scene3d
           n = a.objectN;
           say(
               a,
-              "%d object%s | %.2f m ahead",
+              "%d object%s  |  %.2f m ahead",
               n,
               n == 1 ? "" : "s",
               static_cast<Float64>(a.aheadMm / 1000.0f)
@@ -1740,7 +1712,7 @@ namespace scene3d
           n = drawReturns(v, a, false, &hidden);
           say(
               a,
-              "%d returns%s | %s, orbit %.0f deg, %.1f m out",
+              "%d returns%s  |  %s, orbit %.0f deg, %.1f m out",
               n,
               "",
               lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),

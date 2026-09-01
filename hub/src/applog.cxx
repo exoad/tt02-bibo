@@ -179,7 +179,7 @@ namespace applog
           std::fprintf(file, "%s\n", Str(70, '-').c_str());
           std::fprintf(
               file,
-              "[%8.3f] INFO app session ended\n",
+              "[%8.3f] INFO  app    session ended\n",
               static_cast<Float64>(nowMs() - startTicks) / 1000.0
           );
           std::fclose(file);

@@ -153,7 +153,7 @@ Int32 main(Int32 argc, Char** argv)
         {
             di = src.info();
             std::printf(
-                " device: model=%d fw=%d.%02d hw=%d health=%d\n",
+                "  device: model=%d fw=%d.%02d hw=%d health=%d\n",
                 di.model,
                 di.fwMajor,
                 di.fwMinor,
@@ -206,7 +206,7 @@ Int32 main(Int32 argc, Char** argv)
             if(frames <= 5 || frames % 10 == 0)
             {
                 std::printf(
-                    " frame %3d pts=%4d hz=%5.2f valid=%5.1f%% max=%7.1fmm\n",
+                    "  frame %3d  pts=%4d  hz=%5.2f  valid=%5.1f%%  max=%7.1fmm\n",
                     frames,
                     n,
                     frame.hz,
@@ -245,7 +245,7 @@ Int32 main(Int32 argc, Char** argv)
     Bool drained = src.poll(after);
     Bool repeated = src.poll(after);
     std::printf(
-        " poll() after stop: drained=%s repeated=%s\n",
+        "  poll() after stop: drained=%s repeated=%s\n",
         drained ? "true" : "false",
         repeated ? "true" : "false"
     );
@@ -258,7 +258,7 @@ Int32 main(Int32 argc, Char** argv)
     const Float64 avgValidPct = steady ? validPctSum / steady : 0.0;
 
     std::printf(
-        " ran %.1fs, %d frames total (%d spin-up, %d steady)\n",
+        "  ran %.1fs, %d frames total (%d spin-up, %d steady)\n",
         secs,
         frames,
         frames < SPIN_UP_FRAMES ? frames : SPIN_UP_FRAMES,
@@ -267,14 +267,14 @@ Int32 main(Int32 argc, Char** argv)
     if(warmPtsMax)
     {
         std::printf(
-            " spin-up: points %d..%d, peak hz %.2f (expected, motor accelerating)\n",
+            "  spin-up: points %d..%d, peak hz %.2f (expected, motor accelerating)\n",
             warmPtsMin,
             warmPtsMax,
             warmHzMax
         );
     }
     std::printf(
-        " steady : hz avg %.2f | points avg %.0f (min %d max %d) | valid avg %.1f%%\n",
+        "  steady : hz avg %.2f | points avg %.0f (min %d max %d) | valid avg %.1f%%\n",
         avgHz,
         avgPts,
         steady ? ptsMin : 0,

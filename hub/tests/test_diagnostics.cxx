@@ -48,7 +48,12 @@ namespace
       if(got != want)
       {
           ++failures;
-          std::printf(" FAIL %s\n got \"%s\"\n want \"%s\"\n", what, got.c_str(), want.c_str());
+          std::printf(
+              "  FAIL  %s\n         got  \"%s\"\n         want \"%s\"\n",
+              what,
+              got.c_str(),
+              want.c_str()
+          );
       }
       else
       {
@@ -64,9 +69,8 @@ namespace
 
       // The Windows drive-letter case. This is the whole reason for the parser.
       check(diag::parseLine(
-          "C:/dev/bibo/firmware/src/sketch.c:42:15: " "error: 'foo' undeclared (first use in this function)",
-          it
-      ),
+                "C:/dev/bibo/firmware/src/sketch.c:42:15: "
+                "error: 'foo' undeclared (first use in this function)", it),
             "a path with a drive letter parses");
       checkStr(
           it.file,
@@ -82,10 +86,8 @@ namespace
           "message is everything after the severity"
       );
 
-      check(diag::parseLine(
-          "src/sketch.c:10:5: warning: unused variable 'x' " "[-Wunused-variable]",
-          it
-      ),
+      check(diag::parseLine("src/sketch.c:10:5: warning: unused variable 'x' "
+                            "[-Wunused-variable]", it),
             "a warning parses");
       check(it.severity == diag::Severity::SEVERITY_WARN, "severity is warning");
       check(it.line == 10 && it.column == 5, "line and column");

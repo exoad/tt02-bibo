@@ -161,7 +161,7 @@ Int32 main(Void)
                 {
                     if(bad == 0)
                     {
-                        printf(" first bad: cmd %02X param %04X ack %d\n", cmd, param, ack);
+                        printf("        first bad: cmd %02X param %04X ack %d\n", cmd, param, ack);
                         dump("bad frame", f);
                     }
                     ++bad;

@@ -311,16 +311,16 @@ namespace refdoc
                     else if(ctx.depth >= MAX_INCLUDE_DEPTH)
                     {
                         out.kids.push_back(includeError(
-                            "includes nested more than " + std::to_string(MAX_INCLUDE_DEPTH) + " deep - is a document including itself?",
-                            kid.line
-                        ));
+                            "includes nested more than "
+                                + std::to_string(MAX_INCLUDE_DEPTH)
+                                + " deep - is a document including itself?",
+                            kid.line));
                     }
                     else if(ctx.baseDir.empty())
                     {
                         out.kids.push_back(includeError(
-                            "cannot resolve " + rel + " - this document was parsed" " without a folder to resolve against",
-                            kid.line
-                        ));
+                            "cannot resolve " + rel + " - this document was parsed"
+                            " without a folder to resolve against", kid.line));
                     }
                     else
                     {
@@ -343,9 +343,8 @@ namespace refdoc
                             if(!parseDoc(body, sub2, inner, ierr, iline))
                             {
                                 out.kids.push_back(includeError(
-                                    rel + " line " + std::to_string(iline) + ": " + ierr,
-                                    kid.line
-                                ));
+                                    rel + " line " + std::to_string(iline) + ": "
+                                        + ierr, kid.line));
                             }
                             else
                             {
@@ -1133,9 +1132,8 @@ namespace refdoc
             {
                 if(!colorByName(a.str(1), pen.col))
                 {
-                    errs.push_back(
-                        "line " + std::to_string(lineNo) + ": no color called " + a.str(1)
-                    );
+                    errs.push_back("line " + std::to_string(lineNo)
+                                   + ": no color called " + a.str(1));
                 }
             }
             else if(cmd == "setWidth" && a.count() >= 2)
@@ -1163,9 +1161,8 @@ namespace refdoc
                 }
                 else
                 {
-                    errs.push_back(
-                        "line " + std::to_string(lineNo) + ": setTextAlign wants left, center or right"
-                    );
+                    errs.push_back("line " + std::to_string(lineNo)
+                                   + ": setTextAlign wants left, center or right");
                 }
             }
             else if(cmd == "drawLine" && a.count() >= 5)
@@ -1231,11 +1228,8 @@ namespace refdoc
             else
             {
                 // Named, not swallowed.
-                errs.push_back(
-                    "line " + std::to_string(lineNo) + ": " + (a.count() < 2 ? cmd : (
-                        cmd + " - wrong arguments"
-                    ))
-                );
+                errs.push_back("line " + std::to_string(lineNo) + ": "
+                               + (a.count() < 2 ? cmd : (cmd + " - wrong arguments")));
             }
         }
 
@@ -1288,11 +1282,10 @@ namespace refdoc
         ImGui::Spacing();
 
         // Borders: a column needs an edge for the eye to run down.
-        if(ImGui::BeginTable(
-            "##bdoctable",
-            cols,
-            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp
-        ))
+        if(ImGui::BeginTable("##bdoctable", cols,
+                             ImGuiTableFlags_Borders
+                             | ImGuiTableFlags_RowBg
+                             | ImGuiTableFlags_SizingStretchProp))
         {
             for(const Node& r : n.kids)
             {
@@ -1314,7 +1307,8 @@ namespace refdoc
 
                     const Char* cls = cell.attr("class", "");
                     const ImU32 col = head ? ui::ansi::BRWHITE
-                                           : (cls[0] != '\0' ? classColor(cls) : ui::ansi::WHITE);
+                                           : (cls[0] != '\0' ? classColor(cls)
+                                                             : ui::ansi::WHITE);
 
                     Vec<Run> runs;
                     collect(cell, runs, col, false);
@@ -1351,7 +1345,7 @@ namespace refdoc
                 ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
                 "%s%s%s",
                 pkg,
-                (pkg[0] != '\0' && pitch[0] != '\0') ? " " : "",
+                (pkg[0] != '\0' && pitch[0] != '\0') ? "   " : "",
                 pitch
             );
             ImGui::Spacing();
@@ -1390,7 +1384,7 @@ namespace refdoc
                 const Char* s = c->attr("side", "");
                 ImGui::TextColored(
                     ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                    "%s %s - %s",
+                    "%s  %s - %s",
                     s,
                     c->attr("from", ""),
                     c->attr("to", "")
@@ -1407,7 +1401,7 @@ namespace refdoc
                 const Char* s = c->attr("side", "");
                 ImGui::TextColored(
                     ImGui::ColorConvertU32ToFloat4(ui::ansi::GRAY),
-                    "%s %s - %s",
+                    "%s  %s - %s",
                     s,
                     c->attr("from", ""),
                     c->attr("to", "")
@@ -1623,24 +1617,21 @@ namespace refdoc
         {
             if(std::isupper(static_cast<UInt8>(n.name[0])) == 0)
             {
-                out.push_back(
-                    "element <" + n.name + "> is not PascalCase (line " + std::to_string(n.line) + ")"
-                );
+                out.push_back("element <" + n.name + "> is not PascalCase (line "
+                              + std::to_string(n.line) + ")");
             }
             for(const Attr& a : n.attrs)
             {
                 if(std::isupper(static_cast<UInt8>(a.name[0])) != 0)
                 {
-                    out.push_back(
-                        "attribute " + a.name + " is not camelCase (line " + std::to_string(n.line) + ")"
-                    );
+                    out.push_back("attribute " + a.name + " is not camelCase (line "
+                                  + std::to_string(n.line) + ")");
                 }
             }
             if(n.name == "Pin" && !n.hasAttr("name"))
             {
-                out.push_back(
-                    "a <Pin> with no name attribute (line " + std::to_string(n.line) + ")"
-                );
+                out.push_back("a <Pin> with no name attribute (line "
+                              + std::to_string(n.line) + ")");
             }
         }
         for(const Node& k : n.kids)
@@ -1673,12 +1664,9 @@ namespace refdoc
       // THE COST: the page can be panned entirely out of sight, which looks like
       // a broken renderer. Double-click (below) puts it back.
       // ---------------------------------------------------------------------
-      ImGui::BeginChild(
-          "##bdocpage",
-          size,
-          ImGuiChildFlags_None,
-          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
-      );
+      ImGui::BeginChild("##bdocpage", size, ImGuiChildFlags_None,
+                        ImGuiWindowFlags_NoScrollbar
+                        | ImGuiWindowFlags_NoScrollWithMouse);
 
       const Bool over = ImGui::IsWindowHovered(
           ImGuiHoveredFlags_ChildWindows
