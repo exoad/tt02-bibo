@@ -220,5 +220,21 @@ foreach ($b in $blobs) { $bw.Write($b[1]) }
 
 $bw.Flush(); $bw.Dispose(); $fs.Dispose()
 
+# ---- and the 256 on its own, for the README ----------------------------
+#
+# A browser is not required to render an .ico in an <img>, and the repository
+# front page is the one place where "usually works" is not good enough. This is
+# the SAME byte array already packed into the .ico above, written out a second
+# time rather than re-rendered, so the two cannot drift apart - the failure
+# this file would otherwise invite is a README icon that quietly stops matching
+# the window icon.
+$pngPath = Join-Path $outDir 'bibo.png'
+foreach ($b in $blobs) {
+    if ([int]$b[0] -eq 256) {
+        [System.IO.File]::WriteAllBytes($pngPath, $b[1])
+    }
+}
+
 Write-Output ("wrote {0} ({1} sizes, {2} bytes)" -f $icoPath, $blobs.Count,
               (Get-Item $icoPath).Length)
+Write-Output ("wrote {0} ({1} bytes)" -f $pngPath, (Get-Item $pngPath).Length)
