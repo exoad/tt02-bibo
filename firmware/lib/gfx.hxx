@@ -1106,37 +1106,41 @@ namespace bibo::gfx
       /** @brief Draws a filled triangle. See above. */
       inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, const UInt16 color)
       {
-          Int32 tx = 0;
-          Int32 ty = 0;
-
           /*
            * Three compare-and-swaps is a full sort for three items, and the middle
-       * one is what splits the triangle into its two scanline halves.
-       */
+           * one is what splits the triangle into its two scanline halves.
+           *
+           * The temporaries are declared INSIDE each swap. They used to be two
+           * `Int32 tx = 0;` at the top of the function, reused by all three
+           * blocks - and that zero was never read by anything, because every
+           * use assigns before it reads. Declared here they are const, they
+           * cannot leak a stale value into the next block, and there is no
+           * dead initialiser to wonder about.
+           */
           if(y0 > y1)
           {
-              tx = x0;
+              const Int32 tx = x0;
               x0 = x1;
               x1 = tx;
-              ty = y0;
+              const Int32 ty = y0;
               y0 = y1;
               y1 = ty;
           }
           if(y1 > y2)
           {
-              tx = x1;
+              const Int32 tx = x1;
               x1 = x2;
               x2 = tx;
-              ty = y1;
+              const Int32 ty = y1;
               y1 = y2;
               y2 = ty;
           }
           if(y0 > y1)
           {
-              tx = x0;
+              const Int32 tx = x0;
               x0 = x1;
               x1 = tx;
-              ty = y0;
+              const Int32 ty = y0;
               y0 = y1;
               y1 = ty;
           }
@@ -1370,12 +1374,12 @@ namespace bibo::gfx
        */
       inline Void printf(Canvas* cv, const Utf8* fmt, ...)
       {
-          Utf8    buf[64];
+          Utf8    text[64];
           va_list ap;
           va_start(ap, fmt);
-          vsnprintf(buf, sizeof(buf), fmt, ap);
+          vsnprintf(text, sizeof(text), fmt, ap);
           va_end(ap);
-          print(cv, buf);
+          print(cv, text);
       }
 
       /*
@@ -1593,14 +1597,14 @@ namespace bibo::gfx
 
     inline Canvas& Canvas::printf(const Point at, const Paint& paint, const Utf8* fmt, ...)
     {
-        Utf8    buf[64];
+        Utf8    text[64];
         va_list ap;
         va_start(ap, fmt);
-        vsnprintf(buf, sizeof(buf), fmt, ap);
+        vsnprintf(text, sizeof(text), fmt, ap);
         va_end(ap);
 
         applyPaint(this, paint);
-        detail::textAt(this, at.x, at.y, buf);
+        detail::textAt(this, at.x, at.y, text);
         return *this;
     }
 

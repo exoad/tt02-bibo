@@ -575,7 +575,7 @@ namespace bibo::tof
      * @param v the sensor to start; must have opened successfully
      * @return true once the start command has been written
      */
-    [[nodiscard]] static Bool startRanging(Vl53* v)
+    [[nodiscard]] static Bool startRanging(const Vl53* v)
     {
         return v->ok
                && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
@@ -587,7 +587,7 @@ namespace bibo::tof
      * @param v the sensor to stop; must have opened successfully
      * @return true once the stop command has been written
      */
-    [[nodiscard]] static Bool stopRanging(Vl53* v)
+    [[nodiscard]] static Bool stopRanging(const Vl53* v)
     {
         return v->ok
                && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
@@ -627,7 +627,7 @@ namespace bibo::tof
      * @param v the sensor to arm; must have opened successfully
      * @return true once the clear-interrupt command has been written
      */
-    inline Bool clear(Vl53* v)
+    inline Bool clear(const Vl53* v)
     {
         return v->ok
                && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);

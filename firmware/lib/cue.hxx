@@ -942,7 +942,14 @@ namespace bibo::cue
     inline Void compose(const UInt64 now, lights::Set* out)
     {
         lights::clear(out);
-        UInt8 tone = TONE_NONE;
+
+        /*
+         * `want`, not `tone`. cue::tone() below is the accessor for exactly
+         * this value, and a local of the same name shadows it - so a later
+         * edit inside this function that meant to CALL it would silently read
+         * the half-built local instead.
+         */
+        UInt8 want = TONE_NONE;
 
         for(Int32 k = 1; k < KIND_COUNT; ++k)
         {
@@ -974,11 +981,11 @@ namespace bibo::cue
 
             if(st->tone != TONE_NONE)
             {
-                tone = st->tone;
+                want = st->tone;
             }
         }
 
-        soundWrite(tone);
+        soundWrite(want);
     }
 
     /**
