@@ -781,7 +781,7 @@ Void PicoFlash::refreshBoard()
             pimpl().logf(
                 "[board] BOOTSEL on %s%s%s",
                 b.drive.c_str(),
-                b.program.empty() ? "" : " running: ",
+                b.program.empty() ? "" : "  running: ",
                 b.program.c_str()
             );
         }

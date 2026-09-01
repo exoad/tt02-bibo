@@ -134,7 +134,7 @@ namespace rec
           f,
           "# angle = centidegree delta from the previous point (first from 0)\n"
       ) > 0;
-      ok = ok && std::fprintf(f, "# dist = whole millimeters, 0 = no return on that bearing\n") > 0;
+      ok = ok && std::fprintf(f, "# dist  = whole millimeters, 0 = no return on that bearing\n") > 0;
       ok = ok && std::fprintf(f, "# t     = milliseconds from the start\n") > 0;
       ok = ok && std::fprintf(f, "# revolutions %zu\n", revs.size()) > 0;
 

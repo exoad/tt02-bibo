@@ -123,7 +123,7 @@ Int32 main(Void)
             if(sfx::CLIPS[a].track == sfx::CLIPS[b].track)
             {
                 printf(
-                    " note: %s and %s are both track %u\n",
+                    "        note: %s and %s are both track %u\n",
                     sfx::CLIPS[a].name,
                     sfx::CLIPS[b].name,
                     static_cast<UInt32>(sfx::CLIPS[a].track)

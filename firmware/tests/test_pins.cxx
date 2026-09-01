@@ -60,7 +60,7 @@ Int32 main(Void)
     check(!pins::begin(bad), "two roles on one pad is refused");
     check(pins::conflictPin() == 14, "the clashing pad is reported");
     printf(
-        " refused: %s and %s both want GP%d\n",
+        "        refused: %s and %s both want GP%d\n",
         pins::conflictFirst(),
         pins::conflictSecond(),
         pins::conflictPin()

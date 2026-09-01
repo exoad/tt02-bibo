@@ -43,7 +43,12 @@ namespace
       else
       {
           ++failures;
-          std::printf(" FAIL %s\n got \"%s\"\n want \"%s\"\n", what, got.c_str(), want.c_str());
+          std::printf(
+              "  FAIL  %s\n         got  \"%s\"\n         want \"%s\"\n",
+              what,
+              got.c_str(),
+              want.c_str()
+          );
       }
   }
 
@@ -86,7 +91,7 @@ namespace
       check(!dev::portPresent(""), "an empty port name is not present");
 
       const Vec<Str> ports = dev::listPorts();
-      std::printf(" .. %d serial port(s) on this machine\n", static_cast<Int32>(ports.size()));
+      std::printf("  ..    %d serial port(s) on this machine\n", static_cast<Int32>(ports.size()));
 
       // Whatever IS enumerated must be reported as present, including in the
       // other case - the settings file and the enumeration disagree about

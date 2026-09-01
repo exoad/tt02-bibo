@@ -131,7 +131,7 @@ namespace
 
       // The case that would ruin every table in the tree if it fired.
       check(
-          count(" { Icon::ICON_RADAR, \"radar\" },") == 0,
+          count("    { Icon::ICON_RADAR, \"radar\" },") == 0,
           "an aggregate ROW is data, not a body"
       );
       check(count("    { 1, 2, 3 },") == 0, "a plain initializer row is fine");
@@ -215,7 +215,7 @@ namespace
       {
           for(const diag::Item& d : v)
           {
-              std::printf(" line %d col %d: %s\n", d.line, d.column, d.message.c_str());
+              std::printf("        line %d col %d: %s\n", d.line, d.column, d.message.c_str());
           }
       }
       check(v.empty(), "a conforming file produces NO diagnostics");

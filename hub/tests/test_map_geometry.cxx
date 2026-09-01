@@ -48,7 +48,7 @@ namespace
       {
           ++failures;
           std::printf(
-              " FAIL %s: got %.3f, want %.3f +/- %.3f\n",
+              "  FAIL  %s: got %.3f, want %.3f +/- %.3f\n",
               what,
               static_cast<Float64>(got),
               static_cast<Float64>(want),
@@ -221,7 +221,7 @@ namespace
           out.data()
       );
       check(out[0] < 1100.0f, "a 150 mm slot blocks a 190 mm car");
-      std::printf(" reach through the slot = %.0f mm\n", static_cast<Float64>(out[0]));
+      std::printf("        reach through the slot = %.0f mm\n", static_cast<Float64>(out[0]));
 
       // A narrow car fits through the same slot.
       mapgeo::computeReach(
@@ -230,7 +230,7 @@ namespace
           out.data()
       );
       check(out[0] > 2000.0f, "an 80 mm car passes the same slot");
-      std::printf(" reach for the narrow car = %.0f mm\n", static_cast<Float64>(out[0]));
+      std::printf("        reach for the narrow car = %.0f mm\n", static_cast<Float64>(out[0]));
 
       // Reach can never exceed the raw clearance on its own bearing.
       for(Int32 i = 0; i < BINS; ++i) { clr[i] = 500.0f + static_cast<Float32>(i) * 20.0f;

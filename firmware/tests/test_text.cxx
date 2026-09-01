@@ -204,7 +204,7 @@ static Void testTwoInts(Void)
 
     check(bibo::text::twoInts("1230 1670", &lo, &hi) && lo == 1230 && hi == 1670, "two numbers");
     check(
-        bibo::text::twoInts("1230 1670", &lo, &hi) && lo == 1230 && hi == 1670,
+        bibo::text::twoInts("1230    1670", &lo, &hi) && lo == 1230 && hi == 1670,
         "any amount of space between"
     );
     check(bibo::text::twoInts("-10 10", &lo, &hi) && lo == -10 && hi == 10, "negatives");

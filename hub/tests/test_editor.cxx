@@ -54,7 +54,12 @@ namespace
       if(got != want)
       {
           ++failures;
-          std::printf(" FAIL %s\n got \"%s\"\n want \"%s\"\n", what, got.c_str(), want.c_str());
+          std::printf(
+              "  FAIL  %s\n         got  \"%s\"\n         want \"%s\"\n",
+              what,
+              got.c_str(),
+              want.c_str()
+          );
       }
       else
       {
@@ -954,7 +959,11 @@ Void testIndentAndCase()
         e.setText("x\n\ny");
         e.setCursor(0, 0);
         type(e, "3>>");
-        checkStr(e.text(), " x\n\n y", "a blank line is left blank rather than filled with spaces");
+        checkStr(
+            e.text(),
+            "    x\n\n    y",
+            "a blank line is left blank rather than filled with spaces"
+        );
     }
 
     {

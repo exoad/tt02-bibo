@@ -121,10 +121,113 @@ def blank_noise(text):
     return ''.join(out)
 
 
+def collapse(text):
+    """Whitespace runs to one space - OUTSIDE string and char literals only.
+
+    THE BUG THIS EXISTS TO PREVENT, because it already happened once. A plain
+    re.sub(r'\\s+', ' ') over an argument list rewrites the CONTENTS of every
+    literal in it, so
+
+        std::printf("  FAIL  %s: got %.3f\\n", what, got)
+
+    came back as "` FAIL %s...`" - two spaces to one, in output that four test
+    suites assert on exactly. It reached 24 files before a test caught it.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    st = 'code'
+    pending = False
+    while i < n:
+        c = text[i]
+        if st == 'code':
+            if c == '"' or c == "'":
+                if pending:
+                    out.append(' ')
+                    pending = False
+                st = 'str' if c == '"' else 'chr'
+                out.append(c)
+                i += 1
+                continue
+            if c.isspace():
+                pending = bool(out)
+                i += 1
+                continue
+            if pending:
+                out.append(' ')
+                pending = False
+            out.append(c)
+            i += 1
+            continue
+
+        out.append(c)
+        if c == '\\':
+            if i + 1 < n:
+                out.append(text[i + 1])
+            i += 2
+            continue
+        if (st == 'str' and c == '"') or (st == 'chr' and c == "'"):
+            st = 'code'
+        i += 1
+    return ''.join(out)
+
+
 def tokens(text):
-    t = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
-    t = re.sub(r'//[^\n]*', '', t)
-    return re.sub(r'\s+', '', t)
+    """A normal form that IGNORES layout and RESPECTS literals.
+
+    The first version of this collapsed all whitespace including a literal's
+    contents, which made it blind to exactly the damage the formatter was
+    capable of doing. A check that cannot fail on the tool's own worst bug is
+    not a check.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    st = 'code'
+    while i < n:
+        c = text[i]
+        nx = text[i + 1] if i + 1 < n else ''
+        if st == 'code':
+            if c == '/' and nx == '/':
+                st = 'line'
+                i += 2
+                continue
+            if c == '/' and nx == '*':
+                st = 'block'
+                i += 2
+                continue
+            if c == '"' or c == "'":
+                st = 'str' if c == '"' else 'chr'
+                out.append(c)
+                i += 1
+                continue
+            if not c.isspace():
+                out.append(c)
+            i += 1
+            continue
+        if st == 'line':
+            if c == '\n':
+                st = 'code'
+            i += 1
+            continue
+        if st == 'block':
+            if c == '*' and nx == '/':
+                st = 'code'
+                i += 2
+                continue
+            i += 1
+            continue
+
+        out.append(c)
+        if c == '\\':
+            if i + 1 < n:
+                out.append(text[i + 1])
+            i += 2
+            continue
+        if (st == 'str' and c == '"') or (st == 'chr' and c == "'"):
+            st = 'code'
+        i += 1
+    return ''.join(out)
 
 
 def scan(text):
@@ -206,7 +309,7 @@ def shape(text, call, line_of, starts):
     args = len(seps)
 
     head = lines[ln][:op - starts[ln]]
-    body = re.sub(r'\s+', ' ', text[op + 1:cl]).strip()
+    body = collapse(text[op + 1:cl]).strip()
     flat = head + '(' + body + ')'
     cols = len(flat) + 1                 # the ; that usually follows
 
@@ -223,7 +326,7 @@ def shape(text, call, line_of, starts):
         for a in range(len(seps)):
             s = seps[a] + 1
             e2 = seps[a + 1] if a + 1 < len(seps) else cl
-            want_lines.append(re.sub(r'\s+', ' ', text[s:e2]).strip())
+            want_lines.append(collapse(text[s:e2]).strip())
         if any(p == '' for p in want_lines):
             return None
         new = head + '(\n' + ',\n'.join(pad + p for p in want_lines) \
@@ -241,7 +344,7 @@ def shape(text, call, line_of, starts):
     for a in range(len(seps)):
         s = seps[a] + 1
         e2 = seps[a + 1] if a + 1 < len(seps) else cl
-        parts.append(re.sub(r'\s+', ' ', text[s:e2]).strip())
+        parts.append(collapse(text[s:e2]).strip())
     if any(p == '' for p in parts):
         return None
     new = head + '(\n' + ',\n'.join(pad + p for p in parts) \
@@ -376,23 +479,42 @@ def run():
     text = raw.replace('\r\n', '\n')
 
     if APPLY:
-        guard = 0
-        while guard < 2000:
-            guard += 1
+        # ONE SCAN PER ROUND, edits applied BACK TO FRONT.
+        #
+        # Rewriting one call and rescanning the whole file is O(file) per edit,
+        # and app_ui.cxx alone had 338 of them - the loop did not finish in
+        # seven minutes. Applying from the end means every earlier offset is
+        # still valid, so a round costs one scan.
+        #
+        # Overlapping edits are dropped rather than merged: a call nested
+        # inside another produces two spans covering the same text, and
+        # applying both would write the inner one into a region the outer had
+        # already replaced. The outer wins this round, the inner is found by
+        # the next.
+        for _round in range(6):
             calls, line_of, starts = scan(text)
-            hit = None
+
+            edits = []
             for c in calls:
-                if nested_multiline(c, calls, line_of)                    or multiline_argument(text, c, line_of):
+                if nested_multiline(c, calls, line_of) \
+                   or multiline_argument(text, c, line_of):
                     continue
                 s = shape(text, c, line_of, starts)
-                if s is not None:
-                    hit = (c, s)
-                    break
-            if hit is None:
+                if s is None:
+                    continue
+                op, cl, _seps, ln, _ind = c
+                edits.append((starts[ln], cl + 1, s[1]))
+
+            if not edits:
                 break
-            (c, (kind, new, _ln, _w, _a)) = hit
-            op, cl, _seps, ln, _ind = c
-            text = text[:starts[ln]] + new + text[cl + 1:]
+
+            edits.sort(key=lambda e: e[0], reverse=True)
+            claimed = None
+            for (a, b, new) in edits:
+                if claimed is not None and b > claimed:
+                    continue        # overlaps one already applied this round
+                text = text[:a] + new + text[b:]
+                claimed = a
 
         text, eq = unpad_equals(text)
         eqfixed += eq

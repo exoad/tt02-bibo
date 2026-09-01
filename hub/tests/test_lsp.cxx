@@ -178,7 +178,8 @@ Int32 main()
     const Str root = PicoFlash::repoRoot();
     if(root.empty())
     {
-        std::printf(" SKIP could not find the repository root above this" " executable\n\n");
+        std::printf("  SKIP  could not find the repository root above this"
+                    " executable\n\n");
         return 0;
     }
     std::printf("  root  %s\n\n", root.c_str());
@@ -188,9 +189,8 @@ Int32 main()
 
     if(readFile(ccj).empty())
     {
-        std::printf(
-            " SKIP no firmware\\build\\compile_commands.json" " - run firmware\\build.bat once\n\n"
-        );
+        std::printf("  SKIP  no firmware\\build\\compile_commands.json"
+                    " - run firmware\\build.bat once\n\n");
         return 0;
     }
 
@@ -307,7 +307,7 @@ Int32 main()
     check(!got.items.empty(), "and the answer has items in it");
     check(got.line == nsLine && got.col == nsCol, "tagged with the position it was asked about");
 
-    std::printf(" %d item(s) at dfplayer::\n", static_cast<Int32>(got.items.size()));
+    std::printf("        %d item(s) at dfplayer::\n", static_cast<Int32>(got.items.size()));
 
     // The decoration character is the trap. clangd's `label` starts with a
     // non-ASCII bullet, and inserting a label verbatim puts that bullet in the
@@ -345,7 +345,7 @@ Int32 main()
     for(Size i = 0; i < got.items.size() && i < 6; ++i)
     {
         std::printf(
-            " %-22s %-34s\n",
+            "          %-22s %-34s\n",
             got.items[i].name.substr(0, 22).c_str(),
             got.items[i].detail.substr(0, 34).c_str()
         );
@@ -402,12 +402,11 @@ Int32 main()
 
         if(got2)
         {
-            std::printf(" %d item(s) at { .so\n", static_cast<Int32>(fields.items.size()));
+            std::printf("        %d item(s) at { .so\n", static_cast<Int32>(fields.items.size()));
 
-            check(
-                has(fields, "soundTx") && has(fields, "soundRx") && has(fields, "soundBusy"),
-                "designated initializer fields, from an unsaved edit"
-            );
+            check(has(fields, "soundTx") && has(fields, "soundRx")
+                  && has(fields, "soundBusy"),
+                  "designated initializer fields, from an unsaved edit");
 
             Bool anyField = false;
             for(const lsp::Item& it : fields.items)
@@ -423,7 +422,7 @@ Int32 main()
             for(Size i = 0; i < fields.items.size() && i < 6; ++i)
             {
                 std::printf(
-                    " %-22s %-34s\n",
+                    "          %-22s %-34s\n",
                     fields.items[i].name.substr(0, 22).c_str(),
                     fields.items[i].detail.substr(0, 34).c_str()
                 );
