@@ -36,6 +36,12 @@ using namespace bibo;
 static Int32 failures = 0;
 static Int32 checks   = 0;
 
+/**
+ * @brief Records a pass/fail check and prints its outcome.
+ *
+ * @param ok true if the property being checked held
+ * @param what the description printed alongside the outcome
+ */
 static Void check(Bool ok, CharSeq what)
 {
     ++checks;
@@ -50,17 +56,22 @@ static Void check(Bool ok, CharSeq what)
     }
 }
 
-/*
- * Bytes 1..6 plus the checksum, as 16-bit. Zero for a well-formed frame.
+/**
+ * @brief Bytes 1..6 plus the checksum word, summed as 16-bit.
  *
- * THE CHECKSUM IS ONE BIG-ENDIAN WORD, not two bytes, and this function got
- * that wrong on its first draft - it added f[7] and f[8] separately, which
- * gave 0x02FE for a frame that is perfectly correct. 0xFE + 0xE8 is 486;
- * 0xFEE8 is 65256, and only the second one cancels a sum of 280 in 16 bits.
+ * @param f the ten-byte frame to check
+ * @return zero for a well-formed frame, a nonzero residue otherwise
  *
- * Reading the checksum as a word is also what keeps this honest about byte
- * ORDER: swapping SUM_HI and SUM_LO produces a different word and a non-zero
- * residue, where a byte-wise sum would happily accept either arrangement.
+ * @note THE CHECKSUM IS ONE BIG-ENDIAN WORD, not two bytes, and this
+ *       function got that wrong on its first draft - it added f[7] and
+ *       f[8] separately, which gave 0x02FE for a frame that is perfectly
+ *       correct. 0xFE + 0xE8 is 486; 0xFEE8 is 65256, and only the second
+ *       one cancels a sum of 280 in 16 bits.
+ *
+ *       Reading the checksum as a word is also what keeps this honest
+ *       about byte ORDER: swapping SUM_HI and SUM_LO produces a different
+ *       word and a non-zero residue, where a byte-wise sum would happily
+ *       accept either arrangement.
  */
 static UInt16 residue(const UInt8* f)
 {
@@ -75,6 +86,12 @@ static UInt16 residue(const UInt8* f)
     return static_cast<UInt16>(sum + chk);
 }
 
+/**
+ * @brief Prints a frame's bytes in hex, alongside its checksum residue.
+ *
+ * @param label text printed before the bytes, identifying which frame this is
+ * @param f the ten-byte frame to print
+ */
 static Void dump(CharSeq label, const UInt8* f)
 {
     printf("        %s: ", label);
@@ -85,6 +102,11 @@ static Void dump(CharSeq label, const UInt8* f)
     printf(" (residue %04X)\n", residue(f));
 }
 
+/**
+ * @brief Runs every DFPlayer frame-checksum check and reports the pass/fail count.
+ *
+ * @return 0 if every check passed, 1 if any failed
+ */
 Int32 main(Void)
 {
     UInt8 f[10];
