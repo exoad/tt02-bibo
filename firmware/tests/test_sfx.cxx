@@ -62,17 +62,17 @@ Int32 main(Void)
 
     /* ---- every clip is usable ------------------------------------------- */
     Int32 badTrack = 0;
-    for(Size i = 0; i < sfx::COUNT; ++i)
+    for(const sfx::Clip& clip : sfx::CLIPS)
     {
-        if(sfx::CLIPS[i].track == sfx::NONE)
+        if(clip.track == sfx::NONE)
         {
             ++badTrack;
         }
-        if(sfx::CLIPS[i].name == nullptr || sfx::CLIPS[i].name[0] == '\0')
+        if(clip.name == nullptr || clip.name[0] == '\0')
         {
             ++badTrack;
         }
-        if(sfx::CLIPS[i].means == nullptr || sfx::CLIPS[i].means[0] == '\0')
+        if(clip.means == nullptr || clip.means[0] == '\0')
         {
             ++badTrack;
         }
@@ -91,6 +91,17 @@ Int32 main(Void)
     {
         for(Size b = a + 1; b < sfx::COUNT; ++b)
         {
+            /*
+             * strcmp is declared nonnull on both arguments and a null here is
+             * undefined behaviour, not a failed comparison. The check above
+             * has already counted any clip with a null name, so skipping is
+             * not hiding anything - it stops ONE bad entry from turning a
+             * reported failure into a crash that reports nothing.
+             */
+            if(sfx::CLIPS[a].name == nullptr || sfx::CLIPS[b].name == nullptr)
+            {
+                continue;
+            }
             if(strcmp(sfx::CLIPS[a].name, sfx::CLIPS[b].name) == 0)
             {
                 printf("        %s is defined twice\n", sfx::CLIPS[a].name);
@@ -122,9 +133,9 @@ Int32 main(Void)
 
     /* ---- lookup round-trips --------------------------------------------- */
     Int32 lost = 0;
-    for(Size i = 0; i < sfx::COUNT; ++i)
+    for(const sfx::Clip& clip : sfx::CLIPS)
     {
-        if(sfx::track(sfx::CLIPS[i].name) != sfx::CLIPS[i].track)
+        if(sfx::track(clip.name) != clip.track)
         {
             ++lost;
         }
@@ -163,9 +174,9 @@ Int32 main(Void)
      * The table check above already rejects it; this states why.
      */
     Int32 zero = 0;
-    for(Size i = 0; i < sfx::COUNT; ++i)
+    for(const sfx::Clip& clip : sfx::CLIPS)
     {
-        if(sfx::CLIPS[i].track == 0u)
+        if(clip.track == 0u)
         {
             ++zero;
         }
@@ -175,11 +186,11 @@ Int32 main(Void)
 
     /* ---- highest() is what the card is checked against ------------------- */
     UInt16 top = 0;
-    for(Size i = 0; i < sfx::COUNT; ++i)
+    for(const sfx::Clip& clip : sfx::CLIPS)
     {
-        if(sfx::CLIPS[i].track > top)
+        if(clip.track > top)
         {
-            top = sfx::CLIPS[i].track;
+            top = clip.track;
         }
     }
     check(sfx::highest() == top, "highest() is the largest track in the table");

@@ -45,6 +45,19 @@ jobs:
           path: vendor/rplidar_sdk
           submodules: recursive
 
+      # hub/third_party/ is gitignored too, so imgui is not in the checkout
+      # either - build.bat compiles imgui.cpp and the win32/dx11 backends from
+      # here. PINNED to the version the desk builds against: imgui.h carries
+      # IMGUI_VERSION and the hub tracks 1.92.x specifically, where
+      # SetWindowFontScale was removed. Floating this would make an upstream
+      # release a change to this repository that nobody made.
+      - name: dear imgui
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: v1.92.9
+          path: hub/third_party/imgui
+
       - name: which Visual Studio
         shell: cmd
         run: |

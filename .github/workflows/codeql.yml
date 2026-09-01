@@ -30,6 +30,10 @@ on:
 permissions:
   contents: read
   security-events: write
+  # The analyze step asks the API about its own workflow run when it uploads.
+  # Without this it does the whole analysis, exports the SARIF, and THEN dies
+  # with "Resource not accessible by integration" - a green scan and a red job.
+  actions: read
 
 jobs:
   analyse:

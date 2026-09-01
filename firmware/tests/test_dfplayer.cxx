@@ -81,8 +81,8 @@ static UInt16 residue(const UInt8* f)
         sum = static_cast<UInt16>(sum + f[i]);
     }
 
-    const UInt16 chk = static_cast<UInt16>((static_cast<UInt16>(f[7]) << 8)
-                                           | f[8]);
+    const UInt16 chk = static_cast<UInt16>((static_cast<UInt32>(f[7]) << 8u)
+                                           | static_cast<UInt32>(f[8]));
     return static_cast<UInt16>(sum + chk);
 }
 
@@ -150,19 +150,19 @@ Int32 main(Void)
                               0x7FFFu, 0xFF00u, 0xFFFFu };
 
     Int32 bad = 0;
-    for(Size c = 0; c < sizeof(CMDS) / sizeof(CMDS[0]); ++c)
+    for(const UInt8 cmd : CMDS)
     {
-        for(Size p = 0; p < sizeof(PARAMS) / sizeof(PARAMS[0]); ++p)
+        for(const UInt16 param : PARAMS)
         {
             for(UInt8 ack = 0; ack <= 1; ++ack)
             {
-                dfplayer::frame(f, CMDS[c], ack, PARAMS[p]);
+                dfplayer::frame(f, cmd, ack, param);
                 if(residue(f) != 0u)
                 {
                     if(bad == 0)
                     {
                         printf("        first bad: cmd %02X param %04X ack %d\n",
-                               CMDS[c], PARAMS[p], ack);
+                               cmd, param, ack);
                         dump("bad frame", f);
                     }
                     ++bad;
