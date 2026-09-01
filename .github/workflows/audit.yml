@@ -1,0 +1,32 @@
+# The style audit, which is also the stray-file guard.
+#
+# Cheapest job here by a wide margin - Python and a git query, no compiler - so
+# it runs first and on everything. It is the one that catches a 75 GB file in
+# the repository root, which happened on 2026-08-31 and was invisible for hours
+# because `git status` lists a stray in the same `??` column as a directory
+# somebody meant to add.
+name: audit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The audit asks git for untracked files, so it needs a real checkout
+      # rather than an export. actions/checkout gives one.
+      - name: style audit
+        run: python hub/tools/style_audit.py

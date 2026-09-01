@@ -1,0 +1,65 @@
+# CodeQL, the vulnerability scanner proper.
+#
+# WHAT IT ACTUALLY SEES, which is not "the project". CodeQL for C++ analyses
+# what a build COMPILES, so its coverage is exactly the coverage of the build
+# command below: the seven host suites, and through them every header in
+# firmware/lib they include - text, pins, control, pursuit, chassis, cue, sfx,
+# the DFPlayer protocol. That is the parsing, the arithmetic and the buffer
+# handling, which is where a memory bug in this project would be.
+#
+# NOT covered, and worth knowing rather than assuming: hub/src, which needs MSVC
+# and D3D11 and would have to run on a Windows runner, and the parts of
+# firmware/lib that only compile for arm-none-eabi. Adding hub/src is a separate
+# job, not a flag on this one.
+#
+# build-mode: manual because autobuild would find the root CMakeLists, try to
+# configure the Windows project on Linux, and fail - or worse, half-succeed and
+# analyse a fraction of the tree while reporting success.
+name: codeql
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Weekly, because the database of what counts as a vulnerability changes
+    # even when this repository does not.
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
+          # security-and-quality is a superset of the default: it adds the
+          # quality queries, which is where the uninitialised-value and
+          # dead-store findings live.
+          queries: security-and-quality
+
+      # -O0 -g: optimisation can delete the very code path a query is looking
+      # for, and CodeQL wants the source relationships rather than fast objects.
+      - name: build what is being analysed
+        run: |
+          set -eu
+          mkdir -p out
+          for src in firmware/tests/test_*.cxx; do
+            name=$(basename "$src" .cxx)
+            defs=""
+            if [ "$name" = "test_chassis" ]; then defs="-DBIBO_FAKE_HAL"; fi
+            g++ -std=c++20 -O0 -g $defs -I firmware/lib -o "out/$name" "$src"
+          done
+          ls -1 out | sed 's/^/  compiled /'
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:c-cpp
