@@ -137,6 +137,14 @@ namespace bibo::lights
      */
     inline Int32 forced = LAMP_COUNT;
 
+    /**
+     * @brief Darkens every lamp in a set.
+     *
+     * Operates on the caller's set rather than on the live one, so it is also
+     * how a temporary set is initialised before a single lamp is raised in it.
+     *
+     * @param s the set to darken; every level becomes LAMP_OFF
+     */
     inline Void clear(Set* s)
     {
         for(Utf8Byte& i : s->level)
@@ -145,8 +153,16 @@ namespace bibo::lights
         }
     }
 
-    /* Straight at the pins, no gates. Everything below goes through this so there
-     * is exactly one place that touches a GPIO. */
+    /**
+     * @brief Writes a set straight at the pins, with no gating.
+     *
+     * Everything below goes through this, so there is exactly one place in the
+     * module that touches a GPIO. A lamp bound to LIGHT_PIN_NONE is skipped -
+     * which is how a lamp with no LED behind it stays in the model, and is
+     * computed and reported, without anything being written for it.
+     *
+     * @param s the levels to write; also becomes what read() reports
+     */
     inline Void push(const Set* s)
     {
         for(Int32 i = 0; i < LAMP_COUNT; ++i)
@@ -159,11 +175,18 @@ namespace bibo::lights
         now = *s;
     }
 
+    /**
+     * @brief Takes the installed pin map and opens every bound lamp for output.
+     *
+     * The map is COPIED rather than read through on every write: push() runs
+     * every tick, and a lamp table that could change underneath it is a race
+     * nobody needs.
+     *
+     * @note pins::begin() must have run first. Called before it, every lamp
+     *       binds to LIGHT_PIN_NONE and nothing is ever written.
+     */
     inline Void open(Void)
     {
-        /* The binding, taken from whatever this program declared. Copied rather
-         * than read through on every write: push() runs every tick and a lamp
-         * table that could change underneath it is a race nobody needs. */
         const pins::Map& m = pins::active();
 
         pin[LAMP_HEAD_L] = m.headL;
@@ -193,11 +216,16 @@ namespace bibo::lights
     }
 
     /*
-     * Show this set of lamps.
+     * @brief Shows a set of lamps, honouring the master switch and any override.
      *
-     * The two overrides live here rather than in the caller: a master switch that
-     * only worked when the cue layer remembered to ask is a master switch, one day,
-     * that does not.
+     * The two overrides are applied HERE rather than left to the caller: a
+     * master switch that only worked when the cue layer remembered to ask is a
+     * master switch that one day does not.
+     *
+     * Does nothing before open(), while disabled, or on a null set. When a lamp
+     * is forced, that lamp alone is lit and `s` is ignored entirely.
+     *
+     * @param s the lamps to show; ignored while an override is held
      */
     inline Void write(const Set* s)
     {
@@ -218,14 +246,22 @@ namespace bibo::lights
         push(s);
     }
 
-    /* The master switch. Off parks every lamp dark rather than leaving whichever
-     * happened to be lit when it was turned off. */
+    /**
+     * @brief The master switch. Off parks every lamp dark.
+     *
+     * Turning it off writes darkness immediately rather than leaving whichever
+     * lamps happened to be lit at that moment.
+     *
+     * @param state true to let write() through, false to park the lamps
+     *
+     * @note The parameter is `state` and not `on` on purpose. Named `on` it
+     *       shadows the file-scope switch, `on = on` assigns the parameter to
+     *       itself, and the switch never latches - so an off parked the lamps
+     *       once, the next cue lit them again, and enabled() went on reporting
+     *       true throughout.
+     */
     inline Void enable(const Bool state)
     {
-        /* Named `state`, not `on`: a parameter called `on` shadows the file-scope
-         * switch, and `on = on` then assigns the parameter to itself. The switch
-         * never latched, so an off parked the lamps once and the next cue lit them
-         * again - while enabled() went on reporting true. */
         on = state;
         if(!on)
         {
@@ -235,28 +271,61 @@ namespace bibo::lights
         }
     }
 
+    /**
+     * @brief Whether the master switch is on.
+     *
+     * @return true when write() is allowed through to the pins
+     */
     inline Bool enabled(Void)
     {
         return on;
     }
 
-    /* What each lamp is doing this instant. */
+    /**
+     * @brief What every lamp is doing this instant.
+     *
+     * Reports what was last WRITTEN, including lamps bound to
+     * LIGHT_PIN_NONE - those are computed and reported but never driven, so a
+     * lamp can read as lit with no LED on the car.
+     *
+     * @return a copy of the live set
+     */
     inline Set read(Void)
     {
         return now;
     }
 
+    /**
+     * @brief Whether one lamp is lit.
+     *
+     * @param l the lamp to ask about
+     * @return true when its level is above LAMP_OFF
+     */
     inline Bool lit(const Lamp l)
     {
         return now.level[l] > LAMP_OFF;
     }
 
-    /* Hold ONE lamp lit, or lights::LAMP_COUNT to hand it back to the cue layer. */
+    /**
+     * @brief Holds ONE lamp lit, ignoring every rule and cue.
+     *
+     * Exists because "the lamp does not work" has three unrelated causes - the
+     * rule never fired, the pin never moved, or the LED is wired backwards -
+     * and without a way to light one on demand there is no telling them apart.
+     *
+     * @param lamp the lamp to hold, or lights::LAMP_COUNT to release it back
+     *             to the cue layer
+     */
     inline Void forceLamp(const Int32 lamp)
     {
         forced = lamp;
     }
 
+    /**
+     * @brief Which lamp is being held, if any.
+     *
+     * @return the forced lamp, or lights::LAMP_COUNT when nothing is held
+     */
     inline Int32 forcedLamp(Void)
     {
         return forced;

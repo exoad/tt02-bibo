@@ -5,15 +5,29 @@ REM This is what the hub's Docs button runs. It is a batch file rather than
 REM three ShellExecute calls in app_ui.cxx so that the same thing happens
 REM whether you press the button or run it from a shell.
 REM
-REM Builds only when there is nothing to serve; a rebuild on every press would
-REM put a 20-second pause behind a button that is supposed to open a page.
+REM Rebuilds when there is nothing to serve OR when firmware/lib has changed
+REM since the last build. It used to rebuild only in the first case, so the
+REM press after editing a header served the PREVIOUS reference and said
+REM nothing about it - a docs site quietly showing yesterday's signatures is
+REM worse than a missing one, because a missing one sends you to the header.
+REM
+REM stale.mjs answers that question and exits 0 for "rebuild"; a full rebuild
+REM on every press would put twenty seconds behind a button meant to open a
+REM page.
 
 setlocal
 cd /d "%~dp0"
 
 set PORT=4173
 
-if not exist ".output\public\index.html" (
+set NEEDS_BUILD=
+if not exist ".output\public\index.html" set NEEDS_BUILD=1
+if not defined NEEDS_BUILD (
+    node stale.mjs >nul 2>&1
+    if not errorlevel 1 set NEEDS_BUILD=1
+)
+
+if defined NEEDS_BUILD (
     echo Building the documentation, one moment...
     if not exist "node_modules" (
         call npm install --no-audit --no-fund
