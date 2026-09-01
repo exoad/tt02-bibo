@@ -354,10 +354,7 @@ namespace bibo::dfplayer
             {
                 sum = static_cast<UInt16>(sum + f[i]);
             }
-            const auto chk = static_cast<UInt16>(
-                (static_cast<UInt32>(f[7]) << 8u) | static_cast<UInt32>(f[8]));
-
-            if(static_cast<UInt16>(sum + chk) != 0u)
+            if(const auto chk = static_cast<UInt16>((static_cast<UInt32>(f[7]) << 8u) | static_cast<UInt32>(f[8])); static_cast<UInt16>(sum + chk) != 0u)
             {
                 continue;   /* corrupted - keep looking */
             }
@@ -365,9 +362,7 @@ namespace bibo::dfplayer
             {
                 continue;   /* somebody else's answer */
             }
-
-            *out = static_cast<UInt16>(
-                (static_cast<UInt32>(f[5]) << 8u) | static_cast<UInt32>(f[6]));
+            *out = static_cast<UInt16>((static_cast<UInt32>(f[5]) << 8u) | static_cast<UInt32>(f[6]));
             return true;
         }
         return false;

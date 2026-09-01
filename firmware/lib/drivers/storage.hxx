@@ -53,11 +53,8 @@
 #include "../hal.hxx"
 #include "../pins.hxx"
 
-namespace bibo
+namespace bibo::sd
 {
-
-  namespace sd
-  {
 
     /**
      * @brief Default pins, matching the wiring table above.
@@ -392,8 +389,8 @@ namespace bibo
                      * (C_SIZE + 1) * 512 KB, so blocks = (C_SIZE + 1) * 1024.
                      */
                     const UInt32 cSize = (static_cast<UInt32>(csd[7] & 0x3F) << 16)
-                                       | (static_cast<UInt32>(csd[8]) << 8)
-                                       | static_cast<UInt32>(csd[9]);
+                                         | (static_cast<UInt32>(csd[8]) << 8)
+                                         | static_cast<UInt32>(csd[9]);
                     c->blocks = (cSize + 1u) * 1024u;
                 }
                 else
@@ -410,7 +407,7 @@ namespace bibo
                                          | (static_cast<UInt32>(csd[10]) >> 7u);
                     const UInt32 rdLen = static_cast<UInt32>(csd[5] & 0x0F);
                     const UInt32 bytes = (cSize + 1u) * (1u << (mult + 2u))
-                                       * (1u << rdLen);
+                                         * (1u << rdLen);
                     c->blocks = bytes / SD_BLOCK_SIZE;
                 }
             }
@@ -468,11 +465,11 @@ namespace bibo
     {
         switch(c->kind)
         {
-        case KIND_HC: return "SDHC/SDXC";
-        case KIND_V2: return "SD v2";
-        case KIND_V1: return "SD v1";
-        case KIND_NONE:
-        default: return "none";
+            case KIND_HC: return "SDHC/SDXC";
+            case KIND_V2: return "SD v2";
+            case KIND_V1: return "SD v1";
+            case KIND_NONE:
+            default: return "none";
         }
     }
 
@@ -607,7 +604,5 @@ namespace bibo
         return false;
     }
 
-
-  }
 
 }

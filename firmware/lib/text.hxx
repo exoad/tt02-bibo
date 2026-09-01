@@ -390,6 +390,7 @@ namespace bibo::text
      * @param buf the caller's buffer to write into
      * @param cap the size of `buf`, in bytes, including room for the terminator
      * @param fmt a printf-style format string
+     * @param ...
      * @return the length the formatted output WANTED to be, which may exceed
      *         `cap` - the same convention as snprintf
      *

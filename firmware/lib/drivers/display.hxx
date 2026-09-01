@@ -76,11 +76,8 @@
 #include "../hal.hxx"
 #include "../pins.hxx"
 
-namespace bibo
+namespace bibo::tft
 {
-
-  namespace tft
-  {
 
     /* ===== the one line to change ============================================= */
     /**
@@ -93,15 +90,15 @@ namespace bibo
     /* ========================================================================== */
 
 #if PANEL_ST7789
-      /**
+    /**
        * @brief Whether the controller must invert colors for this panel's glass.
        *
        * ST7789 panels are wired inverted at the glass, so "invert on" is what
        * produces correct colors. This looks backwards and is not.
        */
-  #define PANEL_INVERT  1
+#define PANEL_INVERT  1
 #else
-  #define PANEL_INVERT  0
+#define PANEL_INVERT  0
 #endif
 
     /**
@@ -157,8 +154,8 @@ namespace bibo
     constexpr UInt16 rgb(const UInt32 r, const UInt32 g, const UInt32 b)
     {
         return static_cast<UInt16>(((r & 0xF8u) << 8)
-                                 | ((g & 0xFCu) << 3)
-                                 | (b >> 3));
+                                   | ((g & 0xFCu) << 3)
+                                   | (b >> 3));
     }
 
     /** @brief Common colors, in RGB565, computed at compile time. */
@@ -435,10 +432,10 @@ namespace bibo
      * the way to draw: every one of them has a gfx:: counterpart that clips,
      * buffers and batches, and calling these instead bypasses all three.
      */
-    namespace detail
-    {
+  namespace detail
+  {
 
-      /**
+        /**
        * @brief Fills a rectangle directly, streamed from a small buffer
        * rather than a framebuffer.
        *
@@ -452,64 +449,64 @@ namespace bibo
        * @param h rectangle height in pixels
        * @param color the RGB565 fill color
        */
-      inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, const UInt16 color)
-      {
-        if(w <= 0 || h <= 0)
+        inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, const UInt16 color)
         {
-            return;
-        }
-        if(x < 0)
-        {
-            w += x;
-            x = 0;
-        }
-        if(y < 0)
-        {
-            h += y;
-            y = 0;
-        }
-        if(x + w > s->width)
-        {
-            w = s->width - x;
-        }
-        if(y + h > s->height)
-        {
-            h = s->height - y;
-        }
-        if(w <= 0 || h <= 0)
-        {
-            return;
+            if(w <= 0 || h <= 0)
+            {
+                return;
+            }
+            if(x < 0)
+            {
+                w += x;
+                x = 0;
+            }
+            if(y < 0)
+            {
+                h += y;
+                y = 0;
+            }
+            if(x + w > s->width)
+            {
+                w = s->width - x;
+            }
+            if(y + h > s->height)
+            {
+                h = s->height - y;
+            }
+            if(w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            UInt8       line[PANEL_MAX_W * 2];
+            const UInt8 hi = static_cast<UInt8>(color >> 8);
+            const UInt8 lo = static_cast<UInt8>(color & 0xFF);
+            for(Int32 i = 0; i < w; ++i)
+            {
+                line[i * 2]     = hi;
+                line[i * 2 + 1] = lo;
+            }
+
+            beginPixels(s, x, y, w, h);
+            for(Int32 r = 0; r < h; ++r)
+            {
+                spi::write(s->sck, line, static_cast<Size>(w * 2));
+            }
+            endPixels(s);
         }
 
-        UInt8       line[PANEL_MAX_W * 2];
-        const UInt8 hi = static_cast<UInt8>(color >> 8);
-        const UInt8 lo = static_cast<UInt8>(color & 0xFF);
-        for(Int32 i = 0; i < w; ++i)
-        {
-            line[i * 2]     = hi;
-            line[i * 2 + 1] = lo;
-        }
-
-        beginPixels(s, x, y, w, h);
-        for(Int32 r = 0; r < h; ++r)
-        {
-            spi::write(s->sck, line, static_cast<Size>(w * 2));
-        }
-        endPixels(s);
-      }
-
-      /**
+        /**
        * @brief Fills the entire screen with one color.
        *
        * @param s the screen to draw on
        * @param color the RGB565 fill color
        */
-      inline Void fill(const Screen* s, const UInt16 color)
-      {
-        rect(s, 0, 0, s->width, s->height, color);
-      }
+        inline Void fill(const Screen* s, const UInt16 color)
+        {
+            rect(s, 0, 0, s->width, s->height, color);
+        }
 
-      /**
+        /**
        * @brief Sets one pixel.
        *
        * @param s the screen to draw on
@@ -517,15 +514,15 @@ namespace bibo
        * @param y pixel row, in screen pixels
        * @param color the RGB565 pixel color
        */
-      inline Void pixel(const Screen* s, const Int32 x, const Int32 y, const UInt16 color)
-      {
-        rect(s, x, y, 1, 1, color);
-      }
+        inline Void pixel(const Screen* s, const Int32 x, const Int32 y, const UInt16 color)
+        {
+            rect(s, x, y, 1, 1, color);
+        }
 
-      /*
+        /*
        * ---- text ----------------------------------------------------------------
       */
-      /**
+        /**
        * @brief A 5x7 pixel font, five bytes per glyph, one byte per column,
        * bit 0 at the top.
        *
@@ -535,69 +532,69 @@ namespace bibo
        * screen, not for prose, and half a font that is CORRECT beats a whole
        * one that is guessed at.
        */
-      static const UInt8 FONT5X7[59][5] = {
-        { 0x00, 0x00, 0x00, 0x00, 0x00 },   /* 32 space */
-        { 0x00, 0x00, 0x5F, 0x00, 0x00 },   /* !  */
-        { 0x00, 0x07, 0x00, 0x07, 0x00 },   /* "  */
-        { 0x14, 0x7F, 0x14, 0x7F, 0x14 },   /* #  */
-        { 0x24, 0x2A, 0x7F, 0x2A, 0x12 },   /* $  */
-        { 0x23, 0x13, 0x08, 0x64, 0x62 },   /* %  */
-        { 0x36, 0x49, 0x55, 0x22, 0x50 },   /* &  */
-        { 0x00, 0x05, 0x03, 0x00, 0x00 },   /* '  */
-        { 0x00, 0x1C, 0x22, 0x41, 0x00 },   /* (  */
-        { 0x00, 0x41, 0x22, 0x1C, 0x00 },   /* )  */
-        { 0x14, 0x08, 0x3E, 0x08, 0x14 },   /* *  */
-        { 0x08, 0x08, 0x3E, 0x08, 0x08 },   /* +  */
-        { 0x00, 0x50, 0x30, 0x00, 0x00 },   /* ,  */
-        { 0x08, 0x08, 0x08, 0x08, 0x08 },   /* -  */
-        { 0x00, 0x60, 0x60, 0x00, 0x00 },   /* .  */
-        { 0x20, 0x10, 0x08, 0x04, 0x02 },   /* /  */
-        { 0x3E, 0x51, 0x49, 0x45, 0x3E },   /* 0  */
-        { 0x00, 0x42, 0x7F, 0x40, 0x00 },   /* 1  */
-        { 0x42, 0x61, 0x51, 0x49, 0x46 },   /* 2  */
-        { 0x21, 0x41, 0x45, 0x4B, 0x31 },   /* 3  */
-        { 0x18, 0x14, 0x12, 0x7F, 0x10 },   /* 4  */
-        { 0x27, 0x45, 0x45, 0x45, 0x39 },   /* 5  */
-        { 0x3C, 0x4A, 0x49, 0x49, 0x30 },   /* 6  */
-        { 0x01, 0x71, 0x09, 0x05, 0x03 },   /* 7  */
-        { 0x36, 0x49, 0x49, 0x49, 0x36 },   /* 8  */
-        { 0x06, 0x49, 0x49, 0x29, 0x1E },   /* 9  */
-        { 0x00, 0x36, 0x36, 0x00, 0x00 },   /* :  */
-        { 0x00, 0x56, 0x36, 0x00, 0x00 },   /* ;  */
-        { 0x08, 0x14, 0x22, 0x41, 0x00 },   /* <  */
-        { 0x14, 0x14, 0x14, 0x14, 0x14 },   /* =  */
-        { 0x00, 0x41, 0x22, 0x14, 0x08 },   /* >  */
-        { 0x02, 0x01, 0x51, 0x09, 0x06 },   /* ?  */
-        { 0x32, 0x49, 0x79, 0x41, 0x3E },   /* @  */
-        { 0x7E, 0x11, 0x11, 0x11, 0x7E },   /* A  */
-        { 0x7F, 0x49, 0x49, 0x49, 0x36 },   /* B  */
-        { 0x3E, 0x41, 0x41, 0x41, 0x22 },   /* C  */
-        { 0x7F, 0x41, 0x41, 0x22, 0x1C },   /* D  */
-        { 0x7F, 0x49, 0x49, 0x49, 0x41 },   /* E  */
-        { 0x7F, 0x09, 0x09, 0x09, 0x01 },   /* F  */
-        { 0x3E, 0x41, 0x49, 0x49, 0x7A },   /* G  */
-        { 0x7F, 0x08, 0x08, 0x08, 0x7F },   /* H  */
-        { 0x00, 0x41, 0x7F, 0x41, 0x00 },   /* I  */
-        { 0x20, 0x40, 0x41, 0x3F, 0x01 },   /* J  */
-        { 0x7F, 0x08, 0x14, 0x22, 0x41 },   /* K  */
-        { 0x7F, 0x40, 0x40, 0x40, 0x40 },   /* L  */
-        { 0x7F, 0x02, 0x0C, 0x02, 0x7F },   /* M  */
-        { 0x7F, 0x04, 0x08, 0x10, 0x7F },   /* N  */
-        { 0x3E, 0x41, 0x41, 0x41, 0x3E },   /* O  */
-        { 0x7F, 0x09, 0x09, 0x09, 0x06 },   /* P  */
-        { 0x3E, 0x41, 0x51, 0x21, 0x5E },   /* Q  */
-        { 0x7F, 0x09, 0x19, 0x29, 0x46 },   /* R  */
-        { 0x46, 0x49, 0x49, 0x49, 0x31 },   /* S  */
-        { 0x01, 0x01, 0x7F, 0x01, 0x01 },   /* T  */
-        { 0x3F, 0x40, 0x40, 0x40, 0x3F },   /* U  */
-        { 0x1F, 0x20, 0x40, 0x20, 0x1F },   /* V  */
-        { 0x3F, 0x40, 0x38, 0x40, 0x3F },   /* W  */
-        { 0x63, 0x14, 0x08, 0x14, 0x63 },   /* X  */
-        { 0x07, 0x08, 0x70, 0x08, 0x07 },   /* Y  */
-        { 0x61, 0x51, 0x49, 0x45, 0x43 },   /* Z  */
-      };
+        static const UInt8 FONT5X7[59][5] = {
+            { 0x00, 0x00, 0x00, 0x00, 0x00 },   /* 32 space */
+            { 0x00, 0x00, 0x5F, 0x00, 0x00 },   /* !  */
+            { 0x00, 0x07, 0x00, 0x07, 0x00 },   /* "  */
+            { 0x14, 0x7F, 0x14, 0x7F, 0x14 },   /* #  */
+            { 0x24, 0x2A, 0x7F, 0x2A, 0x12 },   /* $  */
+            { 0x23, 0x13, 0x08, 0x64, 0x62 },   /* %  */
+            { 0x36, 0x49, 0x55, 0x22, 0x50 },   /* &  */
+            { 0x00, 0x05, 0x03, 0x00, 0x00 },   /* '  */
+            { 0x00, 0x1C, 0x22, 0x41, 0x00 },   /* (  */
+            { 0x00, 0x41, 0x22, 0x1C, 0x00 },   /* )  */
+            { 0x14, 0x08, 0x3E, 0x08, 0x14 },   /* *  */
+            { 0x08, 0x08, 0x3E, 0x08, 0x08 },   /* +  */
+            { 0x00, 0x50, 0x30, 0x00, 0x00 },   /* ,  */
+            { 0x08, 0x08, 0x08, 0x08, 0x08 },   /* -  */
+            { 0x00, 0x60, 0x60, 0x00, 0x00 },   /* .  */
+            { 0x20, 0x10, 0x08, 0x04, 0x02 },   /* /  */
+            { 0x3E, 0x51, 0x49, 0x45, 0x3E },   /* 0  */
+            { 0x00, 0x42, 0x7F, 0x40, 0x00 },   /* 1  */
+            { 0x42, 0x61, 0x51, 0x49, 0x46 },   /* 2  */
+            { 0x21, 0x41, 0x45, 0x4B, 0x31 },   /* 3  */
+            { 0x18, 0x14, 0x12, 0x7F, 0x10 },   /* 4  */
+            { 0x27, 0x45, 0x45, 0x45, 0x39 },   /* 5  */
+            { 0x3C, 0x4A, 0x49, 0x49, 0x30 },   /* 6  */
+            { 0x01, 0x71, 0x09, 0x05, 0x03 },   /* 7  */
+            { 0x36, 0x49, 0x49, 0x49, 0x36 },   /* 8  */
+            { 0x06, 0x49, 0x49, 0x29, 0x1E },   /* 9  */
+            { 0x00, 0x36, 0x36, 0x00, 0x00 },   /* :  */
+            { 0x00, 0x56, 0x36, 0x00, 0x00 },   /* ;  */
+            { 0x08, 0x14, 0x22, 0x41, 0x00 },   /* <  */
+            { 0x14, 0x14, 0x14, 0x14, 0x14 },   /* =  */
+            { 0x00, 0x41, 0x22, 0x14, 0x08 },   /* >  */
+            { 0x02, 0x01, 0x51, 0x09, 0x06 },   /* ?  */
+            { 0x32, 0x49, 0x79, 0x41, 0x3E },   /* @  */
+            { 0x7E, 0x11, 0x11, 0x11, 0x7E },   /* A  */
+            { 0x7F, 0x49, 0x49, 0x49, 0x36 },   /* B  */
+            { 0x3E, 0x41, 0x41, 0x41, 0x22 },   /* C  */
+            { 0x7F, 0x41, 0x41, 0x22, 0x1C },   /* D  */
+            { 0x7F, 0x49, 0x49, 0x49, 0x41 },   /* E  */
+            { 0x7F, 0x09, 0x09, 0x09, 0x01 },   /* F  */
+            { 0x3E, 0x41, 0x49, 0x49, 0x7A },   /* G  */
+            { 0x7F, 0x08, 0x08, 0x08, 0x7F },   /* H  */
+            { 0x00, 0x41, 0x7F, 0x41, 0x00 },   /* I  */
+            { 0x20, 0x40, 0x41, 0x3F, 0x01 },   /* J  */
+            { 0x7F, 0x08, 0x14, 0x22, 0x41 },   /* K  */
+            { 0x7F, 0x40, 0x40, 0x40, 0x40 },   /* L  */
+            { 0x7F, 0x02, 0x0C, 0x02, 0x7F },   /* M  */
+            { 0x7F, 0x04, 0x08, 0x10, 0x7F },   /* N  */
+            { 0x3E, 0x41, 0x41, 0x41, 0x3E },   /* O  */
+            { 0x7F, 0x09, 0x09, 0x09, 0x06 },   /* P  */
+            { 0x3E, 0x41, 0x51, 0x21, 0x5E },   /* Q  */
+            { 0x7F, 0x09, 0x19, 0x29, 0x46 },   /* R  */
+            { 0x46, 0x49, 0x49, 0x49, 0x31 },   /* S  */
+            { 0x01, 0x01, 0x7F, 0x01, 0x01 },   /* T  */
+            { 0x3F, 0x40, 0x40, 0x40, 0x3F },   /* U  */
+            { 0x1F, 0x20, 0x40, 0x20, 0x1F },   /* V  */
+            { 0x3F, 0x40, 0x38, 0x40, 0x3F },   /* W  */
+            { 0x63, 0x14, 0x08, 0x14, 0x63 },   /* X  */
+            { 0x07, 0x08, 0x70, 0x08, 0x07 },   /* Y  */
+            { 0x61, 0x51, 0x49, 0x45, 0x43 },   /* Z  */
+        };
 
-      /**
+        /**
        * @brief Largest text scale factor the driver will draw.
        *
        * Bounds the stack buffer below, which is what lets a glyph go out in
@@ -605,7 +602,7 @@ namespace bibo
        */
 #define TFT_MAX_SCALE 4
 
-      /**
+        /**
        * @brief Draws one character, streamed as a single window.
        *
        * The obvious implementation calls tft::rect once per pixel block: 48
@@ -623,78 +620,78 @@ namespace bibo
        * @param bg background (cell) color, RGB565
        * @param scale size multiplier, clamped to 1..TFT_MAX_SCALE
        */
-      inline Void drawChar(const Screen* s, const Int32 x, const Int32 y, const Utf8 ch, const UInt16 fg, const UInt16 bg, Int32 scale)
-      {
-        if(scale < 1)
+        inline Void drawChar(const Screen* s, const Int32 x, const Int32 y, const Utf8 ch, const UInt16 fg, const UInt16 bg, Int32 scale)
         {
-            scale = 1;
-        }
-        if(scale > TFT_MAX_SCALE)
-        {
-            scale = TFT_MAX_SCALE;
-        }
+            if(scale < 1)
+            {
+                scale = 1;
+            }
+            if(scale > TFT_MAX_SCALE)
+            {
+                scale = TFT_MAX_SCALE;
+            }
 
-        Utf8 c = ch;
-        if(c >= 'a' && c <= 'z')
-        {
-            c = static_cast<Utf8>(c - 'a' + 'A');
-        }
-        if(c < 32 || c > 90)
-        {
-            c = '?';
-        }
+            Utf8 c = ch;
+            if(c >= 'a' && c <= 'z')
+            {
+                c = static_cast<Utf8>(c - 'a' + 'A');
+            }
+            if(c < 32 || c > 90)
+            {
+                c = '?';
+            }
 
-        const UInt8* const glyph = FONT5X7[c - 32];
+            const UInt8* const glyph = FONT5X7[c - 32];
 
-        const Int32 w = 6 * scale;
-        const Int32 h = 8 * scale;
+            const Int32 w = 6 * scale;
+            const Int32 h = 8 * scale;
 
-        /*
+            /*
          * Off-screen entirely: nothing to do. Partial overlap is not clipped here -
          * the caller lays text out, and half a character is worse to look at than a
          * missing one.
          */
-        if(x < 0 || y < 0 || x + w > s->width || y + h > s->height)
-        {
-            return;
-        }
-
-        UInt8 cell[6 * TFT_MAX_SCALE * 8 * TFT_MAX_SCALE * 2];
-
-        const UInt8 fgHi = static_cast<UInt8>(fg >> 8);
-        const UInt8 fgLo = static_cast<UInt8>(fg & 0xFF);
-        const UInt8 bgHi = static_cast<UInt8>(bg >> 8);
-        const UInt8 bgLo = static_cast<UInt8>(bg & 0xFF);
-
-        Size at = 0;
-        for(Int32 row = 0; row < h; ++row)
-        {
-            const Int32 gr = row / scale;
-            for(Int32 col = 0; col < w; ++col)
+            if(x < 0 || y < 0 || x + w > s->width || y + h > s->height)
             {
-                const Int32 gc = col / scale;
+                return;
+            }
 
-                /*
+            UInt8 cell[6 * TFT_MAX_SCALE * 8 * TFT_MAX_SCALE * 2];
+
+            const UInt8 fgHi = static_cast<UInt8>(fg >> 8);
+            const UInt8 fgLo = static_cast<UInt8>(fg & 0xFF);
+            const UInt8 bgHi = static_cast<UInt8>(bg >> 8);
+            const UInt8 bgLo = static_cast<UInt8>(bg & 0xFF);
+
+            Size at = 0;
+            for(Int32 row = 0; row < h; ++row)
+            {
+                const Int32 gr = row / scale;
+                for(Int32 col = 0; col < w; ++col)
+                {
+                    const Int32 gc = col / scale;
+
+                    /*
                  * The sixth column is the gap between characters, DRAWN rather than
                  * skipped so overwriting text leaves no comb of old pixels.
                  */
-                const UInt8 bits = gc < 5 ? glyph[gc] : 0x00;
-                const Bool  on   = gr < 7
-                                   && ((static_cast<UInt32>(bits)
-                                        >> static_cast<UInt32>(gr))
-                                       & 1u) != 0u;
+                    const UInt8 bits = gc < 5 ? glyph[gc] : 0x00;
+                    const Bool  on   = gr < 7
+                                       && ((static_cast<UInt32>(bits)
+                                            >> static_cast<UInt32>(gr))
+                                           & 1u) != 0u;
 
-                cell[at++] = on ? fgHi : bgHi;
-                cell[at++] = on ? fgLo : bgLo;
+                    cell[at++] = on ? fgHi : bgHi;
+                    cell[at++] = on ? fgLo : bgLo;
+                }
             }
+
+            beginPixels(s, x, y, w, h);
+            spi::write(s->sck, cell, at);
+            endPixels(s);
         }
 
-        beginPixels(s, x, y, w, h);
-        spi::write(s->sck, cell, at);
-        endPixels(s);
-      }
-
-      /**
+        /**
        * @brief Draws a string, one drawChar() per character, left to right.
        *
        * @param s the screen to draw on
@@ -706,16 +703,16 @@ namespace bibo
        * @param bg background (cell) color, RGB565
        * @param scale size multiplier, clamped to 1..TFT_MAX_SCALE
        */
-      inline Void text(const Screen* s, const Int32 x, const Int32 y, const Utf8* str, const UInt16 fg, const UInt16 bg, const Int32 scale)
-      {
-        Int32 cx = x;
-        while(str != nullptr && *str != '\0')
+        inline Void text(const Screen* s, const Int32 x, const Int32 y, const Utf8* str, const UInt16 fg, const UInt16 bg, const Int32 scale)
         {
-            drawChar(s, cx, y, *str, fg, bg, scale);
-            cx += 6 * scale;
-            ++str;
+            Int32 cx = x;
+            while(str != nullptr && *str != '\0')
+            {
+                drawChar(s, cx, y, *str, fg, bg, scale);
+                cx += 6 * scale;
+                ++str;
+            }
         }
-      }
 
     }
 
@@ -930,8 +927,8 @@ namespace bibo
         const pins::Map& m = pins::active();
 
         if(!openOn(s, w, h, xoff, yoff,
-                      m.tftSck, m.tftMosi, m.tftCs,
-                      m.tftDc, m.tftRes))
+                   m.tftSck, m.tftMosi, m.tftCs,
+                   m.tftDc, m.tftRes))
         {
             return false;
         }
@@ -1049,7 +1046,5 @@ namespace bibo
         pwm::write(s->blk, level < 0.0f ? 0.0f : level > 1.0f ? 1.0f : level);
         return true;
     }
-
-  }
 
 }
