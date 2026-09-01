@@ -42,6 +42,24 @@ export default defineNuxtConfig({
     '/': { redirect: { to: '/getting-started', statusCode: 302 } },
   },
 
+  /* SHIKI DOES NOT SHIP EVERY GRAMMAR. Nuxt Content bundles a default set -
+   * bash, html, mdc, vue, yml, scss, ts, typescript - and nothing else. cpp is
+   * not in it, so all 547 ```cpp blocks this site generates were rendering as
+   * flat unhighlighted text while the fence claimed a language. Nothing warns:
+   * an unknown lang falls back to plain and the build still succeeds.
+   *
+   * Listed explicitly, and only what the pages actually contain. */
+  content: {
+    build: {
+      markdown: {
+        highlight: {
+          langs: ['cpp', 'c', 'cmake', 'python', 'powershell', 'ini', 'json',
+                  'diff', 'md'],
+        },
+      },
+    },
+  },
+
   nitro: {
     prerender: {
       crawlLinks: true,

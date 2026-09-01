@@ -92,6 +92,16 @@ Diagnostics:
   Suppress:
     - pp_file_not_found_angled_include_not_fatal
 
+  # OFF, because this tree is built out of umbrella headers and clangd's check
+  # cannot see that. bibo.hxx includes twenty-two headers on purpose so a sketch
+  # can write one line; hal.hxx pulls in twelve SDK headers so nothing below it
+  # has to. Every one of those is "unused" by the file that lists it, which is
+  # exactly what an umbrella IS - so the warning fires on the design rather than
+  # on a mistake, and a sketch opens under a wall of yellow it should ignore.
+  # Advice you are meant to ignore trains you to ignore the ones you should not.
+  UnusedIncludes: None
+  MissingIncludes: None
+
   # clangd reads every .clangd from the file's directory up to the root and
   # MERGES them, so this ADDS to the root check list rather than replacing it.
   # firmware/.clang-tidy carries the reasoning and has to be kept in step - the

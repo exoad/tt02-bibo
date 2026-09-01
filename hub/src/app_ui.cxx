@@ -698,6 +698,228 @@ namespace
   UInt64 codeFileStamp = 0;
   Int32  codeWatchIn   = 0;      // frames until the next stat
 
+  // ---- where you were in each file -----------------------------------------
+  //
+  // THIS SESSION ONLY, deliberately. Nothing is written to disk: a scroll
+  // position is a fact about what you are doing right now, not about the file,
+  // and one restored from a week ago points at a line that has since moved.
+  //
+  // The caret goes with the scroll because restoring one without the other is
+  // worse than restoring neither - the view lands where you left it and the
+  // first arrow key jumps it back to line 1.
+  struct CodeSpot
+  {
+      Float32 scrollY = 0.0f;
+      Int32   line    = 0;
+      Int32   col     = 0;
+  };
+  HashMap<Str, CodeSpot> codeSpots;
+
+  // The directory part of a path, without the separator. Empty when there is
+  // none. Both separators, because a path here can come from git, from the
+  // Windows APIs, or from a #include line, and those disagree.
+  static Str dirOf(const Str& path)
+  {
+      const Size a = path.find_last_of("/\\");
+      return (a == Str::npos) ? Str() : path.substr(0, a);
+  }
+
+  // `dir` + `rel`, with `rel` taken as relative to it. Leading `../` segments
+  // are folded rather than left in, so two spellings of one file do not look
+  // like two files to the visited set.
+  static Str joinPath(const Str& dir, const Str& rel)
+  {
+      Str out = dir.empty() ? rel : dir + "\\" + rel;
+      for(Char& c : out)
+      {
+          if(c == '/')
+          {
+              c = '\\';
+          }
+      }
+
+      Vec<Str> parts;
+      Size     at = 0;
+      while(at <= out.size())
+      {
+          const Size sep  = out.find('\\', at);
+          const Size stop = (sep == Str::npos) ? out.size() : sep;
+          const Str  seg  = out.substr(at, stop - at);
+
+          if(seg == ".." && !parts.empty() && parts.back() != "..")
+          {
+              parts.pop_back();
+          }
+          else if(seg != "." && !seg.empty())
+          {
+              parts.push_back(seg);
+          }
+
+          if(sep == Str::npos)
+          {
+              break;
+          }
+          at = sep + 1;
+      }
+
+      Str joined;
+      for(Size i = 0; i < parts.size(); ++i)
+      {
+          if(i > 0)
+          {
+              joined += "\\";
+          }
+          joined += parts[i];
+      }
+      return joined;
+  }
+
+  // ---- the macro index -----------------------------------------------------
+  //
+  // Every object-like #define the open file can see, collected by walking its
+  // quoted includes. Built on open and after a save, not per keystroke: it
+  // costs a few file reads and a macro's VALUE changes far less often than the
+  // buffer does.
+  //
+  // Quoted includes only. <pico/stdlib.h> and friends resolve against the SDK,
+  // which is thousands of files for a handful of macros a sketch ever hovers.
+  Void rebuildMacroIndex()
+  {
+      codeView.macros.clear();
+      if(codePath.empty())
+      {
+          return;
+      }
+
+      Vec<Str>     queue{ codePath };
+      HashMap<Str, Bool> seen;
+      Int32        budget = 64;      // files, not depth: a cycle cannot outrun it
+
+      while(!queue.empty() && budget-- > 0)
+      {
+          const Str path = queue.back();
+          queue.pop_back();
+          if(seen.count(path) != 0u)
+          {
+              continue;
+          }
+          seen[path] = true;
+
+          // The open buffer may be dirtier than the file on disk, and its own
+          // macros are the ones most likely to be under the pointer.
+          const Str text = (path == codePath) ? codeEditor.text() : sketch::load(path);
+          if(text.empty())
+          {
+              continue;
+          }
+
+          const Str dir = dirOf(path);
+
+          Size at   = 0;
+          Int32 lineNo = 0;
+          while(at <= text.size())
+          {
+              const Size nl   = text.find('\n', at);
+              const Size stop = (nl == Str::npos) ? text.size() : nl;
+              Str        line = text.substr(at, stop - at);
+              ++lineNo;
+
+              while(!line.empty() && (line.back() == '\r' || line.back() == ' '))
+              {
+                  line.pop_back();
+              }
+
+              Size i = 0;
+              while(i < line.size() && (line[i] == ' ' || line[i] == '\t'))
+              {
+                  ++i;
+              }
+
+              if(i < line.size() && line[i] == '#')
+              {
+                  const Str rest = line.substr(i + 1);
+                  if(rest.rfind("define", 0) == 0 && rest.size() > 6
+                     && (rest[6] == ' ' || rest[6] == '\t'))
+                  {
+                      Size n = 6;
+                      while(n < rest.size() && (rest[n] == ' ' || rest[n] == '\t'))
+                      {
+                          ++n;
+                      }
+                      const Size nameAt = n;
+                      while(n < rest.size()
+                            && (std::isalnum(static_cast<unsigned char>(rest[n])) != 0
+                                || rest[n] == '_'))
+                      {
+                          ++n;
+                      }
+
+                      // FUNCTION-LIKE MACROS ARE SKIPPED. `#define F(x) ...` has
+                      // no value without arguments, and showing its body under a
+                      // pointer that is over a call site would be a lie about
+                      // what that call becomes.
+                      if(n > nameAt && !(n < rest.size() && rest[n] == '('))
+                      {
+                          const Str name = rest.substr(nameAt, n - nameAt);
+                          while(n < rest.size() && (rest[n] == ' ' || rest[n] == '\t'))
+                          {
+                              ++n;
+                          }
+                          Str body = (n < rest.size()) ? rest.substr(n) : Str();
+
+                          // A trailing comment is not part of the value.
+                          if(const Size c = body.find("/*"); c != Str::npos)
+                          {
+                              body.resize(c);
+                          }
+                          if(const Size c = body.find("//"); c != Str::npos)
+                          {
+                              body.resize(c);
+                          }
+                          while(!body.empty() && (body.back() == ' ' || body.back() == '\t'))
+                          {
+                              body.pop_back();
+                          }
+
+                          if(codeView.macros.count(name) == 0u)
+                          {
+                              codeView.macros[name] =
+                                  ui::CodeView::Macro{ body, path, lineNo };
+                          }
+                      }
+                  }
+                  else if(rest.rfind("include", 0) == 0)
+                  {
+                      const Size q = rest.find('"');
+                      const Size r = (q == Str::npos) ? Str::npos : rest.find('"', q + 1);
+                      if(r != Str::npos)
+                      {
+                          queue.push_back(joinPath(dir, rest.substr(q + 1, r - q - 1)));
+                      }
+                  }
+              }
+
+              if(nl == Str::npos)
+              {
+                  break;
+              }
+              at = nl + 1;
+          }
+      }
+  }
+
+  // Records where the open file is being left. Called before codePath changes,
+  // and on close - anywhere the buffer is about to stop being the one on screen.
+  Void rememberCodeSpot()
+  {
+      if(codePath.empty())
+      {
+          return;
+      }
+      const ed::Cursor c = codeEditor.cursor();
+      codeSpots[codePath] = CodeSpot{ codeView.scrollY, c.line, c.col };
+  }
+
   // Autosave. Counted in frames from the last edit rather than on a wall clock,
   // so it fires a moment after you STOP typing rather than mid-word.
   Bool  codeAutosave     = true;
@@ -2098,11 +2320,33 @@ namespace
   // shows the WORST severity, and a build error must not hide behind a warning.
   Void refreshCodeDiags()
   {
-      codeView.diags = codeDiags;
+      codeView.diags.clear();
+      if(codePath.empty())
+      {
+          return;
+      }
+
+      // FILTERED BY FILE, every time. Clearing on open is not enough on its own:
+      // clangd publishes asynchronously, so a set for the file just closed can
+      // land after the switch and paint its line numbers onto the new buffer.
+      // code_view.cxx draws every item it is handed without ever reading
+      // Item::file, so this is the only place the question gets asked.
+      for(const diag::Item& d : diag::forFile(codeDiags, codePath))
+      {
+          codeView.diags.push_back(d);
+      }
+
+      // NOT filtered, and it must not be: lint::check() never fills Item::file,
+      // so forFile() would compare against an empty name and drop every one of
+      // them. It does not need filtering either - it is recomputed from the open
+      // buffer on open and after each pause in typing, so it cannot be stale.
       codeView.diags.insert(codeView.diags.end(),
                             codeLintDiags.begin(), codeLintDiags.end());
-      codeView.diags.insert(codeView.diags.end(),
-                            codeLspDiags.begin(), codeLspDiags.end());
+
+      for(const diag::Item& d : diag::forFile(codeLspDiags, codePath))
+      {
+          codeView.diags.push_back(d);
+      }
   }
 
   // Re-checks the buffer against docs/conventions.md a moment after typing stops.
@@ -4323,6 +4567,9 @@ namespace
       // would offer to reload the buffer we just wrote.
       codeFileStamp = sketch::stamp(codePath);
 
+      // A save is the moment a #define you just wrote becomes real.
+      rebuildMacroIndex();
+
       ui::setNote(codeView, "saved " + codeName, ImGui::GetTime());
       LOG_INFO("code", "saved %s", codePath.c_str());
       return true;
@@ -4341,22 +4588,50 @@ namespace
       // first draw otherwise lazy-inits and replaces whatever was just opened.
       codeLoaded = true;
 
+      // BEFORE codePath moves, or the spot is filed under the file being opened.
+      rememberCodeSpot();
+
       codePath = path;
       codeName = name;
       codeEditor.setText(sketch::load(path));
-      codeView.scrollY = 0.0f;
       codeView.diags.clear();      // a new file has not been compiled yet
+
+      // Back where you left it, if you have been here this session. setText()
+      // above resets the caret to 0,0, so this has to come after it.
+      const auto spot = codeSpots.find(path);
+      if(spot != codeSpots.end())
+      {
+          codeEditor.setCursor(spot->second.line, spot->second.col);
+          codeView.scrollY = spot->second.scrollY;
+
+          // The view already agrees with the caret, so do NOT let the next draw
+          // scroll to it - followCaret would snap a restored mid-file position
+          // to wherever the caret happens to sit in the window.
+          codeView.followCaret = false;
+      }
+      else
+      {
+          codeView.scrollY = 0.0f;
+      }
 
       // The PAGE's view too, not just the editor's: a pan carried from the last
       // document can open this one entirely off-panel.
       docView = refdoc::View();
       codeDiags.clear();
 
+      // AND the LSP's. This was the one set that survived an open: codeDiags is
+      // cleared above and codeLintDiags is recomputed below, but clangd's were
+      // carried straight back in by refreshCodeDiags() a few lines down - so the
+      // previous file's underlines reappeared at the previous file's line
+      // numbers, on top of a buffer that had never been parsed.
+      codeLspDiags.clear();
+
       // Linted immediately rather than half a second later: opening a file and
       // seeing nothing, then seeing marks appear, reads as a glitch.
       codeLintDiags = lint::check(codeEditor.text(), lint::langOf(codePath));
       codeLintIn    = 30;
       refreshCodeDiags();
+      rebuildMacroIndex();
       codeFileStamp = sketch::stamp(path);
       codeMessage   = "opened " + name;
       ui::setNote(codeView, "opened " + name, ImGui::GetTime());
