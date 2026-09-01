@@ -33,13 +33,13 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # vendor/ is gitignored - the SDK is not part of this repository, and
       # hub\build.bat expects it at exactly this path and builds
       # rplidar_driver.lib from it on first run.
       - name: rplidar sdk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Slamtec/rplidar_sdk
           path: vendor/rplidar_sdk

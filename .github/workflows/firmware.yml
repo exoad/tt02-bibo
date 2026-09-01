@@ -39,7 +39,7 @@ jobs:
       matrix:
         board: [pico2_w, pico2]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: toolchain
         run: |
@@ -52,7 +52,7 @@ jobs:
       # vendor/ is gitignored - the SDK is not part of this repository and is
       # fetched the same way a desk fetches it.
       - name: pico-sdk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: raspberrypi/pico-sdk
           ref: ${{ env.PICO_SDK_TAG }}
