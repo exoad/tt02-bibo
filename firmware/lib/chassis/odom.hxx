@@ -38,11 +38,8 @@
 
 #include "../types.hxx"
 
-namespace bibo
+namespace bibo::odom
 {
-
-  namespace odom
-  {
 
     /* ---- the three numbers that turn ticks into metres --------------------
      *
@@ -64,16 +61,16 @@ namespace bibo
 
     /* Rolling diameter in millimetres. 64 is the stock TT-02 touring tyre as a
      * PLACEHOLDER; roll the car a measured distance and divide. */
-    #define ODOM_WHEEL_MM 64.0f
+#define ODOM_WHEEL_MM 64.0f
 
     /* Ticks per revolution OF THE THING THE MAGNET IS ON. */
-    #define ODOM_TICKS_PER_REV 1.0f
+#define ODOM_TICKS_PER_REV 1.0f
 
     /* Revolutions of that thing per revolution of the WHEEL. 1.0 for an
      * axle-mounted magnet, which is the arrangement this file recommends; the
      * full 10.7 only if the magnet ends up on the motor or spur, and then it
      * changes with the pinion. */
-    #define ODOM_GEAR_RATIO 1.0f
+#define ODOM_GEAR_RATIO 1.0f
 
     struct Config
     {
@@ -149,7 +146,7 @@ namespace bibo
         }
     }
 
-    inline Void reset(Wheel* w, UInt64 nowUs)
+    inline Void reset(Wheel* w, const UInt64 nowUs)
     {
         if(w == nullptr)
         {
@@ -186,7 +183,7 @@ namespace bibo
      *
      * A caller that wants the raw value can take distance() twice and divide;
      * this is the one for a control loop. */
-    inline Float32 update(Wheel* w, UInt64 nowUs, Float32 tauS)
+    inline Float32 update(Wheel* w, const UInt64 nowUs, const Float32 tauS)
     {
         if(w == nullptr)
         {
@@ -216,8 +213,8 @@ namespace bibo
         /* Unsigned subtraction, so a wrap of the tick counter is still the
          * right delta. This car is forward-only, so ticks never count down. */
         const UInt32  dTicks = now - w->lastTicks;
-        const Float32 raw    = (static_cast<Float32>(dTicks) * metresPerTick())
-                             / dtS;
+        const Float32 raw    = static_cast<Float32>(dTicks) * metresPerTick()
+                               / dtS;
 
         w->lastTicks = now;
         w->lastUs    = nowUs;
@@ -239,9 +236,7 @@ namespace bibo
 
     inline Float32 speed(const Wheel* w)
     {
-        return (w != nullptr) ? w->speed : 0.0f;
+        return w != nullptr ? w->speed : 0.0f;
     }
 
-  } /* namespace odom */
-
-} /* namespace bibo */
+}

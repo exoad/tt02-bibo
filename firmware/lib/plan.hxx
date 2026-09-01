@@ -34,11 +34,8 @@
 #include "geom.hxx"
 #include "pursuit.hxx"
 
-namespace bibo
+namespace bibo::plan
 {
-
-  namespace plan
-  {
 
     enum Status
     {
@@ -49,16 +46,16 @@ namespace bibo
         STATUS_FULL
     };
 
-    inline CharSeq why(Status s)
+    inline CharSeq why(const Status s)
     {
         switch(s)
         {
-        case STATUS_OK:              return "ok";
-        case STATUS_NOT_IMPLEMENTED: return "not implemented yet";
-        case STATUS_NO_PATH:         return "no path";
-        case STATUS_BAD_TUNING:      return "the tuning is not usable";
-        case STATUS_FULL:            return "no room left";
-        default:                     return "?";
+            case STATUS_OK:              return "ok";
+            case STATUS_NOT_IMPLEMENTED: return "not implemented yet";
+            case STATUS_NO_PATH:         return "no path";
+            case STATUS_BAD_TUNING:      return "the tuning is not usable";
+            case STATUS_FULL:            return "no room left";
+            default:                     return "?";
         }
     }
 
@@ -81,11 +78,11 @@ namespace bibo
         Float32 vMax     = 1.5f;    /* m/s, the fastest this route allows   */
         Float32 aMax     = 1.0f;    /* m/s^2 accelerating                   */
         Float32 aBrake   = 2.0f;    /* m/s^2 slowing - larger, brakes beat  */
-                                    /* the motor on this drivetrain         */
+        /* the motor on this drivetrain         */
         Float32 latAccel = 2.5f;    /* m/s^2 the tyres hold in a corner     */
         Float32 vMin     = 0.15f;   /* below this the car does not move at  */
-                                    /* all, so asking for less is asking    */
-                                    /* for a stall - see THROTTLE_CAL_MIN   */
+        /* all, so asking for less is asking    */
+        /* for a stall - see THROTTLE_CAL_MIN   */
     };
 
     inline Limits limits;
@@ -162,7 +159,7 @@ namespace bibo
 
     /* STUB. Will return a speed cap in metres per second given the nearest
      * obstacle ahead. */
-    inline Status capFor(Float32 nearestM, Float32* out)
+    inline Status capFor(const Float32 nearestM, Float32* out)
     {
         static_cast<Void>(nearestM);
         static_cast<Void>(out);
@@ -214,7 +211,7 @@ namespace bibo
     /* STUB. Will append `pose` to `into` if it is far enough from the last
      * point, and report STATUS_FULL rather than overwriting when the buffer
      * is exhausted. */
-    inline Status keep(geom::Pose pose, geom::Vec2* into, Size cap, Size* count)
+    inline Status keep(geom::Pose pose, geom::Vec2* into, const Size cap, Size* count)
     {
         static_cast<Void>(pose);
         static_cast<Void>(into);
@@ -223,6 +220,4 @@ namespace bibo
         return STATUS_NOT_IMPLEMENTED;
     }
 
-  } /* namespace plan */
-
-} /* namespace bibo */
+}

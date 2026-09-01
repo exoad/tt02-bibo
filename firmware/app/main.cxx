@@ -110,7 +110,7 @@ static CharSeq cyw43Field(Void)
 #endif
 }
 
-static Void printId(CharSeq arg)
+static Void printId(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
@@ -122,7 +122,7 @@ static Void printId(CharSeq arg)
            uid, bibo::led::backend(), lampWord(), cyw43Field());
 }
 
-static Void printStatus(CharSeq arg)
+static Void printStatus(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
@@ -156,7 +156,7 @@ static CharSeq ledCaveat(Void)
 #endif
 }
 
-static Void handleLed(CharSeq arg)
+static Void handleLed(const CharSeq arg)
 {
     if(bibo::text::eq(arg, "ON"))
     {
@@ -281,7 +281,7 @@ static Void sensorsOpen(Void)
  * Shaped as key=value pairs so a reader that does not know about a sensor added
  * later ignores it rather than failing to parse the line.
  */
-static Void printSensors(CharSeq arg)
+static Void printSensors(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
@@ -291,7 +291,7 @@ static Void printSensors(CharSeq arg)
 
 /* Every address that acknowledges. The same job as the standalone scanner
  * sketch, available over the link so the hub can offer it too. */
-static Void printScan(CharSeq arg)
+static Void printScan(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
@@ -356,7 +356,7 @@ static Void printTof(Void)
     bibo::serial::printf("OK tof busy\n");
 }
 
-static Void handleTofMode(CharSeq arg)
+static Void handleTofMode(const CharSeq arg)
 {
     if(!tofUp)
     {
@@ -441,7 +441,7 @@ static Void printDrive(Void)
            d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
 }
 
-static Void handleSteer(CharSeq arg)
+static Void handleSteer(const CharSeq arg)
 {
     /* Rejected rather than defaulted: "STEER" with nothing after it is far more
      * likely to be a truncated command than a request to centre, and guessing
@@ -470,7 +470,7 @@ static Void handleSteer(CharSeq arg)
  * there was only one, and is still the common case on a bench where you want
  * everything slow while watching something.
  */
-static Void handleSlew(CharSeq arg)
+static Void handleSlew(const CharSeq arg)
 {
     CharSeq rest = bibo::text::word(arg, "STEER");
     if(rest != nullptr)
@@ -529,7 +529,7 @@ static Void handleSlew(CharSeq arg)
     printDrive();
 }
 
-static Void handleTrim(CharSeq arg)
+static Void handleTrim(const CharSeq arg)
 {
     Int32 us = 0;
     if(!bibo::text::toInt(arg, &us))
@@ -552,7 +552,7 @@ static Void handleTrim(CharSeq arg)
  * once, because the ordering bug fixed in bibo::drive::setSteerLimits had to be
  * remembered a second time for the throttle.
  */
-static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
+static Void limitsCommand(const CharSeq arg, const CharSeq name, Bool (*set)(Int32, Int32))
 {
     Int32 lo = 0;
     Int32 hi = 0;
@@ -569,17 +569,17 @@ static Void limitsCommand(CharSeq arg, CharSeq name, Bool (*set)(Int32, Int32))
     printDrive();
 }
 
-static Void handleLimits(CharSeq arg)
+static Void handleLimits(const CharSeq arg)
 {
     limitsCommand(arg, "servolimits", bibo::drive::setSteerLimits);
 }
 
-static Void handleEscLimits(CharSeq arg)
+static Void handleEscLimits(const CharSeq arg)
 {
     limitsCommand(arg, "esclimits", bibo::drive::setThrottleLimits);
 }
 
-static Void handleServo(CharSeq arg)
+static Void handleServo(const CharSeq arg)
 {
     /*
      * OFF stops the pulse train outright. This is the panic button: a servo
@@ -629,7 +629,7 @@ static Void handleServo(CharSeq arg)
     printDrive();
 }
 
-static Void handleEsc(CharSeq arg)
+static Void handleEsc(const CharSeq arg)
 {
     if(bibo::text::eq(arg, "ARM"))
     {
@@ -694,7 +694,7 @@ static CharSeq LAMP_NAME[bibo::lights::LAMP_COUNT] =
  * makes wiring the next one a matter of checking a number that was already
  * there rather than trusting that a rule nobody has ever seen run is right.
  */
-static Void printLights(CharSeq arg)
+static Void printLights(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
@@ -734,7 +734,7 @@ static Void printLights(CharSeq arg)
  * its wiring can be checked without touching the ESC or the steering. AUTO
  * hands it back to the rules.
  */
-static Void handleLights(CharSeq arg)
+static Void handleLights(const CharSeq arg)
 {
     if(bibo::text::eq(arg, "ON"))
     {
@@ -835,9 +835,9 @@ static Void printHelp(CharSeq arg);
 /* TOF's subcommand, kept here rather than as a second row: "TOF MODE LONG" is
  * an argument to TOF, not a command called "TOF MODE", and whole-word matching
  * would hand the whole thing to TOF anyway. */
-static Void cmdTof(CharSeq arg)
+static Void cmdTof(const CharSeq arg)
 {
-    CharSeq mode = bibo::text::word(arg, "MODE");
+    const CharSeq mode = bibo::text::word(arg, "MODE");
     if(mode != nullptr)
     {
         handleTofMode(mode);
@@ -846,13 +846,13 @@ static Void cmdTof(CharSeq arg)
     printTof();
 }
 
-static Void cmdPing(CharSeq arg)
+static Void cmdPing(const CharSeq arg)
 {
     static_cast<Void>(arg);
     bibo::serial::printf("PONG\n");
 }
 
-static Void cmdDrive(CharSeq arg)
+static Void cmdDrive(const CharSeq arg)
 {
     static_cast<Void>(arg);
     printDrive();
@@ -874,7 +874,7 @@ static Void cmdDrive(CharSeq arg)
  * lamps go back to following the car, which with the throttle now at neutral
  * means the tails come on. That is correct: the car is not being driven.
  */
-static Void cmdStop(CharSeq arg)
+static Void cmdStop(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
@@ -902,7 +902,7 @@ static Void cmdStop(CharSeq arg)
  * An SSID containing a space cannot be expressed here. The password can - it is
  * everything after the first space following the SSID, verbatim.
  */
-static Void cmdWifi(CharSeq arg)
+static Void cmdWifi(const CharSeq arg)
 {
     if(!bibo::net::present())
     {
@@ -910,7 +910,7 @@ static Void cmdWifi(CharSeq arg)
         return;
     }
 
-    CharSeq rest = bibo::text::word(arg, "JOIN");
+    const CharSeq rest = bibo::text::word(arg, "JOIN");
     if(rest == nullptr)
     {
         bibo::serial::printf("INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
@@ -923,7 +923,7 @@ static Void cmdWifi(CharSeq arg)
     }
 
     /* The same offset into the line as it was typed. */
-    CharSeq raw = cmdRawArg + (rest - arg);
+    const CharSeq raw = cmdRawArg + (rest - arg);
 
     Utf8 ssid[40];
     Size n = 0;
@@ -1004,14 +1004,14 @@ static Void printCue(Void)
 
     for(Int32 i = 1; i < bibo::cue::KIND_COUNT; ++i)
     {
-        const bibo::cue::Kind c = static_cast<bibo::cue::Kind>(i);
+        const auto c = static_cast<bibo::cue::Kind>(i);
         if(!bibo::cue::on(c))
         {
             continue;
         }
 
         const Int32 n = bibo::text::format(&list[at], sizeof(list) - at, "%s%s%s",
-                                          (at > 0) ? "," : "",
+                                          at > 0 ? "," : "",
                                           bibo::cue::name(c),
                                           bibo::cue::held(c) ? "*" : "");
         if(n <= 0 || static_cast<Size>(n) >= sizeof(list) - at)
@@ -1024,7 +1024,7 @@ static Void printCue(Void)
     bibo::serial::printf(
         "OK cue speaking=%s active=%s step=%u loop=%u tone=%u kinds=%d off_us=%d\n",
         bibo::cue::name(k),
-        (list[0] == '\0') ? "-" : list,
+        list[0] == '\0' ? "-" : list,
         static_cast<UInt32>(bibo::cue::step()),
         static_cast<UInt32>(bibo::cue::loop()),
         static_cast<UInt32>(bibo::cue::tone()),
@@ -1032,7 +1032,7 @@ static Void printCue(Void)
         bibo::cue::motionUs());
 }
 
-static Void cmdCue(CharSeq arg)
+static Void cmdCue(const CharSeq arg)
 {
     if(arg[0] == '\0')
     {
@@ -1114,7 +1114,7 @@ static Void cmdCue(CharSeq arg)
     printCue();
 }
 
-static Void cmdBootsel(CharSeq arg)
+static Void cmdBootsel(const CharSeq arg)
 {
     static_cast<Void>(arg);
     bibo::serial::printf("INFO rebooting into bootloader\n");
@@ -1147,7 +1147,7 @@ static Void printSound(Void)
 {
     /* The CLIP NAME beside the number, when the track has one. A status line
      * that says track 2 makes a person open sfx.hxx to find out what that is. */
-    CharSeq clip = bibo::sfx::nameOf(bibo::sound::track());
+    const CharSeq clip = bibo::sfx::nameOf(bibo::sound::track());
 
     bibo::serial::printf(
         "OK sound ready=%s vol=%u max=%u eq=%u track=%u clip=%s files=%u "
@@ -1167,7 +1167,7 @@ static Void printSound(Void)
         static_cast<Int32>(bibo::pins::active().soundBusy));
 }
 
-static Void cmdSound(CharSeq arg)
+static Void cmdSound(const CharSeq arg)
 {
     if(arg[0] == '\0')
     {
@@ -1216,7 +1216,7 @@ static Void cmdSound(CharSeq arg)
          * is turning a Result into a sentence - which is all a console should
          * be doing, and is why a cue will be able to make the same call without
          * reimplementing any of it. */
-        CharSeq want = bibo::text::after(arg, "PLAY ");
+        const CharSeq want = bibo::text::after(arg, "PLAY ");
 
         bibo::sound::Result r = bibo::sound::RESULT_OK;
 
@@ -1307,12 +1307,12 @@ static Void cmdSound(CharSeq arg)
      * in step with a list written somewhere else. */
     if(bibo::text::eq(arg, "LIST"))
     {
-        for(Size i = 0; i < bibo::sfx::COUNT; ++i)
+        for(auto [name, track, means] : bibo::sfx::CLIPS)
         {
             bibo::serial::printf("INFO sfx %s track=%u - %s\n",
-                                 bibo::sfx::CLIPS[i].name,
-                                 static_cast<UInt32>(bibo::sfx::CLIPS[i].track),
-                                 bibo::sfx::CLIPS[i].means);
+                                 name,
+                                 static_cast<UInt32>(track),
+                                 means);
         }
 
         /* The table's claim about the card, checked when the card has been
@@ -1417,47 +1417,47 @@ static Void cmdSound(CharSeq arg)
 
 static const Command COMMANDS[] =
 {
-    { "PING",        "",                        "answers PONG",                             cmdPing },
-    { "ID",          "",                        "board, sdk, build time, unique id",        printId },
-    { "STATUS",      "",                        "uptime and led state",                     printStatus },
-    { "HELP",        "",                        "this list",                                printHelp },
-    { "BOOTSEL",     "",                        "reboot into the UF2 bootloader",           cmdBootsel },
-    { "LED",         " ON|OFF|BLINK <hz>",      "solid, or blink; 0 stops",                 handleLed },
+    { .name = "PING",        .usage = "",                        .what = "answers PONG",                             .run = cmdPing },
+    { .name = "ID",          .usage = "",                        .what = "board, sdk, build time, unique id",        .run = printId },
+    { .name = "STATUS",      .usage = "",                        .what = "uptime and led state",                     .run = printStatus },
+    { .name = "HELP",        .usage = "",                        .what = "this list",                                .run = printHelp },
+    { .name = "BOOTSEL",     .usage = "",                        .what = "reboot into the UF2 bootloader",           .run = cmdBootsel },
+    { .name = "LED",         .usage = " ON|OFF|BLINK <hz>",      .what = "solid, or blink; 0 stops",                 .run = handleLed },
 
-    { "SENSORS",     "",                        "what is attached",                         printSensors },
-    { "SCAN",        "",                        "every I2C address that answers",           printScan },
-    { "TOF",         " [MODE SHORT|LONG]",      "range in mm; the mode is 1.3 m or 4 m",    cmdTof },
+    { .name = "SENSORS",     .usage = "",                        .what = "what is attached",                         .run = printSensors },
+    { .name = "SCAN",        .usage = "",                        .what = "every I2C address that answers",           .run = printScan },
+    { .name = "TOF",         .usage = " [MODE SHORT|LONG]",      .what = "range in mm; the mode is 1.3 m or 4 m",    .run = cmdTof },
 
-    { "DRIVE",       "",                        "servo and esc state",                      cmdDrive },
-    { "STOP",        "",                        "everything off: neutral, disarm, release", cmdStop },
-    { "STEER",       " <-1..1>",                "steer as a fraction of this car's travel", handleSteer },
-    { "SLEW",        " [STEER|THROTTLE] <us>",  "how fast an output may move, per tick",    handleSlew },
-    { "SERVO",       " <us>|ON|OFF|CENTER",     "steering; OFF stops the pulse, servo limp", handleServo },
-    { "SERVOTRIM",   " <us>",                   "move where centre is",                     handleTrim },
-    { "SERVOLIMITS", " <min> <max>",            "widen to find the real end stops",         handleLimits },
-    { "ESC",         " ARM|DISARM|NEUTRAL|<us>", "throttle",                                handleEsc },
-    { "ESCLIMITS",   " <min> <max>",            "widen the throttle range",                 handleEscLimits },
+    { .name = "DRIVE",       .usage = "",                        .what = "servo and esc state",                      .run = cmdDrive },
+    { .name = "STOP",        .usage = "",                        .what = "everything off: neutral, disarm, release", .run = cmdStop },
+    { .name = "STEER",       .usage = " <-1..1>",                .what = "steer as a fraction of this car's travel", .run = handleSteer },
+    { .name = "SLEW",        .usage = " [STEER|THROTTLE] <us>",  .what = "how fast an output may move, per tick",    .run = handleSlew },
+    { .name = "SERVO",       .usage = " <us>|ON|OFF|CENTER",     .what = "steering; OFF stops the pulse, servo limp", .run = handleServo },
+    { .name = "SERVOTRIM",   .usage = " <us>",                   .what = "move where centre is",                     .run = handleTrim },
+    { .name = "SERVOLIMITS", .usage = " <min> <max>",            .what = "widen to find the real end stops",         .run = handleLimits },
+    { .name = "ESC",         .usage = " ARM|DISARM|NEUTRAL|<us>", .what = "throttle",                                .run = handleEsc },
+    { .name = "ESCLIMITS",   .usage = " <min> <max>",            .what = "widen the throttle range",                 .run = handleEscLimits },
 
-    { "WIFI",        " [JOIN <ssid> <password>]", "the wireless command link",           cmdWifi },
-    { "CUE",         " [LIST|STOP|<name> [OFF]]",     "what the car says, and saying it",      cmdCue },
+    { .name = "WIFI",        .usage = " [JOIN <ssid> <password>]", .what = "the wireless command link",           .run = cmdWifi },
+    { .name = "CUE",         .usage = " [LIST|STOP|<name> [OFF]]",     .what = "what the car says, and saying it",      .run = cmdCue },
 
-    { "SOUND",       " [RESET|VOL|EQ|PLAY <name|n>|LIST|FILES|RX|STOP|...]",
-                                                "the speaker",                              cmdSound },
+    { .name = "SOUND",       .usage = " [RESET|VOL|EQ|PLAY <name|n>|LIST|FILES|RX|STOP|...]",
+                                                .what = "the speaker",                              .run = cmdSound },
 
     /* TEMPORARY - the indicator scaffolding. Goes when GP15 is given back to
      * the wheel encoder. See lib/lights.h. */
-    { "LIGHTS",      " [ON|OFF|AUTO|OFFAT <us>|<lamp>]", "the lamps, and what each is doing", handleLights },
+    { .name = "LIGHTS",      .usage = " [ON|OFF|AUTO|OFFAT <us>|<lamp>]", .what = "the lamps, and what each is doing", .run = handleLights },
 };
 
-static const Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
+static constexpr Size COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
 
-static Void printHelp(CharSeq arg)
+static Void printHelp(const CharSeq arg)
 {
     static_cast<Void>(arg);
-    for(Size i = 0; i < COMMAND_COUNT; ++i)
+    for(const auto i : COMMANDS)
     {
         bibo::serial::printf("INFO help %s%s - %s\n",
-                     COMMANDS[i].name, COMMANDS[i].usage, COMMANDS[i].what);
+                     i.name, i.usage, i.what);
     }
 }
 
@@ -1489,14 +1489,13 @@ static Void handleLine(Utf8* line)
         return;
     }
 
-    for(Size i = 0; i < COMMAND_COUNT; ++i)
+    for(const auto i : COMMANDS)
     {
-        CharSeq arg = bibo::text::word(line, COMMANDS[i].name);
-        if(arg != nullptr)
+        if(const CharSeq arg = bibo::text::word(line, i.name); arg != nullptr)
         {
             /* Same offset, other buffer - see rawLine above. */
             cmdRawArg = rawLine + (arg - static_cast<CharSeq>(line));
-            COMMANDS[i].run(arg);
+            i.run(arg);
             return;
         }
     }
@@ -1627,8 +1626,7 @@ int main(Void)
         bibo::net::poll();
 
         {
-            const bibo::net::State ns = bibo::net::status();
-            if(ns != netReported)
+            if(const bibo::net::State ns = bibo::net::status(); ns != netReported)
             {
                 netReported = ns;
                 bibo::serial::printf("INFO wifi state=%s ip=%s port=%d\n",
@@ -1650,9 +1648,8 @@ int main(Void)
          */
         {
             const bibo::drive::State dm      = bibo::drive::read();
-            const Bool       driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs);
 
-            if(driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
+            if(const Bool driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs); driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
             {
                 bibo::drive::stop();
                 bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);
@@ -1677,7 +1674,7 @@ int main(Void)
         {
             const bibo::drive::State d = bibo::drive::read();
 
-            bibo::cue::Input ci;
+            bibo::cue::Input ci{};
             ci.steerMilli = d.steerNowMilli;
             ci.throttleUs = d.escUs;
             ci.idleUs     = d.escMinUs;

@@ -46,11 +46,8 @@
  * headers - so this adds no cycle and no hardware dependency. */
 #include "text.hxx"
 
-namespace bibo
+namespace bibo::pins
 {
-
-  namespace pins
-  {
 
     /* Not wired. A subsystem holding this skips the pad entirely rather than
      * driving GPIO -1, which the SDK would do something undefined with. */
@@ -259,16 +256,13 @@ namespace bibo
     inline Bool begin(const Map& m)
     {
         clashPin = NONE;
-
         const Int32* f = fields(&m);
-
         for(Size a = 0; a < FIELD_COUNT; ++a)
         {
             if(f[a] == NONE)
             {
                 continue;
             }
-
             if(f[a] < 0 || f[a] > MAX_GPIO)
             {
                 clashPin = f[a];
@@ -276,7 +270,6 @@ namespace bibo
                 clashB   = a;
                 return false;
             }
-
             for(Size b = a + 1; b < FIELD_COUNT; ++b)
             {
                 if(f[b] != NONE && f[a] == f[b])
@@ -288,9 +281,8 @@ namespace bibo
                 }
             }
         }
-
         installed = m;
-        up        = true;
+        up = true;
         return true;
     }
 
@@ -304,12 +296,12 @@ namespace bibo
 
     inline CharSeq conflictFirst(Void)
     {
-        return (clashPin == NONE) ? "" : NAMES[clashA];
+        return clashPin == NONE ? "" : NAMES[clashA];
     }
 
     inline CharSeq conflictSecond(Void)
     {
-        return (clashPin == NONE) ? "" : NAMES[clashB];
+        return clashPin == NONE ? "" : NAMES[clashB];
     }
 
     /*
@@ -407,6 +399,4 @@ namespace bibo
                   "two roles in pins::car() claim the same GPIO, or a pad is "
                   "not 0-29 - read car() above and decide which one gets it");
 
-  } /* namespace pins */
-
-} /* namespace bibo */
+}

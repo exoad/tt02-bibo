@@ -103,7 +103,7 @@ namespace bibo
     inline State       stateNow  = STATE_OFF;
     inline Bool           started   = false;
     inline LineHandler handler   = nullptr;
-    inline struct udp_pcb* pcb      = nullptr;
+    inline udp_pcb* pcb      = nullptr;
 
     /* The last host that said anything. Replies go here - including replies to
      * commands that arrived over USB, which is deliberate: a console watching
@@ -148,7 +148,7 @@ namespace bibo
         return dropped;
     }
 
-    inline Void setLineHandler(LineHandler fn)
+    inline Void setLineHandler(const LineHandler fn)
     {
         handler = fn;
     }
@@ -202,13 +202,11 @@ namespace bibo
     }
 
     /* Bytes off the wire, split into lines. */
-    inline Void feed(const Utf8* data, Size len)
+    inline Void feed(const Utf8* data, const Size len)
     {
         for(Size i = 0; i < len; ++i)
         {
-            const Utf8 c = data[i];
-
-            if(c == '\n' || c == '\r')
+            if(const Utf8 c = data[i]; c == '\n' || c == '\r')
             {
                 queuePush(partial, partialLen);
                 partialLen = 0;
@@ -243,7 +241,20 @@ namespace bibo
 
     /* The signature is lwIP's, not ours - it is a callback that stack calls, so
      * every parameter is spelled the way udp_recv_fn declares it. */
-    inline Void onPacket(Void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, u16_t port)
+    // `arg` and `pcb` are NOT const, and cannot be made so.
+    //
+    // This has to match lwIP's udp_recv_fn exactly, and a const on a POINTER
+    // parameter is part of the function's type - unlike a const on a by-value
+    // one, which the signature ignores. `const Void*` and `Void*` are two
+    // different functions as far as udp_recv() is concerned, so const-qualifying
+    // them stops this compiling against the callback it exists to be:
+    //
+    //     net.hxx:317: invalid conversion from 'Void (*)(const Void*, ...)'
+    //                  to 'udp_recv_fn'
+    //
+    // `addr` keeps its const because lwIP declares it that way, and `port` keeps
+    // its because a top-level const on a value parameter is not part of the type.
+    inline Void onPacket(Void* arg, udp_pcb* pcb, pbuf* p, const ip_addr_t* addr, const u16_t port)
     {
         static_cast<Void>(arg);
         static_cast<Void>(pcb);
@@ -259,9 +270,9 @@ namespace bibo
 
         /* pbufs can be chained; walking the chain is not optional even for small
          * packets, because "small" is the sender's decision and not ours. */
-        for(struct pbuf* q = p; q != nullptr; q = q->next)
+        for(const pbuf* q = p; q != nullptr; q = q->next)
         {
-            feed(static_cast<const Utf8*>(q->payload), static_cast<Size>(q->len));
+            feed(static_cast<const Utf8*>(q->payload), q->len);
         }
 
         pbuf_free(p);
@@ -332,7 +343,7 @@ namespace bibo
      * deadman. A join that freezes the car is a join nobody can make while the car
      * is switched on.
      */
-    [[nodiscard]] static Bool join(CharSeq ssid, CharSeq pass)
+    [[nodiscard]] static Bool join(const CharSeq ssid, const CharSeq pass)
     {
         if(!started && !start())
         {
@@ -341,17 +352,16 @@ namespace bibo
 
         /* Copies, because the async connect keeps pointers to these. */
         snprintf(joinSsid, sizeof(joinSsid), "%s", ssid);
-        snprintf(joinPass, sizeof(joinPass), "%s", (pass != nullptr) ? pass : "");
+        snprintf(joinPass, sizeof(joinPass), "%s", pass != nullptr ? pass : "");
 
-        const UInt32 auth = (joinPass[0] == '\0')
+        const UInt32 auth = joinPass[0] == '\0'
                                 ? CYW43_AUTH_OPEN
                                 : CYW43_AUTH_WPA2_AES_PSK;
 
         /* nullptr rather than an empty string for an open network: the SDK tests the
          * pointer, not what it points at. */
-        CharSeq key = (joinPass[0] == '\0') ? nullptr : joinPass;
 
-        if(cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
+        if(const CharSeq key = joinPass[0] == '\0' ? nullptr : joinPass; cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
         {
             stateNow = STATE_FAILED;
             return false;
@@ -362,7 +372,7 @@ namespace bibo
     }
 
     /* One line out to whoever last spoke. Silently does nothing if nobody has. */
-    inline Void sendLine(CharSeq text)
+    inline Void sendLine(const CharSeq text)
     {
         if(stateNow != STATE_UP || !peerKnownNow || pcb == nullptr)
         {
@@ -375,7 +385,7 @@ namespace bibo
             return;
         }
 
-        struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(len), PBUF_RAM);
+        pbuf* p = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(len), PBUF_RAM);
         if(p == nullptr)
         {
             return;   /* out of buffers: dropping a reply beats blocking the loop */
@@ -404,9 +414,7 @@ namespace bibo
 
         if(stateNow == STATE_JOINING)
         {
-            const Int32 link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-
-            if(link == CYW43_LINK_UP)
+            if(const Int32 link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA); link == CYW43_LINK_UP)
             {
                 stateNow = STATE_UP;
             }
@@ -493,7 +501,7 @@ namespace bibo
 #endif /* BIBO_WIRELESS */
 
     /* The word for a state, for anything that prints one. */
-    inline CharSeq stateWord(State s)
+    inline CharSeq stateWord(const State s)
     {
         switch(s)
         {

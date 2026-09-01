@@ -21,11 +21,8 @@
 
 #include "geom.hxx"
 
-namespace bibo
+namespace bibo::kin
 {
-
-  namespace kin
-  {
 
     /* Front axle to rear axle, in metres.
      *
@@ -35,7 +32,7 @@ namespace bibo
      * constant proportional error in every turn the car ever makes - which
      * reads as a controller that is badly tuned rather than a number that is
      * wrong. */
-    #define KIN_WHEELBASE_M 0.257f
+#define KIN_WHEELBASE_M 0.257f
 
     /* The largest steering angle the linkage actually reaches, in radians.
      *
@@ -50,7 +47,7 @@ namespace bibo
      * a turn it cannot make in one direction and quietly understeer. chassis.hxx
      * scales each side separately when it converts a fraction to microseconds;
      * this constant is the honest limit for a controller reasoning in angles. */
-    #define KIN_MAX_STEER_RAD 0.42f
+#define KIN_MAX_STEER_RAD 0.42f
 
     /* ---- the car's shape, as a value -------------------------------------
      *
@@ -105,7 +102,7 @@ namespace bibo
      * A controller thinks in curvature because that is what a path has; the
      * servo wants an angle. These two functions are the only place the
      * conversion happens. */
-    inline Float32 curvatureFor(Float32 steerRad, Float32 wheelbase)
+    inline Float32 curvatureFor(const Float32 steerRad, const Float32 wheelbase)
     {
         if(wheelbase <= 0.0f)
         {
@@ -114,7 +111,7 @@ namespace bibo
         return tanf(steerRad) / wheelbase;
     }
 
-    inline Float32 steerFor(Float32 curvature, Float32 wheelbase)
+    inline Float32 steerFor(const Float32 curvature, const Float32 wheelbase)
     {
         return atanf(curvature * wheelbase);
     }
@@ -122,7 +119,7 @@ namespace bibo
     /* Clamped to what the linkage can reach, and the CURVATURE clamped with it.
      * A controller handed back an angle it cannot achieve would keep asking for
      * a tighter turn and never notice it was not getting one. */
-    inline Float32 clampSteer(Float32 steerRad, Float32 maxRad)
+    inline Float32 clampSteer(const Float32 steerRad, const Float32 maxRad)
     {
         if(steerRad > maxRad)
         {
@@ -137,7 +134,7 @@ namespace bibo
 
     /* As a fraction of full lock, which is what drive::steer wants. The chassis
      * maps that onto this car's asymmetric microseconds. */
-    inline Float32 steerFraction(Float32 steerRad, Float32 maxRad)
+    inline Float32 steerFraction(const Float32 steerRad, const Float32 maxRad)
     {
         if(maxRad <= 0.0f)
         {
@@ -160,8 +157,8 @@ namespace bibo
      *
      * The straight-line case is kept for near-zero curvature, where the arc
      * form divides by a heading change that is approaching zero. */
-    inline geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad,
-                                Float32 wheelbase, Float32 dtS)
+    inline geom::Pose integrate(const geom::Pose& p, const Float32 v, const Float32 steerRad,
+                                const Float32 wheelbase, const Float32 dtS)
     {
         if(dtS <= 0.0f || wheelbase <= 0.0f)
         {
@@ -169,7 +166,7 @@ namespace bibo
         }
 
         const Float32 ds     = v * dtS;                                /* metres */
-        const Float32 dTheta = (ds * tanf(steerRad)) / wheelbase;      /* radians */
+        const Float32 dTheta = ds * tanf(steerRad) / wheelbase;      /* radians */
 
         geom::Pose out = p;
 
@@ -177,7 +174,7 @@ namespace bibo
          * measure this car can take. Below it the arc form's divide is the only
          * thing that would be interesting, and it would be interesting in the
          * wrong way. */
-        if((dTheta < 1e-6f) && (dTheta > -1e-6f))
+        if(dTheta < 1e-6f && dTheta > -1e-6f)
         {
             out.x += ds * cosf(p.heading);
             out.y += ds * sinf(p.heading);
@@ -203,39 +200,39 @@ namespace bibo
      * about a car that is not this one and a planner may reason about a
      * hypothetical. These are what ordinary code calls: threading the same two
      * numbers through every call site is how one of them ends up stale. */
-    inline Float32 curvatureFor(Float32 steerRad)
+    inline Float32 curvatureFor(const Float32 steerRad)
     {
         return curvatureFor(steerRad, tuning.wheelbase);
     }
 
-    inline Float32 steerFor(Float32 curvature)
+    inline Float32 steerFor(const Float32 curvature)
     {
         return steerFor(curvature, tuning.wheelbase);
     }
 
-    inline Float32 clampSteer(Float32 steerRad)
+    inline Float32 clampSteer(const Float32 steerRad)
     {
         return clampSteer(steerRad, tuning.maxSteer);
     }
 
-    inline Float32 steerFraction(Float32 steerRad)
+    inline Float32 steerFraction(const Float32 steerRad)
     {
         return steerFraction(steerRad, tuning.maxSteer);
     }
 
-    inline geom::Pose integrate(geom::Pose p, Float32 v, Float32 steerRad, Float32 dtS)
+    inline geom::Pose integrate(const geom::Pose& p, const Float32 v, const Float32 steerRad, const Float32 dtS)
     {
         return integrate(p, v, steerRad, tuning.wheelbase, dtS);
     }
 
-    inline Float32 minTurnRadius(Float32 maxRad, Float32 wheelbase)
+    inline Float32 minTurnRadius(const Float32 maxRad, const Float32 wheelbase)
     {
         const Float32 k = curvatureFor(maxRad, wheelbase);
-        if((k < 1e-6f) && (k > -1e-6f))
+        if(k < 1e-6f && k > -1e-6f)
         {
             return 1e6f;   /* effectively straight */
         }
-        return (k < 0.0f) ? (-1.0f / k) : (1.0f / k);
+        return k < 0.0f ? -1.0f / k : 1.0f / k;
     }
 
     inline Float32 minTurnRadius(Void)
@@ -243,6 +240,4 @@ namespace bibo
         return minTurnRadius(tuning.maxSteer, tuning.wheelbase);
     }
 
-  } /* namespace kin */
-
-} /* namespace bibo */
+}

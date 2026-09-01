@@ -59,11 +59,8 @@
  */
 #include "dfplayer_proto.hxx"
 
-namespace bibo
+namespace bibo::dfplayer
 {
-
-  namespace dfplayer
-  {
 
     /* The port and the BUSY pin. STAYS HERE rather than in the protocol
      * header: uart_inst_t is the SDK's, and dragging it next door would
@@ -82,7 +79,7 @@ namespace bibo
      * immediately by a play, which is the obvious thing to write - drop the second
      * one often enough to look intermittent. The datasheet asks for 20 ms; 40 is
      * cheap and has never been the problem. */
-    inline Void send(const Bus* bus, UInt8 cmd, UInt16 param)
+    inline Void send(const Bus* bus, const UInt8 cmd, const UInt16 param)
     {
         UInt8 buf[10];
         frame(buf, cmd, 0x00u, param);
@@ -96,7 +93,7 @@ namespace bibo
      * `tx` goes to the module's RX and `rx` comes from its TX; either may be
      * pins::NONE. 9600 baud is not configurable on this module.
      * ------------------------------------------------------------------------- */
-    inline Void open(Bus* bus, uart_inst_t* port, Pin tx, Pin rx, Int32 busyPin)
+    inline Void open(Bus* bus, uart_inst_t* port, const Pin tx, const Pin rx, const Int32 busyPin)
     {
         bus->port    = port;
         bus->busyPin = busyPin;
@@ -105,12 +102,12 @@ namespace bibo
 
         if(busyPin != pins::NONE)
         {
-            gpio::open(static_cast<Pin>(busyPin), PIN_DIR_IN);
+            gpio::open(busyPin, PIN_DIR_IN);
 
             /* Pulled up because the module drives it LOW to mean "playing". With
              * nothing attached the pin would float and read as playing about half
              * the time. */
-            gpio::pull(static_cast<Pin>(busyPin), PIN_PULL_UP);
+            gpio::pull(busyPin, PIN_PULL_UP);
         }
     }
 
@@ -140,7 +137,7 @@ namespace bibo
     }
 
     /* 0 to 30, clamped. */
-    inline Void volume(const Bus* bus, UInt8 level)
+    inline Void volume(const Bus* bus, const UInt8 level)
     {
         send(bus, DFP_CMD_VOLUME,
              static_cast<UInt16>(level > DFP_VOLUME_MAX ? DFP_VOLUME_MAX : level));
@@ -148,20 +145,20 @@ namespace bibo
 
     /* The equaliser, 0-5. See the note in dfplayer_proto.hxx: this changes tone,
      * not level, and 30 remains the loudest this module goes. */
-    inline Void eq(const Bus* bus, UInt8 mode)
+    inline Void eq(const Bus* bus, const UInt8 mode)
     {
         send(bus, DFP_CMD_EQ,
              static_cast<UInt16>(mode > DFP_EQ_MAX ? DFP_EQ_MAX : mode));
     }
 
     /* Plays mp3/000N.mp3. One-based, matching the filename. */
-    inline Void playMp3(const Bus* bus, UInt16 track)
+    inline Void playMp3(const Bus* bus, const UInt16 track)
     {
         send(bus, DFP_CMD_MP3, track);
     }
 
     /* Plays NN/TTT.mp3 - folder 1-99, track 1-255. */
-    inline Void playFolder(const Bus* bus, UInt8 folder, UInt8 track)
+    inline Void playFolder(const Bus* bus, const UInt8 folder, const UInt8 track)
     {
         send(bus, DFP_CMD_FOLDER,
              static_cast<UInt16>((static_cast<UInt16>(folder) << 8) | track));
@@ -201,7 +198,7 @@ namespace bibo
      * FIFO may be about something else entirely; anything that is not the answer
      * to THIS question is skipped rather than returned as the value.
      * ------------------------------------------------------------------- */
-    inline Bool query(const Bus* bus, UInt8 cmd, UInt16* out)
+    inline Bool query(const Bus* bus, const UInt8 cmd, UInt16* out)
     {
         uart::drain(bus->port);
 
@@ -212,13 +209,13 @@ namespace bibo
         /* A 10-byte reply at 9600 baud is about 10 ms. 40 gives the module
          * time to think and still fails fast enough that a silent one does not
          * hang the console. */
-        const UInt32 SLICE_US = 40000u;
 
         UInt8 f[10];
         Size  n = 0;
 
         for(Int32 guard = 0; guard < 64; ++guard)
         {
+            constexpr UInt32 SLICE_US = 40000u;
             const Int32 b = uart::readByte(bus->port, SLICE_US);
             if(b < 0)
             {
@@ -253,7 +250,7 @@ namespace bibo
             {
                 sum = static_cast<UInt16>(sum + f[i]);
             }
-            const UInt16 chk = static_cast<UInt16>(
+            const auto chk = static_cast<UInt16>(
                 (static_cast<UInt16>(f[7]) << 8) | f[8]);
 
             if(static_cast<UInt16>(sum + chk) != 0u)
@@ -315,9 +312,7 @@ namespace bibo
         {
             return false;
         }
-        return !gpio::read(static_cast<Pin>(bus->busyPin));
+        return !gpio::read(bus->busyPin);
     }
 
-  } /* namespace dfplayer */
-
-} /* namespace bibo */
+}

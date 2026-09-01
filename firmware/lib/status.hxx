@@ -49,9 +49,9 @@ namespace bibo
      * rather than edges. One flash a second is status::blink(1.0f), which is what
      * anybody watching would call it.
      */
-    inline UInt64 halfPeriodUs(Float32 hz)
+    inline UInt64 halfPeriodUs(const Float32 hz)
     {
-        return static_cast<UInt64>(500000.0f / hz);
+        return 500000.0f / hz;
     }
 
     /*
@@ -70,7 +70,7 @@ namespace bibo
     }
 
     /* Stops any blink and holds the lamp. */
-    inline Void solid(Bool on)
+    inline Void solid(const Bool on)
     {
         hzNow = 0.0f;
         lit   = on;
@@ -78,7 +78,7 @@ namespace bibo
     }
 
     /* Blinks at `hz` full cycles per second. Zero or less is solid off. */
-    inline Void blink(Float32 hz)
+    inline Void blink(const Float32 hz)
     {
         if(hz <= 0.0f)
         {
@@ -128,7 +128,7 @@ namespace bibo
      * moment a blocking flash costs nothing, and the one moment somebody genuinely
      * wants to know the program started.
      */
-    inline Void hello(Int32 flashes, UInt32 msEach)
+    inline Void hello(const Int32 flashes, const UInt32 msEach)
     {
         for(Int32 i = 0; i < flashes; ++i)
         {

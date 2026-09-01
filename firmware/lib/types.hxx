@@ -88,6 +88,7 @@ using Void    = void;
  * used. An alias is.
  */
 using Utf8      = char;
+using Utf8Byte  = unsigned char;
 using Utf16     = std::uint16_t;
 using Utf32     = std::uint32_t;
 

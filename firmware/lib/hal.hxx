@@ -1,7 +1,7 @@
 /*
  * A thin wrapper over the Pico SDK, spelled the way this project spells things.
  *
- * WHY. The SDK is snake_case C with its own vocabulary (`uint`, `gpio_put`,
+ * WHY. The SDK is snake_case C with its own vocabulary (`UInt32`, `gpio_put`,
  * `absolute_time_t`); the rest of this project is manbox
  * (github.com/exoad/manbox) - PascalCase types, camelCase functions,
  * SCREAMING_SNAKE macros, and the types.h aliases. Mixing the two inside one
@@ -160,30 +160,30 @@ namespace bibo
 
   namespace gpio
   {
-    inline Void open(Pin pin, PinDir dir)
+    inline Void open(const Pin pin, const PinDir dir)
     {
-        gpio_init((uint) pin);
-        gpio_set_dir((uint) pin, dir == PIN_DIR_OUT);
+        gpio_init(static_cast<UInt32>(pin));
+        gpio_set_dir(static_cast<UInt32>(pin), dir == PIN_DIR_OUT);
     }
 
-    inline Void write(Pin pin, Bool high)
+    inline Void write(const Pin pin, const Bool high)
     {
-        gpio_put((uint) pin, high);
+        gpio_put(static_cast<UInt32>(pin), high);
     }
 
-    inline Bool read(Pin pin)
+    inline Bool read(const Pin pin)
     {
-        return gpio_get((uint) pin);
+        return gpio_get(static_cast<UInt32>(pin));
     }
 
-    inline Void toggle(Pin pin)
+    inline Void toggle(const Pin pin)
     {
-        gpio_xor_mask(1u << (uint) pin);
+        gpio_xor_mask(1u << static_cast<UInt32>(pin));
     }
 
-    inline Void pull(Pin pin, PinPull pull)
+    inline Void pull(const Pin pin, const PinPull pull)
     {
-        gpio_set_pulls((uint) pin, pull == PIN_PULL_UP, pull == PIN_PULL_DOWN);
+        gpio_set_pulls(static_cast<UInt32>(pin), pull == PIN_PULL_UP, pull == PIN_PULL_DOWN);
     }
 
     /* ---- time ---------------------------------------------------------------- */
@@ -230,9 +230,9 @@ namespace bibo
      * pad that carries no UART at all returns the normal value and simply will not
      * work, which is what a wiring mistake should look like - the pin table in
      * pins.hxx is where that is prevented, not here. */
-    inline gpio_function_t dataFunc(Pin pin)
+    inline gpio_function_t dataFunc(const Pin pin)
     {
-        return (pin == 14 || pin == 15) ? GPIO_FUNC_UART_AUX : GPIO_FUNC_UART;
+        return pin == 14 || pin == 15 ? GPIO_FUNC_UART_AUX : GPIO_FUNC_UART;
     }
 
     /* Brings up `port` at `baud` on the given pins.
@@ -245,7 +245,7 @@ namespace bibo
      * the one asked for - the divider is integer and the peripheral clock is
      * whatever it is. At 9600 the error is negligible; the value is returned
      * because a caller that cares should be able to see it rather than assume. */
-    inline UInt32 open(uart_inst_t* port, UInt32 baud, Pin tx, Pin rx)
+    inline UInt32 open(uart_inst_t* port, const UInt32 baud, const Pin tx, const Pin rx)
     {
         const UInt32 got = uart_init(port, baud);
 
@@ -271,7 +271,7 @@ namespace bibo
         return got;
     }
 
-    inline Void write(uart_inst_t* port, const UInt8* data, Size len)
+    inline Void write(uart_inst_t* port, const UInt8* data, const Size len)
     {
         uart_write_blocking(port, data, len);
     }
@@ -284,13 +284,13 @@ namespace bibo
 
     /* One byte, or -1 if none arrived within the timeout. Int32 rather than UInt8
      * so "nothing" and "the byte 0xFF" are different answers. */
-    inline Int32 readByte(uart_inst_t* port, UInt32 timeoutUs)
+    inline Int32 readByte(uart_inst_t* port, const UInt32 timeoutUs)
     {
         if(!uart_is_readable_within_us(port, timeoutUs))
         {
             return -1;
         }
-        return static_cast<Int32>(uart_getc(port));
+        return uart_getc(port);
     }
 
     /* Drops whatever is sitting in the receive FIFO.
@@ -310,12 +310,12 @@ namespace bibo
 
   namespace timing
   {
-    inline Void ms(UInt32 ms)
+    inline Void ms(const UInt32 ms)
     {
         sleep_ms(ms);
     }
 
-    inline Void us(UInt64 us)
+    inline Void us(const UInt64 us)
     {
         sleep_us(us);
     }
@@ -323,7 +323,7 @@ namespace bibo
     /* Milliseconds since boot. Wraps after about 49 days. */
     inline UInt32 nowMs(Void)
     {
-        return static_cast<UInt32>(to_ms_since_boot(get_absolute_time()));
+        return to_ms_since_boot(get_absolute_time());
     }
 
     /* ---- deadlines ---------------------------------------------------------
@@ -338,20 +338,20 @@ namespace bibo
     typedef absolute_time_t Deadline;
 
     /* A deadline `ms` from now. */
-    inline Deadline armMs(UInt32 ms)
+    inline Deadline armMs(const UInt32 ms)
     {
         return make_timeout_time_ms(ms);
     }
 
     /* Has it arrived. */
-    inline Bool reached(Deadline d)
+    inline Bool reached(const Deadline d)
     {
         return time_reached(d);
     }
 
     inline UInt64 nowUs(Void)
     {
-        return static_cast<UInt64>(to_us_since_boot(get_absolute_time()));
+        return to_us_since_boot(get_absolute_time());
     }
 
     /* ---- serial over USB ----------------------------------------------------- */
@@ -405,12 +405,12 @@ namespace bibo
 
     inline Mirror mirrorFn = nullptr;
 
-    inline Void setMirror(Mirror fn)
+    inline Void setMirror(const Mirror fn)
     {
         mirrorFn = fn;
     }
 
-    inline Void emit(CharSeq text)
+    inline Void emit(const CharSeq text)
     {
         fputs(text, stdout);
 
@@ -420,12 +420,12 @@ namespace bibo
         }
     }
 
-    inline Void print(CharSeq text)
+    inline Void print(const CharSeq text)
     {
         emit(text);
     }
 
-    inline Void printLine(CharSeq text)
+    inline Void printLine(const CharSeq text)
     {
         emit(text);
         emit("\n");
@@ -453,7 +453,7 @@ namespace bibo
      * report at about a hundred characters - so this is roughly double the worst
      * real case. It is not a limit anybody should be near.
      */
-    static const Size LINE_CAP = 256;
+    static constexpr Size LINE_CAP = 256;
 
     /*
      * It formats into a buffer and hands the finished line to emit() rather
@@ -469,7 +469,7 @@ namespace bibo
      * serial line whose tail became a fresh command - and both times the damage
      * came from the truncation being SILENT.
      */
-    inline Void printf(CharSeq fmt, ...)
+    inline Void printf(const CharSeq fmt, ...)
     {
         Utf8 buf[LINE_CAP];
 
@@ -504,14 +504,14 @@ namespace bibo
      *
      * Returns true if the host connected.
      */
-    inline Bool waitForHost(UInt32 timeoutMs)
+    inline Bool waitForHost(const UInt32 timeoutMs)
     {
         const UInt32 start = to_ms_since_boot(get_absolute_time());
 
         while(!stdio_usb_connected())
         {
             if(timeoutMs != 0
-               && (to_ms_since_boot(get_absolute_time()) - start) > timeoutMs)
+               && to_ms_since_boot(get_absolute_time()) - start > timeoutMs)
             {
                 return false;
             }
@@ -550,9 +550,9 @@ namespace bibo
      * rubbish. A constant that AGREES with another header is a constant that will
      * disagree with it eventually.
      */
-    static const Int32 NONE = PICO_ERROR_TIMEOUT;
+    static constexpr Int32 NONE = PICO_ERROR_TIMEOUT;
 
-    inline Int32 readChar(UInt32 timeoutUs)
+    inline Int32 readChar(const UInt32 timeoutUs)
     {
         return getchar_timeout_us(timeoutUs);
     }
@@ -578,25 +578,25 @@ namespace bibo
 
   namespace board
   {
-    inline Void id(Utf8* out, Size cap)
+    inline Void id(Utf8* out, const Size cap)
     {
         pico_unique_board_id_t id;
         pico_get_unique_board_id(&id);
 
         Size at = 0;
-        for(Size i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES; ++i)
+        for(const Utf8Byte i : id.id)
         {
             if(at + 2 >= cap)
             {
                 break;
             }
-            static const Utf8 HEX[] = "0123456789ABCDEF";
-            out[at++] = HEX[(id.id[i] >> 4) & 0x0F];
-            out[at++] = HEX[id.id[i] & 0x0F];
+            static constexpr Utf8 HEX[] = "0123456789ABCDEF";
+            out[at++] = HEX[(i >> 4) & 0x0F];
+            out[at++] = HEX[i & 0x0F];
         }
         if(cap > 0)
         {
-            out[(at < cap) ? at : (cap - 1)] = '\0';
+            out[at < cap ? at : cap - 1] = '\0';
         }
     }
 
@@ -615,11 +615,11 @@ namespace bibo
 
   namespace pwm
   {
-    inline Void open(Pin pin, UInt32 freqHz)
+    inline Void open(const Pin pin, const UInt32 freqHz)
     {
-        gpio_set_function((uint) pin, GPIO_FUNC_PWM);
+        gpio_set_function(static_cast<UInt32>(pin), GPIO_FUNC_PWM);
 
-        const Float32 clk = static_cast<Float32>(clock_get_hz(clk_sys));
+        const auto clk = static_cast<Float32>(clock_get_hz(clk_sys));
         Float32 div = clk / (static_cast<Float32>(freqHz) * static_cast<Float32>(PWM_WRAP + 1));
         if(div < 1.0f)
         {
@@ -629,11 +629,11 @@ namespace bibo
         pwm_config cfg = pwm_get_default_config();
         pwm_config_set_clkdiv(&cfg, div);
         pwm_config_set_wrap(&cfg, PWM_WRAP);
-        pwm_init(pwm_gpio_to_slice_num((uint) pin), &cfg, true);
+        pwm_init(pwm_gpio_to_slice_num(static_cast<UInt32>(pin)), &cfg, true);
     }
 
     /* `duty` is 0.0 to 1.0 and is clamped. */
-    inline Void write(Pin pin, Float32 duty)
+    inline Void write(const Pin pin, Float32 duty)
     {
         if(duty < 0.0f)
         {
@@ -643,7 +643,7 @@ namespace bibo
         {
             duty = 1.0f;
         }
-        pwm_set_gpio_level((uint) pin, static_cast<UInt16>(duty * static_cast<Float32>(PWM_WRAP)));
+        pwm_set_gpio_level(static_cast<UInt32>(pin), static_cast<UInt16>(duty * static_cast<Float32>(PWM_WRAP)));
     }
 
     /* ---- servo and ESC ------------------------------------------------------- */
@@ -660,7 +660,7 @@ namespace bibo
 
   namespace servo
   {
-    inline Void open(Pin pin)
+    inline Void open(const Pin pin)
     {
         pwm::open(pin, SERVO_HZ);
     }
@@ -670,7 +670,7 @@ namespace bibo
      * driven past its travel stalls against its own end stop, draws locked-rotor
      * current and cooks itself, and it does it quietly.
      */
-    inline Void writeUs(Pin pin, UInt32 us)
+    inline Void writeUs(const Pin pin, UInt32 us)
     {
         if(us < SERVO_MIN_US)
         {
@@ -681,12 +681,12 @@ namespace bibo
             us = SERVO_MAX_US;
         }
         pwm_set_gpio_level(
-            (uint) pin,
-            static_cast<UInt16>((static_cast<UInt64>(us) * static_cast<UInt64>(PWM_WRAP + 1)) / SERVO_PERIOD_US));
+            static_cast<UInt32>(pin),
+            static_cast<UInt16>(static_cast<UInt64>(us) * static_cast<UInt64>(PWM_WRAP + 1) / SERVO_PERIOD_US));
     }
 
     /* Centre for a servo; neutral (no drive) for an ESC. */
-    inline Void center(Pin pin)
+    inline Void center(const Pin pin)
     {
         writeUs(pin, SERVO_MID_US);
     }
@@ -705,9 +705,9 @@ namespace bibo
      * line is worse than no signal at all: noise on it reads as random pulse
      * widths, and the servo chases them into whatever it hits first.
      */
-    inline Void release(Pin pin)
+    inline Void release(const Pin pin)
     {
-        pwm_set_gpio_level((uint) pin, 0);
+        pwm_set_gpio_level(static_cast<UInt32>(pin), 0);
     }
 
     /* ---- the onboard LED ------------------------------------------------------
@@ -780,7 +780,7 @@ namespace bibo
         if(!tried)
         {
             tried = true;
-            led::up      = (cyw43_arch_init() == 0);
+            led::up      = cyw43_arch_init() == 0;
         }
         return led::up;
     }
@@ -800,7 +800,7 @@ namespace bibo
         return radio::open();
     }
 
-    inline Void write(Bool on)
+    inline Void write(const Bool on)
     {
         if(up)
         {
@@ -845,8 +845,8 @@ namespace bibo
   {
     inline Bool open(Void)
     {
-        gpio_init((uint) PICO_DEFAULT_LED_PIN);
-        gpio_set_dir((uint) PICO_DEFAULT_LED_PIN, GPIO_OUT);
+        gpio_init(static_cast<UInt32>(PICO_DEFAULT_LED_PIN));
+        gpio_set_dir(static_cast<UInt32>(PICO_DEFAULT_LED_PIN), GPIO_OUT);
         up = true;
         return up;
     }
@@ -855,13 +855,13 @@ namespace bibo
     {
         if(up)
         {
-            gpio_put((uint) PICO_DEFAULT_LED_PIN, on);
+            gpio_put(static_cast<UInt32>(PICO_DEFAULT_LED_PIN), on);
         }
     }
 
     inline Bool read(Void)
     {
-        return up && gpio_get((uint) PICO_DEFAULT_LED_PIN);
+        return up && gpio_get(static_cast<UInt32>(PICO_DEFAULT_LED_PIN));
     }
 
     inline CharSeq backend(Void)
@@ -948,20 +948,20 @@ namespace bibo
 
   namespace adc
   {
-    inline Void open(Pin pin)
+    inline Void open(const Pin pin)
     {
         adc_init();
-        adc_gpio_init((uint) pin);
+        adc_gpio_init(static_cast<UInt32>(pin));
     }
 
-    inline UInt16 read(Pin pin)
+    inline UInt16 read(const Pin pin)
     {
-        adc_select_input((uint) (pin - 26));
+        adc_select_input(static_cast<UInt32>(pin - 26));
         return adc_read();
     }
 
     /* 12-bit reading scaled to volts against the 3.3 V reference. */
-    inline Float32 readVolts(Pin pin)
+    inline Float32 readVolts(const Pin pin)
     {
         return static_cast<Float32>(read(pin)) * (3.3f / 4095.0f);
     }
@@ -999,7 +999,7 @@ namespace bibo
 
   namespace watchdog
   {
-    inline Void start(UInt32 ms)
+    inline Void start(const UInt32 ms)
     {
         watchdog_enable(ms, true);
     }
@@ -1046,7 +1046,7 @@ namespace bibo
 
   namespace spi
   {
-    inline spi_inst_t* forSck(Pin sck)
+    inline spi_inst_t* forSck(const Pin sck)
     {
         switch(sck)
         {
@@ -1069,7 +1069,7 @@ namespace bibo
      *   SPI0 MISO   GP0  GP4  GP16  GP20
      *   SPI1 MISO   GP8  GP12 GP24  GP28
      */
-    inline spi_inst_t* forMiso(Pin miso)
+    inline spi_inst_t* forMiso(const Pin miso)
     {
         switch(miso)
         {
@@ -1087,7 +1087,7 @@ namespace bibo
      * bringing up a bus that cannot work. Baud is a request: the hardware picks the
      * closest it can reach and baud() reports what was actually set.
      */
-    inline Bool open(Pin sck, Pin mosi, Pin csPin, UInt32 hz)
+    inline Bool open(const Pin sck, const Pin mosi, const Pin csPin, const UInt32 hz)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr)
@@ -1096,8 +1096,8 @@ namespace bibo
         }
 
         spi_init(bus, hz);
-        gpio_set_function((uint) sck, GPIO_FUNC_SPI);
-        gpio_set_function((uint) mosi, GPIO_FUNC_SPI);
+        gpio_set_function(static_cast<UInt32>(sck), GPIO_FUNC_SPI);
+        gpio_set_function(static_cast<UInt32>(mosi), GPIO_FUNC_SPI);
 
         if(csPin >= 0)
         {
@@ -1115,24 +1115,22 @@ namespace bibo
      * check worth having: MISO on a pad that cannot carry it fails silently, the
      * card never appears to respond, and every symptom points at the card.
      */
-    inline Bool openFull(Pin sck, Pin mosi, Pin miso, Pin csPin, UInt32 hz)
+    inline Bool openFull(const Pin sck, const Pin mosi, const Pin miso, const Pin csPin, const UInt32 hz)
     {
         spi_inst_t* const bus  = forSck(sck);
-        spi_inst_t* const rxBus = forMiso(miso);
-
-        if(bus == nullptr || rxBus == nullptr || bus != rxBus)
+        if(const spi_inst_t* const rxBus = forMiso(miso); bus == nullptr || rxBus == nullptr || bus != rxBus)
         {
             return false;
         }
 
         spi_init(bus, hz);
-        gpio_set_function((uint) sck, GPIO_FUNC_SPI);
-        gpio_set_function((uint) mosi, GPIO_FUNC_SPI);
-        gpio_set_function((uint) miso, GPIO_FUNC_SPI);
+        gpio_set_function(static_cast<UInt32>(sck), GPIO_FUNC_SPI);
+        gpio_set_function(static_cast<UInt32>(mosi), GPIO_FUNC_SPI);
+        gpio_set_function(static_cast<UInt32>(miso), GPIO_FUNC_SPI);
 
         /* A pull-up on MISO, because an SD card leaves the line floating until it
          * is selected and a floating input reads as noise rather than as idle. */
-        gpio_pull_up((uint) miso);
+        gpio_pull_up(static_cast<UInt32>(miso));
 
         if(csPin >= 0)
         {
@@ -1154,7 +1152,7 @@ namespace bibo
      * from a wiring fault and is why this is worth naming rather than leaving to a
      * default nobody remembers.
      */
-    inline Void mode(Pin sck, Bool cpol, Bool cpha)
+    inline Void mode(const Pin sck, const Bool cpol, const Bool cpha)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr)
@@ -1169,39 +1167,39 @@ namespace bibo
 
     /* What the hardware actually settled on, which is rarely exactly what was asked
      * for - the divider is an integer. Worth printing during bring-up. */
-    inline UInt32 baud(Pin sck, UInt32 hz)
+    inline UInt32 baud(const Pin sck, const UInt32 hz)
     {
         spi_inst_t* const bus = forSck(sck);
-        return (bus == nullptr) ? 0u : static_cast<UInt32>(spi_set_baudrate(bus, hz));
+        return bus == nullptr ? 0u : static_cast<UInt32>(spi_set_baudrate(bus, hz));
     }
 
     /* Blocking write. Returns the number of bytes sent, or 0 for a bad SCK pin. */
-    inline Size write(Pin sck, const UInt8* data, Size n)
+    inline Size write(const Pin sck, const UInt8* data, const Size n)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr || data == nullptr || n == 0)
         {
             return 0;
         }
-        const Int32 sent = static_cast<Int32>(spi_write_blocking(bus, data, n));
-        return (sent < 0) ? 0u : static_cast<Size>(sent);
+        const Int32 sent = spi_write_blocking(bus, data, n);
+        return sent < 0 ? 0u : static_cast<Size>(sent);
     }
 
-    inline Size writeByte(Pin sck, UInt8 b)
+    inline Size writeByte(const Pin sck, const UInt8 b)
     {
         return write(sck, &b, 1);
     }
 
     /* Full duplex: sends `tx` and captures the same number of bytes into `rx`. */
-    inline Size transfer(Pin sck, const UInt8* tx, UInt8* rx, Size n)
+    inline Size transfer(const Pin sck, const UInt8* tx, UInt8* rx, const Size n)
     {
         spi_inst_t* const bus = forSck(sck);
         if(bus == nullptr || tx == nullptr || rx == nullptr || n == 0)
         {
             return 0;
         }
-        const Int32 moved = static_cast<Int32>(spi_write_read_blocking(bus, tx, rx, n));
-        return (moved < 0) ? 0u : static_cast<Size>(moved);
+        const Int32 moved = spi_write_read_blocking(bus, tx, rx, n);
+        return moved < 0 ? 0u : static_cast<Size>(moved);
     }
 
     /* ---- I2C -------------------------------------------------------------------
@@ -1254,7 +1252,7 @@ namespace bibo
 
   namespace i2c
   {
-    inline i2c_inst_t* forSda(Pin sda)
+    inline i2c_inst_t* forSda(const Pin sda)
     {
         switch(sda)
         {
@@ -1276,7 +1274,7 @@ namespace bibo
      * Returns false if the pins do not belong to one controller, rather than
      * bringing up a bus that cannot work.
      */
-    inline Bool open(Pin sda, Pin scl, UInt32 hz)
+    inline Bool open(const Pin sda, const Pin scl, const UInt32 hz)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr)
@@ -1285,10 +1283,10 @@ namespace bibo
         }
 
         i2c_init(bus, hz);
-        gpio_set_function((uint) sda, GPIO_FUNC_I2C);
-        gpio_set_function((uint) scl, GPIO_FUNC_I2C);
-        gpio_pull_up((uint) sda);
-        gpio_pull_up((uint) scl);
+        gpio_set_function(static_cast<UInt32>(sda), GPIO_FUNC_I2C);
+        gpio_set_function(static_cast<UInt32>(scl), GPIO_FUNC_I2C);
+        gpio_pull_up(static_cast<UInt32>(sda));
+        gpio_pull_up(static_cast<UInt32>(scl));
         return true;
     }
 
@@ -1299,7 +1297,7 @@ namespace bibo
      * or it does not. Nothing is transferred, so this is safe to do to an address
      * you know nothing about - which is what makes scanning the bus possible.
      */
-    inline Bool present(Pin sda, UInt8 addr)
+    inline Bool present(const Pin sda, const UInt8 addr)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr)
@@ -1314,7 +1312,7 @@ namespace bibo
     /* Writes `n` bytes. `hold` true leaves the bus claimed for a repeated start,
      * which is how a register read is done: write the register, then read without
      * letting go. Returns bytes written, or 0 on failure. */
-    inline Size write(Pin sda, UInt8 addr, const UInt8* data, Size n, Bool hold)
+    inline Size write(const Pin sda, const UInt8 addr, const UInt8* data, const Size n, const Bool hold)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr || data == nullptr || n == 0)
@@ -1322,11 +1320,11 @@ namespace bibo
             return 0;
         }
         const Int32 sent =
-            static_cast<Int32>(i2c_write_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US));
-        return (sent < 0) ? 0u : static_cast<Size>(sent);
+            i2c_write_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US);
+        return sent < 0 ? 0u : static_cast<Size>(sent);
     }
 
-    inline Size read(Pin sda, UInt8 addr, UInt8* data, Size n, Bool hold)
+    inline Size read(const Pin sda, const UInt8 addr, UInt8* data, const Size n, const Bool hold)
     {
         i2c_inst_t* const bus = forSda(sda);
         if(bus == nullptr || data == nullptr || n == 0)
@@ -1334,8 +1332,8 @@ namespace bibo
             return 0;
         }
         const Int32 got =
-            static_cast<Int32>(i2c_read_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US));
-        return (got < 0) ? 0u : static_cast<Size>(got);
+            i2c_read_timeout_us(bus, addr, data, n, hold, I2C_TIMEOUT_US);
+        return got < 0 ? 0u : static_cast<Size>(got);
     }
 
     /*
@@ -1344,7 +1342,7 @@ namespace bibo
      * bus: letting go between the two is what makes a sensor return the wrong
      * register, or nothing.
      */
-    inline Bool readReg16(Pin sda, UInt8 addr, UInt16 reg, UInt8* data, Size n)
+    inline Bool readReg16(const Pin sda, const UInt8 addr, const UInt16 reg, UInt8* data, const Size n)
     {
         UInt8 r[2];
         r[0] = static_cast<UInt8>(reg >> 8);
@@ -1357,7 +1355,7 @@ namespace bibo
         return read(sda, addr, data, n, false) == n;
     }
 
-    inline Bool writeReg16(Pin sda, UInt8 addr, UInt16 reg, const UInt8* data, Size n)
+    inline Bool writeReg16(const Pin sda, const UInt8 addr, const UInt16 reg, const UInt8* data, const Size n)
     {
         /* Register index and payload must go out as ONE transaction, so they are
          * assembled into one buffer rather than written twice. */
@@ -1372,15 +1370,15 @@ namespace bibo
         {
             buf[i + 2] = data[i];
         }
-        return write(sda, addr, buf, n + 2, false) == (n + 2);
+        return write(sda, addr, buf, n + 2, false) == n + 2;
     }
 
-    inline Bool writeReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8 v)
+    inline Bool writeReg16U8(const Pin sda, const UInt8 addr, const UInt16 reg, const UInt8 v)
     {
         return writeReg16(sda, addr, reg, &v, 1);
     }
 
-    inline Bool writeReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16 v)
+    inline Bool writeReg16U16(const Pin sda, const UInt8 addr, const UInt16 reg, const UInt16 v)
     {
         UInt8 b[2];
         b[0] = static_cast<UInt8>(v >> 8);
@@ -1388,12 +1386,12 @@ namespace bibo
         return writeReg16(sda, addr, reg, b, 2);
     }
 
-    inline Bool readReg16U8(Pin sda, UInt8 addr, UInt16 reg, UInt8* out)
+    inline Bool readReg16U8(const Pin sda, const UInt8 addr, const UInt16 reg, UInt8* out)
     {
         return readReg16(sda, addr, reg, out, 1);
     }
 
-    inline Bool readReg16U16(Pin sda, UInt8 addr, UInt16 reg, UInt16* out)
+    inline Bool readReg16U16(const Pin sda, const UInt8 addr, const UInt16 reg, UInt16* out)
     {
         UInt8 b[2];
         if(!readReg16(sda, addr, reg, b, 2))

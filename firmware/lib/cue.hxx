@@ -66,11 +66,8 @@
 #include "hal.hxx"
 #include "lights.hxx"
 
-namespace bibo
+namespace bibo::cue
 {
-
-  namespace cue
-  {
 
     /* ---- channels ------------------------------------------------------------
      *
@@ -211,7 +208,7 @@ namespace bibo
 #define CUE_MOTION_US_MIN 0
 #define CUE_MOTION_US_MAX 60
 
-    inline Bool setMotionUs(Int32 us)
+    inline Bool setMotionUs(const Int32 us)
     {
         if(us < CUE_MOTION_US_MIN || us > CUE_MOTION_US_MAX)
         {
@@ -296,10 +293,10 @@ namespace bibo
      * does to mean "I have seen you, go ahead", which is the meaning this one
      * carries.
      */
-    static const Step STEPS_FLASH[] =
+    static constexpr Step STEPS_FLASH[] =
     {
-        {  90u, CUE_CH_HEAD, LAMP_FULL, TONE_NONE },
-        { 110u, 0u,          LAMP_OFF,  TONE_NONE }
+        {  .ms = 90u, .lamps = CUE_CH_HEAD, .level = LAMP_FULL, .tone = TONE_NONE },
+        { .ms = 110u, .lamps = 0u, .level = LAMP_OFF,  .tone = TONE_NONE }
     };
 
     /*
@@ -313,10 +310,10 @@ namespace bibo
      * Slower and heavier than FLASH on purpose. The two must not be confusable at
      * a glance - one means "after you" and the other means "something is wrong".
      */
-    static const Step STEPS_ALERT[] =
+    static constexpr Step STEPS_ALERT[] =
     {
-        { 160u, CUE_CH_IND_BOTH | CUE_CH_TAIL, LAMP_FULL, TONE_LOW  },
-        { 160u, 0u,                            LAMP_OFF,  TONE_NONE }
+        { .ms = 160u, .lamps = CUE_CH_IND_BOTH | CUE_CH_TAIL, .level = LAMP_FULL, .tone = TONE_LOW  },
+        { .ms = 160u, .lamps = 0u, .level = LAMP_OFF,  .tone = TONE_NONE }
     };
 
     /*
@@ -334,29 +331,29 @@ namespace bibo
      * has no LED on it yet; it is computed and reported anyway, which is what makes
      * wiring it later a change to the pin table and nothing else.
      */
-    static const Step STEPS_LEFT[] =
+    static constexpr Step STEPS_LEFT[] =
     {
-        { CUE_BLINK_ON_MS,  CUE_CH_IND_L, LAMP_FULL, TONE_NONE },
-        { CUE_BLINK_OFF_MS, 0u,           LAMP_OFF,  TONE_NONE }
+        {.ms = CUE_BLINK_ON_MS, .lamps = CUE_CH_IND_L, .level = LAMP_FULL, .tone = TONE_NONE },
+        {.ms = CUE_BLINK_OFF_MS, .lamps = 0u, .level = LAMP_OFF,  .tone = TONE_NONE }
     };
 
-    static const Step STEPS_RIGHT[] =
+    static constexpr Step STEPS_RIGHT[] =
     {
-        { CUE_BLINK_ON_MS,  CUE_CH_IND_R, LAMP_FULL, TONE_NONE },
-        { CUE_BLINK_OFF_MS, 0u,           LAMP_OFF,  TONE_NONE }
+        {.ms = CUE_BLINK_ON_MS, .lamps = CUE_CH_IND_R, .level = LAMP_FULL, .tone = TONE_NONE },
+        {.ms = CUE_BLINK_OFF_MS, .lamps = 0u, .level = LAMP_OFF,  .tone = TONE_NONE }
     };
 
-    static const Step STEPS_HAZARD[] =
+    static constexpr Step STEPS_HAZARD[] =
     {
-        { CUE_BLINK_ON_MS,  CUE_CH_IND_BOTH, LAMP_FULL, TONE_NONE },
-        { CUE_BLINK_OFF_MS, 0u,              LAMP_OFF,  TONE_NONE }
+        {.ms = CUE_BLINK_ON_MS, .lamps = CUE_CH_IND_BOTH, .level = LAMP_FULL, .tone = TONE_NONE },
+        {.ms = CUE_BLINK_OFF_MS, .lamps = 0u, .level = LAMP_OFF,  .tone = TONE_NONE }
     };
 
     /* Held states. */
-    static const Step STEPS_HEAD[]    = { { 0u, CUE_CH_HEAD, LAMP_FULL, TONE_NONE } };
-    static const Step STEPS_RUNNING[] = { { 0u, CUE_CH_TAIL, LAMP_DIM,  TONE_NONE } };
-    static const Step STEPS_BRAKE[]   = { { 0u, CUE_CH_TAIL, LAMP_FULL, TONE_NONE } };
-    static const Step STEPS_REVERSE[] = { { 0u, CUE_CH_REV,  LAMP_FULL, TONE_NONE } };
+    static constexpr Step STEPS_HEAD[]    = { { .ms = 0u, .lamps = CUE_CH_HEAD, .level = LAMP_FULL, .tone = TONE_NONE } };
+    static constexpr Step STEPS_RUNNING[] = { { .ms = 0u, .lamps = CUE_CH_TAIL, .level = LAMP_DIM,  .tone = TONE_NONE } };
+    static constexpr Step STEPS_BRAKE[]   = { { .ms = 0u, .lamps = CUE_CH_TAIL, .level = LAMP_FULL, .tone = TONE_NONE } };
+    static constexpr Step STEPS_REVERSE[] = { { .ms = 0u, .lamps = CUE_CH_REV, .level = LAMP_FULL, .tone = TONE_NONE } };
 
     /*
      * ORDER IS PRIORITY. A later cue wins a channel an earlier one also wants.
@@ -389,16 +386,16 @@ namespace bibo
      * the wrong place silently renames two cues at once. */
     static const Script SCRIPT[KIND_COUNT] =
     {
-        { "none",    "nothing",                      nullptr,          0u, 0u, PLAY_HOLD },
-        { "head",    "my headlights are on",         STEPS_HEAD,    1u, 0u, PLAY_HOLD },
-        { "running", "I am lit but not braking",     STEPS_RUNNING, 1u, 0u, PLAY_HOLD },
-        { "brake",   "I am not being driven",        STEPS_BRAKE,   1u, 0u, PLAY_HOLD },
-        { "reverse", "I am backing up",              STEPS_REVERSE, 1u, 0u, PLAY_HOLD },
-        { "left",    "I am turning left",            STEPS_LEFT,    2u, 0u, PLAY_LOOP },
-        { "right",   "I am turning right",           STEPS_RIGHT,   2u, 0u, PLAY_LOOP },
-        { "hazard",  "I am a hazard",                STEPS_HAZARD,  2u, 0u, PLAY_LOOP },
-        { "flash",   "I have seen you - after you",  STEPS_FLASH,   2u, 2u, PLAY_ONCE },
-        { "alert",   "I have stopped myself",        STEPS_ALERT,   2u, 3u, PLAY_ONCE }
+        { .name = "none",    .means = "nothing",                      .step = nullptr,          .steps = 0u, .repeats = 0u, .play = PLAY_HOLD },
+        { .name = "head",    .means = "my headlights are on",         .step = STEPS_HEAD,    .steps = 1u, .repeats = 0u, .play = PLAY_HOLD },
+        { .name = "running", .means = "I am lit but not braking",     .step = STEPS_RUNNING, .steps = 1u, .repeats = 0u, .play = PLAY_HOLD },
+        { .name = "brake",   .means = "I am not being driven",        .step = STEPS_BRAKE,   .steps = 1u, .repeats = 0u, .play = PLAY_HOLD },
+        { .name = "reverse", .means = "I am backing up",              .step = STEPS_REVERSE, .steps = 1u, .repeats = 0u, .play = PLAY_HOLD },
+        { .name = "left",    .means = "I am turning left",            .step = STEPS_LEFT,    .steps = 2u, .repeats = 0u, .play = PLAY_LOOP },
+        { .name = "right",   .means = "I am turning right",           .step = STEPS_RIGHT,   .steps = 2u, .repeats = 0u, .play = PLAY_LOOP },
+        { .name = "hazard",  .means = "I am a hazard",                .step = STEPS_HAZARD,  .steps = 2u, .repeats = 0u, .play = PLAY_LOOP },
+        { .name = "flash",   .means = "I have seen you - after you",  .step = STEPS_FLASH,   .steps = 2u, .repeats = 2u, .play = PLAY_ONCE },
+        { .name = "alert",   .means = "I have stopped myself",        .step = STEPS_ALERT,   .steps = 2u, .repeats = 3u, .play = PLAY_ONCE }
     };
 
     /* ---- state, one copy - the same deal chassis.hxx makes ------------------
@@ -439,32 +436,32 @@ namespace bibo
         up         = true;
     }
 
-    inline Bool valid(Int32 k)
+    inline Bool valid(const Int32 k)
     {
         return k > KIND_NONE && k < KIND_COUNT;
     }
 
-    inline Bool on(Kind k)
+    inline Bool on(const Kind k)
     {
         return valid(k) && active[k];
     }
 
-    inline Bool held(Kind k)
+    inline Bool held(const Kind k)
     {
         return valid(k) && latched[k];
     }
 
-    inline CharSeq name(Kind k)
+    inline CharSeq name(const Kind k)
     {
-        return (k >= 0 && k < KIND_COUNT) ? SCRIPT[k].name : "?";
+        return k >= 0 && k < KIND_COUNT ? SCRIPT[k].name : "?";
     }
 
-    inline CharSeq means(Kind k)
+    inline CharSeq means(const Kind k)
     {
-        return (k >= 0 && k < KIND_COUNT) ? SCRIPT[k].means : "?";
+        return k >= 0 && k < KIND_COUNT ? SCRIPT[k].means : "?";
     }
 
-    inline CharSeq playWord(UInt8 p)
+    inline CharSeq playWord(const UInt8 p)
     {
         switch(p)
         {
@@ -477,7 +474,7 @@ namespace bibo
 
     /* The kind with this name, or cue::KIND_NONE. Case-insensitive, because every
      * other command word on this link is upper case by the time it arrives. */
-    inline Kind find(CharSeq want)
+    inline Kind find(const CharSeq want)
     {
         if(want == nullptr)
         {
@@ -520,7 +517,7 @@ namespace bibo
 
     /* ---- raising and lowering ------------------------------------------------ */
 
-    inline Void start(Kind k, UInt64 now)
+    inline Void start(const Kind k, const UInt64 now)
     {
         active[k]   = true;
         stepIx[k]   = 0;
@@ -537,7 +534,7 @@ namespace bibo
      * what hazard is - and two blinkers with independent step clocks would drift
      * apart into an alternating flash within a few seconds.
      */
-    inline Bool emit(Kind k)
+    inline Bool emit(const Kind k)
     {
         if(!up || !valid(k) || SCRIPT[k].step == nullptr)
         {
@@ -548,13 +545,13 @@ namespace bibo
 
         if(k == KIND_LEFT || k == KIND_RIGHT || k == KIND_HAZARD)
         {
-            const Kind others[3] = { KIND_LEFT, KIND_RIGHT, KIND_HAZARD };
-            for(Int32 i = 0; i < 3; ++i)
+            constexpr Kind others[3] = { KIND_LEFT, KIND_RIGHT, KIND_HAZARD };
+            for(const auto other : others)
             {
-                if(others[i] != k)
+                if(other != k)
                 {
-                    active[others[i]]  = false;
-                    latched[others[i]] = false;
+                    active[other]  = false;
+                    latched[other] = false;
                 }
             }
         }
@@ -565,7 +562,7 @@ namespace bibo
     }
 
     /* Lowered by a person: stops it AND hands it back to the car's own rules. */
-    inline Bool cancel(Kind k)
+    inline Bool cancel(const Kind k)
     {
         if(!up || !valid(k))
         {
@@ -594,7 +591,7 @@ namespace bibo
      * until they say otherwise, and the car noticing it is no longer braking must
      * not put them out.
      */
-    inline Void wants(Kind k, Bool want, UInt64 now)
+    inline Void wants(const Kind k, const Bool want, const UInt64 now)
     {
         if(latched[k])
         {
@@ -639,13 +636,13 @@ namespace bibo
     inline UInt8 step(Void)
     {
         const Kind k = speaking();
-        return (k == KIND_NONE) ? 0u : stepIx[k];
+        return k == KIND_NONE ? 0u : stepIx[k];
     }
 
     inline UInt8 loop(Void)
     {
         const Kind k = speaking();
-        return (k == KIND_NONE) ? 0u : loopIx[k];
+        return k == KIND_NONE ? 0u : loopIx[k];
     }
 
     /* Which way the car is indicating. Derived from the cues rather than kept
@@ -690,7 +687,7 @@ namespace bibo
      * levels, and front and rear matched on every sample of both cues. Wiring them
      * is a change to the pin table in lights.hxx and nothing else.
      */
-    inline Void channelLamps(UInt8 ch, UInt8 level, lights::Set* out)
+    inline Void channelLamps(const UInt8 ch, const UInt8 level, lights::Set* out)
     {
         if(ch & CUE_CH_HEAD)
         {
@@ -728,7 +725,7 @@ namespace bibo
      * script changes - which is the entire reason the tone is in cue::Step now
      * rather than being added to it later.
      */
-    inline Void soundWrite(UInt8 tone)
+    inline Void soundWrite(const UInt8 tone)
     {
         toneNow = tone;
     }
@@ -748,7 +745,7 @@ namespace bibo
      * half a second when the host stops draining the port, and a cue should have
      * PLAYED during that, not be waiting to.
      */
-    inline Void advance(Int32 k, UInt64 now)
+    inline Void advance(const Int32 k, const UInt64 now)
     {
         const Script* sc = &SCRIPT[k];
 
@@ -791,7 +788,7 @@ namespace bibo
      * its channels; a higher one writes over them, lit or dark, and the result is
      * the higher cue's opinion in full rather than a blend of two.
      */
-    inline Void compose(UInt64 now, lights::Set* out)
+    inline Void compose(const UInt64 now, lights::Set* out)
     {
         lights::clear(out);
         UInt8 tone = TONE_NONE;
@@ -852,11 +849,11 @@ namespace bibo
          *      while the wheels go right is the one thing an indicator must never
          *      do.
          */
-        const Int32 mag = (in->steerMilli < 0) ? -in->steerMilli : in->steerMilli;
+        const Int32 mag = in->steerMilli < 0 ? -in->steerMilli : in->steerMilli;
 
-        const Turn want = (in->steerMilli <= -CUE_TURN_ON_MILLI) ? TURN_LEFT
-                           : (in->steerMilli >=  CUE_TURN_ON_MILLI) ? TURN_RIGHT
-                                                                    : TURN_OFF;
+        const Turn want = in->steerMilli <= -CUE_TURN_ON_MILLI ? TURN_LEFT
+                              : in->steerMilli >=  CUE_TURN_ON_MILLI ? TURN_RIGHT
+                                    : TURN_OFF;
 
         if(want != TURN_OFF && want != turnWant)
         {
@@ -892,8 +889,8 @@ namespace bibo
          * throttle left neutral in one direction and not the other would be a rule
          * with a side, and there is nothing about this car that has one.
          */
-        const Bool fwd    = (in->throttleUs > (in->idleUs + motionUsNow));
-        const Bool rev    = (in->throttleUs < (in->neutralUs - motionUsNow));
+        const Bool fwd    = in->throttleUs > in->idleUs + motionUsNow;
+        const Bool rev    = in->throttleUs < in->neutralUs - motionUsNow;
         const Bool driven = fwd || rev;
 
         /*
@@ -965,6 +962,4 @@ namespace bibo
         return toneNow;
     }
 
-  } // namespace cue
-
-} // namespace bibo
+}

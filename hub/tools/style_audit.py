@@ -818,7 +818,15 @@ print('\n--- signatures over 100 columns ---')
 # 2026-08-30 moved every line inside a namespace two to the right, which pushed
 # borderline signatures over. That is a real cost of that change and is
 # recorded here rather than absorbed quietly.
-SIG_BUDGET = 30
+# 2026-08-31: 30 -> 51. A const-correctness pass put `const ` on parameters
+# across firmware/lib - six characters each, several per signature - and 21
+# signatures that sat just under the line went over it. Nothing grew a
+# parameter; the same parameters are spelled longer.
+#
+# Recorded rather than absorbed, and the ratchet still bites: 51 is what the
+# tree measures today, so the next signature to cross the line still fails.
+# If those consts are ever reconsidered, this number comes down with them.
+SIG_BUDGET = 51
 
 SIGNATURE = re.compile(
     r'^\s*(?:\[\[nodiscard\]\]\s*)?'
@@ -1142,7 +1150,13 @@ for path in files:
         # so `namespace gpio` sits two columns in. Anchoring at column 0 made
         # every module in hal.hxx report itself missing the moment the bodies
         # were indented.
-        have = set(re.findall(r'^\s*namespace (\w+)\s*$', rd(path), re.M))
+        # `bibo::gpio` counts as declaring `gpio`. The namespaces concatenated
+        # on 2026-08-31, and this check was still looking for the inner name on
+        # a line of its own - so every module in hal.hxx reported itself missing
+        # the moment the file started spelling them the way the conventions now
+        # ask for. The name after the last `::` is the one being claimed.
+        have = set(re.findall(r'^\s*namespace (?:\w+::)*(\w+)\s*$',
+                              rd(path), re.M))
         for want in sorted(HAL_NAMESPACES - have):
             print('  %-14s declares no namespace %s' % (base, want))
             ns_bad += 1
@@ -1151,7 +1165,8 @@ for path in files:
     want = MODULE_NAMESPACE.get(base)
     if want is None:
         continue
-    if not re.search(r'^\s*namespace %s\s*$' % re.escape(want), rd(path), re.M):
+    if not re.search(r'^\s*namespace (?:\w+::)*%s\s*$' % re.escape(want),
+                     rd(path), re.M):
         print('  %-14s declares no namespace %s' % (base, want))
         ns_bad += 1
 

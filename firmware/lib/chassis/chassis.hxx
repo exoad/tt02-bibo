@@ -60,11 +60,8 @@
 #include "../pins.hxx"
 #include "cal.hxx"
 
-namespace bibo
+namespace bibo::drive
 {
-
-  namespace drive
-  {
 
     /* ---- pins ---------------------------------------------------------------- */
 
@@ -252,7 +249,7 @@ namespace bibo
 
     /* ---- helpers ------------------------------------------------------------- */
 
-    inline Int32 clamp(Int32 v, Int32 lo, Int32 hi)
+    inline Int32 clamp(const Int32 v, const Int32 lo, const Int32 hi)
     {
         if(v < lo)
         {
@@ -293,14 +290,14 @@ namespace bibo
 
         if(n < 0.0f)
         {
-            return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>((lo > 0) ? lo : 0));
+            return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>(lo > 0 ? lo : 0));
         }
-        return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>((hi > 0) ? hi : 0));
+        return servoCenterUs + static_cast<Int32>(n * static_cast<Float32>(hi > 0 ? hi : 0));
     }
 
     /* The inverse, in THOUSANDTHS so it can be reported without a float formatter
      * having to survive on a microcontroller. -1000 to +1000. */
-    inline Int32 steerFromUs(Int32 us)
+    inline Int32 steerFromUs(const Int32 us)
     {
         const Int32 d = us - servoCenterUs;
         if(d == 0)
@@ -310,10 +307,10 @@ namespace bibo
         if(d < 0)
         {
             const Int32 lo = servoCenterUs - servoMin;
-            return (lo > 0) ? ((d * 1000) / lo) : 0;
+            return lo > 0 ? d * 1000 / lo : 0;
         }
         const Int32 hi = servoMax - servoCenterUs;
-        return (hi > 0) ? ((d * 1000) / hi) : 0;
+        return hi > 0 ? d * 1000 / hi : 0;
     }
 
     /* ---- lifecycle ----------------------------------------------------------- */
@@ -353,20 +350,19 @@ namespace bibo
         if(servoLive && servoNow != servoTarget)
         {
             const Int32 d    = servoTarget - servoNow;
-            const Int32 step = (d > steerSlewUs) ? steerSlewUs
-                             : ((d < -steerSlewUs) ? -steerSlewUs : d);
+            const Int32 step = d > steerSlewUs ? steerSlewUs
+                                   : d < -steerSlewUs ? -steerSlewUs : d;
             servoNow += step;
             servo::writeUs(PIN_SERVO, static_cast<UInt32>(servoNow));
         }
 
         /* A disarmed ESC is walked back to neutral rather than snapped there: a
          * step to neutral from a moving throttle is itself a jolt. */
-        const Int32 want = escArmed ? escTarget : DRIVE_NEUTRAL_US;
-        if(escNow != want)
+        if(const Int32 want = escArmed ? escTarget : DRIVE_NEUTRAL_US; escNow != want)
         {
             const Int32 d    = want - escNow;
-            const Int32 step = (d > throttleSlewUs) ? throttleSlewUs
-                             : ((d < -throttleSlewUs) ? -throttleSlewUs : d);
+            const Int32 step = d > throttleSlewUs ? throttleSlewUs
+                                   : d < -throttleSlewUs ? -throttleSlewUs : d;
             escNow += step;
             servo::writeUs(PIN_ESC, static_cast<UInt32>(escNow));
         }
@@ -401,7 +397,7 @@ namespace bibo
 
     inline State read(Void)
     {
-        State s;
+        State s{};
         s.servoUs       = servoNow;
         s.servoTargetUs = servoTarget;
         s.escUs         = escNow;
@@ -427,7 +423,7 @@ namespace bibo
      * passing a large number gets the ceiling instead of an error. Returns false
      * only for a value that is not a rate at all.
      */
-    [[nodiscard]] static Bool setSteerSlew(Int32 usPerTick)
+    [[nodiscard]] static Bool setSteerSlew(const Int32 usPerTick)
     {
         if(usPerTick <= 0)
         {
@@ -444,7 +440,7 @@ namespace bibo
      * separate from the steering because the right answer is different: a servo
      * wants to arrive promptly and an ESC wants to be led there.
      */
-    [[nodiscard]] static Bool setThrottleSlew(Int32 usPerTick)
+    [[nodiscard]] static Bool setThrottleSlew(const Int32 usPerTick)
     {
         if(usPerTick <= 0)
         {
@@ -460,7 +456,7 @@ namespace bibo
      * usually asking for everything to be slow while you watch something - and
      * because a caller that does not care should not have to make two calls.
      */
-    [[nodiscard]] static Bool setSlew(Int32 usPerTick)
+    [[nodiscard]] static Bool setSlew(const Int32 usPerTick)
     {
         return setSteerSlew(usPerTick) && setThrottleSlew(usPerTick);
     }
@@ -475,7 +471,7 @@ namespace bibo
      * position is unknown, so the first command after engaging is the one most
      * likely to be a surprise.
      */
-    inline Void engage(Bool on)
+    inline Void engage(const Bool on)
     {
         if(on && !servoLive)
         {
@@ -492,7 +488,7 @@ namespace bibo
     }
 
     /* Steer as a fraction of this car's travel. THE entry point for driving. */
-    inline Void steer(Float32 n)
+    inline Void steer(const Float32 n)
     {
         servoTarget = clamp(steerToUs(n), servoMin, servoMax);
     }
@@ -508,7 +504,7 @@ namespace bibo
      * actually are - not for driving. Clamped rather than refused: a slider that
      * stops moving at the limit is clearer than one that silently does nothing.
      */
-    inline Void steerUs(Int32 us)
+    inline Void steerUs(const Int32 us)
     {
         servoTarget = clamp(us, servoMin, servoMax);
     }
@@ -520,7 +516,7 @@ namespace bibo
      * the servo can never be commanded to - drive::center() would silently mean
      * something else, which is worse than refusing.
      */
-    inline Void trim(Int32 us)
+    inline Void trim(const Int32 us)
     {
         servoCenterUs = clamp(us, servoMin, servoMax);
     }
@@ -532,7 +528,7 @@ namespace bibo
      * Clamped to the hard bound, and both the target and the centre are pulled back
      * inside so narrowing can never leave an output sitting outside its own limits.
      */
-    [[nodiscard]] static Bool setSteerLimits(Int32 lo, Int32 hi)
+    [[nodiscard]] static Bool setSteerLimits(const Int32 lo, const Int32 hi)
     {
         if(lo >= hi)
         {
@@ -565,7 +561,7 @@ namespace bibo
 
     /* ---- throttle ------------------------------------------------------------ */
 
-    inline Void arm(Bool on)
+    inline Void arm(const Bool on)
     {
         escArmed  = on;
         escTarget = DRIVE_NEUTRAL_US;
@@ -573,7 +569,7 @@ namespace bibo
 
     /* False when the ESC is not armed. Rule 2, and it lives here so no caller can
      * forget it. */
-    [[nodiscard]] static Bool throttleUs(Int32 us)
+    [[nodiscard]] static Bool throttleUs(const Int32 us)
     {
         if(!escArmed)
         {
@@ -588,7 +584,7 @@ namespace bibo
         escTarget = DRIVE_NEUTRAL_US;
     }
 
-    [[nodiscard]] static Bool setThrottleLimits(Int32 lo, Int32 hi)
+    [[nodiscard]] static Bool setThrottleLimits(const Int32 lo, const Int32 hi)
     {
         if(lo >= hi)
         {
@@ -609,8 +605,4 @@ namespace bibo
         escTarget = clamp(escTarget, escMin, escMax);
         return true;
     }
-
-
-  } // namespace drive
-
-} // namespace bibo
+}

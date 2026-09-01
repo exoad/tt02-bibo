@@ -28,11 +28,8 @@
 #include "hal.hxx"
 #include "pins.hxx"
 
-namespace bibo
+namespace bibo::boot
 {
-
-  namespace boot
-  {
 
     /*
      * Opens the serial console and installs the pin map.
@@ -76,6 +73,4 @@ namespace bibo
         }
     }
 
-  } // namespace boot
-
-} // namespace bibo
+}

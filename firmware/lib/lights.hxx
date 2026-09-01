@@ -57,11 +57,8 @@
 #include "hal.hxx"
 #include "pins.hxx"
 
-namespace bibo
+namespace bibo::lights
 {
-
-  namespace lights
-  {
 
     /* ---- the lamps a car has ------------------------------------------------ */
     enum Lamp
@@ -142,9 +139,9 @@ namespace bibo
 
     inline Void clear(Set* s)
     {
-        for(Int32 i = 0; i < LAMP_COUNT; ++i)
+        for(Utf8Byte& i : s->level)
         {
-            s->level[i] = LAMP_OFF;
+            i = LAMP_OFF;
         }
     }
 
@@ -156,7 +153,7 @@ namespace bibo
         {
             if(pin[i] != LIGHT_PIN_NONE)
             {
-                gpio::write(static_cast<Pin>(pin[i]), s->level[i] > LAMP_OFF);
+                gpio::write(pin[i], s->level[i] > LAMP_OFF);
             }
         }
         now = *s;
@@ -180,11 +177,11 @@ namespace bibo
         pin[LAMP_REV_L]  = m.revL;
         pin[LAMP_REV_R]  = m.revR;
 
-        for(Int32 i = 0; i < LAMP_COUNT; ++i)
+        for(const Int64 i : pin)
         {
-            if(pin[i] != LIGHT_PIN_NONE)
+            if(i != LIGHT_PIN_NONE)
             {
-                gpio::open(static_cast<Pin>(pin[i]), PIN_DIR_OUT);
+                gpio::open(i, PIN_DIR_OUT);
             }
         }
 
@@ -211,7 +208,7 @@ namespace bibo
 
         if(forced != LAMP_COUNT)
         {
-            Set one;
+            Set one{};
             clear(&one);
             one.level[forced] = LAMP_FULL;
             push(&one);
@@ -223,7 +220,7 @@ namespace bibo
 
     /* The master switch. Off parks every lamp dark rather than leaving whichever
      * happened to be lit when it was turned off. */
-    inline Void enable(Bool state)
+    inline Void enable(const Bool state)
     {
         /* Named `state`, not `on`: a parameter called `on` shadows the file-scope
          * switch, and `on = on` then assigns the parameter to itself. The switch
@@ -232,7 +229,7 @@ namespace bibo
         on = state;
         if(!on)
         {
-            Set dark;
+            Set dark{};
             clear(&dark);
             push(&dark);
         }
@@ -249,13 +246,13 @@ namespace bibo
         return now;
     }
 
-    inline Bool lit(Lamp l)
+    inline Bool lit(const Lamp l)
     {
         return now.level[l] > LAMP_OFF;
     }
 
     /* Hold ONE lamp lit, or lights::LAMP_COUNT to hand it back to the cue layer. */
-    inline Void forceLamp(Int32 lamp)
+    inline Void forceLamp(const Int32 lamp)
     {
         forced = lamp;
     }
@@ -266,6 +263,4 @@ namespace bibo
     }
 
 
-  } // namespace lights
-
-} // namespace bibo
+}
