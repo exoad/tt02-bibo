@@ -693,7 +693,10 @@ namespace bibo
         {
             duty = 1.0f;
         }
-        pwm_set_gpio_level(static_cast<UInt32>(pin), static_cast<UInt16>(duty * static_cast<Float32>(PWM_WRAP)));
+        pwm_set_gpio_level(
+            static_cast<UInt32>(pin),
+            static_cast<UInt16>(duty * static_cast<Float32>(PWM_WRAP))
+        );
     }
 
   }
@@ -739,7 +742,8 @@ namespace bibo
         }
         pwm_set_gpio_level(
             static_cast<UInt32>(pin),
-            static_cast<UInt16>(static_cast<UInt64>(us) * static_cast<UInt64>(PWM_WRAP + 1) / SERVO_PERIOD_US));
+            static_cast<UInt16>(static_cast<UInt64>(us) * static_cast<UInt64>(PWM_WRAP + 1) / SERVO_PERIOD_US)
+        );
     }
 
     /**
@@ -826,7 +830,7 @@ namespace bibo
         if(!tried)
         {
             tried = true;
-            led::up      = cyw43_arch_init() == 0;
+            led::up = cyw43_arch_init() == 0;
         }
         return led::up;
     }
@@ -1314,7 +1318,7 @@ namespace bibo
      */
     inline Bool openFull(const Pin sck, const Pin mosi, const Pin miso, const Pin csPin, const UInt32 hz)
     {
-        spi_inst_t* const bus  = forSck(sck);
+        spi_inst_t* const bus = forSck(sck);
         if(const spi_inst_t* const rxBus = forMiso(miso); bus == nullptr || rxBus == nullptr || bus != rxBus)
         {
             return false;
@@ -1364,10 +1368,13 @@ namespace bibo
         {
             return;
         }
-        spi_set_format(bus, 8,
-                       cpol ? SPI_CPOL_1 : SPI_CPOL_0,
-                       cpha ? SPI_CPHA_1 : SPI_CPHA_0,
-                       SPI_MSB_FIRST);
+        spi_set_format(
+            bus,
+            8,
+            cpol ? SPI_CPOL_1 : SPI_CPOL_0,
+            cpha ? SPI_CPHA_1 : SPI_CPHA_0,
+            SPI_MSB_FIRST
+        );
     }
 
     /**

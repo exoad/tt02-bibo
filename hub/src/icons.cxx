@@ -117,8 +117,10 @@ namespace ui
     };
 
     constexpr Int32 COUNT = static_cast<Int32>(sizeof(FILES) / sizeof(FILES[0]));
-    static_assert(COUNT == static_cast<Int32>(Icon::ICON_COUNT),
-                  "icons.cxx: every Icon enumerator needs a file beside it");
+    static_assert(
+        COUNT == static_cast<Int32>(Icon::ICON_COUNT),
+        "icons.cxx: every Icon enumerator needs a file beside it"
+    );
 
     ID3D11ShaderResourceView* atlasSrv = nullptr;
     ID3D11Texture2D*          atlasTex = nullptr;
@@ -129,8 +131,8 @@ namespace ui
 
     Vec<ID3D11Texture2D*>          extraTex;
     Vec<ID3D11ShaderResourceView*> extraSrv;
-    Int32                     atlasW   = 0;
-    Int32                     atlasH   = 0;
+    Int32                     atlasW = 0;
+    Int32                     atlasH = 0;
 
     // Where the app was launched from, so the assets resolve regardless of the
     // working directory - double-clicking the exe does not set one.
@@ -150,23 +152,37 @@ namespace ui
             return false;
         }
 
-        IWICBitmapDecoder*     dec   = nullptr;
+        IWICBitmapDecoder*     dec = nullptr;
         IWICBitmapFrameDecode* frame = nullptr;
-        IWICFormatConverter*   conv  = nullptr;
+        IWICFormatConverter*   conv = nullptr;
         Bool ok = false;
 
-        if(SUCCEEDED(wic->CreateDecoderFromFilename(wide, nullptr, GENERIC_READ,
-                                                    WICDecodeMetadataCacheOnDemand, &dec)) &&
+        if(SUCCEEDED(wic->CreateDecoderFromFilename(
+            wide,
+            nullptr,
+            GENERIC_READ,
+            WICDecodeMetadataCacheOnDemand,
+            &dec
+        )) &&
            SUCCEEDED(dec->GetFrame(0, &frame)) &&
            SUCCEEDED(wic->CreateFormatConverter(&conv)) &&
-           SUCCEEDED(conv->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
-                                      WICBitmapDitherTypeNone, nullptr, 0.0,
-                                      WICBitmapPaletteTypeCustom)) &&
+           SUCCEEDED(conv->Initialize(
+               frame,
+               GUID_WICPixelFormat32bppPBGRA,
+               WICBitmapDitherTypeNone,
+               nullptr,
+               0.0,
+               WICBitmapPaletteTypeCustom
+           )) &&
            SUCCEEDED(conv->GetSize(&w, &h)))
         {
             out.resize(static_cast<Size>(w) * h * 4);
-            ok = SUCCEEDED(conv->CopyPixels(nullptr, w * 4,
-                                            static_cast<UINT>(out.size()), out.data()));
+            ok = SUCCEEDED(conv->CopyPixels(
+                nullptr,
+                w * 4,
+                static_cast<UINT>(out.size()),
+                out.data()
+            ));
         }
 
         if(conv  != nullptr)
@@ -202,13 +218,17 @@ namespace ui
 
     Void uvFor(Icon ic, ImVec2& uv0, ImVec2& uv1) noexcept
     {
-        const Int32 i  = static_cast<Int32>(ic);
+        const Int32 i = static_cast<Int32>(ic);
         const Int32 cx = (i % COLS) * SRC;
         const Int32 cy = (i / COLS) * SRC;
-        uv0 = ImVec2(static_cast<Float32>(cx) / static_cast<Float32>(atlasW),
-                     static_cast<Float32>(cy) / static_cast<Float32>(atlasH));
-        uv1 = ImVec2(static_cast<Float32>(cx + SRC) / static_cast<Float32>(atlasW),
-                     static_cast<Float32>(cy + SRC) / static_cast<Float32>(atlasH));
+        uv0 = ImVec2(
+            static_cast<Float32>(cx) / static_cast<Float32>(atlasW),
+            static_cast<Float32>(cy) / static_cast<Float32>(atlasH)
+        );
+        uv1 = ImVec2(
+            static_cast<Float32>(cx + SRC) / static_cast<Float32>(atlasW),
+            static_cast<Float32>(cy + SRC) / static_cast<Float32>(atlasH)
+        );
     }
 
   }
@@ -283,8 +303,12 @@ namespace ui
       {
           // Already initialized on this thread is fine and not an error for us.
       }
-      if(FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                   IID_PPV_ARGS(&wic))))
+      if(FAILED(::CoCreateInstance(
+          CLSID_WICImagingFactory,
+          nullptr,
+          CLSCTX_INPROC_SERVER,
+          IID_PPV_ARGS(&wic)
+      )))
       {
           return;
       }
@@ -310,9 +334,11 @@ namespace ui
           const Int32 dy = (static_cast<Int32>(FILES[i].id) / COLS) * SRC;
           for(Int32 y = 0; y < SRC; ++y)
           {
-              std::memcpy(&atlas[(static_cast<Size>(dy + y) * atlasW + dx) * 4],
-                          &px[static_cast<Size>(y) * SRC * 4],
-                          static_cast<Size>(SRC) * 4);
+              std::memcpy(
+                  &atlas[(static_cast<Size>(dy + y) * atlasW + dx) * 4],
+                  &px[static_cast<Size>(y) * SRC * 4],
+                  static_cast<Size>(SRC) * 4
+              );
           }
           ++loaded;
       }
@@ -325,17 +351,17 @@ namespace ui
       }
 
       D3D11_TEXTURE2D_DESC td = {};
-      td.Width            = static_cast<UINT>(atlasW);
-      td.Height           = static_cast<UINT>(atlasH);
-      td.MipLevels        = 1;
-      td.ArraySize        = 1;
-      td.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
+      td.Width = static_cast<UINT>(atlasW);
+      td.Height = static_cast<UINT>(atlasH);
+      td.MipLevels = 1;
+      td.ArraySize = 1;
+      td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
       td.SampleDesc.Count = 1;
-      td.Usage            = D3D11_USAGE_IMMUTABLE;
-      td.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+      td.Usage = D3D11_USAGE_IMMUTABLE;
+      td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
       D3D11_SUBRESOURCE_DATA sd = {};
-      sd.pSysMem     = atlas.data();
+      sd.pSysMem = atlas.data();
       sd.SysMemPitch = static_cast<UINT>(atlasW * 4);
 
       if(FAILED(device->CreateTexture2D(&td, &sd, &atlasTex)))
@@ -365,8 +391,12 @@ namespace ui
       }
 
       IWICImagingFactory* wic = nullptr;
-      if(FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                   IID_PPV_ARGS(&wic))) || wic == nullptr)
+      if(FAILED(::CoCreateInstance(
+          CLSID_WICImagingFactory,
+          nullptr,
+          CLSCTX_INPROC_SERVER,
+          IID_PPV_ARGS(&wic)
+      )) || wic == nullptr)
       {
           return 0;
       }
@@ -382,17 +412,17 @@ namespace ui
       }
 
       D3D11_TEXTURE2D_DESC td = {};
-      td.Width            = w;
-      td.Height           = h;
-      td.MipLevels        = 1;
-      td.ArraySize        = 1;
-      td.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
+      td.Width = w;
+      td.Height = h;
+      td.MipLevels = 1;
+      td.ArraySize = 1;
+      td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
       td.SampleDesc.Count = 1;
-      td.Usage            = D3D11_USAGE_IMMUTABLE;
-      td.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+      td.Usage = D3D11_USAGE_IMMUTABLE;
+      td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
       D3D11_SUBRESOURCE_DATA sd = {};
-      sd.pSysMem     = px.data();
+      sd.pSysMem = px.data();
       sd.SysMemPitch = w * 4;
 
       ID3D11Texture2D* tex = nullptr;
@@ -478,14 +508,20 @@ namespace ui
       const Float32 s = iconSize();
       ImVec2 uv0, uv1;
       uvFor(ic, uv0, uv1);
-      dl->AddImage(reinterpret_cast<ImTextureID>(atlasSrv), pos,
-                   ImVec2(pos.x + s, pos.y + s), uv0, uv1, tint);
+      dl->AddImage(
+          reinterpret_cast<ImTextureID>(atlasSrv),
+          pos,
+          ImVec2(pos.x + s, pos.y + s),
+          uv0,
+          uv1,
+          tint
+      );
   }
 
   Bool iconButton(Icon ic, const Char* label, const ImVec2& size, Tint tint)
   {
       const ImGuiStyle& sty = ImGui::GetStyle();
-      const Float32     sz  = iconSize();
+      const Float32     sz = iconSize();
       const Float32     gap = sty.ItemInnerSpacing.x;
 
       // An auto-sized button is exactly its text plus padding, so there is no
@@ -499,7 +535,7 @@ namespace ui
       // wide buttons that pass one look right with a centered label and the icon
       // out at the frame padding, which is the branch below.
       const Bool  autoW = (size.x == 0.0f) && iconsReady();
-      ImVec2      sz2   = size;
+      ImVec2      sz2 = size;
       if(autoW)
       {
           sz2.x = ImGui::CalcTextSize(label).x + sty.FramePadding.x * 2.0f + sz + gap;
@@ -543,9 +579,9 @@ namespace ui
       Int32 n = 3;
       if(iconsReady() && spaceW > 0.0f)
       {
-          n = static_cast<Int32>(std::ceil((iconSize()
-                                            + ImGui::GetStyle().ItemInnerSpacing.x)
-                                           / spaceW));
+          n = static_cast<Int32>(std::ceil(
+              (iconSize() + ImGui::GetStyle().ItemInnerSpacing.x) / spaceW
+          ));
       }
       n = (n < 0) ? 0 : ((n > 32) ? 32 : n);
 
@@ -555,11 +591,11 @@ namespace ui
 
       if(iconsReady())
       {
-          const ImVec2  a  = ImGui::GetItemRectMin();
-          const ImVec2  b  = ImGui::GetItemRectMax();
+          const ImVec2  a = ImGui::GetItemRectMin();
+          const ImVec2  b = ImGui::GetItemRectMax();
           const Float32 sz = iconSize();
-          const Float32 x  = a.x + ImGui::GetStyle().FramePadding.x;
-          const Float32 y  = a.y + ((b.y - a.y) - sz) * 0.5f;
+          const Float32 x = a.x + ImGui::GetStyle().FramePadding.x;
+          const Float32 y = a.y + ((b.y - a.y) - sz) * 0.5f;
 
           // Dimmed with the label when the entry is disabled, or the icon would
           // be the one bright thing on a grayed-out row.
@@ -578,10 +614,10 @@ namespace ui
 
       if(iconsReady())
       {
-          const ImVec2  a    = ImGui::GetItemRectMin();
-          const ImVec2  b    = ImGui::GetItemRectMax();
-          const Float32 sz   = iconSize();
-          const Float32 gap  = ImGui::GetStyle().ItemInnerSpacing.x;
+          const ImVec2  a = ImGui::GetItemRectMin();
+          const ImVec2  b = ImGui::GetItemRectMax();
+          const Float32 sz = iconSize();
+          const Float32 gap = ImGui::GetStyle().ItemInnerSpacing.x;
           const Float32 half = ImGui::CalcTextSize(label).x * 0.5f;
 
           // Immediately left of the CENTERED label, not out at the frame padding.
@@ -597,8 +633,12 @@ namespace ui
               // Unselected cells are quiet, so their icons are too - otherwise a
               // row of twelve reads as twelve equally-loud things and the
               // selection stops being the thing you see first.
-              iconAt(ImGui::GetWindowDrawList(), ic, ImVec2(x, y),
-                     selected ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 130));
+              iconAt(
+                  ImGui::GetWindowDrawList(),
+                  ic,
+                  ImVec2(x, y),
+                  selected ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 130)
+              );
           }
       }
       return hit;

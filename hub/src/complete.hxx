@@ -41,10 +41,10 @@ namespace cmpl
 
   struct Item
   {
-      const Char* name      = nullptr;
-      const Char* detail    = nullptr;   // signature, or the underlying type
-      const Char* doc       = nullptr;   // one line, may be empty
-      Kind        kind      = Kind::KIND_FUNCTION;
+      const Char* name = nullptr;
+      const Char* detail = nullptr;   // signature, or the underlying type
+      const Char* doc = nullptr;   // one line, may be empty
+      Kind        kind = Kind::KIND_FUNCTION;
   };
 
   // Everything the table holds, for tests and for a "show all" listing.

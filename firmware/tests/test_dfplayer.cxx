@@ -34,7 +34,7 @@
 using namespace bibo;
 
 static Int32 failures = 0;
-static Int32 checks   = 0;
+static Int32 checks = 0;
 
 /**
  * @brief Records a pass/fail check and prints its outcome.
@@ -161,8 +161,7 @@ Int32 main(Void)
                 {
                     if(bad == 0)
                     {
-                        printf("        first bad: cmd %02X param %04X ack %d\n",
-                               cmd, param, ack);
+                        printf(" first bad: cmd %02X param %04X ack %d\n", cmd, param, ack);
                         dump("bad frame", f);
                     }
                     ++bad;

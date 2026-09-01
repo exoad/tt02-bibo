@@ -93,8 +93,8 @@ namespace syn
         }
         Span s;
         s.begin = b;
-        s.end   = e;
-        s.role  = r;
+        s.end = e;
+        s.role = r;
         out.push_back(s);
     }
 
@@ -253,7 +253,7 @@ namespace syn
               }
 
               const Int32 len = j - i;
-              Role        r   = Role::ROLE_TEXT;
+              Role        r = Role::ROLE_TEXT;
 
               if(inList(KEYWORDS, sizeof(KEYWORDS) / sizeof(KEYWORDS[0]), p + i, len))
               {

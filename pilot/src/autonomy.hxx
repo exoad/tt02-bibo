@@ -80,8 +80,8 @@ namespace autonomy
   // sender cannot survive a dropped line, and a total can.
   struct Inputs
   {
-      UInt32 ticks   = 0;      // cumulative wheel encoder count
-      UInt64 atUs    = 0;      // when the board sampled it, by ITS clock
+      UInt32 ticks = 0;      // cumulative wheel encoder count
+      UInt64 atUs = 0;      // when the board sampled it, by ITS clock
       Bool   haveOdom = false; // false until the encoder exists at all
 
       // Where the car believes it is. Integrated on this side from the ticks
@@ -94,7 +94,7 @@ namespace autonomy
   {
       Float32 steer = 0.0f;    // -1..1, as the board's STEER wants
       Int32   escUs = 0;       // absolute pulse, as the board's ESC wants
-      Bool    stop  = false;   // send STOP instead of the two above
+      Bool    stop = false;   // send STOP instead of the two above
   };
 
   // The tunings this side owns.
@@ -130,8 +130,6 @@ namespace autonomy
   // `out` is untouched on anything but STATUS_OK, so a caller that ignores the
   // Status gets whatever it initialized - its own value, not one this file
   // invented.
-  [[nodiscard]] Status step(const Inputs& in,
-                            const bibo::pursuit::Path* path,
-                            Outputs* out);
+  [[nodiscard]] Status step(const Inputs& in, const bibo::pursuit::Path* path, Outputs* out);
 
 }

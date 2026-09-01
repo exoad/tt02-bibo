@@ -150,8 +150,8 @@ namespace bibo::lights
         pin[LAMP_IND_FR] = m.indFR;
         pin[LAMP_IND_RL] = m.indRL;
         pin[LAMP_IND_RR] = m.indRR;
-        pin[LAMP_REV_L]  = m.revL;
-        pin[LAMP_REV_R]  = m.revR;
+        pin[LAMP_REV_L] = m.revL;
+        pin[LAMP_REV_R] = m.revR;
 
         for(const Int64 i : pin)
         {
@@ -161,7 +161,7 @@ namespace bibo::lights
             }
         }
 
-        up     = true;
+        up = true;
         forced = LAMP_COUNT;
 
         clear(&now);

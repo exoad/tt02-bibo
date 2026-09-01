@@ -28,7 +28,7 @@ namespace lights
       // film prop does, and it is the single most common way to get this wrong.
       // Both sides read the same `on`, so being in phase is structural rather
       // than something that has to be maintained.
-      const Bool leftTurn  = (in.turn == Turn::TURN_LEFT)  || (in.turn == Turn::TURN_HAZARD);
+      const Bool leftTurn = (in.turn == Turn::TURN_LEFT)  || (in.turn == Turn::TURN_HAZARD);
       const Bool rightTurn = (in.turn == Turn::TURN_RIGHT) || (in.turn == Turn::TURN_HAZARD);
 
       const Float32 lit = (on ? 1.0f : 0.0f);
@@ -96,7 +96,7 @@ namespace lights
       Input in;
 
       // ---- indicators ------------------------------------------------------
-      const Float32 mag  = (d.steer < 0.0f) ? -d.steer : d.steer;
+      const Float32 mag = (d.steer < 0.0f) ? -d.steer : d.steer;
       const Turn    want = (d.steer <= -cfg.turnOnAbs) ? Turn::TURN_LEFT
                          : (d.steer >=  cfg.turnOnAbs) ? Turn::TURN_RIGHT
                                                        : Turn::TURN_OFF;
@@ -107,7 +107,7 @@ namespace lights
           // Waiting out the old side's minimum flash would leave the car
           // indicating LEFT while the wheels are already turning right, which is
           // the one thing an indicator must never do.
-          st.turn      = want;
+          st.turn = want;
           st.turnUntil = seconds + cfg.turnMinS;
       }
       else if(st.turn != Turn::TURN_OFF

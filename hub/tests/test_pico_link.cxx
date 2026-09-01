@@ -102,9 +102,11 @@ Int32 main()
 
     printf("\n=== 3. listen 3 s on a silent board ===\n");
     pump(link, lines, 3000, "quiet");
-    printf("  state still %s (silence must NOT become an error) ... %s\n",
-           stateName(link.state()),
-           link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL");
+    printf(
+        " state still %s (silence must NOT become an error) ... %s\n",
+        stateName(link.state()),
+        link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL"
+    );
     if(link.state() != PicoState::PICO_STATE_CONNECTED)
     {
         ++failures;
@@ -138,8 +140,11 @@ Int32 main()
     printf("  rx_lines()      = %llu\n", link.rxLines());
     printf("  dropped()       = %llu\n", link.dropped());
     const Float64 age = link.lastRxAgeS();
-    printf("  lastRxAgeS() = %.3f %s\n", age,
-           age < 0.0 ? "(negative == nothing ever received, as documented)" : "");
+    printf(
+        " lastRxAgeS() = %.3f %s\n",
+        age,
+        age < 0.0 ? "(negative == nothing ever received, as documented)" : ""
+    );
     printf("  3 probes sent   ... %s\n", link.txLines() == 3 ? "PASS" : "FAIL");
     if(link.txLines() != 3)
     {
@@ -156,23 +161,28 @@ Int32 main()
     link.disconnect();
     const Float64 dcMs = elapsedMs(tDc);
     printf("  disconnect() blocked %.2f ms (worker joined)\n", dcMs);
-    printf("  state: %s ... %s\n", stateName(link.state()),
-           link.state() == PicoState::PICO_STATE_DISCONNECTED ? "PASS" : "FAIL");
+    printf(
+        " state: %s ... %s\n",
+        stateName(link.state()),
+        link.state() == PicoState::PICO_STATE_DISCONNECTED ? "PASS" : "FAIL"
+    );
     if(link.state() != PicoState::PICO_STATE_DISCONNECTED)
     {
         ++failures;
     }
-    printf("  port() now '%s' ... %s\n", link.port().c_str(),
-           link.port().empty() ? "PASS" : "FAIL");
+    printf(" port() now '%s' ... %s\n", link.port().c_str(), link.port().empty() ? "PASS" : "FAIL");
 
     link.disconnect();   // idempotent
     printf("  second disconnect() survived ... PASS\n");
 
     const UInt64 beforeDrop = link.dropped();
     link.send("SHOULD_BE_DROPPED");
-    printf("  send() while disconnected -> dropped %llu -> %llu ... %s\n",
-           beforeDrop, link.dropped(),
-           link.dropped() == beforeDrop + 1 ? "PASS" : "FAIL");
+    printf(
+        " send() while disconnected -> dropped %llu -> %llu ... %s\n",
+        beforeDrop,
+        link.dropped(),
+        link.dropped() == beforeDrop + 1 ? "PASS" : "FAIL"
+    );
     if(link.dropped() != beforeDrop + 1)
     {
         ++failures;
@@ -184,8 +194,11 @@ Int32 main()
     {
         sleepMs(10);
     }
-    printf("  state: %s ... %s\n", stateName(link.state()),
-           link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL");
+    printf(
+        " state: %s ... %s\n",
+        stateName(link.state()),
+        link.state() == PicoState::PICO_STATE_CONNECTED ? "PASS" : "FAIL"
+    );
     if(link.state() != PicoState::PICO_STATE_CONNECTED)
     {
         ++failures;

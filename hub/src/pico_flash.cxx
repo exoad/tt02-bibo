@@ -98,8 +98,16 @@ namespace
       }
 
       Array<Char, 32> buf;
-      std::snprintf(buf.data(), buf.size(), "%04d-%02d-%02d %02d:%02d",
-                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
+      std::snprintf(
+          buf.data(),
+          buf.size(),
+          "%04d-%02d-%02d %02d:%02d",
+          st.wYear,
+          st.wMonth,
+          st.wDay,
+          st.wHour,
+          st.wMinute
+      );
       return buf.data();
   }
 
@@ -126,7 +134,16 @@ namespace
           }
 
           Array<Char, MAX_PATH> label= {};
-          if(!GetVolumeInformationA(root.data(), label.data(), MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0))
+          if(!GetVolumeInformationA(
+              root.data(),
+              label.data(),
+              MAX_PATH,
+              nullptr,
+              nullptr,
+              nullptr,
+              nullptr,
+              0
+          ))
           {
               continue;   // an empty card reader: no volume, not an error
           }
@@ -153,7 +170,7 @@ namespace
   Int32 runCapture(const Str& cmdline, const Str& cwd, const LineSink& sink)
   {
       SECURITY_ATTRIBUTES sa{};
-      sa.nLength        = sizeof(sa);
+      sa.nLength = sizeof(sa);
       sa.bInheritHandle = TRUE;
 
       HANDLE rd = nullptr, wr = nullptr;
@@ -168,16 +185,23 @@ namespace
 
       // A real handle for stdin, not NULL: a batch file that reads (or that pipes
       // into something that reads) would otherwise block forever.
-      HANDLE nul = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               &sa, OPEN_EXISTING, 0, nullptr);
+      HANDLE nul = CreateFileA(
+          "NUL",
+          GENERIC_READ,
+          FILE_SHARE_READ | FILE_SHARE_WRITE,
+          &sa,
+          OPEN_EXISTING,
+          0,
+          nullptr
+      );
 
       STARTUPINFOA si{};
-      si.cb         = sizeof(si);
-      si.dwFlags    = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+      si.cb = sizeof(si);
+      si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
       si.wShowWindow = SW_HIDE;
-      si.hStdInput  = (nul == INVALID_HANDLE_VALUE) ? nullptr : nul;
+      si.hStdInput = (nul == INVALID_HANDLE_VALUE) ? nullptr : nul;
       si.hStdOutput = wr;
-      si.hStdError  = wr;
+      si.hStdError = wr;
 
       PROCESS_INFORMATION pi{};
 
@@ -186,9 +210,18 @@ namespace
       Vec<Char> mutableCmd(cmdline.begin(), cmdline.end());
       mutableCmd.push_back('\0');
 
-      const BOOL ok = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr,
-                                     TRUE, CREATE_NO_WINDOW, nullptr,
-                                     cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
+      const BOOL ok = CreateProcessA(
+          nullptr,
+          mutableCmd.data(),
+          nullptr,
+          nullptr,
+          TRUE,
+          CREATE_NO_WINDOW,
+          nullptr,
+          cwd.empty() ? nullptr : cwd.c_str(),
+          &si,
+          &pi
+      );
 
       CloseHandle(wr);   // the parent's copy, or the read below never ends
       if(nul != INVALID_HANDLE_VALUE)
@@ -199,8 +232,12 @@ namespace
       if(!ok)
       {
           Array<Char, 160> buf;
-          std::snprintf(buf.data(), buf.size(), "[error] could not start the process (%lu)",
-                        static_cast<unsigned long>(GetLastError()));
+          std::snprintf(
+              buf.data(),
+              buf.size(),
+              "[error] could not start the process (%lu)",
+              static_cast<unsigned long>(GetLastError())
+          );
           sink(buf.data());
           CloseHandle(rd);
           return -1;
@@ -466,7 +503,7 @@ Void PicoFlash::refreshCatalog()
         // "yes" and "true" are the old spelling, from when there was only one
         // board, and still mean the W.
         Array<Str, 5> field;
-        Int32         n     = 0;
+        Int32         n = 0;
         Size      start = 0;
         for(Size i = 0; i <= s.size() && n < 5; ++i)
         {
@@ -489,13 +526,13 @@ Void PicoFlash::refreshCatalog()
         }
 
         FirmwareEntry e;
-        e.id          = field[0];
-        e.name        = field[1].empty() ? field[0] : field[1];
-        e.uf2Path    = root + "\\" + toBackslashes(field[2]);
-        const Str  build     = field[3];
+        e.id = field[0];
+        e.name = field[1].empty() ? field[0] : field[1];
+        e.uf2Path = root + "\\" + toBackslashes(field[2]);
+        const Str  build = field[3];
         const Bool legacyYes = (_stricmp(build.c_str(), "yes") == 0 ||
                                 _stricmp(build.c_str(), "true") == 0);
-        const Bool none      = (build.empty() ||
+        const Bool none = (build.empty() ||
                                 _stricmp(build.c_str(), "no") == 0 ||
                                 _stricmp(build.c_str(), "false") == 0);
 
@@ -514,9 +551,9 @@ Void PicoFlash::refreshCatalog()
         if(GetFileAttributesExA(e.uf2Path.c_str(), GetFileExInfoStandard, &fa) &&
             !(fa.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
         {
-            e.present    = true;
+            e.present = true;
             e.sizeBytes = (static_cast<Int64>(fa.nFileSizeHigh) << 32) | static_cast<Int64>(fa.nFileSizeLow);
-            e.builtAt   = formatMtime(fa.ftLastWriteTime);
+            e.builtAt = formatMtime(fa.ftLastWriteTime);
         }
 
         out.push_back(std::move(e));
@@ -538,8 +575,8 @@ Void PicoFlash::refreshCatalog()
     // -----------------------------------------------------------------------
     {
         const Str        skDir = root + "\\firmware\\sketches";
-        WIN32_FIND_DATAA fd    = {};
-        HANDLE           h     = ::FindFirstFileA((skDir + "\\*.cxx").c_str(), &fd);
+        WIN32_FIND_DATAA fd = {};
+        HANDLE           h = ::FindFirstFileA((skDir + "\\*.cxx").c_str(), &fd);
 
         for(Bool more = (h != INVALID_HANDLE_VALUE); more;
             more = (::FindNextFileA(h, &fd) != 0))
@@ -583,20 +620,19 @@ Void PicoFlash::refreshCatalog()
                                         : Str(" (sketch, car board)"));
                 e.uf2Path = root + "\\firmware\\" + BUILDS[b] + "\\"
                           + stem + ".uf2";
-                e.buildable   = true;
-                e.board       = BOARDS[b];
+                e.buildable = true;
+                e.board = BOARDS[b];
                 e.description = "firmware/sketches/" + stem + ".cxx, built for "
                               + BOARDS[b] + ".";
 
                 WIN32_FILE_ATTRIBUTE_DATA fa{};
-                if(GetFileAttributesExA(e.uf2Path.c_str(),
-                                        GetFileExInfoStandard, &fa)
+                if(GetFileAttributesExA(e.uf2Path.c_str(), GetFileExInfoStandard, &fa)
                    && !(fa.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
                 {
-                    e.present   = true;
+                    e.present = true;
                     e.sizeBytes = (static_cast<Int64>(fa.nFileSizeHigh) << 32)
                                 | static_cast<Int64>(fa.nFileSizeLow);
-                    e.builtAt   = formatMtime(fa.ftLastWriteTime);
+                    e.builtAt = formatMtime(fa.ftLastWriteTime);
                 }
 
                 out.push_back(std::move(e));
@@ -694,8 +730,11 @@ Void PicoFlash::refreshBoard()
             if(fileExists(picotool))
             {
                 Vec<Str> lines;
-                runCapture(quote(picotool) + " info", root,
-                            [&lines](const Str& l) { lines.push_back(l); });
+                runCapture(
+                    quote(picotool) + " info",
+                    root,
+                    [&lines](const Str& l) { lines.push_back(l); }
+                );
 
                 for(const Str& l : lines)
                 {
@@ -739,15 +778,20 @@ Void PicoFlash::refreshBoard()
         }
         else if(b.bootsel)
         {
-            pimpl().logf("[board] BOOTSEL on %s%s%s", b.drive.c_str(),
-                        b.program.empty() ? "" : "  running: ",
-                        b.program.c_str());
+            pimpl().logf(
+                "[board] BOOTSEL on %s%s%s",
+                b.drive.c_str(),
+                b.program.empty() ? "" : " running: ",
+                b.program.c_str()
+            );
         }
         else
         {
-            pimpl().logf("[board] %s running on %s",
-                        b.chip.empty() ? "board" : b.chip.c_str(),
-                        b.port.empty() ? "(no serial port)" : b.port.c_str());
+            pimpl().logf(
+                "[board] %s running on %s",
+                b.chip.empty() ? "board" : b.chip.c_str(),
+                b.port.empty() ? "(no serial port)" : b.port.c_str()
+            );
         }
 
         pimpl().boardQuerying.store(false);
@@ -766,16 +810,16 @@ Void PicoFlash::build(const Str& id)
         ;
     }
 
-    Str name  = id;
+    Str name = id;
     Str board;
     Str target;
-    Bool        can   = false;
+    Bool        can = false;
     {
         LockGuard<Mutex> lk(pimpl().mu);
         if(const FirmwareEntry* e = findEntry(pimpl().catalog, id))
         {
-            name  = e->name;
-            can   = e->buildable;
+            name = e->name;
+            can = e->buildable;
             board = e->board;
 
             // The CMake target is the UF2's basename, taken from there rather
@@ -854,8 +898,8 @@ Void PicoFlash::flash(const Str& id)
         LockGuard<Mutex> lk(pimpl().mu);
         if(const FirmwareEntry* e = findEntry(pimpl().catalog, id))
         {
-            uf2     = e->uf2Path;
-            name    = e->name;
+            uf2 = e->uf2Path;
+            name = e->name;
             present = e->present;
         }
     }

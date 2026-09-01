@@ -87,19 +87,19 @@ namespace bibo::gfx
         return tft::rgb(r, g, b);
     }
 
-    constexpr UInt16 BLACK     = rgb(0, 0, 0);
-    constexpr UInt16 WHITE     = rgb(255, 255, 255);
-    constexpr UInt16 RED       = rgb(255, 0, 0);
-    constexpr UInt16 GREEN     = rgb(0, 255, 0);
-    constexpr UInt16 BLUE      = rgb(0, 0, 255);
-    constexpr UInt16 YELLOW    = rgb(255, 255, 0);
-    constexpr UInt16 CYAN      = rgb(0, 255, 255);
-    constexpr UInt16 MAGENTA   = rgb(255, 0, 255);
-    constexpr UInt16 ORANGE    = rgb(255, 140, 0);
-    constexpr UInt16 GRAY      = rgb(128, 128, 128);
-    constexpr UInt16 DARKGRAY  = rgb(64, 64, 64);
-    constexpr UInt16 NAVY      = rgb(12, 16, 32);
-    constexpr UInt16 PURPLE    = rgb(160, 90, 220);
+    constexpr UInt16 BLACK = rgb(0, 0, 0);
+    constexpr UInt16 WHITE = rgb(255, 255, 255);
+    constexpr UInt16 RED = rgb(255, 0, 0);
+    constexpr UInt16 GREEN = rgb(0, 255, 0);
+    constexpr UInt16 BLUE = rgb(0, 0, 255);
+    constexpr UInt16 YELLOW = rgb(255, 255, 0);
+    constexpr UInt16 CYAN = rgb(0, 255, 255);
+    constexpr UInt16 MAGENTA = rgb(255, 0, 255);
+    constexpr UInt16 ORANGE = rgb(255, 140, 0);
+    constexpr UInt16 GRAY = rgb(128, 128, 128);
+    constexpr UInt16 DARKGRAY = rgb(64, 64, 64);
+    constexpr UInt16 NAVY = rgb(12, 16, 32);
+    constexpr UInt16 PURPLE = rgb(160, 90, 220);
     /**
      * @brief Mixes two colors.
      *
@@ -126,8 +126,8 @@ namespace bibo::gfx
         const UInt32 bb = bu & 0x1Fu;
 
         const UInt32 it = 255u - static_cast<UInt32>(t);
-        const UInt32 r  = (ar * it + br * static_cast<UInt32>(t)) / 255u;
-        const UInt32 g  = (ag * it + bg * static_cast<UInt32>(t)) / 255u;
+        const UInt32 r = (ar * it + br * static_cast<UInt32>(t)) / 255u;
+        const UInt32 g = (ag * it + bg * static_cast<UInt32>(t)) / 255u;
         const UInt32 bl = (ab * it + bb * static_cast<UInt32>(t)) / 255u;
 
         return static_cast<UInt16>((r << 11) | (g << 5) | bl);
@@ -173,7 +173,7 @@ namespace bibo::gfx
         hue = (hue % 360 + 360) % 360;
 
         const auto region = static_cast<UInt32>(hue / 60);
-        const auto rem    = static_cast<UInt32>((hue - static_cast<Int32>(region * 60u)) * 255 / 60);
+        const auto rem = static_cast<UInt32>((hue - static_cast<Int32>(region * 60u)) * 255 / 60);
 
         const UInt32 p = static_cast<UInt32>(val) * (255u - sat) / 255u;
         const UInt32 q = static_cast<UInt32>(val) * (255u - sat * rem / 255u) / 255u;
@@ -282,10 +282,10 @@ namespace bibo::gfx
      */
     struct Paint
     {
-        UInt16 fg      = WHITE;
-        UInt16 bg      = BLACK;
+        UInt16 fg = WHITE;
+        UInt16 bg = BLACK;
         Bool   bgSolid = false;  /* false: glyph only, leave the background */
-        Int32  size    = 1;      /* integer scale of the 5x7 font, >= 1 */
+        Int32  size = 1;      /* integer scale of the 5x7 font, >= 1 */
     };
 
     /*
@@ -757,7 +757,7 @@ namespace bibo::gfx
               const UInt16* src = &cv->buf[((y + r) * PANEL_MAX_W)];
               for(Int32 i = 0; i < w; ++i)
               {
-                  row[i * 2]     = static_cast<UInt8>(src[i] >> 8);
+                  row[i * 2] = static_cast<UInt8>(src[i] >> 8);
                   row[i * 2 + 1] = static_cast<UInt8>(src[i] & 0xFF);
               }
               spi::write(cv->panel->sck, row, static_cast<Size>(w * 2));
@@ -843,8 +843,8 @@ namespace bibo::gfx
           }
 
           Int32 err = dx - dy;
-          Int32 x   = x0;
-          Int32 y   = y0;
+          Int32 x = x0;
+          Int32 y = y0;
 
           while(true)
           {
@@ -989,7 +989,7 @@ namespace bibo::gfx
 
           Int32 cx = 0;
           Int32 cy = r;
-          Int32 d  = 1 - r;
+          Int32 d = 1 - r;
           while(cx <= cy)
           {
               pixel(cv, x + w - r - 1 + cx, y + h - r - 1 + cy, color);
@@ -1129,7 +1129,7 @@ namespace bibo::gfx
       /** @brief Sets an opaque background color for text drawn from here on. */
       inline Void textBackground(Canvas* cv, const UInt16 bg)
       {
-          cv->bg      = bg;
+          cv->bg = bg;
           cv->bgSolid = true;
       }
 
@@ -1205,8 +1205,14 @@ namespace bibo::gfx
                   {
                       continue;                   /* see through to what is behind */
                   }
-                  rectFill(cv, x + col * cv->textScale, y + row * cv->textScale,
-                           cv->textScale, cv->textScale, on ? cv->fg : cv->bg);
+                  rectFill(
+                      cv,
+                      x + col * cv->textScale,
+                      y + row * cv->textScale,
+                      cv->textScale,
+                      cv->textScale,
+                      on ? cv->fg : cv->bg
+                  );
               }
           }
       }
@@ -1228,7 +1234,7 @@ namespace bibo::gfx
       /** @brief Draws a string aligned to a position. See Canvas::text. */
       inline Void textAligned(Canvas* cv, const Int32 x, const Int32 y, const Utf8* str, const Align align)
       {
-          const Int32 w  = textWidth(cv, str);
+          const Int32 w = textWidth(cv, str);
           Int32       at = x;
           if(align == ALIGN_CENTER)
           {
@@ -1287,8 +1293,7 @@ namespace bibo::gfx
       /** @brief Draws the safe area's boundary. See Canvas::safeOutline. */
       inline Void safeOutline(Canvas* cv, const UInt16 color)
       {
-          rect(cv, safeLeft(cv), safeTop(cv),
-               safeWidth(cv), safeHeight(cv), color);
+          rect(cv, safeLeft(cv), safeTop(cv), safeWidth(cv), safeHeight(cv), color);
       }
 
       /* ---- start --------------------------------------------------------------- */
@@ -1311,18 +1316,18 @@ namespace bibo::gfx
           cv->panel = panel;
 
           /* The drawing state starts here, not in the driver: a panel has no opinion on a text color. */
-          cv->buf       = nullptr;
-          cv->dirtyTop  = h;
-          cv->dirtyBot  = -1;
-          cv->clipX     = 0;
-          cv->clipY     = 0;
-          cv->clipW     = w;
-          cv->clipH     = h;
-          cv->cursorX   = 0;
-          cv->cursorY   = 0;
-          cv->fg        = WHITE;
-          cv->bg        = BLACK;
-          cv->bgSolid   = true;
+          cv->buf = nullptr;
+          cv->dirtyTop = h;
+          cv->dirtyBot = -1;
+          cv->clipX = 0;
+          cv->clipY = 0;
+          cv->clipW = w;
+          cv->clipH = h;
+          cv->cursorX = 0;
+          cv->cursorY = 0;
+          cv->fg = WHITE;
+          cv->bg = BLACK;
+          cv->bgSolid = true;
           cv->textScale = 1;
 
           if(!tft::open(cv->panel, w, h, xoff, yoff))
@@ -1334,7 +1339,7 @@ namespace bibo::gfx
           if(!bufTaken)
           {
               bufTaken = true;
-              cv->buf      = buf;
+              cv->buf = buf;
           }
 
           clipReset(cv);
@@ -1408,13 +1413,29 @@ namespace bibo::gfx
 
     inline Canvas& Canvas::roundRect(const Box& b, const Int32 radius, const UInt16 color)
     {
-        detail::roundRect(this, b.x, b.y, b.w, b.h, radius, color);
+        detail::roundRect(
+            this,
+            b.x,
+            b.y,
+            b.w,
+            b.h,
+            radius,
+            color
+        );
         return *this;
     }
 
     inline Canvas& Canvas::roundRectFill(const Box& b, const Int32 radius, const UInt16 color)
     {
-        detail::roundRectFill(this, b.x, b.y, b.w, b.h, radius, color);
+        detail::roundRectFill(
+            this,
+            b.x,
+            b.y,
+            b.w,
+            b.h,
+            radius,
+            color
+        );
         return *this;
     }
 
@@ -1430,15 +1451,43 @@ namespace bibo::gfx
         return *this;
     }
 
-    inline Canvas& Canvas::triangle(const Point a, const Point b, const Point cc, const UInt16 color)
+    inline Canvas& Canvas::triangle(
+        const Point a,
+        const Point b,
+        const Point cc,
+        const UInt16 color
+    )
     {
-        detail::triangle(this, a.x, a.y, b.x, b.y, cc.x, cc.y, color);
+        detail::triangle(
+            this,
+            a.x,
+            a.y,
+            b.x,
+            b.y,
+            cc.x,
+            cc.y,
+            color
+        );
         return *this;
     }
 
-    inline Canvas& Canvas::triangleFill(const Point a, const Point b, const Point cc, const UInt16 color)
+    inline Canvas& Canvas::triangleFill(
+        const Point a,
+        const Point b,
+        const Point cc,
+        const UInt16 color
+    )
     {
-        detail::triangleFill(this, a.x, a.y, b.x, b.y, cc.x, cc.y, color);
+        detail::triangleFill(
+            this,
+            a.x,
+            a.y,
+            b.x,
+            b.y,
+            cc.x,
+            cc.y,
+            color
+        );
         return *this;
     }
 
@@ -1470,7 +1519,12 @@ namespace bibo::gfx
         return *this;
     }
 
-    inline Canvas& Canvas::text(const Point at, const Utf8* str, const Paint& paint, const Align align)
+    inline Canvas& Canvas::text(
+        const Point at,
+        const Utf8* str,
+        const Paint& paint,
+        const Align align
+    )
     {
         applyPaint(this, paint);
         detail::textAligned(this, at.x, at.y, str, align);

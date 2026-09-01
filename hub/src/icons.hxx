@@ -125,9 +125,10 @@ namespace ui
 
   // The overlay block must stay contiguous and in MapMode order: drawModeToggle()
   // indexes it arithmetically rather than through a second table that could drift.
-  static_assert(static_cast<int>(Icon::ICON_MODE_MINIMAL)
-                - static_cast<int>(Icon::ICON_MODE_POINTS) == 9,
-                "icons.hxx: the ICON_MODE_* block must stay contiguous");
+  static_assert(
+      static_cast<int>(Icon::ICON_MODE_MINIMAL) - static_cast<int>(Icon::ICON_MODE_POINTS) == 9,
+      "icons.hxx: the ICON_MODE_* block must stay contiguous"
+  );
 
   // ---------------------------------------------------------------------------
   // Resolves `relative` (e.g. "icons" or "models/car.obj") under assets/.

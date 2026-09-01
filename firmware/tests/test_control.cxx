@@ -28,7 +28,7 @@
 using namespace bibo;
 
 static Int32 failures = 0;
-static Int32 checks   = 0;
+static Int32 checks = 0;
 
 /**
  * @brief Records a pass/fail check and prints its outcome.
@@ -84,24 +84,26 @@ Int32 main(Void)
      * stand still - a car that will not hold on a bench and reads as a
      * calibration fault rather than a controller bug.
      */
-    check(near(control::predict(&ff, 0.0f, 0.0f), 0.0f, 0.001f),
-          "zero demand is zero output, static term included");
+    check(
+        near(control::predict(&ff, 0.0f, 0.0f), 0.0f, 0.001f),
+        "zero demand is zero output, static term included"
+    );
 
-    check(near(control::predict(&ff, 1.0f, 0.0f), 140.0f, 0.001f),
-          "1 m/s is gainS + gainV");
+    check(near(control::predict(&ff, 1.0f, 0.0f), 140.0f, 0.001f), "1 m/s is gainS + gainV");
 
-    check(near(control::predict(&ff, -1.0f, 0.0f), -140.0f, 0.001f),
-          "the static term takes the sign of the demand");
+    check(
+        near(control::predict(&ff, -1.0f, 0.0f), -140.0f, 0.001f),
+        "the static term takes the sign of the demand"
+    );
 
-    check(control::predict(nullptr, 1.0f, 0.0f) == 0.0f,
-          "a null model is 0, not a crash");
+    check(control::predict(nullptr, 1.0f, 0.0f) == 0.0f, "a null model is 0, not a crash");
 
     printf("\ncontrol: PID\n\n");
 
     control::Pid pid;
-    pid.kp     = 10.0f;
-    pid.ki     = 0.0f;
-    pid.kd     = 5.0f;
+    pid.kp = 10.0f;
+    pid.ki = 0.0f;
+    pid.kd = 5.0f;
     pid.outMin = -500.0f;
     pid.outMax = 500.0f;
     control::reset(&pid);
@@ -112,8 +114,7 @@ Int32 main(Void)
      * standing start - the car lurches the instant the loop is enabled.
      */
     const Float32 first = control::step(&pid, 1.0f, 0.0f, 0.02f);
-    check(near(first, 10.0f, 0.001f),
-          "the first step is proportional only - no derivative kick");
+    check(near(first, 10.0f, 0.001f), "the first step is proportional only - no derivative kick");
 
     /*
      * DERIVATIVE ON MEASUREMENT, NOT ERROR. Moving the setpoint must not spike
@@ -123,21 +124,21 @@ Int32 main(Void)
     control::reset(&pid);
     static_cast<Void>(control::step(&pid, 0.0f, 0.0f, 0.02f));
     const Float32 jumped = control::step(&pid, 1.0f, 0.0f, 0.02f);
-    check(near(jumped, 10.0f, 0.001f),
-          "a setpoint step does not kick the derivative");
+    check(near(jumped, 10.0f, 0.001f), "a setpoint step does not kick the derivative");
 
     /* And the measurement moving DOES damp. */
     control::reset(&pid);
     static_cast<Void>(control::step(&pid, 1.0f, 0.0f, 0.02f));
     const Float32 damped = control::step(&pid, 1.0f, 0.1f, 0.02f);
-    check(damped < 10.0f,
-          "a rising measurement damps the output");
+    check(damped < 10.0f, "a rising measurement damps the output");
 
     /* A BAD TIMESTEP MUST NOT POISON THE STATE. */
     control::reset(&pid);
     const Float32 zeroDt = control::step(&pid, 1.0f, 0.0f, 0.0f);
-    check(near(zeroDt, 10.0f, 0.001f),
-          "dt of zero returns the proportional term, not a division by zero");
+    check(
+        near(zeroDt, 10.0f, 0.001f),
+        "dt of zero returns the proportional term, not a division by zero"
+    );
     check(!isnan(zeroDt) && !isinf(zeroDt), "and it is a real number");
 
     printf("\ncontrol: windup\n\n");
@@ -148,10 +149,10 @@ Int32 main(Void)
      * as it is held, then dumps the moment the wheel comes free.
      */
     control::Pid wind;
-    wind.kp     = 1.0f;
-    wind.ki     = 100.0f;
-    wind.kd     = 0.0f;
-    wind.iMax   = 200.0f;
+    wind.kp = 1.0f;
+    wind.ki = 100.0f;
+    wind.kd = 0.0f;
+    wind.iMax = 200.0f;
     wind.outMin = -100.0f;
     wind.outMax = 100.0f;
     control::reset(&wind);
@@ -160,8 +161,7 @@ Int32 main(Void)
     {
         static_cast<Void>(control::step(&wind, 5.0f, 0.0f, 0.02f));
     }
-    check(wind.integral <= 200.0f + 0.001f,
-          "the integral stays inside iMax while saturated");
+    check(wind.integral <= 200.0f + 0.001f, "the integral stays inside iMax while saturated");
 
     /*
      * The real test: once the obstruction clears, the output must come back
@@ -187,16 +187,13 @@ Int32 main(Void)
     }
     const Float32 wound = back.integral;
     static_cast<Void>(control::step(&back, -1.0f, 0.0f, 0.02f));
-    check(back.integral < wound,
-          "an error pointing back into range unwinds the integral");
+    check(back.integral < wound, "an error pointing back into range unwinds the integral");
 
-    check(control::step(nullptr, 1.0f, 0.0f, 0.02f) == 0.0f,
-          "a null controller is 0, not a crash");
+    check(control::step(nullptr, 1.0f, 0.0f, 0.02f) == 0.0f, "a null controller is 0, not a crash");
 
     printf("\nodom\n\n");
 
-    check(!odom::calibrated(),
-          "odometry reports itself UNcalibrated - nothing is measured yet");
+    check(!odom::calibrated(), "odometry reports itself UNcalibrated - nothing is measured yet");
 
     check(odom::metersPerTick() > 0.0f, "meters per tick is positive");
 
@@ -209,8 +206,10 @@ Int32 main(Void)
     {
         odom::tick(&w);
     }
-    check(near(odom::distance(&w), 10.0f * odom::metersPerTick(), 0.0001f),
-          "ten ticks is ten tick-lengths");
+    check(
+        near(odom::distance(&w), 10.0f * odom::metersPerTick(), 0.0001f),
+        "ten ticks is ten tick-lengths"
+    );
 
     /*
      * FIRST UPDATE HAS NO WINDOW. There is no previous timestamp, so a speed
@@ -219,8 +218,10 @@ Int32 main(Void)
      */
     odom::Wheel s;
     odom::reset(&s, 1000u);
-    check(near(odom::update(&s, 2000u, 0.0f), 0.0f, 0.0001f),
-          "the first update primes and reports zero");
+    check(
+        near(odom::update(&s, 2000u, 0.0f), 0.0f, 0.0001f),
+        "the first update primes and reports zero"
+    );
 
     /* A clock that does not advance must not divide by zero. */
     check(!isnan(odom::update(&s, 2000u, 0.0f)), "a repeated timestamp is safe");
@@ -231,8 +232,10 @@ Int32 main(Void)
     static_cast<Void>(odom::update(&r, 0u, 0.0f));
     odom::tick(&r);
     const Float32 v = odom::update(&r, 1000000u, 0.0f);
-    check(near(v, odom::metersPerTick(), 0.0001f),
-          "one tick in one second is one tick-length per second");
+    check(
+        near(v, odom::metersPerTick(), 0.0001f),
+        "one tick in one second is one tick-length per second"
+    );
 
     /*
      * Filtered, the same input must approach but not exceed it - a lag that
@@ -243,8 +246,10 @@ Int32 main(Void)
     static_cast<Void>(odom::update(&fw, 0u, 0.5f));
     odom::tick(&fw);
     const Float32 lagged = odom::update(&fw, 1000000u, 0.5f);
-    check(lagged > 0.0f && lagged <= odom::metersPerTick() + 0.0001f,
-          "the filter approaches the raw value without overshooting it");
+    check(
+        lagged > 0.0f && lagged <= odom::metersPerTick() + 0.0001f,
+        "the filter approaches the raw value without overshooting it"
+    );
 
     check(odom::distance(nullptr) == 0.0f, "a null wheel is 0, not a crash");
 

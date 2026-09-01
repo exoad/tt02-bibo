@@ -50,12 +50,12 @@ namespace
 
   // Exit codes, so a caller can tell "wrong port" from "wrong baud" without
   // parsing the ERR line.
-  constexpr Int32 EXIT_USAGE      = 2;
-  constexpr Int32 EXIT_NO_MEMORY  = 3;
-  constexpr Int32 EXIT_NO_PORT    = 4;
-  constexpr Int32 EXIT_NO_ANSWER  = 5;
-  constexpr Int32 EXIT_UNHEALTHY  = 6;
-  constexpr Int32 EXIT_NO_SCAN    = 7;
+  constexpr Int32 EXIT_USAGE = 2;
+  constexpr Int32 EXIT_NO_MEMORY = 3;
+  constexpr Int32 EXIT_NO_PORT = 4;
+  constexpr Int32 EXIT_NO_ANSWER = 5;
+  constexpr Int32 EXIT_UNHEALTHY = 6;
+  constexpr Int32 EXIT_NO_SCAN = 7;
 
   // One revolution of a C1 is ~500 points; 8192 is headroom for a faster device
   // without making this a heap allocation.
@@ -135,11 +135,13 @@ Int32 main(Int32 argc, const Char* argv[])
         return EXIT_NO_ANSWER;
     }
 
-    std::printf("INFO %d %d.%02d %d ",
-                static_cast<Int32>(info.model),
-                info.firmware_version >> 8,
-                info.firmware_version & 0xFF,
-                static_cast<Int32>(info.hardware_version));
+    std::printf(
+        "INFO %d %d.%02d %d ",
+        static_cast<Int32>(info.model),
+        info.firmware_version >> 8,
+        info.firmware_version & 0xFF,
+        static_cast<Int32>(info.hardware_version)
+    );
 
     for(Int32 i = 0; i < 16; ++i)
     {
@@ -195,9 +197,7 @@ Int32 main(Int32 argc, const Char* argv[])
         Float32 freq = 0.0f;
         drv->getFrequency(mode, nodes, count, freq);
 
-        std::printf("F %u %u",
-                    static_cast<UInt32>(count),
-                    static_cast<UInt32>(freq * 1000.0f));
+        std::printf("F %u %u", static_cast<UInt32>(count), static_cast<UInt32>(freq * 1000.0f));
 
         for(Size i = 0; i < count; ++i)
         {
@@ -208,11 +208,12 @@ Int32 main(Int32 argc, const Char* argv[])
                 centi = 35999;
             }
 
-            std::printf(" %u,%u,%u",
-                        centi,
-                        static_cast<UInt32>(nodes[i].dist_mm_q2 >> 2),
-                        static_cast<UInt32>(nodes[i].quality
-                            >> SL_LIDAR_RESP_MEASUREMENT_QUALITY_SHIFT));
+            std::printf(
+                " %u,%u,%u",
+                centi,
+                static_cast<UInt32>(nodes[i].dist_mm_q2 >> 2),
+                static_cast<UInt32>(nodes[i].quality >> SL_LIDAR_RESP_MEASUREMENT_QUALITY_SHIFT)
+            );
         }
 
         std::printf("\n");

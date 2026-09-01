@@ -31,22 +31,22 @@ namespace scene3d
     constexpr Float32 MAX_VALID_MM = 12000.0f;
 
     // The car and the sensor, from vehicle.hxx - one definition for the whole app.
-    constexpr Float32 EGO_LEN_MM       = vehicle::CAR_LEN_MM;
-    constexpr Float32 EGO_WID_MM       = vehicle::CAR_WID_MM;
-    constexpr Float32 EGO_HEIGHT_MM    = vehicle::CAR_HEIGHT_MM;
+    constexpr Float32 EGO_LEN_MM = vehicle::CAR_LEN_MM;
+    constexpr Float32 EGO_WID_MM = vehicle::CAR_WID_MM;
+    constexpr Float32 EGO_HEIGHT_MM = vehicle::CAR_HEIGHT_MM;
     constexpr Float32 EGO_WHEELBASE_MM = vehicle::CAR_WHEELBASE_MM;
-    constexpr Float32 EGO_TREAD_MM     = vehicle::CAR_TREAD_MM;
-    constexpr Float32 EGO_WHEEL_D_MM   = vehicle::CAR_TIRE_DIA_MM;
-    constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TIRE_WID_MM;
+    constexpr Float32 EGO_TREAD_MM = vehicle::CAR_TREAD_MM;
+    constexpr Float32 EGO_WHEEL_D_MM = vehicle::CAR_TIRE_DIA_MM;
+    constexpr Float32 EGO_WHEEL_W_MM = vehicle::CAR_TIRE_WID_MM;
     constexpr Float32 EGO_SENSOR_AHEAD_MM = vehicle::C1_MOUNT_AHEAD_MM;
 
     // How tall a return stands: up to the SCAN PLANE, and no further. The C1 is a
     // planar scanner - one horizontal slice, no height - so every column is the
     // same height, and varying it would invent a third dimension. Using the plane
     // the beam sweeps makes the top of every column a real measured surface.
-    constexpr Float32 COLUMN_MM   = vehicle::C1_SCAN_Z_MM;
+    constexpr Float32 COLUMN_MM = vehicle::C1_SCAN_Z_MM;
     constexpr Float32 COLUMN_W_MM = 46.0f;
-    constexpr Float32 WALL_H_MM   = 260.0f;
+    constexpr Float32 WALL_H_MM = 260.0f;
 
     // ---- vector helpers -------------------------------------------------------
     Vec3 sub(const Vec3& a, const Vec3& b) { return Vec3{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z }; }
@@ -77,9 +77,9 @@ namespace scene3d
     {
         Vec3    eye, right, up, fwd;
         ImVec2  p0, p1;              // the widget rect, screen space
-        Float32 focal  = 1.0f;       // pixels per unit at unit depth
+        Float32 focal = 1.0f;       // pixels per unit at unit depth
         Float32 nearMm = 40.0f;
-        Float32 farMm  = 60000.0f;
+        Float32 farMm = 60000.0f;
         Array<Float32, 16> mvp= {};
 
         [[nodiscard]] Float32 depthOf(const Vec3& p) const
@@ -105,24 +105,26 @@ namespace scene3d
             {
                 return false;
             }
-            out = ImVec2(p0.x + (x / w * 0.5f + 0.5f) * (p1.x - p0.x),
-                         p0.y + (0.5f - y / w * 0.5f) * (p1.y - p0.y));
+            out = ImVec2(
+                p0.x + (x / w * 0.5f + 0.5f) * (p1.x - p0.x),
+                p0.y + (0.5f - y / w * 0.5f) * (p1.y - p0.y)
+            );
             return true;
         }
     };
 
-    View makeView(const Camera& c, const ImVec2& p0, const ImVec2& p1,
-                  Float32 worldYawDeg)
+    View makeView(const Camera& c, const ImVec2& p0, const ImVec2& p1, Float32 worldYawDeg)
     {
         View v;
         const Float32 cp = std::cos(c.pitch), sp = std::sin(c.pitch);
-        v.eye = add(c.target, Vec3{ c.dist * cp * std::sin(c.yaw),
-                                   -c.dist * cp * std::cos(c.yaw),
-                                    c.dist * sp });
+        v.eye = add(
+            c.target,
+            Vec3{ c.dist * cp * std::sin(c.yaw), -c.dist * cp * std::cos(c.yaw), c.dist * sp }
+        );
 
-        v.fwd   = norm(sub(c.target, v.eye));
+        v.fwd = norm(sub(c.target, v.eye));
         v.right = norm(cross(v.fwd, Vec3{ 0.0f, 0.0f, 1.0f }));
-        v.up    = cross(v.right, v.fwd);
+        v.up = cross(v.right, v.fwd);
 
         v.p0 = p0;
         v.p1 = p1;
@@ -136,7 +138,7 @@ namespace scene3d
         const Float32 ys = 1.0f / std::tan(c.fovY * 0.5f);
         const Float32 xs = ys * (h / w);
         const Float32 zn = v.nearMm, zf = v.farMm;
-        const Float32 q  = zf / (zf - zn);
+        const Float32 q = zf / (zf - zn);
 
         const Array<Float32, 16> view = {
             v.right.x, v.up.x, v.fwd.x, 0.0f,
@@ -284,8 +286,8 @@ namespace scene3d
     // How a face is painted: fill, outline, outline width.
     struct FaceStyle
     {
-        ImU32   fill  = 0u;
-        ImU32   edge  = 0u;
+        ImU32   fill = 0u;
+        ImU32   edge = 0u;
         Float32 edgeW = 0.0f;
     };
 
@@ -293,7 +295,7 @@ namespace scene3d
     struct FaceTex
     {
         ImTextureID   tex = 0;
-        const ImVec2* uv  = nullptr;
+        const ImVec2* uv = nullptr;
     };
 
     // A convex face, optionally outlined. The outline is nudged toward the eye by a
@@ -305,12 +307,12 @@ namespace scene3d
     {
         static_assert(N >= 3 && N <= 4, "a face is a triangle or a quad");
 
-        const Int32         n     = static_cast<Int32>(N);
-        const ImU32         fill  = st.fill;
-        const ImU32         edge  = st.edge;
+        const Int32         n = static_cast<Int32>(N);
+        const ImU32         fill = st.fill;
+        const ImU32         edge = st.edge;
         const Float32       edgeW = st.edgeW;
-        const ImTextureID   tex   = tx.tex;
-        const ImVec2* const uv    = tx.uv;
+        const ImTextureID   tex = tx.tex;
+        const ImVec2* const uv = tx.uv;
 
         if((fill >> IM_COL32_A_SHIFT) != 0u)
         {
@@ -378,7 +380,7 @@ namespace scene3d
     Void drawGroundSquares(ImDrawList* dl, const View& v, Float32 dpi)
     {
         constexpr Float32 STEP = 1000.0f;      // one meter
-        constexpr Int32   N    = 12;
+        constexpr Int32   N = 12;
         const Float32 far2 = STEP * N;
 
         for(Int32 i = -N; i <= N; ++i)
@@ -387,8 +389,11 @@ namespace scene3d
             const Bool major = (i % 5) == 0;
             const ImU32 col = (i == 0)
                 ? ((ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0xB0u << IM_COL32_A_SHIFT))
-                : (major ? ((ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0x80u << IM_COL32_A_SHIFT))
-                         : ((ui::ansi::GRID       & 0x00FFFFFFu) | (0xB0u << IM_COL32_A_SHIFT)));
+                : (
+                    major ? ((ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0x80u << IM_COL32_A_SHIFT)) : (
+                        (ui::ansi::GRID & 0x00FFFFFFu) | (0xB0u << IM_COL32_A_SHIFT)
+                    )
+                );
             const Float32 w = ((i == 0) ? 1.6f : (major ? 1.3f : 1.0f)) * dpi;
 
             line3(dl, v, Vec3{ t, -far2, 0.0f }, Vec3{ t, far2, 0.0f }, col, w);
@@ -396,8 +401,14 @@ namespace scene3d
         }
 
         // The heading, in its own color, so which way is forward survives an orbit.
-      line3(dl, v, Vec3{ 0.0f, 0.0f, 0.0f }, Vec3{ 0.0f, far2, 0.0f },
-              (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT), 1.6f * dpi);
+      line3(
+          dl,
+          v,
+          Vec3{ 0.0f, 0.0f, 0.0f },
+          Vec3{ 0.0f, far2, 0.0f },
+          (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT),
+          1.6f * dpi
+      );
     }
 
     // SCENE_MODE_FULL - the ride view. Modelled on the display an autonomous car
@@ -418,8 +429,8 @@ namespace scene3d
     {
         // World-space and emitted straight through; `v` is only in the signature.
         static_cast<Void>(v);
-        constexpr Int32   SEG   = 64;
-        constexpr Float32 R_IN  = 1400.0f;
+        constexpr Int32   SEG = 64;
+        constexpr Float32 R_IN = 1400.0f;
         constexpr Float32 R_MID = 5000.0f;
         constexpr Float32 R_OUT = 11000.0f;
 
@@ -487,7 +498,7 @@ namespace scene3d
         // In the car's way, or merely present - two states, all this can tell.
         const ImU32 side = d.inPath ? IM_COL32(0xE8, 0x7A, 0x5A, 0x5A)
                                     : IM_COL32(0xC8, 0xD4, 0xE2, 0x3E);
-        const ImU32 top  = d.inPath ? IM_COL32(0xFF, 0x9A, 0x74, 0xD8)
+        const ImU32 top = d.inPath ? IM_COL32(0xFF, 0x9A, 0x74, 0xD8)
                                     : IM_COL32(0xE8, 0xF0, 0xFA, 0xC0);
 
         for(Int32 i = 0; i < 8; ++i)
@@ -566,11 +577,16 @@ namespace scene3d
         {
             const Float32 a = static_cast<Float32>(b) * (PI_F / 180.0f);
             const Bool fwd = (b == 90);      // +y is forward
-            line3(dl, v, Vec3{ 0.0f, 0.0f, 0.0f },
-                  Vec3{ 12000.0f * std::cos(a), 12000.0f * std::sin(a), 0.0f },
-                  fwd ? ((ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT))
-                      : ((ui::ansi::AXIS   & 0x00FFFFFFu) | (0xFFu << IM_COL32_A_SHIFT)),
-                  (fwd ? 1.6f : 1.0f) * dpi);
+            line3(
+                dl,
+                v,
+                Vec3{ 0.0f, 0.0f, 0.0f },
+                Vec3{ 12000.0f * std::cos(a), 12000.0f * std::sin(a), 0.0f },
+                fwd ? ((ui::ansi::BRCYAN & 0x00FFFFFFu) | (0x99u << IM_COL32_A_SHIFT)) : (
+                    (ui::ansi::AXIS & 0x00FFFFFFu) | (0xFFu << IM_COL32_A_SHIFT)
+                ),
+                (fwd ? 1.6f : 1.0f) * dpi
+            );
         }
     }
 
@@ -720,8 +736,7 @@ namespace scene3d
                 }
                 if(got == 3)
                 {
-                    faces.push_back(Face{ idx[0], idx[1], idx[2],
-                                          tex[0], tex[1], tex[2], part });
+                    faces.push_back(Face{ idx[0], idx[1], idx[2], tex[0], tex[1], tex[2], part });
                 }
             }
         }
@@ -887,10 +902,10 @@ namespace scene3d
             //        inward-winding triangle would render black.
             //   sky  hemispheric; stops a flat-shaded model looking like paper.
             //   rim  fresnel, separating the silhouette from a dark background.
-            const Vec3 toEye = norm(sub(v.eye, Vec3{
-                (t.a.x + t.b.x + t.c.x) / 3.0f,
-                (t.a.y + t.b.y + t.c.y) / 3.0f,
-                (t.a.z + t.b.z + t.c.z) / 3.0f }));
+            const Vec3 toEye = norm(sub(
+                v.eye,
+                Vec3{ (t.a.x + t.b.x + t.c.x) / 3.0f, (t.a.y + t.b.y + t.c.y) / 3.0f, (t.a.z + t.b.z + t.c.z) / 3.0f }
+            ));
 
             const Float32 key = std::fabs(dot(t.n, LIGHT));
             const Float32 sky = 0.5f + 0.5f * t.n.z;
@@ -909,11 +924,15 @@ namespace scene3d
                 const Float32 x = static_cast<Float32>((base >> shift) & 0xFFu) * lit;
                 return static_cast<Int32>(x > 255.0f ? 255.0f : x);
             };
-            const ImU32 col = IM_COL32(ch(IM_COL32_R_SHIFT), ch(IM_COL32_G_SHIFT),
-                                       ch(IM_COL32_B_SHIFT), 0xFF);
+            const ImU32 col = IM_COL32(
+                ch(IM_COL32_R_SHIFT),
+                ch(IM_COL32_G_SHIFT),
+                ch(IM_COL32_B_SHIFT),
+                0xFF
+            );
 
             const Array<Vec3, 3> tri = { t.a, t.b, t.c };
-            const ImVec2 uv[3]  = { t.ta, t.tb, t.tc };
+            const ImVec2 uv[3] = { t.ta, t.tb, t.tc };
 
             // Textured when the atlas is there, shaded-flat when not: the shading
             // multiplies the SAMPLED color either way, so the form survives both.
@@ -957,7 +976,7 @@ namespace scene3d
     // shoulder (bottom, shoulder, roof, mirrored). Four is a trapezoid.
     Void sectionLoop(const Station& s, Float32 hw, Float32 hl, Float32 hz, Vec3* out)
     {
-        const Float32 y  = s.y * hl;
+        const Float32 y = s.y * hl;
         const Float32 zl = s.zl * hz;
         const Float32 zu = s.zu * hz;
         const Float32 zm = zl + (zu - zl) * 0.55f;      // the shoulder
@@ -982,7 +1001,7 @@ namespace scene3d
             const Float32 a = static_cast<Float32>(i) * (2.0f * PI_F / SEG);
             const Float32 y = cy + r * std::cos(a);
             const Float32 z = r  + r * std::sin(a);      // sits ON the ground
-            in[i]  = Vec3{ cx - halfW, y, z };
+            in[i] = Vec3{ cx - halfW, y, z };
             out[i] = Vec3{ cx + halfW, y, z };
         }
 
@@ -1025,7 +1044,7 @@ namespace scene3d
         Float32 halfW = 0.0f;
         Float32 halfH = 0.0f;
         Bool    facingFront = true;
-        ImU32   hue   = 0u;
+        ImU32   hue = 0u;
         Float32 level = 0.0f;
     };
 
@@ -1034,7 +1053,7 @@ namespace scene3d
         const Float32 x = L.at.x, y = L.at.y, z = L.at.z;
         const Float32 halfW = L.halfW, halfH = L.halfH;
         const Bool    facingFront = L.facingFront;
-        const ImU32   hue   = L.hue;
+        const ImU32   hue = L.hue;
         const Float32 level = L.level;
         // A hair proud of the bodywork, or the lens z-fights the panel.
         const Float32 out = facingFront ? 1.5f : -1.5f;
@@ -1089,48 +1108,68 @@ namespace scene3d
 
         const ImU32 WHITE = IM_COL32(0xFF, 0xF4, 0xD8, 0xFF);
         const ImU32 AMBER = IM_COL32(0xFF, 0xA8, 0x18, 0xFF);
-        const ImU32 RED   = IM_COL32(0xFF, 0x2A, 0x1E, 0xFF);
+        const ImU32 RED = IM_COL32(0xFF, 0x2A, 0x1E, 0xFF);
 
         // ---- front ----
         const Float32 fz = hz * 0.30f;
-        drawLamp(v, { .at = Vec3{ -hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f,
-                     .facingFront = true, .hue = WHITE, .level = L.headL });
-        drawLamp(v, { .at = Vec3{  hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f,
-                     .facingFront = true, .hue = WHITE, .level = L.headR });
-        drawLamp(v, { .at = Vec3{ -hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f,
-                     .facingFront = true, .hue = AMBER, .level = L.indFL });
-        drawLamp(v, { .at = Vec3{  hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f,
-                     .facingFront = true, .hue = AMBER, .level = L.indFR });
+        drawLamp(
+            v,
+            { .at = Vec3{ -hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f, .facingFront = true, .hue = WHITE, .level = L.headL }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ hw * 0.52f, hl, fz }, .halfW = 20.0f, .halfH = 9.0f, .facingFront = true, .hue = WHITE, .level = L.headR }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ -hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f, .facingFront = true, .hue = AMBER, .level = L.indFL }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ hw * 0.82f, hl, fz }, .halfW = 9.0f, .halfH = 7.0f, .facingFront = true, .hue = AMBER, .level = L.indFR }
+        );
 
         // ---- rear ----
         const Float32 rz = hz * 0.42f;
-        drawLamp(v, { .at = Vec3{ -hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f,
-                     .facingFront = false, .hue = RED, .level = L.tailL });
-        drawLamp(v, { .at = Vec3{  hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f,
-                     .facingFront = false, .hue = RED, .level = L.tailR });
-        drawLamp(v, { .at = Vec3{ -hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f,
-                     .facingFront = false, .hue = AMBER, .level = L.indRL });
-        drawLamp(v, { .at = Vec3{  hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f,
-                     .facingFront = false, .hue = AMBER, .level = L.indRR });
+        drawLamp(
+            v,
+            { .at = Vec3{ -hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f, .facingFront = false, .hue = RED, .level = L.tailL }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ hw * 0.50f, -hl, rz }, .halfW = 18.0f, .halfH = 10.0f, .facingFront = false, .hue = RED, .level = L.tailR }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ -hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f, .facingFront = false, .hue = AMBER, .level = L.indRL }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ hw * 0.80f, -hl, rz }, .halfW = 10.0f, .halfH = 9.0f, .facingFront = false, .hue = AMBER, .level = L.indRR }
+        );
 
         // Nested inside the indicator housing - small, inboard, low.
-        drawLamp(v, { .at = Vec3{ -hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f,
-                     .facingFront = false, .hue = WHITE, .level = L.revL });
-        drawLamp(v, { .at = Vec3{  hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f,
-                     .facingFront = false, .hue = WHITE, .level = L.revR });
+        drawLamp(
+            v,
+            { .at = Vec3{ -hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f, .facingFront = false, .hue = WHITE, .level = L.revL }
+        );
+        drawLamp(
+            v,
+            { .at = Vec3{ hw * 0.80f, -hl, rz - 5.0f }, .halfW = 4.5f, .halfH = 3.5f, .facingFront = false, .hue = WHITE, .level = L.revR }
+        );
     }
 
     Void drawSensor(const View& v, Float32 dpi, Float32 atX, Float32 atY, Float32 atZ)
     {
-        constexpr Float32 BASE_MM  = vehicle::C1_BASE_MM;
-        constexpr Float32 TALL_MM  = vehicle::C1_TALL_MM;
+        constexpr Float32 BASE_MM = vehicle::C1_BASE_MM;
+        constexpr Float32 TALL_MM = vehicle::C1_TALL_MM;
         constexpr Float32 PLINTH_H = 16.0f;    // the fixed lower half
-        constexpr Float32 LAMP_HEAD_R   = 24.0f;    // the spinning head
+        constexpr Float32 LAMP_HEAD_R = 24.0f;    // the spinning head
 
         const Float32 hb = BASE_MM * 0.5f;
 
         const ImU32 body = IM_COL32(0x2A, 0x2E, 0x34, 0xFF);
-        const ImU32 top  = IM_COL32(0x3A, 0x40, 0x48, 0xFF);
+        const ImU32 top = IM_COL32(0x3A, 0x40, 0x48, 0xFF);
         const ImU32 head = IM_COL32(0x1E, 0x22, 0x28, 0xFF);
         const ImU32 edge = IM_COL32(0x9A, 0xA6, 0xB4, 0xB0);
 
@@ -1202,8 +1241,8 @@ namespace scene3d
         const ImU32 shell = IM_COL32(0x2A, 0x33, 0x3E, 0xFF);
         const ImU32 upper = IM_COL32(0x36, 0x41, 0x4E, 0xFF);
         const ImU32 glass = IM_COL32(0x18, 0x2A, 0x38, 0xFF);
-        const ImU32 edge  = IM_COL32(0xC8, 0xD2, 0xDC, 0xC0);
-        const Float32 ew  = 1.1f * dpi;
+        const ImU32 edge = IM_COL32(0xC8, 0xD2, 0xDC, 0xC0);
+        const Float32 ew = 1.1f * dpi;
 
         // Wheels first: inboard of the shoulders, and the depth test interleaves.
         const Float32 wr = EGO_WHEEL_D_MM * 0.5f;
@@ -1214,9 +1253,16 @@ namespace scene3d
         {
             for(Int32 sy = -1; sy <= 1; sy += 2)
             {
-                wheel(v, static_cast<Float32>(sx) * tx, static_cast<Float32>(sy) * ax,
-                      wr, ww, IM_COL32(0x1E, 0x1E, 0x1E, 0xFF),
-                      IM_COL32(0x8A, 0x90, 0x96, 0xFF), dpi);
+                wheel(
+                    v,
+                    static_cast<Float32>(sx) * tx,
+                    static_cast<Float32>(sy) * ax,
+                    wr,
+                    ww,
+                    IM_COL32(0x1E, 0x1E, 0x1E, 0xFF),
+                    IM_COL32(0x8A, 0x90, 0x96, 0xFF),
+                    dpi
+                );
             }
         }
 
@@ -1290,8 +1336,8 @@ namespace scene3d
 
         // The rear wing: settles front/back from above, where lights are edge-on.
         {
-            const Float32 y  = -hl * 0.92f;
-            const Float32 z  = hz * 0.78f;
+            const Float32 y = -hl * 0.92f;
+            const Float32 z = hz * 0.78f;
             const Float32 sw = hw * 0.86f;
             const Array<Vec3, 4> q = { Vec3{ -sw, y - 26.0f, z }, Vec3{ sw, y - 26.0f, z },
                                 Vec3{  sw, y + 26.0f, z }, Vec3{ -sw, y + 26.0f, z } };
@@ -1342,10 +1388,17 @@ namespace scene3d
 
             if(solid)
             {
-                column(v, x, y, COLUMN_W_MM * 0.5f, COLUMN_MM,
-                       IM_COL32(0xC8, 0xC8, 0xC8, 0x9A),
-                       IM_COL32(0xFF, 0xFF, 0xFF, 0xD0),
-                       IM_COL32(0xFF, 0xFF, 0xFF, 0x50), 1.0f * a.dpi);
+                column(
+                    v,
+                    x,
+                    y,
+                    COLUMN_W_MM * 0.5f,
+                    COLUMN_MM,
+                    IM_COL32(0xC8, 0xC8, 0xC8, 0x9A),
+                    IM_COL32(0xFF, 0xFF, 0xFF, 0xD0),
+                    IM_COL32(0xFF, 0xFF, 0xFF, 0x50),
+                    1.0f * a.dpi
+                );
             }
             else
             {
@@ -1446,14 +1499,22 @@ namespace scene3d
 
         if(a.worldHeadingOk < 0.33f)
         {
-            std::snprintf(buf, cap, "world lock, heading unsure (%.0f%%)",
-                          static_cast<Float64>(a.worldHeadingOk * 100.0f));
+            std::snprintf(
+                buf,
+                cap,
+                "world lock, heading unsure (%.0f%%)",
+                static_cast<Float64>(a.worldHeadingOk * 100.0f)
+            );
         }
         else
         {
-            std::snprintf(buf, cap, "world lock, %.0f deg (%.0f%%)",
-                          static_cast<Float64>(yaw),
-                          static_cast<Float64>(a.worldHeadingOk * 100.0f));
+            std::snprintf(
+                buf,
+                cap,
+                "world lock, %.0f deg (%.0f%%)",
+                static_cast<Float64>(yaw),
+                static_cast<Float64>(a.worldHeadingOk * 100.0f)
+            );
         }
         return buf;
     }
@@ -1617,30 +1678,43 @@ namespace scene3d
       {
       case SceneMode::SCENE_MODE_BLOCKS:
           n = drawReturns(v, a, true, &hidden);
-          say(a, "%d returns as columns%s  |  %s, orbit %.0f deg, %.1f m out",
-              n, "",
+          say(
+              a,
+              "%d returns as columns%s | %s, orbit %.0f deg, %.1f m out",
+              n,
+              "",
               lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
               static_cast<Float64>(cam.yaw * 180.0f / PI_F),
-              static_cast<Float64>(cam.dist / 1000.0f));
+              static_cast<Float64>(cam.dist / 1000.0f)
+          );
           break;
 
       case SceneMode::SCENE_MODE_WALLS:
           n = drawWalls(v, a);
           drawReturns(v, a, false, &hidden);
-          say(a, "%d wall%s as panels%s  |  %s, orbit %.0f deg, %.1f m out",
-              n, n == 1 ? "" : "s", "",
+          say(
+              a,
+              "%d wall%s as panels%s | %s, orbit %.0f deg, %.1f m out",
+              n,
+              n == 1 ? "" : "s",
+              "",
               lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
               static_cast<Float64>(cam.yaw * 180.0f / PI_F),
-              static_cast<Float64>(cam.dist / 1000.0f));
+              static_cast<Float64>(cam.dist / 1000.0f)
+          );
           break;
 
       case SceneMode::SCENE_MODE_FIT:
           drawFitFloor(v, a);
           n = drawReturns(v, a, false, &hidden);
-          say(a, "drivable floor from %d returns  |  %s, orbit %.0f deg, %.1f m out",
-              n, lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
+          say(
+              a,
+              "drivable floor from %d returns | %s, orbit %.0f deg, %.1f m out",
+              n,
+              lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
               static_cast<Float64>(cam.yaw * 180.0f / PI_F),
-              static_cast<Float64>(cam.dist / 1000.0f));
+              static_cast<Float64>(cam.dist / 1000.0f)
+          );
           break;
 
       case SceneMode::SCENE_MODE_FULL:
@@ -1651,19 +1725,28 @@ namespace scene3d
               drawDetection(v, a.objects[i], a.dpi);
           }
           n = a.objectN;
-          say(a, "%d object%s  |  %.2f m ahead", n, n == 1 ? "" : "s",
-              static_cast<Float64>(a.aheadMm / 1000.0f));
+          say(
+              a,
+              "%d object%s | %.2f m ahead",
+              n,
+              n == 1 ? "" : "s",
+              static_cast<Float64>(a.aheadMm / 1000.0f)
+          );
           break;
 
       case SceneMode::SCENE_MODE_CLOUD:
       case SceneMode::SCENE_MODE_COUNT:
       default:
           n = drawReturns(v, a, false, &hidden);
-          say(a, "%d returns%s  |  %s, orbit %.0f deg, %.1f m out",
-              n, "",
+          say(
+              a,
+              "%d returns%s | %s, orbit %.0f deg, %.1f m out",
+              n,
+              "",
               lockNote(a, a.worldYawDeg, lockBuf.data(), lockBuf.size()),
               static_cast<Float64>(cam.yaw * 180.0f / PI_F),
-              static_cast<Float64>(cam.dist / 1000.0f));
+              static_cast<Float64>(cam.dist / 1000.0f)
+          );
           break;
       }
 
@@ -1689,10 +1772,13 @@ namespace scene3d
           // And the sensor ON it, at its mount: every measurement here is in the
           // sensor's frame, so where it sits on the car is what the picture is
           // built on.
-          drawSensor(v, a.dpi,
-                     vehicle::C1_MOUNT_LATERAL_MM,
-                     vehicle::C1_MOUNT_AHEAD_MM,
-                     vehicle::C1_MOUNT_BASE_MM);
+          drawSensor(
+              v,
+              a.dpi,
+              vehicle::C1_MOUNT_LATERAL_MM,
+              vehicle::C1_MOUNT_AHEAD_MM,
+              vehicle::C1_MOUNT_BASE_MM
+          );
 
           drawLamps(v, a.lamps);
       }

@@ -462,7 +462,7 @@ namespace bibo::tft
             const UInt8 lo = static_cast<UInt8>(color & 0xFF);
             for(Int32 i = 0; i < w; ++i)
             {
-                line[i * 2]     = hi;
+                line[i * 2] = hi;
                 line[i * 2 + 1] = lo;
             }
 
@@ -645,7 +645,7 @@ namespace bibo::tft
 
                     /* The sixth column is the inter-character gap, DRAWN rather than skipped so overwriting text leaves no comb of old pixels. */
                     const UInt8 bits = gc < 5 ? glyph[gc] : 0x00;
-                    const Bool  on   = gr < 7
+                    const Bool  on = gr < 7
                                        && ((static_cast<UInt32>(bits)
                                             >> static_cast<UInt32>(gr))
                                            & 1u) != 0u;
@@ -677,7 +677,15 @@ namespace bibo::tft
             Int32 cx = x;
             while(str != nullptr && *str != '\0')
             {
-                drawChar(s, cx, y, *str, fg, bg, scale);
+                drawChar(
+                    s,
+                    cx,
+                    y,
+                    *str,
+                    fg,
+                    bg,
+                    scale
+                );
                 cx += 6 * scale;
                 ++str;
             }
@@ -718,16 +726,16 @@ namespace bibo::tft
             return false;
         }
 
-        s->width  = w <= 0 ? PANEL_MAX_W : w > PANEL_MAX_W ? PANEL_MAX_W : w;
+        s->width = w <= 0 ? PANEL_MAX_W : w > PANEL_MAX_W ? PANEL_MAX_W : w;
         s->height = h <= 0 ? PANEL_MAX_H : h > PANEL_MAX_H ? PANEL_MAX_H : h;
-        s->xoff   = xoff < 0 ? 0 : xoff;
-        s->yoff   = yoff < 0 ? 0 : yoff;
+        s->xoff = xoff < 0 ? 0 : xoff;
+        s->yoff = yoff < 0 ? 0 : yoff;
 
-        s->sck  = sck;
+        s->sck = sck;
         s->mosi = mosi;
-        s->cs   = cs;
-        s->dc   = dc;
-        s->res  = res;
+        s->cs = cs;
+        s->dc = dc;
+        s->res = res;
 
         s->safeInset = 0;
 
@@ -857,9 +865,18 @@ namespace bibo::tft
     {
         const pins::Map& m = pins::active();
 
-        if(!openOn(s, w, h, xoff, yoff,
-                   m.tftSck, m.tftMosi, m.tftCs,
-                   m.tftDc, m.tftRes))
+        if(!openOn(
+            s,
+            w,
+            h,
+            xoff,
+            yoff,
+            m.tftSck,
+            m.tftMosi,
+            m.tftCs,
+            m.tftDc,
+            m.tftRes
+        ))
         {
             return false;
         }

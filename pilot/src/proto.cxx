@@ -90,7 +90,7 @@ namespace proto
           if(tb < te)
           {
               out.topic = out.line.substr(tb, te - tb);
-              out.rest  = tailFrom(out.line, te);
+              out.rest = tailFrom(out.line, te);
           }
           return out;
       }
@@ -143,7 +143,7 @@ namespace proto
       }
 
       Char*       stop = nullptr;
-      const Int64 v    = std::strtol(raw.c_str(), &stop, 10);
+      const Int64 v = std::strtol(raw.c_str(), &stop, 10);
 
       // The WHOLE value has to be a number. strtol stopping early means the
       // field holds something else - `esc=off` is not 0, it is a different kind
@@ -165,7 +165,7 @@ namespace proto
       }
 
       Char*         stop = nullptr;
-      const Float64 v    = std::strtod(raw.c_str(), &stop);
+      const Float64 v = std::strtod(raw.c_str(), &stop);
       if(stop == nullptr || *stop != '\0')
       {
           return false;
@@ -198,12 +198,11 @@ namespace proto
 
         // +0.0005 so the truncation below rounds instead of always going down.
         const Int32 scaled = static_cast<Int32>(v * 1000.0f + 0.5f);
-        const Int32 whole  = scaled / 1000;
-        const Int32 frac   = scaled % 1000;
+        const Int32 whole = scaled / 1000;
+        const Int32 frac = scaled % 1000;
 
         Array<Char, 32> buf;
-        std::snprintf(buf.data(), buf.size(), "%s%d.%03d",
-                      neg ? "-" : "", whole, frac);
+        std::snprintf(buf.data(), buf.size(), "%s%d.%03d", neg ? "-" : "", whole, frac);
         return Str(buf.data());
     }
 

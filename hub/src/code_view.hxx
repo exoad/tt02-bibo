@@ -23,18 +23,18 @@ namespace ui
   // Editor.
   struct CodeView
   {
-      Float32 scrollY      = 0.0f;
-      Bool    focused      = false;
+      Float32 scrollY = 0.0f;
+      Bool    focused = false;
 
       // Set while the caret has moved and the view has not caught up yet. Drawing
       // clears it. Kept as state rather than computed because a caret move and the
       // frame that must react to it are not the same frame.
-      Bool    followCaret  = true;
+      Bool    followCaret = true;
 
       // Blink phase for the caret, in seconds. Reset on every keystroke so the
       // caret is always solid while you are typing - a caret that blinks out
       // mid-keystroke reads as dropped input.
-      Float64 lastKeyS     = 0.0;
+      Float64 lastKeyS = 0.0;
 
       // ---- completion popup ------------------------------------------------
       // Open only in insert mode, and only while the caret sits at the end of an
@@ -42,9 +42,9 @@ namespace ui
       // the user pressed escape on THIS word, so it does not pop straight back up
       // on the next keystroke - which is the difference between a suggestion and
       // an interruption.
-      Bool  popupOpen   = false;
-      Bool  dismissed   = false;
-      Int32 popupSel    = 0;
+      Bool  popupOpen = false;
+      Bool  dismissed = false;
+      Int32 popupSel = 0;
       Str   popupPrefix;
 
       // Open because the caret sits just after `::`, `.` or `->` rather than
@@ -55,7 +55,7 @@ namespace ui
       // First visible row. The list can hold hundreds now that clangd feeds it,
       // and ten is as many as fit under a caret without hiding the code the
       // suggestion is about.
-      Int32 popupTop    = 0;
+      Int32 popupTop = 0;
 
       // ---- clangd ----------------------------------------------------------
       // The last reply, the place it was about, and the place we last asked.
@@ -73,7 +73,7 @@ namespace ui
       // sometimes.
       lsp::Answer lspAnswer;
       Int32       lspAskLine = -1;
-      Int32       lspAskCol  = -1;
+      Int32       lspAskCol = -1;
 
       // ---- hover -----------------------------------------------------------
       // What clangd said about the symbol under the pointer, and which symbol
@@ -90,9 +90,9 @@ namespace ui
       // this" from "on the way somewhere else".
       lsp::Info infoAnswer;
       Str       infoWord;        // the identifier last asked about
-      Int32     infoLine  = -1;  // where it started, 0-based
-      Int32     infoCol   = -1;
-      Int32     infoIn    = 0;   // frames until the question goes out, 0 = sent
+      Int32     infoLine = -1;  // where it started, 0-based
+      Int32     infoCol = -1;
+      Int32     infoIn = 0;   // frames until the question goes out, 0 = sent
 
       // ---- macros ----------------------------------------------------------
       // Every object-like #define reachable from the open file, set by the

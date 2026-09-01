@@ -53,16 +53,16 @@ namespace bibo::sound
     inline dfplayer::Bus bus;
 
     /* Remembered, not asked for: no query on the module is worth a round trip. */
-    inline UInt8  level   = 8;
-    inline UInt8  tone    = DFP_EQ_NORMAL;
-    inline UInt16 last    = 1;
+    inline UInt8  level = 8;
+    inline UInt8  tone = DFP_EQ_NORMAL;
+    inline UInt16 last = 1;
 
     /*
      * How many files the card holds, 0 for "not asked, or it did not answer".
      * Asked at mount rather than per status line: the query WAITS and the hub
      * polls twice a second.
      */
-    inline UInt16 files   = 0;
+    inline UInt16 files = 0;
 
     /*
      * Whether the card has been mounted since power-on. It takes 1.5-3 s and a
@@ -70,7 +70,7 @@ namespace bibo::sound
      */
     inline Bool   mounted = false;
 
-    inline Bool   up      = false;
+    inline Bool   up = false;
 
     /* ---- bring-up ----------------------------------------------------- */
     /**

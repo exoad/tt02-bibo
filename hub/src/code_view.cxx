@@ -152,7 +152,7 @@ namespace ui
         for(Size i = 0; i <= text.size(); ++i)
         {
             const Bool end = (i == text.size());
-            const Char c   = end ? '\n' : text[i];
+            const Char c = end ? '\n' : text[i];
 
             if(c == '\r')
             {
@@ -225,10 +225,10 @@ namespace ui
     // hundred allocations a frame for a list thrown away each frame.
     struct Row
     {
-        const Char* name    = nullptr;
-        const Char* detail  = nullptr;
-        const Char* doc     = nullptr;
-        cmpl::Kind  kind    = cmpl::Kind::KIND_FUNCTION;
+        const Char* name = nullptr;
+        const Char* detail = nullptr;
+        const Char* doc = nullptr;
+        cmpl::Kind  kind = cmpl::Kind::KIND_FUNCTION;
         Bool        fromLsp = false;
     };
 
@@ -291,10 +291,10 @@ namespace ui
                 }
 
                 Row r;
-                r.name    = it.name.c_str();
-                r.detail  = it.detail.c_str();
-                r.doc     = it.doc.c_str();
-                r.kind    = it.kind;
+                r.name = it.name.c_str();
+                r.detail = it.detail.c_str();
+                r.doc = it.doc.c_str();
+                r.kind = it.kind;
                 r.fromLsp = true;
                 out.push_back(r);
             }
@@ -341,10 +341,10 @@ namespace ui
             }
 
             Row r;
-            r.name   = it->name;
+            r.name = it->name;
             r.detail = it->detail;
-            r.doc    = it->doc;
-            r.kind   = it->kind;
+            r.doc = it->doc;
+            r.kind = it->kind;
             out.push_back(r);
         }
     }
@@ -357,14 +357,14 @@ namespace ui
     Bool afterMember(const ed::Editor& e, Bool blockOpen)
     {
         const Str&  line = e.line(e.cursor().line);
-        const Int32 col  = std::min(e.cursor().col, static_cast<Int32>(line.size()));
+        const Int32 col = std::min(e.cursor().col, static_cast<Int32>(line.size()));
 
         if(col < 1)
         {
             return false;
         }
 
-        const Bool dot   = (line[static_cast<Size>(col - 1)] == '.');
+        const Bool dot = (line[static_cast<Size>(col - 1)] == '.');
         const Bool colon = (col >= 2 && line[static_cast<Size>(col - 1)] == ':'
                                      && line[static_cast<Size>(col - 2)] == ':');
         const Bool arrow = (col >= 2 && line[static_cast<Size>(col - 1)] == '>'
@@ -417,7 +417,7 @@ namespace ui
 
   Void setNote(CodeView& v, const Str& text, Float64 nowS)
   {
-      v.note    = text;
+      v.note = text;
       v.noteAtS = nowS;
   }
 
@@ -442,22 +442,25 @@ namespace ui
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 
-      ImGui::BeginChild("##code", size, ImGuiChildFlags_None,
-                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
-                        | ImGuiWindowFlags_NoNavInputs);
+      ImGui::BeginChild(
+          "##code",
+          size,
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs
+      );
 
-      const ImVec2  origin   = ImGui::GetCursorScreenPos();
-      const ImVec2  region   = ImGui::GetContentRegionAvail();
-      ImDrawList*   dl       = ImGui::GetWindowDrawList();
+      const ImVec2  origin = ImGui::GetCursorScreenPos();
+      const ImVec2  region = ImGui::GetContentRegionAvail();
+      ImDrawList*   dl = ImGui::GetWindowDrawList();
 
-      const Float32 lineH    = ImGui::GetTextLineHeight();
+      const Float32 lineH = ImGui::GetTextLineHeight();
       // The character cell, rounded to a WHOLE pixel. Everything is placed at
       // `column * charW`, so a fractional value accumulates: at 12.43 px per cell,
       // column 60 is three quarters of a character off.
       Float32 charW = ImGui::CalcTextSize("0").x;
       charW = (charW > 1.0f) ? static_cast<Float32>(static_cast<Int32>(charW + 0.5f))
                              : 1.0f;
-      const Float32 statusH  = lineH + 6.0f * dpiScale();
+      const Float32 statusH = lineH + 6.0f * dpiScale();
 
       // Gutter wide enough for the largest line number this buffer will ever show,
       // so it does not jump a pixel when the file crosses 100 lines.
@@ -466,15 +469,14 @@ namespace ui
       // +3: one column for the diagnostic mark, one of margin either side.
       const Float32 gutterW = (static_cast<Float32>(std::strlen(numBuf.data())) + 3.0f) * charW;
 
-      const Float32 textX   = origin.x + gutterW;
-      const Float32 viewH   = std::max(lineH, region.y - statusH);
+      const Float32 textX = origin.x + gutterW;
+      const Float32 viewH = std::max(lineH, region.y - statusH);
 
       // ---- input ------------------------------------------------------------
       // An invisible button gives a click target and a hovered test. Focus is
       // sticky: click in to take the keyboard, elsewhere to give it back.
       ImGui::SetCursorScreenPos(origin);
-      ImGui::InvisibleButton("##codehit", ImVec2(std::max(1.0f, region.x),
-                                                 std::max(1.0f, viewH)));
+      ImGui::InvisibleButton("##codehit", ImVec2(std::max(1.0f, region.x), std::max(1.0f, viewH)));
       const Bool hovered = ImGui::IsItemHovered();
 
       if(ImGui::IsItemClicked(ImGuiMouseButton_Left))
@@ -488,7 +490,7 @@ namespace ui
           const Int32  c = std::max(0, static_cast<Int32>((m.x - textX) / charW + 0.5f));
           e.setCursor(l, c);
           v.followCaret = true;
-          v.lastKeyS    = nowS;
+          v.lastKeyS = nowS;
       }
       else if(io.MouseClicked[0] && !hovered)
       {
@@ -534,9 +536,9 @@ namespace ui
           // and the editor must not also act on them. Anything unclaimed falls
           // through untouched.
           Bool eatEnter = false;
-          Bool eatTab   = false;
-          Bool eatEsc   = false;
-          Bool eatPage  = false;
+          Bool eatTab = false;
+          Bool eatEsc = false;
+          Bool eatPage = false;
 
           if(v.popupOpen)
           {
@@ -565,12 +567,12 @@ namespace ui
                   if(ImGui::IsKeyPressed(ImGuiKey_PageDown, true))
                   {
                       v.popupSel = std::min(n - 1, v.popupSel + MAX_VISIBLE);
-                      eatPage    = true;
+                      eatPage = true;
                   }
                   if(ImGui::IsKeyPressed(ImGuiKey_PageUp, true))
                   {
                       v.popupSel = std::max(0, v.popupSel - MAX_VISIBLE);
-                      eatPage    = true;
+                      eatPage = true;
                   }
 
                   v.popupSel = std::max(0, std::min(v.popupSel, n - 1));
@@ -584,17 +586,17 @@ namespace ui
                       e.insertCompletion(hits[static_cast<Size>(v.popupSel)].name);
                       v.popupOpen = false;
                       v.dismissed = true;      // do not reopen on this word
-                      changed     = true;
-                      eatEnter    = true;
-                      eatTab      = true;
-                      v.lastKeyS  = nowS;
+                      changed = true;
+                      eatEnter = true;
+                      eatTab = true;
+                      v.lastKeyS = nowS;
                   }
 
                   if(ImGui::IsKeyPressed(ImGuiKey_Escape, false))
                   {
                       v.popupOpen = false;
                       v.dismissed = true;
-                      eatEsc      = true;
+                      eatEsc = true;
                   }
               }
           }
@@ -624,12 +626,12 @@ namespace ui
               if(ImGui::IsKeyPressed(s.key, true))
               {
                   ed::Key k;
-                  k.sp    = s.sp;
-                  k.ctrl  = ctrl;
+                  k.sp = s.sp;
+                  k.ctrl = ctrl;
                   k.shift = io.KeyShift;
                   changed |= e.key(k);
                   v.followCaret = true;
-                  v.lastKeyS    = nowS;
+                  v.lastKeyS = nowS;
               }
           }
 
@@ -637,11 +639,11 @@ namespace ui
           if(ctrl && ImGui::IsKeyPressed(ImGuiKey_R, true))
           {
               ed::Key k;
-              k.ch   = 'r';
+              k.ch = 'r';
               k.ctrl = true;
               changed |= e.key(k);
               v.followCaret = true;
-              v.lastKeyS    = nowS;
+              v.lastKeyS = nowS;
           }
 
           // Then printable characters, straight off the platform's queue, so layout,
@@ -700,7 +702,7 @@ namespace ui
               k.ch = static_cast<Char>(wc);
               changed |= e.key(k);
               v.followCaret = true;
-              v.lastKeyS    = nowS;
+              v.lastKeyS = nowS;
           }
           io.InputQueueCharacters.resize(0);
 
@@ -714,7 +716,7 @@ namespace ui
           // blockAt is rebuilt further down, so it is empty on the first frame and
           // one behind after an edit. Harmless: it only decides whether the caret
           // is inside a block comment, and one wrong frame self-corrects.
-          const Int32 cl        = e.cursor().line;
+          const Int32 cl = e.cursor().line;
           const Bool  blockOpen = (cl >= 0 && cl < static_cast<Int32>(blockAt.size()))
                                 ? blockAt[static_cast<Size>(cl)] : false;
 
@@ -724,11 +726,11 @@ namespace ui
 
           if(word != v.popupPrefix || trigger != v.popupTrigger)
           {
-              v.popupPrefix  = word;
+              v.popupPrefix = word;
               v.popupTrigger = trigger;
-              v.popupSel     = 0;
-              v.popupTop     = 0;
-              v.dismissed    = false;   // a different word is a new question
+              v.popupSel = 0;
+              v.popupTop = 0;
+              v.dismissed = false;   // a different word is a new question
           }
 
           const Int32 startCol = e.cursor().col - static_cast<Int32>(word.size());
@@ -747,7 +749,7 @@ namespace ui
              && (e.cursor().line != v.lspAskLine || e.cursor().col != v.lspAskCol))
           {
               const Str    text = e.text();
-              const UInt64 h    = hashOf(text);
+              const UInt64 h = hashOf(text);
 
               // Only remember WHERE we asked if the question was TAKEN. It is
               // refused while clangd parses, and recording the position anyway
@@ -756,7 +758,7 @@ namespace ui
               if(lsp::ask(v.lspPath, text, h, e.cursor().line, e.cursor().col))
               {
                   v.lspAskLine = e.cursor().line;
-                  v.lspAskCol  = e.cursor().col;
+                  v.lspAskCol = e.cursor().col;
               }
           }
 
@@ -773,7 +775,7 @@ namespace ui
       }
       else
       {
-          v.popupOpen    = false;
+          v.popupOpen = false;
           v.popupTrigger = false;
       }
 
@@ -803,10 +805,8 @@ namespace ui
       v.scrollY = std::max(0.0f, std::min(v.scrollY, maxScroll));
 
       // ---- background --------------------------------------------------------
-      dl->AddRectFilled(origin, ImVec2(origin.x + region.x, origin.y + viewH),
-                        syn::gruv::BG0_H);
-      dl->AddRectFilled(origin, ImVec2(origin.x + gutterW, origin.y + viewH),
-                        syn::gruv::BG0);
+      dl->AddRectFilled(origin, ImVec2(origin.x + region.x, origin.y + viewH), syn::gruv::BG0_H);
+      dl->AddRectFilled(origin, ImVec2(origin.x + gutterW, origin.y + viewH), syn::gruv::BG0);
 
       dl->PushClipRect(origin, ImVec2(origin.x + region.x, origin.y + viewH), true);
 
@@ -818,7 +818,7 @@ namespace ui
       }
 
       const Int32 first = std::max(0, static_cast<Int32>(v.scrollY / lineH));
-      const Int32 last  = std::min(e.lineCount() - 1,
+      const Int32 last = std::min(e.lineCount() - 1,
                                    first + static_cast<Int32>(viewH / lineH) + 1);
 
       // H, M, L and Ctrl-D/Ctrl-U mean "the screen", not "the buffer", so the editor
@@ -847,7 +847,7 @@ namespace ui
       // first with the second would be answering a question nobody asked.
       Str   hoverWord;
       Int32 hoverLine = -1;
-      Int32 hoverCol  = -1;
+      Int32 hoverCol = -1;
 
       if(hovered && !ImGui::IsMouseDown(ImGuiMouseButton_Left)
          && !v.lspPath.empty())
@@ -857,7 +857,7 @@ namespace ui
 
           if(hl >= 0 && hl < e.lineCount() && hc >= 0 && io.MousePos.x >= textX)
           {
-              const Str&  ln  = e.line(hl);
+              const Str&  ln = e.line(hl);
               const Int32 len = static_cast<Int32>(ln.size());
 
               const auto wordChar = [](Char ch)
@@ -882,10 +882,9 @@ namespace ui
                   // A leading digit means a number, not a name.
                   if(!(ln[static_cast<Size>(a)] >= '0' && ln[static_cast<Size>(a)] <= '9'))
                   {
-                      hoverWord = ln.substr(static_cast<Size>(a),
-                                            static_cast<Size>(b - a + 1));
+                      hoverWord = ln.substr(static_cast<Size>(a), static_cast<Size>(b - a + 1));
                       hoverLine = hl;
-                      hoverCol  = a;
+                      hoverCol = a;
                   }
               }
           }
@@ -901,14 +900,13 @@ namespace ui
           }
           v.infoWord = hoverWord;
           v.infoLine = hoverLine;
-          v.infoCol  = hoverCol;
-          v.infoIn   = hoverWord.empty() ? 0 : HOVER_REST_FRAMES;
+          v.infoCol = hoverCol;
+          v.infoIn = hoverWord.empty() ? 0 : HOVER_REST_FRAMES;
       }
       else if(v.infoIn > 0 && --v.infoIn == 0)
       {
           const Str text = e.text();
-          static_cast<Void>(lsp::askInfo(v.lspPath, text, hashOf(text),
-                                         v.infoLine, v.infoCol));
+          static_cast<Void>(lsp::askInfo(v.lspPath, text, hashOf(text), v.infoLine, v.infoCol));
       }
 
       {
@@ -930,9 +928,11 @@ namespace ui
           // Current-line band, behind everything else on the row.
           if(l == e.cursor().line && v.focused)
           {
-              dl->AddRectFilled(ImVec2(origin.x + gutterW, y),
-                                ImVec2(origin.x + region.x, y + lineH),
-                                syn::gruv::BG1);
+              dl->AddRectFilled(
+                  ImVec2(origin.x + gutterW, y),
+                  ImVec2(origin.x + region.x, y + lineH),
+                  syn::gruv::BG1
+              );
           }
 
           // ---- line number -------------------------------------------------
@@ -940,7 +940,7 @@ namespace ui
           // `number` + `relativenumber`, so `12j` and `4dd` can be read off the
           // screen. Insert goes absolute: no counted motions there, and a compiler
           // error says "line 42".
-          const Bool onCaret  = (l == e.cursor().line);
+          const Bool onCaret = (l == e.cursor().line);
           const Bool absolute = onCaret || (e.mode() == ed::Mode::MODE_INSERT);
 
           const Int32 shown = absolute ? (l + 1)
@@ -953,9 +953,7 @@ namespace ui
               ? (origin.x + charW)
               : (origin.x + gutterW - charW - numW);
 
-          dl->AddText(ImVec2(numX, y),
-                      onCaret ? syn::gruv::YELLOW : syn::gruv::FG4,
-                      numBuf.data());
+          dl->AddText(ImVec2(numX, y), onCaret ? syn::gruv::YELLOW : syn::gruv::FG4, numBuf.data());
 
           // ---- diagnostic mark in the gutter ---------------------------------
           if(!v.diags.empty())
@@ -967,8 +965,7 @@ namespace ui
                       severityColor(static_cast<diag::Severity>(worst));
 
                   const Float32 r = std::max(2.0f, lineH * 0.16f);
-                  dl->AddCircleFilled(ImVec2(origin.x + r * 1.6f, y + lineH * 0.5f),
-                                      r, mc, 10);
+                  dl->AddCircleFilled(ImVec2(origin.x + r * 1.6f, y + lineH * 0.5f), r, mc, 10);
 
                   // The whole gutter ROW is the target, not the four-pixel dot,
                   // which is a mark to notice rather than to land a pointer on.
@@ -995,13 +992,14 @@ namespace ui
           if(hasSel && l >= selA.line && l <= selB.line)
           {
               const Int32 from = (l == selA.line) ? selA.col : 0;
-              const Int32 to   = (l == selB.line) ? selB.col : len;
+              const Int32 to = (l == selB.line) ? selB.col : len;
               if(to > from)
               {
                   dl->AddRectFilled(
                       ImVec2(textX + static_cast<Float32>(from) * charW, y),
                       ImVec2(textX + static_cast<Float32>(to) * charW, y + lineH),
-                      syn::gruv::BG2);
+                      syn::gruv::BG2
+                  );
               }
           }
 
@@ -1024,7 +1022,7 @@ namespace ui
                   // Column 0 means the compiler did not say where, so the whole line
                   // is marked rather than a span invented for it.
                   const Int32 from = (d.column > 0) ? (d.column - 1) : 0;
-                  const Int32 to   = (d.column > 0) ? std::min(len, from + 9) : len;
+                  const Int32 to = (d.column > 0) ? std::min(len, from + 9) : len;
                   if(to <= from)
                   {
                       continue;
@@ -1035,8 +1033,12 @@ namespace ui
                   const Float32 x1 = textX + static_cast<Float32>(to) * charW;
 
                   const Float32 uy = y + lineH - 1.5f * dpiScale();
-                  dl->AddLine(ImVec2(x0, uy), ImVec2(x1, uy),
-                              uc, std::max(1.0f, 1.5f * dpiScale()));
+                  dl->AddLine(
+                      ImVec2(x0, uy),
+                      ImVec2(x1, uy),
+                      uc,
+                      std::max(1.0f, 1.5f * dpiScale())
+                  );
 
                   // The hit box is the TEXT at full row height, not the one-pixel
                   // rule under it.
@@ -1085,8 +1087,12 @@ namespace ui
                   }
 
                   const Array<Char, 2> one= { ch, '\0' };
-                  dl->AddText(ImVec2(textX + static_cast<Float32>(k) * charW, y),
-                              col, one.data(), one.data() + 1);
+                  dl->AddText(
+                      ImVec2(textX + static_cast<Float32>(k) * charW, y),
+                      col,
+                      one.data(),
+                      one.data() + 1
+                  );
               }
           }
       }
@@ -1097,7 +1103,7 @@ namespace ui
       if(v.focused)
       {
           const Float64 since = nowS - v.lastKeyS;
-          const Bool    on    = (since < 0.25)
+          const Bool    on = (since < 0.25)
                              || (static_cast<Int32>((since - 0.25) / 0.53) % 2) == 0;
           if(on)
           {
@@ -1109,14 +1115,19 @@ namespace ui
               // gives.
               if(e.mode() == ed::Mode::MODE_INSERT)
               {
-                  dl->AddRectFilled(ImVec2(cx, cy),
-                                    ImVec2(cx + std::max(1.0f, 2.0f * dpiScale()), cy + lineH),
-                                    syn::gruv::FG1);
+                  dl->AddRectFilled(
+                      ImVec2(cx, cy),
+                      ImVec2(cx + std::max(1.0f, 2.0f * dpiScale()), cy + lineH),
+                      syn::gruv::FG1
+                  );
               }
               else
               {
-                  dl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + charW, cy + lineH),
-                                    IM_COL32(0xEB, 0xDB, 0xB2, 0x80));
+                  dl->AddRectFilled(
+                      ImVec2(cx, cy),
+                      ImVec2(cx + charW, cy + lineH),
+                      IM_COL32(0xEB, 0xDB, 0xB2, 0x80)
+                  );
               }
           }
       }
@@ -1129,7 +1140,7 @@ namespace ui
       // which you are typing into, is worse than either alone.
       if(!underPointer.empty() && !v.popupOpen)
       {
-          const Float32 pad  = 8.0f * dpiScale();
+          const Float32 pad = 8.0f * dpiScale();
           const Float32 rowH = lineH;
 
           // Laid out first, so the box is sized to what it holds rather than to a
@@ -1137,7 +1148,7 @@ namespace ui
           struct HoverRow
           {
               Str   text;
-              ImU32 col  = 0;
+              ImU32 col = 0;
               Bool  head = false;
           };
 
@@ -1156,16 +1167,26 @@ namespace ui
               Array<Char, 128> head;
               if(d.column > 0)
               {
-                  std::snprintf(head.data(), head.size(), "%s  %d:%d",
-                                severityName(d.severity), d.line, d.column);
+                  std::snprintf(
+                      head.data(),
+                      head.size(),
+                      "%s %d:%d",
+                      severityName(d.severity),
+                      d.line,
+                      d.column
+                  );
               }
               else
               {
-                  std::snprintf(head.data(), head.size(), "%s  line %d",
-                                severityName(d.severity), d.line);
+                  std::snprintf(
+                      head.data(),
+                      head.size(),
+                      "%s line %d",
+                      severityName(d.severity),
+                      d.line
+                  );
               }
-              rows.push_back(HoverRow{ Str(head.data()),
-                                       severityColor(d.severity), true });
+              rows.push_back(HoverRow{ Str(head.data()), severityColor(d.severity), true });
 
               Vec<Str> wrapped;
               wrapTo(d.message, HOVER_COLS, wrapped);
@@ -1178,8 +1199,12 @@ namespace ui
           if(underPointer.size() > show)
           {
               Array<Char, 64> more;
-              std::snprintf(more.data(), more.size(), "+%d more on this line",
-                            static_cast<Int32>(underPointer.size() - show));
+              std::snprintf(
+                  more.data(),
+                  more.size(),
+                  "+%d more on this line",
+                  static_cast<Int32>(underPointer.size() - show)
+              );
               rows.push_back(HoverRow{ Str(more.data()), syn::gruv::GRAY, false });
           }
 
@@ -1209,23 +1234,28 @@ namespace ui
           // note pinned to a specific span of text, and the corners saying so
           // is the whole difference.
           ImDrawList* fg = ImGui::GetForegroundDrawList();
-          fg->AddRectFilled(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH),
-                            syn::gruv::BG0_H, 0.0f);
-          fg->AddRect(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH),
-                      severityColor(underPointer[0]->severity), 0.0f);
+          fg->AddRectFilled(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH), syn::gruv::BG0_H, 0.0f);
+          fg->AddRect(
+              ImVec2(hx, hy),
+              ImVec2(hx + boxW, hy + boxH),
+              severityColor(underPointer[0]->severity),
+              0.0f
+          );
 
           for(Size i = 0; i < rows.size(); ++i)
           {
-              const HoverRow& r  = rows[i];
+              const HoverRow& r = rows[i];
               const Float32   ry = hy + pad * 0.5f + static_cast<Float32>(i) * rowH;
 
               if(r.text.empty())
               {
                   // A rule, not whitespace: a gap reads as padding rather than as a
                   // boundary between two separate diagnostics.
-                  fg->AddLine(ImVec2(hx + pad, ry + rowH * 0.5f),
-                              ImVec2(hx + boxW - pad, ry + rowH * 0.5f),
-                              syn::gruv::BG3);
+                  fg->AddLine(
+                      ImVec2(hx + pad, ry + rowH * 0.5f),
+                      ImVec2(hx + boxW - pad, ry + rowH * 0.5f),
+                      syn::gruv::BG3
+                  );
                   continue;
               }
 
@@ -1267,8 +1297,7 @@ namespace ui
               {
                   break;
               }
-              chain.push_back(Step{ cur, it->second.body,
-                                    it->second.file, it->second.line });
+              chain.push_back(Step{ cur, it->second.body, it->second.file, it->second.line });
 
               // A pure rename is one identifier and nothing else.
               const Str& b = it->second.body;
@@ -1298,7 +1327,7 @@ namespace ui
 
           if(!chain.empty())
           {
-              const Float32 pad  = 8.0f * dpiScale();
+              const Float32 pad = 8.0f * dpiScale();
               const Float32 rowH = lineH;
 
               struct MRow
@@ -1310,9 +1339,9 @@ namespace ui
 
               // The answer.
               const Str value = chain.back().body;
-              rows.push_back(MRow{ v.infoWord + "  =  "
-                                   + (value.empty() ? Str("(defined, no value)") : value),
-                                   syn::gruv::FG1 });
+              rows.push_back(
+                  MRow{ v.infoWord + " = " + (value.empty() ? Str("(defined, no value)") : value), syn::gruv::FG1 }
+              );
 
               // The path to it, only when there was one - a macro that resolves
               // in one step is its own tree and drawing it says nothing.
@@ -1327,9 +1356,9 @@ namespace ui
                           indent += "  ";
                       }
                       const Str lead = (i == 0) ? Str() : indent + "\xE2\x94\x94 ";
-                      rows.push_back(MRow{ lead + chain[i].name + "  " + chain[i].body,
-                                           (i + 1 == chain.size()) ? syn::gruv::FG1
-                                                                   : syn::gruv::GRAY });
+                      rows.push_back(
+                          MRow{ lead + chain[i].name + " " + chain[i].body, (i + 1 == chain.size()) ? syn::gruv::FG1 : syn::gruv::GRAY }
+                      );
                   }
               }
 
@@ -1338,15 +1367,14 @@ namespace ui
               {
                   // `at`, not `last`: `last` is the bottom visible row of the
                   // editor, declared far above this.
-                  const Step& at   = chain.back();
+                  const Step& at = chain.back();
                   Str         base = at.file;
                   if(const Size sl = base.find_last_of("/\\"); sl != Str::npos)
                   {
                       base = base.substr(sl + 1);
                   }
                   rows.push_back(MRow{ Str(), syn::gruv::BG3 });
-                  rows.push_back(MRow{ base + ":" + std::to_string(at.line),
-                                       syn::gruv::GRAY });
+                  rows.push_back(MRow{ base + ":" + std::to_string(at.line), syn::gruv::GRAY });
               }
 
               Float32 wide = 0.0f;
@@ -1374,21 +1402,26 @@ namespace ui
               // Purple, so a macro is not mistaken for a declaration at a
               // glance - the two answer different questions.
               ImDrawList* fg = ImGui::GetForegroundDrawList();
-              fg->AddRectFilled(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH),
-                                syn::gruv::BG0_H, 0.0f);
-              fg->AddRect(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH),
-                          syn::gruv::PURPLE, 0.0f);
+              fg->AddRectFilled(
+                  ImVec2(mx, my),
+                  ImVec2(mx + boxW, my + boxH),
+                  syn::gruv::BG0_H,
+                  0.0f
+              );
+              fg->AddRect(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH), syn::gruv::PURPLE, 0.0f);
 
               for(Size i = 0; i < rows.size(); ++i)
               {
-                  const MRow&   r  = rows[i];
+                  const MRow&   r = rows[i];
                   const Float32 ry = my + pad * 0.5f + static_cast<Float32>(i) * rowH;
 
                   if(r.text.empty())
                   {
-                      fg->AddLine(ImVec2(mx + pad, ry + rowH * 0.5f),
-                                  ImVec2(mx + boxW - pad, ry + rowH * 0.5f),
-                                  syn::gruv::BG3);
+                      fg->AddLine(
+                          ImVec2(mx + pad, ry + rowH * 0.5f),
+                          ImVec2(mx + boxW - pad, ry + rowH * 0.5f),
+                          syn::gruv::BG3
+                      );
                       continue;
                   }
                   fg->AddText(ImVec2(mx + pad, ry), r.col, r.text.c_str());
@@ -1409,7 +1442,7 @@ namespace ui
       else if(!v.infoAnswer.sig.empty() && !v.popupOpen
               && v.infoLine >= 0 && !v.infoWord.empty())
       {
-          const Float32 pad  = 8.0f * dpiScale();
+          const Float32 pad = 8.0f * dpiScale();
           const Float32 rowH = lineH;
 
           struct InfoRow
@@ -1424,10 +1457,9 @@ namespace ui
           Size at = 0;
           while(at <= v.infoAnswer.sig.size())
           {
-              const Size nl   = v.infoAnswer.sig.find('\n', at);
+              const Size nl = v.infoAnswer.sig.find('\n', at);
               const Size stop = (nl == Str::npos) ? v.infoAnswer.sig.size() : nl;
-              rows.push_back(InfoRow{ v.infoAnswer.sig.substr(at, stop - at),
-                                      syn::gruv::FG1 });
+              rows.push_back(InfoRow{ v.infoAnswer.sig.substr(at, stop - at), syn::gruv::FG1 });
               if(nl == Str::npos)
               {
                   break;
@@ -1480,21 +1512,21 @@ namespace ui
           ix = std::max(origin.x, std::min(ix, origin.x + region.x - boxW));
 
           ImDrawList* fg = ImGui::GetForegroundDrawList();
-          fg->AddRectFilled(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH),
-                            syn::gruv::BG0_H, 0.0f);
-          fg->AddRect(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH),
-                      syn::gruv::BLUE, 0.0f);
+          fg->AddRectFilled(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH), syn::gruv::BG0_H, 0.0f);
+          fg->AddRect(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH), syn::gruv::BLUE, 0.0f);
 
           for(Size i = 0; i < rows.size(); ++i)
           {
-              const InfoRow& r  = rows[i];
+              const InfoRow& r = rows[i];
               const Float32  ry = iy + pad * 0.5f + static_cast<Float32>(i) * rowH;
 
               if(r.text.empty())
               {
-                  fg->AddLine(ImVec2(ix + pad, ry + rowH * 0.5f),
-                              ImVec2(ix + boxW - pad, ry + rowH * 0.5f),
-                              syn::gruv::BG3);
+                  fg->AddLine(
+                      ImVec2(ix + pad, ry + rowH * 0.5f),
+                      ImVec2(ix + boxW - pad, ry + rowH * 0.5f),
+                      syn::gruv::BG3
+                  );
                   continue;
               }
               fg->AddText(ImVec2(ix + pad, ry), r.col, r.text.c_str());
@@ -1517,7 +1549,7 @@ namespace ui
           }
           else
           {
-              const Int32 n   = static_cast<Int32>(hits.size());
+              const Int32 n = static_cast<Int32>(hits.size());
               const Int32 sel = std::max(0, std::min(v.popupSel, n - 1));
 
               // ---- the visible window ----
@@ -1538,7 +1570,7 @@ namespace ui
               // Widest name and detail ACROSS THE WHOLE LIST, not just the visible
               // rows: sizing to the window makes the box change width as it scrolls.
               Float32 nameW = 0.0f;
-              Float32 detW  = 0.0f;
+              Float32 detW = 0.0f;
               for(const Row& it : hits)
               {
                   nameW = std::max(nameW, ImGui::CalcTextSize(it.name).x);
@@ -1552,12 +1584,12 @@ namespace ui
               // characters; capped so one cannot push the box off the pane.
               detW = std::min(detW, charW * 44.0f);
 
-              const Float32 pad   = 8.0f * dpiScale();
-              const Float32 tagW  = ImGui::CalcTextSize("##").x + pad;
-              const Float32 rowH  = lineH + 2.0f * dpiScale();
-              const Float32 barW  = (n > shown) ? 4.0f * dpiScale() : 0.0f;
-              const Float32 boxW  = tagW + nameW + pad * 2.0f + detW + pad * 2.0f + barW;
-              const Float32 boxH  = rowH * static_cast<Float32>(shown) + pad;
+              const Float32 pad = 8.0f * dpiScale();
+              const Float32 tagW = ImGui::CalcTextSize("##").x + pad;
+              const Float32 rowH = lineH + 2.0f * dpiScale();
+              const Float32 barW = (n > shown) ? 4.0f * dpiScale() : 0.0f;
+              const Float32 boxW = tagW + nameW + pad * 2.0f + detW + pad * 2.0f + barW;
+              const Float32 boxH = rowH * static_cast<Float32>(shown) + pad;
 
               // Anchored to the START of the word, not the caret, so the list lines
               // up with what it is completing.
@@ -1578,37 +1610,45 @@ namespace ui
               // before this box has a position, so a wheel over the popup would
               // move the list AND the code under it. Keys only.
               ImDrawList* fg = ImGui::GetForegroundDrawList();
-              fg->AddRectFilled(ImVec2(px, py), ImVec2(px + boxW, py + boxH),
-                                syn::gruv::BG1, 3.0f * dpiScale());
-              fg->AddRect(ImVec2(px, py), ImVec2(px + boxW, py + boxH),
-                          syn::gruv::BG3, 3.0f * dpiScale());
+              fg->AddRectFilled(
+                  ImVec2(px, py),
+                  ImVec2(px + boxW, py + boxH),
+                  syn::gruv::BG1,
+                  3.0f * dpiScale()
+              );
+              fg->AddRect(
+                  ImVec2(px, py),
+                  ImVec2(px + boxW, py + boxH),
+                  syn::gruv::BG3,
+                  3.0f * dpiScale()
+              );
 
               for(Int32 r = 0; r < shown; ++r)
               {
                   const Int32   idx = v.popupTop + r;
-                  const Row&    it  = hits[static_cast<Size>(idx)];
-                  const Float32 ry  = py + pad * 0.5f
+                  const Row&    it = hits[static_cast<Size>(idx)];
+                  const Float32 ry = py + pad * 0.5f
                                     + static_cast<Float32>(r) * rowH;
 
                   if(idx == sel)
                   {
                       // Stops short of the scroll track, so the highlight does not
                       // paint over the one thing saying where in the list you are.
-                      fg->AddRectFilled(ImVec2(px + 2.0f, ry),
-                                        ImVec2(px + boxW - barW - 2.0f, ry + rowH),
-                                        syn::gruv::BG2);
+                      fg->AddRectFilled(
+                          ImVec2(px + 2.0f, ry),
+                          ImVec2(px + boxW - barW - 2.0f, ry + rowH),
+                          syn::gruv::BG2
+                      );
                   }
 
-                  fg->AddText(ImVec2(px + pad * 0.5f, ry), syn::gruv::GRAY,
-                              kindTag(it.kind));
+                  fg->AddText(ImVec2(px + pad * 0.5f, ry), syn::gruv::GRAY, kindTag(it.kind));
                   fg->AddText(ImVec2(px + tagW, ry), kindColor(it.kind), it.name);
 
                   if(it.detail != nullptr && it.detail[0] != 0)
                   {
                       // Clipped, not wrapped: a row that wraps stops being a row.
                       const Float32 dx = px + tagW + nameW + pad * 2.0f;
-                      fg->PushClipRect(ImVec2(dx, ry),
-                                       ImVec2(dx + detW, ry + rowH), true);
+                      fg->PushClipRect(ImVec2(dx, ry), ImVec2(dx + detW, ry + rowH), true);
                       fg->AddText(ImVec2(dx, ry), syn::gruv::FG4, it.detail);
                       fg->PopClipRect();
                   }
@@ -1620,20 +1660,24 @@ namespace ui
               if(n > shown)
               {
                   const Float32 trackX = px + boxW - barW - 2.0f * dpiScale();
-                  const Float32 frac   = static_cast<Float32>(shown)
+                  const Float32 frac = static_cast<Float32>(shown)
                                        / static_cast<Float32>(n);
                   const Float32 thumbH = std::max(rowH * 0.6f, boxH * frac);
                   const Float32 travel = boxH - thumbH;
-                  const Float32 at     = (n == shown) ? 0.0f
+                  const Float32 at = (n == shown) ? 0.0f
                                        : static_cast<Float32>(v.popupTop)
                                          / static_cast<Float32>(n - shown);
 
-                  fg->AddRectFilled(ImVec2(trackX, py),
-                                    ImVec2(trackX + barW, py + boxH),
-                                    syn::gruv::BG2);
-                  fg->AddRectFilled(ImVec2(trackX, py + travel * at),
-                                    ImVec2(trackX + barW, py + travel * at + thumbH),
-                                    syn::gruv::GRAY);
+                  fg->AddRectFilled(
+                      ImVec2(trackX, py),
+                      ImVec2(trackX + barW, py + boxH),
+                      syn::gruv::BG2
+                  );
+                  fg->AddRectFilled(
+                      ImVec2(trackX, py + travel * at),
+                      ImVec2(trackX + barW, py + travel * at + thumbH),
+                      syn::gruv::GRAY
+                  );
               }
 
               // The selected entry's one-line doc, under the box - only one, so the
@@ -1651,28 +1695,41 @@ namespace ui
               const Bool haveDoc = (cur.doc != nullptr && cur.doc[0] != 0);
               if(haveDoc || tally[0] != '\0')
               {
-                  const Float32 dy   = py + boxH + 2.0f * dpiScale();
+                  const Float32 dy = py + boxH + 2.0f * dpiScale();
                   const Float32 docW = haveDoc ? ImGui::CalcTextSize(cur.doc).x : 0.0f;
-                  const Float32 tw   = (tally[0] != '\0')
+                  const Float32 tw = (tally[0] != '\0')
                                      ? ImGui::CalcTextSize(tally.data()).x + pad
                                      : 0.0f;
-                  const Float32 dw   = std::min(docW + tw + pad * 2.0f, boxW * 1.5f);
+                  const Float32 dw = std::min(docW + tw + pad * 2.0f, boxW * 1.5f);
 
-                  fg->AddRectFilled(ImVec2(px, dy), ImVec2(px + dw, dy + rowH),
-                                    syn::gruv::BG1, 3.0f * dpiScale());
+                  fg->AddRectFilled(
+                      ImVec2(px, dy),
+                      ImVec2(px + dw, dy + rowH),
+                      syn::gruv::BG1,
+                      3.0f * dpiScale()
+                  );
 
                   if(haveDoc)
                   {
-                      fg->PushClipRect(ImVec2(px + pad, dy),
-                                       ImVec2(px + dw - tw - pad, dy + rowH), true);
-                      fg->AddText(ImVec2(px + pad, dy + 1.0f * dpiScale()),
-                                  syn::gruv::FG1, cur.doc);
+                      fg->PushClipRect(
+                          ImVec2(px + pad, dy),
+                          ImVec2(px + dw - tw - pad, dy + rowH),
+                          true
+                      );
+                      fg->AddText(
+                          ImVec2(px + pad, dy + 1.0f * dpiScale()),
+                          syn::gruv::FG1,
+                          cur.doc
+                      );
                       fg->PopClipRect();
                   }
                   if(tally[0] != '\0')
                   {
-                      fg->AddText(ImVec2(px + dw - tw, dy + 1.0f * dpiScale()),
-                                  syn::gruv::GRAY, tally.data());
+                      fg->AddText(
+                          ImVec2(px + dw - tw, dy + 1.0f * dpiScale()),
+                          syn::gruv::GRAY,
+                          tally.data()
+                      );
                   }
               }
           }
@@ -1680,24 +1737,28 @@ namespace ui
 
       // ---- status line -------------------------------------------------------
       const Float32 sy = origin.y + viewH;
-      dl->AddRectFilled(ImVec2(origin.x, sy), ImVec2(origin.x + region.x, sy + statusH),
-                        syn::gruv::BG1);
+      dl->AddRectFilled(
+          ImVec2(origin.x, sy),
+          ImVec2(origin.x + region.x, sy + statusH),
+          syn::gruv::BG1
+      );
 
       const Float32 pad = 6.0f * dpiScale();
-      const Float32 ty  = sy + 3.0f * dpiScale();
+      const Float32 ty = sy + 3.0f * dpiScale();
 
       // The mode badge, in the mode's own color, reversed like vim's.
       {
           const Char*   mn = modeName(e.mode());
           const Float32 mw = ImGui::CalcTextSize(mn).x;
-          dl->AddRectFilled(ImVec2(origin.x, sy),
-                            ImVec2(origin.x + mw + pad * 2.0f, sy + statusH),
-                            modeColor(e.mode()));
+          dl->AddRectFilled(
+              ImVec2(origin.x, sy),
+              ImVec2(origin.x + mw + pad * 2.0f, sy + statusH),
+              modeColor(e.mode())
+          );
           dl->AddText(ImVec2(origin.x + pad, ty), syn::gruv::BG0_H, mn);
 
           Array<Char, 64> pos;
-          std::snprintf(pos.data(), pos.size(), "%d:%d",
-                        e.cursor().line + 1, e.cursor().col + 1);
+          std::snprintf(pos.data(), pos.size(), "%d:%d", e.cursor().line + 1, e.cursor().col + 1);
           const Float32 pw = ImGui::CalcTextSize(pos.data()).x;
           dl->AddText(ImVec2(origin.x + region.x - pw - pad, ty), syn::gruv::FG4, pos.data());
 
@@ -1744,7 +1805,7 @@ namespace ui
 
           if(e.mode() == ed::Mode::MODE_COMMAND)
           {
-              mid    = Str(1, e.commandPrefix()) + e.commandLine();
+              mid = Str(1, e.commandPrefix()) + e.commandLine();
               midCol = (e.commandPrefix() == ':') ? syn::gruv::FG1
                                                   : syn::gruv::AQUA;
           }
@@ -1778,7 +1839,7 @@ namespace ui
               // OUTRANKS "click to edit" on purpose: the tag on the right says
               // THAT it failed, this says WHY. "not installed" and "exited during
               // startup" want different things done about them.
-              mid    = lsp::status();
+              mid = lsp::status();
               midCol = syn::gruv::RED;
           }
           else if(!v.focused)
@@ -1815,8 +1876,11 @@ namespace ui
                   const Float32 dw = ImGui::CalcTextSize(db.data()).x;
 
                   // Left of the clangd tag, which claimed its own slot above.
-                  dl->AddText(ImVec2(rightOf - dw, ty),
-                              (errs > 0) ? syn::gruv::RED : syn::gruv::YELLOW, db.data());
+                  dl->AddText(
+                      ImVec2(rightOf - dw, ty),
+                      (errs > 0) ? syn::gruv::RED : syn::gruv::YELLOW,
+                      db.data()
+                  );
               }
           }
       }

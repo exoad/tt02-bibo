@@ -96,9 +96,17 @@ static Void printId(const CharSeq arg)
     Utf8 uid[24];
     bibo::board::id(uid, sizeof(uid));
 
-    bibo::serial::printf("INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
-           PICO_BOARD, PICO_SDK_VERSION_STRING, __DATE__, __TIME__,
-           uid, bibo::led::backend(), lampWord(), cyw43Field());
+    bibo::serial::printf(
+        "INFO id board=%s sdk=%s built=%s %s uid=%s lamp=%s lamp_up=%s%s\n",
+        PICO_BOARD,
+        PICO_SDK_VERSION_STRING,
+        __DATE__,
+        __TIME__,
+        uid,
+        bibo::led::backend(),
+        lampWord(),
+        cyw43Field()
+    );
 }
 
 /**
@@ -117,12 +125,16 @@ static Void printStatus(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
-    bibo::serial::printf("INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
-           bibo::timing::nowMs(),
-           PICO_BOARD,
-           bibo::status::isLit() ? "on" : "off",
-           static_cast<Float64>(bibo::status::rate()),
-           bibo::led::backend(), lampWord(), cyw43Field());
+    bibo::serial::printf(
+        "INFO status up_ms=%u board=%s led=%s blink_hz=%.2f lamp=%s lamp_up=%s%s\n",
+        bibo::timing::nowMs(),
+        PICO_BOARD,
+        bibo::status::isLit() ? "on" : "off",
+        static_cast<Float64>(bibo::status::rate()),
+        bibo::led::backend(),
+        lampWord(),
+        cyw43Field()
+    );
 }
 
 /**
@@ -186,8 +198,10 @@ static Void handleLed(const CharSeq arg)
         }
         if(hz < 0.0f || hz > BLINK_MAX_HZ)
         {
-            bibo::serial::printf("ERR blink rate out of range (0-%.0f hz)\n",
-                   static_cast<Float64>(BLINK_MAX_HZ));
+            bibo::serial::printf(
+                "ERR blink rate out of range (0-%.0f hz)\n",
+                static_cast<Float64>(BLINK_MAX_HZ)
+            );
             return;
         }
 
@@ -220,7 +234,7 @@ static Void handleLed(const CharSeq arg)
 #define ADDR_SCAN_LAST  0x77
 
 /* When the last command arrived; the flag stops the deadman re-firing every ms. */
-static UInt32 lastCmdMs      = 0;
+static UInt32 lastCmdMs = 0;
 static Bool   deadmanTripped = false;
 
 /*
@@ -238,9 +252,9 @@ static CharSeq cmdRawArg = "";
 /* Which wireless state has been announced, so a change is reported once. */
 static bibo::net::State netReported = bibo::net::STATE_ABSENT;
 
-static Bool i2cUp   = false;
+static Bool i2cUp = false;
 static bibo::tof::Vl53 tofFront;
-static Bool tofUp   = false;
+static Bool tofUp = false;
 
 /**
  * @brief Brings up the I2C bus and the front ToF sensor, if either is there.
@@ -281,8 +295,12 @@ static Void printSensors(const CharSeq arg)
 {
     static_cast<Void>(arg);
 
-    bibo::serial::printf("OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
-           i2cUp ? 1 : 0, tofUp ? 1 : 0, VL53_ADDR_DEFAULT);
+    bibo::serial::printf(
+        "OK sensors i2c=%d tof=%d tof_addr=0x%02X\n",
+        i2cUp ? 1 : 0,
+        tofUp ? 1 : 0,
+        VL53_ADDR_DEFAULT
+    );
 }
 
 /**
@@ -396,7 +414,7 @@ static Void handleTofMode(const CharSeq arg)
         const Bool wantShort = bibo::text::eq(arg, "SHORT");
 
         const Bool stopped = bibo::tof::stopRanging(&tofFront);
-        const Bool moded   = bibo::tof::setMode(&tofFront,
+        const Bool moded = bibo::tof::setMode(&tofFront,
                                                 wantShort
                                                     ? bibo::tof::MODE_SHORT
                                                     : bibo::tof::MODE_LONG);
@@ -404,8 +422,7 @@ static Void handleTofMode(const CharSeq arg)
 
         if(stopped && moded && started)
         {
-            bibo::serial::printf("OK tof mode %s\n",
-                                 wantShort ? "short" : "long");
+            bibo::serial::printf("OK tof mode %s\n", wantShort ? "short" : "long");
         }
         else
         {
@@ -419,7 +436,8 @@ static Void handleTofMode(const CharSeq arg)
                 wantShort ? "short" : "long",
                 static_cast<Int32>(stopped),
                 static_cast<Int32>(moded),
-                static_cast<Int32>(started));
+                static_cast<Int32>(started)
+            );
         }
         return;
     }
@@ -441,15 +459,24 @@ static Void handleTofMode(const CharSeq arg)
 static Void printDrive(Void)
 {
     const bibo::drive::State d = bibo::drive::read();
-    bibo::serial::printf("OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d "
-           "servo_on=%d servo_c=%d steer_m=%d steer_now=%d "
-           "slew=%d slew_esc=%d "
-           "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
-           d.servoUs, d.servoTargetUs, d.escUs, d.escTargetUs,
-           d.escArmed ? 1 : 0, d.servoLive ? 1 : 0, d.centerUs, d.steerMilli,
-           d.steerNowMilli,
-           d.steerSlewUs, d.throttleSlewUs,
-           d.servoMinUs, d.servoMaxUs, d.escMinUs, d.escMaxUs);
+    bibo::serial::printf(
+        "OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d " "servo_on=%d servo_c=%d steer_m=%d steer_now=%d " "slew=%d slew_esc=%d " "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
+        d.servoUs,
+        d.servoTargetUs,
+        d.escUs,
+        d.escTargetUs,
+        d.escArmed ? 1 : 0,
+        d.servoLive ? 1 : 0,
+        d.centerUs,
+        d.steerMilli,
+        d.steerNowMilli,
+        d.steerSlewUs,
+        d.throttleSlewUs,
+        d.servoMinUs,
+        d.servoMaxUs,
+        d.escMinUs,
+        d.escMaxUs
+    );
 }
 
 /**
@@ -499,8 +526,11 @@ static Void handleSlew(const CharSeq arg)
         Int32 us = 0;
         if(!bibo::text::toInt(rest, &us) || !bibo::drive::setSteerSlew(us))
         {
-            bibo::serial::printf("ERR slew steer wants %d-%d us per tick\n",
-                         SLEW_MIN_STEP, SLEW_MAX_STEP);
+            bibo::serial::printf(
+                "ERR slew steer wants %d-%d us per tick\n",
+                SLEW_MIN_STEP,
+                SLEW_MAX_STEP
+            );
             return;
         }
         printDrive();
@@ -513,8 +543,11 @@ static Void handleSlew(const CharSeq arg)
         Int32 us = 0;
         if(!bibo::text::toInt(rest, &us) || !bibo::drive::setThrottleSlew(us))
         {
-            bibo::serial::printf("ERR slew throttle wants %d-%d us per tick\n",
-                         SLEW_MIN_STEP, SLEW_MAX_STEP);
+            bibo::serial::printf(
+                "ERR slew throttle wants %d-%d us per tick\n",
+                SLEW_MIN_STEP,
+                SLEW_MAX_STEP
+            );
             return;
         }
         printDrive();
@@ -524,8 +557,11 @@ static Void handleSlew(const CharSeq arg)
     Int32 us = 0;
     if(!bibo::text::toInt(arg, &us) || !bibo::drive::setSlew(us))
     {
-        bibo::serial::printf("ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
-                     SLEW_MIN_STEP, SLEW_MAX_STEP);
+        bibo::serial::printf(
+            "ERR slew wants %d-%d us per tick, or STEER/THROTTLE <us>\n",
+            SLEW_MIN_STEP,
+            SLEW_MAX_STEP
+        );
         return;
     }
 
@@ -536,16 +572,20 @@ static Void handleSlew(const CharSeq arg)
      */
     const bibo::drive::State d = bibo::drive::read();
     const Int32 perSec = d.steerSlewUs * (1000 / SLEW_TICK_MS);
-    bibo::serial::printf("INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
-                 d.steerSlewUs, perSec,
-                 (perSec > 0) ? (((d.servoMaxUs - d.servoMinUs) * 1000) / perSec)
-                              : 0);
+    bibo::serial::printf(
+        "INFO slew steer %d us/tick = %d us/s, full travel %d ms\n",
+        d.steerSlewUs,
+        perSec,
+        (perSec > 0) ? (((d.servoMaxUs - d.servoMinUs) * 1000) / perSec) : 0
+    );
 
     const Int32 escPerSec = d.throttleSlewUs * (1000 / SLEW_TICK_MS);
-    bibo::serial::printf("INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
-                 d.throttleSlewUs, escPerSec,
-                 (escPerSec > 0) ? (((d.escMaxUs - d.escMinUs) * 1000) / escPerSec)
-                                 : 0);
+    bibo::serial::printf(
+        "INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\n",
+        d.throttleSlewUs,
+        escPerSec,
+        (escPerSec > 0) ? (((d.escMaxUs - d.escMinUs) * 1000) / escPerSec) : 0
+    );
     printDrive();
 }
 
@@ -650,7 +690,10 @@ static Void handleServo(const CharSeq arg)
     if(bibo::text::eq(arg, "ON"))
     {
         bibo::drive::engage(true);
-        bibo::serial::printf("INFO servo engaged - holding %d us\n", bibo::drive::read().servoTargetUs);
+        bibo::serial::printf(
+            "INFO servo engaged - holding %d us\n",
+            bibo::drive::read().servoTargetUs
+        );
         printDrive();
         return;
     }
@@ -666,8 +709,11 @@ static Void handleServo(const CharSeq arg)
     if(!bibo::text::toInt(arg, &us))
     {
         const bibo::drive::State d = bibo::drive::read();
-        bibo::serial::printf("ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
-               d.servoMinUs, d.servoMaxUs);
+        bibo::serial::printf(
+            "ERR servo wants microseconds, %d-%d, or ON/OFF/CENTER\n",
+            d.servoMinUs,
+            d.servoMaxUs
+        );
         return;
     }
 
@@ -775,23 +821,35 @@ static Void printLights(const CharSeq arg)
      * say what fits in one. levels[] and pins[] are in Lamp order, which is the
      * order LAMP_NAME is in.
      */
-    bibo::serial::printf("OK lights on=%d turn=%s forced=%s off_us=%d"
-                 " levels=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u"
-                 " pins=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-                 bibo::lights::enabled() ? 1 : 0,
-                 (t == bibo::cue::TURN_LEFT)  ? "left"
-                     : (t == bibo::cue::TURN_RIGHT)  ? "right"
-                     : (t == bibo::cue::TURN_HAZARD) ? "hazard" : "off",
-                 (f == bibo::lights::LAMP_COUNT) ? "no" : LAMP_NAME[f],
-                 bibo::cue::motionUs(),
-                 static_cast<UInt32>(s.level[0]), static_cast<UInt32>(s.level[1]),
-                 static_cast<UInt32>(s.level[2]), static_cast<UInt32>(s.level[3]),
-                 static_cast<UInt32>(s.level[4]), static_cast<UInt32>(s.level[5]),
-                 static_cast<UInt32>(s.level[6]), static_cast<UInt32>(s.level[7]),
-                 static_cast<UInt32>(s.level[8]), static_cast<UInt32>(s.level[9]),
-                 bibo::lights::pin[0], bibo::lights::pin[1], bibo::lights::pin[2], bibo::lights::pin[3],
-                 bibo::lights::pin[4], bibo::lights::pin[5], bibo::lights::pin[6], bibo::lights::pin[7],
-                 bibo::lights::pin[8], bibo::lights::pin[9]);
+    bibo::serial::printf(
+        "OK lights on=%d turn=%s forced=%s off_us=%d" " levels=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u" " pins=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+        bibo::lights::enabled() ? 1 : 0,
+        (t == bibo::cue::TURN_LEFT) ? "left" : (t == bibo::cue::TURN_RIGHT) ? "right" : (
+            t == bibo::cue::TURN_HAZARD
+        ) ? "hazard" : "off",
+        (f == bibo::lights::LAMP_COUNT) ? "no" : LAMP_NAME[f],
+        bibo::cue::motionUs(),
+        static_cast<UInt32>(s.level[0]),
+        static_cast<UInt32>(s.level[1]),
+        static_cast<UInt32>(s.level[2]),
+        static_cast<UInt32>(s.level[3]),
+        static_cast<UInt32>(s.level[4]),
+        static_cast<UInt32>(s.level[5]),
+        static_cast<UInt32>(s.level[6]),
+        static_cast<UInt32>(s.level[7]),
+        static_cast<UInt32>(s.level[8]),
+        static_cast<UInt32>(s.level[9]),
+        bibo::lights::pin[0],
+        bibo::lights::pin[1],
+        bibo::lights::pin[2],
+        bibo::lights::pin[3],
+        bibo::lights::pin[4],
+        bibo::lights::pin[5],
+        bibo::lights::pin[6],
+        bibo::lights::pin[7],
+        bibo::lights::pin[8],
+        bibo::lights::pin[9]
+    );
 }
 
 /**
@@ -833,8 +891,11 @@ static Void handleLights(const CharSeq arg)
         if(!bibo::text::toInt(bibo::text::after(arg, "OFFAT "), &us)
            || !bibo::cue::setMotionUs(us))
         {
-            bibo::serial::printf("ERR lights offat wants %d-%d us past idle\n",
-                         CUE_MOTION_US_MIN, CUE_MOTION_US_MAX);
+            bibo::serial::printf(
+                "ERR lights offat wants %d-%d us past idle\n",
+                CUE_MOTION_US_MIN,
+                CUE_MOTION_US_MAX
+            );
             return;
         }
         printLights(arg);
@@ -867,8 +928,9 @@ static Void handleLights(const CharSeq arg)
         }
     }
 
-    bibo::serial::printf("ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name,"
-                 " or nothing\n");
+    bibo::serial::printf(
+        "ERR lights wants ON, OFF, AUTO, OFFAT <us>, a lamp name," " or nothing\n"
+    );
 }
 
 /*
@@ -1011,12 +1073,14 @@ static Void cmdWifi(const CharSeq arg)
     const CharSeq rest = bibo::text::word(arg, "JOIN");
     if(rest == nullptr)
     {
-        bibo::serial::printf("INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
-                     bibo::net::stateWord(bibo::net::status()),
-                     bibo::net::address(),
-                     static_cast<Int32>(NET_PORT),
-                     bibo::net::peerKnown() ? "yes" : "no",
-                     bibo::net::droppedCount());
+        bibo::serial::printf(
+            "INFO wifi state=%s ip=%s port=%d peer=%s dropped=%u\n",
+            bibo::net::stateWord(bibo::net::status()),
+            bibo::net::address(),
+            static_cast<Int32>(NET_PORT),
+            bibo::net::peerKnown() ? "yes" : "no",
+            bibo::net::droppedCount()
+        );
         return;
     }
 
@@ -1040,8 +1104,10 @@ static Void cmdWifi(const CharSeq arg)
     if(raw[n] != '\0' && raw[n] != ' ')
     {
         /* A truncated SSID would fail to join and look like it was out of range. */
-        bibo::serial::printf("ERR wifi ssid longer than %u characters\n",
-                     static_cast<UInt32>(sizeof(ssid) - 1));
+        bibo::serial::printf(
+            "ERR wifi ssid longer than %u characters\n",
+            static_cast<UInt32>(sizeof(ssid) - 1)
+        );
         return;
     }
 
@@ -1126,7 +1192,8 @@ static Void printCue(Void)
         static_cast<UInt32>(bibo::cue::loop()),
         static_cast<UInt32>(bibo::cue::tone()),
         static_cast<Int32>(bibo::cue::KIND_COUNT - 1),
-        bibo::cue::motionUs());
+        bibo::cue::motionUs()
+    );
 }
 
 /**
@@ -1155,10 +1222,12 @@ static Void cmdCue(const CharSeq arg)
              * The PLAY MODE is in the line because a caller has to know it:
              * `once` ends on its own, `loop` and `hold` stay up until lowered.
              */
-            bibo::serial::printf("INFO cue %s [%s] - %s\n",
-                         bibo::cue::SCRIPT[k].name,
-                         bibo::cue::playWord(bibo::cue::SCRIPT[k].play),
-                         bibo::cue::SCRIPT[k].means);
+            bibo::serial::printf(
+                "INFO cue %s [%s] - %s\n",
+                bibo::cue::SCRIPT[k].name,
+                bibo::cue::playWord(bibo::cue::SCRIPT[k].play),
+                bibo::cue::SCRIPT[k].means
+            );
         }
         printCue();
         return;
@@ -1173,7 +1242,7 @@ static Void cmdCue(const CharSeq arg)
 
     /* "CUE LEFT OFF" - split before the lookup, so no cue is named "LEFT OFF". */
     Utf8    word[24];
-    Size    n   = 0;
+    Size    n = 0;
     CharSeq rest = arg;
 
     while(*rest != '\0' && *rest != ' ' && n + 1 < sizeof(word))
@@ -1189,8 +1258,7 @@ static Void cmdCue(const CharSeq arg)
     const bibo::cue::Kind want = bibo::cue::find(word);
     if(want == bibo::cue::KIND_NONE)
     {
-        bibo::serial::printf(
-            "ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
+        bibo::serial::printf("ERR cue wants LIST, STOP, or a cue name - try CUE LIST\n");
         return;
     }
 
@@ -1198,8 +1266,11 @@ static Void cmdCue(const CharSeq arg)
 
     if(*rest != '\0' && !off)
     {
-        bibo::serial::printf("ERR cue %s takes OFF or nothing, not %s\n",
-                             bibo::cue::name(want), rest);
+        bibo::serial::printf(
+            "ERR cue %s takes OFF or nothing, not %s\n",
+            bibo::cue::name(want),
+            rest
+        );
         return;
     }
 
@@ -1209,8 +1280,7 @@ static Void cmdCue(const CharSeq arg)
     }
     else if(!bibo::cue::emit(want))
     {
-        bibo::serial::printf("ERR cue %s cannot be raised\n",
-                             bibo::cue::name(want));
+        bibo::serial::printf("ERR cue %s cannot be raised\n", bibo::cue::name(want));
         return;
     }
 
@@ -1257,8 +1327,7 @@ static Void printSound(Void)
     const CharSeq clip = bibo::sfx::nameOf(bibo::sound::track());
 
     bibo::serial::printf(
-        "OK sound ready=%s vol=%u max=%u eq=%u track=%u clip=%s files=%u "
-        "busy=%s tx=%d rx=%d busyGp=%d\n",
+        "OK sound ready=%s vol=%u max=%u eq=%u track=%u clip=%s files=%u " "busy=%s tx=%d rx=%d busyGp=%d\n",
         bibo::sound::ready() ? "yes" : "no",
         static_cast<UInt32>(bibo::sound::volume()),
         static_cast<UInt32>(DFP_VOLUME_MAX),
@@ -1266,12 +1335,11 @@ static Void printSound(Void)
         static_cast<UInt32>(bibo::sound::track()),
         (clip != nullptr) ? clip : "-",
         static_cast<UInt32>(bibo::sound::count()),
-        !bibo::sound::hasVoice()
-            ? "unwired"
-            : (bibo::sound::speaking() ? "yes" : "no"),
+        !bibo::sound::hasVoice() ? "unwired" : (bibo::sound::speaking() ? "yes" : "no"),
         static_cast<Int32>(bibo::pins::active().soundTx),
         static_cast<Int32>(bibo::pins::active().soundRx),
-        static_cast<Int32>(bibo::pins::active().soundBusy));
+        static_cast<Int32>(bibo::pins::active().soundBusy)
+    );
 }
 
 /**
@@ -1310,8 +1378,10 @@ static Void cmdSound(const CharSeq arg)
         }
         if(v < 0 || v > static_cast<Int32>(DFP_VOLUME_MAX))
         {
-            bibo::serial::printf("ERR sound volume out of range 0-%u\n",
-                                 static_cast<UInt32>(DFP_VOLUME_MAX));
+            bibo::serial::printf(
+                "ERR sound volume out of range 0-%u\n",
+                static_cast<UInt32>(DFP_VOLUME_MAX)
+            );
             return;
         }
 
@@ -1355,8 +1425,7 @@ static Void cmdSound(const CharSeq arg)
         if(r != bibo::sound::RESULT_OK)
         {
             /* WHICH failure: all four sound identical, and need four fixes. */
-            bibo::serial::printf("ERR sound %s: %s\n",
-                                 bibo::sound::why(r), want);
+            bibo::serial::printf("ERR sound %s: %s\n", bibo::sound::why(r), want);
             return;
         }
 
@@ -1374,8 +1443,7 @@ static Void cmdSound(const CharSeq arg)
         if(!bibo::text::toInt(bibo::text::after(arg, "EQ "), &m)
            || m < 0 || m > static_cast<Int32>(DFP_EQ_MAX))
         {
-            bibo::serial::printLine(
-                "ERR sound EQ wants 0-5: normal pop rock jazz classic bass");
+            bibo::serial::printLine("ERR sound EQ wants 0-5: normal pop rock jazz classic bass");
             return;
         }
 
@@ -1389,10 +1457,12 @@ static Void cmdSound(const CharSeq arg)
     {
         for(auto [name, track, means] : bibo::sfx::CLIPS)
         {
-            bibo::serial::printf("INFO sfx %s track=%u - %s\n",
-                                 name,
-                                 static_cast<UInt32>(track),
-                                 means);
+            bibo::serial::printf(
+                "INFO sfx %s track=%u - %s\n",
+                name,
+                static_cast<UInt32>(track),
+                means
+            );
         }
 
         /*
@@ -1405,7 +1475,8 @@ static Void cmdSound(const CharSeq arg)
             bibo::serial::printf(
                 "ERR sfx names reach track %u but the card holds %u\n",
                 static_cast<UInt32>(bibo::sfx::highest()),
-                static_cast<UInt32>(bibo::sound::count()));
+                static_cast<UInt32>(bibo::sound::count())
+            );
         }
         printSound();
         return;
@@ -1427,13 +1498,15 @@ static Void cmdSound(const CharSeq arg)
         if(!bibo::sound::mount() || bibo::sound::count() == 0)
         {
             bibo::serial::printLine(
-                "ERR sound the module did not answer - check power, the card, "
-                "and that its TX reaches the Pico's RX");
+                "ERR sound the module did not answer - check power, the card, " "and that its TX reaches the Pico's RX"
+            );
             return;
         }
 
-        bibo::serial::printf("INFO sound %u file(s) on the card\n",
-                             static_cast<UInt32>(bibo::sound::count()));
+        bibo::serial::printf(
+            "INFO sound %u file(s) on the card\n",
+            static_cast<UInt32>(bibo::sound::count())
+        );
         printSound();
         return;
     }
@@ -1450,7 +1523,7 @@ static Void cmdSound(const CharSeq arg)
     {
         Utf8  line[96];
         Size  at = 0;
-        Int32 n  = 0;
+        Int32 n = 0;
 
         line[0] = '\0';
 
@@ -1472,8 +1545,7 @@ static Void cmdSound(const CharSeq arg)
             at += static_cast<Size>(w);
         }
 
-        bibo::serial::printf("OK sound rx %d bytes %s\n",
-                             n, (n > 0) ? line : "-");
+        bibo::serial::printf("OK sound rx %d bytes %s\n", n, (n > 0) ? line : "-");
         return;
     }
 
@@ -1509,7 +1581,8 @@ static Void cmdSound(const CharSeq arg)
     }
 
     bibo::serial::printLine(
-        "ERR sound wants RESET|VOL <0-30>|EQ <0-5>|PLAY <name|n>|LIST|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV");
+        "ERR sound wants RESET|VOL <0-30>|EQ <0-5>|PLAY <name|n>|LIST|FILES|RX|STOP|PAUSE|RESUME|NEXT|PREV"
+    );
 }
 
 static const Command COMMANDS[] =
@@ -1561,8 +1634,7 @@ static Void printHelp(const CharSeq arg)
     static_cast<Void>(arg);
     for(const auto& i : COMMANDS)
     {
-        bibo::serial::printf("INFO help %s%s - %s\n",
-                     i.name, i.usage, i.what);
+        bibo::serial::printf("INFO help %s%s - %s\n", i.name, i.usage, i.what);
     }
 }
 
@@ -1590,7 +1662,7 @@ static Void handleLine(Utf8* line)
 
     bibo::text::upper(line);
 
-    lastCmdMs      = bibo::timing::nowMs();
+    lastCmdMs = bibo::timing::nowMs();
     deadmanTripped = false;
 
     /* "?" is HELP, not a row of its own - it would print in its own listing. */
@@ -1705,7 +1777,7 @@ int main(Void)
     bibo::serial::setMirror(bibo::net::sendLine);
 
     Utf8 line[LINE_CAP];
-    Size len      = 0;
+    Size len = 0;
     Bool overlong = false;
     Bool announced = false;
 
@@ -1726,8 +1798,12 @@ int main(Void)
             if(const bibo::net::State ns = bibo::net::status(); ns != netReported)
             {
                 netReported = ns;
-                bibo::serial::printf("INFO wifi state=%s ip=%s port=%d\n",
-                             bibo::net::stateWord(ns), bibo::net::address(), static_cast<Int32>(NET_PORT));
+                bibo::serial::printf(
+                    "INFO wifi state=%s ip=%s port=%d\n",
+                    bibo::net::stateWord(ns),
+                    bibo::net::address(),
+                    static_cast<Int32>(NET_PORT)
+                );
             }
         }
 
@@ -1745,7 +1821,7 @@ int main(Void)
          * stopped draining the port is exactly what this exists for.
          */
         {
-            const bibo::drive::State dm      = bibo::drive::read();
+            const bibo::drive::State dm = bibo::drive::read();
 
             if(const Bool driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs); driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
             {
@@ -1761,8 +1837,10 @@ int main(Void)
 
                 deadmanTripped = true;
 
-                bibo::serial::printf("ERR deadman - no command for %u ms, stopped\n",
-                             static_cast<UInt32>(DEADMAN_MS));
+                bibo::serial::printf(
+                    "ERR deadman - no command for %u ms, stopped\n",
+                    static_cast<UInt32>(DEADMAN_MS)
+                );
             }
         }
 
@@ -1777,10 +1855,10 @@ int main(Void)
             bibo::cue::Input ci{};
             ci.steerMilli = d.steerNowMilli;
             ci.throttleUs = d.escUs;
-            ci.idleUs     = d.escMinUs;
-            ci.neutralUs  = DRIVE_NEUTRAL_US;
-            ci.armed      = d.escArmed;
-            ci.headOn     = false;   /* nothing the car knows implies darkness */
+            ci.idleUs = d.escMinUs;
+            ci.neutralUs = DRIVE_NEUTRAL_US;
+            ci.armed = d.escArmed;
+            ci.headOn = false;   /* nothing the car knows implies darkness */
 
             bibo::cue::tick(&ci);
         }
@@ -1789,8 +1867,11 @@ int main(Void)
         const Bool host = bibo::serial::hostPresent();
         if(!announced && host)
         {
-            bibo::serial::printf("INFO ready %s sdk=%s - type HELP\n",
-                   PICO_BOARD, PICO_SDK_VERSION_STRING);
+            bibo::serial::printf(
+                "INFO ready %s sdk=%s - type HELP\n",
+                PICO_BOARD,
+                PICO_SDK_VERSION_STRING
+            );
             announced = true;
         }
         if(announced && !host)
@@ -1812,7 +1893,7 @@ int main(Void)
                 line[len] = '\0';
                 handleLine(line);
             }
-            len      = 0;
+            len = 0;
             overlong = false;
         }
         else if(overlong)
@@ -1831,7 +1912,7 @@ int main(Void)
              * this error AND whatever bytes 129 onward parsed as - a command
              * nobody sent. The overlong flag is what actually drops it.
              */
-            len      = 0;
+            len = 0;
             overlong = true;
             bibo::serial::printf("ERR line too long\n");
         }

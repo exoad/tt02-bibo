@@ -99,12 +99,18 @@ namespace bibo::cue
      *     rate >=  90 fpm   <=>   60000 >=  90 * period   <=>   period <= 666 ms
      *     rate <= 120 fpm   <=>   60000 <= 120 * period   <=>   period >= 500 ms
      */
-    static_assert(CUE_BLINK_PERIOD_MS >= 500u,
-                  "flash rate over 120/min - faster than SAE J590/J945 allow");
-    static_assert(CUE_BLINK_PERIOD_MS <= 666u,
-                  "flash rate under 90/min - below the normally-closed band");
-    static_assert(CUE_BLINK_ON_MS >= CUE_BLINK_OFF_MS,
-                  "on-time shorter than off-time - outside the J945 Figure 1 envelope");
+    static_assert(
+        CUE_BLINK_PERIOD_MS >= 500u,
+        "flash rate over 120/min - faster than SAE J590/J945 allow"
+    );
+    static_assert(
+        CUE_BLINK_PERIOD_MS <= 666u,
+        "flash rate under 90/min - below the normally-closed band"
+    );
+    static_assert(
+        CUE_BLINK_ON_MS >= CUE_BLINK_OFF_MS,
+        "on-time shorter than off-time - outside the J945 Figure 1 envelope"
+    );
 
     /* Which way the car is indicating, or wants to. */
     enum Turn
@@ -262,9 +268,9 @@ namespace bibo::cue
     };
 
     /* Held states. */
-    static constexpr Step STEPS_HEAD[]    = { { .ms = 0u, .lamps = CUE_CH_HEAD, .level = LAMP_FULL, .tone = TONE_NONE } };
+    static constexpr Step STEPS_HEAD[] = { { .ms = 0u, .lamps = CUE_CH_HEAD, .level = LAMP_FULL, .tone = TONE_NONE } };
     static constexpr Step STEPS_RUNNING[] = { { .ms = 0u, .lamps = CUE_CH_TAIL, .level = LAMP_DIM,  .tone = TONE_NONE } };
-    static constexpr Step STEPS_BRAKE[]   = { { .ms = 0u, .lamps = CUE_CH_TAIL, .level = LAMP_FULL, .tone = TONE_NONE } };
+    static constexpr Step STEPS_BRAKE[] = { { .ms = 0u, .lamps = CUE_CH_TAIL, .level = LAMP_FULL, .tone = TONE_NONE } };
     static constexpr Step STEPS_REVERSE[] = { { .ms = 0u, .lamps = CUE_CH_REV, .level = LAMP_FULL, .tone = TONE_NONE } };
 
     /*
@@ -331,16 +337,16 @@ namespace bibo::cue
 
         for(Int32 k = 0; k < KIND_COUNT; ++k)
         {
-            active[k]   = false;
-            latched[k]  = false;
-            stepIx[k]   = 0;
-            loopIx[k]   = 0;
+            active[k] = false;
+            latched[k] = false;
+            stepIx[k] = 0;
+            loopIx[k] = 0;
             stepAtUs[k] = 0;
         }
-        turnWant   = TURN_OFF;
+        turnWant = TURN_OFF;
         turnHoldUs = 0;
-        toneNow    = TONE_NONE;
-        up         = true;
+        toneNow = TONE_NONE;
+        up = true;
     }
 
     /**
@@ -475,9 +481,9 @@ namespace bibo::cue
      */
     inline Void start(const Kind k, const UInt64 now)
     {
-        active[k]   = true;
-        stepIx[k]   = 0;
-        loopIx[k]   = 0;
+        active[k] = true;
+        stepIx[k] = 0;
+        loopIx[k] = 0;
         stepAtUs[k] = now + static_cast<UInt64>(SCRIPT[k].step[0].ms) * 1000u;
     }
 
@@ -513,7 +519,7 @@ namespace bibo::cue
             {
                 if(other != k)
                 {
-                    active[other]  = false;
+                    active[other] = false;
                     latched[other] = false;
                 }
             }
@@ -538,7 +544,7 @@ namespace bibo::cue
         {
             return false;
         }
-        active[k]  = false;
+        active[k] = false;
         latched[k] = false;
         return true;
     }
@@ -550,7 +556,7 @@ namespace bibo::cue
     {
         for(Int32 k = 1; k < KIND_COUNT; ++k)
         {
-            active[k]  = false;
+            active[k] = false;
             latched[k] = false;
         }
         toneNow = TONE_NONE;
@@ -786,7 +792,7 @@ namespace bibo::cue
                 if(sc->play == PLAY_ONCE && loopIx[k] >= sc->repeats)
                 {
                     /* A finished one-shot does not stay latched. */
-                    active[k]  = false;
+                    active[k] = false;
                     latched[k] = false;
                     return;
                 }
@@ -847,9 +853,11 @@ namespace bibo::cue
 
             const Step* st = &sc->step[stepIx[k]];
 
-            channelLamps(static_cast<UInt8>(static_cast<UInt32>(owned)
-                                            & ~static_cast<UInt32>(st->lamps)),
-                         LAMP_OFF, out);
+            channelLamps(
+                static_cast<UInt8>(static_cast<UInt32>(owned) & ~static_cast<UInt32>(st->lamps)),
+                LAMP_OFF,
+                out
+            );
             channelLamps(st->lamps, st->level, out);
 
             if(st->tone != TONE_NONE)
@@ -900,7 +908,7 @@ namespace bibo::cue
 
         if(want != TURN_OFF && want != turnWant)
         {
-            turnWant   = want;
+            turnWant = want;
             turnHoldUs = now + static_cast<UInt64>(CUE_BLINK_PERIOD_MS) * 1000u;
         }
         else if(turnWant != TURN_OFF
@@ -924,8 +932,8 @@ namespace bibo::cue
          * mirrors it about neutral, symmetric on purpose. Between the two the
          * motor is doing nothing worth calling motion and the tails stay on.
          */
-        const Bool fwd    = in->throttleUs > in->idleUs + motionUsNow;
-        const Bool rev    = in->throttleUs < in->neutralUs - motionUsNow;
+        const Bool fwd = in->throttleUs > in->idleUs + motionUsNow;
+        const Bool rev = in->throttleUs < in->neutralUs - motionUsNow;
         const Bool driven = fwd || rev;
 
         /*

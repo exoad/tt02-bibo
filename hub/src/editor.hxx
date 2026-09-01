@@ -85,8 +85,8 @@ namespace ed
 
   struct Key
   {
-      Char    ch   = 0;
-      Special sp   = Special::SPECIAL_NONE;
+      Char    ch = 0;
+      Special sp = Special::SPECIAL_NONE;
       Bool    ctrl = false;
       Bool    shift = false;
   };
@@ -97,7 +97,7 @@ namespace ed
   struct Cursor
   {
       Int32 line = 0;
-      Int32 col  = 0;
+      Int32 col = 0;
   };
 
   // How many spaces one indent level is. Four, matching the C++ in this repo and
@@ -306,14 +306,14 @@ namespace ed
       // Normal-mode parse state: a pending count and a pending operator, both
       // cleared whenever a command completes or is abandoned.
       Int32 pendCount = 0;
-      Char  pendOp    = 0;
+      Char  pendOp = 0;
 
       // The rest of the multi-key commands, each waiting for exactly one more
       // character. Separate fields rather than one because they can nest: `d`
       // pending an operator AND `i` pending an object is `di(`.
-      Char  pendFind    = 0;   // f F t T, awaiting the target character
+      Char  pendFind = 0;   // f F t T, awaiting the target character
       Char  pendObjKind = 0;   // i or a, awaiting the object character
-      Char  pendMark    = 0;   // m, ' or `, awaiting the mark name
+      Char  pendMark = 0;   // m, ' or `, awaiting the mark name
 
       // A count typed BETWEEN the operator and the motion: the 3 in d3w. Vim
       // multiplies it by any count before the operator, so 2d3w deletes six.
@@ -324,7 +324,7 @@ namespace ed
       Bool searchForward = true;
 
       // ---- f/F/t/T state, for ; and , ---------------------------------------
-      Char lastFindCmd  = 0;
+      Char lastFindCmd = 0;
       Char lastFindChar = 0;
 
       Map<Char, Cursor> marks;
@@ -335,7 +335,7 @@ namespace ed
       // the replacement text and the Escape are one sequence and repeat as one.
       Vec<Key> recBuf;
       Vec<Key> lastChange;
-      Bool     replaying  = false;
+      Bool     replaying = false;
       Bool     changeOpen = false;
 
       // Bumped by pushUndo(), which every mutating command already calls. That
@@ -345,7 +345,7 @@ namespace ed
 
       // Set by the UI. Defaults are a sane screenful for the headless tests.
       Int32 viewFirst = 0;
-      Int32 viewSpan  = 24;
+      Int32 viewSpan = 24;
 
       Char cmdPrefix = ':';
 

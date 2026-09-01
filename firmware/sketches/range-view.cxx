@@ -129,9 +129,9 @@ int main(Void)
     c.safeInset(SAFE_INSET);
 
     const gfx::Box safe = c.safe();
-    const Int32 left  = safe.x;
+    const Int32 left = safe.x;
     const Int32 right = safe.x + safe.w;
-    const Int32 wide  = safe.w;
+    const Int32 wide = safe.w;
 
     /* The four appearances this screen uses, named once. */
     const gfx::Paint TITLE { .fg = gfx::ORANGE,   .size = 2 };
@@ -153,9 +153,9 @@ int main(Void)
                       && tof::open(&tof, VL53_ADDR_DEFAULT)
                       && tof::startRanging(&tof);
 
-    UInt16 mm     = 0;
+    UInt16 mm = 0;
     UInt8  status = 255;
-    UInt32 reads  = 0;
+    UInt32 reads = 0;
 
     /*
      * Seeded so the FIRST good reading replaces them, rather than starting at
@@ -168,7 +168,7 @@ int main(Void)
     {
         if(haveTof && tof::ready(&tof))
         {
-            mm     = tof::distance(&tof);
+            mm = tof::distance(&tof);
             status = tof::status(&tof);
             tof::clear(&tof);
             ++reads;

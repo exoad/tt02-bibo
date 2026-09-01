@@ -145,8 +145,8 @@ namespace lint
     Str blankOutText(const Str& line, Bool& inBlockComment)
     {
         Str out = line;
-        Bool inStr  = false;
-        Bool inChr  = false;
+        Bool inStr = false;
+        Bool inChr = false;
 
         for(Size i = 0; i < out.size(); ++i)
         {
@@ -218,10 +218,10 @@ namespace lint
     Void add(Vec<diag::Item>& out, Int32 line, Size col, const Char* msg)
     {
         diag::Item it;
-        it.line     = line;
-        it.column   = static_cast<Int32>(col) + 1;   // 1-based, as compilers count
+        it.line = line;
+        it.column = static_cast<Int32>(col) + 1;   // 1-based, as compilers count
         it.severity = diag::Severity::SEVERITY_WARN;
-        it.message  = msg;
+        it.message = msg;
         out.push_back(it);
     }
 
@@ -276,11 +276,12 @@ namespace lint
                 // this rule holds for both languages - but `char` in C is used for
                 // string literals far more often, and Utf8 is the alias, so the
                 // wording differs.
-                add(out, lineNo, i,
-                    (std::strcmp(b, "char") == 0 && lang == Lang::LANG_C)
-                        ? "bare `char` - use Utf8 from shared.h"
-                        : "bare builtin type - use the shared alias "
-                          "(Int32, Float32, Bool, ...)");
+                add(
+                    out,
+                    lineNo,
+                    i,
+                    (std::strcmp(b, "char") == 0 && lang == Lang::LANG_C) ? "bare `char` - use Utf8 from shared.h" : "bare builtin type - use the shared alias " "(Int32, Float32, Bool, ...)"
+                );
                 i += std::strlen(b) - 1;
                 break;
             }
@@ -347,8 +348,7 @@ namespace lint
                 }
                 if(hasLower)
                 {
-                    add(out, lineNo, i,
-                        "`k` prefix - constants are SCREAMING_SNAKE_CASE");
+                    add(out, lineNo, i, "`k` prefix - constants are SCREAMING_SNAKE_CASE");
                 }
             }
         }
@@ -471,13 +471,16 @@ namespace lint
                 const Bool hasUnderscore = (name.find('_') != Str::npos);
                 if(name[0] >= 'A' && name[0] <= 'Z' && !hasUnderscore)
                 {
-                    add(out, lineNo, nameAt,
-                        "function starts with a capital - functions are camelCase");
+                    add(
+                        out,
+                        lineNo,
+                        nameAt,
+                        "function starts with a capital - functions are camelCase"
+                    );
                 }
                 else if(hasUnderscore && name[0] >= 'a' && name[0] <= 'z')
                 {
-                    add(out, lineNo, nameAt,
-                        "snake_case function - functions are camelCase");
+                    add(out, lineNo, nameAt, "snake_case function - functions are camelCase");
                 }
                 break;
             }
@@ -517,16 +520,14 @@ namespace lint
                 const Str name = code.substr(j, e - j);
                 if(name[0] >= 'a' && name[0] <= 'z')
                 {
-                    add(out, lineNo, j,
-                        "type name is lowercase - types are PascalCase");
+                    add(out, lineNo, j, "type name is lowercase - types are PascalCase");
                 }
                 else if(name.find('_') != Str::npos
                         && !(name[0] >= 'A' && name[0] <= 'Z'
                              && name.find_first_of("abcdefghijklmnopqrstuvwxyz")
                                 == Str::npos))
                 {
-                    add(out, lineNo, j,
-                        "snake_case type name - types are PascalCase");
+                    add(out, lineNo, j, "snake_case type name - types are PascalCase");
                 }
                 break;
             }
@@ -539,9 +540,12 @@ namespace lint
             {
                 if(const Size pos = code.find(t); pos != Str::npos)
                 {
-                    add(out, lineNo, pos,
-                        "unaliased std type - use the shared.hxx alias "
-                        "(Vec, Str, Map, Mutex, ...)");
+                    add(
+                        out,
+                        lineNo,
+                        pos,
+                        "unaliased std type - use the shared.hxx alias " "(Vec, Str, Map, Mutex, ...)"
+                    );
                     break;
                 }
             }
@@ -586,8 +590,12 @@ namespace lint
 
                     if(hasContent && isBody)
                     {
-                        add(out, lineNo, open,
-                            "one-lined body - Allman braces, on their own lines");
+                        add(
+                            out,
+                            lineNo,
+                            open,
+                            "one-lined body - Allman braces, on their own lines"
+                        );
                     }
                 }
             }

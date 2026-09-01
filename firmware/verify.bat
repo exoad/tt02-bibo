@@ -59,6 +59,21 @@ if errorlevel 1 (
   echo   [ ok ] audit          0 violations
 )
 
+REM ---- 3b. call wrapping and equals padding ---------------------------------
+REM  Separate from the audit because it can FIX what it finds: --apply rewrites,
+REM  and a rule that can repair itself should say so rather than only refusing.
+REM
+REM  NO BACKTICKS IN THESE COMMENTS. cmd still tokenises a REM line, and a
+REM  backtick pair here made the "for /f" over git, sixteen lines below, try to
+REM  run a command called git's - an error out of a line nobody had touched.
+python "%ROOT%\tools\format.py" >nul 2>&1
+if errorlevel 1 (
+  echo   [FAIL] format         run tools\format.py to see it, --apply to fix it
+  set FAIL=1
+) else (
+  echo   [ ok ] format         0 violations
+)
+
 REM ---- 4. did the tree move under us? --------------------------------------
 for /f "delims=" %%s in ('git -C "%ROOT%" rev-parse HEAD 2^>nul') do set NOW=%%s
 if not "%NOW%"=="%PINNED%" (

@@ -30,7 +30,7 @@
 #include <string.h>
 
 static Int32 failures = 0;
-static Int32 checks   = 0;
+static Int32 checks = 0;
 
 /**
  * @brief Records a pass/fail check and prints its outcome.
@@ -80,10 +80,11 @@ static Void testInspect(Void)
     check(bibo::text::starts("STEER", ""), "the empty prefix always matches");
     check(!bibo::text::starts(nullptr, "X"), "nullptr starts with nothing");
 
-    check(bibo::text::eq(bibo::text::after("STEER 0.5", "STEER "), "0.5"),
-          "bibo::text::after returns the argument");
-    check(bibo::text::after("STOP", "STEER ") == nullptr,
-          "bibo::text::after refuses a non-match");
+    check(
+        bibo::text::eq(bibo::text::after("STEER 0.5", "STEER "), "0.5"),
+        "bibo::text::after returns the argument"
+    );
+    check(bibo::text::after("STOP", "STEER ") == nullptr, "bibo::text::after refuses a non-match");
 }
 
 /**
@@ -201,12 +202,12 @@ static Void testTwoInts(Void)
     Int32 lo = 0;
     Int32 hi = 0;
 
-    check(bibo::text::twoInts("1230 1670", &lo, &hi) && lo == 1230 && hi == 1670,
-          "two numbers");
-    check(bibo::text::twoInts("1230    1670", &lo, &hi) && lo == 1230 && hi == 1670,
-          "any amount of space between");
-    check(bibo::text::twoInts("-10 10", &lo, &hi) && lo == -10 && hi == 10,
-          "negatives");
+    check(bibo::text::twoInts("1230 1670", &lo, &hi) && lo == 1230 && hi == 1670, "two numbers");
+    check(
+        bibo::text::twoInts("1230 1670", &lo, &hi) && lo == 1230 && hi == 1670,
+        "any amount of space between"
+    );
+    check(bibo::text::twoInts("-10 10", &lo, &hi) && lo == -10 && hi == 10, "negatives");
 
     /* sscanf("%d %d") accepts this and stops looking. */
     check(!bibo::text::twoInts("1 2 3", &lo, &hi), "a third number is refused");
@@ -239,16 +240,20 @@ static Void testWord(Void)
     check(bibo::text::eq(bibo::text::word("SLEW 8", "SLEW"), "8"), "a number argument");
 
     /* The whole point. */
-    check(bibo::text::word("SERVOTRIM 1500", "SERVO") == nullptr,
-          "SERVO does not match SERVOTRIM");
-    check(bibo::text::word("SERVOLIMITS 1 2", "SERVO") == nullptr,
-          "SERVO does not match SERVOLIMITS");
-    check(bibo::text::eq(bibo::text::word("SERVOTRIM 1500", "SERVOTRIM"), "1500"),
-          "SERVOTRIM matches itself");
-    check(bibo::text::eq(bibo::text::word("SERVO 1500", "SERVO"), "1500"),
-          "SERVO still matches SERVO");
-    check(bibo::text::word("ESCLIMITS 1 2", "ESC") == nullptr,
-          "ESC does not match ESCLIMITS");
+    check(bibo::text::word("SERVOTRIM 1500", "SERVO") == nullptr, "SERVO does not match SERVOTRIM");
+    check(
+        bibo::text::word("SERVOLIMITS 1 2", "SERVO") == nullptr,
+        "SERVO does not match SERVOLIMITS"
+    );
+    check(
+        bibo::text::eq(bibo::text::word("SERVOTRIM 1500", "SERVOTRIM"), "1500"),
+        "SERVOTRIM matches itself"
+    );
+    check(
+        bibo::text::eq(bibo::text::word("SERVO 1500", "SERVO"), "1500"),
+        "SERVO still matches SERVO"
+    );
+    check(bibo::text::word("ESCLIMITS 1 2", "ESC") == nullptr, "ESC does not match ESCLIMITS");
 
     check(bibo::text::word("PIN", "PING") == nullptr, "a truncated command does not match");
     check(bibo::text::word("", "PING") == nullptr, "empty matches nothing");
@@ -258,8 +263,10 @@ static Void testWord(Void)
     check(bibo::text::word("PING", nullptr) == nullptr, "nullptr word is refused");
 
     /* TOF's subcommand goes through the same function a second time. */
-    check(bibo::text::eq(bibo::text::word(bibo::text::word("TOF MODE LONG", "TOF"), "MODE"), "LONG"),
-          "a subcommand nests");
+    check(
+        bibo::text::eq(bibo::text::word(bibo::text::word("TOF MODE LONG", "TOF"), "MODE"), "LONG"),
+        "a subcommand nests"
+    );
 }
 
 /**

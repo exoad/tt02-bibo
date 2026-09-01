@@ -43,8 +43,8 @@ namespace
 {
 
   constexpr Size MAX_TRAIL = 5;      // revolutions kept, including the current one
-  constexpr Int32    SEGS     = 8;      // segments per point disc (2-5 px across)
-  constexpr Float32  PI       = 3.14159265358979323846f;
+  constexpr Int32    SEGS = 8;      // segments per point disc (2-5 px across)
+  constexpr Float32  PI = 3.14159265358979323846f;
 
   // Shortest return treated as real. The C1 is specified from 0.05 m; anything
   // closer is a reflection off its own housing.
@@ -91,39 +91,39 @@ namespace
 
   // Map chrome: plot colors, not UI chrome, so explicit rather than following
   // ImGui's theme - see theme.h.
-  constexpr ImU32 RING_COL     = (ui::ansi::GRID       & 0x00FFFFFFu) | (0x9Au << IM_COL32_A_SHIFT);
-  constexpr ImU32 RING_MAJOR   = (ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0xA6u << IM_COL32_A_SHIFT);
+  constexpr ImU32 RING_COL = (ui::ansi::GRID       & 0x00FFFFFFu) | (0x9Au << IM_COL32_A_SHIFT);
+  constexpr ImU32 RING_MAJOR = (ui::ansi::GRID_MAJOR & 0x00FFFFFFu) | (0xA6u << IM_COL32_A_SHIFT);
   // Rings beyond the fitted range only clip a corner of the widget; faint, so the
   // slivers stop reading as stray diagonal strokes.
-  constexpr ImU32 RING_FAINT   = (ui::ansi::GRID       & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT);
-  constexpr ImU32 AXIS_COL     = ui::ansi::AXIS;
-  constexpr ImU32 HEADING_COL  = ui::ansi::HEADING;
-  constexpr ImU32 HUB_COL      = ui::ansi::BRCYAN;
-  constexpr ImU32 HUB_CORE_COL  = ui::ansi::BRWHITE;
-  constexpr ImU32 EMPTY_COL    = ui::ansi::GRAY;
-  constexpr ImU32 NEAREST_COL  = ui::ansi::NEAREST;
-  constexpr ImU32 MEASURE_COL  = ui::ansi::MEASURE;
+  constexpr ImU32 RING_FAINT = (ui::ansi::GRID       & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT);
+  constexpr ImU32 AXIS_COL = ui::ansi::AXIS;
+  constexpr ImU32 HEADING_COL = ui::ansi::HEADING;
+  constexpr ImU32 HUB_COL = ui::ansi::BRCYAN;
+  constexpr ImU32 HUB_CORE_COL = ui::ansi::BRWHITE;
+  constexpr ImU32 EMPTY_COL = ui::ansi::GRAY;
+  constexpr ImU32 NEAREST_COL = ui::ansi::NEAREST;
+  constexpr ImU32 MEASURE_COL = ui::ansi::MEASURE;
 
   // Label plate: dark enough to punch a hole in a dense cluster, not so opaque
   // that the map reads as a grid of boxes.
-  constexpr ImU32 PLATE_BG     = IM_COL32(0x00, 0x00, 0x00, 0xE0);
+  constexpr ImU32 PLATE_BG = IM_COL32(0x00, 0x00, 0x00, 0xE0);
 
   // Ring / compass label inks. Distances brighter than bearings, so the two
   // families of number are never confused.
   constexpr ImU32 RING_TEXT_COL = ui::ansi::GRAY;
-  constexpr ImU32 BEARING_COL  = ui::ansi::GRAY;
+  constexpr ImU32 BEARING_COL = ui::ansi::GRAY;
   constexpr ImU32 CARDINAL_COL = ui::ansi::WHITE;
-  constexpr ImU32 TICK_COL     = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);
+  constexpr ImU32 TICK_COL = IM_COL32(0x4A, 0x4A, 0x4A, 0xFF);
   constexpr ImU32 TICK_MAJOR_COL= ui::ansi::GRAY;
-  constexpr ImU32 SCALE_COL    = ui::ansi::WHITE;
+  constexpr ImU32 SCALE_COL = ui::ansi::WHITE;
 
   // Blind zone: nothing is returned inside the 0.05 m spec floor. Hatched so it
   // reads as "cannot see here"; chalky rose, since at its smallest it sits
   // directly under the nearest-return ring.
-  constexpr ImU32 BLIND_FILL   = IM_COL32(0x00, 0x00, 0x00, 0xFF);
-  constexpr ImU32 BLIND_HATCH  = IM_COL32(0xCD, 0x00, 0x00, 0x5A);
-  constexpr ImU32 BLIND_EDGE   = IM_COL32(0xCD, 0x00, 0x00, 0xFF);
-  constexpr ImU32 BLIND_TEXT   = IM_COL32(0xCD, 0x00, 0x00, 0xFF);
+  constexpr ImU32 BLIND_FILL = IM_COL32(0x00, 0x00, 0x00, 0xFF);
+  constexpr ImU32 BLIND_HATCH = IM_COL32(0xCD, 0x00, 0x00, 0x5A);
+  constexpr ImU32 BLIND_EDGE = IM_COL32(0xCD, 0x00, 0x00, 0xFF);
+  constexpr ImU32 BLIND_TEXT = IM_COL32(0xCD, 0x00, 0x00, 0xFF);
 
   // The far end of the same envelope: the 12 m spec limit. Same chalky family as
   // the blind zone, but dimmer - it is a boundary, not a hazard.
@@ -131,39 +131,39 @@ namespace
 
   // Scan points. One flat neutral at every distance - range is what the rings and
   // the scale bar are for. Alpha is per revolution, so the RGB is kept separate.
-  constexpr ImU32 POINT_RGB    = IM_COL32(0xFF, 0xFF, 0xFF, 0x00);
+  constexpr ImU32 POINT_RGB = IM_COL32(0xFF, 0xFF, 0xFF, 0x00);
 
   // Density heat. Deliberately NOT the distance ramp above: the two modes measure
   // different quantities, and a shared hue would read as a range in one of them.
-  constexpr ImU32 DENS_LOW_RGB  = IM_COL32(0x00, 0x00, 0xEE, 0x00);   // 1 hit
-  constexpr ImU32 DENS_MID_RGB  = IM_COL32(0xFF, 0x00, 0xFF, 0x00);
+  constexpr ImU32 DENS_LOW_RGB = IM_COL32(0x00, 0x00, 0xEE, 0x00);   // 1 hit
+  constexpr ImU32 DENS_MID_RGB = IM_COL32(0xFF, 0x00, 0xFF, 0x00);
   constexpr ImU32 DENS_HIGH_RGB = IM_COL32(0xFF, 0xFF, 0xFF, 0x00);   // saturated
 
   // Occupancy memory. Cool neutral: the decayed map reads as "remembered", the
   // live revolution drawn over it in POINT_RGB as "now".
-  constexpr ImU32 OCC_RGB      = IM_COL32(0x5C, 0x5C, 0xFF, 0x00);
+  constexpr ImU32 OCC_RGB = IM_COL32(0x5C, 0x5C, 0xFF, 0x00);
 
   // Motion. The one alarming color here: something is where nothing was.
-  constexpr ImU32 MOTION_RGB   = IM_COL32(0xFF, 0x00, 0x00, 0x00);
+  constexpr ImU32 MOTION_RGB = IM_COL32(0xFF, 0x00, 0x00, 0x00);
 
   // Free space. Cool and desaturated - the fill is also most of the screen.
-  constexpr ImU32 CLEAR_RGB    = IM_COL32(0x00, 0xCD, 0xCD, 0x00);
+  constexpr ImU32 CLEAR_RGB = IM_COL32(0x00, 0xCD, 0xCD, 0x00);
 
   // A drivable opening. Status green used as DATA: this one is fine, go.
-  constexpr ImU32 GAP_RGB      = IM_COL32(0x00, 0xFF, 0x00, 0x00);
+  constexpr ImU32 GAP_RGB = IM_COL32(0x00, 0xFF, 0x00, 0x00);
 
   // A bearing that returned nothing. Steel, not red: the sensor working correctly
   // against an absent or absorbing surface is not an error.
   constexpr ImU32 NORETURN_RGB = IM_COL32(0x7F, 0x7F, 0x7F, 0x00);
 
   // A fitted wall, distinct from the raw returns: "measured" vs "inferred".
-  constexpr ImU32 WALL_RGB     = IM_COL32(0x00, 0xFF, 0xFF, 0x00);
+  constexpr ImU32 WALL_RGB = IM_COL32(0x00, 0xFF, 0xFF, 0x00);
 
   // Sweep ramp: position within one revolution. A THIRD hue family, sharing stops
   // with neither the distance ramp nor the density heat.
   constexpr ImU32 SWEEP_START_RGB = IM_COL32(0x00, 0xFF, 0xFF, 0x00);   // aqua
-  constexpr ImU32 SWEEP_MID_RGB   = IM_COL32(0xFF, 0x00, 0xFF, 0x00);   // violet
-  constexpr ImU32 SWEEP_END_RGB   = IM_COL32(0xFF, 0xFF, 0x00, 0x00);   // yellow
+  constexpr ImU32 SWEEP_MID_RGB = IM_COL32(0xFF, 0x00, 0xFF, 0x00);   // violet
+  constexpr ImU32 SWEEP_END_RGB = IM_COL32(0xFF, 0xFF, 0x00, 0x00);   // yellow
 
   // Unit 8-gon, reused for every point so the inner loop needs no trig. Radius is
   // nudged out (1.045) so the polygon covers about the circle's area.
@@ -399,7 +399,7 @@ namespace
   {
       ImVec2  s0{ 0.0f, 0.0f };   // sensor origin, screen space
       Float32 pxPerMm = 0.0f;
-      Float32 dpi     = 1.0f;
+      Float32 dpi = 1.0f;
   };
 
   // One screen-space point disc. Color is per revolution, not per point.
@@ -435,9 +435,9 @@ namespace
   // on the sensor origin in mm: a cell must mean the same patch of floor at every
   // zoom. Kept here rather than in radar.h, keyed on the RadarView that owns it.
 
-  constexpr Float32 CELL_MM    = 60.0f;                       // ~6 cm per cell
-  constexpr Int32   GRID_HALF  = static_cast<Int32>((MAX_VALID_MM / CELL_MM)); // 200 cells each way
-  constexpr Int32   GRID_N     = GRID_HALF * 2 + 1;            // 401
+  constexpr Float32 CELL_MM = 60.0f;                       // ~6 cm per cell
+  constexpr Int32   GRID_HALF = static_cast<Int32>((MAX_VALID_MM / CELL_MM)); // 200 cells each way
+  constexpr Int32   GRID_N = GRID_HALF * 2 + 1;            // 401
   constexpr Int32   GRID_CELLS = GRID_N * GRID_N;              // 160,801
 
   // Density's rolling window, in revolutions. ~4 s at the C1's 9.8 Hz: long
@@ -449,20 +449,20 @@ namespace
   constexpr Float32 DENS_FULL = 36.0f;
 
   // Occupancy decay: time constant in seconds, and the forget threshold.
-  constexpr Float32 OCC_TAU   = 9.0f;
+  constexpr Float32 OCC_TAU = 9.0f;
   constexpr Float32 OCC_FLOOR = 0.02f;
 
   // --- The vehicle -----------------------------------------------------------
   //
   // The car, from vehicle.hxx - one definition for the whole app; the numbers and
   // their sources are there. Up here because three modes measure against it.
-  constexpr Float32 EGO_LEN_MM       = vehicle::CAR_LEN_MM;
-  constexpr Float32 EGO_WID_MM       = vehicle::CAR_WID_MM;
-  constexpr Float32 EGO_HEIGHT_MM    = vehicle::CAR_HEIGHT_MM;
+  constexpr Float32 EGO_LEN_MM = vehicle::CAR_LEN_MM;
+  constexpr Float32 EGO_WID_MM = vehicle::CAR_WID_MM;
+  constexpr Float32 EGO_HEIGHT_MM = vehicle::CAR_HEIGHT_MM;
   constexpr Float32 EGO_WHEELBASE_MM = vehicle::CAR_WHEELBASE_MM;
-  constexpr Float32 EGO_TREAD_MM     = vehicle::CAR_TREAD_MM;
-  constexpr Float32 EGO_WHEEL_D_MM   = vehicle::CAR_TIRE_DIA_MM;
-  constexpr Float32 EGO_WHEEL_W_MM   = vehicle::CAR_TIRE_WID_MM;
+  constexpr Float32 EGO_TREAD_MM = vehicle::CAR_TREAD_MM;
+  constexpr Float32 EGO_WHEEL_D_MM = vehicle::CAR_TIRE_DIA_MM;
+  constexpr Float32 EGO_WHEEL_W_MM = vehicle::CAR_TIRE_WID_MM;
   constexpr Float32 EGO_SENSOR_AHEAD_MM = vehicle::C1_MOUNT_AHEAD_MM;
 
   // The sensor sits at the chassis middle because that is the only position
@@ -475,7 +475,7 @@ namespace
   // points a revolution that is four samples per bin, the fewest that make an
   // EMPTY bin mean something. At 1.5 deg it was two, a quarter came up empty by
   // chance, and each drew a spike to the range ceiling.
-  constexpr Int32   CLR_BINS   = 120;
+  constexpr Int32   CLR_BINS = 120;
   constexpr Float32 CLR_BIN_DEG = 360.0f / static_cast<Float32>(CLR_BINS);
 
   // Consecutive empty revolutions before a bin may open toward the ceiling: an
@@ -499,16 +499,16 @@ namespace
   // +/-30 mm range spec and phase drift between revolutions - 1 cell close in and
   // 5 at the ceiling, correctly LESS sensitive with range.
   constexpr Float32 MOT_COLD_BELOW = 0.35f;
-  constexpr Float32 MOT_ARC_RAD    = 0.72f * PI / 180.0f;   // one sample step
-  constexpr Float32 MOT_SLACK_MM   = 45.0f;                 // range spec + phase drift
-  constexpr Int32   MOT_MAX_CELLS  = 5;                     // bounds the worst case
+  constexpr Float32 MOT_ARC_RAD = 0.72f * PI / 180.0f;   // one sample step
+  constexpr Float32 MOT_SLACK_MM = 45.0f;                 // range spec + phase drift
+  constexpr Int32   MOT_MAX_CELLS = 5;                     // bounds the worst case
 
   // Revolutions of evidence before motion is reported. On the first sweeps every
   // return is legitimately new, and the whole map flashing looks like a fault.
   constexpr Int32 MOT_WARMUP_REVS = 8;
 
   // Motion fades much faster than occupancy - it is an event, not a map.
-  constexpr Float32 MOT_TAU   = 1.6f;
+  constexpr Float32 MOT_TAU = 1.6f;
   constexpr Float32 MOT_FLOOR = 0.04f;
 
   // Cell index for a world position, or -1 outside the grid. The grid covers
@@ -564,9 +564,9 @@ namespace
       // was zeroed - plus the current estimate against it. See estimateHeading.
       Array<Float32, CLR_BINS> refClr= {};
       Array<Bool, CLR_BINS> refSeen= {};
-      Bool    refValid   = false;
+      Bool    refValid = false;
       Float32 headingDeg = 0.0f;
-      Float32 headingOk  = 0.0f;   // 0..1 confidence
+      Float32 headingOk = 0.0f;   // 0..1 confidence
 
       Void ensure()
       {
@@ -816,7 +816,7 @@ namespace
 
           if(!st.clrSeen[i])
           {
-              st.clr[i]      = target;
+              st.clr[i] = target;
               st.clrSeen[i] = true;
           }
           else if(target < st.clr[i])
@@ -861,7 +861,7 @@ namespace
           }
 
           v[static_cast<Size>(ci)] = nv;
-          active[w++]   = ci;
+          active[w++] = ci;
       }
       active.resize(w);
   }
@@ -895,14 +895,14 @@ namespace
       }
 
       constexpr Float32 MAX_ANGLE_GAP_DEG = 3.0f;   // samples sit ~0.7 deg apart
-      constexpr Int32   MAX_SAMPLES     = 140;    // ~100 deg of a dense revolution
+      constexpr Int32   MAX_SAMPLES = 140;    // ~100 deg of a dense revolution
 
       const Float32 deg2rad = PI / 180.0f;
 
       auto emit = [&](Int32 i)
       {
           const LidarPoint& p = pts[static_cast<Size>(i)];
-          const Float32 rr  = p.distMm * ppm;
+          const Float32 rr = p.distMm * ppm;
           const Float32 ang = (p.angleDeg - 90.0f) * deg2rad;
           out.push_back(Dot{ s0.x + rr * std::cos(ang), s0.y + rr * std::sin(ang) });
       };
@@ -1177,8 +1177,12 @@ namespace
           // n = (-k, k) is the offset direction, u = (k, k) runs along the line.
           const Float32 mx = c.x - k * d;
           const Float32 my = c.y + k * d;
-          dl->AddLine(ImVec2(mx - k * half, my - k * half),
-                      ImVec2(mx + k * half, my + k * half), col, th);
+          dl->AddLine(
+              ImVec2(mx - k * half, my - k * half),
+              ImVec2(mx + k * half, my + k * half),
+              col,
+              th
+          );
       }
   }
 
@@ -1202,8 +1206,8 @@ namespace
   Void plateText(ImDrawList* dl, const ImVec2& pos, Float32 dpi, ImU32 col, const Char* txt)
   {
       ImFont*      font = labelFont();
-      const Float32  fs   = labelPx();
-      const ImVec2 ts   = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
+      const Float32  fs = labelPx();
+      const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
 
       plate(dl, pos, ts, dpi);
       dl->AddText(font, fs, pos, col, txt);
@@ -1215,8 +1219,8 @@ namespace
       const ImVec2& p0 = area.p0;
       const ImVec2& p1 = area.p1;
       ImFont*      font = labelFont();
-      const Float32  fs   = labelPx();
-      const ImVec2 ts   = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
+      const Float32  fs = labelPx();
+      const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
       const ImVec2 tl(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f);
 
       const Float32 px = 5.0f * dpi;
@@ -1238,15 +1242,15 @@ namespace
   // consumed by the lines pass (under the points) and the labels pass (over).
   struct GridSpec
   {
-      Bool  on        = false;
-      Float32 stepMm   = 0.0f;
-      Float32 stepPx   = 0.0f;
-      Int32   i0        = 1;
-      Int32   i1        = 0;
+      Bool  on = false;
+      Float32 stepMm = 0.0f;
+      Float32 stepPx = 0.0f;
+      Int32   i0 = 1;
+      Int32   i1 = 0;
       Int32   compassI = 1;
       Float32 compassR = 0.0f;     // px, from the sensor
-      Float32 ppm       = 0.0f;     // px per mm, for range-limit drawing
-      Bool  centered   = false;    // is the sensor itself inside the widget?
+      Float32 ppm = 0.0f;     // px per mm, for range-limit drawing
+      Bool  centered = false;    // is the sensor itself inside the widget?
   };
 
   // `s0` is where the sensor lands on screen; it may be well outside [p0,p1].
@@ -1258,7 +1262,7 @@ namespace
       const Float32 ppm = sc.pxPerMm;
       GridSpec g;
 
-      g.ppm     = ppm;
+      g.ppm = ppm;
       g.stepMm = niceStep(visibleMm / 4.0f);
       g.stepPx = g.stepMm * ppm;
       if(!(g.stepPx > 0.5f))
@@ -1346,9 +1350,12 @@ namespace
               continue;
           }
           const Bool major = (i % 5) == 0;
-          dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p1.y),
-                      (i == 0) ? RING_MAJOR : (major ? RING_MAJOR : RING_COL),
-                      ((i == 0) ? 1.6f : (major ? 1.3f : 1.0f)) * dpi);
+          dl->AddLine(
+              ImVec2(x, p0.y),
+              ImVec2(x, p1.y),
+              (i == 0) ? RING_MAJOR : (major ? RING_MAJOR : RING_COL),
+              ((i == 0) ? 1.6f : (major ? 1.3f : 1.0f)) * dpi
+          );
       }
       for(Int32 j = ny0; j <= ny1; ++j)
       {
@@ -1358,9 +1365,12 @@ namespace
               continue;
           }
           const Bool major = (j % 5) == 0;
-          dl->AddLine(ImVec2(p0.x, y), ImVec2(p1.x, y),
-                      (j == 0) ? RING_MAJOR : (major ? RING_MAJOR : RING_COL),
-                      ((j == 0) ? 1.6f : (major ? 1.3f : 1.0f)) * dpi);
+          dl->AddLine(
+              ImVec2(p0.x, y),
+              ImVec2(p1.x, y),
+              (j == 0) ? RING_MAJOR : (major ? RING_MAJOR : RING_COL),
+              ((j == 0) ? 1.6f : (major ? 1.3f : 1.0f)) * dpi
+          );
       }
   }
 
@@ -1377,7 +1387,7 @@ namespace
           return;
       }
 
-      ImFont*       f  = labelFont();
+      ImFont*       f = labelFont();
       const Float32 fs = labelPx();
 
       for(Int32 i = -40; i <= 40; ++i)
@@ -1461,7 +1471,7 @@ namespace
           ImU32 col;
           Float32 th;
           if(!g.centered)       { col = ((i % 5) == 0) ? RING_MAJOR : RING_COL;
-                                       th  = ((i % 5) == 0) ? 1.3f : 1.0f; }
+                                       th = ((i % 5) == 0) ? 1.3f : 1.0f; }
           else if(i == g.compassI)
           {
               col = RING_MAJOR;
@@ -1499,13 +1509,17 @@ namespace
               }
 
               const Bool  cardinal = (b % 90) == 0;
-              const Bool  major    = (b % 45) == 0;
-              const Float32 len      = (major ? 9.0f : 5.0f) * dpi;
-              const ImU32 col      = (b == 0) ? HEADING_COL
+              const Bool  major = (b % 45) == 0;
+              const Float32 len = (major ? 9.0f : 5.0f) * dpi;
+              const ImU32 col = (b == 0) ? HEADING_COL
                                               : (major ? TICK_MAJOR_COL : TICK_COL);
 
-              dl->AddLine(a, ImVec2(a.x + d.x * len, a.y + d.y * len),
-                          col, (cardinal ? 2.0f : 1.2f) * dpi);
+              dl->AddLine(
+                  a,
+                  ImVec2(a.x + d.x * len, a.y + d.y * len),
+                  col,
+                  (cardinal ? 2.0f : 1.2f) * dpi
+              );
           }
       }
   }
@@ -1525,10 +1539,10 @@ namespace
 
       // Ring distances, all on one bearing so they read as a column; when a ring is
       // too big, the search sweeps *clockwise* down the right side, then mirrors.
-      ImFont*      font   = labelFont();
-      const Float32  fs     = labelPx();
-      const ImVec2 probe  = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, "0.0 m");
-      const Bool   room   = g.stepPx > probe.y * 1.9f;   // else the column collides
+      ImFont*      font = labelFont();
+      const Float32  fs = labelPx();
+      const ImVec2 probe = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, "0.0 m");
+      const Bool   room = g.stepPx > probe.y * 1.9f;   // else the column collides
 
       if(room)
       {
@@ -1546,11 +1560,17 @@ namespace
               for(Int32 k = 0; k < 22; ++k)
               {
                   const Float32 sweep = static_cast<Float32>((k % 11)) * 15.0f;
-                  const Float32 sign  = (k < 11) ? 1.0f : -1.0f;
+                  const Float32 sign = (k < 11) ? 1.0f : -1.0f;
                   const ImVec2 d = bearingDir(sign * (RING_LABEL_BEARING + sweep));
 
-                  if(plateTextAt(dl, ImVec2(s0.x + d.x * r, s0.y + d.y * r),
-                                  area, dpi, RING_TEXT_COL, buf.data()))
+                  if(plateTextAt(
+                      dl,
+                      ImVec2(s0.x + d.x * r, s0.y + d.y * r),
+                      area,
+                      dpi,
+                      RING_TEXT_COL,
+                      buf.data()
+                  ))
                   {
                       break;
                   }
@@ -1573,8 +1593,7 @@ namespace
                                : ((b % 90) == 0) ? CARDINAL_COL
                                                  : BEARING_COL;
 
-              plateTextAt(dl, ImVec2(s0.x + d.x * rl, s0.y + d.y * rl),
-                          fit, dpi, col, buf.data());
+              plateTextAt(dl, ImVec2(s0.x + d.x * rl, s0.y + d.y * rl), fit, dpi, col, buf.data());
           }
       }
   }
@@ -1615,9 +1634,9 @@ namespace
       const Float32 r = MIN_VALID_MM * ppm;
 
       ImFont*      font = labelFont();
-      const Float32  fs   = labelPx();
-      const Char*  txt  = "blind zone  < 50 mm";
-      const ImVec2 ts   = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
+      const Float32  fs = labelPx();
+      const Char*  txt = "blind zone  < 50 mm";
+      const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
 
       if(ts.x + 14.0f * dpi > r * 1.55f)
       {
@@ -1660,7 +1679,7 @@ namespace
           return;
       }
 
-      const Float32 th   = 2.0f * dpi;
+      const Float32 th = 2.0f * dpi;
       const Float32 head = std::min(30.0f * dpi, (len - r0) * 0.30f);
 
       // Emissive: a wide dim pass under a narrow bright one, like a lit lamp.
@@ -1704,11 +1723,11 @@ namespace
           return;
       }
 
-      const Float32 x0  = p0.x + 4.0f * dpi;
-      const Float32 y   = p1.y - 12.0f * dpi;
-      const Float32 x1  = x0 + lenPx;
+      const Float32 x0 = p0.x + 4.0f * dpi;
+      const Float32 y = p1.y - 12.0f * dpi;
+      const Float32 x1 = x0 + lenPx;
       const Float32 cap = 5.0f * dpi;
-      const Float32 th  = 1.8f * dpi;
+      const Float32 th = 1.8f * dpi;
 
       // Half-filled, like a map scale: the midpoint tick is the free half-value.
       const ImVec2 barA(x0, y - cap * 0.5f);
@@ -1723,7 +1742,7 @@ namespace
       formatRing(buf.data(), buf.size(), lenMm);
 
       ImFont*      font = labelFont();
-      const ImVec2 ts   = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf.data());
+      const ImVec2 ts = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf.data());
       plateText(dl, ImVec2(x0, y - cap * 1.8f - ts.y), dpi, SCALE_COL, buf.data());
   }
 
@@ -1731,10 +1750,10 @@ namespace
   // anything outside the widget - what bounds the geometry submitted at high zoom.
   Void collectDots(const Vec<LidarPoint>& pts, const MapScale& sc, const Rect& cull, Vec<Dot>& out)
   {
-      const ImVec2& s0  = sc.s0;
+      const ImVec2& s0 = sc.s0;
       const Float32 ppm = sc.pxPerMm;
-      const ImVec2& lo  = cull.p0;
-      const ImVec2& hi  = cull.p1;
+      const ImVec2& lo = cull.p0;
+      const ImVec2& hi = cull.p1;
       out.clear();
       if(pts.empty())
       {
@@ -1756,10 +1775,10 @@ namespace
               continue;
           }
 
-          const Float32 rr  = d * ppm;
+          const Float32 rr = d * ppm;
           const Float32 ang = (p.angleDeg - 90.0f) * deg2rad;   // == (sin a, -cos a)
-          const Float32 x   = s0.x + rr * std::cos(ang);
-          const Float32 y   = s0.y + rr * std::sin(ang);
+          const Float32 x = s0.x + rr * std::cos(ang);
+          const Float32 y = s0.y + rr * std::sin(ang);
 
           if(x < lo.x || x > hi.x || y < lo.y || y > hi.y)
           {
@@ -1775,20 +1794,20 @@ namespace
   // What every return-rendering path shares. Display state only, no readouts.
   struct MarkCtx
   {
-      ImDrawList* dl      = nullptr;
+      ImDrawList* dl = nullptr;
       ImVec2      p0, p1;             // widget rect
       ImVec2      cullLo, cullHi;   // rect grown by the dot radius
       ImVec2      s0;                 // sensor, in screen space
       ImVec2      uv;
-      Float32       ppm   = 0.0f;
-      Float32       dpi   = 1.0f;
+      Float32       ppm = 0.0f;
+      Float32       dpi = 1.0f;
       Float32       dotR = 2.0f;
 
       // What to draw at the origin. See RadarView::ego.
       scene3d::EgoView ego = scene3d::EgoView::EGO_VIEW_CAR;
 
       // Where the active mode writes its one-line reading. Never null.
-      Char*       diag    = nullptr;
+      Char*       diag = nullptr;
       Size        diagCap = 0;
   };
 
@@ -1813,24 +1832,44 @@ namespace
       {
           for(Int32 i = 0; i < last; ++i)
           {
-              const Float32 a  = 0.07f + 0.13f * (static_cast<Float32>(i) / static_cast<Float32>(std::max(1, last)));
+              const Float32 a = 0.07f + 0.13f * (static_cast<Float32>(i) / static_cast<Float32>(std::max(1, last)));
               const Int32   a8 = static_cast<Int32>((clampf(a, 0.0f, 1.0f) * 255.0f + 0.5f));
               if(a8 <= 0)
               {
                   continue;
               }
 
-              collectDots(trail[static_cast<Size>(i)], MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-              emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.6f * c.dpi,
-                        POINT_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT), c.uv);
+              collectDots(
+                  trail[static_cast<Size>(i)],
+                  MapScale{ c.s0, c.ppm, c.dpi },
+                  Rect{ c.cullLo, c.cullHi },
+                  dots
+              );
+              emitDiscs(
+                  c.dl,
+                  dots.data(),
+                  static_cast<Int32>(dots.size()),
+                  1.6f * c.dpi,
+                  POINT_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT),
+                  c.uv
+              );
           }
       }
 
-      collectDots(trail[static_cast<Size>(last)], MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR,
-                POINT_RGB | (static_cast<ImU32>(255u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(
+          trail[static_cast<Size>(last)],
+          MapScale{ c.s0, c.ppm, c.dpi },
+          Rect{ c.cullLo, c.cullHi },
+          dots
+      );
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          c.dotR,
+          POINT_RGB | (static_cast<ImU32>(255u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
   }
   // Grid index window for the widget rect. False once you pan past 12 m.
   Bool visibleCellRange(const MarkCtx& c, Int32& ix0, Int32& iy0, Int32& ix1, Int32& iy1)
@@ -1886,7 +1925,7 @@ namespace
 
       for(Int32 iy = iy0; iy <= iy1; ++iy)
       {
-          const Float32  y0  = c.s0.y + static_cast<Float32>((iy - GRID_HALF)) * cellPx - pad;
+          const Float32  y0 = c.s0.y + static_cast<Float32>((iy - GRID_HALF)) * cellPx - pad;
           const Size row = static_cast<Size>(iy) * static_cast<Size>(GRID_N);
 
           for(Int32 ix = ix0; ix <= ix1; ++ix)
@@ -1909,8 +1948,9 @@ namespace
 
               const Float32 x0 = c.s0.x + static_cast<Float32>((ix - GRID_HALF)) * cellPx - pad;
 
-              out.push_back(Cell{ x0, y0, x0 + ext, y0 + ext,
-                                  ramp.at(t) | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) });
+              out.push_back(
+                  Cell{ x0, y0, x0 + ext, y0 + ext, ramp.at(t) | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) }
+              );
           }
       }
 
@@ -1937,7 +1977,7 @@ namespace
       run.reserve(64);
 
       const ImU32 col = POINT_RGB | (static_cast<ImU32>(220u) << IM_COL32_A_SHIFT);
-      const Float32 th  = 1.6f * c.dpi;
+      const Float32 th = 1.6f * c.dpi;
 
       const auto flush = [&]() {
           if(run.size() >= 2)
@@ -1980,11 +2020,11 @@ namespace
           }
 
           const Float32 ang = (p.angleDeg - 90.0f) * (PI / 180.0f);
-          const Float32 rr  = p.distMm * c.ppm;
+          const Float32 rr = p.distMm * c.ppm;
           run.push_back(ImVec2(c.s0.x + rr * std::cos(ang), c.s0.y + rr * std::sin(ang)));
 
-          prevD    = p.distMm;
-          prevA    = p.angleDeg;
+          prevD = p.distMm;
+          prevA = p.angleDeg;
           havePrev = true;
       }
 
@@ -2010,10 +2050,10 @@ namespace
               any = true;
           }
 
-          const Float32 d   = st.clrSeen[i] ? st.clr[i] : 0.0f;
+          const Float32 d = st.clrSeen[i] ? st.clr[i] : 0.0f;
           const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
-          const Float32 a   = deg * (PI / 180.0f);
-          const Float32 rr  = d * c.ppm;
+          const Float32 a = deg * (PI / 180.0f);
+          const Float32 rr = d * c.ppm;
           pt[i] = ImVec2(c.s0.x + rr * std::cos(a), c.s0.y + rr * std::sin(a));
       }
       if(!any)
@@ -2021,23 +2061,39 @@ namespace
           return;
       }
 
-      emitFan(c.dl, c.s0, pt, CLR_BINS, CLEAR_RGB | (static_cast<ImU32>(44u) << IM_COL32_A_SHIFT), c.uv);
+      emitFan(
+          c.dl,
+          c.s0,
+          pt,
+          CLR_BINS,
+          CLEAR_RGB | (static_cast<ImU32>(44u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       const Ramp& ramp = rangeRamp();
       for(Int32 i = 0; i < CLR_BINS; ++i)
       {
           const Int32 j = (i + 1) % CLR_BINS;
           const Float32 t = clampf(st.clr[i] / MAX_VALID_MM, 0.0f, 1.0f);
-          c.dl->AddLine(pt[i], pt[j], ramp.at(t) | (static_cast<ImU32>(210u) << IM_COL32_A_SHIFT),
-                        1.8f * c.dpi);
+          c.dl->AddLine(
+              pt[i],
+              pt[j],
+              ramp.at(t) | (static_cast<ImU32>(210u) << IM_COL32_A_SHIFT),
+              1.8f * c.dpi
+          );
       }
 
       // The live revolution over the top, dim: the polygon is derived.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
-                POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          1.5f * c.dpi,
+          POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
   }
 
   // MapMode::MAP_MODE_MOTION. Cells hit while the memory map said their whole
@@ -2048,10 +2104,15 @@ namespace
       // Context first, dim: an empty motion map is correct for a still room, but on
       // its own is indistinguishable from a broken one.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
-                POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          1.5f * c.dpi,
+          POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       if(!st.ready || st.motActive.empty() || !(c.ppm > 0.0f))
       {
@@ -2059,8 +2120,8 @@ namespace
       }
 
       const Float32 cellPx = CELL_MM * c.ppm;
-      const Float32 pad     = std::max(0.0f, (1.0f - cellPx) * 0.5f);
-      const Float32 ext     = cellPx + pad * 2.0f;
+      const Float32 pad = std::max(0.0f, (1.0f - cellPx) * 0.5f);
+      const Float32 ext = cellPx + pad * 2.0f;
 
       Vec<Cell>& out = cellScratch();
       out.clear();
@@ -2088,8 +2149,9 @@ namespace
           const UInt32 a8 =
               static_cast<UInt32>((clampf(0.15f + 0.85f * v, 0.0f, 1.0f) * 255.0f + 0.5f));
 
-          out.push_back(Cell{ x0, y0, x0 + ext, y0 + ext,
-                              MOTION_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) });
+          out.push_back(
+              Cell{ x0, y0, x0 + ext, y0 + ext, MOTION_RGB | (static_cast<ImU32>(a8) << IM_COL32_A_SHIFT) }
+          );
       }
 
       emitCells(c.dl, out.data(), static_cast<Int32>(out.size()), c.uv);
@@ -2101,10 +2163,15 @@ namespace
   {
       // The live revolution underneath, dim: the gaps are derived.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.5f * c.dpi,
-                POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          1.5f * c.dpi,
+          POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       if(!st.ready)
       {
@@ -2118,8 +2185,8 @@ namespace
       constexpr Float32 GAP_MIN_WIDTH_MM = 350.0f;
 
       Float32 bestWidth = 0.0f;
-      Float32 bestDeg   = 0.0f;
-      Int32   count     = 0;
+      Float32 bestDeg = 0.0f;
+      Int32   count = 0;
 
       Int32 b = 0;
       while(b < CLR_BINS)
@@ -2142,9 +2209,9 @@ namespace
           }
           const Int32 span = b - start;
 
-          const Float32 spanDeg  = static_cast<Float32>(span) * CLR_BIN_DEG;
+          const Float32 spanDeg = static_cast<Float32>(span) * CLR_BIN_DEG;
           const Float32 halfRad = spanDeg * 0.5f * (PI / 180.0f);
-          const Float32 width   = 2.0f * nearestMm * std::sin(halfRad);
+          const Float32 width = 2.0f * nearestMm * std::sin(halfRad);
           if(width < GAP_MIN_WIDTH_MM)
           {
               continue;
@@ -2178,9 +2245,12 @@ namespace
               prev = cur;
           }
 
-          c.dl->AddLine(e0, e1,
-                        GAP_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
-                        2.2f * c.dpi);
+          c.dl->AddLine(
+              e0,
+              e1,
+              GAP_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
+              2.2f * c.dpi
+          );
 
           // Width, on the chord.
           Array<Char, 32> lab;
@@ -2189,14 +2259,25 @@ namespace
           const Float32 fs = labelPx();
           const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab.data());
           const ImVec2 mid((e0.x + e1.x) * 0.5f, (e0.y + e1.y) * 0.5f);
-          plateText(c.dl, ImVec2(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f), c.dpi,
-                    GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), lab.data());
+          plateText(
+              c.dl,
+              ImVec2(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f),
+              c.dpi,
+              GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
+              lab.data()
+          );
       }
 
       if(count > 0)
       {
-          say(c, "%d gap%s, widest %.2f m at %.0f deg", count, count == 1 ? "" : "s",
-              static_cast<Float64>(bestWidth / 1000.0f), static_cast<Float64>(bestDeg));
+          say(
+              c,
+              "%d gap%s, widest %.2f m at %.0f deg",
+              count,
+              count == 1 ? "" : "s",
+              static_cast<Float64>(bestWidth / 1000.0f),
+              static_cast<Float64>(bestDeg)
+          );
       }
       else
       {
@@ -2269,7 +2350,7 @@ namespace
                       continue;
                   }
 
-                  Int32   worst  = -1;
+                  Int32   worst = -1;
                   Float32 worstD = 0.0f;
                   for(Int32 i = b + 1; i < e; ++i)
                   {
@@ -2368,10 +2449,15 @@ namespace
 
       // The returns underneath, dim: a wall is inferred, so its evidence stays.
       Vec<Dot>& dots = scratch();
-      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
-                POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          1.4f * c.dpi,
+          POINT_RGB | (static_cast<ImU32>(70u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       static Vec<WallSeg> walls;
       fitWalls(pts, walls);
@@ -2389,37 +2475,53 @@ namespace
           const ImVec2 sa(c.s0.x + w.a.x * c.ppm, c.s0.y + w.a.y * c.ppm);
           const ImVec2 sb(c.s0.x + w.b.x * c.ppm, c.s0.y + w.b.y * c.ppm);
 
-          c.dl->AddLine(sa, sb,
-                        WALL_RGB | (static_cast<ImU32>(0x2Cu) << IM_COL32_A_SHIFT),
-                        5.0f * c.dpi);
-          c.dl->AddLine(sa, sb,
-                        WALL_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
-                        2.0f * c.dpi);
+          c.dl->AddLine(
+              sa,
+              sb,
+              WALL_RGB | (static_cast<ImU32>(0x2Cu) << IM_COL32_A_SHIFT),
+              5.0f * c.dpi
+          );
+          c.dl->AddLine(
+              sa,
+              sb,
+              WALL_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
+              2.0f * c.dpi
+          );
 
           // End caps, so a wall reads as a bounded segment, not a line that stops.
           const Float32 ux = (w.b.x - w.a.x) / w.lenMm;
           const Float32 uy = (w.b.y - w.a.y) / w.lenMm;
           const Float32 cap = 4.0f * c.dpi;
-          c.dl->AddLine(ImVec2(sa.x - uy * cap, sa.y + ux * cap),
-                        ImVec2(sa.x + uy * cap, sa.y - ux * cap),
-                        WALL_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
-                        2.0f * c.dpi);
-          c.dl->AddLine(ImVec2(sb.x - uy * cap, sb.y + ux * cap),
-                        ImVec2(sb.x + uy * cap, sb.y - ux * cap),
-                        WALL_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
-                        2.0f * c.dpi);
+          c.dl->AddLine(
+              ImVec2(sa.x - uy * cap, sa.y + ux * cap),
+              ImVec2(sa.x + uy * cap, sa.y - ux * cap),
+              WALL_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
+              2.0f * c.dpi
+          );
+          c.dl->AddLine(
+              ImVec2(sb.x - uy * cap, sb.y + ux * cap),
+              ImVec2(sb.x + uy * cap, sb.y - ux * cap),
+              WALL_RGB | (static_cast<ImU32>(0xF0u) << IM_COL32_A_SHIFT),
+              2.0f * c.dpi
+          );
 
           if(w.lenMm >= 700.0f)
           {
               Array<Char, 24> lab;
-              std::snprintf(lab.data(), lab.size(), "%.2f m",
-                            static_cast<Float64>(w.lenMm / 1000.0f));
+              std::snprintf(
+                  lab.data(),
+                  lab.size(),
+                  "%.2f m",
+                  static_cast<Float64>(w.lenMm / 1000.0f)
+              );
               ImFont* f = labelFont();
               const Float32 fs = labelPx();
               const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab.data());
               plateText(c.dl,
-                        ImVec2((sa.x + sb.x) * 0.5f - ts.x * 0.5f,
-                               (sa.y + sb.y) * 0.5f - ts.y * 0.5f),
+                        ImVec2(
+                            (sa.x + sb.x) * 0.5f - ts.x * 0.5f,
+                            (sa.y + sb.y) * 0.5f - ts.y * 0.5f
+                        ),
                         c.dpi,
                         WALL_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
                         lab.data());
@@ -2429,14 +2531,18 @@ namespace
       const Int32 count = static_cast<Int32>(walls.size());
       if(count > 0)
       {
-          say(c, "%d wall%s fitted, longest %.2f m at %.0f deg", count,
+          say(
+              c,
+              "%d wall%s fitted, longest %.2f m at %.0f deg",
+              count,
               count == 1 ? "" : "s",
-              static_cast<Float64>(longestMm / 1000.0f), static_cast<Float64>(longestDeg));
+              static_cast<Float64>(longestMm / 1000.0f),
+              static_cast<Float64>(longestDeg)
+          );
       }
       else
       {
-          say(c, "no straight run longer than %.2f m",
-              static_cast<Float64>(WALL_MIN_MM / 1000.0f));
+          say(c, "no straight run longer than %.2f m", static_cast<Float64>(WALL_MIN_MM / 1000.0f));
       }
   }
 
@@ -2452,10 +2558,15 @@ namespace
       const Vec<LidarPoint>& pts = trail.back();
 
       Vec<Dot>& dots = scratch();
-      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
-                POINT_RGB | (static_cast<ImU32>(50u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          1.4f * c.dpi,
+          POINT_RGB | (static_cast<ImU32>(50u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       static Vec<WallSeg> walls;
       fitWalls(pts, walls);
@@ -2463,10 +2574,12 @@ namespace
       // The walls stay on screen, dim: a corner without them is evidence deleted.
       for(const WallSeg& w : walls)
       {
-          c.dl->AddLine(ImVec2(c.s0.x + w.a.x * c.ppm, c.s0.y + w.a.y * c.ppm),
-                        ImVec2(c.s0.x + w.b.x * c.ppm, c.s0.y + w.b.y * c.ppm),
-                        WALL_RGB | (static_cast<ImU32>(0x60u) << IM_COL32_A_SHIFT),
-                        1.4f * c.dpi);
+          c.dl->AddLine(
+              ImVec2(c.s0.x + w.a.x * c.ppm, c.s0.y + w.a.y * c.ppm),
+              ImVec2(c.s0.x + w.b.x * c.ppm, c.s0.y + w.b.y * c.ppm),
+              WALL_RGB | (static_cast<ImU32>(0x60u) << IM_COL32_A_SHIFT),
+              1.4f * c.dpi
+          );
       }
 
       static Vec<Corner> corners;
@@ -2474,14 +2587,14 @@ namespace
 
       const ImU32 col = ui::ansi::BRMAGENTA;
 
-      Float32 nearestMm  = 0.0f;
+      Float32 nearestMm = 0.0f;
       Float32 nearestDeg = 0.0f;
 
       for(const Corner& k : corners)
       {
           if(nearestMm <= 0.0f || k.rangeMm < nearestMm)
           {
-              nearestMm  = k.rangeMm;
+              nearestMm = k.rangeMm;
               nearestDeg = std::atan2(k.x, -k.y) * 180.0f / PI;
               if(nearestDeg < 0.0f)
               {
@@ -2494,35 +2607,63 @@ namespace
 
           // Drawn as the angle it IS: a 90 deg room corner and a 40 deg pillar
           // edge must not be the same marker.
-          c.dl->AddLine(at, ImVec2(at.x + std::cos(k.a0) * arm, at.y + std::sin(k.a0) * arm),
-                        col, 2.2f * c.dpi);
-          c.dl->AddLine(at, ImVec2(at.x + std::cos(k.a1) * arm, at.y + std::sin(k.a1) * arm),
-                        col, 2.2f * c.dpi);
+          c.dl->AddLine(
+              at,
+              ImVec2(at.x + std::cos(k.a0) * arm, at.y + std::sin(k.a0) * arm),
+              col,
+              2.2f * c.dpi
+          );
+          c.dl->AddLine(
+              at,
+              ImVec2(at.x + std::cos(k.a1) * arm, at.y + std::sin(k.a1) * arm),
+              col,
+              2.2f * c.dpi
+          );
 
           c.dl->AddCircleFilled(at, 3.2f * c.dpi, col, 12);
-          c.dl->AddCircle(at, 6.5f * c.dpi,
-                          (col & 0x00FFFFFFu) | (static_cast<ImU32>(0x70u) << IM_COL32_A_SHIFT),
-                          16, 1.2f * c.dpi);
+          c.dl->AddCircle(
+              at,
+              6.5f * c.dpi,
+              (col & 0x00FFFFFFu) | (static_cast<ImU32>(0x70u) << IM_COL32_A_SHIFT),
+              16,
+              1.2f * c.dpi
+          );
 
           Array<Char, 16> lab;
           std::snprintf(lab.data(), lab.size(), "%.0f deg", static_cast<Float64>(k.angDeg));
-          plateTextAt(c.dl, ImVec2(at.x, at.y - 16.0f * c.dpi), Rect{ c.p0, c.p1 },
-                      c.dpi, col, lab.data());
+          plateTextAt(
+              c.dl,
+              ImVec2(at.x, at.y - 16.0f * c.dpi),
+              Rect{ c.p0, c.p1 },
+              c.dpi,
+              col,
+              lab.data()
+          );
       }
 
       const Int32 n = static_cast<Int32>(corners.size());
       if(n > 0)
       {
-          say(c, "%d corner%s from %d wall%s, nearest %.2f m at %.0f deg",
-              n, n == 1 ? "" : "s",
-              static_cast<Int32>(walls.size()), walls.size() == 1u ? "" : "s",
-              static_cast<Float64>(nearestMm / 1000.0f), static_cast<Float64>(nearestDeg));
+          say(
+              c,
+              "%d corner%s from %d wall%s, nearest %.2f m at %.0f deg",
+              n,
+              n == 1 ? "" : "s",
+              static_cast<Int32>(walls.size()),
+              walls.size() == 1u ? "" : "s",
+              static_cast<Float64>(nearestMm / 1000.0f),
+              static_cast<Float64>(nearestDeg)
+          );
       }
       else
       {
-          say(c, "no corners: %d wall%s, none meeting at more than %.0f deg",
-              static_cast<Int32>(walls.size()), walls.size() == 1u ? "" : "s",
-              static_cast<Float64>(mapgeo::CORNER_MIN_DEG));
+          say(
+              c,
+              "no corners: %d wall%s, none meeting at more than %.0f deg",
+              static_cast<Int32>(walls.size()),
+              walls.size() == 1u ? "" : "s",
+              static_cast<Float64>(mapgeo::CORNER_MIN_DEG)
+          );
       }
   }
 
@@ -2556,51 +2697,71 @@ namespace
       static Array<Bool, CLR_BINS> seen0;
       for(Int32 i = 0; i < CLR_BINS; ++i)
       {
-          free[i]  = st.clrSeen[i] ? st.clr[i] : 0.0f;
+          free[i] = st.clrSeen[i] ? st.clr[i] : 0.0f;
           seen0[i] = st.clrSeen[i];
       }
 
       static Array<Float32, CLR_BINS> reach;
-      mapgeo::computeReach(mapgeo::PolarScan{ free.data(), seen0.data(), CLR_BINS, CLR_BIN_DEG },
-                           halfW, reach.data());
+      mapgeo::computeReach(
+          mapgeo::PolarScan{ free.data(), seen0.data(), CLR_BINS, CLR_BIN_DEG },
+          halfW,
+          reach.data()
+      );
 
       ImVec2 freePoly[CLR_BINS];
       ImVec2 fitPoly[CLR_BINS];
       for(Int32 i = 0; i < CLR_BINS; ++i)
       {
           const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
-          const Float32 a   = deg * (PI / 180.0f);
-          const Float32 cs  = std::cos(a), sn = std::sin(a);
+          const Float32 a = deg * (PI / 180.0f);
+          const Float32 cs = std::cos(a), sn = std::sin(a);
           freePoly[i] = ImVec2(c.s0.x + free[i]  * c.ppm * cs, c.s0.y + free[i]  * c.ppm * sn);
-          fitPoly[i]  = ImVec2(c.s0.x + reach[i] * c.ppm * cs, c.s0.y + reach[i] * c.ppm * sn);
+          fitPoly[i] = ImVec2(c.s0.x + reach[i] * c.ppm * cs, c.s0.y + reach[i] * c.ppm * sn);
       }
 
       // What the beam reaches: outline only, dim - it is what is subtracted FROM.
       for(Int32 i = 0; i < CLR_BINS; ++i)
       {
-          c.dl->AddLine(freePoly[i], freePoly[(i + 1) % CLR_BINS],
-                        CLEAR_RGB | (static_cast<ImU32>(0x66u) << IM_COL32_A_SHIFT),
-                        1.0f * c.dpi);
+          c.dl->AddLine(
+              freePoly[i],
+              freePoly[(i + 1) % CLR_BINS],
+              CLEAR_RGB | (static_cast<ImU32>(0x66u) << IM_COL32_A_SHIFT),
+              1.0f * c.dpi
+          );
       }
 
       // Where the car fits: filled, the mode's actual output. Star-shaped about
       // the sensor by construction, so the fan is exact.
-      emitFan(c.dl, c.s0, fitPoly, CLR_BINS,
-              GAP_RGB | (static_cast<ImU32>(38u) << IM_COL32_A_SHIFT), c.uv);
+      emitFan(
+          c.dl,
+          c.s0,
+          fitPoly,
+          CLR_BINS,
+          GAP_RGB | (static_cast<ImU32>(38u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
       for(Int32 i = 0; i < CLR_BINS; ++i)
       {
-          c.dl->AddLine(fitPoly[i], fitPoly[(i + 1) % CLR_BINS],
-                        GAP_RGB | (static_cast<ImU32>(0xE0u) << IM_COL32_A_SHIFT),
-                        1.8f * c.dpi);
+          c.dl->AddLine(
+              fitPoly[i],
+              fitPoly[(i + 1) % CLR_BINS],
+              GAP_RGB | (static_cast<ImU32>(0xE0u) << IM_COL32_A_SHIFT),
+              1.8f * c.dpi
+          );
       }
 
       // The returns, so the surfaces doing the blocking are visible.
       const Vec<LidarPoint>& pts = trail.back();
       Vec<Dot>& dots = scratch();
-      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), 1.4f * c.dpi,
-                POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          1.4f * c.dpi,
+          POINT_RGB | (static_cast<ImU32>(90u) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       // The car, so the width being subtracted is on screen next to its effect.
       drawEgo(c);
@@ -2616,28 +2777,35 @@ namespace
           ++blocked;
 
           const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
-          const Float32 a   = deg * (PI / 180.0f);
+          const Float32 a = deg * (PI / 180.0f);
           // Outside the car, always: at a wide zoom a fixed screen radius sat on the
           // footprint and hid the very thing whose width produced the ticks.
-          const Float32 r0  = std::max(26.0f * c.dpi,
+          const Float32 r0 = std::max(26.0f * c.dpi,
                                        EGO_LEN_MM * 0.5f * c.ppm + 8.0f * c.dpi);
-          const Float32 r1  = r0 + 9.0f * c.dpi;
-          c.dl->AddLine(ImVec2(c.s0.x + std::cos(a) * r0, c.s0.y + std::sin(a) * r0),
-                        ImVec2(c.s0.x + std::cos(a) * r1, c.s0.y + std::sin(a) * r1),
-                        IM_COL32(0xCD, 0x00, 0x00, 0xC0), 2.0f * c.dpi);
+          const Float32 r1 = r0 + 9.0f * c.dpi;
+          c.dl->AddLine(
+              ImVec2(c.s0.x + std::cos(a) * r0, c.s0.y + std::sin(a) * r0),
+              ImVec2(c.s0.x + std::cos(a) * r1, c.s0.y + std::sin(a) * r1),
+              IM_COL32(0xCD, 0x00, 0x00, 0xC0),
+              2.0f * c.dpi
+          );
       }
 
       const Float32 freeArea = mapgeo::polarArea(free.data(), CLR_BINS, CLR_BIN_DEG);
-      const Float32 fitArea  = mapgeo::polarArea(reach.data(), CLR_BINS, CLR_BIN_DEG);
+      const Float32 fitArea = mapgeo::polarArea(reach.data(), CLR_BINS, CLR_BIN_DEG);
 
       // Forward reach, on the bearing the car actually points.
       const Int32 fwd = 0;    // bin 0 is centered on bearing 0 + half a bin
-      say(c, "car fits in %.1f m2 of %.1f m2 free (%.0f%%)  |  %.2f m ahead  |  "
-             "%d of %d bearings blocked",
-          static_cast<Float64>(fitArea), static_cast<Float64>(freeArea),
+      say(
+          c,
+          "car fits in %.1f m2 of %.1f m2 free (%.0f%%) | %.2f m ahead | " "%d of %d bearings blocked",
+          static_cast<Float64>(fitArea),
+          static_cast<Float64>(freeArea),
           freeArea > 0.01f ? 100.0 * static_cast<Float64>(fitArea / freeArea) : 0.0,
           static_cast<Float64>(reach[fwd] / 1000.0f),
-          blocked, CLR_BINS);
+          blocked,
+          CLR_BINS
+      );
   }
 
   // ===========================================================================
@@ -2654,17 +2822,17 @@ namespace
   // Object extraction. A cluster is a run of consecutive returns with no large gap;
   // the break threshold GROWS with range because the arc between samples does - at
   // 0.72 deg, neighbors are 63 mm apart at 5 m and 151 mm at 12 m.
-  constexpr Int32   OBJ_MIN_PTS     = 4;
+  constexpr Int32   OBJ_MIN_PTS = 4;
   constexpr Float32 OBJ_GAP_BASE_MM = 140.0f;
-  constexpr Float32 OBJ_GAP_SLOPE   = 0.045f;    // ~3.5 sample arcs
-  constexpr Float32 OBJ_MIN_EXT_MM  = 35.0f;     // smaller than this is one return
-  constexpr Float32 OBJ_MAX_LEN_MM  = 2400.0f;   // longer than this is a wall
-  constexpr Int32   OBJ_MAX         = 48;
+  constexpr Float32 OBJ_GAP_SLOPE = 0.045f;    // ~3.5 sample arcs
+  constexpr Float32 OBJ_MIN_EXT_MM = 35.0f;     // smaller than this is one return
+  constexpr Float32 OBJ_MAX_LEN_MM = 2400.0f;   // longer than this is a wall
+  constexpr Int32   OBJ_MAX = 48;
 
   // The corridor: how far straight ahead the car could go before something enters
   // the width it sweeps. Capped - past 6 m it is a room measurement, not a
   // driving decision.
-  constexpr Float32 CORRIDOR_MAX_MM  = 6000.0f;
+  constexpr Float32 CORRIDOR_MAX_MM = 6000.0f;
   constexpr Float32 CORRIDOR_WARN_MM = 1500.0f;
   constexpr Float32 CORRIDOR_STOP_MM = 700.0f;
 
@@ -2715,8 +2883,8 @@ namespace
       for(Int32 i = 0; i < m; ++i)
       {
           const Float32 dx = p[i].x - mx, dy = p[i].y - my;
-          const Float32 t  =  dx * ux + dy * uy;
-          const Float32 s  = -dx * uy + dy * ux;
+          const Float32 t =  dx * ux + dy * uy;
+          const Float32 s = -dx * uy + dy * ux;
           if(t < tLo)
           {
               tLo = t;
@@ -2799,7 +2967,7 @@ namespace
       // The scan is a CIRCLE, so a cluster straddling 0 deg would be cut in half
       // and fitted twice. Starting at the ring's largest gap removes the wrap case.
       Int32   startAt = 0;
-      Float32 widest  = -1.0f;
+      Float32 widest = -1.0f;
       for(Int32 i = 0; i < n; ++i)
       {
           const Float32 g = gapAt(i, (i + 1) % n);
@@ -2833,7 +3001,7 @@ namespace
               const WorldPt& prev = run.back();
               const Float32 dx = cur.x - prev.x, dy = cur.y - prev.y;
               const Float32 gap = std::sqrt(dx * dx + dy * dy);
-              const Float32 r   = std::sqrt(prev.x * prev.x + prev.y * prev.y);
+              const Float32 r = std::sqrt(prev.x * prev.x + prev.y * prev.y);
               if(gap > OBJ_GAP_BASE_MM + r * OBJ_GAP_SLOPE)
               {
                   flush();
@@ -2922,8 +3090,14 @@ namespace
       const ImVec2 b(c.s0.x + h, c.s0.y + h);
 
       c.dl->AddRectFilled(a, b, (ui::ansi::BLACK & 0x00FFFFFFu) | (0xC0u << IM_COL32_A_SHIFT));
-      c.dl->AddRect(a, b, (ui::ansi::WHITE & 0x00FFFFFFu) | (0xD0u << IM_COL32_A_SHIFT), 0.0f, 0,
-                    std::max(1.0f, 1.2f * c.dpi));
+      c.dl->AddRect(
+          a,
+          b,
+          (ui::ansi::WHITE & 0x00FFFFFFu) | (0xD0u << IM_COL32_A_SHIFT),
+          0.0f,
+          0,
+          std::max(1.0f, 1.2f * c.dpi)
+      );
   }
 
   Void drawEgo(const MarkCtx& c)
@@ -2962,8 +3136,11 @@ namespace
               {
                   const Float32 wx = cx + static_cast<Float32>(sx) * tx;
                   const Float32 wy = cy + static_cast<Float32>(sy) * ax;
-                  c.dl->AddRectFilled(ImVec2(wx - ww, wy - wr), ImVec2(wx + ww, wy + wr),
-                                      IM_COL32(0x7F, 0x7F, 0x7F, 0xC0));
+                  c.dl->AddRectFilled(
+                      ImVec2(wx - ww, wy - wr),
+                      ImVec2(wx + ww, wy + wr),
+                      IM_COL32(0x7F, 0x7F, 0x7F, 0xC0)
+                  );
               }
           }
       }
@@ -3004,15 +3181,18 @@ namespace
               ImVec2(cx + hw * 0.62f, cy + hl * 0.40f),
               ImVec2(cx - hw * 0.62f, cy + hl * 0.40f),
           };
-          c.dl->AddPolyline(cab, 4, IM_COL32(0xE5, 0xE5, 0xE5, 0x66),
-                            ImDrawFlags_Closed, th);
+          c.dl->AddPolyline(cab, 4, IM_COL32(0xE5, 0xE5, 0xE5, 0x66), ImDrawFlags_Closed, th);
       }
 
       // Center line: the axis the corridor is measured along.
       if(hl > 6.0f)
       {
-          c.dl->AddLine(ImVec2(cx, cy - hl * 0.95f), ImVec2(cx, cy + hl * 0.90f),
-                        IM_COL32(0xE5, 0xE5, 0xE5, 0x40), th);
+          c.dl->AddLine(
+              ImVec2(cx, cy - hl * 0.95f),
+              ImVec2(cx, cy + hl * 0.90f),
+              IM_COL32(0xE5, 0xE5, 0xE5, 0x40),
+              th
+          );
       }
   }
 
@@ -3085,8 +3265,7 @@ namespace
                   continue;
               }
               const Float32 arm = std::min(len * 0.33f, 11.0f * c.dpi);
-              c.dl->AddLine(a, ImVec2(a.x + dx / len * arm, a.y + dy / len * arm),
-                            line, th);
+              c.dl->AddLine(a, ImVec2(a.x + dx / len * arm, a.y + dy / len * arm), line, th);
           }
       }
 
@@ -3100,17 +3279,21 @@ namespace
       const Float32 across = o.halfW * 2.0f, along = o.halfL * 2.0f;
       if(std::max(across, along) >= 250.0f)
       {
-          std::snprintf(lab.data(), lab.size(), "%.2f m  %.0fx%.0f",
-                        static_cast<Float64>(o.nearMm / 1000.0f),
-                        static_cast<Float64>(along), static_cast<Float64>(across));
+          std::snprintf(
+              lab.data(),
+              lab.size(),
+              "%.2f m %.0fx%.0f",
+              static_cast<Float64>(o.nearMm / 1000.0f),
+              static_cast<Float64>(along),
+              static_cast<Float64>(across)
+          );
       }
       else
       {
-          std::snprintf(lab.data(), lab.size(), "%.2f m",
-                        static_cast<Float64>(o.nearMm / 1000.0f));
+          std::snprintf(lab.data(), lab.size(), "%.2f m", static_cast<Float64>(o.nearMm / 1000.0f));
       }
 
-      ImFont*       f  = labelFont();
+      ImFont*       f = labelFont();
       const Float32 fs = labelPx();
       const ImVec2  ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, lab.data());
 
@@ -3121,8 +3304,7 @@ namespace
       const Float32 ny = (d > 1.0f) ? o.cy / d : -1.0f;
       const Float32 push = (std::max(o.halfL, o.halfW) * c.ppm) + 13.0f * c.dpi;
 
-      const ImVec2 mid(c.s0.x + o.cx * c.ppm + nx * push,
-                       c.s0.y + o.cy * c.ppm + ny * push);
+      const ImVec2 mid(c.s0.x + o.cx * c.ppm + nx * push, c.s0.y + o.cy * c.ppm + ny * push);
 
       if(!claimLabel(taken, mid, ts, c.dpi))
       {
@@ -3148,7 +3330,7 @@ namespace
           return;                       // nothing between the bumper and the stop
       }
 
-      const ImU32 col  = clearanceColor(freeMm);
+      const ImU32 col = clearanceColor(freeMm);
       const ImU32 fill = (col & 0x00FFFFFFu) | (static_cast<ImU32>(24u) << IM_COL32_A_SHIFT);
       const ImU32 line = (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xB0u) << IM_COL32_A_SHIFT);
 
@@ -3162,13 +3344,21 @@ namespace
       Array<Char, 32> lab;
       if(freeMm >= CORRIDOR_MAX_MM)
       {
-          std::snprintf(lab.data(), lab.size(), "clear >%.0f m",
-                        static_cast<Float64>(CORRIDOR_MAX_MM / 1000.0f));
+          std::snprintf(
+              lab.data(),
+              lab.size(),
+              "clear >%.0f m",
+              static_cast<Float64>(CORRIDOR_MAX_MM / 1000.0f)
+          );
       }
       else
       {
-          std::snprintf(lab.data(), lab.size(), "ahead %.2f m",
-                        static_cast<Float64>(freeMm / 1000.0f));
+          std::snprintf(
+              lab.data(),
+              lab.size(),
+              "ahead %.2f m",
+              static_cast<Float64>(freeMm / 1000.0f)
+          );
       }
 
       // Claims space FIRST: the one number here that is a driving decision.
@@ -3178,9 +3368,14 @@ namespace
 
       if(claimLabel(taken, at, ts, c.dpi))
       {
-          plateTextAt(c.dl, at, Rect{ c.p0, c.p1 }, c.dpi,
-                      (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
-                      lab.data());
+          plateTextAt(
+              c.dl,
+              at,
+              Rect{ c.p0, c.p1 },
+              c.dpi,
+              (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
+              lab.data()
+          );
       }
   }
 
@@ -3220,21 +3415,30 @@ namespace
               {
                   any = true;
               }
-              const Float32 d   = st.clrSeen[i] ? st.clr[i] : 0.0f;
+              const Float32 d = st.clrSeen[i] ? st.clr[i] : 0.0f;
               const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
-              const Float32 a   = deg * (PI / 180.0f);
-              const Float32 rr  = d * c.ppm;
+              const Float32 a = deg * (PI / 180.0f);
+              const Float32 rr = d * c.ppm;
               poly[i] = ImVec2(c.s0.x + rr * std::cos(a), c.s0.y + rr * std::sin(a));
           }
           if(any)
           {
-              emitFan(c.dl, c.s0, poly, CLR_BINS,
-                      CLEAR_RGB | (static_cast<ImU32>(28u) << IM_COL32_A_SHIFT), c.uv);
+              emitFan(
+                  c.dl,
+                  c.s0,
+                  poly,
+                  CLR_BINS,
+                  CLEAR_RGB | (static_cast<ImU32>(28u) << IM_COL32_A_SHIFT),
+                  c.uv
+              );
               for(Int32 i = 0; i < CLR_BINS; ++i)
               {
-                  c.dl->AddLine(poly[i], poly[(i + 1) % CLR_BINS],
-                                CLEAR_RGB | (static_cast<ImU32>(120u) << IM_COL32_A_SHIFT),
-                                1.2f * c.dpi);
+                  c.dl->AddLine(
+                      poly[i],
+                      poly[(i + 1) % CLR_BINS],
+                      CLEAR_RGB | (static_cast<ImU32>(120u) << IM_COL32_A_SHIFT),
+                      1.2f * c.dpi
+                  );
               }
           }
       }
@@ -3248,17 +3452,23 @@ namespace
       taken.clear();
 
       // The sensor's own readouts are not negotiable: they claim space first.
-      taken.push_back(LabelRect{ c.s0.x - 52.0f * c.dpi, c.s0.y - 26.0f * c.dpi,
-                                 c.s0.x + 96.0f * c.dpi, c.s0.y + 26.0f * c.dpi });
+      taken.push_back(
+          LabelRect{ c.s0.x - 52.0f * c.dpi, c.s0.y - 26.0f * c.dpi, c.s0.x + 96.0f * c.dpi, c.s0.y + 26.0f * c.dpi }
+      );
 
       drawCorridor(c, halfWidth, freeAhead, taken);
 
       // ---- the returns themselves, brightest -------------------------------
       Vec<Dot>& dots = scratch();
-      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR,
-                POINT_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), c.uv);
+      collectDots(pts, MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          c.dotR,
+          POINT_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
+          c.uv
+      );
 
       // ---- objects, over the returns they were fitted to --------------------
       // In PRIORITY ORDER - in-path first, then nearest - because labels are first
@@ -3270,15 +3480,11 @@ namespace
           order.push_back(i);
       }
 
-      std::sort(order.begin(), order.end(), [&](Int32 a2, Int32 b2) {
-          const Obstacle& x = obstacles[static_cast<Size>(a2)];
-          const Obstacle& y = obstacles[static_cast<Size>(b2)];
-          if(x.inPath != y.inPath)
-          {
-              return x.inPath;
-          }
-          return x.nearMm < y.nearMm;
-      });
+      std::sort(
+          order.begin(),
+          order.end(),
+          [&](Int32 a2, Int32 b2) { const Obstacle& x = obstacles[static_cast<Size>(a2)]; const Obstacle& y = obstacles[static_cast<Size>(b2)]; if(x.inPath != y.inPath) { return x.inPath; } return x.nearMm < y.nearMm; }
+      );
 
       for(Int32 idx : order)
       {
@@ -3327,27 +3533,42 @@ namespace
               const Float32 a = (bestDeg - 90.0f) * (PI / 180.0f);
               const Float32 rr = 0.90f * std::min(c.p1.x - c.p0.x, c.p1.y - c.p0.y) * 0.5f;
               const ImVec2 tip(c.s0.x + rr * std::cos(a), c.s0.y + rr * std::sin(a));
-              c.dl->AddLine(c.s0, tip,
-                            GAP_RGB | (static_cast<ImU32>(0x30u) << IM_COL32_A_SHIFT),
-                            6.0f * c.dpi);
-              c.dl->AddLine(c.s0, tip,
-                            GAP_RGB | (static_cast<ImU32>(0xC0u) << IM_COL32_A_SHIFT),
-                            1.6f * c.dpi);
+              c.dl->AddLine(
+                  c.s0,
+                  tip,
+                  GAP_RGB | (static_cast<ImU32>(0x30u) << IM_COL32_A_SHIFT),
+                  6.0f * c.dpi
+              );
+              c.dl->AddLine(
+                  c.s0,
+                  tip,
+                  GAP_RGB | (static_cast<ImU32>(0xC0u) << IM_COL32_A_SHIFT),
+                  1.6f * c.dpi
+              );
 
               Array<Char, 40> lab;
-              std::snprintf(lab.data(), lab.size(), "widest gap %.2f m",
-                            static_cast<Float64>(bestWidth / 1000.0f));
+              std::snprintf(
+                  lab.data(),
+                  lab.size(),
+                  "widest gap %.2f m",
+                  static_cast<Float64>(bestWidth / 1000.0f)
+              );
               ImFont* f = labelFont();
               const ImVec2 ts = f->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, lab.data());
-              plateText(c.dl, ImVec2(tip.x - ts.x * 0.5f, tip.y - ts.y * 0.5f), c.dpi,
-                        GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT), lab.data());
+              plateText(
+                  c.dl,
+                  ImVec2(tip.x - ts.x * 0.5f, tip.y - ts.y * 0.5f),
+                  c.dpi,
+                  GAP_RGB | (static_cast<ImU32>(0xFFu) << IM_COL32_A_SHIFT),
+                  lab.data()
+              );
           }
       }
 
       // ---- the instrument panel, on the map ---------------------------------
       Int32   inSpec = 0, noReturn = 0, outOfRange = 0;
       Float32 nearMm = MAX_VALID_MM, maxMm = 0.0f;
-      Float64 sumMm  = 0.0;
+      Float64 sumMm = 0.0;
 
       for(const LidarPoint& p : pts)
       {
@@ -3369,7 +3590,7 @@ namespace
           }
           if(p.distMm > maxMm)
           {
-              maxMm  = p.distMm;
+              maxMm = p.distMm;
           }
       }
       const Int32 total = static_cast<Int32>(pts.size());
@@ -3407,18 +3628,16 @@ namespace
 
       addRow("rate",      "%.1f Hz",  static_cast<Float64>(hz));
       addRow("returns",   "%.0f /rev", static_cast<Float64>(total));
-      addRow("in spec",   "%.0f %%",
-             total > 0 ? 100.0 * static_cast<Float64>(inSpec) / total : 0.0);
+      addRow("in spec", "%.0f %%", total > 0 ? 100.0 * static_cast<Float64>(inSpec) / total : 0.0);
       addRow("nearest",   "%.2f m",   static_cast<Float64>(nearMm / 1000.0f));
-      addRow("mean",      "%.2f m",
-             inSpec > 0 ? sumMm / inSpec / 1000.0 : 0.0);
+      addRow("mean", "%.2f m", inSpec > 0 ? sumMm / inSpec / 1000.0 : 0.0);
       addRow("furthest",  "%.2f m",   static_cast<Float64>(maxMm / 1000.0f));
       addRow("clearance", "%.2f m",   static_cast<Float64>(minClr / 1000.0f));
       addRow("gap",       "%.2f m",   static_cast<Float64>(bestWidth / 1000.0f));
       addRow("objects",   "%.0f",     static_cast<Float64>(obstacles.size()));
       addRow("ahead",     "%.2f m",   static_cast<Float64>(freeAhead / 1000.0f));
 
-      ImFont*       f  = labelFont();
+      ImFont*       f = labelFont();
       const Float32 fs = labelPx();
       const Float32 lh = fs * 1.45f;
       const Float32 pad = 9.0f * c.dpi;
@@ -3434,8 +3653,7 @@ namespace
       const Float32 boxH = lh * static_cast<Float32>(nr) + pad * 2.0f;
 
       // Right edge, centered: the only quarter of the map the HUD leaves free.
-      const ImVec2 a(c.p1.x - boxW - 14.0f * c.dpi,
-                     (c.p0.y + c.p1.y) * 0.5f - boxH * 0.5f);
+      const ImVec2 a(c.p1.x - boxW - 14.0f * c.dpi, (c.p0.y + c.p1.y) * 0.5f - boxH * 0.5f);
       const ImVec2 b(a.x + boxW, a.y + boxH);
 
       ui::plate(a, b, (ui::ansi::BLACK & 0x00FFFFFFu) | (0xE8u << IM_COL32_A_SHIFT), 0.0f);
@@ -3453,13 +3671,18 @@ namespace
           c.dl->AddText(f, fs, ImVec2(b.x - pad - w, y), col, rows[i].v);
       }
 
-      say(c, "%d objects (%d in path)  |  %.2f m ahead  |  %d in spec of %d  |  "
-             "clearance %.2f m at %.0f deg  |  widest gap %.2f m",
-          static_cast<Int32>(obstacles.size()), inPathCount,
+      say(
+          c,
+          "%d objects (%d in path) | %.2f m ahead | %d in spec of %d | " "clearance %.2f m at %.0f deg | widest gap %.2f m",
+          static_cast<Int32>(obstacles.size()),
+          inPathCount,
           static_cast<Float64>(freeAhead / 1000.0f),
-          inSpec, total,
-          static_cast<Float64>(minClr / 1000.0f), static_cast<Float64>(minClrDeg),
-          static_cast<Float64>(bestWidth / 1000.0f));
+          inSpec,
+          total,
+          static_cast<Float64>(minClr / 1000.0f),
+          static_cast<Float64>(minClrDeg),
+          static_cast<Float64>(bestWidth / 1000.0f)
+      );
   }
 
   // MapMode::MAP_MODE_MINIMAL. The room as one soft shape, the returns as a
@@ -3479,22 +3702,32 @@ namespace
               {
                   any = true;
               }
-              const Float32 d   = st.clrSeen[i] ? st.clr[i] : 0.0f;
+              const Float32 d = st.clrSeen[i] ? st.clr[i] : 0.0f;
               const Float32 deg = (static_cast<Float32>(i) + 0.5f) * CLR_BIN_DEG - 90.0f;
-              const Float32 a   = deg * (PI / 180.0f);
-              const Float32 rr  = d * c.ppm;
+              const Float32 a = deg * (PI / 180.0f);
+              const Float32 rr = d * c.ppm;
               poly[i] = ImVec2(c.s0.x + rr * std::cos(a), c.s0.y + rr * std::sin(a));
           }
 
           if(any)
           {
               // Star-shaped about the sensor by construction, so the fan is exact.
-              emitFan(c.dl, c.s0, poly, CLR_BINS,
-                      (ui::ansi::BLUE  & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT), c.uv);
+              emitFan(
+                  c.dl,
+                  c.s0,
+                  poly,
+                  CLR_BINS,
+                  (ui::ansi::BLUE & 0x00FFFFFFu) | (0x60u << IM_COL32_A_SHIFT),
+                  c.uv
+              );
               for(Int32 i = 0; i < CLR_BINS; ++i)
               {
-                  c.dl->AddLine(poly[i], poly[(i + 1) % CLR_BINS],
-                                (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0xC0u << IM_COL32_A_SHIFT), 1.6f * c.dpi);
+                  c.dl->AddLine(
+                      poly[i],
+                      poly[(i + 1) % CLR_BINS],
+                      (ui::ansi::BRCYAN & 0x00FFFFFFu) | (0xC0u << IM_COL32_A_SHIFT),
+                      1.6f * c.dpi
+                  );
               }
           }
       }
@@ -3502,10 +3735,15 @@ namespace
       // The returns as light, not data: bigger than the debug modes' 2 px dots,
       // because small dots read as noise and larger ones as an edge.
       Vec<Dot>& dots = scratch();
-      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi },
-                  Rect{ c.cullLo, c.cullHi }, dots);
-      emitDiscs(c.dl, dots.data(), static_cast<Int32>(dots.size()), c.dotR * 1.5f,
-                IM_COL32(0xFF, 0xFF, 0xFF, 0xE0), c.uv);
+      collectDots(trail.back(), MapScale{ c.s0, c.ppm, c.dpi }, Rect{ c.cullLo, c.cullHi }, dots);
+      emitDiscs(
+          c.dl,
+          dots.data(),
+          static_cast<Int32>(dots.size()),
+          c.dotR * 1.5f,
+          IM_COL32(0xFF, 0xFF, 0xFF, 0xE0),
+          c.uv
+      );
 
       drawEgo(c);
 
@@ -3532,9 +3770,9 @@ namespace
   Void drawPlaceholder(ImDrawList* dl, const ImVec2& c)
   {
       ImFont*      font = labelFont();
-      const Float32  fs   = labelPx() * 1.25f;
-      const Char*  txt  = "No scan data";
-      const ImVec2 ts   = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
+      const Float32  fs = labelPx() * 1.25f;
+      const Char*  txt = "No scan data";
+      const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
 
       dl->AddText(font, fs, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), EMPTY_COL, txt);
   }
@@ -3748,12 +3986,12 @@ Void RadarView::push(const LidarFrame& frame)
 Void RadarView::clear()
 {
     trail.clear();
-    hasData           = false;
-    hasNearest        = false;
-    nearestMm         = 0.0f;
+    hasData = false;
+    hasNearest = false;
+    nearestMm = 0.0f;
     nearestBearingDeg = 0.0f;
-    measureActive     = false;
-    measureMm         = 0.0f;
+    measureActive = false;
+    measureMm = 0.0f;
 
     // Otherwise a reconnect fits to the previous room for the next 2.4 s.
     fitStepMm = 0.0f;
@@ -3771,10 +4009,10 @@ Void RadarView::clear()
 
 Void RadarView::fit()
 {
-    autoFit       = true;
+    autoFit = true;
     viewCenterMm = ImVec2(0.0f, 0.0f);
     measureActive = false;
-    measureMm     = 0.0f;
+    measureMm = 0.0f;
 
     if(radiusPx > 0.0f)
     {
@@ -3786,10 +4024,10 @@ Void RadarView::setRangeMm(Float32 mm)
 {
     const Float32 r = clampf(mm, MIN_VISIBLE_MM, MAX_VISIBLE_MM);
 
-    autoFit       = false;
+    autoFit = false;
     viewCenterMm = ImVec2(0.0f, 0.0f);
-    autoRangeMm  = r;
-    pxPerMm      = (radiusPx > 0.0f) ? (radiusPx / r) : 0.0f;
+    autoRangeMm = r;
+    pxPerMm = (radiusPx > 0.0f) ? (radiusPx / r) : 0.0f;
 }
 
 Float32 RadarView::visibleRangeMm() const noexcept
@@ -3803,8 +4041,10 @@ Float32 RadarView::visibleRangeMm() const noexcept
 
 ImVec2 RadarView::toScreen(const ImVec2& worldMm) const noexcept
 {
-    return ImVec2(centerPx.x + (worldMm.x - viewCenterMm.x) * pxPerMm,
-                  centerPx.y + (worldMm.y - viewCenterMm.y) * pxPerMm);
+    return ImVec2(
+        centerPx.x + (worldMm.x - viewCenterMm.x) * pxPerMm,
+        centerPx.y + (worldMm.y - viewCenterMm.y) * pxPerMm
+    );
 }
 
 ImVec2 RadarView::toWorld(const ImVec2& screenPx) const noexcept
@@ -3814,8 +4054,10 @@ ImVec2 RadarView::toWorld(const ImVec2& screenPx) const noexcept
         return viewCenterMm;
     }
 
-    return ImVec2(viewCenterMm.x + (screenPx.x - centerPx.x) / pxPerMm,
-                  viewCenterMm.y + (screenPx.y - centerPx.y) / pxPerMm);
+    return ImVec2(
+        viewCenterMm.x + (screenPx.x - centerPx.x) / pxPerMm,
+        viewCenterMm.y + (screenPx.y - centerPx.y) / pxPerMm
+    );
 }
 
 // ------------------------------------------------------------------- draw ---
@@ -3872,12 +4114,12 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
         {
             for(Int32 i = 0; i < CLR_BINS; ++i)
             {
-                mst.refClr[i]  = st.clr[i];
+                mst.refClr[i] = st.clr[i];
                 mst.refSeen[i] = st.clrSeen[i];
             }
-            mst.refValid   = true;
+            mst.refValid = true;
             mst.headingDeg = 0.0f;
-            mst.headingOk  = 1.0f;
+            mst.headingOk = 1.0f;
         }
         else
         {
@@ -3940,25 +4182,27 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
             freeR[i] = st.clrSeen[i] ? st.clr[i] : 0.0f;
             seenR[i] = st.clrSeen[i];
         }
-        mapgeo::computeReach(mapgeo::PolarScan{ freeR.data(), seenR.data(),
-                                                CLR_BINS, CLR_BIN_DEG },
-                             EGO_WID_MM * 0.5f + 30.0f, reach.data());
+        mapgeo::computeReach(
+            mapgeo::PolarScan{ freeR.data(), seenR.data(), CLR_BINS, CLR_BIN_DEG },
+            EGO_WID_MM * 0.5f + 30.0f,
+            reach.data()
+        );
         haveReach = true;
     }
 
     scene3d::DrawArgs a;
-    a.dl      = dl;
-    a.p0      = p0;
-    a.p1      = p1;
-    a.dpi     = dpi;
-    a.mode    = rv.scene;
-    a.ego     = rv.ego;
+    a.dl = dl;
+    a.p0 = p0;
+    a.p1 = p1;
+    a.dpi = dpi;
+    a.mode = rv.scene;
+    a.ego = rv.ego;
     a.worldYawDeg = worldYaw;
     a.worldHeadingOk = rv.cam.lockToCar ? -1.0f : mst.headingOk;
 
     // Solved from ONE clock, once a frame - see lights.hxx. ImGui's time is
     // monotonic and frame-rate independent, which is what the flasher needs.
-    a.lamps   = lights::solve(rv.lighting, ImGui::GetTime());
+    a.lamps = lights::solve(rv.lighting, ImGui::GetTime());
 
     // Detections and the corridor for the ride view, from the SAME fitter the flat
     // map's Full uses: a second set of thresholds would let the two disagree.
@@ -3992,22 +4236,22 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
         }
     }
 
-    a.objects       = dets.empty() ? nullptr : dets.data();
-    a.objectN       = static_cast<Int32>(dets.size());
+    a.objects = dets.empty() ? nullptr : dets.data();
+    a.objectN = static_cast<Int32>(dets.size());
     a.corridorHalfW = corridorHalfW;
-    a.corridorFree  = corridorAhead;
+    a.corridorFree = corridorAhead;
 
-    a.hz        = rv.hz();
-    a.returns   = static_cast<Int32>(rv.lastRevolution().size());
+    a.hz = rv.hz();
+    a.returns = static_cast<Int32>(rv.lastRevolution().size());
     a.nearestMm = rv.hasNearest ? rv.nearestMm : 0.0f;
-    a.aheadMm   = (corridorAhead > 0.0f) ? corridorAhead
+    a.aheadMm = (corridorAhead > 0.0f) ? corridorAhead
                 : (haveReach ? reach[0] : 0.0f);
-    a.points  = haveData ? &rv.lastRevolution() : nullptr;
-    a.walls   = &walls;
-    a.reach   = haveReach ? reach.data() : nullptr;
-    a.reachN  = haveReach ? CLR_BINS : 0;
+    a.points = haveData ? &rv.lastRevolution() : nullptr;
+    a.walls = &walls;
+    a.reach = haveReach ? reach.data() : nullptr;
+    a.reachN = haveReach ? CLR_BINS : 0;
     a.reachBinDeg = CLR_BIN_DEG;
-    a.diag    = rv.diag.data();
+    a.diag = rv.diag.data();
     a.diagCap = rv.diag.size();
 
     rv.diag[0] = 0;
@@ -4021,7 +4265,7 @@ Void drawScene3D(RadarView& rv, const MapState& st, ImDrawList* dl, const Rect& 
 
 Void RadarView::draw(const ImVec2& size)
 {
-    ImGuiIO&    io  = ImGui::GetIO();
+    ImGuiIO&    io = ImGui::GetIO();
     const Float32 dpi = currentDpi();
 
     // Occupancy fades in wall-clock time, so its clock ticks before any early
@@ -4046,13 +4290,14 @@ Void RadarView::draw(const ImVec2& size)
     const ImVec2 p1 = ImVec2(p0.x + sz.x, p0.y + sz.y);
 
     // One hit area owns all three drag buttons, so nothing else can steal a pan.
-    ImGui::InvisibleButton("##radar_view", sz,
-                           ImGuiButtonFlags_MouseButtonLeft |
-                           ImGuiButtonFlags_MouseButtonRight |
-                           ImGuiButtonFlags_MouseButtonMiddle);
+    ImGui::InvisibleButton(
+        "##radar_view",
+        sz,
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle
+    );
 
     const Bool hovered = ImGui::IsItemHovered();
-    const Bool active  = ImGui::IsItemActive();
+    const Bool active = ImGui::IsItemActive();
 
     // Claim the wheel only under the cursor; the rest of the UI keeps scrolling.
     ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
@@ -4060,7 +4305,7 @@ Void RadarView::draw(const ImVec2& size)
     centerPx = ImVec2(p0.x + sz.x * 0.5f, p0.y + sz.y * 0.5f);
 
     const Float32 minSide = std::min(sz.x, sz.y);
-    const Float32 margin   = std::min(18.0f * dpi, minSide * 0.08f);
+    const Float32 margin = std::min(18.0f * dpi, minSide * 0.08f);
     radiusPx = std::max(minSide * 0.5f - margin, 0.0f);
 
     cursorValid = false;
@@ -4096,13 +4341,21 @@ Void RadarView::draw(const ImVec2& size)
             }
             if(best != nullptr)
             {
-                hasNearest        = true;
-                nearestMm         = best->distMm;
+                hasNearest = true;
+                nearestMm = best->distMm;
                 nearestBearingDeg = best->angleDeg;
             }
         }
 
-        drawScene3D(*this, map, dl, Rect{ p0, p1 }, dpi, hovered, active);
+        drawScene3D(
+            *this,
+            map,
+            dl,
+            Rect{ p0, p1 },
+            dpi,
+            hovered,
+            active
+        );
         return;
     }
 
@@ -4120,7 +4373,7 @@ Void RadarView::draw(const ImVec2& size)
     if(autoFit)
     {
         viewCenterMm = ImVec2(0.0f, 0.0f);
-        pxPerMm      = radiusPx / std::max(autoRangeMm, 1.0f);
+        pxPerMm = radiusPx / std::max(autoRangeMm, 1.0f);
     }
     else if(!(pxPerMm > 0.0f))
     {
@@ -4135,7 +4388,7 @@ Void RadarView::draw(const ImVec2& size)
     {
         fit();
         pxPerMm = clampf(radiusPx / std::max(autoRangeMm, 1.0f), minPpm, maxPpm);
-        resetNow  = true;
+        resetNow = true;
     }
 
     // Pan: left or middle drag, 1:1 with the cursor.
@@ -4164,10 +4417,10 @@ Void RadarView::draw(const ImVec2& size)
     // widget still owns the mouse.
     if((hovered || active) && wheel != 0.0f && !resetNow)
     {
-        const Float32 step   = io.KeyCtrl ? 1.03f : (io.KeyShift ? 1.30f : 1.10f);
+        const Float32 step = io.KeyCtrl ? 1.03f : (io.KeyShift ? 1.30f : 1.10f);
         const Float32 factor = std::pow(step, wheel);
         const ImVec2 anchorWorld = toWorld(io.MousePos);
-        const Float32  ppm          = clampf(pxPerMm * factor, minPpm, maxPpm);
+        const Float32  ppm = clampf(pxPerMm * factor, minPpm, maxPpm);
 
         if(ppm != pxPerMm)
         {
@@ -4181,10 +4434,10 @@ Void RadarView::draw(const ImVec2& size)
     // Measure: right drag, anchored on press.
     if(active && !panning && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
     {
-        measureActive  = true;
+        measureActive = true;
         measureFromMm = toWorld(io.MousePos);
-        measureToMm   = measureFromMm;
-        measureMm      = 0.0f;
+        measureToMm = measureFromMm;
+        measureMm = 0.0f;
     }
     if(measureActive)
     {
@@ -4193,12 +4446,12 @@ Void RadarView::draw(const ImVec2& size)
             measureToMm = toWorld(io.MousePos);
             const Float32 dx = measureToMm.x - measureFromMm.x;
             const Float32 dy = measureToMm.y - measureFromMm.y;
-            measureMm    = std::sqrt(dx * dx + dy * dy);
+            measureMm = std::sqrt(dx * dx + dy * dy);
         }
         else
         {
             measureActive = false;
-            measureMm     = 0.0f;
+            measureMm = 0.0f;
         }
     }
 
@@ -4215,7 +4468,7 @@ Void RadarView::draw(const ImVec2& size)
     if(hovered || active)
     {
         const ImVec2 w = toWorld(io.MousePos);
-        cursorValid    = true;
+        cursorValid = true;
         cursorRangeMm = std::sqrt(w.x * w.x + w.y * w.y);
 
         Float32 b = std::atan2(w.x, -w.y) * (180.0f / PI);   // 0 = up, clockwise
@@ -4227,7 +4480,7 @@ Void RadarView::draw(const ImVec2& size)
     }
 
     const Float32 visibleMm = std::max(radiusPx / pxPerMm, 1.0f);
-    const ImVec2 s0        = toScreen(ImVec2(0.0f, 0.0f));   // sensor on screen
+    const ImVec2 s0 = toScreen(ImVec2(0.0f, 0.0f));   // sensor on screen
 
     // ---- draw -------------------------------------------------------------
     // Order matters: chrome that has to stay legible (every number, the scale
@@ -4277,7 +4530,7 @@ Void RadarView::draw(const ImVec2& size)
 
     if(havePoints)
     {
-        const ImVec2 uv   = ImGui::GetFontTexUvWhitePixel();
+        const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
         const Int32    last = static_cast<Int32>(trail.size()) - 1;
 
         const Float32  dotR = 2.0f * dpi;
@@ -4285,18 +4538,18 @@ Void RadarView::draw(const ImVec2& size)
         const ImVec2 cullHi(p1.x + dotR, p1.y + dotR);
 
         MarkCtx mc;
-        mc.dl      = dl;
-        mc.p0      = p0;
-        mc.p1      = p1;
+        mc.dl = dl;
+        mc.p0 = p0;
+        mc.p1 = p1;
         mc.cullLo = cullLo;
         mc.cullHi = cullHi;
-        mc.s0      = s0;
-        mc.uv      = uv;
-        mc.ppm     = pxPerMm;
-        mc.dpi     = dpi;
-        mc.dotR   = dotR;
-        mc.ego     = ego;
-        mc.diag    = diag.data();
+        mc.s0 = s0;
+        mc.uv = uv;
+        mc.ppm = pxPerMm;
+        mc.dpi = dpi;
+        mc.dotR = dotR;
+        mc.ego = ego;
+        mc.diag = diag.data();
         mc.diagCap = diag.size();
 
         // The ONLY place `mode` is consulted. Everything above it (geometry,
@@ -4377,20 +4630,29 @@ Void RadarView::draw(const ImVec2& size)
             if(showNearest && !bare)
             {
                 const Float32  ang = (best->angleDeg - 90.0f) * (PI / 180.0f);
-                const Float32  rr  = best->distMm * pxPerMm;
+                const Float32  rr = best->distMm * pxPerMm;
                 const ImVec2 np(s0.x + rr * std::cos(ang), s0.y + rr * std::sin(ang));
 
                 // The whole nearest *object*, not just the closest sample: a wall
                 // or a hand spans many samples, and ringing one says nothing.
                 Vec<Dot>& hot = nearestScratch();
                 gatherNearestCluster(cur, bestI, s0, pxPerMm, hot);
-                emitDiscs(dl, hot.data(), static_cast<Int32>(hot.size()),
-                          dotR * 1.35f, NEAREST_COL, uv);
+                emitDiscs(
+                    dl,
+                    hot.data(),
+                    static_cast<Int32>(hot.size()),
+                    dotR * 1.35f,
+                    NEAREST_COL,
+                    uv
+                );
 
                 // Lit rather than outlined: a halo, the ring, then the core.
-                dl->AddCircleFilled(np, 13.0f * dpi,
-                                    (NEAREST_COL & 0x00FFFFFFu)
-                                    | (static_cast<ImU32>(30u) << IM_COL32_A_SHIFT), 20);
+                dl->AddCircleFilled(
+                    np,
+                    13.0f * dpi,
+                    (NEAREST_COL & 0x00FFFFFFu) | (static_cast<ImU32>(30u) << IM_COL32_A_SHIFT),
+                    20
+                );
                 dl->AddCircle(np, 10.0f * dpi, NEAREST_COL, 20, 1.6f * dpi);
                 dl->AddCircleFilled(np, 2.6f * dpi, NEAREST_COL, 12);
 
@@ -4398,8 +4660,13 @@ Void RadarView::draw(const ImVec2& size)
                 {
                     Array<Char, 24> buf;
                     formatDist(buf.data(), buf.size(), best->distMm);
-                    plateText(dl, ImVec2(np.x + 14.0f * dpi, np.y - 6.0f * dpi),
-                              dpi, NEAREST_COL, buf.data());
+                    plateText(
+                        dl,
+                        ImVec2(np.x + 14.0f * dpi, np.y - 6.0f * dpi),
+                        dpi,
+                        NEAREST_COL,
+                        buf.data()
+                    );
                 }
             }
         }
@@ -4419,9 +4686,11 @@ Void RadarView::draw(const ImVec2& size)
         formatDist(buf.data(), buf.size(), measureMm);
 
         ImFont*      font = labelFont();
-        const ImVec2 ts   = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf.data());
-        plateText(dl, ImVec2((a.x + b.x) * 0.5f - ts.x * 0.5f,
-                             (a.y + b.y) * 0.5f - ts.y - 6.0f * dpi),
+        const ImVec2 ts = font->CalcTextSizeA(labelPx(), FLT_MAX, 0.0f, buf.data());
+        plateText(dl, ImVec2(
+            (a.x + b.x) * 0.5f - ts.x * 0.5f,
+            (a.y + b.y) * 0.5f - ts.y - 6.0f * dpi
+        ),
                   dpi, MEASURE_COL, buf.data());
     }
 
@@ -4453,10 +4722,16 @@ Void RadarView::draw(const ImVec2& size)
                 break;
             case GridStyle::GRID_STYLE_RADIAL:
             default:
-                drawGridLabels(dl, grid, Rect{ lab0, lab1 },
-                               Rect{ ImVec2(p0.x + 4.0f * dpi, p0.y + 4.0f * dpi),
-                                     ImVec2(p1.x - 4.0f * dpi, p1.y - 4.0f * dpi) },
-                               scale);
+                drawGridLabels(
+                    dl,
+                    grid,
+                    Rect{ lab0, lab1 },
+                    Rect{ ImVec2(p0.x + 4.0f * dpi, p0.y + 4.0f * dpi), ImVec2(
+                        p1.x - 4.0f * dpi,
+                        p1.y - 4.0f * dpi
+                    ) },
+                    scale
+                );
                 break;
             }
 

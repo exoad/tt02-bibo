@@ -51,15 +51,15 @@ namespace ui
 #define UI_FONT_DIR "C:\\Windows\\Fonts\\"
 #endif
 
-    constexpr const Char* SEGOE_REGULAR  = UI_FONT_DIR "segoeui.ttf";
+    constexpr const Char* SEGOE_REGULAR = UI_FONT_DIR "segoeui.ttf";
     constexpr const Char* SEGOE_SEMIBOLD = UI_FONT_DIR "seguisb.ttf";
-    constexpr const Char* SEGOE_BOLD     = UI_FONT_DIR "segoeuib.ttf";
+    constexpr const Char* SEGOE_BOLD = UI_FONT_DIR "segoeuib.ttf";
 
     // Monospace, best first: Cascadia Mono (Windows 11 / Terminal), Consolas
     // (every Windows since Vista), Lucida Console as the floor.
-    constexpr const Char* MONO_CASCADIA  = UI_FONT_DIR "CascadiaMono.ttf";
-    constexpr const Char* MONO_CONSOLAS  = UI_FONT_DIR "consola.ttf";
-    constexpr const Char* MONO_LUCIDA    = UI_FONT_DIR "lucon.ttf";
+    constexpr const Char* MONO_CASCADIA = UI_FONT_DIR "CascadiaMono.ttf";
+    constexpr const Char* MONO_CONSOLAS = UI_FONT_DIR "consola.ttf";
+    constexpr const Char* MONO_LUCIDA = UI_FONT_DIR "lucon.ttf";
 
     Bool fileReadable(const Char* path)
     {
@@ -86,10 +86,10 @@ namespace ui
         }
 
         ImFontConfig cfg;
-        cfg.SizePixels  = sizePx;
+        cfg.SizePixels = sizePx;
         cfg.OversampleH = 2;
         cfg.OversampleV = 1;
-        cfg.PixelSnapH  = false;
+        cfg.PixelSnapH = false;
         cfg.Flags      |= ImFontFlags_NoLoadError; // never assert; we check the result
         return atlas->AddFontFromFileTTF(path, sizePx, &cfg);
     }
@@ -119,8 +119,13 @@ namespace ui
 
     // First readable candidate wins, else the built-in font. Non-null as long as
     // ImGui has a default font compiled in; loadFonts() nets the rest.
-    ImFont* loadRole(ImFontAtlas* atlas, Float32 sizePx,
-                     const Char* first, const Char* second, const Char* third)
+    ImFont* loadRole(
+        ImFontAtlas* atlas,
+        Float32 sizePx,
+        const Char* first,
+        const Char* second,
+        const Char* third
+    )
     {
         if(ImFont* f = tryAddFile(atlas, first, sizePx))
         {
@@ -171,20 +176,20 @@ namespace ui
       // The type scale from theme.hxx, multiplied by the LOAD-TIME DPI exactly
       // once. These end up in ImFont::LegacySize - the base sizes callers push.
       const Float32 szSmall = size::SMALL * dpiScale;
-      const Float32 szBody  = size::BODY  * dpiScale;
+      const Float32 szBody = size::BODY  * dpiScale;
       const Float32 szTitle = size::TITLE * dpiScale;
-      const Float32 szStat  = size::STAT  * dpiScale;
-      const Float32 szBig   = size::BIG   * dpiScale;
-      const Float32 szCode  = size::CODE  * dpiScale;
+      const Float32 szStat = size::STAT  * dpiScale;
+      const Float32 szBig = size::BIG   * dpiScale;
+      const Float32 szCode = size::CODE  * dpiScale;
 
       // Regular for reading sizes, semibold/bold for headlines, so the hierarchy
       // reads by weight as well as size.
       fonts.small = loadRole(atlas, szSmall, SEGOE_REGULAR,  SEGOE_SEMIBOLD, nullptr);
-      fonts.body  = loadRole(atlas, szBody,  SEGOE_REGULAR,  SEGOE_SEMIBOLD, nullptr);
+      fonts.body = loadRole(atlas, szBody,  SEGOE_REGULAR,  SEGOE_SEMIBOLD, nullptr);
       fonts.title = loadRole(atlas, szTitle, SEGOE_SEMIBOLD, SEGOE_BOLD,     SEGOE_REGULAR);
-      fonts.stat  = loadRole(atlas, szStat,  SEGOE_SEMIBOLD, SEGOE_BOLD,     SEGOE_REGULAR);
-      fonts.big   = loadRole(atlas, szBig,   SEGOE_BOLD,     SEGOE_SEMIBOLD, SEGOE_REGULAR);
-      fonts.mono  = loadRole(atlas, szCode,  MONO_CASCADIA,  MONO_CONSOLAS,  MONO_LUCIDA);
+      fonts.stat = loadRole(atlas, szStat,  SEGOE_SEMIBOLD, SEGOE_BOLD,     SEGOE_REGULAR);
+      fonts.big = loadRole(atlas, szBig,   SEGOE_BOLD,     SEGOE_SEMIBOLD, SEGOE_REGULAR);
+      fonts.mono = loadRole(atlas, szCode,  MONO_CASCADIA,  MONO_CONSOLAS,  MONO_LUCIDA);
 
       // Safety net: nothing here may ever be null - pushing a null ImFont* is an
       // outright crash.
@@ -218,7 +223,7 @@ namespace ui
       }
       if(fonts.body  == nullptr)
       {
-          fonts.body  = any;
+          fonts.body = any;
       }
       if(fonts.title == nullptr)
       {
@@ -226,15 +231,15 @@ namespace ui
       }
       if(fonts.stat  == nullptr)
       {
-          fonts.stat  = any;
+          fonts.stat = any;
       }
       if(fonts.big   == nullptr)
       {
-          fonts.big   = any;
+          fonts.big = any;
       }
       if(fonts.mono  == nullptr)
       {
-          fonts.mono  = any;
+          fonts.mono = any;
       }
 
       // A zero/negative LegacySize silently degrades PushFont to "keep the current
@@ -292,7 +297,7 @@ namespace ui
 
       // FontScaleMain is an app/user zoom knob we do not use.
       style.FontScaleMain = 1.0f;
-      style.FontScaleDpi  = (shellFontScaleDpi > 0.0f) ? shellFontScaleDpi : 1.0f;
+      style.FontScaleDpi = (shellFontScaleDpi > 0.0f) ? shellFontScaleDpi : 1.0f;
 
       // ------------------------------------------------------------- palette
       // Industrial slate with LED accents. GRAPHITE, NOT BLACK: panels sit around
@@ -302,137 +307,137 @@ namespace ui
           // Faintly cool, the way graphite reads under workshop light.
           return ImVec4(v * 0.96f, v * 0.99f, v * 1.06f, a);
       };
-      auto  gray  = [](Float32 v, Float32 a = 1.0f) { return ImVec4(v, v, v, a); };
+      auto  gray = [](Float32 v, Float32 a = 1.0f) { return ImVec4(v, v, v, a); };
 
-      const ImVec4 accent   = ImGui::ColorConvertU32ToFloat4(accent::CYAN);
+      const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(accent::CYAN);
       const ImVec4 accentHi = ImGui::ColorConvertU32ToFloat4(accent::CYAN_HI);
 
       ImVec4* c = style.Colors;
 
       // ---- the casing ----
-      c[ImGuiCol_WindowBg]         = slate(0.190f);
-      c[ImGuiCol_ChildBg]          = slate(0.220f);
-      c[ImGuiCol_PopupBg]          = slate(0.240f);
-      c[ImGuiCol_MenuBarBg]        = slate(0.210f);
-      c[ImGuiCol_TitleBg]          = slate(0.160f);
-      c[ImGuiCol_TitleBgActive]    = slate(0.195f);
+      c[ImGuiCol_WindowBg] = slate(0.190f);
+      c[ImGuiCol_ChildBg] = slate(0.220f);
+      c[ImGuiCol_PopupBg] = slate(0.240f);
+      c[ImGuiCol_MenuBarBg] = slate(0.210f);
+      c[ImGuiCol_TitleBg] = slate(0.160f);
+      c[ImGuiCol_TitleBgActive] = slate(0.195f);
       c[ImGuiCol_TitleBgCollapsed] = slate(0.160f);
-      c[ImGuiCol_TableRowBg]       = ImVec4(0, 0, 0, 0);
-      c[ImGuiCol_TableRowBgAlt]    = gray(1.0f, 0.022f);
+      c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
+      c[ImGuiCol_TableRowBgAlt] = gray(1.0f, 0.022f);
 
       // ---- wells: a field is milled INTO the casing, so it is darker ----
-      c[ImGuiCol_FrameBg]          = slate(0.120f);
-      c[ImGuiCol_FrameBgHovered]   = slate(0.150f);
-      c[ImGuiCol_FrameBgActive]    = slate(0.100f);
+      c[ImGuiCol_FrameBg] = slate(0.120f);
+      c[ImGuiCol_FrameBgHovered] = slate(0.150f);
+      c[ImGuiCol_FrameBgActive] = slate(0.100f);
 
       // ---- keys: pushed OUT of the casing, so they are lighter ----
-      c[ImGuiCol_Button]           = slate(0.300f);
-      c[ImGuiCol_ButtonHovered]    = slate(0.360f);
-      c[ImGuiCol_ButtonActive]     = slate(0.215f);   // sinks when pressed
+      c[ImGuiCol_Button] = slate(0.300f);
+      c[ImGuiCol_ButtonHovered] = slate(0.360f);
+      c[ImGuiCol_ButtonActive] = slate(0.215f);   // sinks when pressed
 
-      c[ImGuiCol_Header]           = slate(0.275f);
-      c[ImGuiCol_HeaderHovered]    = slate(0.330f);
-      c[ImGuiCol_HeaderActive]     = slate(0.370f);
+      c[ImGuiCol_Header] = slate(0.275f);
+      c[ImGuiCol_HeaderHovered] = slate(0.330f);
+      c[ImGuiCol_HeaderActive] = slate(0.370f);
 
-      c[ImGuiCol_Tab]              = slate(0.225f);
-      c[ImGuiCol_TabHovered]       = slate(0.325f);
-      c[ImGuiCol_TabSelected]      = slate(0.295f);
-      c[ImGuiCol_TabDimmed]        = slate(0.190f);
+      c[ImGuiCol_Tab] = slate(0.225f);
+      c[ImGuiCol_TabHovered] = slate(0.325f);
+      c[ImGuiCol_TabSelected] = slate(0.295f);
+      c[ImGuiCol_TabDimmed] = slate(0.190f);
       c[ImGuiCol_TabDimmedSelected]= slate(0.245f);
       c[ImGuiCol_TabSelectedOverline] = accent;
 
       // ---- edges: a dark seam between parts, as machined panels have ----
-      c[ImGuiCol_Border]           = gray(0.0f, 0.55f);
-      c[ImGuiCol_BorderShadow]     = ImVec4(0, 0, 0, 0);
-      c[ImGuiCol_Separator]        = gray(0.0f, 0.42f);
+      c[ImGuiCol_Border] = gray(0.0f, 0.55f);
+      c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+      c[ImGuiCol_Separator] = gray(0.0f, 0.42f);
       c[ImGuiCol_SeparatorHovered] = accent;
-      c[ImGuiCol_SeparatorActive]  = accentHi;
+      c[ImGuiCol_SeparatorActive] = accentHi;
 
       // ---- controls ----
-      c[ImGuiCol_CheckMark]        = accentHi;
-      c[ImGuiCol_SliderGrab]       = accent;
+      c[ImGuiCol_CheckMark] = accentHi;
+      c[ImGuiCol_SliderGrab] = accent;
       c[ImGuiCol_SliderGrabActive] = accentHi;
 
-      c[ImGuiCol_ScrollbarBg]          = slate(0.140f);
-      c[ImGuiCol_ScrollbarGrab]        = slate(0.330f);
+      c[ImGuiCol_ScrollbarBg] = slate(0.140f);
+      c[ImGuiCol_ScrollbarGrab] = slate(0.330f);
       c[ImGuiCol_ScrollbarGrabHovered] = slate(0.410f);
-      c[ImGuiCol_ScrollbarGrabActive]  = slate(0.490f);
-      c[ImGuiCol_ResizeGrip]           = gray(1.0f, 0.08f);
-      c[ImGuiCol_ResizeGripHovered]    = gray(1.0f, 0.18f);
-      c[ImGuiCol_ResizeGripActive]     = gray(1.0f, 0.30f);
+      c[ImGuiCol_ScrollbarGrabActive] = slate(0.490f);
+      c[ImGuiCol_ResizeGrip] = gray(1.0f, 0.08f);
+      c[ImGuiCol_ResizeGripHovered] = gray(1.0f, 0.18f);
+      c[ImGuiCol_ResizeGripActive] = gray(1.0f, 0.30f);
 
-      c[ImGuiCol_TableHeaderBg]     = slate(0.260f);
+      c[ImGuiCol_TableHeaderBg] = slate(0.260f);
       c[ImGuiCol_TableBorderStrong] = gray(0.0f, 0.45f);
-      c[ImGuiCol_TableBorderLight]  = gray(0.0f, 0.25f);
-      c[ImGuiCol_TextSelectedBg]    = ImVec4(accent.x, accent.y, accent.z, 0.32f);
-      c[ImGuiCol_InputTextCursor]   = accentHi;
+      c[ImGuiCol_TableBorderLight] = gray(0.0f, 0.25f);
+      c[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.32f);
+      c[ImGuiCol_InputTextCursor] = accentHi;
 
       // ---- the rest of the palette -----------------------------------------
-      c[ImGuiCol_PlotLines]            = slate(0.62f);
-      c[ImGuiCol_PlotLinesHovered]     = accentHi;
-      c[ImGuiCol_PlotHistogram]        = accent;
+      c[ImGuiCol_PlotLines] = slate(0.62f);
+      c[ImGuiCol_PlotLinesHovered] = accentHi;
+      c[ImGuiCol_PlotHistogram] = accent;
       c[ImGuiCol_PlotHistogramHovered] = accentHi;
 
-      c[ImGuiCol_NavCursor]            = accent;
-      c[ImGuiCol_DragDropTarget]       = accentHi;
-      c[ImGuiCol_TextLink]             = accentHi;
+      c[ImGuiCol_NavCursor] = accent;
+      c[ImGuiCol_DragDropTarget] = accentHi;
+      c[ImGuiCol_TextLink] = accentHi;
 
       // #D6DBE0 on ~18% gray: a comfortable long-session contrast, where
       // near-white on black was not.
-      c[ImGuiCol_Text]                 = ImVec4(0.839f, 0.859f, 0.878f, 1.00f);
-      c[ImGuiCol_TextDisabled]         = ImVec4(0.478f, 0.510f, 0.541f, 1.00f);
+      c[ImGuiCol_Text] = ImVec4(0.839f, 0.859f, 0.878f, 1.00f);
+      c[ImGuiCol_TextDisabled] = ImVec4(0.478f, 0.510f, 0.541f, 1.00f);
 
       // ------------------------------------------------------------ geometry
       // SHARP. Every corner in the program, at zero, and set in ONE place so there
       // is no second answer - a widget that rounds itself stands out immediately.
-      style.FrameRounding     = 0.0f;
-      style.GrabRounding      = 0.0f;
-      style.TabRounding       = 0.0f;
-      style.ChildRounding     = 0.0f;
-      style.WindowRounding    = 0.0f;
-      style.PopupRounding     = 0.0f;
+      style.FrameRounding = 0.0f;
+      style.GrabRounding = 0.0f;
+      style.TabRounding = 0.0f;
+      style.ChildRounding = 0.0f;
+      style.WindowRounding = 0.0f;
+      style.PopupRounding = 0.0f;
       style.ScrollbarRounding = 0.0f;
 
       // Widgets are outlined; containers are NOT - panels run flush into one
       // another, or you get boxes ringed inside other ringed boxes.
-      style.FrameBorderSize  = 1.0f;    // scaled by ScaleAllSizes below
+      style.FrameBorderSize = 1.0f;    // scaled by ScaleAllSizes below
       style.WindowBorderSize = 0.0f;
-      style.ChildBorderSize  = 0.0f;
+      style.ChildBorderSize = 0.0f;
 
       // DENSE, on purpose - every value is smaller than a general-purpose UI would
       // use, with the outlines and bevels doing the separating.
-      style.ItemSpacing      = ImVec2(5.0f, 3.0f);
+      style.ItemSpacing = ImVec2(5.0f, 3.0f);
       style.ItemInnerSpacing = ImVec2(4.0f, 3.0f);
-      style.FramePadding     = ImVec2(6.0f, 3.0f);
-      style.CellPadding      = ImVec2(5.0f, 2.0f);
-      style.WindowPadding    = ImVec2(6.0f, 5.0f);
-      style.IndentSpacing    = 14.0f;
+      style.FramePadding = ImVec2(6.0f, 3.0f);
+      style.CellPadding = ImVec2(5.0f, 2.0f);
+      style.WindowPadding = ImVec2(6.0f, 5.0f);
+      style.IndentSpacing = 14.0f;
 
       // A thin scrollbar; the stock 14px bar is a touch-sized affordance.
-      style.ScrollbarSize    = 10.0f;
-      style.GrabMinSize      = 9.0f;
+      style.ScrollbarSize = 10.0f;
+      style.GrabMinSize = 9.0f;
 
       // The selected tab is marked only by its overline, so it has to be thick
       // enough to see.
       style.TabBarOverlineSize = 3.0f;
-      style.TabBorderSize      = 0.0f;
-      style.TabBarBorderSize   = 1.0f;
+      style.TabBorderSize = 0.0f;
+      style.TabBarBorderSize = 1.0f;
 
       // Convert the logical sizes into physical px, exactly once.
       style.ScaleAllSizes(dpiScale);
 
       // ScaleAllSizes() truncates, which can zero out 1px lines at dpi < 1, and
       // ImGui requires SeparatorSize >= 1.0f.
-      style.SeparatorSize           = hairline(dpiScale);
+      style.SeparatorSize = hairline(dpiScale);
       style.SeparatorTextBorderSize = hairline(dpiScale);
 
       // Same reason: an outline rounding to zero at some DPI silently undoes the
       // whole look on that machine.
-      style.FrameBorderSize         = hairline(dpiScale);
+      style.FrameBorderSize = hairline(dpiScale);
 
       // Popups are the one bordered container: they float over arbitrary content
       // and need an edge, or a modal reads as text pasted onto the page.
-      style.PopupBorderSize         = hairline(dpiScale);
+      style.PopupBorderSize = hairline(dpiScale);
   }
 
   // ---------------------------------------------------------------------------
@@ -478,26 +483,32 @@ namespace ui
           dl->PopClipRect();
       }
 
-      const ImU32 lit   = IM_COL32(255, 255, 255, static_cast<Int32>(42 * a));
+      const ImU32 lit = IM_COL32(255, 255, 255, static_cast<Int32>(42 * a));
       const ImU32 shade = IM_COL32(0, 0, 0, static_cast<Int32>(105 * a));
 
-      const ImU32 top    = pressed ? shade : lit;
+      const ImU32 top = pressed ? shade : lit;
       const ImU32 bottom = pressed ? lit   : shade;
 
       // Inset by the frame rounding so the highlight does not stick out past the
       // rounded corners as a pair of stray dots.
       const Float32 r = ImGui::GetStyle().FrameRounding;
-      dl->AddLine(ImVec2(pMin.x + r, pMin.y + 0.5f),
-                  ImVec2(pMax.x - r, pMin.y + 0.5f), top, 1.0f);
-      dl->AddLine(ImVec2(pMin.x + r, pMax.y - 0.5f),
-                  ImVec2(pMax.x - r, pMax.y - 0.5f), bottom, 1.0f);
+      dl->AddLine(ImVec2(pMin.x + r, pMin.y + 0.5f), ImVec2(pMax.x - r, pMin.y + 0.5f), top, 1.0f);
+      dl->AddLine(
+          ImVec2(pMin.x + r, pMax.y - 0.5f),
+          ImVec2(pMax.x - r, pMax.y - 0.5f),
+          bottom,
+          1.0f
+      );
 
       // A pressed key also shadows itself along its top inner edge.
       if(pressed)
       {
-          dl->AddLine(ImVec2(pMin.x + r, pMin.y + 1.5f),
-                      ImVec2(pMax.x - r, pMin.y + 1.5f),
-                      IM_COL32(0, 0, 0, static_cast<Int32>(55 * a)), 1.0f);
+          dl->AddLine(
+              ImVec2(pMin.x + r, pMin.y + 1.5f),
+              ImVec2(pMax.x - r, pMin.y + 1.5f),
+              IM_COL32(0, 0, 0, static_cast<Int32>(55 * a)),
+              1.0f
+          );
       }
   }
 
@@ -517,17 +528,35 @@ namespace ui
       if(lit)
       {
           const ImU32 rgb = color & 0x00FFFFFFu;
-          dl->AddCircleFilled(center, radius * 2.60f, rgb | (static_cast<ImU32>(26u) << IM_COL32_A_SHIFT), 16);
-          dl->AddCircleFilled(center, radius * 1.70f, rgb | (static_cast<ImU32>(52u) << IM_COL32_A_SHIFT), 16);
+          dl->AddCircleFilled(
+              center,
+              radius * 2.60f,
+              rgb | (static_cast<ImU32>(26u) << IM_COL32_A_SHIFT),
+              16
+          );
+          dl->AddCircleFilled(
+              center,
+              radius * 1.70f,
+              rgb | (static_cast<ImU32>(52u) << IM_COL32_A_SHIFT),
+              16
+          );
           dl->AddCircleFilled(center, radius, color, 16);
           // The hot spot, offset up-left as a domed lens catches the light.
-          dl->AddCircleFilled(ImVec2(center.x - radius * 0.28f, center.y - radius * 0.28f),
-                              radius * 0.36f, IM_COL32(255, 255, 255, 150), 12);
+          dl->AddCircleFilled(
+              ImVec2(center.x - radius * 0.28f, center.y - radius * 0.28f),
+              radius * 0.36f,
+              IM_COL32(255, 255, 255, 150),
+              12
+          );
       }
       else
       {
-          dl->AddCircleFilled(center, radius, (color & 0x00FFFFFFu)
-                                              | (static_cast<ImU32>(60u) << IM_COL32_A_SHIFT), 16);
+          dl->AddCircleFilled(
+              center,
+              radius,
+              (color & 0x00FFFFFFu) | (static_cast<ImU32>(60u) << IM_COL32_A_SHIFT),
+              16
+          );
           dl->AddCircle(center, radius, IM_COL32(255, 255, 255, 28), 16, 1.0f);
       }
   }
@@ -549,7 +578,7 @@ namespace ui
           return;
       }
 
-      const Float32 a  = (strength > 1.0f) ? 1.0f : strength;
+      const Float32 a = (strength > 1.0f) ? 1.0f : strength;
       ImDrawList*   dl = ImGui::GetWindowDrawList();
 
       dl->PushClipRect(pMin, pMax, true);
@@ -557,14 +586,14 @@ namespace ui
       // Shadow falling in from the top and left edges.
       const Float32 fall = 10.0f * dpiScale();
       const ImU32 dark = IM_COL32(0, 0, 0, static_cast<Int32>(80 * a));
-      const ImU32 nil  = IM_COL32(0, 0, 0, 0);
+      const ImU32 nil = IM_COL32(0, 0, 0, 0);
 
       dl->AddRectFilledMultiColor(pMin, ImVec2(pMax.x, pMin.y + fall), dark, dark, nil, nil);
       dl->AddRectFilledMultiColor(pMin, ImVec2(pMin.x + fall, pMax.y), dark, nil, nil, dark);
 
       // The bezel itself: one dark pixel top/left, one light pixel bottom/right.
       const ImU32 edgeDark = IM_COL32(0, 0, 0, static_cast<Int32>(160 * a));
-      const ImU32 edgeLit  = IM_COL32(255, 255, 255, static_cast<Int32>(26 * a));
+      const ImU32 edgeLit = IM_COL32(255, 255, 255, static_cast<Int32>(26 * a));
 
       dl->AddLine(ImVec2(pMin.x, pMin.y + 0.5f), ImVec2(pMax.x, pMin.y + 0.5f), edgeDark, 1.0f);
       dl->AddLine(ImVec2(pMin.x + 0.5f, pMin.y), ImVec2(pMin.x + 0.5f, pMax.y), edgeDark, 1.0f);
@@ -590,8 +619,7 @@ namespace ui
       {
           return;
       }
-      bevelRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
-                ImGui::IsItemActive(), strength);
+      bevelRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::IsItemActive(), strength);
   }
 
   namespace
@@ -617,10 +645,12 @@ namespace ui
             h.z *= s;
         }
 
-        return ImVec4(base.x + (h.x - base.x) * k,
-                      base.y + (h.y - base.y) * k,
-                      base.z + (h.z - base.z) * k,
-                      base.w);
+        return ImVec4(
+            base.x + (h.x - base.x) * k,
+            base.y + (h.y - base.y) * k,
+            base.z + (h.z - base.z) * k,
+            base.w
+        );
     }
 
     ImU32 tintHue(Tint t)
@@ -646,14 +676,25 @@ namespace ui
       }
 
       const ImU32   hue = tintHue(t);
-      const ImVec4* c   = ImGui::GetStyle().Colors;
+      const ImVec4* c = ImGui::GetStyle().Colors;
 
       // Strong mix (the hue is luminance-matched, so it costs no brightness), small
       // lift. Hovered and active lift further - that is where the response reads
       // from, not from the tint.
-      ImGui::PushStyleColor(ImGuiCol_Button,        mixToward(c[ImGuiCol_Button],        hue, 0.38f, 1.02f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, mixToward(c[ImGuiCol_ButtonHovered], hue, 0.48f, 1.10f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonActive,  mixToward(c[ImGuiCol_ButtonActive],  hue, 0.58f, 1.18f));
+      ImGui::PushStyleColor(ImGuiCol_Button,        mixToward(
+          c[ImGuiCol_Button],
+          hue,
+          0.38f,
+          1.02f
+      ));
+      ImGui::PushStyleColor(
+          ImGuiCol_ButtonHovered,
+          mixToward(c[ImGuiCol_ButtonHovered], hue, 0.48f, 1.10f)
+      );
+      ImGui::PushStyleColor(
+          ImGuiCol_ButtonActive,
+          mixToward(c[ImGuiCol_ButtonActive], hue, 0.58f, 1.18f)
+      );
   }
 
   Void popTint(Tint t)
@@ -684,14 +725,14 @@ namespace ui
   Bool checkbox(const Char* label, Bool* v)
   {
       const ImGuiStyle& st = ImGui::GetStyle();
-      const Float32 fh  = ImGui::GetFrameHeight();
+      const Float32 fh = ImGui::GetFrameHeight();
       const Float32 box = ImGui::GetFontSize() * 0.86f;
       const Float32 dpi = dpiScale();
 
       // hide_text_after_double_hash: "##vis" is a box with no label and must not
       // reserve width for one.
       const ImVec2 tsz = ImGui::CalcTextSize(label, nullptr, true);
-      const Float32 w  = box + ((tsz.x > 0.0f) ? st.ItemInnerSpacing.x + tsz.x : 0.0f);
+      const Float32 w = box + ((tsz.x > 0.0f) ? st.ItemInnerSpacing.x + tsz.x : 0.0f);
 
       const ImVec2 p = ImGui::GetCursorScreenPos();
 
@@ -711,7 +752,7 @@ namespace ui
           *v = !*v;
       }
 
-      const Bool on  = (v != nullptr) && *v;
+      const Bool on = (v != nullptr) && *v;
       const Bool hov = ImGui::IsItemHovered();
       const Bool act = ImGui::IsItemActive();
 
@@ -721,9 +762,9 @@ namespace ui
 
       // GetColorU32 rather than the raw style color: it folds in style.Alpha, so
       // the box dims correctly inside BeginDisabled() the way a stock widget does.
-      const ImU32 fill = ImGui::GetColorU32(act ? ImGuiCol_FrameBgActive
-                                           : hov ? ImGuiCol_FrameBgHovered
-                                                 : ImGuiCol_FrameBg);
+      const ImU32 fill = ImGui::GetColorU32(
+          act ? ImGuiCol_FrameBgActive : hov ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg
+      );
       dl->AddRectFilled(b0, b1, fill, st.FrameRounding);
 
       // Recessed: pressed == true gives shadow on top, light on the bottom.
@@ -743,8 +784,13 @@ namespace ui
           const ImVec2 b(b0.x + box * 0.42f, b1.y - m);
           const ImVec2 cpt(b1.x - m,         b0.y + m);
           const ImVec2 pts[3] = { a, b, cpt };
-          dl->AddPolyline(pts, 3, ImGui::GetColorU32(ImGuiCol_CheckMark),
-                          0, (box * 0.13f > 1.5f * dpi) ? box * 0.13f : 1.5f * dpi);
+          dl->AddPolyline(
+              pts,
+              3,
+              ImGui::GetColorU32(ImGuiCol_CheckMark),
+              0,
+              (box * 0.13f > 1.5f * dpi) ? box * 0.13f : 1.5f * dpi
+          );
       }
 
       if(tsz.x > 0.0f)
@@ -757,8 +803,12 @@ namespace ui
               end = label + std::strlen(label);
           }
 
-          dl->AddText(ImVec2(b1.x + st.ItemInnerSpacing.x, p.y + (fh - tsz.y) * 0.5f),
-                      ImGui::GetColorU32(ImGuiCol_Text), label, end);
+          dl->AddText(
+              ImVec2(b1.x + st.ItemInnerSpacing.x, p.y + (fh - tsz.y) * 0.5f),
+              ImGui::GetColorU32(ImGuiCol_Text),
+              label,
+              end
+          );
       }
 
       return pressed;
@@ -843,7 +893,7 @@ namespace ui
   {
     // Defaults a step above 100%: the scale the UI was tuned at read as too small
     // in use.
-    Float32 uiUserScale     = 1.20f;
+    Float32 uiUserScale = 1.20f;
     Bool    uiUserScaleDirty = false;
   }
 
@@ -877,7 +927,7 @@ namespace ui
           return;
       }
 
-      uiUserScale      = s;
+      uiUserScale = s;
       uiUserScaleDirty = true;
   }
 

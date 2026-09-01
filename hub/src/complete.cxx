@@ -315,7 +315,7 @@ namespace cmpl
   Str wordAtEnd(const Str& line)
   {
       Size end = line.size();
-      Size i   = end;
+      Size i = end;
       while(i > 0 && identChar(line[i - 1]))
       {
           --i;

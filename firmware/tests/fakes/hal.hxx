@@ -70,8 +70,8 @@ namespace bibo
     };
 
     static Event  events[MAX_EVENTS];
-    static Size   count   = 0;
-    static UInt64 nowUs   = 0;      /* tests drive time by hand */
+    static Size   count = 0;
+    static UInt64 nowUs = 0;      /* tests drive time by hand */
 
     /**
      * @brief Clears every recorded event and rewinds the fake clock to zero.
@@ -85,8 +85,8 @@ namespace bibo
       nowUs = 0;
       for(Size i = 0; i < MAX_EVENTS; ++i)
       {
-        events[i].kind  = EVENT_NONE;
-        events[i].pin   = -1;
+        events[i].kind = EVENT_NONE;
+        events[i].pin = -1;
         events[i].value = 0;
       }
     }
@@ -106,8 +106,8 @@ namespace bibo
     {
       if(count < MAX_EVENTS)
       {
-        events[count].kind  = k;
-        events[count].pin   = pin;
+        events[count].kind = k;
+        events[count].pin = pin;
         events[count].value = value;
         ++count;
       }

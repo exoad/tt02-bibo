@@ -62,11 +62,11 @@ namespace bibo::plan
      */
     struct Limits
     {
-        Float32 vMax     = 1.5f;    /* m/s, the fastest this route allows           */
-        Float32 aMax     = 1.0f;    /* m/s^2 accelerating                           */
-        Float32 aBrake   = 2.0f;    /* m/s^2 slowing - larger, brakes beat the motor */
+        Float32 vMax = 1.5f;    /* m/s, the fastest this route allows           */
+        Float32 aMax = 1.0f;    /* m/s^2 accelerating                           */
+        Float32 aBrake = 2.0f;    /* m/s^2 slowing - larger, brakes beat the motor */
         Float32 latAccel = 2.5f;    /* m/s^2 the tires hold in a corner             */
-        Float32 vMin     = 0.15f;   /* m/s, under this it stalls - THROTTLE_CAL_MIN */
+        Float32 vMin = 0.15f;   /* m/s, under this it stalls - THROTTLE_CAL_MIN */
     };
 
     inline Limits limits;
@@ -114,8 +114,7 @@ namespace bibo::plan
      *            return is STATUS_OK
      * @return STATUS_NOT_IMPLEMENTED always, for now
      */
-    inline Status speedFor(const pursuit::Path* path, geom::Pose pose,
-                           Float32* out)
+    inline Status speedFor(const pursuit::Path* path, geom::Pose pose, Float32* out)
     {
         static_cast<Void>(path);
         static_cast<Void>(pose);

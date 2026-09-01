@@ -29,12 +29,12 @@ namespace vehicle
 {
 
   // ---- the car ----------------------------------------------------------
-  inline constexpr Float32 CAR_LEN_MM       = 442.0f;
-  inline constexpr Float32 CAR_WID_MM       = 186.0f;   // across the tires
-  inline constexpr Float32 CAR_HEIGHT_MM    = 140.0f;
+  inline constexpr Float32 CAR_LEN_MM = 442.0f;
+  inline constexpr Float32 CAR_WID_MM = 186.0f;   // across the tires
+  inline constexpr Float32 CAR_HEIGHT_MM = 140.0f;
   inline constexpr Float32 CAR_WHEELBASE_MM = 257.0f;
-  inline constexpr Float32 CAR_TIRE_DIA_MM  = 69.0f;
-  inline constexpr Float32 CAR_TIRE_WID_MM  = 27.0f;
+  inline constexpr Float32 CAR_TIRE_DIA_MM = 69.0f;
+  inline constexpr Float32 CAR_TIRE_WID_MM = 27.0f;
 
   // DERIVED, not guessed. Tamiya publishes the overall width and the tire width
   // but not the tread, and the TT-02 offers two tread settings. The stated 186 mm
@@ -62,15 +62,15 @@ namespace vehicle
   //   LATERAL across the car. Zero = on the centerline.
   //   BASE   the underside of the sensor above the floor. Assumed to sit on the
   //          roof of a 140 mm shell.
-  inline constexpr Float32 C1_MOUNT_AHEAD_MM   = 0.0f;
+  inline constexpr Float32 C1_MOUNT_AHEAD_MM = 0.0f;
   inline constexpr Float32 C1_MOUNT_LATERAL_MM = 0.0f;
-  inline constexpr Float32 C1_MOUNT_BASE_MM    = CAR_HEIGHT_MM;
+  inline constexpr Float32 C1_MOUNT_BASE_MM = CAR_HEIGHT_MM;
 
   // The height of the SCAN PLANE above the floor - the horizontal slice the
   // device actually measures. Roughly two thirds up the body, where the optics
   // sit; also an assumption, and the reason every return in the 3D view is drawn
   // at this height rather than at an invented one.
   inline constexpr Float32 C1_OPTICAL_Z_MM = C1_TALL_MM * 0.66f;
-  inline constexpr Float32 C1_SCAN_Z_MM    = C1_MOUNT_BASE_MM + C1_OPTICAL_Z_MM;
+  inline constexpr Float32 C1_SCAN_Z_MM = C1_MOUNT_BASE_MM + C1_OPTICAL_Z_MM;
 
 }

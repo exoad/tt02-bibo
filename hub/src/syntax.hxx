@@ -41,8 +41,8 @@ namespace syn
   struct Span
   {
       Int32 begin = 0;
-      Int32 end   = 0;
-      Role  role  = Role::ROLE_TEXT;
+      Int32 end = 0;
+      Role  role = Role::ROLE_TEXT;
   };
 
   // Tokenizes ONE line.
@@ -69,23 +69,23 @@ namespace syn
   {
 
     // Backgrounds and foregrounds.
-    inline constexpr ImU32 BG0_H   = IM_COL32(0x1D, 0x20, 0x21, 0xFF);  // hard bg, the editor
-    inline constexpr ImU32 BG0     = IM_COL32(0x28, 0x28, 0x28, 0xFF);
-    inline constexpr ImU32 BG1     = IM_COL32(0x3C, 0x38, 0x36, 0xFF);  // current-line, gutter
-    inline constexpr ImU32 BG2     = IM_COL32(0x50, 0x49, 0x45, 0xFF);  // selection
-    inline constexpr ImU32 BG3     = IM_COL32(0x66, 0x5C, 0x54, 0xFF);
-    inline constexpr ImU32 FG1     = IM_COL32(0xEB, 0xDB, 0xB2, 0xFF);  // main text
-    inline constexpr ImU32 FG4     = IM_COL32(0xA8, 0x99, 0x84, 0xFF);  // line numbers
-    inline constexpr ImU32 GRAY    = IM_COL32(0x92, 0x83, 0x74, 0xFF);  // comments
+    inline constexpr ImU32 BG0_H = IM_COL32(0x1D, 0x20, 0x21, 0xFF);  // hard bg, the editor
+    inline constexpr ImU32 BG0 = IM_COL32(0x28, 0x28, 0x28, 0xFF);
+    inline constexpr ImU32 BG1 = IM_COL32(0x3C, 0x38, 0x36, 0xFF);  // current-line, gutter
+    inline constexpr ImU32 BG2 = IM_COL32(0x50, 0x49, 0x45, 0xFF);  // selection
+    inline constexpr ImU32 BG3 = IM_COL32(0x66, 0x5C, 0x54, 0xFF);
+    inline constexpr ImU32 FG1 = IM_COL32(0xEB, 0xDB, 0xB2, 0xFF);  // main text
+    inline constexpr ImU32 FG4 = IM_COL32(0xA8, 0x99, 0x84, 0xFF);  // line numbers
+    inline constexpr ImU32 GRAY = IM_COL32(0x92, 0x83, 0x74, 0xFF);  // comments
 
     // The bright accents. Gruvbox's dark variants are for light backgrounds.
-    inline constexpr ImU32 RED     = IM_COL32(0xFB, 0x49, 0x34, 0xFF);
-    inline constexpr ImU32 GREEN   = IM_COL32(0xB8, 0xBB, 0x26, 0xFF);
-    inline constexpr ImU32 YELLOW  = IM_COL32(0xFA, 0xBD, 0x2F, 0xFF);
-    inline constexpr ImU32 BLUE    = IM_COL32(0x83, 0xA5, 0x98, 0xFF);
-    inline constexpr ImU32 PURPLE  = IM_COL32(0xD3, 0x86, 0x9B, 0xFF);
-    inline constexpr ImU32 AQUA    = IM_COL32(0x8E, 0xC0, 0x7C, 0xFF);
-    inline constexpr ImU32 ORANGE  = IM_COL32(0xFE, 0x80, 0x19, 0xFF);
+    inline constexpr ImU32 RED = IM_COL32(0xFB, 0x49, 0x34, 0xFF);
+    inline constexpr ImU32 GREEN = IM_COL32(0xB8, 0xBB, 0x26, 0xFF);
+    inline constexpr ImU32 YELLOW = IM_COL32(0xFA, 0xBD, 0x2F, 0xFF);
+    inline constexpr ImU32 BLUE = IM_COL32(0x83, 0xA5, 0x98, 0xFF);
+    inline constexpr ImU32 PURPLE = IM_COL32(0xD3, 0x86, 0x9B, 0xFF);
+    inline constexpr ImU32 AQUA = IM_COL32(0x8E, 0xC0, 0x7C, 0xFF);
+    inline constexpr ImU32 ORANGE = IM_COL32(0xFE, 0x80, 0x19, 0xFF);
 
   }
 

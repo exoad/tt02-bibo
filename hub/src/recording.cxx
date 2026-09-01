@@ -24,7 +24,7 @@ namespace rec
     // length field. The C1 produces ~500; ten thousand is far past any plausible
     // device and stops a bad file from asking for gigabytes.
     constexpr UInt32 MAX_POINTS_PER_REV = 10000u;
-    constexpr UInt32 MAX_REVS           = 2000000u;
+    constexpr UInt32 MAX_REVS = 2000000u;
 
     template <typename T>
     Bool readPod(FILE* f, T& out)
@@ -42,8 +42,8 @@ namespace rec
   Void Recording::append(const LidarFrame& f, Float64 tS)
   {
       Rev r;
-      r.tS     = tS;
-      r.hz     = f.hz;
+      r.tS = tS;
+      r.hz = f.hz;
       r.points = f.points;
       revs.push_back(std::move(r));
   }
@@ -130,10 +130,11 @@ namespace rec
 
       Bool ok = std::fprintf(f, "# biborec 1\n") > 0;
       ok = ok && std::fprintf(f, "# RPLIDAR C1 scan recording\n") > 0;
-      ok = ok && std::fprintf(f,
-          "# angle = centidegree delta from the previous point (first from 0)\n") > 0;
-      ok = ok && std::fprintf(f,
-          "# dist  = whole millimeters, 0 = no return on that bearing\n") > 0;
+      ok = ok && std::fprintf(
+          f,
+          "# angle = centidegree delta from the previous point (first from 0)\n"
+      ) > 0;
+      ok = ok && std::fprintf(f, "# dist = whole millimeters, 0 = no return on that bearing\n") > 0;
       ok = ok && std::fprintf(f, "# t     = milliseconds from the start\n") > 0;
       ok = ok && std::fprintf(f, "# revolutions %zu\n", revs.size()) > 0;
 
@@ -141,10 +142,13 @@ namespace rec
       {
           const Rev& r = revs[i];
 
-          ok = ok && std::fprintf(f, "R %lld %d %zu\n",
-                                  static_cast<long long>(r.tS * 1000.0 + 0.5),
-                                  static_cast<Int32>(r.hz * 100.0f + 0.5f),
-                                  r.points.size()) > 0;
+          ok = ok && std::fprintf(
+              f,
+              "R %lld %d %zu\n",
+              static_cast<long long>(r.tS * 1000.0 + 0.5),
+              static_cast<Int32>(r.hz * 100.0f + 0.5f),
+              r.points.size()
+          ) > 0;
 
           Float32 prevDeg = 0.0f;
           for(Size k = 0; ok && k < r.points.size(); ++k)
@@ -165,9 +169,12 @@ namespace rec
               }
               prevDeg = p.angleDeg;
 
-              ok = std::fprintf(f, "%d %d",
-                                static_cast<Int32>(d * 100.0f + 0.5f),
-                                static_cast<Int32>(p.distMm + 0.5f)) > 0;
+              ok = std::fprintf(
+                  f,
+                  "%d %d",
+                  static_cast<Int32>(d * 100.0f + 0.5f),
+                  static_cast<Int32>(p.distMm + 0.5f)
+              ) > 0;
 
               // Wrapped for a person, not for the parser - which reads `count`
               // pairs wherever they fall.
@@ -233,8 +240,8 @@ namespace rec
       // Token by token rather than line by line: the pair stream is wrapped for
       // readability and the parser must not care where.
       Rev     cur;
-      Bool    inRev  = false;
-      Size    want   = 0;
+      Bool    inRev = false;
+      Size    want = 0;
       Float32 runDeg = 0.0f;
 
       Array<Char, 64> tok;
@@ -269,9 +276,9 @@ namespace rec
               cur.tS = static_cast<Float64>(tms) / 1000.0;
               cur.hz = static_cast<Float32>(hzc) / 100.0f;
               cur.points.reserve(static_cast<Size>(n));
-              want   = static_cast<Size>(n);
+              want = static_cast<Size>(n);
               runDeg = 0.0f;
-              inRev  = true;
+              inRev = true;
               continue;
           }
 
@@ -298,7 +305,7 @@ namespace rec
           {
               LidarPoint p;
               p.angleDeg = runDeg;
-              p.distMm   = static_cast<Float32>(dist);
+              p.distMm = static_cast<Float32>(dist);
               cur.points.push_back(p);
           }
       }
@@ -441,8 +448,17 @@ namespace rec
       ::GetLocalTime(&t);
 
       Array<Char, 64> buf;
-      std::snprintf(buf.data(), buf.size(), "scan-%04d%02d%02d-%02d%02d%02d.biborec",
-                    t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+      std::snprintf(
+          buf.data(),
+          buf.size(),
+          "scan-%04d%02d%02d-%02d%02d%02d.biborec",
+          t.wYear,
+          t.wMonth,
+          t.wDay,
+          t.wHour,
+          t.wMinute,
+          t.wSecond
+      );
       return Str(buf.data());
   }
 

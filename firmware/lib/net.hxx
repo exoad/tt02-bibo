@@ -77,10 +77,10 @@ namespace bibo
      * OFF, not ABSENT: this half only compiles on a board that HAS the chip, so
      * "no radio" is never the answer here. ABSENT belongs to the stub half.
      */
-    inline State       stateNow  = STATE_OFF;
-    inline Bool           started   = false;
-    inline LineHandler handler   = nullptr;
-    inline udp_pcb* pcb      = nullptr;
+    inline State       stateNow = STATE_OFF;
+    inline Bool           started = false;
+    inline LineHandler handler = nullptr;
+    inline udp_pcb* pcb = nullptr;
 
     /* The last host that said anything. Replies go here, USB commands included, so a wireless console sees both halves. */
     inline ip_addr_t peerAddr;
@@ -93,9 +93,9 @@ namespace bibo
 
     /* The line queue, filled from the lwIP callback and drained by net::poll(). */
     inline Utf8  queue[NET_QUEUE_LINES][NET_LINE_CAP];
-    inline Size  queueHead  = 0;   /* next to drain */
+    inline Size  queueHead = 0;   /* next to drain */
     inline Size  queueCount = 0;
-    inline UInt32 dropped   = 0;
+    inline UInt32 dropped = 0;
 
     /* Assembly buffer: a datagram is USUALLY one line, and is not guaranteed to be. */
     inline Utf8 partial[NET_LINE_CAP];
@@ -285,8 +285,8 @@ namespace bibo
             return;
         }
 
-        peerAddr     = *addr;
-        peerPort     = port;
+        peerAddr = *addr;
+        peerPort = port;
         peerKnownNow = true;
 
         /* pbufs can be chained; walking the chain is not optional, "small" being the sender's decision. */
@@ -342,14 +342,14 @@ namespace bibo
         if(udp_bind(pcb, IP_ANY_TYPE, NET_PORT) != ERR_OK)
         {
             udp_remove(pcb);
-            pcb      = nullptr;
+            pcb = nullptr;
             stateNow = STATE_FAILED;
             return false;
         }
 
         udp_recv(pcb, onPacket, nullptr);
 
-        started  = true;
+        started = true;
         stateNow = STATE_OFF;
         return true;
     }
@@ -386,7 +386,11 @@ namespace bibo
 
         /* nullptr rather than an empty string: the SDK tests the pointer, not what it points at. */
 
-        if(const CharSeq key = joinPass[0] == '\0' ? nullptr : joinPass; cyw43_arch_wifi_connect_async(joinSsid, key, auth) != 0)
+        if(const CharSeq key = joinPass[0] == '\0' ? nullptr : joinPass; cyw43_arch_wifi_connect_async(
+            joinSsid,
+            key,
+            auth
+        ) != 0)
         {
             stateNow = STATE_FAILED;
             return false;

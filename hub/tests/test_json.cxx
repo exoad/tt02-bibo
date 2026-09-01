@@ -21,7 +21,7 @@
 #include <cstdio>
 
 static Int32 failures = 0;
-static Int32 checks   = 0;
+static Int32 checks = 0;
 
 static Void check(Bool ok, const Char* what)
 {
@@ -62,10 +62,11 @@ Int32 main()
     // here is walking a reply it did not write.
     check(v.at("nope").isNull(), "a missing key is a null value");
     check(v.at("nope").at("deeper").isNull(), "and can be walked further");
-    check(v.at("a").string("fallback") == "fallback",
-          "reading a number as a string gives the fallback");
-    check(v.at("b").integer(-7) == -7,
-          "reading a string as a number gives the fallback");
+    check(
+        v.at("a").string("fallback") == "fallback",
+        "reading a number as a string gives the fallback"
+    );
+    check(v.at("b").integer(-7) == -7, "reading a string as a number gives the fallback");
     check(v.at(nullptr).isNull(), "a null key is a null value");
 
     // ---- arrays -----------------------------------------------------------
@@ -81,17 +82,16 @@ Int32 main()
     // signatures, and `Void open(Bus* b)` sits next to snippets that contain
     // braces outright.
     v = read("{\"detail\":\"struct { int x; }\",\"kind\":3}", ok);
-    check(ok && v.at("kind").integer() == 3,
-          "a brace inside a string does not end the object");
-    check(v.at("detail").string() == "struct { int x; }",
-          "and the string survives intact");
+    check(ok && v.at("kind").integer() == 3, "a brace inside a string does not end the object");
+    check(v.at("detail").string() == "struct { int x; }", "and the string survives intact");
 
     // KEY-LOOKING TEXT INSIDE A STRING. A scanner for `"label"` finds this one.
     v = read("{\"doc\":\"pass \\\"label\\\": to it\",\"label\":\"real\"}", ok);
-    check(ok && v.at("label").string() == "real",
-          "an escaped quoted key inside a string is not mistaken for the key");
-    check(v.at("doc").string() == "pass \"label\": to it",
-          "and the escapes come back out");
+    check(
+        ok && v.at("label").string() == "real",
+        "an escaped quoted key inside a string is not mistaken for the key"
+    );
+    check(v.at("doc").string() == "pass \"label\": to it", "and the escapes come back out");
 
     // ESCAPES.
     v = read("{\"s\":\"a\\nb\\tc\\\\d\\/e\"}", ok);
@@ -105,14 +105,15 @@ Int32 main()
     // A surrogate pair is one character, not two broken ones.
     v = read("{\"s\":\"\\ud83d\\ude00\"}", ok);
     check(ok && v.at("s").size() == 0u, "a surrogate pair is an object-less string");
-    check(v.at("s").string() == "\xF0\x9F\x98\x80",
-          "and joins into one 4-byte character");
+    check(v.at("s").string() == "\xF0\x9F\x98\x80", "and joins into one 4-byte character");
 
     // A LONE SURROGATE becomes a visible replacement rather than half a
     // character in the middle of an identifier.
     v = read("{\"s\":\"\\ud83dZ\"}", ok);
-    check(ok && v.at("s").string() == "\xEF\xBF\xBDZ",
-          "a lone surrogate becomes U+FFFD and parsing continues");
+    check(
+        ok && v.at("s").string() == "\xEF\xBF\xBDZ",
+        "a lone surrogate becomes U+FFFD and parsing continues"
+    );
 
     // ---- empty containers, which hand-rolled parsers forget ---------------
     v = read("{\"a\":[],\"b\":{}}", ok);
@@ -125,8 +126,7 @@ Int32 main()
     check(ok && v.at("a").size() == 3u, "whitespace anywhere is fine");
 
     v = read("{\"a\":{\"b\":{\"c\":{\"d\":42}}}}", ok);
-    check(ok && v.at("a").at("b").at("c").at("d").integer() == 42,
-          "deep nesting");
+    check(ok && v.at("a").at("b").at("c").at("d").integer() == 42, "deep nesting");
 
     // ---- malformed input is REFUSED, not half-accepted --------------------
     static_cast<Void>(read("{\"a\":1", ok));

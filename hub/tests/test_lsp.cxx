@@ -77,7 +77,7 @@ Str PicoFlash::repoRoot()
 }
 
 static Int32 failures = 0;
-static Int32 checks   = 0;
+static Int32 checks = 0;
 
 static Void check(Bool ok, const Char* what)
 {
@@ -100,8 +100,7 @@ static Str readFile(const Str& path)
     {
         return Str();
     }
-    return Str((std::istreambuf_iterator<Char>(f)),
-                std::istreambuf_iterator<Char>());
+    return Str((std::istreambuf_iterator<Char>(f)), std::istreambuf_iterator<Char>());
 }
 
 // One question, bundled so the helper below has a signature that fits a line.
@@ -110,8 +109,8 @@ struct Query
     Str    path;
     Str    text;
     UInt64 version = 0;
-    Int32  line    = 0;
-    Int32  col     = 0;
+    Int32  line = 0;
+    Int32  col = 0;
 };
 
 // Asks, then waits for the answer that matches the question.
@@ -179,19 +178,19 @@ Int32 main()
     const Str root = PicoFlash::repoRoot();
     if(root.empty())
     {
-        std::printf("  SKIP  could not find the repository root above this"
-                    " executable\n\n");
+        std::printf(" SKIP could not find the repository root above this" " executable\n\n");
         return 0;
     }
     std::printf("  root  %s\n\n", root.c_str());
 
     const Str file = root + "\\firmware\\sketches\\speaker.cxx";
-    const Str ccj  = root + "\\firmware\\build\\compile_commands.json";
+    const Str ccj = root + "\\firmware\\build\\compile_commands.json";
 
     if(readFile(ccj).empty())
     {
-        std::printf("  SKIP  no firmware\\build\\compile_commands.json"
-                    " - run firmware\\build.bat once\n\n");
+        std::printf(
+            " SKIP no firmware\\build\\compile_commands.json" " - run firmware\\build.bat once\n\n"
+        );
         return 0;
     }
 
@@ -227,8 +226,10 @@ Int32 main()
         sleepMs(50);
     }
 
-    check(lsp::state() == lsp::State::STATE_READY,
-          "the handshake completes and clangd offers completion");
+    check(
+        lsp::state() == lsp::State::STATE_READY,
+        "the handshake completes and clangd offers completion"
+    );
     if(lsp::state() != lsp::State::STATE_READY)
     {
         std::printf("        status: %s\n", lsp::status().c_str());
@@ -264,14 +265,14 @@ Int32 main()
     }
 
     Int32 nsLine = -1;
-    Int32 nsCol  = -1;
+    Int32 nsCol = -1;
     for(Size i = 0; i < lines.size(); ++i)
     {
         const Size at = lines[i].find("dfplayer::reset");
         if(at != Str::npos)
         {
             nsLine = static_cast<Int32>(i);
-            nsCol  = static_cast<Int32>(at) + 10;   // just past the ::
+            nsCol = static_cast<Int32>(at) + 10;   // just past the ::
             break;
         }
     }
@@ -285,11 +286,11 @@ Int32 main()
 
     // ---- a namespace member -----------------------------------------------
     Query first;
-    first.path    = file;
-    first.text    = text;
+    first.path = file;
+    first.text = text;
     first.version = 1;
-    first.line    = nsLine;
-    first.col     = nsCol;
+    first.line = nsLine;
+    first.col = nsCol;
 
     lsp::Answer got;
     const Bool  came = askAndWait(first, got, 40000);
@@ -304,11 +305,9 @@ Int32 main()
     }
 
     check(!got.items.empty(), "and the answer has items in it");
-    check(got.line == nsLine && got.col == nsCol,
-          "tagged with the position it was asked about");
+    check(got.line == nsLine && got.col == nsCol, "tagged with the position it was asked about");
 
-    std::printf("        %d item(s) at dfplayer::\n",
-                static_cast<Int32>(got.items.size()));
+    std::printf(" %d item(s) at dfplayer::\n", static_cast<Int32>(got.items.size()));
 
     // The decoration character is the trap. clangd's `label` starts with a
     // non-ASCII bullet, and inserting a label verbatim puts that bullet in the
@@ -327,8 +326,10 @@ Int32 main()
 
     // The real members of that namespace, which is the only proof that clangd
     // read the firmware's own headers rather than guessing from the text.
-    check(has(got, "reset") && has(got, "volume") && has(got, "playMp3"),
-          "the items are dfplayer's actual members");
+    check(
+        has(got, "reset") && has(got, "volume") && has(got, "playMp3"),
+        "the items are dfplayer's actual members"
+    );
 
     Bool anyDetail = false;
     for(const lsp::Item& it : got.items)
@@ -343,9 +344,11 @@ Int32 main()
 
     for(Size i = 0; i < got.items.size() && i < 6; ++i)
     {
-        std::printf("          %-22s %-34s\n",
-                    got.items[i].name.substr(0, 22).c_str(),
-                    got.items[i].detail.substr(0, 34).c_str());
+        std::printf(
+            " %-22s %-34s\n",
+            got.items[i].name.substr(0, 22).c_str(),
+            got.items[i].detail.substr(0, 34).c_str()
+        );
     }
 
     // ---- a designated initializer, against an UNSAVED edit ----------------
@@ -388,23 +391,23 @@ Int32 main()
         fields.serial = got.serial;   // wait for something NEWER than the last
 
         Query second;
-        second.path    = file;
-        second.text    = joined;
+        second.path = file;
+        second.text = joined;
         second.version = 2;
-        second.line    = anchor + 1;
-        second.col     = static_cast<Int32>(probe.size());
+        second.line = anchor + 1;
+        second.col = static_cast<Int32>(probe.size());
 
         const Bool got2 = askAndWait(second, fields, 40000);
         check(got2, "a second request on a changed buffer gets an answer");
 
         if(got2)
         {
-            std::printf("        %d item(s) at { .so\n",
-                        static_cast<Int32>(fields.items.size()));
+            std::printf(" %d item(s) at { .so\n", static_cast<Int32>(fields.items.size()));
 
-            check(has(fields, "soundTx") && has(fields, "soundRx")
-                  && has(fields, "soundBusy"),
-                  "designated initializer fields, from an unsaved edit");
+            check(
+                has(fields, "soundTx") && has(fields, "soundRx") && has(fields, "soundBusy"),
+                "designated initializer fields, from an unsaved edit"
+            );
 
             Bool anyField = false;
             for(const lsp::Item& it : fields.items)
@@ -419,9 +422,11 @@ Int32 main()
 
             for(Size i = 0; i < fields.items.size() && i < 6; ++i)
             {
-                std::printf("          %-22s %-34s\n",
-                            fields.items[i].name.substr(0, 22).c_str(),
-                            fields.items[i].detail.substr(0, 34).c_str());
+                std::printf(
+                    " %-22s %-34s\n",
+                    fields.items[i].name.substr(0, 22).c_str(),
+                    fields.items[i].detail.substr(0, 34).c_str()
+                );
             }
         }
     }

@@ -336,12 +336,12 @@ namespace bibo::tof
             return false;
         }
 
-        v->sda         = sda;
-        v->addr        = addr;
-        v->ok          = false;
+        v->sda = sda;
+        v->addr = addr;
+        v->ok = false;
         v->intPolarity = 1;
-        v->mode        = MODE_LONG;
-        v->budget      = BUDGET_50MS;
+        v->mode = MODE_LONG;
+        v->budget = BUDGET_50MS;
 
         /* Separate from the ID check below: "nothing answers" and "something answers and is not a VL53L1X" have different fixes. */
         if(!i2c::present(sda, addr))
@@ -418,7 +418,7 @@ namespace bibo::tof
          * 50 ms reaches about 2.5 m. Both writes, then the verdict - not `a && b`,
          * which would skip the budget write whenever the mode write failed.
          */
-        const Bool modeSet   = setMode(v, MODE_LONG);
+        const Bool modeSet = setMode(v, MODE_LONG);
         const Bool budgetSet = setBudget(v, BUDGET_50MS);
         return modeSet && budgetSet;
     }

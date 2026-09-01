@@ -38,8 +38,8 @@ namespace js
   struct Value
   {
       Type       type = Type::TYPE_NULL;
-      Bool       b    = false;
-      Float64    num  = 0.0;
+      Bool       b = false;
+      Float64    num = 0.0;
       Str        str;
       Vec<Str>   keys;
       Vec<Value> kids;

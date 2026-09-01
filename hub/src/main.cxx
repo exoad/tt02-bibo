@@ -37,15 +37,15 @@
 // logical at 175% is 1925x1260 physical, taller than a 1920x1080 laptop panel,
 // and the window then cannot be shrunk or even fully seen.
 // ---------------------------------------------------------------------------
-static constexpr Int32 DEFAULT_WIDTH  = 1400;
+static constexpr Int32 DEFAULT_WIDTH = 1400;
 static constexpr Int32 DEFAULT_HEIGHT = 900;
-static constexpr Int32 MIN_WIDTH      = 880;   // rail (360) + gap + a usable radar
-static constexpr Int32 MIN_HEIGHT     = 600;
+static constexpr Int32 MIN_WIDTH = 880;   // rail (360) + gap + a usable radar
+static constexpr Int32 MIN_HEIGHT = 600;
 
 // Absolute floor, in physical px, for the enforced minimum window size. Only
 // reachable on a comically small work area; keeps the window grabbable.
-static constexpr LONG FLOOR_WIDTH   = 320;
-static constexpr LONG FLOOR_HEIGHT  = 240;
+static constexpr LONG FLOOR_WIDTH = 320;
+static constexpr LONG FLOOR_HEIGHT = 240;
 
 // Fallback only. The real clear color is taken from ImGui's own WindowBg each
 // frame, so the backbuffer can never seam against the UI drawn on top of it.
@@ -61,13 +61,13 @@ static constexpr Array<Float32, 4> CLEAR_COLOR= { 0.139f, 0.144f, 0.154f, 1.0f }
 // ---------------------------------------------------------------------------
 // D3D11 state
 // ---------------------------------------------------------------------------
-static ID3D11Device*           d3dDevice        = nullptr;
-static ID3D11DeviceContext*    d3dContext       = nullptr;
-static IDXGISwapChain*         swapchain     = nullptr;
-static ID3D11RenderTargetView* rtv           = nullptr;
-static Bool                    occluded      = false;
-static UINT                    resizeW      = 0;
-static UINT                    resizeH      = 0;
+static ID3D11Device*           d3dDevice = nullptr;
+static ID3D11DeviceContext*    d3dContext = nullptr;
+static IDXGISwapChain*         swapchain = nullptr;
+static ID3D11RenderTargetView* rtv = nullptr;
+static Bool                    occluded = false;
+static UINT                    resizeW = 0;
+static UINT                    resizeH = 0;
 
 // ---------------------------------------------------------------------------
 // The UI scale, one line, its own file. Small enough that a format is overkill.
@@ -118,17 +118,20 @@ static constexpr Int32 TARGET_FPS = 60;
 #endif
 
 static HANDLE          frameTimer = nullptr;
-static LARGE_INTEGER   qpcFreq    = {};
-static LARGE_INTEGER   frameNext  = {};
+static LARGE_INTEGER   qpcFreq = {};
+static LARGE_INTEGER   frameNext = {};
 
 static Void initFrameLimiter()
 {
     ::QueryPerformanceFrequency(&qpcFreq);
     ::QueryPerformanceCounter(&frameNext);
 
-    frameTimer = ::CreateWaitableTimerExW(nullptr, nullptr,
-                                          CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-                                          TIMER_ALL_ACCESS);
+    frameTimer = ::CreateWaitableTimerExW(
+        nullptr,
+        nullptr,
+        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+        TIMER_ALL_ACCESS
+    );
 }
 
 static Void shutdownFrameLimiter()
@@ -188,10 +191,10 @@ static Void waitForNextFrame()
 // ---------------------------------------------------------------------------
 // What Windows says the monitor is, and what the app actually lays out against.
 // The second is the first times the user's own zoom - see ui::userScale().
-static Float32 monitorDpiScale       = 1.0f;   // 1.0 == 96 dpi
-static Float32 geometryDpiScale      = 1.0f;   // monitorDpiScale * ui::userScale()
-static Float32 fontDpiBase  = 1.0f;   // scale the fonts were rasterised at
-static Bool  styleDirty    = false;  // set by WM_DPICHANGED
+static Float32 monitorDpiScale = 1.0f;   // 1.0 == 96 dpi
+static Float32 geometryDpiScale = 1.0f;   // monitorDpiScale * ui::userScale()
+static Float32 fontDpiBase = 1.0f;   // scale the fonts were rasterised at
+static Bool  styleDirty = false;  // set by WM_DPICHANGED
 
 // ---------------------------------------------------------------------------
 // Dynamically resolved user32 entry points. Resolved at runtime so the binary
@@ -202,7 +205,7 @@ typedef BOOL  (WINAPI* PFN_SetProcessDpiAwarenessContext)(DpiAwarenessContext);
 typedef UINT  (WINAPI* PFN_GetDpiForWindow)(HWND);
 typedef BOOL  (WINAPI* PFN_AdjustWindowRectExForDpi)(LPRECT, DWORD, BOOL, DWORD, UINT);
 
-static PFN_GetDpiForWindow          getDpiForWindowFn          = nullptr;
+static PFN_GetDpiForWindow          getDpiForWindowFn = nullptr;
 static PFN_AdjustWindowRectExForDpi adjustWindowRectExForDpiFn = nullptr;
 
 // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
@@ -340,7 +343,7 @@ static Void minTrackSizeForWindow(HWND hwnd, LONG* outW, LONG* outH)
     // Ask the window itself rather than trusting geometryDpiScale: WM_GETMINMAXINFO
     // fires during CreateWindow and around WM_DPICHANGED, when the cached
     // scale may not match this window's monitor yet.
-    const UINT  dpi   = dpiForWindow(hwnd);
+    const UINT  dpi = dpiForWindow(hwnd);
     const Float32 scale = (static_cast<Float32>(dpi) / 96.0f) * ui::userScale();
 
     RECT rc = { 0, 0,
@@ -382,19 +385,19 @@ static Bool createDeviceD3D(HWND hwnd)
 {
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
-    sd.BufferCount                        = 2;
-    sd.BufferDesc.Width                   = 0;   // match the window
-    sd.BufferDesc.Height                  = 0;
-    sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate.Numerator   = 60;
+    sd.BufferCount = 2;
+    sd.BufferDesc.Width = 0;   // match the window
+    sd.BufferDesc.Height = 0;
+    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.BufferDesc.RefreshRate.Numerator = 60;
     sd.BufferDesc.RefreshRate.Denominator = 1;
-    sd.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-    sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow                       = hwnd;
-    sd.SampleDesc.Count                   = 1;
-    sd.SampleDesc.Quality                 = 0;
-    sd.Windowed                           = TRUE;
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.OutputWindow = hwnd;
+    sd.SampleDesc.Count = 1;
+    sd.SampleDesc.Quality = 0;
+    sd.Windowed = TRUE;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
     UINT flags = 0;
 #ifdef _DEBUG
@@ -405,14 +408,36 @@ static Bool createDeviceD3D(HWND hwnd)
     D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_11_0;
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, levels, 2,
-        D3D11_SDK_VERSION, &sd, &swapchain, &d3dDevice, &got, &d3dContext);
+        nullptr,
+        D3D_DRIVER_TYPE_HARDWARE,
+        nullptr,
+        flags,
+        levels,
+        2,
+        D3D11_SDK_VERSION,
+        &sd,
+        &swapchain,
+        &d3dDevice,
+        &got,
+        &d3dContext
+    );
 
     if(hr == DXGI_ERROR_UNSUPPORTED)   // fall back to the WARP software rasteriser
     {
         hr = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags, levels, 2,
-            D3D11_SDK_VERSION, &sd, &swapchain, &d3dDevice, &got, &d3dContext);
+            nullptr,
+            D3D_DRIVER_TYPE_WARP,
+            nullptr,
+            flags,
+            levels,
+            2,
+            D3D11_SDK_VERSION,
+            &sd,
+            &swapchain,
+            &d3dDevice,
+            &got,
+            &d3dContext
+        );
     }
 
     if(FAILED(hr))
@@ -435,12 +460,12 @@ static Void cleanupDeviceD3D()
     if(d3dContext)
     {
         d3dContext->Release();
-        d3dContext   = nullptr;
+        d3dContext = nullptr;
     }
     if(d3dDevice)
     {
         d3dDevice->Release();
-        d3dDevice    = nullptr;
+        d3dDevice = nullptr;
     }
 }
 
@@ -507,7 +532,12 @@ static Void rescaleUiForDpi()
 // ---------------------------------------------------------------------------
 // Window procedure
 // ---------------------------------------------------------------------------
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
+    HWND hWnd,
+    UINT msg,
+    WPARAM wParam,
+    LPARAM lParam
+);
 
 static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -564,14 +594,18 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         // Windows hands us the rect that keeps the window the same physical
         // size on the new monitor; honoring it is required for v2 awareness.
         const RECT* suggested = reinterpret_cast<const RECT*>(lparam);
-        ::SetWindowPos(hwnd, nullptr,
-                       suggested->left, suggested->top,
-                       suggested->right - suggested->left,
-                       suggested->bottom - suggested->top,
-                       SWP_NOZORDER | SWP_NOACTIVATE);
+        ::SetWindowPos(
+            hwnd,
+            nullptr,
+            suggested->left,
+            suggested->top,
+            suggested->right - suggested->left,
+            suggested->bottom - suggested->top,
+            SWP_NOZORDER | SWP_NOACTIVATE
+        );
 
-        monitorDpiScale    = static_cast<Float32>(HIWORD(wparam)) / 96.0f;
-        geometryDpiScale   = monitorDpiScale * ui::userScale();
+        monitorDpiScale = static_cast<Float32>(HIWORD(wparam)) / 96.0f;
+        geometryDpiScale = monitorDpiScale * ui::userScale();
         styleDirty = true;
         return 0;
     }
@@ -628,24 +662,32 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
 
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof(wc));
-    wc.cbSize        = sizeof(wc);
-    wc.style         = CS_CLASSDC;
-    wc.lpfnWndProc   = wndProc;
-    wc.hInstance     = hinstance;
-    wc.hCursor       = ::LoadCursor(nullptr, IDC_ARROW);
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_CLASSDC;
+    wc.lpfnWndProc = wndProc;
+    wc.hInstance = hinstance;
+    wc.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
 
     // The same icon the executable carries, so the title bar, the taskbar and
     // Explorer all show one image. LoadIconW picks the size Windows asks for out
     // of the multi-size .ico; hIconSm is set explicitly because the class would
     // otherwise scale the large one down and it looks it.
-    wc.hIcon         = static_cast<HICON>(::LoadImageW(hinstance,
-                            MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
-                            ::GetSystemMetrics(SM_CXICON),
-                            ::GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR));
-    wc.hIconSm       = static_cast<HICON>(::LoadImageW(hinstance,
-                            MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
-                            ::GetSystemMetrics(SM_CXSMICON),
-                            ::GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
+    wc.hIcon = static_cast<HICON>(::LoadImageW(
+        hinstance,
+        MAKEINTRESOURCEW(IDI_APPICON),
+        IMAGE_ICON,
+        ::GetSystemMetrics(SM_CXICON),
+        ::GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR
+    ));
+    wc.hIconSm = static_cast<HICON>(::LoadImageW(
+        hinstance,
+        MAKEINTRESOURCEW(IDI_APPICON),
+        IMAGE_ICON,
+        ::GetSystemMetrics(SM_CXSMICON),
+        ::GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR
+    ));
     wc.hbrBackground = nullptr;     // we paint every pixel ourselves
     wc.lpszClassName = L"RplidarC1Window";
     ::RegisterClassExW(&wc);
@@ -677,9 +719,19 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     }
 
     HWND hwnd = ::CreateWindowExW(
-        0, wc.lpszClassName, L"bibo", style,
-        winX, winY, winW, winH,
-        nullptr, nullptr, hinstance, nullptr);
+        0,
+        wc.lpszClassName,
+        L"bibo",
+        style,
+        winX,
+        winY,
+        winW,
+        winH,
+        nullptr,
+        nullptr,
+        hinstance,
+        nullptr
+    );
     if(!hwnd)
     {
         ::UnregisterClassW(wc.lpszClassName, hinstance);
@@ -697,7 +749,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     }
 
     // The real DPI of the monitor the window actually landed on.
-    monitorDpiScale  = static_cast<Float32>(dpiForWindow(hwnd)) / 96.0f;
+    monitorDpiScale = static_cast<Float32>(dpiForWindow(hwnd)) / 96.0f;
     geometryDpiScale = monitorDpiScale * ui::userScale();
 
     if(!createDeviceD3D(hwnd))
@@ -705,7 +757,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         cleanupDeviceD3D();
         ::DestroyWindow(hwnd);
         ::UnregisterClassW(wc.lpszClassName, hinstance);
-        ::MessageBoxW(nullptr, L"Failed to create a Direct3D 11 device.", L"bibo", MB_ICONERROR | MB_OK);
+        ::MessageBoxW(
+            nullptr,
+            L"Failed to create a Direct3D 11 device.",
+            L"bibo",
+            MB_ICONERROR | MB_OK
+        );
         return 1;
     }
 
@@ -801,7 +858,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         if(ui::consumeUserScaleChanged())
         {
             geometryDpiScale = monitorDpiScale * ui::userScale();
-            styleDirty       = true;
+            styleDirty = true;
             saveUiScale();
         }
 

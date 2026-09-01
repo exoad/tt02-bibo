@@ -73,19 +73,19 @@
 #include <vector>
 
 // ---- integers -------------------------------------------------------------
-using Int8   = std::int8_t;
-using Int16  = std::int16_t;
-using Int32  = std::int32_t;
-using Int64  = std::int64_t;
+using Int8 = std::int8_t;
+using Int16 = std::int16_t;
+using Int32 = std::int32_t;
+using Int64 = std::int64_t;
 
-using UInt8  = std::uint8_t;
+using UInt8 = std::uint8_t;
 using UInt16 = std::uint16_t;
 using UInt32 = std::uint32_t;
 using UInt64 = std::uint64_t;
 
-using Size  = std::size_t;
+using Size = std::size_t;
 using ISize = std::ptrdiff_t;
-using UPtr  = std::uintptr_t;
+using UPtr = std::uintptr_t;
 
 // ---- floating point -------------------------------------------------------
 using Float32 = float;
@@ -99,11 +99,11 @@ using Char = char;
 // `Utf8` and `CharSeq` exist so the C and C++ layers name a borrowed string the
 // same way. CharSeq is a raw NUL-terminated pointer - prefer StrView in C++
 // unless you are crossing to a C API that wants the pointer.
-using Utf8    = char;
+using Utf8 = char;
 using CharSeq = const Utf8*;
 
 // ---- strings --------------------------------------------------------------
-using Str     = std::string;
+using Str = std::string;
 using StrView = std::string_view;
 
 // ---- containers -----------------------------------------------------------
@@ -165,15 +165,15 @@ template<typename Sig>
 using Fn = std::function<Sig>;
 
 // ---- threading ------------------------------------------------------------
-using Thread    = std::thread;
-using Mutex     = std::mutex;
-using RecMutex  = std::recursive_mutex;
+using Thread = std::thread;
+using Mutex = std::mutex;
+using RecMutex = std::recursive_mutex;
 
 // For a worker that WAITS rather than polls. A thread that sleeps for five
 // milliseconds in a loop looks like it works and is really a busy-wait with
 // latency bolted on; this is the thing that lets it block until there is
 // something to do and wake immediately when there is.
-using CondVar   = std::condition_variable;
+using CondVar = std::condition_variable;
 
 template<typename T>
 using LockGuard = std::lock_guard<T>;
@@ -188,10 +188,10 @@ using Atomic = std::atomic<T>;
 // STEADY, not system: every use here measures an interval, and the system
 // clock can step backwards when something adjusts it. A scan that appears to
 // finish before it started is a clock bug wearing a timing bug's clothes.
-using Clock     = std::chrono::steady_clock;
+using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
-using Millis    = std::chrono::milliseconds;
-using Nanos     = std::chrono::nanoseconds;
+using Millis = std::chrono::milliseconds;
+using Nanos = std::chrono::nanoseconds;
 
 template<typename Rep, typename Period = std::ratio<1>>
 using Duration = std::chrono::duration<Rep, Period>;
@@ -199,7 +199,7 @@ using Duration = std::chrono::duration<Rep, Period>;
 // ---- streams --------------------------------------------------------------
 // Most file reading here is C stdio, which needs no alias - these are for the
 // places already written against iostream, so the seam is not half-spelled.
-using InFile  = std::ifstream;
+using InFile = std::ifstream;
 using OutFile = std::ofstream;
 
 // ---- helpers --------------------------------------------------------------

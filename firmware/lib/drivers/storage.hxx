@@ -236,10 +236,10 @@ namespace bibo::sd
             return false;
         }
 
-        c->sck  = sck;
+        c->sck = sck;
         c->mosi = mosi;
         c->miso = miso;
-        c->cs   = cs;
+        c->cs = cs;
         c->kind = KIND_NONE;
         c->blockAddressed = false;
         c->blocks = 0;
@@ -374,7 +374,7 @@ namespace bibo::sd
                     const UInt32 cSize = (static_cast<UInt32>(csd[6] & 0x03) << 10)
                                          | (static_cast<UInt32>(csd[7]) << 2)
                                          | (static_cast<UInt32>(csd[8]) >> 6);
-                    const UInt32 mult  = ((static_cast<UInt32>(csd[9]) & 0x03u) << 1u)
+                    const UInt32 mult = ((static_cast<UInt32>(csd[9]) & 0x03u) << 1u)
                                          | (static_cast<UInt32>(csd[10]) >> 7u);
                     const UInt32 rdLen = static_cast<UInt32>(csd[5] & 0x0F);
                     const UInt32 bytes = (cSize + 1u) * (1u << (mult + 2u))

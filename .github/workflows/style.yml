@@ -1,0 +1,69 @@
+# The style checker. Reports, and never rewrites.
+#
+# Two rules live in tools/format.py: how a call wraps, and that `=` is not
+# padded to line a column up. Both can be FIXED automatically, which is why the
+# report says so - a violation you can clear with one command is a different
+# thing from one you have to think about.
+#
+# The table goes to the job summary, so it is the first thing on the run's page
+# rather than something to dig out of a log. It is uploaded as an artifact too,
+# for the runs where there are more of them than a summary should hold.
+name: style
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # continue-on-error, then fail explicitly at the end: without it the job
+      # stops here and the summary - the entire point of the run - is never
+      # written.
+      - name: check
+        id: check
+        continue-on-error: true
+        run: python tools/format.py --markdown format-report.md
+
+      - name: summary
+        if: always()
+        run: cat format-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: format-report
+          path: format-report.md
+          if-no-files-found: warn
+
+      - name: fail if the report found anything
+        if: steps.check.outcome == 'failure'
+        run: |
+          echo "::error title=style::tools/format.py found violations - run it with --apply"
+          exit 1
+
+  # The other half of the standard, which does NOT rewrite anything and never
+  # will: naming, layout, include direction, and the stray-file guard.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: style audit
+        run: python hub/tools/style_audit.py

@@ -44,11 +44,11 @@ namespace scene3d
   // ---------------------------------------------------------------------------
   struct Camera
   {
-      Float32 yaw   = 0.0f;         // 0 looks along +y, i.e. from behind the car
+      Float32 yaw = 0.0f;         // 0 looks along +y, i.e. from behind the car
       Float32 pitch = 0.42f;        // above the horizon
-      Float32 dist  = 4200.0f;
+      Float32 dist = 4200.0f;
       Vec3    target{ 0.0f, 0.0f, 120.0f };
-      Float32 fovY  = 0.85f;        // radians
+      Float32 fovY = 0.85f;        // radians
 
       // What the camera is anchored to.
       //
@@ -131,17 +131,17 @@ namespace scene3d
   // Everything the renderer needs that is not the camera.
   struct DrawArgs
   {
-      ImDrawList* dl   = nullptr;
+      ImDrawList* dl = nullptr;
       ImVec2      p0, p1;          // widget rect, screen space
-      Float32     dpi  = 1.0f;
+      Float32     dpi = 1.0f;
       SceneMode   mode = SceneMode::SCENE_MODE_CLOUD;
 
       const Vec<LidarPoint>* points = nullptr;   // current revolution
       const Vec<mapgeo::WallSeg>* walls = nullptr;
 
       // Reachable radius per bearing bin, for SCENE_MODE_FIT. Null when unknown.
-      const Float32* reach   = nullptr;
-      Int32          reachN  = 0;
+      const Float32* reach = nullptr;
+      Int32          reachN = 0;
       Float32        reachBinDeg = 0.0f;
 
       // The car is a REFERENCE object, not data. It is the only thing in the scene
@@ -153,16 +153,16 @@ namespace scene3d
       // Numbers for SCENE_MODE_FULL's panel. The scene has no way to compute
       // these - they belong to the flat map's accumulators - so they are handed
       // in rather than recomputed differently here.
-      Float32 hz        = 0.0f;
-      Int32   returns   = 0;
+      Float32 hz = 0.0f;
+      Int32   returns = 0;
       Float32 nearestMm = 0.0f;
-      Float32 aheadMm   = 0.0f;
+      Float32 aheadMm = 0.0f;
 
       // Detections and the corridor, for the ride view.
       const Detection* objects = nullptr;
       Int32            objectN = 0;
       Float32          corridorHalfW = 0.0f;
-      Float32          corridorFree  = 0.0f;
+      Float32          corridorFree = 0.0f;
 
       // Lamp brightness, already solved. The renderer does not know the RULES -
       // it is handed ten numbers and draws ten lamps - so the behavior lives in
@@ -186,7 +186,7 @@ namespace scene3d
       Float32 worldHeadingOk = -1.0f;
 
       // Where the readout line goes. Never null.
-      Char* diag    = nullptr;
+      Char* diag = nullptr;
       Size  diagCap = 0;
   };
 

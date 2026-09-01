@@ -20,7 +20,7 @@
 namespace
 {
 
-  Int32 checks   = 0;
+  Int32 checks = 0;
   Int32 failures = 0;
 
   /**
@@ -122,19 +122,18 @@ namespace
       printf("\nthrottle is refused until armed\n");
       fresh();
 
-      check(!bibo::drive::throttleUs(1600),
-            "a disarmed ESC refuses throttle");
-      check(!bibo::drive::throttleUs(THROTTLE_CAL_MAX),
-            "and refuses it at the calibrated maximum too");
+      check(!bibo::drive::throttleUs(1600), "a disarmed ESC refuses throttle");
+      check(
+          !bibo::drive::throttleUs(THROTTLE_CAL_MAX),
+          "and refuses it at the calibrated maximum too"
+      );
 
       bibo::drive::arm(true);
-      check(bibo::drive::throttleUs(1560),
-            "an armed ESC accepts it");
+      check(bibo::drive::throttleUs(1560), "an armed ESC accepts it");
 
       /* Disarming is not a suggestion. */
       bibo::drive::arm(false);
-      check(!bibo::drive::throttleUs(1560),
-            "disarming refuses again");
+      check(!bibo::drive::throttleUs(1560), "disarming refuses again");
   }
 
   /**
@@ -156,8 +155,11 @@ namespace
       bibo::drive::arm(true);
 
       settle();
-      checkEq(bibo::fake::lastUs(escPin()), DRIVE_NEUTRAL_US,
-              "re-arming leaves the ESC at neutral");
+      checkEq(
+          bibo::fake::lastUs(escPin()),
+          DRIVE_NEUTRAL_US,
+          "re-arming leaves the ESC at neutral"
+      );
   }
 
   /**
@@ -171,13 +173,13 @@ namespace
 
       const Int32 before = bibo::fake::lastUs(escPin());
 
-      check(!bibo::drive::throttleUs(1650),
-            "the disarmed refusal is reported, not silent");
+      check(!bibo::drive::throttleUs(1650), "the disarmed refusal is reported, not silent");
       bibo::drive::pump();
 
-      check(bibo::fake::lastUs(escPin()) == before
-            || bibo::fake::lastUs(escPin()) == DRIVE_NEUTRAL_US,
-            "the ESC saw neutral or nothing, never 1650");
+      check(
+          bibo::fake::lastUs(escPin()) == before || bibo::fake::lastUs(escPin()) == DRIVE_NEUTRAL_US,
+          "the ESC saw neutral or nothing, never 1650"
+      );
   }
 
   /**
@@ -192,13 +194,14 @@ namespace
 
       check(bibo::drive::throttleUs(9999), "an absurd value is accepted");
       settle();
-      check(bibo::fake::lastUs(escPin()) <= THROTTLE_CAL_MAX,
-            "and clamped at or below the calibrated maximum");
+      check(
+          bibo::fake::lastUs(escPin()) <= THROTTLE_CAL_MAX,
+          "and clamped at or below the calibrated maximum"
+      );
 
       check(bibo::drive::throttleUs(0), "zero is accepted");
       settle();
-      check(bibo::fake::lastUs(escPin()) >= THROTTLE_CAL_MIN,
-            "and clamped at or above idle");
+      check(bibo::fake::lastUs(escPin()) >= THROTTLE_CAL_MIN, "and clamped at or above idle");
   }
 
   /**
@@ -209,12 +212,9 @@ namespace
       printf("\nlimits refuse a range that is not one\n");
       fresh();
 
-      check(!bibo::drive::setThrottleLimits(1600, 1600),
-            "lo == hi is refused");
-      check(!bibo::drive::setThrottleLimits(1700, 1500),
-            "lo > hi is refused");
-      check(!bibo::drive::setSteerLimits(1500, 1500),
-            "the same for steering");
+      check(!bibo::drive::setThrottleLimits(1600, 1600), "lo == hi is refused");
+      check(!bibo::drive::setThrottleLimits(1700, 1500), "lo > hi is refused");
+      check(!bibo::drive::setSteerLimits(1500, 1500), "the same for steering");
   }
 
   /**
@@ -226,12 +226,9 @@ namespace
       printf("\nsteering maps the fraction onto measured microseconds\n");
       fresh();
 
-      checkEq(bibo::drive::steerToUs(0.0f), STEER_CAL_CENTER,
-              "0.0 is center");
-      checkEq(bibo::drive::steerToUs(-1.0f), STEER_CAL_LEFT,
-              "-1.0 is full left");
-      checkEq(bibo::drive::steerToUs(1.0f), STEER_CAL_RIGHT,
-              "+1.0 is full right");
+      checkEq(bibo::drive::steerToUs(0.0f), STEER_CAL_CENTER, "0.0 is center");
+      checkEq(bibo::drive::steerToUs(-1.0f), STEER_CAL_LEFT, "-1.0 is full left");
+      checkEq(bibo::drive::steerToUs(1.0f), STEER_CAL_RIGHT, "+1.0 is full right");
 
       /*
        * The throw is ASYMMETRIC on this car - center is 1480, not 1500 - which
@@ -239,16 +236,16 @@ namespace
        * way to the RIGHT limit, not half way to 1500 + something.
        */
       const Int32 halfRight = bibo::drive::steerToUs(0.5f);
-      const Int32 expected  = STEER_CAL_CENTER
+      const Int32 expected = STEER_CAL_CENTER
                             + (STEER_CAL_RIGHT - STEER_CAL_CENTER) / 2;
-      check(halfRight >= expected - 2 && halfRight <= expected + 2,
-            "0.5 is half of the RIGHT throw, not half of a symmetric one");
+      check(
+          halfRight >= expected - 2 && halfRight <= expected + 2,
+          "0.5 is half of the RIGHT throw, not half of a symmetric one"
+      );
 
       /* Out of range is clamped, not wrapped. */
-      checkEq(bibo::drive::steerToUs(-9.0f), STEER_CAL_LEFT,
-              "beyond full left clamps");
-      checkEq(bibo::drive::steerToUs(9.0f), STEER_CAL_RIGHT,
-              "beyond full right clamps");
+      checkEq(bibo::drive::steerToUs(-9.0f), STEER_CAL_LEFT, "beyond full left clamps");
+      checkEq(bibo::drive::steerToUs(9.0f), STEER_CAL_RIGHT, "beyond full right clamps");
   }
 
   /**
@@ -260,9 +257,10 @@ namespace
       fresh();
 
       const Int32 mid = bibo::drive::steerToUs(0.0f);
-      check(bibo::drive::steerFromUs(mid) == 0
-            || bibo::drive::steerFromUs(mid) == 0,
-            "center round-trips to zero");
+      check(
+          bibo::drive::steerFromUs(mid) == 0 || bibo::drive::steerFromUs(mid) == 0,
+          "center round-trips to zero"
+      );
   }
 
   /**
@@ -279,10 +277,8 @@ namespace
 
       bibo::drive::stop();
       settle();
-      checkEq(bibo::fake::lastUs(escPin()), DRIVE_NEUTRAL_US,
-              "the ESC is left at neutral");
-      check(!bibo::drive::throttleUs(1580),
-            "and stop disarms, so throttle is refused again");
+      checkEq(bibo::fake::lastUs(escPin()), DRIVE_NEUTRAL_US, "the ESC is left at neutral");
+      check(!bibo::drive::throttleUs(1580), "and stop disarms, so throttle is refused again");
   }
 
 }

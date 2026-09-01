@@ -280,8 +280,8 @@ namespace sketch
       }
 
       const Size want = text.size();
-      const Size got  = want > 0 ? std::fwrite(text.data(), 1, want, f) : 0;
-      const Bool ok   = (got == want);
+      const Size got = want > 0 ? std::fwrite(text.data(), 1, want, f) : 0;
+      const Bool ok = (got == want);
 
       if(std::fclose(f) != 0 || !ok)
       {
@@ -338,8 +338,7 @@ namespace sketch
       // /select, highlights the file itself rather than merely opening the folder,
       // which is what somebody right-clicking a file is asking for.
       const Str arg = "/select,\"" + path + "\"";
-      ::ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr,
-                      SW_SHOWNORMAL);
+      ::ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
   }
 
   Void openDocs()
@@ -361,8 +360,7 @@ namespace sketch
       // batch file's own `cd /d %~dp0`. Both are correct; having both means a
       // relative path inside it cannot resolve against hub\build\ if that line
       // is ever edited out.
-      ::ShellExecuteA(nullptr, "open", bat.c_str(), nullptr, dir.c_str(),
-                      SW_SHOWMINNOACTIVE);
+      ::ShellExecuteA(nullptr, "open", bat.c_str(), nullptr, dir.c_str(), SW_SHOWMINNOACTIVE);
   }
 
   Str starter()

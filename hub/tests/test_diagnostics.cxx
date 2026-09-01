@@ -26,7 +26,7 @@ namespace
 {
 
   Int32 failures = 0;
-  Int32 checks   = 0;
+  Int32 checks = 0;
 
   Void check(Bool ok, const Char* what)
   {
@@ -48,8 +48,7 @@ namespace
       if(got != want)
       {
           ++failures;
-          std::printf("  FAIL  %s\n         got  \"%s\"\n         want \"%s\"\n",
-                      what, got.c_str(), want.c_str());
+          std::printf(" FAIL %s\n got \"%s\"\n want \"%s\"\n", what, got.c_str(), want.c_str());
       }
       else
       {
@@ -65,29 +64,39 @@ namespace
 
       // The Windows drive-letter case. This is the whole reason for the parser.
       check(diag::parseLine(
-                "C:/dev/bibo/firmware/src/sketch.c:42:15: "
-                "error: 'foo' undeclared (first use in this function)", it),
+          "C:/dev/bibo/firmware/src/sketch.c:42:15: " "error: 'foo' undeclared (first use in this function)",
+          it
+      ),
             "a path with a drive letter parses");
-      checkStr(it.file, "C:/dev/bibo/firmware/src/sketch.c",
-               "the drive letter stays part of the path");
+      checkStr(
+          it.file,
+          "C:/dev/bibo/firmware/src/sketch.c",
+          "the drive letter stays part of the path"
+      );
       check(it.line == 42, "line is 42");
       check(it.column == 15, "column is 15");
       check(it.severity == diag::Severity::SEVERITY_ERR, "severity is error");
-      checkStr(it.message, "'foo' undeclared (first use in this function)",
-               "message is everything after the severity");
+      checkStr(
+          it.message,
+          "'foo' undeclared (first use in this function)",
+          "message is everything after the severity"
+      );
 
-      check(diag::parseLine("src/sketch.c:10:5: warning: unused variable 'x' "
-                            "[-Wunused-variable]", it),
+      check(diag::parseLine(
+          "src/sketch.c:10:5: warning: unused variable 'x' " "[-Wunused-variable]",
+          it
+      ),
             "a warning parses");
       check(it.severity == diag::Severity::SEVERITY_WARN, "severity is warning");
       check(it.line == 10 && it.column == 5, "line and column");
 
-      check(diag::parseLine("src/sketch.c:7: error: no column here", it),
-            "a diagnostic with no column parses");
+      check(
+          diag::parseLine("src/sketch.c:7: error: no column here", it),
+          "a diagnostic with no column parses"
+      );
       check(it.line == 7 && it.column == 0, "column is 0 when absent");
 
-      check(diag::parseLine("src/sketch.c:99:1: note: declared here", it),
-            "a note parses");
+      check(diag::parseLine("src/sketch.c:99:1: note: declared here", it), "a note parses");
       check(it.severity == diag::Severity::SEVERITY_NOTE, "severity is note");
   }
 
@@ -98,14 +107,17 @@ namespace
       diag::Item it;
 
       check(diag::parseLine(
-                "C:\\hub\\src\\app_ui.cxx(294,12): error C2065: 'x': undeclared identifier",
-                it),
+          "C:\\hub\\src\\app_ui.cxx(294,12): error C2065: 'x': undeclared identifier",
+          it
+      ),
             "msvc with line and column parses");
       check(it.line == 294 && it.column == 12, "line and column");
       check(it.severity == diag::Severity::SEVERITY_ERR, "severity is error");
 
-      check(diag::parseLine("C:\\hub\\src\\a.cpp(17): warning C4189: unused", it),
-            "msvc with line only parses");
+      check(
+          diag::parseLine("C:\\hub\\src\\a.cpp(17): warning C4189: unused", it),
+          "msvc with line only parses"
+      );
       check(it.line == 17 && it.column == 0, "column is 0");
       check(it.severity == diag::Severity::SEVERITY_WARN, "severity is warning");
   }
@@ -116,20 +128,25 @@ namespace
 
       diag::Item it;
 
-      check(!diag::parseLine("[1/2] Building C object sketch.c.obj", it),
-            "a ninja progress line is not a diagnostic");
-      check(!diag::parseLine("[ok] firmware/build/sketch.uf2", it),
-            "an ok line is not a diagnostic");
+      check(
+          !diag::parseLine("[1/2] Building C object sketch.c.obj", it),
+          "a ninja progress line is not a diagnostic"
+      );
+      check(
+          !diag::parseLine("[ok] firmware/build/sketch.uf2", it),
+          "an ok line is not a diagnostic"
+      );
       check(!diag::parseLine("", it), "an empty line is not a diagnostic");
       check(!diag::parseLine("just some prose", it), "prose is not a diagnostic");
 
       // A timestamp has digits after a colon and must not be mistaken for one.
-      check(!diag::parseLine("started at 10:30:15 local", it),
-            "a timestamp is not a diagnostic");
+      check(!diag::parseLine("started at 10:30:15 local", it), "a timestamp is not a diagnostic");
 
       // A path and a line number but no severity word.
-      check(!diag::parseLine("src/sketch.c:42:15: something happened", it),
-            "no severity word means no diagnostic");
+      check(
+          !diag::parseLine("src/sketch.c:42:15: something happened", it),
+          "no severity word means no diagnostic"
+      );
   }
 
   Void testFileMatching()
@@ -147,8 +164,7 @@ namespace
 
       // The compiler says firmware/src/sketch.c; the editor has the same bytes
       // open from the sketch library. It must still mark them.
-      const Vec<diag::Item> mine = diag::forFile(
-          all, "D:\\tt02-auto\\sketches\\sketch.c");
+      const Vec<diag::Item> mine = diag::forFile(all, "D:\\tt02-auto\\sketches\\sketch.c");
       check(mine.size() == 2, "matched by file NAME, not by full path");
 
       const Vec<diag::Item> other = diag::forFile(all, "somewhere/main.c");
@@ -173,10 +189,14 @@ namespace
 
       const Vec<diag::Item> all = diag::parseAll(lines);
 
-      check(diag::worstOnLine(all, 5) == static_cast<Int32>(diag::Severity::SEVERITY_ERR),
-            "error beats warning on the same line");
-      check(diag::worstOnLine(all, 9) == static_cast<Int32>(diag::Severity::SEVERITY_NOTE),
-            "a note alone reports as a note");
+      check(
+          diag::worstOnLine(all, 5) == static_cast<Int32>(diag::Severity::SEVERITY_ERR),
+          "error beats warning on the same line"
+      );
+      check(
+          diag::worstOnLine(all, 9) == static_cast<Int32>(diag::Severity::SEVERITY_NOTE),
+          "a note alone reports as a note"
+      );
       check(diag::worstOnLine(all, 7) == -1, "a clean line reports -1");
   }
 
