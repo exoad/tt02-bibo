@@ -200,19 +200,40 @@ function apiPage(path, mod, order) {
 
   let md = `---\ntitle: ${mod}\ndescription: ${rel}\nnavigation:\n  title: ${mod}\n---\n\n`
   md += `# ${mod}\n\n`
-  md += `::note\nGenerated from \`${rel}\`. Edit the header, not this page.\n::\n\n`
   if (p.banner) md += `${esc(p.banner)}\n\n`
 
-  for (const [label, items] of groups) {
-    if (!items.length) continue
+  /* THE INDEX. An API page's first job is "does this module have the thing I
+   * want, and what is it called" - which a wall of prose cannot answer. Every
+   * symbol, qualified, one line each, linked to its own section. Anchors are
+   * the slug Docus derives from the heading, so the two must agree: heading
+   * `bibo::tft::rgb` slugs to `bibotftrgb`. */
+  const anchor = d => (d.ns ? `${d.ns}::${d.name}` : d.name)
+    .toLowerCase().replace(/[^a-z0-9]+/g, '')
+
+  const present = groups.filter(([, items]) => items.length)
+  if (present.length) {
+    md += `## Index\n\n`
+    for (const [label, items] of present) {
+      md += `**${label}** — `
+      md += items.map(d => `[\`${d.name}\`](#${anchor(d)})`).join(' · ')
+      md += '\n\n'
+    }
+  }
+
+  for (const [label, items] of present) {
     md += `## ${label}\n\n`
     for (const d of items) {
       const dx = doxygen(d.doc)
 
-      md += `### ${d.name}\n\n`
+      /* QUALIFIED, and with its kind. `rgb` appears in two modules and means
+       * something different in each; `bibo::tft::rgb` does not. The kind badge
+       * is what lets you tell a struct from a function while scrolling. */
+      md += `### ${d.ns ? `${d.ns}::` : ''}${d.name}\n\n`
+      md += `:badge[${d.kind}]{variant="outline"} `
+      md += `\`${rel}:${d.line}\`\n\n`
+
       if (dx.brief) md += `${esc(dx.brief)}\n\n`
       md += '```cpp\n' + d.sig + '\n```\n\n'
-      if (d.ns) md += `*Namespace* \`${d.ns}\` · *line ${d.line}*\n\n`
 
       if (dx.body) md += `${esc(dx.body)}\n\n`
 
@@ -232,6 +253,13 @@ function apiPage(path, mod, order) {
       for (const w of dx.warns) md += `::warning\n${esc(w.trim())}\n::\n\n`
     }
   }
+
+  /* At the BOTTOM. It was the first thing on the page, above the module's own
+   * banner - so every page opened by telling you about itself rather than
+   * about the code. */
+  md += `---\n\n`
+  md += `:::note\nGenerated from \`${rel}\`. Edit the header, not this page.\n:::\n`
+
   return { md, count: p.decls.length, banner: p.banner, mod }
 }
 

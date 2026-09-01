@@ -131,6 +131,12 @@ namespace ui
     // there are. One position routinely collects an error plus its notes.
     constexpr Size HOVER_MAX = 4;
 
+    // Frames the pointer must rest on an identifier before clangd is asked.
+    // At 60 fps this is about a fifth of a second - long enough that sweeping
+    // the pointer across a line asks nothing, short enough that stopping to
+    // read something does not feel like waiting for it.
+    constexpr Int32 HOVER_REST_FRAMES = 12;
+
     // Breaks `text` at spaces so no line exceeds `cols` cells. Newlines already in
     // the message are KEPT: gcc puts an include error's file chain on its own lines.
     Void wrapTo(const Str& text, Size cols, Vec<Str>& out)
@@ -833,6 +839,90 @@ namespace ui
                           && !ImGui::IsMouseDown(ImGuiMouseButton_Left)
                           && !v.diags.empty();
 
+      // ---- the symbol under the pointer ------------------------------------
+      //
+      // Asked of clangd only when the pointer RESTS on an identifier it has not
+      // already asked about. Diagnostics win where they overlap: a red underline
+      // is a thing to fix and a declaration is a thing to read, and covering the
+      // first with the second would be answering a question nobody asked.
+      Str   hoverWord;
+      Int32 hoverLine = -1;
+      Int32 hoverCol  = -1;
+
+      if(hovered && !ImGui::IsMouseDown(ImGuiMouseButton_Left)
+         && !v.lspPath.empty())
+      {
+          const Int32 hl = static_cast<Int32>((io.MousePos.y - origin.y + v.scrollY) / lineH);
+          const Int32 hc = static_cast<Int32>((io.MousePos.x - textX) / charW);
+
+          if(hl >= 0 && hl < e.lineCount() && hc >= 0 && io.MousePos.x >= textX)
+          {
+              const Str&  ln  = e.line(hl);
+              const Int32 len = static_cast<Int32>(ln.size());
+
+              const auto wordChar = [](Char ch)
+              {
+                  return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+                         || (ch >= '0' && ch <= '9') || ch == '_';
+              };
+
+              if(hc < len && wordChar(ln[static_cast<Size>(hc)]))
+              {
+                  Int32 a = hc;
+                  Int32 b = hc;
+                  while(a > 0 && wordChar(ln[static_cast<Size>(a - 1)]))
+                  {
+                      --a;
+                  }
+                  while(b + 1 < len && wordChar(ln[static_cast<Size>(b + 1)]))
+                  {
+                      ++b;
+                  }
+
+                  // A leading digit means a number, not a name.
+                  if(!(ln[static_cast<Size>(a)] >= '0' && ln[static_cast<Size>(a)] <= '9'))
+                  {
+                      hoverWord = ln.substr(static_cast<Size>(a),
+                                            static_cast<Size>(b - a + 1));
+                      hoverLine = hl;
+                      hoverCol  = a;
+                  }
+              }
+          }
+      }
+
+      if(hoverWord.empty() || hoverLine != v.infoLine || hoverWord != v.infoWord)
+      {
+          // Moved off, or onto something else. Drop the old answer rather than
+          // letting it hang under a different symbol.
+          if(hoverWord != v.infoWord || hoverLine != v.infoLine)
+          {
+              v.infoAnswer = lsp::Info();
+          }
+          v.infoWord = hoverWord;
+          v.infoLine = hoverLine;
+          v.infoCol  = hoverCol;
+          v.infoIn   = hoverWord.empty() ? 0 : HOVER_REST_FRAMES;
+      }
+      else if(v.infoIn > 0 && --v.infoIn == 0)
+      {
+          const Str text = e.text();
+          static_cast<Void>(lsp::askInfo(v.lspPath, text, hashOf(text),
+                                         v.infoLine, v.infoCol));
+      }
+
+      {
+          lsp::Info got;
+          if(lsp::takeInfo(got))
+          {
+              // Only if it still describes what the pointer is on.
+              if(got.line == v.infoLine && got.col == v.infoCol)
+              {
+                  v.infoAnswer = std::move(got);
+              }
+          }
+      }
+
       for(Int32 l = first; l <= last; ++l)
       {
           const Float32 y = origin.y + static_cast<Float32>(l) * lineH - v.scrollY;
@@ -1115,11 +1205,14 @@ namespace ui
           }
           hx = std::max(origin.x, std::min(hx, origin.x + region.x - boxW));
 
+          // Square. A rounded box reads as a floating card; this is a margin
+          // note pinned to a specific span of text, and the corners saying so
+          // is the whole difference.
           ImDrawList* fg = ImGui::GetForegroundDrawList();
           fg->AddRectFilled(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH),
-                            syn::gruv::BG0_H, 3.0f * dpiScale());
+                            syn::gruv::BG0_H, 0.0f);
           fg->AddRect(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH),
-                      severityColor(underPointer[0]->severity), 3.0f * dpiScale());
+                      severityColor(underPointer[0]->severity), 0.0f);
 
           for(Size i = 0; i < rows.size(); ++i)
           {
@@ -1137,6 +1230,274 @@ namespace ui
               }
 
               fg->AddText(ImVec2(hx + pad, ry), r.col, r.text.c_str());
+          }
+      }
+
+      // ---- a macro, resolved through its renames -----------------------------
+      //
+      // THE VALUE FIRST, the chain under it. `SERVO_DEFAULT_MIN` is
+      // `STEER_CAL_LEFT` is `1230`, and the number is what you came to find out;
+      // the path is how to check it, not the answer.
+      //
+      // The walk stops at the first body that is NOT a bare name, because that
+      // is the point where the macro stops being an alias and starts being a
+      // value. `CUE_BLINK_PERIOD_MS` is `(CUE_BLINK_ON_MS + CUE_BLINK_OFF_MS)`
+      // and expanding that further would produce arithmetic nobody wrote.
+      else if(!v.infoWord.empty() && v.infoLine >= 0 && !v.popupOpen
+              && v.macros.count(v.infoWord) != 0u)
+      {
+          struct Step
+          {
+              Str   name;
+              Str   body;
+              Str   file;
+              Int32 line = 0;
+          };
+
+          Vec<Step> chain;
+          Str       cur = v.infoWord;
+
+          // Bounded, and it has to be: `#define A B` / `#define B A` is legal
+          // and the preprocessor itself only stops because it refuses to expand
+          // a macro inside its own expansion.
+          for(Int32 hop = 0; hop < 16; ++hop)
+          {
+              const auto it = v.macros.find(cur);
+              if(it == v.macros.end())
+              {
+                  break;
+              }
+              chain.push_back(Step{ cur, it->second.body,
+                                    it->second.file, it->second.line });
+
+              // A pure rename is one identifier and nothing else.
+              const Str& b = it->second.body;
+              Bool       bare = !b.empty();
+              for(Size i = 0; i < b.size() && bare; ++i)
+              {
+                  bare = (std::isalnum(static_cast<unsigned char>(b[i])) != 0)
+                         || b[i] == '_';
+              }
+              if(!bare || v.macros.count(b) == 0u)
+              {
+                  break;
+              }
+
+              // Already seen means a cycle, and the value is the name itself.
+              Bool loop = false;
+              for(const Step& s : chain)
+              {
+                  loop = loop || (s.name == b);
+              }
+              if(loop)
+              {
+                  break;
+              }
+              cur = b;
+          }
+
+          if(!chain.empty())
+          {
+              const Float32 pad  = 8.0f * dpiScale();
+              const Float32 rowH = lineH;
+
+              struct MRow
+              {
+                  Str   text;
+                  ImU32 col = 0;
+              };
+              Vec<MRow> rows;
+
+              // The answer.
+              const Str value = chain.back().body;
+              rows.push_back(MRow{ v.infoWord + "  =  "
+                                   + (value.empty() ? Str("(defined, no value)") : value),
+                                   syn::gruv::FG1 });
+
+              // The path to it, only when there was one - a macro that resolves
+              // in one step is its own tree and drawing it says nothing.
+              if(chain.size() > 1)
+              {
+                  rows.push_back(MRow{ Str(), syn::gruv::BG3 });
+                  for(Size i = 0; i < chain.size(); ++i)
+                  {
+                      Str indent;
+                      for(Size k = 0; k < i; ++k)
+                      {
+                          indent += "  ";
+                      }
+                      const Str lead = (i == 0) ? Str() : indent + "\xE2\x94\x94 ";
+                      rows.push_back(MRow{ lead + chain[i].name + "  " + chain[i].body,
+                                           (i + 1 == chain.size()) ? syn::gruv::FG1
+                                                                   : syn::gruv::GRAY });
+                  }
+              }
+
+              // Where the value actually lives, which is the next thing you want
+              // once you know what it is.
+              {
+                  // `at`, not `last`: `last` is the bottom visible row of the
+                  // editor, declared far above this.
+                  const Step& at   = chain.back();
+                  Str         base = at.file;
+                  if(const Size sl = base.find_last_of("/\\"); sl != Str::npos)
+                  {
+                      base = base.substr(sl + 1);
+                  }
+                  rows.push_back(MRow{ Str(), syn::gruv::BG3 });
+                  rows.push_back(MRow{ base + ":" + std::to_string(at.line),
+                                       syn::gruv::GRAY });
+              }
+
+              Float32 wide = 0.0f;
+              for(const MRow& r : rows)
+              {
+                  if(!r.text.empty())
+                  {
+                      wide = std::max(wide, ImGui::CalcTextSize(r.text.c_str()).x);
+                  }
+              }
+
+              const Float32 boxW = wide + pad * 2.0f;
+              const Float32 boxH = rowH * static_cast<Float32>(rows.size()) + pad;
+
+              Float32 mx = textX + static_cast<Float32>(v.infoCol) * charW;
+              Float32 my = origin.y + static_cast<Float32>(v.infoLine + 1) * lineH
+                           - v.scrollY + 3.0f * dpiScale();
+              if(my + boxH > origin.y + viewH)
+              {
+                  my = origin.y + static_cast<Float32>(v.infoLine) * lineH
+                       - v.scrollY - boxH - 3.0f * dpiScale();
+              }
+              mx = std::max(origin.x, std::min(mx, origin.x + region.x - boxW));
+
+              // Purple, so a macro is not mistaken for a declaration at a
+              // glance - the two answer different questions.
+              ImDrawList* fg = ImGui::GetForegroundDrawList();
+              fg->AddRectFilled(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH),
+                                syn::gruv::BG0_H, 0.0f);
+              fg->AddRect(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH),
+                          syn::gruv::PURPLE, 0.0f);
+
+              for(Size i = 0; i < rows.size(); ++i)
+              {
+                  const MRow&   r  = rows[i];
+                  const Float32 ry = my + pad * 0.5f + static_cast<Float32>(i) * rowH;
+
+                  if(r.text.empty())
+                  {
+                      fg->AddLine(ImVec2(mx + pad, ry + rowH * 0.5f),
+                                  ImVec2(mx + boxW - pad, ry + rowH * 0.5f),
+                                  syn::gruv::BG3);
+                      continue;
+                  }
+                  fg->AddText(ImVec2(mx + pad, ry), r.col, r.text.c_str());
+              }
+          }
+      }
+
+      // ---- what clangd knows about the symbol under the pointer --------------
+      //
+      // The SAME box as the diagnostic tooltip above - square, dark plate, one
+      // coloured rule at the top - because they answer the same kind of
+      // question about the same span of text. Only the accent differs: a
+      // diagnostic is coloured by severity, a declaration is blue, so which one
+      // you are looking at is clear before you have read a word of it.
+      //
+      // Suppressed while a diagnostic is showing. Two boxes over one span is
+      // worse than either.
+      else if(!v.infoAnswer.sig.empty() && !v.popupOpen
+              && v.infoLine >= 0 && !v.infoWord.empty())
+      {
+          const Float32 pad  = 8.0f * dpiScale();
+          const Float32 rowH = lineH;
+
+          struct InfoRow
+          {
+              Str   text;
+              ImU32 col = 0;
+          };
+          Vec<InfoRow> rows;
+
+          // The declaration, one row per line - clangd wraps a long parameter
+          // list itself, and re-wrapping it loses that.
+          Size at = 0;
+          while(at <= v.infoAnswer.sig.size())
+          {
+              const Size nl   = v.infoAnswer.sig.find('\n', at);
+              const Size stop = (nl == Str::npos) ? v.infoAnswer.sig.size() : nl;
+              rows.push_back(InfoRow{ v.infoAnswer.sig.substr(at, stop - at),
+                                      syn::gruv::FG1 });
+              if(nl == Str::npos)
+              {
+                  break;
+              }
+              at = nl + 1;
+          }
+
+          if(!v.infoAnswer.doc.empty())
+          {
+              rows.push_back(InfoRow{ Str(), syn::gruv::BG3 });   // a rule
+
+              Vec<Str> wrapped;
+              wrapTo(v.infoAnswer.doc, HOVER_COLS, wrapped);
+
+              // Bounded. A doc comment in this project runs to paragraphs, and a
+              // tooltip taller than the window hides the code it describes.
+              const Size cap = 12;
+              for(Size i = 0; i < wrapped.size() && i < cap; ++i)
+              {
+                  rows.push_back(InfoRow{ wrapped[i], syn::gruv::GRAY });
+              }
+              if(wrapped.size() > cap)
+              {
+                  rows.push_back(InfoRow{ Str("..."), syn::gruv::BG3 });
+              }
+          }
+
+          Float32 wide = 0.0f;
+          for(const InfoRow& r : rows)
+          {
+              if(!r.text.empty())
+              {
+                  wide = std::max(wide, ImGui::CalcTextSize(r.text.c_str()).x);
+              }
+          }
+
+          const Float32 boxW = wide + pad * 2.0f;
+          const Float32 boxH = rowH * static_cast<Float32>(rows.size()) + pad;
+
+          // Pinned to the identifier, not to the pointer: the box stays put
+          // while the pointer moves within the word.
+          Float32 ix = textX + static_cast<Float32>(v.infoCol) * charW;
+          Float32 iy = origin.y + static_cast<Float32>(v.infoLine + 1) * lineH
+                       - v.scrollY + 3.0f * dpiScale();
+          if(iy + boxH > origin.y + viewH)
+          {
+              iy = origin.y + static_cast<Float32>(v.infoLine) * lineH
+                   - v.scrollY - boxH - 3.0f * dpiScale();
+          }
+          ix = std::max(origin.x, std::min(ix, origin.x + region.x - boxW));
+
+          ImDrawList* fg = ImGui::GetForegroundDrawList();
+          fg->AddRectFilled(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH),
+                            syn::gruv::BG0_H, 0.0f);
+          fg->AddRect(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH),
+                      syn::gruv::BLUE, 0.0f);
+
+          for(Size i = 0; i < rows.size(); ++i)
+          {
+              const InfoRow& r  = rows[i];
+              const Float32  ry = iy + pad * 0.5f + static_cast<Float32>(i) * rowH;
+
+              if(r.text.empty())
+              {
+                  fg->AddLine(ImVec2(ix + pad, ry + rowH * 0.5f),
+                              ImVec2(ix + boxW - pad, ry + rowH * 0.5f),
+                              syn::gruv::BG3);
+                  continue;
+              }
+              fg->AddText(ImVec2(ix + pad, ry), r.col, r.text.c_str());
           }
       }
 

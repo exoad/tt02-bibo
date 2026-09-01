@@ -75,6 +75,40 @@ namespace ui
       Int32       lspAskLine = -1;
       Int32       lspAskCol  = -1;
 
+      // ---- hover -----------------------------------------------------------
+      // What clangd said about the symbol under the pointer, and which symbol
+      // that was.
+      //
+      // The WORD is remembered, not just the position, because the question is
+      // only worth re-asking when the pointer crosses onto a different symbol.
+      // Moving along the letters of one identifier is the common case and asks
+      // nothing.
+      //
+      // hoverIn counts frames the pointer has rested. A request per frame would
+      // put one message per 16 ms on the wire and answer about a symbol the
+      // pointer had already left; resting is also what distinguishes "reading
+      // this" from "on the way somewhere else".
+      lsp::Info infoAnswer;
+      Str       infoWord;        // the identifier last asked about
+      Int32     infoLine  = -1;  // where it started, 0-based
+      Int32     infoCol   = -1;
+      Int32     infoIn    = 0;   // frames until the question goes out, 0 = sent
+
+      // ---- macros ----------------------------------------------------------
+      // Every object-like #define reachable from the open file, set by the
+      // caller. Hovering one shows what it finally becomes, not what it says.
+      //
+      // clangd's own hover gives the FIRST level only - `#define
+      // SERVO_DEFAULT_MIN STEER_CAL_LEFT` - which for a chain of renames
+      // answers with another name and helps nobody.
+      struct Macro
+      {
+          Str   body;
+          Str   file;    // where it was defined, for the tree
+          Int32 line = 0;
+      };
+      HashMap<Str, Macro> macros;
+
       // Absolute path of the file in the buffer. Set by the caller; empty means
       // an unsaved buffer, which clangd cannot be asked about because it has no
       // entry in compile_commands.json.

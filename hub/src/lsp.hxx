@@ -115,6 +115,38 @@ namespace lsp
   // Returns false and leaves `out` alone otherwise.
   Bool take(Answer& out);
 
+  // ---- hover ---------------------------------------------------------------
+
+  // What clangd knows about the symbol under a point: its declaration, and the
+  // doc comment above it.
+  //
+  // `sig` is the declaration exactly as clangd renders it - already resolved,
+  // so `auto` has become the deduced type and a template argument is the one
+  // actually substituted. `doc` is the prose, with clangd's markdown headings
+  // and rules stripped; it is empty for anything undocumented, which is most of
+  // a codebase and not an error.
+  struct Info
+  {
+      UInt64 serial = 0;    // increments per reply; 0 means "nothing yet"
+      Str    path;
+      Int32  line = -1;     // 0-based, the position that was asked about
+      Int32  col  = -1;
+      Str    sig;
+      Str    doc;
+  };
+
+  // Ask what is at `line`:`col`. Same contract as ask(): fire and forget, at
+  // most one outstanding, refused until the AST exists.
+  //
+  // SEPARATE FROM ask() rather than a mode of it. Completion and hover are
+  // asked at different moments - one as you type, one as the pointer rests -
+  // and sharing an in-flight slot means whichever answered second silently
+  // discarded the other's reply.
+  Bool askInfo(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col);
+
+  // Moves the newest hover reply into `out` if one arrived since the last call.
+  Bool takeInfo(Info& out);
+
   // Whether a request is in flight. The popup uses this to decide between
   // "clangd has nothing" and "clangd has not answered yet", which look
   // identical and mean opposite things.

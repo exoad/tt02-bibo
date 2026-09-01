@@ -220,6 +220,106 @@ namespace lsp
         return text;
     }
 
+    // A MarkupContent, or a bare string. json.hxx has no isString(), so this
+    // follows firstLine()'s idiom: take the string, and if there is none, look
+    // for the object's `value`.
+    Str markupText(const js::Value& v)
+    {
+        Str text = v.string();
+        if(text.empty() && v.isObject())
+        {
+            text = v.at("value").string();
+        }
+        return text;
+    }
+
+    // clangd's hover markdown, split into the declaration and the prose.
+    //
+    // WHAT IT ACTUALLY SENDS, which is why this is not a one-liner:
+    //
+    //     ### function `trimEnd`
+    //     ---
+    //     -> `Size`
+    //     Parameters:
+    //     - `Utf8 * s`
+    //     ---
+    //     Strips trailing CR, LF, space and tab from `s`, in place.
+    //     ---
+    //     ```cpp
+    //     Size trimEnd(Utf8 *s)
+    //     ```
+    //
+    // The fenced block is the declaration and is the one part always present.
+    // Everything outside it is prose, EXCEPT the generated preamble - the
+    // `###` title, the `->` return line and the `Parameters:` list all restate
+    // what the signature already shows, and repeating them under it is how a
+    // tooltip becomes taller than the code it covers.
+    Void splitHover(const Str& raw, Str& sig, Str& doc)
+    {
+        sig.clear();
+        doc.clear();
+
+        Vec<Str> body;
+        Bool     inFence = false;
+
+        Size i = 0;
+        while(i <= raw.size())
+        {
+            const Size nl   = raw.find('\n', i);
+            const Size stop = (nl == Str::npos) ? raw.size() : nl;
+            Str        line = raw.substr(i, stop - i);
+            while(!line.empty() && (line.back() == '\r' || line.back() == ' '))
+            {
+                line.pop_back();
+            }
+
+            if(line.rfind("```", 0) == 0)
+            {
+                inFence = !inFence;
+            }
+            else if(inFence)
+            {
+                if(!sig.empty())
+                {
+                    sig += "\n";
+                }
+                sig += line;
+            }
+            else
+            {
+                // The preamble, dropped. `---` is a rule, `###` the generated
+                // title, and the arrow and parameter list are the signature
+                // said twice.
+                const Bool noise = line.empty()
+                                   || line.rfind("---", 0) == 0
+                                   || line.rfind("###", 0) == 0
+                                   || line.rfind("→", 0) == 0
+                                   || line.rfind("->", 0) == 0
+                                   || line.rfind("Parameters:", 0) == 0
+                                   || line.rfind("- `", 0) == 0;
+                if(!noise)
+                {
+                    body.push_back(line);
+                }
+            }
+
+            if(nl == Str::npos)
+            {
+                break;
+            }
+            i = nl + 1;
+        }
+
+        for(const Str& l : body)
+        {
+            if(!doc.empty())
+            {
+                doc += "\n";
+            }
+            doc += l;
+        }
+    }
+
     // ------------------------------------------------------------------ state --
 
     struct Impl
@@ -264,6 +364,15 @@ namespace lsp
         Mutex  answerMu;
         Answer answer;                  // serial 0 until the first reply
         Bool   answerFresh = false;
+
+        // Hover's own slot and its own in-flight id. Sharing either with
+        // completion loses replies: the two are asked at different moments and
+        // whichever answered second would be dropped as "a question the caret
+        // has already left".
+        Atomic<Int64> infoInFlight{-1};
+        Mutex         infoMu;
+        Info          info;
+        Bool          infoFresh = false;
 
         // Replaced wholesale on every publish: clangd sends the complete set each
         // time, and an empty array means "clean now", not "nothing to say".
@@ -593,6 +702,52 @@ namespace lsp
             s.send("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}");
             s.st.store(State::STATE_READY);
             s.say("clangd: ready");
+            return;
+        }
+
+        // ---- a hover reply ----
+        if(static_cast<Int64>(id) == s.infoInFlight.load())
+        {
+            s.infoInFlight.store(-1);
+
+            // `contents` is one of three shapes and the protocol allows all of
+            // them: a MarkupContent object, a bare string, or an array of
+            // either. clangd sends the first; handling the rest costs six lines
+            // and means a different server does not come back blank.
+            const js::Value& c = msg.at("result").at("contents");
+            Str              raw;
+            if(c.isArray())
+            {
+                for(Size i = 0; i < c.size(); ++i)
+                {
+                    const Str piece = markupText(c[i]);
+                    if(!piece.empty())
+                    {
+                        if(!raw.empty())
+                        {
+                            raw += "\n";
+                        }
+                        raw += piece;
+                    }
+                }
+            }
+            else
+            {
+                raw = markupText(c);
+            }
+
+            Info built;
+            splitHover(raw, built.sig, built.doc);
+
+            {
+                LockGuard<Mutex> lk(s.infoMu);
+                built.serial = s.info.serial + 1u;
+                built.path   = s.info.path;    // set by askInfo()
+                built.line   = s.info.line;
+                built.col    = s.info.col;
+                s.info       = std::move(built);
+                s.infoFresh  = true;
+            }
             return;
         }
 
@@ -984,12 +1139,19 @@ namespace lsp
       return true;
   }
 
-  Bool ask(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
+  // Brings clangd's copy of the file up to date and returns its URI, or an
+  // empty string if there is nothing to talk to.
+  //
+  // SHARED BY ask() AND askInfo(), which is the point: two callers each pushing
+  // their own didOpen/didChange would double the version counter and send the
+  // buffer twice per keystroke. Whichever asks first pays for the sync; the
+  // other finds the document already current and sends nothing.
+  Str syncDoc(const Str& path, const Str& text, UInt64 version)
   {
       Impl& s = impl();
       if(s.st.load() != State::STATE_READY || path.empty())
       {
-          return false;
+          return Str();
       }
 
       const Str uri = toUri(path);
@@ -1037,12 +1199,24 @@ namespace lsp
           s.sentVersion = version;
       }
 
-      // ---- the question ----
-      // Not before the AST exists. The didOpen/didChange above still went out, but
-      // the question waits and the caller is told it was not taken, so it asks
-      // again rather than reading silence as an answer.
-      if(!s.parsed.load()
-         || GetTickCount64() - s.parsedAtMs.load() < SETTLE_MS)
+      return uri;
+  }
+
+  // Whether clangd has an AST ready for the open file. The didOpen/didChange
+  // still went out before this is consulted - only the QUESTION waits, and a
+  // caller told false asks again rather than reading silence as an answer.
+  Bool astReady()
+  {
+      Impl& s = impl();
+      return s.parsed.load()
+             && GetTickCount64() - s.parsedAtMs.load() >= SETTLE_MS;
+  }
+
+  Bool ask(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
+  {
+      Impl&     s   = impl();
+      const Str uri = syncDoc(path, text, version);
+      if(uri.empty() || !astReady())
       {
           return false;
       }
@@ -1082,6 +1256,53 @@ namespace lsp
       }
       out           = s.answer;
       s.answerFresh = false;
+      return true;
+  }
+
+  Bool askInfo(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
+  {
+      Impl&     s   = impl();
+      const Str uri = syncDoc(path, text, version);
+      if(uri.empty() || !astReady())
+      {
+          return false;
+      }
+
+      const Int64 id = static_cast<Int64>(s.nextId.fetch_add(1));
+
+      // Recorded BEFORE sending, so a fast reply cannot land on a slot that
+      // still describes the previous question.
+      {
+          LockGuard<Mutex> lk(s.infoMu);
+          s.info.path = path;
+          s.info.line = line;
+          s.info.col  = col;
+      }
+      s.infoInFlight.store(id);
+
+      Array<Char, 256> head;
+      std::snprintf(head.data(), head.size(),
+                    "{\"jsonrpc\":\"2.0\",\"id\":%lld,"
+                    "\"method\":\"textDocument/hover\",\"params\":{"
+                    "\"position\":{\"line\":%d,\"character\":%d},"
+                    "\"textDocument\":{\"uri\":",
+                    static_cast<long long>(id), line, col);
+
+      s.send(Str(head.data()) + js::quote(uri) + "}}}");
+      return true;
+  }
+
+  Bool takeInfo(Info& out)
+  {
+      Impl&            s = impl();
+      LockGuard<Mutex> lk(s.infoMu);
+
+      if(!s.infoFresh)
+      {
+          return false;
+      }
+      out         = s.info;
+      s.infoFresh = false;
       return true;
   }
 
