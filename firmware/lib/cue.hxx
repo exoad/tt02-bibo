@@ -719,25 +719,48 @@ namespace bibo::cue
         return KIND_NONE;
     }
 
+    /**
+     * @brief Whether the car is saying anything at all.
+     *
+     * @return true when some cue is active
+     */
     inline Bool busy(Void)
     {
         return speaking() != KIND_NONE;
     }
 
+    /**
+     * @brief Which step of its script the loudest cue is on.
+     *
+     * @return the step index of speaking()'s cue, or 0 when nothing is
+     *         active
+     */
     inline UInt8 step(Void)
     {
         const Kind k = speaking();
         return k == KIND_NONE ? 0u : stepIx[k];
     }
 
+    /**
+     * @brief How many times the loudest cue has repeated its script.
+     *
+     * @return the loop count of speaking()'s cue, or 0 when nothing is
+     *         active
+     */
     inline UInt8 loop(Void)
     {
         const Kind k = speaking();
         return k == KIND_NONE ? 0u : loopIx[k];
     }
 
-    /* Which way the car is indicating. Derived from the cues rather than kept
-     * beside them, so there is one answer and not two that can disagree. */
+    /**
+     * @brief Which way the car is indicating.
+     *
+     * Derived from the cues rather than kept beside them, so there is one
+     * answer and not two that can disagree.
+     *
+     * @return TURN_HAZARD, TURN_LEFT, TURN_RIGHT, or TURN_OFF
+     */
     inline Turn side(Void)
     {
         if(active[KIND_HAZARD])
@@ -755,28 +778,37 @@ namespace bibo::cue
         return TURN_OFF;
     }
 
-    /*
-     * Which lamps a channel is, in one place. A cue names the channel; this is the
-     * only thing that knows which bulbs that turns out to be.
+    /**
+     * @brief Turns a channel bitmask and a level into lamp levels.
      *
-     * ---- WHY ALL FOUR INDICATORS CANNOT DRIFT -------------------------------
+     * Which lamps a channel is, in one place. A cue names the channel;
+     * this is the only thing that knows which bulbs that turns out to be.
      *
-     * A side is ONE channel and both its lamps are written from ONE step, in one
-     * assignment pair, so front-left and rear-left are the same value by
-     * construction rather than by two timers agreeing. There is no clock per lamp
-     * to drift, and there is no arrangement of the code in which they differ.
+     * ---- WHY ALL FOUR INDICATORS CANNOT DRIFT --------------------------
      *
-     * The same argument covers hazards: CUE_CH_IND_BOTH is one channel mask read
-     * from one step of one cue, so all four are written together and are in phase
-     * structurally. That is why hazard is its own cue rather than left and right
-     * raised at once - two cues have two step clocks, and two clocks started a
-     * millisecond apart come apart into an alternating flash, which is what a film
-     * prop does.
+     * A side is ONE channel and both its lamps are written from ONE step,
+     * in one assignment pair, so front-left and rear-left are the same
+     * value by construction rather than by two timers agreeing. There is
+     * no clock per lamp to drift, and there is no arrangement of the code
+     * in which they differ.
      *
-     * The rear pair has no pin bound yet. It is computed and REPORTED anyway, which
-     * is what let this be measured before the LEDs exist: LIGHTS shows all ten
-     * levels, and front and rear matched on every sample of both cues. Wiring them
-     * is a change to the pin table in lights.hxx and nothing else.
+     * The same argument covers hazards: CUE_CH_IND_BOTH is one channel
+     * mask read from one step of one cue, so all four are written
+     * together and are in phase structurally. That is why hazard is its
+     * own cue rather than left and right raised at once - two cues have
+     * two step clocks, and two clocks started a millisecond apart come
+     * apart into an alternating flash, which is what a film prop does.
+     *
+     * The rear pair has no pin bound yet. It is computed and REPORTED
+     * anyway, which is what let this be measured before the LEDs exist:
+     * LIGHTS shows all ten levels, and front and rear matched on every
+     * sample of both cues. Wiring them is a change to the pin table in
+     * lights.hxx and nothing else.
+     *
+     * @param ch the CUE_CH_* channels to set
+     * @param level the level to give every lamp in those channels
+     * @param out the lamp set to write into; lamps outside `ch` are left
+     *            untouched
      */
     inline Void channelLamps(const UInt8 ch, const UInt8 level, lights::Set* out)
     {
@@ -807,14 +839,18 @@ namespace bibo::cue
         }
     }
 
-    /*
+    /**
+     * @brief Records the tone the running cue would be sounding.
+     *
      * Sound. A seam, not an implementation.
      *
-     * There is no buzzer on this car and no pin set aside for one. This records
-     * what the running cue WOULD be sounding so CUE can report it, and drives
-     * nothing. When a buzzer goes on, this function grows a pwm tone call and no
-     * script changes - which is the entire reason the tone is in cue::Step now
-     * rather than being added to it later.
+     * There is no buzzer on this car and no pin set aside for one. This
+     * records what the running cue WOULD be sounding so CUE can report
+     * it, and drives nothing. When a buzzer goes on, this function grows
+     * a pwm tone call and no script changes - which is the entire reason
+     * the tone is in cue::Step now rather than being added to it later.
+     *
+     * @param tone the tone the current step calls for
      */
     inline Void soundWrite(const UInt8 tone)
     {

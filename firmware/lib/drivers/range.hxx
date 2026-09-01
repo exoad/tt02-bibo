@@ -1,5 +1,6 @@
-/*
- * VL53L1X time-of-flight range sensor, over I2C.
+/**
+ * @file range.hxx
+ * @brief VL53L1X time-of-flight range sensor, over I2C.
  *
  * ---------------------------------------------------------------------------
  * WHAT IT ACTUALLY MEASURES
@@ -115,7 +116,11 @@ namespace bibo
         BUDGET_500MS
     };
 
-    /* Registers 0x005E and 0x0061, indexed [budget][0..1]. */
+    /**
+     * @brief Timing-budget register values for long distance mode.
+     *
+     * Registers 0x005E and 0x0061, indexed [budget][0..1].
+     */
     static const UInt16 BUDGET_LONG[6][2] = {
         { 0x001E, 0x0022 },   /*  20 ms */
         { 0x0060, 0x006E },   /*  33 ms */
@@ -125,10 +130,14 @@ namespace bibo
         { 0x048F, 0x04A4 }    /* 500 ms */
     };
 
-    /* NOTE the first row. ST publishes a 15 ms entry for short mode that has no
-     * long-mode counterpart, so the two tables are not row-for-row the same budget
-     * - this one starts at ST's 20 ms values, matching the enum, and the 15 ms
-     * entry is simply not offered. */
+    /**
+     * @brief Timing-budget register values for short distance mode.
+     *
+     * NOTE the first row. ST publishes a 15 ms entry for short mode that
+     * has no long-mode counterpart, so the two tables are not row-for-row
+     * the same budget - this one starts at ST's 20 ms values, matching
+     * the enum, and the 15 ms entry is simply not offered.
+     */
     static const UInt16 BUDGET_SHORT[6][2] = {
         { 0x0051, 0x006E },   /*  20 ms */
         { 0x00D6, 0x006E },   /*  33 ms */
@@ -138,6 +147,7 @@ namespace bibo
         { 0x0591, 0x05C1 }    /* 500 ms */
     };
 
+    /** @brief The two distance/window presets the sensor can run in. */
     enum Mode
     {
         /* Up to about 1.3 m, and much better in bright light. The right default for
@@ -149,31 +159,43 @@ namespace bibo
         MODE_LONG
     };
 
+    /** @brief One VL53L1X sensor: its bus pin, address, and configured state. */
     struct Vl53
     {
         Pin   sda;
         UInt8 addr;
         Bool  ok;
 
-        /* Remembered because the timing budget's register values DEPEND on the
-         * distance mode. Changing one without re-applying the other leaves the
-         * sensor integrating for a length of time it was not configured for, which
-         * shortens its reach without reporting anything wrong. */
+        /**
+         * @brief The distance mode and timing budget this sensor is
+         * currently configured with.
+         *
+         * Remembered because the timing budget's register values DEPEND
+         * on the distance mode. Changing one without re-applying the
+         * other leaves the sensor integrating for a length of time it
+         * was not configured for, which shortens its reach without
+         * reporting anything wrong.
+         */
         Mode   mode;
         Budget budget;
 
-        /* The interrupt polarity the sensor was configured with. tof::ready()
-         * compares against it, and reading it back rather than assuming is what
-         * makes the check work on a module wired either way round. */
+        /**
+         * @brief The interrupt polarity the sensor was configured with.
+         *
+         * tof::ready() compares against it, and reading it back rather
+         * than assuming is what makes the check work on a module wired
+         * either way round.
+         */
         UInt8 intPolarity;
     };
 
-    /*
-     * ST's published default configuration, registers 0x2D through 0x87.
+    /**
+     * @brief ST's published default configuration, registers 0x2D
+     * through 0x87.
      *
-     * Comments mark the bytes that are documented and meaningful. Everything
-     * unmarked is "not user-modifiable" in ST's own words - undocumented
-     * calibration that the sensor does not work without.
+     * Comments mark the bytes that are documented and meaningful.
+     * Everything unmarked is "not user-modifiable" in ST's own words -
+     * undocumented calibration that the sensor does not work without.
      */
     static const UInt8 DEFAULT_CONFIG[91] = {
         0x00,   /* 0x2D */
@@ -211,17 +233,27 @@ namespace bibo
 
     /* ---- distance mode ------------------------------------------------------- */
 
-    /*
-     * Short or long range.
-     *
-     * These four registers are the phase and timing windows the sensor uses to
-     * decide what counts as a return. Short mode narrows them, which is what makes
-     * it reject the ambient infrared that swamps the long mode in daylight.
-     */
     /* Forward declared: setting the mode re-applies the budget, and setting the
      * budget needs to know the mode. */
     [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget);
 
+    /**
+     * @brief Configures the sensor for short or long distance mode.
+     *
+     * Short or long range: these four registers are the phase and timing
+     * windows the sensor uses to decide what counts as a return. Short
+     * mode narrows them, which is what makes it reject the ambient
+     * infrared that swamps the long mode in daylight.
+     *
+     * @param v the sensor to configure; must have opened successfully
+     * @param mode the distance mode to switch to
+     * @return true once the mode and its (mode-specific) timing budget
+     *         have both been written
+     *
+     * @note Re-applies the current timing budget after changing mode,
+     * since the budget's register values differ by mode and would
+     * otherwise be left set for the mode being left.
+     */
     [[nodiscard]] static Bool setMode(Vl53* v, const Mode mode)
     {
         if(!v->ok)
@@ -274,11 +306,18 @@ namespace bibo
         return okLong && setBudget(v, v->budget);
     }
 
-    /*
-     * How long each measurement integrates for.
+    /**
+     * @brief Sets how long each measurement integrates for.
      *
-     * Must be set - the configuration block alone does not leave a usable budget,
-     * and a sensor without one ranges happily and cannot see past about a metre.
+     * Must be set explicitly - the configuration block alone does not
+     * leave a usable budget, and a sensor without one ranges happily and
+     * cannot see past about a metre.
+     *
+     * @param v the sensor to configure; must have opened successfully
+     * @param budget how long to integrate; longer reaches farther but
+     *        samples more slowly - see the timing budget table above
+     * @return true once written; false if v has not opened or budget is
+     *         out of range
      */
     [[nodiscard]] static Bool setBudget(Vl53* v, const Budget budget)
     {
@@ -303,15 +342,22 @@ namespace bibo
 
     /* ---- bring-up ------------------------------------------------------------ */
 
-    /*
-     * Wakes the sensor, checks it is one, and writes the configuration.
+    /**
+     * @brief Wakes the sensor, checks it is one, and writes the
+     * configuration.
      *
-     * The bus must already be open - i2c::open() - because several devices share it
-     * and it is not this driver's to configure.
-     */
-    /*
-     * On a pad the caller names. For a sensor that is not on the installed
-     * map - a second one on another bus, or a bench rig.
+     * The bus must already be open - i2c::open() - because several
+     * devices share it and it is not this driver's to configure.
+     *
+     * On a pad the caller names. For a sensor that is not on the
+     * installed map - a second one on another bus, or a bench rig.
+     *
+     * @param v the sensor to initialize; must not be null
+     * @param sda the I2C data pin the sensor is on
+     * @param addr the I2C address to talk to; VL53_ADDR_DEFAULT unless
+     *        the sensor has already been re-addressed
+     * @return true once the sensor has answered, been identified, and
+     *         been configured with the default block, mode and budget
      */
     [[nodiscard]] static Bool openOn(Vl53* v, const Pin sda, const UInt8 addr)
     {
@@ -423,33 +469,49 @@ namespace bibo
         return modeSet && budgetSet;
     }
 
-    /*
-     * On the pads this program declared.
+    /**
+     * @brief Opens the sensor on the pads this program declared.
      *
-     * The other four drivers already worked this way and this one did not: the
-     * caller passed `pins::active().i2cSda` into it, which is the sketch
-     * reading the map on the driver's behalf and then handing it back. The
-     * point of pins::begin() is that a driver knows where it is.
+     * The other four drivers already worked this way and this one did
+     * not: the caller passed `pins::active().i2cSda` into it, which is
+     * the sketch reading the map on the driver's behalf and then handing
+     * it back. The point of pins::begin() is that a driver knows where
+     * it is.
      *
-     * The BUS is still the caller's to open - i2c::open() - and deliberately
-     * so. Several devices share one bus and each opening it would be each one
-     * deciding the clock for all of them.
+     * @param v the sensor to initialize; must not be null
+     * @param addr the I2C address to talk to
+     * @return true once the sensor has answered, been identified, and
+     *         been configured
+     *
+     * @note The BUS is still the caller's to open - i2c::open() - and
+     * deliberately so. Several devices share one bus and each opening it
+     * would be each one deciding the clock for all of them.
      */
     [[nodiscard]] static Bool open(Vl53* v, const UInt8 addr)
     {
         return openOn(v, pins::active().i2cSda, addr);
     }
 
-    /*
-     * Signal and ambient rates, in mega-counts per second, 16.16 fixed point.
+    /**
+     * @brief Reads the signal and ambient light rates from the last
+     * measurement.
      *
-     * The diagnostic that tells you WHY a reading is what it is. A strong signal at
-     * a short distance means something really is close - including a protective
-     * film still stuck on the lens, which is by far the commonest reason a brand
-     * new sensor reads a few centimetres and never changes.
+     * The diagnostic that tells you WHY a reading is what it is. A
+     * strong signal at a short distance means something really is close
+     * - including a protective film still stuck on the lens, which is by
+     * far the commonest reason a brand new sensor reads a few
+     * centimetres and never changes.
      *
-     * A high AMBIENT rate with a weak signal means the sensor is being blinded by
-     * infrared in the room, which is what short mode exists to fix.
+     * A high AMBIENT rate with a weak signal means the sensor is being
+     * blinded by infrared in the room, which is what short mode exists
+     * to fix.
+     *
+     * @param v the sensor to query; must have opened successfully
+     * @param signalOut receives the signal rate, in mega-counts per
+     *        second, 16.16 fixed point; left untouched if null
+     * @param ambientOut receives the ambient rate, in mega-counts per
+     *        second, 16.16 fixed point; left untouched if null
+     * @return true once both rates have been read
      */
     [[nodiscard]] static Bool rates(const Vl53* v, UInt16* signalOut, UInt16* ambientOut)
     {
@@ -491,19 +553,39 @@ namespace bibo
 
     /* ---- ranging ------------------------------------------------------------- */
 
+    /**
+     * @brief Starts continuous ranging.
+     *
+     * @param v the sensor to start; must have opened successfully
+     * @return true once the start command has been written
+     */
     [[nodiscard]] static Bool startRanging(Vl53* v)
     {
         return v->ok
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x40);
     }
 
+    /**
+     * @brief Stops ranging.
+     *
+     * @param v the sensor to stop; must have opened successfully
+     * @return true once the stop command has been written
+     */
     [[nodiscard]] static Bool stopRanging(Vl53* v)
     {
         return v->ok
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_START, 0x00);
     }
 
-    /* True when a new measurement is waiting. Costs one register read. */
+    /**
+     * @brief Whether a new measurement is waiting to be read.
+     *
+     * Costs one register read.
+     *
+     * @param v the sensor to check
+     * @return true when tof::distance() and tof::status() have a fresh
+     *         result
+     */
     [[nodiscard]] static Bool ready(const Vl53* v)
     {
         if(!v->ok)
@@ -518,12 +600,16 @@ namespace bibo
         return (st & 0x01u) == v->intPolarity;
     }
 
-    /*
-     * Arms the next measurement.
+    /**
+     * @brief Arms the next measurement.
      *
-     * Must be called after every reading. Without it the sensor holds the same
-     * result forever and tof::ready() stays true - which looks exactly like a
-     * distance that has frozen, and sends you looking at the wrong thing.
+     * Must be called after every reading. Without it the sensor holds
+     * the same result forever and tof::ready() stays true - which looks
+     * exactly like a distance that has frozen, and sends you looking at
+     * the wrong thing.
+     *
+     * @param v the sensor to arm; must have opened successfully
+     * @return true once the clear-interrupt command has been written
      */
     inline Bool clear(Vl53* v)
     {
@@ -531,20 +617,31 @@ namespace bibo
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_SYSTEM_INTERRUPT, 0x01);
     }
 
-    /*
-     * Clears any stale interrupt and starts ranging again.
+    /**
+     * @brief Clears any stale interrupt and starts ranging again.
      *
-     * The pair belongs together after a reconfiguration: the interrupt left over
-     * from the previous settings would otherwise be handed back as the first
-     * "reading" under the new ones, which is the one measurement guaranteed to be
-     * wrong.
+     * The pair belongs together after a reconfiguration: the interrupt
+     * left over from the previous settings would otherwise be handed
+     * back as the first "reading" under the new ones, which is the one
+     * measurement guaranteed to be wrong.
+     *
+     * @param v the sensor to restart; must have opened successfully
+     * @return true once both the clear and the start have been written
      */
     [[nodiscard]] static Bool clearInterruptAndStart(Vl53* v)
     {
         return clear(v) && startRanging(v);
     }
 
-    /* Millimetres to whatever is in front. Meaningless unless tof::status() is 0. */
+    /**
+     * @brief The most recent measurement, in millimeters.
+     *
+     * Meaningless unless tof::status() reports 0.
+     *
+     * @param v the sensor to read
+     * @return the distance in millimeters, or 0 if v has not opened or
+     *         the read failed
+     */
     inline UInt16 distance(const Vl53* v)
     {
         if(!v->ok)
@@ -559,12 +656,22 @@ namespace bibo
         return mm;
     }
 
-    /*
-     * 0 means the reading is good. Anything else means it is not, and the distance
-     * that came with it should be ignored rather than shown.
+    /**
+     * @brief The most recent measurement's status, remapped to a small,
+     * friendly set of codes.
      *
-     * The raw codes are remapped by ST's driver into a friendlier set; this returns
-     * the friendly one, because the raw values are not in a useful order.
+     * 0 means the reading is good. Anything else means it is not, and
+     * the distance that came with it should be ignored rather than
+     * shown.
+     *
+     * The raw codes are remapped by ST's driver into a friendlier set;
+     * this returns the friendly one, because the raw values are not in a
+     * useful order.
+     *
+     * @param v the sensor to read
+     * @return 0 for a good reading; 1-8 naming a specific failure (see
+     *         tof::statusName()); 255 if v has not opened or the read
+     *         failed
      */
     inline UInt8 status(const Vl53* v)
     {
@@ -594,6 +701,13 @@ namespace bibo
         }
     }
 
+    /**
+     * @brief A short human-readable name for a status code.
+     *
+     * @param status a code as returned by tof::status()
+     * @return a NUL-terminated string naming the status; "UNKNOWN" for
+     *         anything not produced by tof::status()
+     */
     static const Utf8* statusName(const UInt8 status)
     {
         switch(status)

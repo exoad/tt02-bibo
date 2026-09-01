@@ -761,7 +761,9 @@ Void PicoFlash::build(const Str& id)
     const Str root = repoRoot();
     if(root.empty())
     {
-        pimpl().log("[error] repo root not found"); return;;
+        pimpl().log("[error] repo root not found");
+        return;
+        ;
     }
 
     Str name  = id;
@@ -803,7 +805,9 @@ Void PicoFlash::build(const Str& id)
     const Str bat = root + "\\firmware\\build.bat";
     if(!fileExists(bat))
     {
-        pimpl().logf("[error] missing %s", bat.c_str()); return;;
+        pimpl().logf("[error] missing %s", bat.c_str());
+        return;
+        ;
     }
 
     const Str desc = "building " + name
@@ -839,7 +843,9 @@ Void PicoFlash::flash(const Str& id)
     const Str root = repoRoot();
     if(root.empty())
     {
-        pimpl().log("[error] repo root not found"); return;;
+        pimpl().log("[error] repo root not found");
+        return;
+        ;
     }
 
     Str uf2, name = id;
@@ -855,7 +861,9 @@ Void PicoFlash::flash(const Str& id)
     }
     if(uf2.empty())
     {
-        pimpl().logf("[error] no catalog entry \"%s\"", id.c_str()); return;;
+        pimpl().logf("[error] no catalog entry \"%s\"", id.c_str());
+        return;
+        ;
     }
 
     // Re-stat rather than trusting the cached flag: the catalog may have been
@@ -869,7 +877,9 @@ Void PicoFlash::flash(const Str& id)
     const Str bat = root + "\\firmware\\flash.bat";
     if(!fileExists(bat))
     {
-        pimpl().logf("[error] missing %s", bat.c_str()); return;;
+        pimpl().logf("[error] missing %s", bat.c_str());
+        return;
+        ;
     }
 
     const Str desc = "flashing " + name;
@@ -885,11 +895,15 @@ Void PicoFlash::backup(const Str& outPath)
     const Str root = repoRoot();
     if(root.empty())
     {
-        pimpl().log("[error] repo root not found"); return;;
+        pimpl().log("[error] repo root not found");
+        return;
+        ;
     }
     if(outPath.empty())
     {
-        pimpl().log("[error] no backup filename given"); return;;
+        pimpl().log("[error] no backup filename given");
+        return;
+        ;
     }
 
     const Str out = toBackslashes(outPath);
@@ -908,7 +922,9 @@ Void PicoFlash::backup(const Str& outPath)
     const Str bat = root + "\\firmware\\backup.bat";
     if(!fileExists(bat))
     {
-        pimpl().logf("[error] missing %s", bat.c_str()); return;;
+        pimpl().logf("[error] missing %s", bat.c_str());
+        return;
+        ;
     }
 
     const Str desc = "backing up flash to " + out;
@@ -929,13 +945,17 @@ Void PicoFlash::rebootBootsel()
     const Str root = repoRoot();
     if(root.empty())
     {
-        pimpl().log("[error] repo root not found"); return;;
+        pimpl().log("[error] repo root not found");
+        return;
+        ;
     }
 
     const Str picotool = root + "\\vendor\\picotool-2.3.0\\picotool\\picotool.exe";
     if(!fileExists(picotool))
     {
-        pimpl().logf("[error] missing %s", picotool.c_str()); return;;
+        pimpl().logf("[error] missing %s", picotool.c_str());
+        return;
+        ;
     }
 
     pimpl().start("rebooting into BOOTSEL", [root, picotool]()
@@ -975,13 +995,17 @@ Void PicoFlash::rebootNormal()
     const Str root = repoRoot();
     if(root.empty())
     {
-        pimpl().log("[error] repo root not found"); return;;
+        pimpl().log("[error] repo root not found");
+        return;
+        ;
     }
 
     const Str picotool = root + "\\vendor\\picotool-2.3.0\\picotool\\picotool.exe";
     if(!fileExists(picotool))
     {
-        pimpl().logf("[error] missing %s", picotool.c_str()); return;;
+        pimpl().logf("[error] missing %s", picotool.c_str());
+        return;
+        ;
     }
 
     pimpl().start("rebooting into the application", [root, picotool]()

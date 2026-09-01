@@ -54,32 +54,45 @@ namespace bibo
   namespace pursuit
   {
 
-    /* A path is somebody else's array. Not owned, not copied - this runs on a
-     * microcontroller and on a single-board computer, and neither wants a
-     * follower that allocates. */
+    /**
+     * @brief A path: somebody else's array of world-frame points.
+     *
+     * Not owned, not copied - this runs on a microcontroller and on a
+     * single-board computer, and neither wants a follower that allocates.
+     *
+     * @note `pts` must outlive every call to follow() that uses this Path,
+     *       and its points are in world metres, the same frame as geom::Pose.
+     */
     struct Path
     {
         const geom::Vec2* pts = nullptr;
         Size              n   = 0u;
     };
 
+    /**
+     * @brief One follower's tuning and the path progress it has committed to.
+     */
     struct Follower
     {
         /* Lookahead = clamp(perMs * speed, minM, maxM). */
-        Float32 minM  = 0.35f;
-        Float32 maxM  = 1.50f;
+        Float32 minM  = 0.35f;   /* metres, the lookahead floor          */
+        Float32 maxM  = 1.50f;   /* metres, the lookahead ceiling        */
         Float32 perMs = 0.7f;    /* metres of lookahead per m/s of speed */
 
         /* Within this of the last point, the path is finished. */
-        Float32 arriveM = 0.25f;
+        Float32 arriveM = 0.25f; /* metres */
 
-        Float32 wheelbase = KIN_WHEELBASE_M;
-        Float32 maxSteer  = KIN_MAX_STEER_RAD;
+        Float32 wheelbase = KIN_WHEELBASE_M; /* metres, see kinematics.hxx */
+        Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, ditto - both are
+                                                 * UNMEASURED PLACEHOLDERS   */
 
         /* How far along the path the follower has committed. Only increases. */
         Size    at = 0u;
     };
 
+    /**
+     * @brief The result of one follow() step: where to steer, and why.
+     */
     struct Aim
     {
         Bool       valid     = false;  /* false: nothing to steer toward */
@@ -92,6 +105,12 @@ namespace bibo
         Float32    crossTrack = 0.0f;  /* metres, + is left of the path  */
     };
 
+    /**
+     * @brief Forgets a follower's committed progress, so it starts a path
+     *        again from the beginning.
+     *
+     * @param f the follower to reset; does nothing when null
+     */
     inline Void reset(Follower* f)
     {
         if(f != nullptr)
@@ -100,9 +119,20 @@ namespace bibo
         }
     }
 
-    /* ---------------------------------------------------------------------
-     * One step. Returns what to steer, or valid=false if there is no path.
-     * ------------------------------------------------------------------- */
+    /**
+     * @brief One pure-pursuit step: picks a goal point ahead and returns the
+     *        steering that reaches it.
+     *
+     * @param f the follower's tuning and committed progress; advanced by
+     *          this call, never moved backward
+     * @param path the path to follow, in world metres
+     * @param pose where the car is and which way it faces
+     * @param speed the car's current speed, metres per second; only its
+     *              magnitude is used, to scale the lookahead
+     * @return the aim point and steering command; Aim::valid is false when
+     *         `f` or `path` is null, `path` is empty, or the path's end lies
+     *         behind the car with nothing left ahead to aim at
+     */
     inline Aim follow(Follower* f, const Path* path, geom::Pose pose, const Float32 speed)
     {
         Aim aim;

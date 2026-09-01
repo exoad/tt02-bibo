@@ -775,19 +775,37 @@ namespace bibo
              * derivable. */
             UInt8 b[16];
 
-            b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; write(s, 0xB1, b, 3);
-            b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D; write(s, 0xB2, b, 3);
-            b[0] = 0x01; b[1] = 0x2C; b[2] = 0x2D;
-            b[3] = 0x01; b[4] = 0x2C; b[5] = 0x2D;
+            b[0] = 0x01;
+            b[1] = 0x2C;
+            b[2] = 0x2D;
+            write(s, 0xB1, b, 3);
+            b[0] = 0x01;
+            b[1] = 0x2C;
+            b[2] = 0x2D;
+            write(s, 0xB2, b, 3);
+            b[0] = 0x01;
+            b[1] = 0x2C;
+            b[2] = 0x2D;
+            b[3] = 0x01;
+            b[4] = 0x2C;
+            b[5] = 0x2D;
             write(s, 0xB3, b, 6);
 
             cmd1(s, 0xB4, 0x07);                                /* INVCTR   */
-            b[0] = 0xA2; b[1] = 0x02; b[2] = 0x84;
+            b[0] = 0xA2;
+            b[1] = 0x02;
+            b[2] = 0x84;
             write(s, 0xC0, b, 3);
             cmd1(s, 0xC1, 0xC5);
-            b[0] = 0x0A; b[1] = 0x00; write(s, 0xC2, b, 2);
-            b[0] = 0x8A; b[1] = 0x2A; write(s, 0xC3, b, 2);
-            b[0] = 0x8A; b[1] = 0xEE; write(s, 0xC4, b, 2);
+            b[0] = 0x0A;
+            b[1] = 0x00;
+            write(s, 0xC2, b, 2);
+            b[0] = 0x8A;
+            b[1] = 0x2A;
+            write(s, 0xC3, b, 2);
+            b[0] = 0x8A;
+            b[1] = 0xEE;
+            write(s, 0xC4, b, 2);
             cmd1(s, 0xC5, 0x0E);                                /* VMCTR1   */
         }
         cmd1(s, 0x3A, 0x05);       /* COLMOD - 16 bit on ST7735 */
@@ -799,7 +817,11 @@ namespace bibo
          * modules and not others; these are the values that work on all of them. */
         {
             UInt8 p[5];
-            p[0] = 0x0C; p[1] = 0x0C; p[2] = 0x00; p[3] = 0x33; p[4] = 0x33;
+            p[0] = 0x0C;
+            p[1] = 0x0C;
+            p[2] = 0x00;
+            p[3] = 0x33;
+            p[4] = 0x33;
             write(s, 0xB2, p, 5);       /* PORCTRL  */
             cmd1(s, 0xB7, 0x35);        /* GCTRL    */
             cmd1(s, 0xBB, 0x19);        /* VCOMS    */
@@ -808,7 +830,8 @@ namespace bibo
             cmd1(s, 0xC3, 0x12);        /* VRHS     */
             cmd1(s, 0xC4, 0x20);        /* VDVS     */
             cmd1(s, 0xC6, 0x0F);        /* FRCTRL2 - 60 Hz */
-            p[0] = 0xA4; p[1] = 0xA1;
+            p[0] = 0xA4;
+            p[1] = 0xA1;
             write(s, 0xD0, p, 2);       /* PWCTRL1  */
         }
 #endif

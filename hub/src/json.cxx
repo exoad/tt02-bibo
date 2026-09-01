@@ -165,14 +165,30 @@ namespace js
             const Char e = r.take();
             switch(e)
             {
-            case '"':  out.push_back('"');  break;
-            case '\\': out.push_back('\\'); break;
-            case '/':  out.push_back('/');  break;
-            case 'b':  out.push_back('\b'); break;
-            case 'f':  out.push_back('\f'); break;
-            case 'n':  out.push_back('\n'); break;
-            case 'r':  out.push_back('\r'); break;
-            case 't':  out.push_back('\t'); break;
+            case '"':
+                out.push_back('"');
+                break;
+            case '\\':
+                out.push_back('\\');
+                break;
+            case '/':
+                out.push_back('/');
+                break;
+            case 'b':
+                out.push_back('\b');
+                break;
+            case 'f':
+                out.push_back('\f');
+                break;
+            case 'n':
+                out.push_back('\n');
+                break;
+            case 'r':
+                out.push_back('\r');
+                break;
+            case 't':
+                out.push_back('\t');
+                break;
             case 'u':
             {
                 UInt32 cp = 0u;
@@ -455,13 +471,27 @@ namespace js
       {
           switch(c)
           {
-          case '"':  out += "\\\""; break;
-          case '\\': out += "\\\\"; break;
-          case '\b': out += "\\b";  break;
-          case '\f': out += "\\f";  break;
-          case '\n': out += "\\n";  break;
-          case '\r': out += "\\r";  break;
-          case '\t': out += "\\t";  break;
+          case '"':
+              out += "\\\"";
+              break;
+          case '\\':
+              out += "\\\\";
+              break;
+          case '\b':
+              out += "\\b";
+              break;
+          case '\f':
+              out += "\\f";
+              break;
+          case '\n':
+              out += "\\n";
+              break;
+          case '\r':
+              out += "\\r";
+              break;
+          case '\t':
+              out += "\\t";
+              break;
           default:
               // Control characters MUST be escaped or the receiver rejects the
               // whole message. Everything else, including UTF-8 continuation

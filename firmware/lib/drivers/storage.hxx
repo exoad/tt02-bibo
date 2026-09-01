@@ -1,5 +1,7 @@
-/*
- * MicroSD over SPI: bring the card up, read its size, read and write blocks.
+/**
+ * @file storage.hxx
+ * @brief MicroSD over SPI: bring the card up, read its size, read and
+ * write blocks.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS IS AND IS NOT
@@ -57,15 +59,25 @@ namespace bibo
   namespace sd
   {
 
-    /* Default pins - the wiring above. sd::openOn() takes them explicitly. */
+    /**
+     * @brief Default pins, matching the wiring table above.
+     *
+     * sd::openOn() takes them explicitly if a board differs.
+     */
 #define PIN_SD_SCK   26
 #define PIN_SD_MOSI  27
 #define PIN_SD_MISO  28
 #define PIN_SD_CS    22
 
-    /* 400 kHz for the handshake, because that is all a card promises before it is
-     * in SPI mode. 12 MHz afterwards - well inside what any card manages, and slow
-     * enough that jumper wires and a breadboard are not the limiting factor. */
+    /**
+     * @brief SPI clock rates for the card, in Hz: the handshake speed
+     * and the working speed.
+     *
+     * 400 kHz for the handshake, because that is all a card promises
+     * before it is in SPI mode. 12 MHz afterwards - well inside what any
+     * card manages, and slow enough that jumper wires and a breadboard
+     * are not the limiting factor.
+     */
 #define SD_INIT_HZ   400000u
 #define SD_FAST_HZ   12000000u
 
@@ -79,6 +91,7 @@ namespace bibo
         KIND_HC         /* SDHC/SDXC, BLOCK addressed - the common case */
     };
 
+    /** @brief One microSD card: its SPI pins, kind, and addressing. */
     struct Card
     {
         Pin sck;
@@ -88,9 +101,13 @@ namespace bibo
 
         Kind kind;
 
-        /* True when the card is addressed in BLOCKS rather than bytes. Getting this
-         * backwards reads sector 0 for every request on a large card, or lands 512
-         * times too far into a small one. */
+        /**
+         * @brief True when the card is addressed in BLOCKS rather than
+         * bytes.
+         *
+         * Getting this backwards reads sector 0 for every request on a
+         * large card, or lands 512 times too far into a small one.
+         */
         Bool blockAddressed;
 
         UInt32 blocks;      /* capacity in 512-byte blocks, 0 if unknown */
@@ -98,6 +115,13 @@ namespace bibo
 
     /* ---- the wire ------------------------------------------------------------ */
 
+    /**
+     * @brief Exchanges one byte over SPI, full duplex.
+     *
+     * @param c the card whose bus to use
+     * @param out the byte to send
+     * @return the byte the card sent back at the same time
+     */
     inline UInt8 xfer(const Card* c, const UInt8 out)
     {
         UInt8 in = 0xFF;
@@ -105,11 +129,21 @@ namespace bibo
         return in;
     }
 
+    /**
+     * @brief Pulls CS low, claiming the SPI bus for this card.
+     *
+     * @param c the card whose CS pin is asserted
+     */
     inline Void select(const Card* c)
     {
         gpio::write(c->cs, false);
     }
 
+    /**
+     * @brief Raises CS, ending the card's SPI transaction.
+     *
+     * @param c the card whose CS pin is released
+     */
     inline Void deselect(const Card* c)
     {
         gpio::write(c->cs, true);
@@ -120,16 +154,25 @@ namespace bibo
         static_cast<Void>(xfer(c, 0xFF));
     }
 
-    /*
-     * Sends a command and returns its R1 response.
+    /**
+     * @brief Sends a command and returns its R1 response.
      *
-     * A command is six bytes: 0x40 | index, a four-byte argument big-endian, then a
-     * CRC. CRC is ignored in SPI mode EXCEPT for the two commands sent before the
-     * card is in SPI mode - CMD0 and CMD8 - which is why those two have hard-coded
-     * values here rather than a CRC routine that would only ever be used twice.
+     * A command is six bytes: 0x40 | index, a four-byte argument
+     * big-endian, then a CRC. CRC is ignored in SPI mode EXCEPT for the
+     * two commands sent before the card is in SPI mode - CMD0 and CMD8 -
+     * which is why those two have hard-coded values here rather than a
+     * CRC routine that would only ever be used twice.
      *
-     * The card answers with 0xFF while it thinks. R1 is the first byte with the top
-     * bit clear, and 0xFF back after eight tries means it never answered at all.
+     * The card answers with 0xFF while it thinks. R1 is the first byte
+     * with the top bit clear, and 0xFF back after eight tries means it
+     * never answered at all.
+     *
+     * @param c the card to address
+     * @param cmd the command index, 0-63
+     * @param arg the command's 32-bit argument
+     * @param crc the CRC7 byte (with the stop bit); needed only for
+     *        CMD0 and CMD8
+     * @return the R1 response byte, or 0xFF if the card never answered
      */
     inline UInt8 command(const Card* c, const UInt8 cmd, const UInt32 arg, const UInt8 crc)
     {
@@ -151,7 +194,16 @@ namespace bibo
         return 0xFF;
     }
 
-    /* CMD55 then the command - which is what an "application" command is. */
+    /**
+     * @brief Sends an "application" command: CMD55, then the command
+     * itself.
+     *
+     * @param c the card to address
+     * @param cmd the ACMD index to send after CMD55
+     * @param arg the command's 32-bit argument
+     * @return the R1 response byte from the ACMD, or 0xFF if the card
+     *         never answered
+     */
     inline UInt8 appCommand(const Card* c, const UInt8 cmd, const UInt32 arg)
     {
         static_cast<Void>(command(c, 55, 0, 0x01));
@@ -160,13 +212,27 @@ namespace bibo
 
     /* ---- bring-up ------------------------------------------------------------ */
 
-    /*
-     * Brings a card up on the given pins.
+    /**
+     * @brief Brings a card up on the given pins.
      *
-     * Returns false if the pins are wrong, if nothing answers, or if the card never
-     * leaves idle. It does NOT distinguish those from each other, because from here
-     * they are the same fact - `kind` stays sd::KIND_NONE and there is nothing to
-     * talk to.
+     * Returns false if the pins are wrong, if nothing answers, or if the
+     * card never leaves idle. It does NOT distinguish those from each
+     * other, because from here they are the same fact - `kind` stays
+     * sd::KIND_NONE and there is nothing to talk to.
+     *
+     * @param c the card to initialize; must not be null
+     * @param sck the SPI clock pin
+     * @param mosi the SPI data-out pin
+     * @param miso the SPI data-in pin; must be a pin the SPI peripheral
+     *        can actually receive on
+     * @param cs the chip-select pin for this card
+     * @return true once the card has left idle and been sized; false on
+     *         any wiring or protocol failure
+     *
+     * @note Runs the whole handshake at SD_INIT_HZ and only raises the
+     * clock to SD_FAST_HZ once it succeeds - a card powers up in a
+     * legacy mode that is only specified up to 400 kHz, and starting
+     * fast produces a card that never leaves idle.
      */
     [[nodiscard]] static Bool openOn(Card* c, const Pin sck, const Pin mosi, const Pin miso, const Pin cs)
     {
@@ -344,18 +410,47 @@ namespace bibo
         return true;
     }
 
+    /**
+     * @brief Brings the card up on this project's pins from
+     * pins::active().
+     *
+     * @param c the card to initialize; must not be null
+     * @return true once the card has left idle and been sized; false on
+     *         any wiring or protocol failure
+     *
+     * @note pins::begin() must have run first, so pins::active() has a
+     * real map to read.
+     * @note The installed map may route the card onto the same physical
+     * SPI bus as the display - SCK and MOSI shared, told apart only by
+     * separate CS lines (see display.hxx). On this file's own default
+     * pins the card is on its own SPI controller and cannot collide with
+     * anything.
+     */
     [[nodiscard]] static Bool open(Card* c)
     {
         const pins::Map& m = pins::active();
         return openOn(c, m.sdSck, m.sdMosi, m.sdMiso, m.sdCs);
     }
 
-    /* Capacity in megabytes, for showing a person. */
+    /**
+     * @brief The card's capacity in megabytes, for showing a person.
+     *
+     * @param c the card to ask
+     * @return capacity in megabytes; 0 if the card's size could not be
+     *         read
+     */
     inline UInt32 megabytes(const Card* c)
     {
         return c->blocks / 2048u;
     }
 
+    /**
+     * @brief A short human-readable name for the card's kind.
+     *
+     * @param c the card to ask
+     * @return a NUL-terminated string naming the card's kind; "none" if
+     *         no card has been brought up
+     */
     static const Utf8* kindName(const Card* c)
     {
         switch(c->kind)
@@ -370,11 +465,18 @@ namespace bibo
 
     /* ---- blocks -------------------------------------------------------------- */
 
-    /*
-     * Reads one 512-byte block.
+    /**
+     * @brief Reads one 512-byte block.
      *
-     * `block` is a BLOCK index, always - the byte-versus-block distinction is
-     * handled here so no caller has to remember which kind of card it has.
+     * `block` is a BLOCK index, always - the byte-versus-block
+     * distinction is handled here so no caller has to remember which
+     * kind of card it has.
+     *
+     * @param c the card to read from; must have been opened successfully
+     * @param block the zero-based block index to read
+     * @param out receives the SD_BLOCK_SIZE bytes read; must not be null
+     *        and must hold at least that many bytes
+     * @return true once the block has been read into `out`
      */
     [[nodiscard]] static Bool readBlock(const Card* c, const UInt32 block, UInt8* out)
     {
@@ -420,12 +522,24 @@ namespace bibo
         return true;
     }
 
-    /*
-     * Writes one 512-byte block.
+    /**
+     * @brief Writes one 512-byte block.
      *
-     * Waits for the card to finish before returning. A card can hold the line low
-     * for a surprisingly long time after a write, and returning early means the
-     * next command lands while it is still busy and quietly fails.
+     * Waits for the card to finish before returning. A card can hold the
+     * line low for a surprisingly long time after a write, and returning
+     * early means the next command lands while it is still busy and
+     * quietly fails.
+     *
+     * @param c the card to write to; must have been opened successfully
+     * @param block the zero-based block index to write
+     * @param data the SD_BLOCK_SIZE bytes to write; must not be null and
+     *        must hold at least that many bytes
+     * @return true once the card has accepted and finished programming
+     *         the block
+     *
+     * @warning A write that fails partway through can leave the block
+     * holding a mix of its old and new contents; there is no way to
+     * detect this from here short of reading the block back.
      */
     [[nodiscard]] static Bool writeBlock(const Card* c, const UInt32 block, const UInt8* data)
     {

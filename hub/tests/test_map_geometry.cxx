@@ -304,8 +304,10 @@ namespace
       // than the function returning a confident wrong one.
       for(Int32 i = 0; i < BINS; ++i)
       {
-          ref[i] = 2500.0f; refSeen[i] = true;
-          cur[i] = 2500.0f; curSeen[i] = true;
+          ref[i] = 2500.0f;
+          refSeen[i] = true;
+          cur[i] = 2500.0f;
+          curSeen[i] = true;
       }
       Float32 dc = 0.0f, sc = 1.0f;
       static_cast<Void>(mapgeo::estimateHeading(scanOf(ref, refSeen),
