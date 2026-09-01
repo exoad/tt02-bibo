@@ -22,7 +22,7 @@
  * as broken, and would have sent somebody to a breadboard looking for a fault
  * in the wiring.
  *
- * Compiled for the HOST, not the board: dfplayer_proto.hxx needs only types.hxx.
+ * Compiled for the HOST, not the board: dfplayer_proto.hxx needs only shared.hxx.
  *
  * Exits 0 on PASS, 1 on FAIL.
  */

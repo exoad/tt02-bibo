@@ -51,7 +51,7 @@ endif()
 # all and the files read as belonging to this target.
 set(BIBO_LIB
     lib/bibo.hxx
-    lib/types.hxx
+    lib/shared.hxx
     lib/pins.hxx
     lib/sfx.hxx
     lib/sound.hxx

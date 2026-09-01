@@ -21,7 +21,7 @@
  * The vocabulary: Int32, UInt16, Bool, Void, Utf8, CharSeq. A SIBLING of this
  * file, so a quoted include resolves for a tool that has not loaded the project.
  */
-#include "types.hxx"
+#include "shared.hxx"
 
 /* vsnprintf and va_list, named because this file uses them. */
 #include <stdarg.h>

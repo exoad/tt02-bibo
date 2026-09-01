@@ -23,19 +23,14 @@ int main(Void)
 {
     serial::open();
     static_cast<Void>(serial::waitForHost(2000));
-
     gpio::open(HALL_PIN, PIN_DIR_IN);
     gpio::pull(HALL_PIN, PIN_PULL_UP);
-
     serial::printf("hall on GP%d, 0 = magnet\n", HALL_PIN);
-
     Bool  last  = !gpio::read(HALL_PIN);
     Int32 edges = 0;
-
     while(true)
     {
         const Bool now = gpio::read(HALL_PIN);
-
         if(now != last)
         {
             ++edges;
@@ -45,7 +40,6 @@ int main(Void)
                            edges);
             last = now;
         }
-
         timing::ms(5);
     }
 }

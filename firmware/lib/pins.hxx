@@ -16,7 +16,7 @@
  */
 #pragma once
 
-#include "types.hxx"
+#include "shared.hxx"
 
 /* For conflictText() only. text.hxx is a leaf, so this adds no cycle. */
 #include "text.hxx"

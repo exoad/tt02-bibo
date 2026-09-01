@@ -12,7 +12,7 @@
  */
 #pragma once
 
-#include "types.hxx"
+#include "shared.hxx"
 
 #include <ctype.h>
 #include <stdarg.h>

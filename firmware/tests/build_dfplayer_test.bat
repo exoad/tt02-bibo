@@ -2,7 +2,7 @@
 REM Builds and (with "run") executes the lib/drivers/dfplayer_proto.hxx tests.
 REM   firmware\tests\build_dfplayer_test.bat [run]   - compile, optionally run
 REM Compiled for the HOST with MSVC, not for the board: the header needs nothing
-REM from the Pico SDK, only lib/types.hxx, and that is worth keeping - a parser
+REM from the Pico SDK, only lib/shared.hxx, and that is worth keeping - a parser
 REM only exercised by flashing a microcontroller is a parser nobody exercises.
 REM MSVC takes the language from the file extension; a rename would change it.
 

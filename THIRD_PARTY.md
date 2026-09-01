@@ -77,7 +77,7 @@ non-uniformly, is in [hub/assets/ATTRIBUTION.md](hub/assets/ATTRIBUTION.md).
 
 ## Source files under someone else's terms
 
-**`firmware/src/shared.h`** — BSD-3-Clause, copyright (c) 2026 Jiaming Meng. From
+**`firmware/lib/shared.hxx`** — BSD-3-Clause, copyright (c) 2026 Jiaming Meng. From
 [manbox](https://github.com/exoad/manbox). Same author as this project, but it is
 published under its own licence and carries its own notice, which must be
 retained. Two typedefs (`Utf16`, `Utf32`) are a local addition, marked as such in

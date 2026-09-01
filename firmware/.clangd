@@ -60,7 +60,7 @@ CompileFlags:
   #
   # That directory does not exist. This is GNU arm-none-eabi-gcc 13.3.0, whose
   # headers live somewhere else entirely, so `#include <cstddef>` failed - and
-  # types.hxx includes it before defining anything, so Int32, UInt32 and every
+  # shared.hxx includes it before defining anything, so Int32, UInt32 and every
   # other name in the vocabulary came back undefined. One missing directory,
   # and the whole file reads as broken.
   #

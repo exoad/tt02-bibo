@@ -17,7 +17,7 @@
  *
  * ---- the layers ------------------------------------------------------------
  *
- *   types.hxx            the vocabulary: Int32, Bool, Void, Utf8, CharSeq.
+ *   shared.hxx            the vocabulary: Int32, Bool, Void, Utf8, CharSeq.
  *                        NOT in namespace bibo - it is the spelling the whole
  *                        project uses, the hub included.
  *   hal.hxx              the board: gpio, pwm, i2c, spi, serial, led, radio,

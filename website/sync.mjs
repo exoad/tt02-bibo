@@ -152,7 +152,7 @@ function parse(path) {
       pending = null
     }
     /* `depth <= ns.length` alone is the guard. Also requiring depth > 0 assumed
-     * every declaration lives in a namespace, and types.hxx - Int32, Bool, Void
+     * every declaration lives in a namespace, and shared.hxx - Int32, Bool, Void
      * - declares them at FILE SCOPE, so it reported as empty. */
     else if (seenPragma && depth <= ns.length) {
       for (const d of DECL) {
