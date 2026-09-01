@@ -1,0 +1,74 @@
+# The seven host suites, on Linux, under two compilers.
+#
+# WHY LINUX WHEN THE PROJECT IS A WINDOWS PROJECT
+#
+# These suites are the half of firmware/lib that needs no board: text parsing,
+# pin conflicts, PID control, pursuit geometry, the DFPlayer checksum, sfx
+# tables, and chassis with the fake HAL. None of that is MSVC-specific, and a
+# Linux runner bills at 1x where a Windows runner bills at 2x. Verified before
+# this file was written rather than assumed: all seven build and pass under
+# g++ 14, 194 checks in total.
+#
+# TWO COMPILERS ON PURPOSE. The suites were MSVC-only for their whole life, and
+# MSVC is the compiler that hid `Int32 main()` - int32_t is `int` there and
+# `long int` on arm-none-eabi, so twenty entry points compiled clean on the host
+# and the board rejected three of them. A second front end is the cheapest
+# defence against a third.
+#
+# The board build is firmware.yml. This file never touches the SDK.
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: compiler version
+        run: ${{ matrix.cxx }} --version
+
+      # Only chassis defines BIBO_FAKE_HAL - it is the one suite that reaches
+      # into hal.hxx, and the define is what swaps the SDK half for
+      # tests/fakes/hal.hxx. The other six need nothing but lib/.
+      #
+      # The loop reads EXIT CODES. Every one of these scripts printed
+      # "OVERALL: FAIL" while exiting 0 until 2026-08-31, so a check that reads
+      # the text agrees with a check that reads nothing.
+      - name: build and run
+        run: |
+          set -u
+          mkdir -p out
+          fail=0
+          for src in firmware/tests/test_*.cxx; do
+            name=$(basename "$src" .cxx)
+            defs=""
+            if [ "$name" = "test_chassis" ]; then defs="-DBIBO_FAKE_HAL"; fi
+
+            if ! ${{ matrix.cxx }} -std=c++20 -O2 -Wall -Wextra $defs \
+                 -I firmware/lib -o "out/$name" "$src"; then
+              echo "::error title=build failed::$name did not compile"
+              fail=1
+              continue
+            fi
+
+            if out/"$name"; then
+              echo "  [ ok ] $name"
+            else
+              echo "::error title=suite failed::$name exited non-zero"
+              fail=1
+            fi
+          done
+          exit $fail

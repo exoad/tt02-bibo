@@ -1,0 +1,122 @@
+# Both boards, cross-compiled for RP2350, on a Linux runner.
+#
+# firmware\build.bat is a Windows script that finds cmake and ninja inside a
+# Visual Studio install, so CI drives cmake directly instead. The FLAGS are the
+# ones build.bat passes - keep them in step, and prefer changing both to letting
+# CI quietly build something the desk does not.
+#
+# WHY BOTH BOARDS. pico2_w has the CYW43 and pico2 does not, and BIBO_WIRELESS
+# is set from the board header rather than from the board's name. A change that
+# only compiles where the radio exists is exactly the change this catches, and
+# it is the reason verify.bat builds both rather than one.
+#
+# WHY A CLEAN BUILD EACH TIME AND NO ccache. An incremental build reporting zero
+# warnings because it never recompiled the file that warns is one of the four
+# ways this project has been told it was green when it was not. The cache would
+# save two minutes and cost the only thing the job is for.
+name: firmware
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned. "Latest" turns an SDK release into a change to this repository that
+  # nobody made and nobody can see in a diff.
+  PICO_SDK_TAG: '2.1.1'
+  PICOTOOL_TAG: '2.1.1'
+
+jobs:
+  boards:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [pico2_w, pico2]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib build-essential pkg-config libusb-1.0-0-dev
+          arm-none-eabi-gcc --version | head -1
+
+      # vendor/ is gitignored - the SDK is not part of this repository and is
+      # fetched the same way a desk fetches it.
+      - name: pico-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/pico-sdk
+          ref: ${{ env.PICO_SDK_TAG }}
+          path: vendor/pico-sdk
+          submodules: recursive
+
+      # The SDK needs picotool to produce a .uf2, and it is a separate program
+      # with its own release. Built once and pointed at with picotool_DIR, which
+      # is the same argument build.bat passes.
+      - name: picotool
+        run: |
+          git clone --depth 1 --branch "$PICOTOOL_TAG" \
+            https://github.com/raspberrypi/picotool.git /tmp/picotool
+          cmake -S /tmp/picotool -B /tmp/picotool/build -G Ninja \
+            -DPICO_SDK_PATH="$GITHUB_WORKSPACE/vendor/pico-sdk" \
+            -DCMAKE_INSTALL_PREFIX=/tmp/picotool/install
+          cmake --build /tmp/picotool/build --target install
+
+      - name: configure
+        run: |
+          cmake -S firmware -B "firmware/build-${{ matrix.board }}" -G Ninja \
+            -DPICO_BOARD=${{ matrix.board }} \
+            -Dpicotool_DIR=/tmp/picotool/install/share/picotool \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        env:
+          PICO_SDK_PATH: ${{ github.workspace }}/vendor/pico-sdk
+
+      # Errors are counted FIRST and warnings only reported when errors is 0.
+      # A warning count taken from a build that failed before it reached the
+      # file is true and meaningless, and this project has believed one before.
+      - name: build
+        env:
+          PICO_SDK_PATH: ${{ github.workspace }}/vendor/pico-sdk
+        run: |
+          set -o pipefail
+          cmake --build "firmware/build-${{ matrix.board }}" 2>&1 | tee build.log
+
+      - name: warnings must be zero
+        run: |
+          warns=$(grep -c ': warning:' build.log || true)
+          echo "  $warns warning(s)"
+          if [ "$warns" -ne 0 ]; then
+            grep ': warning:' build.log | head -40
+            echo "::error title=warnings::$warns warning(s) building ${{ matrix.board }}"
+            exit 1
+          fi
+
+      # Measure the ARTIFACT, not the return code. A build that "succeeded"
+      # without producing a .uf2 is the failure this project keeps meeting, so
+      # the images are counted on disk.
+      - name: images must exist
+        run: |
+          n=$(find "firmware/build-${{ matrix.board }}" -maxdepth 1 -name '*.uf2' | wc -l)
+          find "firmware/build-${{ matrix.board }}" -maxdepth 1 -name '*.uf2' -printf '  %f  %s bytes\n'
+          if [ "$n" -eq 0 ]; then
+            echo "::error title=no image::build reported success and produced no .uf2"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.board }}
+          path: |
+            firmware/build-${{ matrix.board }}/*.uf2
+            firmware/build-${{ matrix.board }}/*.elf
+          if-no-files-found: error
