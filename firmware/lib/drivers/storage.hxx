@@ -148,9 +148,11 @@ namespace bibo
     {
         gpio::write(c->cs, true);
 
-        /* Eight extra clocks with CS high. The specification asks for them and
+        /*
+         * Eight extra clocks with CS high. The specification asks for them and
          * cards genuinely need them: they are what lets the card finish releasing
-         * the bus before anyone else uses it. */
+         * the bus before anyone else uses it.
+         */
         static_cast<Void>(xfer(c, 0xFF));
     }
 
@@ -249,8 +251,10 @@ namespace bibo
         c->blockAddressed = false;
         c->blocks = 0;
 
-        /* spi::openFull refuses a MISO pin that cannot carry it, which is the whole
-         * reason it takes MISO at all. */
+        /*
+         * spi::openFull refuses a MISO pin that cannot carry it, which is the whole
+         * reason it takes MISO at all.
+         */
         if(!spi::openFull(sck, mosi, miso, cs, SD_INIT_HZ))
         {
             return false;
@@ -286,7 +290,8 @@ namespace bibo
             return false;
         }
 
-        /* ---- CMD8: which specification version? ------------------------------
+        /*
+         * ---- CMD8: which specification version? ------------------------------
          *
          * 0x1AA asks "are you 2.7-3.6 V, and echo 0xAA back". A v2 card answers and
          * repeats the pattern; a v1 card rejects the command outright, which is how
@@ -303,7 +308,8 @@ namespace bibo
             v2 = r7[2] == 0x01 && r7[3] == 0xAA;
         }
 
-        /* ---- ACMD41: start initialization, and wait for it -------------------
+        /*
+         * ---- ACMD41: start initialization, and wait for it -------------------
          *
          * The HCS bit says "I understand high capacity", which a card needs to hear
          * before it will admit to being one. This can take a second on a cold card,
@@ -326,7 +332,8 @@ namespace bibo
             return false;
         }
 
-        /* ---- CMD58: read the OCR, for the capacity class ---------------------
+        /*
+         * ---- CMD58: read the OCR, for the capacity class ---------------------
          *
          * Bit 30 - CCS - is the one that matters: set means the card is addressed
          * in BLOCKS. Every modern card is. Getting this wrong reads sector 0 for
@@ -347,9 +354,11 @@ namespace bibo
             }
         }
 
-        /* ---- CMD16: 512-byte blocks --------------------------------------------
+        /*
+         * ---- CMD16: 512-byte blocks --------------------------------------------
          * Only meaningful on a byte-addressed card; harmless on the others, and
-         * sending it unconditionally means one less branch to get wrong. */
+         * sending it unconditionally means one less branch to get wrong.
+         */
         static_cast<Void>(command(c, 16, SD_BLOCK_SIZE, 0x01));
 
         /* ---- CMD9: the CSD, for capacity ------------------------------------- */
@@ -378,8 +387,10 @@ namespace bibo
 
                 if(csd[0] >> 6 == 1)
                 {
-                    /* CSD version 2: C_SIZE is 22 bits and capacity is
-                     * (C_SIZE + 1) * 512 KB, so blocks = (C_SIZE + 1) * 1024. */
+                    /*
+                     * CSD version 2: C_SIZE is 22 bits and capacity is
+                     * (C_SIZE + 1) * 512 KB, so blocks = (C_SIZE + 1) * 1024.
+                     */
                     const UInt32 cSize = (static_cast<UInt32>(csd[7] & 0x3F) << 16)
                                        | (static_cast<UInt32>(csd[8]) << 8)
                                        | static_cast<UInt32>(csd[9]);
@@ -387,9 +398,11 @@ namespace bibo
                 }
                 else
                 {
-                    /* CSD version 1, on the small old cards. The size is spread
+                    /*
+                     * CSD version 1, on the small old cards. The size is spread
                      * across three fields and scaled by two exponents, which is
-                     * exactly why version 2 replaced it. */
+                     * exactly why version 2 replaced it.
+                     */
                     const UInt32 cSize = (static_cast<UInt32>(csd[6] & 0x03) << 10)
                                          | (static_cast<UInt32>(csd[7]) << 2)
                                          | (static_cast<UInt32>(csd[8]) >> 6);
@@ -494,8 +507,10 @@ namespace bibo
             return false;
         }
 
-        /* The card sends 0xFF until its data is ready, then 0xFE to say "here it
-         * comes". Anything else is an error token and the read has failed. */
+        /*
+         * The card sends 0xFF until its data is ready, then 0xFE to say "here it
+         * comes". Anything else is an error token and the read has failed.
+         */
         UInt8 tok = 0xFF;
         for(Int32 i = 0; i < 20000; ++i)
         {
@@ -567,8 +582,10 @@ namespace bibo
         static_cast<Void>(xfer(c, 0xFF));           /* CRC, ignored */
         static_cast<Void>(xfer(c, 0xFF));
 
-        /* The bottom five bits of the response say whether it was accepted; 0x05
-         * means yes. */
+        /*
+         * The bottom five bits of the response say whether it was accepted; 0x05
+         * means yes.
+         */
         const UInt8 resp = xfer(c, 0xFF);
         if((resp & 0x1Fu) != 0x05u)
         {

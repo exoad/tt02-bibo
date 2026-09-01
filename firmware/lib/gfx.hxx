@@ -70,7 +70,8 @@
 namespace bibo::gfx
 {
 
-    /* ---- color -----------------------------------------------------------
+    /*
+     * ---- color -----------------------------------------------------------
      *
      * 16-bit 5-6-5, the panel's own format.
      */
@@ -218,7 +219,8 @@ namespace bibo::gfx
         return rgb(r, g, b);
     }
 
-    /* ---- the back buffer -----------------------------------------------------
+    /*
+     * ---- the back buffer -----------------------------------------------------
      *
      * ONE buffer, sized for the largest panel this controller drives, because a
      * static array has to be sized when the program is compiled and the panel is
@@ -235,14 +237,16 @@ namespace bibo::gfx
     inline UInt16 buf[PANEL_MAX_W * PANEL_MAX_H];
     inline Bool   bufTaken = false;
 
-    /* ===========================================================================
+    /*
+     * ===========================================================================
      * THE VALUE TYPES.
      *
      * A point is a point and a rectangle is a rectangle. These existed as loose
      * Int32 parameters - x, y, w, h - four at a time through forty signatures,
      * which is how `triangleFill` came to take seven numbers in a row where a
      * transposed pair is a silent bug rather than a compile error.
-     * ======================================================================== */
+     * ========================================================================
+     */
     /**
      * @brief A pixel position: x right, y down, from the panel's top-left.
      */
@@ -263,7 +267,8 @@ namespace bibo::gfx
         Int32 h;
     };
 
-    /* ---------------------------------------------------------------------------
+    /*
+     * ---------------------------------------------------------------------------
      * Paint - how a thing is drawn, as a VALUE.
      *
      * Flutter's idea, and it earns its place here for the same reason it does
@@ -274,7 +279,8 @@ namespace bibo::gfx
      *
      * A Paint is passed, used, and forgotten. Two paints side by side describe two
      * appearances without either one leaking into the other.
-     * ------------------------------------------------------------------------ */
+     * ------------------------------------------------------------------------
+     */
     /**
      * @brief Where a piece of text sits relative to the point it is drawn at.
      */
@@ -299,7 +305,8 @@ namespace bibo::gfx
         Int32  size    = 1;      /* integer scale of the 5x7 font, >= 1 */
     };
 
-    /* ---------------------------------------------------------------------------
+    /*
+     * ---------------------------------------------------------------------------
      * Canvas - the thing you draw on.
      *
      * Holds a panel and the state that BELONGS TO DRAWING: the back buffer, which
@@ -311,7 +318,8 @@ namespace bibo::gfx
      * the safe inset, which is a property of the glass. A Canvas is passed one and
      * does not own it: open two canvases on one panel and they share it, which is
      * the same thing two painters sharing a wall would mean.
-     * ------------------------------------------------------------------------ */
+     * ------------------------------------------------------------------------
+     */
     /**
      * @brief The thing you draw on: a panel plus everything drawing needs.
      *
@@ -327,8 +335,10 @@ namespace bibo::gfx
         /* The back buffer, or nullptr to draw straight at the panel. */
         UInt16* buf;
 
-        /* Rows touched since the last present. Pushing only these is what makes a
-         * small update cheap - a clock ticking in a corner sends twenty rows. */
+        /*
+         * Rows touched since the last present. Pushing only these is what makes a
+         * small update cheap - a clock ticking in a corner sends twenty rows.
+         */
         Int32 dirtyTop;
         Int32 dirtyBot;
 
@@ -337,8 +347,10 @@ namespace bibo::gfx
         Int32 clipW;
         Int32 clipH;
 
-        /* Sticky only for print()/printLine(), which are a stream and need a
-         * position to continue from. Everything else takes a Paint. */
+        /*
+         * Sticky only for print()/printLine(), which are a stream and need a
+         * position to continue from. Everything else takes a Paint.
+         */
         Int32  cursorX;
         Int32  cursorY;
         UInt16 fg;
@@ -346,17 +358,21 @@ namespace bibo::gfx
         Bool   bgSolid;
         Int32  textScale;
 
-        /* Did the panel come up. False means the SPI pads were not a bus - and
+        /*
+         * Did the panel come up. False means the SPI pads were not a bus - and
          * that is ALL it can mean, because the panel is write-only and cannot be
-         * asked whether it is there. See tft::open. */
+         * asked whether it is there. See tft::open.
+         */
         Bool opened;
 
-        /* ---- the drawing surface ---------------------------------------------
+        /*
+         * ---- the drawing surface ---------------------------------------------
          *
          * Every one of these returns *this, so a frame reads as a sequence of
          * things drawn rather than forty repetitions of the canvas's name. The
          * implementations are in detail:: below; these are the API.
-         * ------------------------------------------------------------------- */
+         * -------------------------------------------------------------------
+         */
         /**
          * @brief Fills the whole canvas with one color.
          *
@@ -526,8 +542,10 @@ namespace bibo::gfx
          */
         Canvas& safeOutline(UInt16 color);
 
-        /* Queries - const, and not chainable, because they answer rather than
-         * draw. */
+        /*
+         * Queries - const, and not chainable, because they answer rather than
+         * draw.
+         */
         /**
          * @brief Whether the panel came up.
          *
@@ -574,17 +592,20 @@ namespace bibo::gfx
         [[nodiscard]] Int32 textHeight(const Paint& paint) const;
     };
 
-    /* ===========================================================================
+    /*
+     * ===========================================================================
      * detail - the implementations.
      *
      * These are the functions this file has always had, still taking their
      * canvas as a first parameter. They are not the API: Canvas's methods are,
      * and they are the only thing a sketch should name.
-     * ======================================================================== */
+     * ========================================================================
+     */
   namespace detail
   {
 
-      /* ---- the safe area -------------------------------------------------------
+      /*
+       * ---- the safe area -------------------------------------------------------
     *
     * Rounded corners are cut into the glass, so the outermost pixels of a panel
     * are addressable and invisible. Anything at a corner is lost, and text along
@@ -689,7 +710,8 @@ namespace bibo::gfx
           clip(cv, 0, 0, cv->panel->width, cv->panel->height);
       }
 
-      /* ---- the two primitives everything is built from -------------------------
+      /*
+       * ---- the two primitives everything is built from -------------------------
     *
     * A horizontal run is the fast path in both modes: a memory fill when buffered,
     * and ONE address window when not. Every shape below is expressed as runs for
@@ -749,8 +771,10 @@ namespace bibo::gfx
           span(cv, x, y, 1, color);
       }
 
-      /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
-    * be read - so this returns black without one rather than lying. */
+      /*
+       * Reads a pixel back. Only possible with the buffer - the panel itself cannot
+    * be read - so this returns black without one rather than lying.
+    */
       /** @brief Reads back a pixel's color, or BLACK without a back buffer. */
       inline UInt16 peek(const Canvas* cv, const Int32 x, const Int32 y)
       {
@@ -782,10 +806,12 @@ namespace bibo::gfx
           const Int32 h = cv->dirtyBot - cv->dirtyTop + 1;
           const Int32 w = cv->panel->width;
 
-          /* The buffer holds native-endian UInt16 and the panel wants big-endian, so
+          /*
+           * The buffer holds native-endian UInt16 and the panel wants big-endian, so
        * this cannot be one memcpy of the frame - the bytes go out a row at a time
        * through a swap. Still one address window and ONE transaction for the lot,
-       * which is where nearly all of the win is. */
+       * which is where nearly all of the win is.
+       */
           UInt8 row[PANEL_MAX_W * 2];
           tft::beginPixels(cv->panel, 0, y, w, h);
           for(Int32 r = 0; r < h; ++r)
@@ -870,8 +896,10 @@ namespace bibo::gfx
           const Int32 sx = x0 < x1 ? 1 : -1;
           const Int32 sy = y0 < y1 ? 1 : -1;
 
-          /* The axis-aligned cases are common enough - borders, grids, axes - to be
-       * worth the span path instead of stepping pixel by pixel. */
+          /*
+           * The axis-aligned cases are common enough - borders, grids, axes - to be
+       * worth the span path instead of stepping pixel by pixel.
+       */
           if(dy == 0)
           {
               span(cv, x0 < x1 ? x0 : x1, y0, dx + 1, color);
@@ -972,7 +1000,8 @@ namespace bibo::gfx
           }
       }
 
-      /* ---- rounded rectangles --------------------------------------------------
+      /*
+       * ---- rounded rectangles --------------------------------------------------
     *
     * Filled as three bands plus four corner discs. A disc of radius r centered r in
     * from each edge cannot reach past it, so the overdraw is free of side effects
@@ -1077,8 +1106,10 @@ namespace bibo::gfx
           Int32 tx = 0;
           Int32 ty = 0;
 
-          /* Three compare-and-swaps is a full sort for three items, and the middle
-       * one is what splits the triangle into its two scanline halves. */
+          /*
+           * Three compare-and-swaps is a full sort for three items, and the middle
+       * one is what splits the triangle into its two scanline halves.
+       */
           if(y0 > y1)
           {
               tx = x0;
@@ -1109,8 +1140,10 @@ namespace bibo::gfx
 
           if(y0 == y2)
           {
-              /* Degenerate: all three on one row. Draw the extent and stop, rather
-           * than dividing by a zero height below. */
+              /*
+               * Degenerate: all three on one row. Draw the extent and stop, rather
+           * than dividing by a zero height below.
+           */
               Int32 lo = x0;
               Int32 hi = x0;
               if(x1 < lo)
@@ -1160,7 +1193,8 @@ namespace bibo::gfx
           }
       }
 
-      /* ---- text ------------------------------------------------------------
+      /*
+       * ---- text ------------------------------------------------------------
     *
     * Set the color and size with a Paint, then draw with Canvas::text() or
     * Canvas::printf(). cursor(), textAt() and friends below are the
@@ -1174,8 +1208,10 @@ namespace bibo::gfx
           cv->fg = fg;
       }
 
-      /* An opaque background, which is what you want for a value that changes: the
-    * new text erases the old as it draws, with no flicker and no clear step. */
+      /*
+       * An opaque background, which is what you want for a value that changes: the
+    * new text erases the old as it draws, with no flicker and no clear step.
+    */
       /** @brief Sets an opaque background color for text drawn from here on. */
       inline Void textBackground(Canvas* cv, const UInt16 bg)
       {
@@ -1271,8 +1307,10 @@ namespace bibo::gfx
       }
 
 
-      /* `x` is the left edge, the center or the right edge depending on `align` -
-    * which is what makes a value that changes width stay put. */
+      /*
+       * `x` is the left edge, the center or the right edge depending on `align` -
+    * which is what makes a value that changes width stay put.
+    */
       /** @brief Draws a string aligned to a position. See Canvas::text. */
       inline Void textAligned(Canvas* cv, const Int32 x, const Int32 y, const Utf8* str, const Align align)
       {
@@ -1314,8 +1352,10 @@ namespace bibo::gfx
           cv->cursorY += textHeight(cv) + 2 * cv->textScale;
       }
 
-      /* printf into the cursor. The buffer is deliberately small: this is a 240 pixel
-    * screen and forty characters already overflow it at size 1. */
+      /*
+       * printf into the cursor. The buffer is deliberately small: this is a 240 pixel
+    * screen and forty characters already overflow it at size 1.
+    */
       /**
        * @brief Formats text and draws it at the cursor. See print().
        *
@@ -1363,9 +1403,11 @@ namespace bibo::gfx
       {
           cv->panel = panel;
 
-          /* The drawing state starts here rather than in the driver. tft::openOn
+          /*
+           * The drawing state starts here rather than in the driver. tft::openOn
        * used to zero these, which meant a panel arrived pre-loaded with a text
-       * color and a clip rectangle it had no business having an opinion on. */
+       * color and a clip rectangle it had no business having an opinion on.
+       */
           cv->buf       = nullptr;
           cv->dirtyTop  = h;
           cv->dirtyBot  = -1;
@@ -1385,9 +1427,11 @@ namespace bibo::gfx
               return false;
           }
 
-          /* One buffer, so the FIRST screen to ask gets it. A second screen still
+          /*
+           * One buffer, so the FIRST screen to ask gets it. A second screen still
        * works and simply draws straight at its panel - which is the honest
-       * outcome, and better than two screens quietly sharing one buffer. */
+       * outcome, and better than two screens quietly sharing one buffer.
+       */
           if(!bufTaken)
           {
               bufTaken = true;
@@ -1402,13 +1446,15 @@ namespace bibo::gfx
 
   }
 
-    /* ===========================================================================
+    /*
+     * ===========================================================================
      * Canvas, the API.
      *
      * Thin, and deliberately so: each one forwards to detail:: and returns *this.
      * The value is not in what they do, it is in what a frame LOOKS like once
      * they exist - see the header comment at the top of this file.
-     * ======================================================================== */
+     * ========================================================================
+     */
     inline Canvas& Canvas::clear(const UInt16 color)
     {
         detail::clear(this, color);
@@ -1500,9 +1546,11 @@ namespace bibo::gfx
         return *this;
     }
 
-    /* A Paint is applied and then left behind: the sticky fields still exist
+    /*
+     * A Paint is applied and then left behind: the sticky fields still exist
      * because print()/printLine() stream from a cursor, but nothing OUTSIDE this
-     * file can observe them, so two paints cannot leak into each other. */
+     * file can observe them, so two paints cannot leak into each other.
+     */
     /**
      * @brief Copies a Paint's fields onto the canvas's sticky text state.
      *
@@ -1582,13 +1630,15 @@ namespace bibo::gfx
         return 8 * (paint.size > 0 ? paint.size : 1);
     }
 
-    /* ---------------------------------------------------------------------------
+    /*
+     * ---------------------------------------------------------------------------
      * Bring a canvas up on a panel.
      *
      * The panel is PASSED IN and not owned: gfx is the drawing layer and tft is
      * the hardware, and this is the one line where they meet. A sketch that wants
      * the panel's own controls - brightness, inversion, sleep - still has it.
-     * ------------------------------------------------------------------------ */
+     * ------------------------------------------------------------------------
+     */
     /**
      * @brief A panel's geometry: its size and its offset into controller RAM.
      */

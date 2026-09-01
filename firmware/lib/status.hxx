@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * status - the onboard LED as something a person can read across a room.
  *
  * Solid, off, or blinking at a rate you choose. That is the whole surface, and
@@ -28,7 +29,8 @@
  *
  * File-scope state, so this belongs to a single translation unit - the same
  * deal chassis.h makes, and for the same reason.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "hal.hxx"

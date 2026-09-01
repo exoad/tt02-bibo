@@ -61,7 +61,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * BIBO_FAKE_HAL - the host-test seam.
  *
  * Defined ONLY by firmware/tests, and off in every image this project flashes.
@@ -76,16 +77,19 @@
  * `#include "../hal.hxx"` from lib/chassis/ resolves next to chassis.hxx no
  * matter what the include path says - and conventions.md requires that
  * spelling for exactly the reason it now costs us this #ifdef.
- * ------------------------------------------------------------------------ */
+ * ------------------------------------------------------------------------
+ */
 #ifdef BIBO_FAKE_HAL
 
 #include "../tests/fakes/hal.hxx"
 
 #else
 
-/* pico/stdlib.h FIRST, and on its own line, because it is what drags in the
+/*
+ * pico/stdlib.h FIRST, and on its own line, because it is what drags in the
  * board header - and the board header is what decides, below, whether this
- * build has a wireless chip at all. Everything after it can then ask. */
+ * build has a wireless chip at all. Everything after it can then ask.
+ */
 #include "pico/stdlib.h"
 
 #include "hardware/adc.h"
@@ -99,11 +103,13 @@
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 
-/* Only on a board that HAS the chip. On a plain Pico 2 this header is still on
+/*
+ * Only on a board that HAS the chip. On a plain Pico 2 this header is still on
  * the include path - the SDK ships it unconditionally - but nothing links
  * pico_cyw43_arch, so including it here would compile and then fail at the
  * link with a wall of undefined references to a peripheral the board does not
- * physically have. Ask the board, not the SDK. */
+ * physically have. Ask the board, not the SDK.
+ */
 #if defined(CYW43_WL_GPIO_LED_PIN)
 #include "pico/cyw43_arch.h"
 #endif
@@ -215,7 +221,8 @@ namespace bibo
 
   }
 
-  /* ===========================================================================
+  /*
+   * ===========================================================================
    * uart - a serial port to another chip.
    *
    * NOT the console. serial:: below is USB CDC and talks to the laptop; this is
@@ -243,7 +250,8 @@ namespace bibo
    * So open() picks the funcsel from the pin rather than trusting the caller to
    * know, and there is exactly one place in this firmware that has to be right
    * about it.
-   * ======================================================================== */
+   * ========================================================================
+   */
   namespace uart
   {
 
@@ -295,14 +303,18 @@ namespace bibo
             gpio_set_function(static_cast<UInt32>(rx), dataFunc(rx));
         }
 
-        /* 8N1 and no flow control - what every module in this drawer expects, and
-         * what the DFPlayer's datasheet specifies. */
+        /*
+         * 8N1 and no flow control - what every module in this drawer expects, and
+         * what the DFPlayer's datasheet specifies.
+         */
         uart_set_format(port, 8, 1, UART_PARITY_NONE);
         uart_set_hw_flow(port, false, false);
 
-        /* FIFOs on. Without them a byte that arrives while the main loop is
+        /*
+         * FIFOs on. Without them a byte that arrives while the main loop is
          * elsewhere is dropped, and this firmware's loop does a lot between
-         * polls. */
+         * polls.
+         */
         uart_set_fifo_enabled(port, true);
 
         return got;
@@ -402,7 +414,8 @@ namespace bibo
         return to_ms_since_boot(get_absolute_time());
     }
 
-    /* ---- deadlines ---------------------------------------------------------
+    /*
+     * ---- deadlines ---------------------------------------------------------
      *
      * A point in the future you can ask about. chassis.hxx used to reach past
      * this file for it - absolute_time_t, make_timeout_time_ms, time_reached -
@@ -410,7 +423,8 @@ namespace bibo
      * slew limiter needs the second.
      *
      * Wrapping it is what let the chassis safety test compile on a laptop.
-     * ---------------------------------------------------------------------- */
+     * ----------------------------------------------------------------------
+     */
     typedef absolute_time_t Deadline;
 
     /**
@@ -476,7 +490,8 @@ namespace bibo
         stdio_init_all();
     }
 
-    /* ---- the second listener -------------------------------------------------
+    /*
+     * ---- the second listener -------------------------------------------------
      *
      * Output goes to the USB console and, if something has registered here, to a
      * second place as well - which today means the wireless link in net.h.
@@ -775,11 +790,13 @@ namespace bibo
 
   namespace servo
   {
-    /* ---- servo and ESC ---------------------------------------------------
+    /*
+     * ---- servo and ESC ---------------------------------------------------
      *
      * Both the steering servo and the ESC speak the same 50 Hz pulse-width
      * protocol, so servo::open() is what an ESC gets too.
-     * ------------------------------------------------------------------- */
+     * -------------------------------------------------------------------
+     */
 
     /**
      * @brief Brings up a pin for 50 Hz servo/ESC pulses.
@@ -854,7 +871,8 @@ namespace bibo
 
   namespace led
   {
-    /* ---- the onboard LED ------------------------------------------------------
+    /*
+     * ---- the onboard LED ------------------------------------------------------
      *
      * The one part of this header where the two boards genuinely differ, so it is
      * the one part written twice.
@@ -881,12 +899,14 @@ namespace bibo
      * evening looking at your wiring instead.
      */
 
-    /* Whether the lamp came up, remembered here rather than by every caller.
+    /*
+     * Whether the lamp came up, remembered here rather than by every caller.
      *
      * led::write() used to drive the CYW43439 whether or not it had initialized, so
      * each program carried its own `cyw43Ok` guard and its own copy of the reason.
      * A guard that every caller must remember is a guard, eventually, that one of
-     * them forgets. */
+     * them forgets.
+     */
     inline Bool up = false;
 
 
@@ -1000,8 +1020,10 @@ namespace bibo
   }
 #elif defined(PICO_DEFAULT_LED_PIN)
 
-  /* No wireless chip on this board. Named anyway so callers do not need an
-   * #ifdef to ask. */
+  /*
+   * No wireless chip on this board. Named anyway so callers do not need an
+   * #ifdef to ask.
+   */
 
   namespace radio
   {
@@ -1161,8 +1183,10 @@ namespace bibo
 
   namespace led
   {
-    /* Whether the lamp is up. For a program that wants to REPORT the failure
-     * rather than merely survive it. */
+    /*
+     * Whether the lamp is up. For a program that wants to REPORT the failure
+     * rather than merely survive it.
+     */
 
     /**
      * @brief Whether the onboard LED is up and usable.
@@ -1184,11 +1208,13 @@ namespace bibo
 
   }
 
-  /* ---- ADC -------------------------------------------------------------
+  /*
+   * ---- ADC -------------------------------------------------------------
    *
    * Only GP26-GP29 are ADC-capable, as channels 0-3. Passing anything else
    * is a programming error the hardware cannot report.
-   * ----------------------------------------------------------------------- */
+   * -----------------------------------------------------------------------
+   */
 
   namespace adc
   {
@@ -1249,7 +1275,8 @@ namespace bibo
 
   }
 
-  /* ---- watchdog ----------------------------------------------------------
+  /*
+   * ---- watchdog ----------------------------------------------------------
    *
    * The board resets if watchdog::feed() is not called within `ms`. On a
    * vehicle this is the difference between "the code hung" and "the code
@@ -1258,7 +1285,8 @@ namespace bibo
    *
    * A sketch that enables it and then blocks in a long timing::ms() WILL
    * reset. That is the watchdog working.
-   * ------------------------------------------------------------------------ */
+   * ------------------------------------------------------------------------
+   */
 
   namespace watchdog
   {
@@ -1299,7 +1327,8 @@ namespace bibo
 
   }
 
-  /* ---- SPI -----------------------------------------------------------------
+  /*
+   * ---- SPI -----------------------------------------------------------------
    *
    * A synchronous bus with a clock line, so unlike I2C it has no addresses: every
    * device gets its own CHIP SELECT, and the one whose CS is held low is the one
@@ -1320,7 +1349,8 @@ namespace bibo
    * between bytes, which several displays and cards read as the end of a
    * transaction; driving it as a plain GPIO around a whole transfer is both
    * simpler to reason about and what nearly every driver does.
-   * -------------------------------------------------------------------------- */
+   * --------------------------------------------------------------------------
+   */
 
   namespace spi
   {
@@ -1436,8 +1466,10 @@ namespace bibo
         gpio_set_function(static_cast<UInt32>(mosi), GPIO_FUNC_SPI);
         gpio_set_function(static_cast<UInt32>(miso), GPIO_FUNC_SPI);
 
-        /* A pull-up on MISO, because an SD card leaves the line floating until it
-         * is selected and a floating input reads as noise rather than as idle. */
+        /*
+         * A pull-up on MISO, because an SD card leaves the line floating until it
+         * is selected and a floating input reads as noise rather than as idle.
+         */
         gpio_pull_up(static_cast<UInt32>(miso));
 
         if(csPin >= 0)
@@ -1549,7 +1581,8 @@ namespace bibo
 
   }
 
-  /* ---- I2C -------------------------------------------------------------------
+  /*
+   * ---- I2C -------------------------------------------------------------------
    *
    * Two wires, many devices. Unlike SPI there are no chip selects: every device
    * has an ADDRESS, and the one whose address goes out at the start of a
@@ -1571,7 +1604,8 @@ namespace bibo
    * GP4/GP5 is I2C0, and is what docs/wiring.md reserves for this bus.
    */
 
-  /* How long any single I2C transaction may take before it is abandoned.
+  /*
+   * How long any single I2C transaction may take before it is abandoned.
    *
    * THIS IS NOT A TUNING PARAMETER, it is a safety net, and it exists because the
    * alternative is a board that stops.
@@ -1588,7 +1622,8 @@ namespace bibo
    *
    * 10 ms is far longer than any transaction this project makes - a 32-byte
    * exchange at 400 kHz is under a millisecond - so a timeout means something is
-   * genuinely wrong rather than merely slow. */
+   * genuinely wrong rather than merely slow.
+   */
 #define I2C_TIMEOUT_US 10000u
 
   namespace i2c
@@ -1753,8 +1788,10 @@ namespace bibo
      */
     inline Bool writeReg16(const Pin sda, const UInt8 addr, const UInt16 reg, const UInt8* data, const Size n)
     {
-        /* Register index and payload must go out as ONE transaction, so they are
-         * assembled into one buffer rather than written twice. */
+        /*
+         * Register index and payload must go out as ONE transaction, so they are
+         * assembled into one buffer rather than written twice.
+         */
         UInt8 buf[36];
         if(n + 2 > sizeof(buf))
         {

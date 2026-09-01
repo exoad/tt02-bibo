@@ -82,11 +82,14 @@ namespace bibo
 #define VL53_REG_FIRMWARE_STATUS  0x00E5
 #define VL53_REG_MODEL_ID         0x010F
 
-    /* What the sensor says it is. Checked at open, because a wrong-but-present
-     * device at 0x29 is a much clearer failure than a sensor that never ranges. */
+    /*
+     * What the sensor says it is. Checked at open, because a wrong-but-present
+     * device at 0x29 is a much clearer failure than a sensor that never ranges.
+     */
 #define VL53_MODEL_ID 0xEACC
 
-    /* ---- timing budget --------------------------------------------------------
+    /*
+     * ---- timing budget --------------------------------------------------------
      *
      * How long the sensor integrates for, per measurement. This is the single
      * biggest control over how far it reaches, and leaving it unset is a mistake
@@ -150,9 +153,11 @@ namespace bibo
     /** @brief The two distance/window presets the sensor can run in. */
     enum Mode
     {
-        /* Up to about 1.3 m, and much better in bright light. The right default for
+        /*
+         * Up to about 1.3 m, and much better in bright light. The right default for
          * a bumper: the ambient infrared in daylight is what limits this sensor,
-         * not the laser. */
+         * not the laser.
+         */
         MODE_SHORT = 0,
 
         /* Up to about 4 m indoors, and easily blinded outdoors. */
@@ -233,8 +238,10 @@ namespace bibo
 
     /* ---- distance mode ------------------------------------------------------- */
 
-    /* Forward declared: setting the mode re-applies the budget, and setting the
-     * budget needs to know the mode. */
+    /*
+     * Forward declared: setting the mode re-applies the budget, and setting the
+     * budget needs to know the mode.
+     */
     [[nodiscard]] static Bool setBudget(Vl53* v, Budget budget);
 
     /**
@@ -271,7 +278,8 @@ namespace bibo
                 && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x05)
                 && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0x38)
 
-                /* The sigma-delta pair, and the reason short mode reported a
+                /*
+                 * The sigma-delta pair, and the reason short mode reported a
                  * hardware fault when these were missing.
                  *
                  * The configuration block leaves 0x78 = 0x0F0D and 0x7A = 0x0E0E,
@@ -282,7 +290,8 @@ namespace bibo
                  * reports as a fault.
                  *
                  * Long mode worked precisely BECAUSE it agreed with the block by
-                 * accident. That is why only one of the two modes was broken. */
+                 * accident. That is why only one of the two modes was broken.
+                 */
                 && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0705)
                 && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0606);
 
@@ -295,10 +304,12 @@ namespace bibo
             && i2c::writeReg16U8(v->sda, v->addr, 0x0063, 0x0D)
             && i2c::writeReg16U8(v->sda, v->addr, VL53_REG_RANGE_VALID_HIGH, 0xB8)
 
-            /* Written explicitly even though the configuration block already
+            /*
+             * Written explicitly even though the configuration block already
              * leaves these values. Relying on that meant long mode worked by
              * agreement rather than by instruction, and switching to short and
-             * back would otherwise never restore them. */
+             * back would otherwise never restore them.
+             */
             && i2c::writeReg16U16(v->sda, v->addr, 0x0078, 0x0F0D)
             && i2c::writeReg16U16(v->sda, v->addr, 0x007A, 0x0E0E);
 
@@ -373,9 +384,11 @@ namespace bibo
         v->mode        = MODE_LONG;
         v->budget      = BUDGET_50MS;
 
-        /* Is anything there at all? A separate check from the ID below, because
+        /*
+         * Is anything there at all? A separate check from the ID below, because
          * "nothing answers" and "something answers and is not a VL53L1X" are
-         * different problems with different fixes. */
+         * different problems with different fixes.
+         */
         if(!i2c::present(sda, addr))
         {
             return false;
@@ -410,8 +423,10 @@ namespace bibo
             return false;
         }
 
-        /* The block goes in one register at a time. It could go as one burst, and
-         * a burst would need a 93-byte buffer for a one-off - not worth it. */
+        /*
+         * The block goes in one register at a time. It could go as one burst, and
+         * a burst would need a 93-byte buffer for a one-off - not worth it.
+         */
         for(Int32 i = 0; i < 91; ++i)
         {
             const UInt16 reg = static_cast<UInt16>(VL53_REG_CONFIG_START + i);
@@ -458,12 +473,16 @@ namespace bibo
             }
         }
 
-        /* Mode first, then budget - and tof::setMode re-applies the budget anyway,
+        /*
+         * Mode first, then budget - and tof::setMode re-applies the budget anyway,
          * because the two are not independent. 50 ms reaches about 2.5 m, which is
-         * a useful indoor default; raise it for more reach at a lower rate. */
-        /* Both, and then the verdict - not `a && b`, which would skip the
+         * a useful indoor default; raise it for more reach at a lower rate.
+         */
+        /*
+         * Both, and then the verdict - not `a && b`, which would skip the
          * budget write whenever the mode write failed. The sensor is left in
-         * a known state either way and the caller is told whether it took. */
+         * a known state either way and the caller is told whether it took.
+         */
         const Bool modeSet   = setMode(v, MODE_LONG);
         const Bool budgetSet = setBudget(v, BUDGET_50MS);
         return modeSet && budgetSet;

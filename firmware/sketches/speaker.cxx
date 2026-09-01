@@ -55,7 +55,8 @@
 
 using namespace bibo;
 
-/* ---- the wiring, declared here and installed at startup -----------------
+/*
+ * ---- the wiring, declared here and installed at startup -----------------
  *
  * A SKETCH DECLARES ITS OWN MAP. pins::car() is the vehicle's, and a breadboard
  * experiment must not be able to change what the finished car believes about
@@ -68,16 +69,19 @@ using namespace bibo;
  * map is written fresh against whatever is plugged in this afternoon.
  *
  * These three are the only roles this program has. Everything else in the map
- * stays NONE, which is why a Map defaults to nothing wired. */
+ * stays NONE, which is why a Map defaults to nothing wired.
+ */
 #define SOUND_TX    14
 #define SOUND_RX    15
 
-/* GP9, physical pin 12. The one pad claimed by nothing - GP2/3/6/7/8 are
+/*
+ * GP9, physical pin 12. The one pad claimed by nothing - GP2/3/6/7/8 are
  * earmarked for the permanent lamp move, GP16-19 are SPI, GP20/21 the display
  * and GP22 the SD card's chip select.
  *
  * LOW WHILE PLAYING, so the firmware pulls it up: with nothing attached the pad
- * would float and read as playing about half the time. */
+ * would float and read as playing about half the time.
+ */
 #define SOUND_BUSY  9
 
 /* 0-30. Start low. Really. */
@@ -86,20 +90,26 @@ using namespace bibo;
 /* mp3/0001.mp3 */
 #define TRACK       1
 
-/* How long to leave between plays. Longer than the track, or the next play
+/*
+ * How long to leave between plays. Longer than the track, or the next play
  * command interrupts the one still sounding - which is a legitimate thing to
- * do and a confusing thing to do by accident. */
+ * do and a confusing thing to do by accident.
+ */
 #define GAP_MS      6000
 
 int main(Void)
 {
-    /* FIRST, always. This brings up USB CDC; without it the board runs fine
-     * and never enumerates, and the only way back in is BOOTSEL. */
+    /*
+     * FIRST, always. This brings up USB CDC; without it the board runs fine
+     * and never enumerates, and the only way back in is BOOTSEL.
+     */
 
-    /* Not required, but this sketch is worth watching, and the console is the
+    /*
+     * Not required, but this sketch is worth watching, and the console is the
      * only way to tell "the module never answered" from "the speaker is
      * silent". Two seconds, then carry on regardless - the sound should play
-     * whether or not anybody is looking. */
+     * whether or not anybody is looking.
+     */
     static_cast<Void>(serial::waitForHost(2000));
 
     serial::printLine("");
@@ -110,17 +120,21 @@ int main(Void)
 
     led::open();
 
-    /* WHAT IS WIRED WHERE, before anything is opened. Everything below reads
-     * the installed map rather than these three numbers. */
+    /*
+     * WHAT IS WIRED WHERE, before anything is opened. Everything below reads
+     * the installed map rather than these three numbers.
+     */
     pins::Map wiring;
     wiring.soundTx   = SOUND_TX;
     wiring.soundRx   = SOUND_RX;
     wiring.soundBusy = SOUND_BUSY;
 
-    /* Said out loud and then STOPPED. Carrying on with no map would open a
+    /*
+     * Said out loud and then STOPPED. Carrying on with no map would open a
      * UART on nothing and sit there looking like a wiring fault, which is
      * the exact confusion this file is trying to avoid. This blink is
-     * where boot::halt() came from. */
+     * where boot::halt() came from.
+     */
     if(!boot::begin(wiring))
     {
         boot::halt();
@@ -132,9 +146,11 @@ int main(Void)
                    pins::active().soundRx,
                    pins::active().soundBusy);
 
-    /* Two seconds while the card mounts. A play sent before this is simply
+    /*
+     * Two seconds while the card mounts. A play sent before this is simply
      * lost - no error, no sound - which is the single most common reason a
-     * first DFPlayer bring-up looks dead. */
+     * first DFPlayer bring-up looks dead.
+     */
     serial::printLine("resetting the module, waiting for the card...");
     dfplayer::reset(&sound);
 
@@ -151,7 +167,8 @@ int main(Void)
 
         dfplayer::playMp3(&sound, TRACK);
 
-        /* WAIT FOR THE MODULE, not for the clock.
+        /*
+         * WAIT FOR THE MODULE, not for the clock.
          *
          * This loop used to count out GAP_MS because BUSY was not wired and
          * there was nothing else to wait on. A fixed gap is a guess: too short
@@ -168,20 +185,24 @@ int main(Void)
         UInt32 waited = 0;
         while(dfplayer::playing(&sound) && waited < 60000)
         {
-            /* The LED is the whole diagnostic with no console attached: it
+            /*
+             * The LED is the whole diagnostic with no console attached: it
              * blinks while a track is sounding. Steady-off means the module
              * says it is idle; a blink that STOPS mid-track is the brownout
-             * described at the top of this file, not a crash. */
+             * described at the top of this file, not a crash.
+             */
             led::write(true);
             timing::ms(60);
             led::write(false);
             timing::ms(140);
             waited += 200;
 
-            /* Anything the module volunteers, echoed. With ACK off it only
+            /*
+             * Anything the module volunteers, echoed. With ACK off it only
              * speaks when a track finishes - but seeing bytes arrive at all is
              * proof the RX wire and its direction are right, which is
-             * otherwise invisible. */
+             * otherwise invisible.
+             */
             while(uart::readable(uart0))
             {
                 const Int32 b = uart::readByte(uart0, 0);
@@ -194,9 +215,11 @@ int main(Void)
 
         if(waited >= 60000)
         {
-            /* A track that never ends is a BUSY line that is not telling the
+            /*
+             * A track that never ends is a BUSY line that is not telling the
              * truth - unwired, on the wrong pad, or the module never started.
-             * Said plainly rather than hanging here forever. */
+             * Said plainly rather than hanging here forever.
+             */
             serial::printLine("WARN busy never went idle - check GP9");
         }
 

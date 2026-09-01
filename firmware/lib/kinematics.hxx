@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * kinematics - the bicycle model, which is what a TT-02 is.
  *
  * A car steers by pointing its front wheels; it cannot turn on the spot and it
@@ -16,7 +17,8 @@
  * than the one being ignored.
  *
  * Pure arithmetic. Compiles for the Pico, the Orange Pi and the host test.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "geom.hxx"
@@ -84,8 +86,10 @@ namespace bibo::kin
         Float32 wheelbase = KIN_WHEELBASE_M;   /* meters, front axle to rear */
         Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, the smaller lock  */
 
-        /* As with odometry: a claim the person who measured makes, not
-         * something this file can work out. */
+        /*
+         * As with odometry: a claim the person who measured makes, not
+         * something this file can work out.
+         */
         Bool    measured  = false;
     };
 
@@ -258,10 +262,12 @@ namespace bibo::kin
 
         geom::Pose out = p;
 
-        /* 1e-6 rad over one step is a radius of about 40 km - straight, by any
+        /*
+         * 1e-6 rad over one step is a radius of about 40 km - straight, by any
          * measure this car can take. Below it the arc form's divide is the only
          * thing that would be interesting, and it would be interesting in the
-         * wrong way. */
+         * wrong way.
+         */
         if(dTheta < 1e-6f && dTheta > -1e-6f)
         {
             out.x += ds * cosf(p.heading);
@@ -280,13 +286,15 @@ namespace bibo::kin
         return out;
     }
 
-    /* ---- the same four, on the INSTALLED shape ------------------------------
+    /*
+     * ---- the same four, on the INSTALLED shape ------------------------------
      *
      * The explicit-wheelbase forms above stay, because a test wants to ask
      * about a car that is not this one and a planner may reason about a
      * hypothetical. These are what ordinary code calls: threading the same two
      * numbers through every call site is how one of them ends up stale.
-     * ------------------------------------------------------------------------- */
+     * -------------------------------------------------------------------------
+     */
 
     /**
      * @brief curvatureFor(), using the installed Config::wheelbase.

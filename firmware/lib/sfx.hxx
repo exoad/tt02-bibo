@@ -87,7 +87,8 @@ namespace bibo::sfx
     /** @brief How many rows CLIPS holds. */
     constexpr Size COUNT = sizeof(CLIPS) / sizeof(CLIPS[0]);
 
-    /* ---- lookup -------------------------------------------------------
+    /*
+     * ---- lookup -------------------------------------------------------
      *
      * CASE-INSENSITIVE, and that is not politeness - it is required.
      *

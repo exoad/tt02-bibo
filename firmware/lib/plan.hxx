@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * plan - the three things between "follow a path" and "drive a route".
  *
  * pursuit answers WHERE TO STEER. These answer HOW FAST, WHETHER TO GO AT ALL,
@@ -28,7 +29,8 @@
  *
  * Pure arithmetic when it arrives - no SDK, no clock. Same as the rest of the
  * autonomy stack, so it runs on the Pico or the Orange Pi from one copy.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "geom.hxx"
@@ -66,7 +68,8 @@ namespace bibo::plan
         }
     }
 
-    /* =========================================================================
+    /*
+     * =========================================================================
      * HOW FAST - a speed limit for the point on the path the car is at.
      *
      * The shape it will take: slow for curvature, slow for the approach to the
@@ -79,7 +82,8 @@ namespace bibo::plan
      * sqrt(latAccel / curvature), which falls out of the same circle pursuit
      * already computes. It is why this file includes pursuit rather than
      * duplicating the geometry.
-     * ========================================================================= */
+     * =========================================================================
+     */
 
     /**
      * @brief The speed and acceleration limits for one route.
@@ -151,7 +155,8 @@ namespace bibo::plan
         return STATUS_NOT_IMPLEMENTED;
     }
 
-    /* =========================================================================
+    /*
+     * =========================================================================
      * WHETHER TO GO - the obstacle gate.
      *
      * A cap on speed from whatever the car can see. The lidar is the eventual
@@ -162,7 +167,8 @@ namespace bibo::plan
      * at full speed until it slams to a halt, which is both alarming and worse
      * at avoiding anything - by the time it reacts it has no room. slowM starts
      * the taper, stopM ends it.
-     * ========================================================================= */
+     * =========================================================================
+     */
 
     /**
      * @brief The stop/slow distances and the width the obstacle gate watches.
@@ -172,9 +178,11 @@ namespace bibo::plan
         Float32 stopM = 0.30f;   /* meters, nearer than this: stop          */
         Float32 slowM = 1.20f;   /* meters, between the two: taper to stop  */
 
-        /* How far to either side counts as in the way. Narrower than the car
+        /*
+         * How far to either side counts as in the way. Narrower than the car
          * is optimistic; wider makes it flinch at doorframes. Half the track
-         * plus a margin is the honest starting point. */
+         * plus a margin is the honest starting point.
+         */
         Float32 widthM = 0.22f;  /* meters */
     };
 
@@ -223,7 +231,8 @@ namespace bibo::plan
         return STATUS_NOT_IMPLEMENTED;
     }
 
-    /* =========================================================================
+    /*
+     * =========================================================================
      * WHERE THE PATH CAME FROM - teach.
      *
      * Drive the route by hand once and keep the poses. The whole project is
@@ -234,21 +243,26 @@ namespace bibo::plan
      * with a hundred chances to decide it has arrived. Spacing by distance
      * makes the density of the path a property of the ROUTE rather than of how
      * long the driver dithered.
-     * ========================================================================= */
+     * =========================================================================
+     */
 
     /**
      * @brief The spacing rules teach uses to decide which poses to keep.
      */
     struct Recorder
     {
-        /* Meters between kept points. Too fine wastes memory and adds nothing;
+        /*
+         * Meters between kept points. Too fine wastes memory and adds nothing;
          * too coarse cuts corners on the replay because the follower is
-         * interpolating between things that were never adjacent. */
+         * interpolating between things that were never adjacent.
+         */
         Float32 spacingM = 0.10f;   /* meters */
 
-        /* And a heading change worth keeping even when the car has barely
+        /*
+         * And a heading change worth keeping even when the car has barely
          * moved - a tight corner taken slowly would otherwise be recorded as
-         * two points and replayed as a straight line through the wall. */
+         * two points and replayed as a straight line through the wall.
+         */
         Float32 headingRad = 0.15f; /* radians */
     };
 

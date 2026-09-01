@@ -1,4 +1,5 @@
-/* pins::begin - the runtime map check.
+/*
+ * pins::begin - the runtime map check.
  *
  * The car's map is proved at compile time. THIS covers a sketch's, which is
  * written fresh against whatever is on the breadboard and is the one most

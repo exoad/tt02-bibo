@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * A fake hal, for host tests.
  *
  * WHAT THIS IS FOR
@@ -24,7 +25,8 @@
  * point: lights::enable(false) used to park the lamps and then not stay off,
  * and lights::enabled() cheerfully reported true throughout. A test that
  * believed the module would have passed. One that reads the pins does not.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "../../lib/types.hxx"
@@ -39,7 +41,8 @@ namespace bibo
   /* The pin type the real hal exposes. */
   typedef Int32 Pin;
 
-  /* ---- what the fake saw --------------------------------------------------
+  /*
+   * ---- what the fake saw --------------------------------------------------
    *
    * File-scope and deliberately public: a test wants to read it, and there is
    * no second consumer to protect it from.
@@ -164,8 +167,10 @@ namespace bibo
   namespace gpio
   {
 
-    /* The real one takes a direction enum; tests do not care which, so this
-     * takes an Int32 and records only that the pin was claimed. */
+    /*
+     * The real one takes a direction enum; tests do not care which, so this
+     * takes an Int32 and records only that the pin was claimed.
+     */
     static Void open(Pin pin, Int32 dir)
     {
       static_cast<Void>(dir);
@@ -182,9 +187,11 @@ namespace bibo
   namespace timing
   {
 
-    /* Time does not pass on its own here. A test that wants a blink to advance
+    /*
+     * Time does not pass on its own here. A test that wants a blink to advance
      * sets fake::nowUs, which is the only way to make a timing test that does
-     * not take as long as the thing it is timing. */
+     * not take as long as the thing it is timing.
+     */
     static UInt64 nowUs(Void)
     {
       return fake::nowUs;
@@ -205,7 +212,8 @@ namespace bibo
       fake::nowUs += n;
     }
 
-    /* ---- deadlines ------------------------------------------------------
+    /*
+     * ---- deadlines ------------------------------------------------------
      *
      * Microseconds since the fake epoch, so a test can step time with
      * timing::ms() and watch a slew limiter advance without waiting for it.
@@ -227,8 +235,10 @@ namespace bibo
   namespace serial
   {
 
-    /* Swallowed. A test asserting on console text would be asserting on
-     * wording, which is the thing most likely to change for good reasons. */
+    /*
+     * Swallowed. A test asserting on console text would be asserting on
+     * wording, which is the thing most likely to change for good reasons.
+     */
     static Void printf(const Utf8* fmt, ...)
     {
       static_cast<Void>(fmt);

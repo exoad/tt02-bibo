@@ -47,9 +47,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-/* <cstdint> and <cstddef>, not <stdint.h> and <stddef.h>: this is C++ and the
+/*
+ * <cstdint> and <cstddef>, not <stdint.h> and <stddef.h>: this is C++ and the
  * counterpart vocabulary in shared/shared.hxx has always said so. <stdbool.h>
- * was here too and is a no-op - bool is a keyword. */
+ * was here too and is a no-op - bool is a keyword.
+ */
 #include <cstddef>
 #include <cstdint>
 
@@ -75,7 +77,8 @@ using Float64 = double;
 using Bool    = bool;
 using Void    = void;
 
-/* ---- text ----------------------------------------------------------------
+/*
+ * ---- text ----------------------------------------------------------------
  *
  * CharSeq is a borrowed, NUL-terminated pointer. It is a `using` and no longer
  * a #define, which matters: shared.hxx has always spelled it as an alias, and

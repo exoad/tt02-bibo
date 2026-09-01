@@ -1,4 +1,5 @@
-/* geom, the bicycle model and pure pursuit.
+/*
+ * geom, the bicycle model and pure pursuit.
  *
  *   firmware\tests\build_pursuit_test.bat run
  *
@@ -59,13 +60,17 @@ Int32 main(Void)
     check(near(geom::wrapPi(20.0f * GEOM_TAU + 0.3f), 0.3f, 1e-3f),
           "twenty turns of accumulated heading still wraps");
 
-    /* THE SHORT WAY. Plain subtraction gives 358 degrees here and turns the car
-     * all the way round to reach a heading it was two degrees from. */
+    /*
+     * THE SHORT WAY. Plain subtraction gives 358 degrees here and turns the car
+     * all the way round to reach a heading it was two degrees from.
+     */
     const Float32 d = geom::angleDelta(GEOM_PI - 0.05f, -GEOM_PI + 0.05f);
     check(near(d, 0.1f, 1e-4f), "the delta across the wrap is the short way");
 
-    /* +y IS LEFT. Getting this backwards is the sign error that makes pursuit
-     * steer away from the path. */
+    /*
+     * +y IS LEFT. Getting this backwards is the sign error that makes pursuit
+     * steer away from the path.
+     */
     geom::Pose at0;
     geom::Vec2 leftOfCar{ 0.0f, 1.0f };
     check(geom::toLocal(at0, leftOfCar).y > 0.0f,
@@ -119,9 +124,11 @@ Int32 main(Void)
     check(t.heading > 0.0f, "a positive steer turns toward +heading");
     check(t.y > 0.0f, "and moves the car to the left");
 
-    /* A FULL CIRCLE RETURNS. This is the test that catches an arc integrator
+    /*
+     * A FULL CIRCLE RETURNS. This is the test that catches an arc integrator
      * that is subtly a chord integrator: the chord version closes short, and
-     * the error accumulates in one direction rather than averaging out. */
+     * the error accumulates in one direction rather than averaging out.
+     */
     geom::Pose c;
     const Float32 steer = 0.3f;
     const Float32 curv  = kin::curvatureFor(steer, 0.257f);
@@ -161,9 +168,11 @@ Int32 main(Void)
     check(a.valid, "a car on the path has something to steer toward");
     check(near(a.curvature, 0.0f, 1e-3f), "and steers straight");
 
-    /* OFF to the RIGHT of the line must steer LEFT. This single assertion is
+    /*
+     * OFF to the RIGHT of the line must steer LEFT. This single assertion is
      * the one that catches a sign error anywhere in the chain - the frame
-     * rotation, the curvature formula, or the steering conversion. */
+     * rotation, the curvature formula, or the steering conversion.
+     */
     pursuit::reset(&f);
     geom::Pose right;
     right.y = -0.3f;
@@ -178,8 +187,10 @@ Int32 main(Void)
     pursuit::Aim r = pursuit::follow(&f, &path, left, 1.0f);
     check(r.valid && r.curvature < 0.0f, "and left of the path steers right");
 
-    /* THE LOOKAHEAD FLOOR. At a standstill the speed-scaled product is zero,
-     * and a zero lookahead divides by zero in the curvature. */
+    /*
+     * THE LOOKAHEAD FLOOR. At a standstill the speed-scaled product is zero,
+     * and a zero lookahead divides by zero in the curvature.
+     */
     pursuit::reset(&f);
     pursuit::Aim stopped = pursuit::follow(&f, &path, on, 0.0f);
     check(stopped.lookahead >= f.minM,
@@ -197,8 +208,10 @@ Int32 main(Void)
     check(pursuit::follow(&f, &path, on, 50.0f).lookahead <= f.maxM + 1e-4f,
           "and never further than the cap");
 
-    /* THE INDEX ONLY MOVES FORWARD. Drive along, then ask again from behind:
-     * the follower must not rewind to an earlier part of the path. */
+    /*
+     * THE INDEX ONLY MOVES FORWARD. Drive along, then ask again from behind:
+     * the follower must not rewind to an earlier part of the path.
+     */
     pursuit::reset(&f);
     geom::Pose along;
     for(Int32 i = 0; i < 8; ++i)

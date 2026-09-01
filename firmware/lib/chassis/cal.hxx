@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * Steering calibration - GENERATED.
  *
  * Written by the hub's Drive view. Edit it THERE, not here: the next "Write to
@@ -14,7 +15,8 @@
  * CENTER is the interesting one. 1500 us is the middle of the servo's range and
  * has nothing to say about where a car's wheels point straight - assuming it
  * does is how a servo ends up leaning on a frame at "neutral".
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 /* Full lock one way. */
@@ -26,7 +28,8 @@
 /* Full lock the other way. */
 #define STEER_CAL_RIGHT 1660
 
-/* ---- throttle ------------------------------------------------------------
+/*
+ * ---- throttle ------------------------------------------------------------
  *
  * The working range for the ESC, and the reason this section exists: the
  * steering has been persisted here since it was measured, and the throttle was
@@ -61,7 +64,8 @@
 #define THROTTLE_CAL_MIN 1541
 #define THROTTLE_CAL_MAX 1600
 
-/* ---- tuning, not measurement ---------------------------------------------
+/*
+ * ---- tuning, not measurement ---------------------------------------------
  *
  * Everything above is a fact about this car that was found by moving it. This
  * is not: it is a choice about how fast the outputs are allowed to move, and a
@@ -78,13 +82,16 @@
  */
 #define SLEW_CAL_STEER    8
 
-/* The throttle's own rate. Separate from the steering because the right answer
+/*
+ * The throttle's own rate. Separate from the steering because the right answer
  * is different: a servo should arrive promptly, an ESC should be led there.
  * Starts equal to the steering, which is what the single shared rate used to
- * give - so nothing changes until it is tuned. */
+ * give - so nothing changes until it is tuned.
+ */
 #define SLEW_CAL_THROTTLE 8
 
-/* ---- when the tail lamps go out ------------------------------------------
+/*
+ * ---- when the tail lamps go out ------------------------------------------
  *
  * Microseconds ABOVE idle at which the car counts as being driven, and the
  * tails extinguish. Below it the motor is turning but barely, and a car
@@ -101,6 +108,8 @@
  */
 #define LIGHT_CAL_OFF_US 10
 
-/* When this car was last calibrated, so a stale set of numbers can be spotted
- * rather than trusted. "defaults" means nobody has calibrated this car yet. */
+/*
+ * When this car was last calibrated, so a stale set of numbers can be spotted
+ * rather than trusted. "defaults" means nobody has calibrated this car yet.
+ */
 #define STEER_CAL_STAMP "measured 2026-08-29"

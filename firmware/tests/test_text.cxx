@@ -1,4 +1,5 @@
-/* The parsers in lib/text.h.
+/*
+ * The parsers in lib/text.h.
  *
  *   firmware\tests\build_text_test.bat run
  *

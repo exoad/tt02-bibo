@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * bibo - the whole library, in one include.
  *
  * Application code includes THIS and nothing else from the library. Reaching
@@ -79,7 +80,8 @@
  * A SKETCH may open it - `using namespace bibo;` - and firmware/scratch does.
  * One file, linking nothing else, whose whole purpose is to be the easy thing.
  * app/main.cxx does not.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 /*
  * EVERY PROJECT INCLUDE IN THIS LIBRARY IS RELATIVE TO THE FILE THAT WRITES IT.
  *
@@ -99,21 +101,29 @@
 #include "hal.hxx"
 #include "text.hxx"
 
-/* The car's pin map. Included before anything that binds a pin, so a subsystem
+/*
+ * The car's pin map. Included before anything that binds a pin, so a subsystem
  * can name pins::LAMP_HEAD_L rather than 11 - and so the conflict static_asserts in
- * it fire on every build rather than only when somebody happens to include it. */
+ * it fire on every build rather than only when somebody happens to include it.
+ */
 #include "pins.hxx"
 
-/* What the sounds on the card mean. A leaf like pins - names and numbers,
- * no SDK - so it can be read and tested without a board. */
+/*
+ * What the sounds on the card mean. A leaf like pins - names and numbers,
+ * no SDK - so it can be read and tested without a board.
+ */
 #include "sfx.hxx"
 
-/* The car's voice, asked for by name. Above the driver and above sfx, the way
- * cue sits above lights. */
+/*
+ * The car's voice, asked for by name. Above the driver and above sfx, the way
+ * cue sits above lights.
+ */
 #include "sound.hxx"
 
-/* Drivetrain maths - PID, feedforward, and ticks to meters. Pure arithmetic,
- * no SDK, so both are tested on the host. */
+/*
+ * Drivetrain maths - PID, feedforward, and ticks to meters. Pure arithmetic,
+ * no SDK, so both are tested on the host.
+ */
 #include "geom.hxx"
 #include "kinematics.hxx"
 #include "pursuit.hxx"

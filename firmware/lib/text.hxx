@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * text - the string handling this project actually does, spelled our way.
  *
  * Not a string library. There is no allocation here, no growth, no ownership -
@@ -25,7 +26,8 @@
  * ---- one copy -------------------------------------------------------------
  *
  * Stateless, unlike chassis.h and status.h. Include it anywhere.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "types.hxx"
@@ -51,8 +53,10 @@ namespace bibo::text
         return s == nullptr || s[0] == '\0';
     }
 
-    /* Whole-string equality. The name says what it tests, unlike `strcmp(a,b)==0`
-     * where the interesting part is the `== 0` and reads as an accident. */
+    /*
+     * Whole-string equality. The name says what it tests, unlike `strcmp(a,b)==0`
+     * where the interesting part is the `== 0` and reads as an accident.
+     */
     inline Bool eq(const CharSeq a, const CharSeq b)
     {
         if(a == nullptr || b == nullptr)
@@ -80,8 +84,10 @@ namespace bibo::text
         return strncmp(s, prefix, n) == 0;
     }
 
-    /* What follows `prefix`, or nullptr if `s` does not start with it. Pairs with
-     * text::starts so the offset is never written out by hand twice. */
+    /*
+     * What follows `prefix`, or nullptr if `s` does not start with it. Pairs with
+     * text::starts so the offset is never written out by hand twice.
+     */
     inline CharSeq after(const CharSeq s, const CharSeq prefix)
     {
         if(!starts(s, prefix))

@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * pins - every pin a program uses, declared once, at startup.
  *
  * THE RULE: a program's first act is to say what is wired where. main.cxx does
@@ -37,13 +38,16 @@
  * Which is why begin() must come FIRST. A subsystem opened before the map is
  * installed binds nothing at all - see `installed` below, which starts empty on
  * purpose.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "types.hxx"
 
-/* For conflictText() only. text.hxx is a leaf - types.hxx and the C
- * headers - so this adds no cycle and no hardware dependency. */
+/*
+ * For conflictText() only. text.hxx is a leaf - types.hxx and the C
+ * headers - so this adds no cycle and no hardware dependency.
+ */
 #include "text.hxx"
 
 namespace bibo::pins
@@ -93,7 +97,8 @@ namespace bibo::pins
         Int32 i2cSda    = NONE;
         Int32 i2cScl    = NONE;
 
-        /* sound - the DFPlayer Mini.
+        /*
+         * sound - the DFPlayer Mini.
          *
          * THE DIRECTIONS ARE THE SILICON'S, not a preference. On RP2350 GPIO14
          * is UART0_TX and GPIO15 is UART0_RX - funcsel 0x0b, which the SDK
@@ -104,7 +109,8 @@ namespace bibo::pins
          *
          * soundBusy is the module's own output and is LOW WHILE PLAYING. It is
          * the only honest way to know a track has finished - the serial reply
-         * says a command was ACCEPTED, which is a different claim. */
+         * says a command was ACCEPTED, which is a different claim.
+         */
         Int32 soundTx   = NONE;
         Int32 soundRx   = NONE;
         Int32 soundBusy = NONE;
@@ -121,7 +127,8 @@ namespace bibo::pins
         Int32 revL      = NONE;
         Int32 revR      = NONE;
 
-        /* the SPI display.
+        /*
+         * the SPI display.
          *
          * SCK and MOSI are fixed by the silicon for a given SPI block - GP18
          * and GP19 are SPI0 - while CS, DC and RES are plain GPIOs and are free
@@ -132,23 +139,28 @@ namespace bibo::pins
          * MicroSD card is meant to sit on this same SCK/MOSI with its own chip
          * select, so when it goes on it wants a bus concept rather than another
          * pair of pin fields. Not solved here; written down so it is not a
-         * surprise the day somebody adds sdSck and the map refuses to load. */
+         * surprise the day somebody adds sdSck and the map refuses to load.
+         */
         Int32 tftSck    = NONE;
         Int32 tftMosi   = NONE;
         Int32 tftCs     = NONE;
         Int32 tftDc     = NONE;
         Int32 tftRes    = NONE;
 
-        /* The panel's backlight. NONE means it is tied to 3V3 and always on,
+        /*
+         * The panel's backlight. NONE means it is tied to 3V3 and always on,
          * which is how these boards ship - tft::brightness() then says so
-         * rather than pretending to dim a pad nothing is driving. */
+         * rather than pretending to dim a pad nothing is driving.
+         */
         Int32 tftBlk    = NONE;
 
         /* sensors */
-        /* The MicroSD module. Its own SPI pads, NOT the panel's - the two
+        /*
+         * The MicroSD module. Its own SPI pads, NOT the panel's - the two
          * would be one bus shared by two devices at different clocks, and
          * begin() would reject the shared pads as two roles anyway. When a
-         * bus becomes a first-class thing here, this is what changes. */
+         * bus becomes a first-class thing here, this is what changes.
+         */
         Int32 sdSck     = NONE;
         Int32 sdMosi    = NONE;
         Int32 sdMiso    = NONE;
@@ -236,10 +248,12 @@ namespace bibo::pins
         m.tftDc     = 21;
         m.tftRes    = 20;
 
-        /* Where the module GOES. Its headers are unsoldered, so nothing is
+        /*
+         * Where the module GOES. Its headers are unsoldered, so nothing is
          * on these pads yet and sd::open() will fail honestly until they
          * are - which beats the four #defines this replaced, which named
-         * the same pads and could not be seen or checked from here. */
+         * the same pads and could not be seen or checked from here.
+         */
         m.sdSck     = 26;
         m.sdMosi    = 27;
         m.sdMiso    = 28;
@@ -250,7 +264,8 @@ namespace bibo::pins
         return m;
     }
 
-    /* ---- the installed map ------------------------------------------------
+    /*
+     * ---- the installed map ------------------------------------------------
      *
      * One per program, because one program is one car. Subsystems read this
      * rather than holding numbers, so a sketch that installs a different map
@@ -259,13 +274,16 @@ namespace bibo::pins
      * It starts EMPTY - every field NONE - so a subsystem opened before begin()
      * binds nothing and is visibly dead. That is the right failure: a servo on
      * a pad chosen by whatever ran last is worse than a servo that does not
-     * move. */
+     * move.
+     */
     inline Map  installed;
     inline Bool up = false;
 
-    /* Where the last begin() found a problem. Kept so a caller can SAY which
+    /*
+     * Where the last begin() found a problem. Kept so a caller can SAY which
      * pins clashed - "pin conflict" without the pin sends somebody back to the
-     * file to work out which. */
+     * file to work out which.
+     */
     inline Int32 clashPin = NONE;
     inline Size  clashA   = 0;
     inline Size  clashB   = 0;

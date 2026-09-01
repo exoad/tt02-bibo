@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
  * boot - the eight lines every program started with.
  *
  * serial::open(), pins::begin(), and something visible when the map is refused.
@@ -22,7 +23,8 @@
  * indistinguishable from a crash, so speaker.cxx blinks instead and that is
  * the better instinct. The APP keeps going: a car whose lamps are unbound is
  * still a car whose watchdog should run. begin() reports; the caller decides.
- * ------------------------------------------------------------------------- */
+ * -------------------------------------------------------------------------
+ */
 #pragma once
 
 #include "hal.hxx"
