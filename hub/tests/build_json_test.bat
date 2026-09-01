@@ -9,7 +9,9 @@ REM is the whole reason it was split out of radar.cxx.
 
 setlocal
 set HERE=%~dp0
-set VS=C:\Program Files\Microsoft Visual Studio\2022\Community
+call "%~dp0..\..\tools\find_vs.bat"
+if errorlevel 1 exit /b 1
+set "VS=%VSROOT%"
 
 call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
 if errorlevel 1 (

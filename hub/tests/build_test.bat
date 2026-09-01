@@ -10,7 +10,9 @@ REM name is passed here - which also keeps Git Bash from mangling backslashes.
 setlocal
 set HERE=%~dp0
 set ROOT=%HERE%..\..
-set VS=C:\Program Files\Microsoft Visual Studio\2022\Community
+call "%~dp0..\..\tools\find_vs.bat"
+if errorlevel 1 exit /b 1
+set "VS=%VSROOT%"
 
 set PORT=COM7
 set BAUD=460800

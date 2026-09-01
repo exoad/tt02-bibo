@@ -6,7 +6,9 @@ setlocal
 set HERE=%~dp0
 REM The SDK lives under vendor/ at the repo root, two levels up from here.
 set ROOT=%HERE%..\..\vendor
-set VS=C:\Program Files\Microsoft Visual Studio\2022\Community
+call "%~dp0..\..\tools\find_vs.bat"
+if errorlevel 1 exit /b 1
+set "VS=%VSROOT%"
 
 REM vcvarsall prints a harmless "'vswhere.exe' is not recognized" line when
 REM vswhere is not on PATH; the environment is still set up correctly.

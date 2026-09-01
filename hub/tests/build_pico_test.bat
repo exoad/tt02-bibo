@@ -17,7 +17,9 @@ REM /MT matches the rest of this project (the rplidar driver lib is static-CRT).
 setlocal
 set HERE=%~dp0
 set SRC=%HERE%..\src
-set VS=C:\Program Files\Microsoft Visual Studio\2022\Community
+call "%~dp0..\..\tools\find_vs.bat"
+if errorlevel 1 exit /b 1
+set "VS=%VSROOT%"
 
 call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
 if errorlevel 1 (
