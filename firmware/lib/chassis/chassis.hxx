@@ -11,7 +11,7 @@
  *
  * Fractions, not microseconds. drive::steer(-1..+1) maps through the measured
  * calibration in cal.h, with each side scaled separately, so nothing above this
- * file needs to know that this car throws 250 us one way from centre and 180
+ * file needs to know that this car throws 250 us one way from center and 180
  * the other. The raw microsecond entry points exist for calibrating and are
  * named so it is obvious you are below the abstraction.
  *
@@ -41,8 +41,8 @@
  *
  *   - Common ground between the Pico and the ESC is REQUIRED. Signal and
  *     ground cross between two power domains; without the shared return the
- *     ESC and the servo see noise, and that presents as erratic behaviour
- *     rather than as no behaviour. Check the breadboard rails are bridged -
+ *     ESC and the servo see noise, and that presents as erratic behavior
+ *     rather than as no behavior. Check the breadboard rails are bridged -
  *     they are split in the middle and it does not look like it.
  *   - NEVER connect the BEC 5 V to the Pico while USB is attached.
  *   - Put the car on a stand. A wheel on the ground turns a test into a
@@ -77,7 +77,7 @@ namespace bibo::drive
      * A read rather than a constant, so a sketch driving a servo on a different
      * pad is pins::begin() and nothing else. Both resolve to NONE until begin()
      * has run, and drive::open() then binds nothing rather than binding pad 0
-     * because that is what an uninitialised map used to say.
+     * because that is what an uninitialized map used to say.
      */
 #define PIN_SERVO (pins::active().servo)
 #define PIN_ESC   (pins::active().esc)
@@ -260,7 +260,7 @@ namespace bibo::drive
      *
      * DRIVE_NEUTRAL_US is the middle of the SERVO's range and has nothing to say
      * about the CAR's. The horn only fits its spline at whole-tooth intervals, so
-     * straight-ahead lands wherever it lands - and treating 1500 as centre is how a
+     * straight-ahead lands wherever it lands - and treating 1500 as center is how a
      * servo comes to lean on a frame at what everyone is calling neutral.
      */
     inline Int32 servoCenterUs = STEER_CAL_CENTER;
@@ -337,7 +337,7 @@ namespace bibo::drive
             n = 1.0f;
         }
 
-        /* A centre sitting on top of an end is not a range to interpolate across.
+        /* A center sitting on top of an end is not a range to interpolate across.
          * It happens while limits are being narrowed, and it must not divide. */
         const Int32 lo = servoCenterUs - servoMin;
         const Int32 hi = servoMax - servoCenterUs;
@@ -401,7 +401,7 @@ namespace bibo::drive
         servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
 
         /* Rule 2, and open() has to say it too. escArmed was only ever cleared
-         * by its initialiser and by stop(), so a SECOND open() - a re-init, a
+         * by its initializer and by stop(), so a SECOND open() - a re-init, a
          * mode change - parked the ESC at neutral while leaving it armed, and
          * the next throttleUs() was accepted by something that reads like a
          * fresh bring-up. Found by the first test this module ever had. */
@@ -460,8 +460,8 @@ namespace bibo::drive
      *
      * The ESC disarmed and neutral, and the steering RELEASED.
      *
-     * Released rather than centred, and that distinction is the whole point.
-     * Centre is only a safe place to put a servo if it happens to be where the
+     * Released rather than centered, and that distinction is the whole point.
+     * Center is only a safe place to put a servo if it happens to be where the
      * linkage wants to sit; if the horn is a tooth off its spline it is not, and
      * "stop" would then mean "keep pushing, just somewhere else". Nothing to push
      * with is the only stop that is a stop on every car.
@@ -589,13 +589,13 @@ namespace bibo::drive
     /**
      * @brief Starts or stops driving the steering pin.
      *
-     * Engaging picks up from the CAR's centre and slews to wherever the target
+     * Engaging picks up from the CAR's center and slews to wherever the target
      * already is, rather than jumping: the servo has been limp and its actual
      * position is unknown, so the first command after engaging is the one most
      * likely to be a surprise.
      *
      * @param on true to drive the steering pin, false to release it
-     * @warning Engaging writes the pulse for the car's measured centre
+     * @warning Engaging writes the pulse for the car's measured center
      *          immediately, without waiting for pump().
      */
     inline Void engage(const Bool on)
@@ -636,7 +636,7 @@ namespace bibo::drive
      *
      * Wheels straight, wherever that measures out to be.
      *
-     * @note Uses the measured centre (servoCenterUs / trim()), not the pulse
+     * @note Uses the measured center (servoCenterUs / trim()), not the pulse
      *       midpoint.
      */
     inline Void center(Void)
@@ -647,7 +647,7 @@ namespace bibo::drive
     /**
      * @brief Sets the steering target as a raw servo pulse width.
      *
-     * Raw microseconds. For CALIBRATING - finding where the ends and the centre
+     * Raw microseconds. For CALIBRATING - finding where the ends and the center
      * actually are - not for driving. Clamped rather than refused: a slider that
      * stops moving at the limit is clearer than one that silently does nothing.
      *
@@ -662,13 +662,13 @@ namespace bibo::drive
     }
 
     /**
-     * @brief Moves where "centre" is.
+     * @brief Moves where "center" is.
      *
-     * Clamped into the working range, because a centre outside the limits is one
+     * Clamped into the working range, because a center outside the limits is one
      * the servo can never be commanded to - drive::center() would silently mean
      * something else, which is worse than refusing.
      *
-     * @param us the new centre pulse width, in microseconds; clamped into
+     * @param us the new center pulse width, in microseconds; clamped into
      *           [servoMin, servoMax]
      * @note Does not move the servo by itself; center() and steer() read
      *       this value on their next call.
@@ -684,7 +684,7 @@ namespace bibo::drive
      * Widens or narrows the working range. False if the two are the wrong way
      * round; the caller decides what to say about that.
      *
-     * Clamped to the hard bound, and both the target and the centre are pulled back
+     * Clamped to the hard bound, and both the target and the center are pulled back
      * inside so narrowing can never leave an output sitting outside its own limits.
      *
      * @param lo the new lower bound, in microseconds; must be less than hi
@@ -694,7 +694,7 @@ namespace bibo::drive
      * @note Checked after clamping too - see the comment inside - or two
      *       in-order but out-of-hardware-range values collapse to a
      *       zero-width steering range.
-     * @warning Also re-clamps the current target and centre, which can move
+     * @warning Also re-clamps the current target and center, which can move
      *          the steering the next time pump() runs.
      */
     [[nodiscard]] static Bool setSteerLimits(const Int32 lo, const Int32 hi)

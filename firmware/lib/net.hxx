@@ -363,8 +363,8 @@ namespace bibo
          *
          * The LED on this board hangs off the same chip and main() brings it up at
          * boot, so by the time anybody asks for wireless the radio is ALREADY
-         * initialised. A second cyw43_arch_init() does not return an error - it
-         * quietly leaves the chip half re-initialised, and the next thing to touch
+         * initialized. A second cyw43_arch_init() does not return an error - it
+         * quietly leaves the chip half re-initialized, and the next thing to touch
          * it behaves strangely for reasons that are nowhere near the code that
          * caused them. hal.h owns that call and answers it once.
          */
@@ -405,7 +405,7 @@ namespace bibo
      * Asynchronous on purpose: the blocking form of this call sits inside the
      * SDK for up to thirty seconds, and every one of those seconds is a
      * second the main loop is not running drive::pump(), not slewing an
-     * output, and not honouring the deadman. A join that freezes the car is
+     * output, and not honoring the deadman. A join that freezes the car is
      * a join nobody can make while the car is switched on.
      *
      * @param ssid the network name to join

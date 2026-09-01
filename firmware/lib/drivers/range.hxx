@@ -6,13 +6,13 @@
  * WHAT IT ACTUALLY MEASURES
  *
  * It fires an infrared laser and times how long the light takes to come back.
- * Light covers a metre in about 3.3 nanoseconds, so a 4-metre reading is a
+ * Light covers a meter in about 3.3 nanoseconds, so a 4-meter reading is a
  * 26-nanosecond measurement - which is why this is a whole sensor with its own
  * processor rather than a pin you read.
  *
- * The answer is a distance in MILLIMETRES to whatever is in a cone in front of
- * it. Not a point: a cone, 27 degrees wide by default. At two metres that cone
- * is nearly a metre across, so "the distance" is really "the nearest thing in
+ * The answer is a distance in MILLIMETERS to whatever is in a cone in front of
+ * it. Not a point: a cone, 27 degrees wide by default. At two meters that cone
+ * is nearly a meter across, so "the distance" is really "the nearest thing in
  * a fairly wide view", which matters when using it to find a wall.
  *
  *     tof::Vl53 tof;
@@ -224,7 +224,7 @@ namespace bibo
         0x00,   /* 0x74  distance threshold low, high byte */
         0x00,   /* 0x75  distance threshold low, low byte */
         0x00, 0x01, 0x0F, 0x0D, 0x0E, 0x0E, 0x00, 0x00, 0x02,
-        0xC7,   /* 0x7F  region-of-interest centre */
+        0xC7,   /* 0x7F  region-of-interest center */
         0xFF,   /* 0x80  region-of-interest size, X and Y */
         0x9B, 0x00, 0x00, 0x00, 0x01,
         0x00,   /* 0x86  clear interrupt */
@@ -311,7 +311,7 @@ namespace bibo
      *
      * Must be set explicitly - the configuration block alone does not
      * leave a usable budget, and a sensor without one ranges happily and
-     * cannot see past about a metre.
+     * cannot see past about a meter.
      *
      * @param v the sensor to configure; must have opened successfully
      * @param budget how long to integrate; longer reaches farther but
@@ -500,7 +500,7 @@ namespace bibo
      * strong signal at a short distance means something really is close
      * - including a protective film still stuck on the lens, which is by
      * far the commonest reason a brand new sensor reads a few
-     * centimetres and never changes.
+     * centimeters and never changes.
      *
      * A high AMBIENT rate with a weak signal means the sensor is being
      * blinded by infrared in the room, which is what short mode exists

@@ -303,7 +303,7 @@ namespace bibo
             v2 = r7[2] == 0x01 && r7[3] == 0xAA;
         }
 
-        /* ---- ACMD41: start initialisation, and wait for it -------------------
+        /* ---- ACMD41: start initialization, and wait for it -------------------
          *
          * The HCS bit says "I understand high capacity", which a card needs to hear
          * before it will admit to being one. This can take a second on a cold card,

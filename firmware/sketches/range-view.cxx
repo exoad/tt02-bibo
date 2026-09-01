@@ -15,9 +15,9 @@
  * ---------------------------------------------------------------------------
  * WHAT THE VIEW SHOWS, AND WHY EACH PART IS THERE
  *
- *   the number      millimetres, and metres beneath it. Millimetres because
+ *   the number      millimeters, and meters beneath it. Millimeters because
  *                   that is what the sensor reports and rounding at the source
- *                   loses information; metres because that is what a person
+ *                   loses information; meters because that is what a person
  *                   thinks in.
  *
  *   the bar         the same reading as a proportion of full scale. A number
@@ -27,7 +27,7 @@
  *
  *   the status      0 is the only good one. A distance that came with a bad
  *                   status is not a shorter distance, it is not a distance at
- *                   all, so it is shown greyed rather than as a number to
+ *                   all, so it is shown grayed rather than as a number to
  *                   believe.
  *
  *   min and max     the range seen since power-on. Sweep the sensor across a
@@ -66,7 +66,7 @@ using namespace bibo;
  * in main(). Only the speed is a property of this sketch. */
 #define I2C_HZ       400000u     /* the sensor is happy at 400 kHz */
 
-/* Full scale for the bar, in millimetres. 2 m is a useful indoor span: far
+/* Full scale for the bar, in millimeters. 2 m is a useful indoor span: far
  * enough to be interesting, near enough that the bar moves when you do. */
 #define BAR_FULL_MM  2000
 
@@ -126,8 +126,8 @@ int main(Void)
     /* The four appearances this screen uses, named once. */
     const gfx::Paint TITLE { .fg = gfx::ORANGE,   .size = 2 };
     const gfx::Paint ALERT { .fg = gfx::RED      };
-    const gfx::Paint MUTED { .fg = gfx::GREY     };
-    const gfx::Paint FAINT { .fg = gfx::DARKGREY };
+    const gfx::Paint MUTED { .fg = gfx::GRAY     };
+    const gfx::Paint FAINT { .fg = gfx::DARKGRAY };
 
     const Bool haveBus = i2c::open(pins::active().i2cSda,
                                    pins::active().i2cScl, I2C_HZ);
@@ -205,7 +205,7 @@ int main(Void)
         /* ---- the number -------------------------------------------------- */
         const Bool good = (status == 0);
 
-        const gfx::Paint BIG { .fg = good ? gfx::WHITE : gfx::DARKGREY, .size = 4 };
+        const gfx::Paint BIG { .fg = good ? gfx::WHITE : gfx::DARKGRAY, .size = 4 };
         if(good)
         {
             c.printf({ left, y }, BIG, "%u", mm);
@@ -219,22 +219,22 @@ int main(Void)
         c.text({ left, y }, "MM", MUTED);
         y += 18;
 
-        const gfx::Paint METRES { .fg = good ? gfx::CYAN : gfx::DARKGREY, .size = 2 };
+        const gfx::Paint METERS { .fg = good ? gfx::CYAN : gfx::DARKGRAY, .size = 2 };
         if(good)
         {
             /* One decimal, done in integers - a float here would pull in the
              * whole soft-float formatting path for one number. */
-            c.printf({ left, y }, METRES, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
+            c.printf({ left, y }, METERS, "%u.%02u M", mm / 1000u, (mm % 1000u) / 10u);
         }
         else
         {
-            c.text({ left, y }, "--.-- M", METRES);
+            c.text({ left, y }, "--.-- M", METERS);
         }
         y += 30;
 
         /* ---- the bar ----------------------------------------------------- */
         const Int32 barH = 16;
-        c.rect({ left, y, wide, barH }, gfx::DARKGREY);
+        c.rect({ left, y, wide, barH }, gfx::DARKGRAY);
 
         if(good)
         {
@@ -245,7 +245,7 @@ int main(Void)
                 fill = wide - 2;
             }
 
-            /* Green far, amber near, red very near - the colours a bumper
+            /* Green far, amber near, red very near - the colors a bumper
              * wants, so the same view is useful once this is on the car. */
             const UInt16 bar = (mm < 150) ? gfx::RED
                            : (mm < 400) ? gfx::ORANGE

@@ -117,7 +117,7 @@ Int32 main(Void)
     printf("\ncontrol: windup\n\n");
 
     /* INTEGRAL WINDUP is the one that hurts on a car. Hold a target it cannot
-     * reach - a wheel against a kerb - and a naive integral grows for as long
+     * reach - a wheel against a curb - and a naive integral grows for as long
      * as it is held, then dumps the moment the wheel comes free. */
     control::Pid wind;
     wind.kp     = 1.0f;
@@ -166,7 +166,7 @@ Int32 main(Void)
     check(!odom::calibrated(),
           "odometry reports itself UNcalibrated - nothing is measured yet");
 
-    check(odom::metresPerTick() > 0.0f, "metres per tick is positive");
+    check(odom::metersPerTick() > 0.0f, "meters per tick is positive");
 
     odom::Wheel w;
     odom::reset(&w, 0u);
@@ -177,7 +177,7 @@ Int32 main(Void)
     {
         odom::tick(&w);
     }
-    check(near(odom::distance(&w), 10.0f * odom::metresPerTick(), 0.0001f),
+    check(near(odom::distance(&w), 10.0f * odom::metersPerTick(), 0.0001f),
           "ten ticks is ten tick-lengths");
 
     /* FIRST UPDATE HAS NO WINDOW. There is no previous timestamp, so a speed
@@ -197,7 +197,7 @@ Int32 main(Void)
     static_cast<Void>(odom::update(&r, 0u, 0.0f));
     odom::tick(&r);
     const Float32 v = odom::update(&r, 1000000u, 0.0f);
-    check(near(v, odom::metresPerTick(), 0.0001f),
+    check(near(v, odom::metersPerTick(), 0.0001f),
           "one tick in one second is one tick-length per second");
 
     /* Filtered, the same input must approach but not exceed it - a lag that
@@ -207,7 +207,7 @@ Int32 main(Void)
     static_cast<Void>(odom::update(&fw, 0u, 0.5f));
     odom::tick(&fw);
     const Float32 lagged = odom::update(&fw, 1000000u, 0.5f);
-    check(lagged > 0.0f && lagged <= odom::metresPerTick() + 0.0001f,
+    check(lagged > 0.0f && lagged <= odom::metersPerTick() + 0.0001f,
           "the filter approaches the raw value without overshooting it");
 
     check(odom::distance(nullptr) == 0.0f, "a null wheel is 0, not a crash");

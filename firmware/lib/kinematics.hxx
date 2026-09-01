@@ -25,7 +25,7 @@ namespace bibo::kin
 {
 
     /**
-     * @brief Front axle to rear axle, in metres.
+     * @brief Front axle to rear axle, in meters.
      *
      * 257 mm is the TT-02 catalog figure. This number sets the whole
      * relationship between steering angle and curvature, so an error here is
@@ -81,7 +81,7 @@ namespace bibo::kin
      */
     struct Config
     {
-        Float32 wheelbase = KIN_WHEELBASE_M;   /* metres, front axle to rear */
+        Float32 wheelbase = KIN_WHEELBASE_M;   /* meters, front axle to rear */
         Float32 maxSteer  = KIN_MAX_STEER_RAD; /* radians, the smaller lock  */
 
         /* As with odometry: a claim the person who measured makes, not
@@ -94,7 +94,7 @@ namespace bibo::kin
     /**
      * @brief Installs a new car shape, rejecting one a car cannot have.
      *
-     * @param c the shape to install; wheelbase in metres, maxSteer in
+     * @param c the shape to install; wheelbase in meters, maxSteer in
      *          radians
      * @return false, leaving the previous shape in place, when wheelbase or
      *         maxSteer is zero or negative
@@ -141,14 +141,14 @@ namespace bibo::kin
      *
      * curvature = tan(steer) / wheelbase
      *
-     * Curvature is 1/radius: zero is straight, 2.0 is a half-metre circle. A
+     * Curvature is 1/radius: zero is straight, 2.0 is a half-meter circle. A
      * controller thinks in curvature because that is what a path has; the
      * servo wants an angle. This function and steerFor() are the only place
      * the conversion happens.
      *
      * @param steerRad the steering angle, radians, positive turning left
-     * @param wheelbase front axle to rear axle, metres, must be positive
-     * @return the curvature, 1/metres; 0.0 when wheelbase is not positive
+     * @param wheelbase front axle to rear axle, meters, must be positive
+     * @return the curvature, 1/meters; 0.0 when wheelbase is not positive
      */
     inline Float32 curvatureFor(const Float32 steerRad, const Float32 wheelbase)
     {
@@ -164,8 +164,8 @@ namespace bibo::kin
      *
      * The inverse of curvatureFor().
      *
-     * @param curvature the wanted curvature, 1/metres, positive turning left
-     * @param wheelbase front axle to rear axle, metres
+     * @param curvature the wanted curvature, 1/meters, positive turning left
+     * @param wheelbase front axle to rear axle, meters
      * @return the steering angle, radians; not clamped to the linkage's
      *         travel - pass the result through clampSteer() before using it
      */
@@ -236,11 +236,11 @@ namespace bibo::kin
      * The straight-line case is kept for near-zero curvature, where the arc
      * form divides by a heading change that is approaching zero.
      *
-     * @param p the pose before this step: x and y in metres, heading in
+     * @param p the pose before this step: x and y in meters, heading in
      *          radians
-     * @param v speed, metres per second, along the car's heading
+     * @param v speed, meters per second, along the car's heading
      * @param steerRad the steering angle for this step, radians
-     * @param wheelbase front axle to rear axle, metres
+     * @param wheelbase front axle to rear axle, meters
      * @param dtS the step duration, seconds; must be positive
      * @return the pose after driving the arc for dtS seconds; unchanged from
      *         `p` when dtS or wheelbase is not positive
@@ -253,7 +253,7 @@ namespace bibo::kin
             return p;
         }
 
-        const Float32 ds     = v * dtS;                                /* metres */
+        const Float32 ds     = v * dtS;                                /* meters */
         const Float32 dTheta = ds * tanf(steerRad) / wheelbase;      /* radians */
 
         geom::Pose out = p;
@@ -292,7 +292,7 @@ namespace bibo::kin
      * @brief curvatureFor(), using the installed Config::wheelbase.
      *
      * @param steerRad the steering angle, radians, positive turning left
-     * @return the curvature, 1/metres
+     * @return the curvature, 1/meters
      */
     inline Float32 curvatureFor(const Float32 steerRad)
     {
@@ -302,7 +302,7 @@ namespace bibo::kin
     /**
      * @brief steerFor(), using the installed Config::wheelbase.
      *
-     * @param curvature the wanted curvature, 1/metres, positive turning left
+     * @param curvature the wanted curvature, 1/meters, positive turning left
      * @return the steering angle, radians, not clamped to the linkage
      */
     inline Float32 steerFor(const Float32 curvature)
@@ -335,9 +335,9 @@ namespace bibo::kin
     /**
      * @brief integrate(), using the installed Config::wheelbase.
      *
-     * @param p the pose before this step: x and y in metres, heading in
+     * @param p the pose before this step: x and y in meters, heading in
      *          radians
-     * @param v speed, metres per second
+     * @param v speed, meters per second
      * @param steerRad the steering angle for this step, radians
      * @param dtS the step duration, seconds; must be positive
      * @return the pose after driving the arc for dtS seconds
@@ -354,8 +354,8 @@ namespace bibo::kin
      * after.
      *
      * @param maxRad the steering limit, radians
-     * @param wheelbase front axle to rear axle, metres
-     * @return the turn radius, metres; 1e6 (effectively straight) when the
+     * @param wheelbase front axle to rear axle, meters
+     * @return the turn radius, meters; 1e6 (effectively straight) when the
      *         curvature at full lock is within 1e-6 of zero
      */
     inline Float32 minTurnRadius(const Float32 maxRad, const Float32 wheelbase)
@@ -371,7 +371,7 @@ namespace bibo::kin
     /**
      * @brief minTurnRadius(), using the installed Config.
      *
-     * @return the turn radius at full lock, metres
+     * @return the turn radius at full lock, meters
      */
     inline Float32 minTurnRadius(Void)
     {

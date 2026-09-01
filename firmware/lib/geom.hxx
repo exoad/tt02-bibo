@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
- * geom - where the car is, in metres and radians.
+ * geom - where the car is, in meters and radians.
  *
  * WORLD FRAME, not pixels. gfx.hxx has a Point and it is a screen coordinate;
  * this is the other kind, and keeping them in separate files with separate
@@ -38,7 +38,7 @@ namespace bibo::geom
 
     struct Vec2
     {
-        Float32 x = 0.0f;   /* metres */
+        Float32 x = 0.0f;   /* meters */
         Float32 y = 0.0f;
     };
 
@@ -110,9 +110,9 @@ namespace bibo::geom
      * does not need the square root - which on an M33 with no hardware divide
      * is worth avoiding inside a loop over a path.
      *
-     * @param a one point, metres
-     * @param b the other, metres
-     * @return the squared distance, metres squared
+     * @param a one point, meters
+     * @param b the other, meters
+     * @return the squared distance, meters squared
      */
     inline Float32 distanceSq(const Vec2 a, const Vec2 b)
     {
@@ -124,9 +124,9 @@ namespace bibo::geom
     /**
      * @brief The distance between two points.
      *
-     * @param a one point, metres
-     * @param b the other, metres
-     * @return the distance, metres
+     * @param a one point, meters
+     * @param b the other, meters
+     * @return the distance, meters
      *
      * @note Prefer distanceSq() where the value is only being compared - this
      *       one pays for a square root that the comparison does not need.
@@ -145,8 +145,8 @@ namespace bibo::geom
      * pursuit is built on.
      *
      * @param p where the car is and which way it faces
-     * @param world the point, in world metres
-     * @return the same point relative to the car, in metres
+     * @param world the point, in world meters
+     * @return the same point relative to the car, in meters
      *
      * @warning THE SIGN OF THE RESULT IS THE WHOLE ANSWER - a goal with
      *          positive y is to the left, and the car steers left. Getting the
@@ -175,8 +175,8 @@ namespace bibo::geom
      * world.
      *
      * @param p where the car is and which way it faces
-     * @param local the point in the car's frame, metres
-     * @return the same point in world metres
+     * @param local the point in the car's frame, meters
+     * @return the same point in world meters
      */
     inline Vec2 toWorld(const Pose& p, const Vec2 local)
     {

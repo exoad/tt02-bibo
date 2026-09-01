@@ -103,7 +103,7 @@ namespace bibo::plan
      * @brief Installs a new set of speed and acceleration limits.
      *
      * @param l the limits to install; vMax, aMax, aBrake, latAccel in their
-     *          documented units, vMin in metres per second
+     *          documented units, vMin in meters per second
      * @return false, leaving the previous limits in place, when vMax, aMax,
      *         aBrake, or latAccel is not positive, or vMin is negative or
      *         exceeds vMax
@@ -136,9 +136,9 @@ namespace bibo::plan
      * the Status gets whatever it initialized - which is its own value, not
      * a number this file invented.
      *
-     * @param path the path the car is following, in world metres
+     * @param path the path the car is following, in world meters
      * @param pose where the car is and which way it faces
-     * @param out set to the speed to hold, metres per second, only when the
+     * @param out set to the speed to hold, meters per second, only when the
      *            return is STATUS_OK
      * @return STATUS_NOT_IMPLEMENTED always, for now
      */
@@ -169,13 +169,13 @@ namespace bibo::plan
      */
     struct Guard
     {
-        Float32 stopM = 0.30f;   /* metres, nearer than this: stop          */
-        Float32 slowM = 1.20f;   /* metres, between the two: taper to stop  */
+        Float32 stopM = 0.30f;   /* meters, nearer than this: stop          */
+        Float32 slowM = 1.20f;   /* meters, between the two: taper to stop  */
 
         /* How far to either side counts as in the way. Narrower than the car
          * is optimistic; wider makes it flinch at doorframes. Half the track
          * plus a margin is the honest starting point. */
-        Float32 widthM = 0.22f;  /* metres */
+        Float32 widthM = 0.22f;  /* meters */
     };
 
     inline Guard guard;
@@ -183,7 +183,7 @@ namespace bibo::plan
     /**
      * @brief Installs a new obstacle gate.
      *
-     * @param g the gate to install; stopM, slowM, widthM all in metres
+     * @param g the gate to install; stopM, slowM, widthM all in meters
      * @return false, leaving the previous gate in place, when stopM is
      *         negative, slowM does not exceed stopM, or widthM is not
      *         positive
@@ -211,8 +211,8 @@ namespace bibo::plan
     /**
      * @brief STUB. Will return a speed cap given the nearest obstacle ahead.
      *
-     * @param nearestM distance to the nearest obstacle ahead, metres
-     * @param out set to the speed cap, metres per second, only when the
+     * @param nearestM distance to the nearest obstacle ahead, meters
+     * @param out set to the speed cap, meters per second, only when the
      *            return is STATUS_OK
      * @return STATUS_NOT_IMPLEMENTED always, for now
      */
@@ -241,10 +241,10 @@ namespace bibo::plan
      */
     struct Recorder
     {
-        /* Metres between kept points. Too fine wastes memory and adds nothing;
+        /* Meters between kept points. Too fine wastes memory and adds nothing;
          * too coarse cuts corners on the replay because the follower is
          * interpolating between things that were never adjacent. */
-        Float32 spacingM = 0.10f;   /* metres */
+        Float32 spacingM = 0.10f;   /* meters */
 
         /* And a heading change worth keeping even when the car has barely
          * moved - a tight corner taken slowly would otherwise be recorded as
@@ -257,7 +257,7 @@ namespace bibo::plan
     /**
      * @brief Installs new recording spacing rules.
      *
-     * @param r the rules to install; spacingM in metres, headingRad in
+     * @param r the rules to install; spacingM in meters, headingRad in
      *          radians
      * @return false, leaving the previous rules in place, when spacingM or
      *         headingRad is not positive
@@ -287,7 +287,7 @@ namespace bibo::plan
      *        last point kept.
      *
      * @param pose the pose to consider keeping
-     * @param into the buffer of kept points, world metres
+     * @param into the buffer of kept points, world meters
      * @param cap the capacity of `into`, in points
      * @param count the number of points kept so far; incremented on a keep
      * @return STATUS_NOT_IMPLEMENTED always, for now; once implemented,

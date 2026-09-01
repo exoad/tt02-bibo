@@ -99,8 +99,8 @@ namespace bibo::gfx
     constexpr UInt16 CYAN      = rgb(0, 255, 255);
     constexpr UInt16 MAGENTA   = rgb(255, 0, 255);
     constexpr UInt16 ORANGE    = rgb(255, 140, 0);
-    constexpr UInt16 GREY      = rgb(128, 128, 128);
-    constexpr UInt16 DARKGREY  = rgb(64, 64, 64);
+    constexpr UInt16 GRAY      = rgb(128, 128, 128);
+    constexpr UInt16 DARKGRAY  = rgb(64, 64, 64);
     constexpr UInt16 NAVY      = rgb(12, 16, 32);
     constexpr UInt16 PURPLE    = rgb(160, 90, 220);
     /**
@@ -267,7 +267,7 @@ namespace bibo::gfx
      * Paint - how a thing is drawn, as a VALUE.
      *
      * Flutter's idea, and it earns its place here for the same reason it does
-     * there: style used to be sticky state on the screen, so `textColour()` set a
+     * there: style used to be sticky state on the screen, so `textColor()` set a
      * color that stayed set, and a function that drew red text left the next
      * caller drawing red text. That is a bug you find by looking at the screen
      * rather than at the code.
@@ -281,7 +281,7 @@ namespace bibo::gfx
     enum Align
     {
         ALIGN_LEFT = 0,
-        ALIGN_CENTRE,
+        ALIGN_CENTER,
         ALIGN_RIGHT
     };
 
@@ -360,9 +360,9 @@ namespace bibo::gfx
         /**
          * @brief Fills the whole canvas with one color.
          *
-         * @param colour the fill color
+         * @param color the fill color
          */
-        Canvas& clear(UInt16 colour);
+        Canvas& clear(UInt16 color);
 
         /**
          * @brief Pushes whatever has changed since the last present to the
@@ -377,70 +377,70 @@ namespace bibo::gfx
          * @brief Draws a single pixel.
          *
          * @param p the pixel's position
-         * @param colour the color to draw with
+         * @param color the color to draw with
          */
-        Canvas& pixel(Point p, UInt16 colour);
+        Canvas& pixel(Point p, UInt16 color);
 
         /**
          * @brief Draws a line between two points.
          *
          * @param a one endpoint
          * @param b the other endpoint
-         * @param colour the color to draw with
+         * @param color the color to draw with
          */
-        Canvas& line(Point a, Point b, UInt16 colour);
+        Canvas& line(Point a, Point b, UInt16 color);
 
         /**
          * @brief Draws a rectangle's outline.
          *
          * @param b the rectangle
-         * @param colour the color to draw with
+         * @param color the color to draw with
          */
-        Canvas& rect(const Box& b, UInt16 colour);
+        Canvas& rect(const Box& b, UInt16 color);
 
         /**
          * @brief Draws a filled rectangle.
          *
          * @param b the rectangle
-         * @param colour the fill color
+         * @param color the fill color
          */
-        Canvas& rectFill(const Box& b, UInt16 colour);
+        Canvas& rectFill(const Box& b, UInt16 color);
 
         /**
          * @brief Draws a rounded rectangle's outline.
          *
          * @param b the rectangle
          * @param radius the corner radius; clamped to half the shorter side
-         * @param colour the color to draw with
+         * @param color the color to draw with
          */
-        Canvas& roundRect(const Box& b, Int32 radius, UInt16 colour);
+        Canvas& roundRect(const Box& b, Int32 radius, UInt16 color);
 
         /**
          * @brief Draws a filled rounded rectangle.
          *
          * @param b the rectangle
          * @param radius the corner radius; clamped to half the shorter side
-         * @param colour the fill color
+         * @param color the fill color
          */
-        Canvas& roundRectFill(const Box& b, Int32 radius, UInt16 colour);
+        Canvas& roundRectFill(const Box& b, Int32 radius, UInt16 color);
 
         /**
          * @brief Draws a circle's outline.
          *
-         * @param centre the circle's center
+         * @param center the circle's center
          * @param radius the radius; negative draws nothing
-         * @param colour the color to draw with
+         * @param color the color to draw with
          */
-        Canvas& circle(Point centre, Int32 radius, UInt16 colour);
+        Canvas& circle(Point center, Int32 radius, UInt16 color);
 
         /**
          * @brief Draws a filled circle.
          *
-         * @param centre the circle's center
+         * @param center the circle's center
          * @param radius the radius; negative draws nothing
-         * @param colour the fill color
+         * @param color the fill color
          */
-        Canvas& circleFill(Point centre, Int32 radius, UInt16 colour);
+        Canvas& circleFill(Point center, Int32 radius, UInt16 color);
 
         /**
          * @brief Draws a triangle's outline as three lines.
@@ -448,9 +448,9 @@ namespace bibo::gfx
          * @param a the first vertex
          * @param b the second vertex
          * @param cc the third vertex
-         * @param colour the color to draw with
+         * @param color the color to draw with
          */
-        Canvas& triangle(Point a, Point b, Point cc, UInt16 colour);
+        Canvas& triangle(Point a, Point b, Point cc, UInt16 color);
 
         /**
          * @brief Draws a filled triangle.
@@ -458,9 +458,9 @@ namespace bibo::gfx
          * @param a the first vertex
          * @param b the second vertex
          * @param cc the third vertex
-         * @param colour the fill color
+         * @param color the fill color
          */
-        Canvas& triangleFill(Point a, Point b, Point cc, UInt16 colour);
+        Canvas& triangleFill(Point a, Point b, Point cc, UInt16 color);
 
         /* Text takes a Paint rather than leaving a color set behind it. */
         /**
@@ -522,9 +522,9 @@ namespace bibo::gfx
         /**
          * @brief Draws the safe area's boundary, as a calibration aid.
          *
-         * @param colour the color to draw it with
+         * @param color the color to draw it with
          */
-        Canvas& safeOutline(UInt16 colour);
+        Canvas& safeOutline(UInt16 color);
 
         /* Queries - const, and not chainable, because they answer rather than
          * draw. */
@@ -701,7 +701,7 @@ namespace bibo::gfx
        *
        * The primitive every shape below is built from.
        */
-      inline Void span(Canvas* cv, Int32 x, const Int32 y, Int32 len, const UInt16 colour)
+      inline Void span(Canvas* cv, Int32 x, const Int32 y, Int32 len, const UInt16 color)
       {
           if(len <= 0 || y < cv->clipY || y >= cv->clipY + cv->clipH)
           {
@@ -726,7 +726,7 @@ namespace bibo::gfx
               UInt16* p = &cv->buf[y * PANEL_MAX_W + x];
               for(Int32 i = 0; i < len; ++i)
               {
-                  p[i] = colour;
+                  p[i] = color;
               }
               if(y < cv->dirtyTop)
               {
@@ -739,14 +739,14 @@ namespace bibo::gfx
           }
           else
           {
-              tft::detail::rect(cv->panel, x, y, len, 1, colour);
+              tft::detail::rect(cv->panel, x, y, len, 1, color);
           }
       }
 
       /** @brief Draws a single pixel, via span(). */
-      inline Void pixel(Canvas* cv, const Int32 x, const Int32 y, const UInt16 colour)
+      inline Void pixel(Canvas* cv, const Int32 x, const Int32 y, const UInt16 color)
       {
-          span(cv, x, y, 1, colour);
+          span(cv, x, y, 1, color);
       }
 
       /* Reads a pixel back. Only possible with the buffer - the panel itself cannot
@@ -763,9 +763,9 @@ namespace bibo::gfx
 
       /* Alpha, which needs to read what is already there and so needs the buffer. */
       /** @brief Blends a color over the pixel already there. Needs the buffer. */
-      inline Void pixelBlend(Canvas* cv, const Int32 x, const Int32 y, const UInt16 colour, const UInt8 alpha)
+      inline Void pixelBlend(Canvas* cv, const Int32 x, const Int32 y, const UInt16 color, const UInt8 alpha)
       {
-          pixel(cv, x, y, blend(peek(cv, x, y), colour, alpha));
+          pixel(cv, x, y, blend(peek(cv, x, y), color, alpha));
       }
 
       /* ---- present ------------------------------------------------------------- */
@@ -805,55 +805,55 @@ namespace bibo::gfx
       }
 
       /** @brief Fills the whole canvas. See Canvas::clear. */
-      inline Void clear(Canvas* cv, const UInt16 colour)
+      inline Void clear(Canvas* cv, const UInt16 color)
       {
           for(Int32 y = 0; y < cv->panel->height; ++y)
           {
-              span(cv, 0, y, cv->panel->width, colour);
+              span(cv, 0, y, cv->panel->width, color);
           }
       }
 
       /* ---- rectangles ---------------------------------------------------------- */
 
       /** @brief Fills a rectangle, as a stack of spans. */
-      inline Void rectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 colour)
+      inline Void rectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 color)
       {
           for(Int32 r = 0; r < h; ++r)
           {
-              span(cv, x, y + r, w, colour);
+              span(cv, x, y + r, w, color);
           }
       }
 
       /** @brief Draws a rectangle's outline. */
-      inline Void rect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 colour)
+      inline Void rect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, const UInt16 color)
       {
           if(w <= 0 || h <= 0)
           {
               return;
           }
-          span(cv, x, y, w, colour);
-          span(cv, x, y + h - 1, w, colour);
+          span(cv, x, y, w, color);
+          span(cv, x, y + h - 1, w, color);
           for(Int32 r = 1; r < h - 1; ++r)
           {
-              pixel(cv, x, y + r, colour);
-              pixel(cv, x + w - 1, y + r, colour);
+              pixel(cv, x, y + r, color);
+              pixel(cv, x + w - 1, y + r, color);
           }
       }
 
       /* ---- lines --------------------------------------------------------------- */
 
       /** @brief Draws a horizontal line, via span(). */
-      inline Void hLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const UInt16 colour)
+      inline Void hLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const UInt16 color)
       {
-          span(cv, x, y, w, colour);
+          span(cv, x, y, w, color);
       }
 
       /** @brief Draws a vertical line, pixel by pixel. */
-      inline Void vLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 h, const UInt16 colour)
+      inline Void vLine(Canvas* cv, const Int32 x, const Int32 y, const Int32 h, const UInt16 color)
       {
           for(Int32 i = 0; i < h; ++i)
           {
-              pixel(cv, x, y + i, colour);
+              pixel(cv, x, y + i, color);
           }
       }
 
@@ -863,7 +863,7 @@ namespace bibo::gfx
     * microcontroller.
     */
       /** @brief Draws a line between two points. See above. */
-      inline Void line(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const UInt16 colour)
+      inline Void line(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const UInt16 color)
       {
           const Int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
           const Int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
@@ -874,12 +874,12 @@ namespace bibo::gfx
        * worth the span path instead of stepping pixel by pixel. */
           if(dy == 0)
           {
-              span(cv, x0 < x1 ? x0 : x1, y0, dx + 1, colour);
+              span(cv, x0 < x1 ? x0 : x1, y0, dx + 1, color);
               return;
           }
           if(dx == 0)
           {
-              vLine(cv, x0, y0 < y1 ? y0 : y1, dy + 1, colour);
+              vLine(cv, x0, y0 < y1 ? y0 : y1, dy + 1, color);
               return;
           }
 
@@ -889,7 +889,7 @@ namespace bibo::gfx
 
           while(true)
           {
-              pixel(cv, x, y, colour);
+              pixel(cv, x, y, color);
               if(x == x1 && y == y1)
               {
                   break;
@@ -911,7 +911,7 @@ namespace bibo::gfx
       /* ---- circles ------------------------------------------------------------- */
 
       /** @brief Draws a circle's outline (midpoint algorithm). */
-      inline Void circle(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 colour)
+      inline Void circle(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 color)
       {
           if(r < 0)
           {
@@ -922,14 +922,14 @@ namespace bibo::gfx
           Int32 d = 1 - r;
           while(x <= y)
           {
-              pixel(cv, cx + x, cy + y, colour);
-              pixel(cv, cx - x, cy + y, colour);
-              pixel(cv, cx + x, cy - y, colour);
-              pixel(cv, cx - x, cy - y, colour);
-              pixel(cv, cx + y, cy + x, colour);
-              pixel(cv, cx - y, cy + x, colour);
-              pixel(cv, cx + y, cy - x, colour);
-              pixel(cv, cx - y, cy - x, colour);
+              pixel(cv, cx + x, cy + y, color);
+              pixel(cv, cx - x, cy + y, color);
+              pixel(cv, cx + x, cy - y, color);
+              pixel(cv, cx - x, cy - y, color);
+              pixel(cv, cx + y, cy + x, color);
+              pixel(cv, cx - y, cy + x, color);
+              pixel(cv, cx + y, cy - x, color);
+              pixel(cv, cx - y, cy - x, color);
               ++x;
               if(d < 0)
               {
@@ -944,7 +944,7 @@ namespace bibo::gfx
       }
 
       /** @brief Draws a filled circle, as horizontal spans. */
-      inline Void circleFill(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 colour)
+      inline Void circleFill(Canvas* cv, const Int32 cx, const Int32 cy, const Int32 r, const UInt16 color)
       {
           if(r < 0)
           {
@@ -955,10 +955,10 @@ namespace bibo::gfx
           Int32 d = 1 - r;
           while(x <= y)
           {
-              span(cv, cx - x, cy + y, 2 * x + 1, colour);
-              span(cv, cx - x, cy - y, 2 * x + 1, colour);
-              span(cv, cx - y, cy + x, 2 * y + 1, colour);
-              span(cv, cx - y, cy - x, 2 * y + 1, colour);
+              span(cv, cx - x, cy + y, 2 * x + 1, color);
+              span(cv, cx - x, cy - y, 2 * x + 1, color);
+              span(cv, cx - y, cy + x, 2 * y + 1, color);
+              span(cv, cx - y, cy - x, 2 * y + 1, color);
               ++x;
               if(d < 0)
               {
@@ -979,7 +979,7 @@ namespace bibo::gfx
     * and the code stays short.
     */
       /** @brief Draws a filled rounded rectangle. See above. */
-      inline Void roundRectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 colour)
+      inline Void roundRectFill(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 color)
       {
           if(w <= 0 || h <= 0)
           {
@@ -992,22 +992,22 @@ namespace bibo::gfx
           }
           if(r <= 0)
           {
-              rectFill(cv, x, y, w, h, colour);
+              rectFill(cv, x, y, w, h, color);
               return;
           }
 
-          rectFill(cv, x + r, y, w - 2 * r, h, colour);
-          rectFill(cv, x, y + r, r, h - 2 * r, colour);
-          rectFill(cv, x + w - r, y + r, r, h - 2 * r, colour);
+          rectFill(cv, x + r, y, w - 2 * r, h, color);
+          rectFill(cv, x, y + r, r, h - 2 * r, color);
+          rectFill(cv, x + w - r, y + r, r, h - 2 * r, color);
 
-          circleFill(cv, x + r,         y + r,         r, colour);
-          circleFill(cv, x + w - r - 1, y + r,         r, colour);
-          circleFill(cv, x + r,         y + h - r - 1, r, colour);
-          circleFill(cv, x + w - r - 1, y + h - r - 1, r, colour);
+          circleFill(cv, x + r,         y + r,         r, color);
+          circleFill(cv, x + w - r - 1, y + r,         r, color);
+          circleFill(cv, x + r,         y + h - r - 1, r, color);
+          circleFill(cv, x + w - r - 1, y + h - r - 1, r, color);
       }
 
       /** @brief Draws a rounded rectangle's outline: straight sides, arced corners. */
-      inline Void roundRect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 colour)
+      inline Void roundRect(Canvas* cv, const Int32 x, const Int32 y, const Int32 w, const Int32 h, Int32 r, const UInt16 color)
       {
           if(w <= 0 || h <= 0)
           {
@@ -1020,29 +1020,29 @@ namespace bibo::gfx
           }
           if(r <= 0)
           {
-              rect(cv, x, y, w, h, colour);
+              rect(cv, x, y, w, h, color);
               return;
           }
 
-          span(cv, x + r, y, w - 2 * r, colour);
-          span(cv, x + r, y + h - 1, w - 2 * r, colour);
-          vLine(cv, x, y + r, h - 2 * r, colour);
-          vLine(cv, x + w - 1, y + r, h - 2 * r, colour);
+          span(cv, x + r, y, w - 2 * r, color);
+          span(cv, x + r, y + h - 1, w - 2 * r, color);
+          vLine(cv, x, y + r, h - 2 * r, color);
+          vLine(cv, x + w - 1, y + r, h - 2 * r, color);
 
           Int32 cx = 0;
           Int32 cy = r;
           Int32 d  = 1 - r;
           while(cx <= cy)
           {
-              pixel(cv, x + w - r - 1 + cx, y + h - r - 1 + cy, colour);
-              pixel(cv, x + r - cx,         y + h - r - 1 + cy, colour);
-              pixel(cv, x + w - r - 1 + cy, y + h - r - 1 + cx, colour);
-              pixel(cv, x + r - cy,         y + h - r - 1 + cx, colour);
+              pixel(cv, x + w - r - 1 + cx, y + h - r - 1 + cy, color);
+              pixel(cv, x + r - cx,         y + h - r - 1 + cy, color);
+              pixel(cv, x + w - r - 1 + cy, y + h - r - 1 + cx, color);
+              pixel(cv, x + r - cy,         y + h - r - 1 + cx, color);
 
-              pixel(cv, x + w - r - 1 + cx, y + r - cy, colour);
-              pixel(cv, x + r - cx,         y + r - cy, colour);
-              pixel(cv, x + w - r - 1 + cy, y + r - cx, colour);
-              pixel(cv, x + r - cy,         y + r - cx, colour);
+              pixel(cv, x + w - r - 1 + cx, y + r - cy, color);
+              pixel(cv, x + r - cx,         y + r - cy, color);
+              pixel(cv, x + w - r - 1 + cy, y + r - cx, color);
+              pixel(cv, x + r - cy,         y + r - cx, color);
 
               ++cx;
               if(d < 0)
@@ -1060,11 +1060,11 @@ namespace bibo::gfx
       /* ---- triangles ----------------------------------------------------------- */
 
       /** @brief Draws a triangle's outline as three lines. */
-      inline Void triangle(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const Int32 x2, const Int32 y2, const UInt16 colour)
+      inline Void triangle(Canvas* cv, const Int32 x0, const Int32 y0, const Int32 x1, const Int32 y1, const Int32 x2, const Int32 y2, const UInt16 color)
       {
-          line(cv, x0, y0, x1, y1, colour);
-          line(cv, x1, y1, x2, y2, colour);
-          line(cv, x2, y2, x0, y0, colour);
+          line(cv, x0, y0, x1, y1, color);
+          line(cv, x1, y1, x2, y2, color);
+          line(cv, x2, y2, x0, y0, color);
       }
 
       /*
@@ -1072,7 +1072,7 @@ namespace bibo::gfx
     * that share the middle vertex, filling a span between the active edges.
     */
       /** @brief Draws a filled triangle. See above. */
-      inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, const UInt16 colour)
+      inline Void triangleFill(Canvas* cv, Int32 x0, Int32 y0, Int32 x1, Int32 y1, Int32 x2, Int32 y2, const UInt16 color)
       {
           Int32 tx = 0;
           Int32 ty = 0;
@@ -1129,7 +1129,7 @@ namespace bibo::gfx
               {
                   hi = x2;
               }
-              span(cv, lo, y0, hi - lo + 1, colour);
+              span(cv, lo, y0, hi - lo + 1, color);
               return;
           }
 
@@ -1156,7 +1156,7 @@ namespace bibo::gfx
 
               const Int32 lo = ax < bx ? ax : bx;
               const Int32 hi = ax < bx ? bx : ax;
-              span(cv, lo, y, hi - lo + 1, colour);
+              span(cv, lo, y, hi - lo + 1, color);
           }
       }
 
@@ -1169,7 +1169,7 @@ namespace bibo::gfx
     */
 
       /** @brief Sets the foreground color used for text drawn from here on. */
-      inline Void textColour(Canvas* cv, const UInt16 fg)
+      inline Void textColor(Canvas* cv, const UInt16 fg)
       {
           cv->fg = fg;
       }
@@ -1278,7 +1278,7 @@ namespace bibo::gfx
       {
           const Int32 w  = textWidth(cv, str);
           Int32       at = x;
-          if(align == ALIGN_CENTRE)
+          if(align == ALIGN_CENTER)
           {
               at = x - w / 2;
           }
@@ -1338,10 +1338,10 @@ namespace bibo::gfx
     * a little to spare. Then take the call out.
     */
       /** @brief Draws the safe area's boundary. See Canvas::safeOutline. */
-      inline Void safeOutline(Canvas* cv, const UInt16 colour)
+      inline Void safeOutline(Canvas* cv, const UInt16 color)
       {
           rect(cv, safeLeft(cv), safeTop(cv),
-               safeWidth(cv), safeHeight(cv), colour);
+               safeWidth(cv), safeHeight(cv), color);
       }
 
       /* ---- start --------------------------------------------------------------- */
@@ -1409,9 +1409,9 @@ namespace bibo::gfx
      * The value is not in what they do, it is in what a frame LOOKS like once
      * they exist - see the header comment at the top of this file.
      * ======================================================================== */
-    inline Canvas& Canvas::clear(const UInt16 colour)
+    inline Canvas& Canvas::clear(const UInt16 color)
     {
-        detail::clear(this, colour);
+        detail::clear(this, color);
         return *this;
     }
     inline Canvas& Canvas::present()
@@ -1429,9 +1429,9 @@ namespace bibo::gfx
         detail::safeInset(this, px);
         return *this;
     }
-    inline Canvas& Canvas::safeOutline(const UInt16 colour)
+    inline Canvas& Canvas::safeOutline(const UInt16 color)
     {
-        detail::safeOutline(this, colour);
+        detail::safeOutline(this, color);
         return *this;
     }
     inline Canvas& Canvas::clip(const Box& b)
@@ -1440,63 +1440,63 @@ namespace bibo::gfx
         return *this;
     }
 
-    inline Canvas& Canvas::pixel(const Point p, const UInt16 colour)
+    inline Canvas& Canvas::pixel(const Point p, const UInt16 color)
     {
-        detail::pixel(this, p.x, p.y, colour);
+        detail::pixel(this, p.x, p.y, color);
         return *this;
     }
 
-    inline Canvas& Canvas::line(const Point a, const Point b, const UInt16 colour)
+    inline Canvas& Canvas::line(const Point a, const Point b, const UInt16 color)
     {
-        detail::line(this, a.x, a.y, b.x, b.y, colour);
+        detail::line(this, a.x, a.y, b.x, b.y, color);
         return *this;
     }
 
-    inline Canvas& Canvas::rect(const Box& b, const UInt16 colour)
+    inline Canvas& Canvas::rect(const Box& b, const UInt16 color)
     {
-        detail::rect(this, b.x, b.y, b.w, b.h, colour);
+        detail::rect(this, b.x, b.y, b.w, b.h, color);
         return *this;
     }
 
-    inline Canvas& Canvas::rectFill(const Box& b, const UInt16 colour)
+    inline Canvas& Canvas::rectFill(const Box& b, const UInt16 color)
     {
-        detail::rectFill(this, b.x, b.y, b.w, b.h, colour);
+        detail::rectFill(this, b.x, b.y, b.w, b.h, color);
         return *this;
     }
 
-    inline Canvas& Canvas::roundRect(const Box& b, const Int32 radius, const UInt16 colour)
+    inline Canvas& Canvas::roundRect(const Box& b, const Int32 radius, const UInt16 color)
     {
-        detail::roundRect(this, b.x, b.y, b.w, b.h, radius, colour);
+        detail::roundRect(this, b.x, b.y, b.w, b.h, radius, color);
         return *this;
     }
 
-    inline Canvas& Canvas::roundRectFill(const Box& b, const Int32 radius, const UInt16 colour)
+    inline Canvas& Canvas::roundRectFill(const Box& b, const Int32 radius, const UInt16 color)
     {
-        detail::roundRectFill(this, b.x, b.y, b.w, b.h, radius, colour);
+        detail::roundRectFill(this, b.x, b.y, b.w, b.h, radius, color);
         return *this;
     }
 
-    inline Canvas& Canvas::circle(const Point centre, const Int32 radius, const UInt16 colour)
+    inline Canvas& Canvas::circle(const Point center, const Int32 radius, const UInt16 color)
     {
-        detail::circle(this, centre.x, centre.y, radius, colour);
+        detail::circle(this, center.x, center.y, radius, color);
         return *this;
     }
 
-    inline Canvas& Canvas::circleFill(const Point centre, const Int32 radius, const UInt16 colour)
+    inline Canvas& Canvas::circleFill(const Point center, const Int32 radius, const UInt16 color)
     {
-        detail::circleFill(this, centre.x, centre.y, radius, colour);
+        detail::circleFill(this, center.x, center.y, radius, color);
         return *this;
     }
 
-    inline Canvas& Canvas::triangle(const Point a, const Point b, const Point cc, const UInt16 colour)
+    inline Canvas& Canvas::triangle(const Point a, const Point b, const Point cc, const UInt16 color)
     {
-        detail::triangle(this, a.x, a.y, b.x, b.y, cc.x, cc.y, colour);
+        detail::triangle(this, a.x, a.y, b.x, b.y, cc.x, cc.y, color);
         return *this;
     }
 
-    inline Canvas& Canvas::triangleFill(const Point a, const Point b, const Point cc, const UInt16 colour)
+    inline Canvas& Canvas::triangleFill(const Point a, const Point b, const Point cc, const UInt16 color)
     {
-        detail::triangleFill(this, a.x, a.y, b.x, b.y, cc.x, cc.y, colour);
+        detail::triangleFill(this, a.x, a.y, b.x, b.y, cc.x, cc.y, color);
         return *this;
     }
 
@@ -1511,7 +1511,7 @@ namespace bibo::gfx
      */
     inline Void applyPaint(Canvas* cv, const Paint& p)
     {
-        detail::textColour(cv, p.fg);
+        detail::textColor(cv, p.fg);
         detail::textSize(cv, p.size > 0 ? p.size : 1);
         if(p.bgSolid)
         {

@@ -7,7 +7,7 @@
  *
  * These are measurements of one particular car, not a datasheet. A servo's own
  * range is 1000-2000 us; what a TT-02's steering can actually reach is narrower
- * and off-centre, because the horn only fits the spline at whole-tooth
+ * and off-center, because the horn only fits the spline at whole-tooth
  * intervals and the linkage is whatever length it is. There is no way to know
  * these numbers except by moving the servo and watching.
  *
@@ -94,7 +94,7 @@
  * Also used the other way for reverse: more than this BELOW neutral counts as
  * being driven backwards.
  *
- * Tuning, not measurement, like the slew step above - it is a judgement about
+ * Tuning, not measurement, like the slew step above - it is a judgment about
  * when "moving" starts, and the honest answer is whatever looks right on the
  * car. It lives here for the same reason: this is the file that survives a
  * reflash.

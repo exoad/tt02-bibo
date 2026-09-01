@@ -27,7 +27,7 @@
  * ---------------------------------------------------------------------------
  * WHICH PANEL HAVE I GOT?
  *
- * The boards labelled GND / VCC / SCL / SDA / RES / DC / CS / BLK ship with
+ * The boards labeled GND / VCC / SCL / SDA / RES / DC / CS / BLK ship with
  * either controller behind them and the silkscreen rarely says. They take the
  * same wiring and almost the same commands, so this drives both and you pick
  * with the one define below.
@@ -46,7 +46,7 @@
  *   backlight on, screen black      wrong controller, or DC and RES swapped
  *   only part of the screen painted wrong size passed to tft::open
  *   image shifted, a band unpainted wrong offset
- *   colours inverted                wrong PANEL_INVERT
+ *   colors inverted                wrong PANEL_INVERT
  *   blue where yellow should be     red and blue swapped - MADCTL 0x00 -> 0x08
  *   noise, tearing, intermittent    SPI too fast - drop PANEL_HZ
  *
@@ -170,7 +170,7 @@ namespace bibo
     constexpr UInt16 YELLOW = rgb(255, 255, 0);
     constexpr UInt16 CYAN = rgb(0, 255, 255);
     constexpr UInt16 MAGENTA = rgb(255, 0, 255);
-    constexpr UInt16 GREY = rgb(128, 128, 128);
+    constexpr UInt16 GRAY = rgb(128, 128, 128);
     constexpr UInt16 ORANGE = rgb(255, 140, 0);
     /**
      * @brief Everything about one physical panel, in one place.
@@ -428,9 +428,9 @@ namespace bibo
        * @param y top edge, in screen pixels; may be negative or off-screen
        * @param w rectangle width in pixels
        * @param h rectangle height in pixels
-       * @param colour the RGB565 fill color
+       * @param color the RGB565 fill color
        */
-      inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, const UInt16 colour)
+      inline Void rect(const Screen* s, Int32 x, Int32 y, Int32 w, Int32 h, const UInt16 color)
       {
         if(w <= 0 || h <= 0)
         {
@@ -460,8 +460,8 @@ namespace bibo
         }
 
         UInt8       line[PANEL_MAX_W * 2];
-        const UInt8 hi = static_cast<UInt8>(colour >> 8);
-        const UInt8 lo = static_cast<UInt8>(colour & 0xFF);
+        const UInt8 hi = static_cast<UInt8>(color >> 8);
+        const UInt8 lo = static_cast<UInt8>(color & 0xFF);
         for(Int32 i = 0; i < w; ++i)
         {
             line[i * 2]     = hi;
@@ -480,11 +480,11 @@ namespace bibo
        * @brief Fills the entire screen with one color.
        *
        * @param s the screen to draw on
-       * @param colour the RGB565 fill color
+       * @param color the RGB565 fill color
        */
-      inline Void fill(const Screen* s, const UInt16 colour)
+      inline Void fill(const Screen* s, const UInt16 color)
       {
-        rect(s, 0, 0, s->width, s->height, colour);
+        rect(s, 0, 0, s->width, s->height, color);
       }
 
       /**
@@ -493,11 +493,11 @@ namespace bibo
        * @param s the screen to draw on
        * @param x pixel column, in screen pixels
        * @param y pixel row, in screen pixels
-       * @param colour the RGB565 pixel color
+       * @param color the RGB565 pixel color
        */
-      inline Void pixel(const Screen* s, const Int32 x, const Int32 y, const UInt16 colour)
+      inline Void pixel(const Screen* s, const Int32 x, const Int32 y, const UInt16 color)
       {
-        rect(s, x, y, 1, 1, colour);
+        rect(s, x, y, 1, 1, color);
       }
 
       /* ---- text ----------------------------------------------------------------

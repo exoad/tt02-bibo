@@ -32,7 +32,7 @@ REM
 REM    4. An incremental build reporting 0 warnings because it had not
 REM       recompiled the file that warns. => both boards are built CLEAN.
 REM
-REM  The rule underneath all four: measure the artefact, not the name of it,
+REM  The rule underneath all four: measure the artifact, not the name of it,
 REM  and prefer a check that fails loudly to one that passes quietly.
 REM ===========================================================================
 
