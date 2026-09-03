@@ -29,6 +29,7 @@
 #include "lidar_source.hxx"
 #include "pico_flash.hxx"
 #include "pico_link.hxx"
+#include "reactive.hxx"
 #include "radar.hxx"
 #include "icons.hxx"
 #include "lights.hxx"
@@ -942,6 +943,130 @@ namespace
   // entry while iterating the list that drew it is how a tree crashes.
   Str codePendingDelete;
 
+  // ---- what the tree's right-click menu asked for ------------------------
+  //
+  // ALL OF IT DEFERRED, for the reason above: a menu entry runs in the middle of
+  // the loop drawing the tree, and creating, renaming or deleting there mutates
+  // the very vector being iterated. Each entry records an INTENT here and the
+  // work happens after the tree has finished drawing.
+  enum class TreeOp
+  {
+      TREE_OP_NONE = 0,
+      TREE_OP_NEW_FILE,
+      TREE_OP_NEW_FOLDER,
+      TREE_OP_RENAME,
+      TREE_OP_DELETE,
+  };
+
+  TreeOp treeOp = TreeOp::TREE_OP_NONE;
+
+  // The folder an operation happens IN, absolute. For New File and New Folder
+  // this is where the thing is created; for Rename and Delete it is the parent
+  // of the target.
+  Str treeOpDir;
+
+  // The thing being renamed or deleted, absolute. Empty for the two creates.
+  Str treeOpTarget;
+
+  // True when the target is a folder rather than a file, which decides whether
+  // Delete calls removeDir() and what the confirmation says.
+  Bool treeOpIsDir = false;
+
+  // The name being typed. Seeded with the current name for a rename so the
+  // common case - changing an extension, fixing a typo - starts from something
+  // rather than from nothing.
+  Array<Char, 256> treeNameBuf{};
+
+  // Set while a modal is up, so the tree stops acting on hover and the popup
+  // owns the keyboard.
+  Bool treeModalOpen = false;
+
+  // Shown inside the modal, under the field. Cleared every time it reopens, so
+  // last attempt's complaint never sits under this attempt's typing.
+  Str treeModalError;
+
+  // The leaf of a path: "display.hxx" out of "...\lib\drivers\display.hxx".
+  [[nodiscard]] Str leafOf(const Str& path)
+  {
+      const Size cut = path.find_last_of("\\/");
+      return (cut == Str::npos) ? path : path.substr(cut + 1);
+  }
+
+  // Everything before the leaf, with no trailing separator.
+  [[nodiscard]] Str parentOf(const Str& path)
+  {
+      const Size cut = path.find_last_of("\\/");
+      return (cut == Str::npos) ? Str() : path.substr(0, cut);
+  }
+
+  // Records what the menu entry wants and raises the popup for it.
+  Void treeAsk(TreeOp op, const Str& dir, const Str& target, Bool isDir)
+  {
+      treeOp = op;
+      treeOpDir = dir;
+      treeOpTarget = target;
+      treeOpIsDir = isDir;
+      treeModalError.clear();
+      treeModalOpen = true;
+      treeNameBuf[0] = '\0';
+
+      // A rename starts from the CURRENT name. Renaming is almost always
+      // editing a name rather than replacing it - an extension, a typo - and
+      // starting from an empty field makes you retype what was already right.
+      if(op == TreeOp::TREE_OP_RENAME && !target.empty())
+      {
+          const Str  leaf = leafOf(target);
+          const Size n = (std::min)(leaf.size(), treeNameBuf.size() - 1);
+          std::memcpy(treeNameBuf.data(), leaf.c_str(), n);
+          treeNameBuf[n] = '\0';
+      }
+  }
+
+  // The entries every row in the tree shares, folder or file.
+  //
+  // ONE FUNCTION rather than one menu per row kind, because the two menus
+  // drifting apart is exactly the bug this is meant to avoid: a Rename that
+  // exists on files and not folders is indistinguishable from a Rename that is
+  // broken on folders.
+  //
+  // `dir` is the folder things get CREATED in - for a file row that is the
+  // folder the file sits in, so "New File" beside a file means a sibling.
+  Void treeRowMenu(const Str& dir, const Str& target, Bool isDir)
+  {
+      if(ui::iconMenuItem(ui::Icon::ICON_CODE, "New File..."))
+      {
+          treeAsk(TreeOp::TREE_OP_NEW_FILE, dir, Str(), false);
+      }
+      if(ui::iconMenuItem(ui::Icon::ICON_OPEN, "New Folder..."))
+      {
+          treeAsk(TreeOp::TREE_OP_NEW_FOLDER, dir, Str(), false);
+      }
+
+      ImGui::Separator();
+
+      if(ui::iconMenuItem(ui::Icon::ICON_SAVE, "Rename..."))
+      {
+          treeAsk(TreeOp::TREE_OP_RENAME, dir, target, isDir);
+      }
+      if(ui::iconMenuItem(ui::Icon::ICON_OPEN, "Reveal in Explorer"))
+      {
+          sketch::reveal(target);
+      }
+
+      ImGui::Separator();
+
+      // No BeginDisabled here any more. Deleting a tracked file used to be
+      // refused outright with "firmware/ is in git - delete it there", which was
+      // true and also meant the menu could not do the thing the menu is for.
+      // The confirmation carries that warning instead, where it is read.
+      ui::pushTint(ui::Tint::TINT_BAD);
+      if(ui::iconMenuItem(ui::Icon::ICON_CLEAR, "Delete..."))
+      {
+          treeAsk(TreeOp::TREE_OP_DELETE, dir, target, isDir);
+      }
+      ui::popTint(ui::Tint::TINT_BAD);
+  }
+
   // Build & Flash is TWO operations, and which is in flight decides what a failure
   // means: one boolean cannot tell "queued" from "the flash itself just failed".
   enum class CodeOp
@@ -1240,6 +1365,178 @@ namespace
           return;
       }
       picoLink.send(line, true);
+  }
+
+  // ============================================ reactive: the lidar drives ==
+  //
+  // The binding between firmware/pilot/src/reactive.hxx - pure, proved on
+  // synthetic scans - and the two devices it was written for. This is the ONLY
+  // place that knows both: each lidar revolution goes to step(), and what
+  // comes back goes down the Pico link in the same commands the Drive view
+  // sends by hand. Nothing here decides anything about driving.
+  //
+  // THE CALLER'S HALF OF "AN EMPTY SCAN IS NOT AN EMPTY ROOM". The module only
+  // sees the scans it is given. A lidar that stops producing them is invisible
+  // to it, and so is a link that drops - so both are watched HERE, and either
+  // ends the session with the car at neutral.
+  //
+  // ESC NEUTRAL, NOT STOP, for the module's own stops. STOP on the board is the
+  // emergency path - it disarms the ESC and releases the steering - and
+  // `ESC <us>` is refused while disarmed, so a controller that sent STOP for
+  // every wall would have to re-arm to move again. Arming stays the operator's
+  // act, in the Drive view; this drives an ESC that is already armed and stops
+  // the moment it is not.
+  //
+  // FORWARD ONLY, for now. docs/wiring.md calls this a forward-only car and the
+  // Drive view's throttle range is idle..full. The module's reverse mode
+  // therefore lands at neutral with the wheels turned toward the room: a stop
+  // and point rather than a back-out. When the drivetrain grows a reverse
+  // range, reactiveSend() is the one function to change.
+
+  Bool               reactiveOn = false;
+  reactive::State    reactiveState;
+  reactive::Outputs  reactiveOut;
+  reactive::Status   reactiveStatus = reactive::Status::STATUS_BLIND;
+  Float64            reactiveFrameAtS = 0.0;   // when the last revolution was fed in
+  Float64            reactiveTickAtS = 0.0;    // for dtMs
+  Float32            reactiveForwardDeg = 0.0f;   // the raw lidar angle that is straight ahead
+  Str                reactiveWhy;              // why the last session ended
+  Vec<reactive::Ray> reactiveRays;
+
+  // Longest gap between revolutions before the lidar is treated as gone. The
+  // C1 turns at about 10 Hz, so this is five missed turns.
+  constexpr Float64 REACTIVE_STALE_S = 0.5;
+
+  // Neutral and straight, still armed: what the car does between decisions.
+  Void reactiveNeutral()
+  {
+      sendPico("ESC NEUTRAL");
+      sendPico("STEER 0");
+  }
+
+  Void reactiveDisable(const Char* why)
+  {
+      if(!reactiveOn)
+      {
+          return;
+      }
+      reactiveOn = false;
+      reactiveWhy = why;
+      reactiveNeutral();
+      LOG_WARN("reactive", "off: %s", why);
+  }
+
+  Void reactiveStart()
+  {
+      reactive::Config c = reactive::tuning();
+      c.forwardDeg = reactiveForwardDeg;
+      if(!reactive::configure(c))
+      {
+          reactiveWhy = "tuning refused";
+          return;
+      }
+
+      reactiveState = reactive::State();
+      reactiveOut = reactive::Outputs();
+      reactiveStatus = reactive::Status::STATUS_BLIND;
+      reactiveTickAtS = 0.0;
+      reactiveFrameAtS = ImGui::GetTime();
+      reactiveWhy.clear();
+      reactiveOn = true;
+      LOG_INFO(
+          "reactive",
+          "on: lidar forward = %.0f deg",
+          static_cast<Float64>(reactiveForwardDeg)
+      );
+  }
+
+  // One decision, as commands. Steering always; throttle only for a forward
+  // decision from a scan the module trusted.
+  Void reactiveSend()
+  {
+      Array<Char, 48> cmd;
+      std::snprintf(cmd.data(), cmd.size(), "STEER %.3f", static_cast<Float64>(reactiveOut.steer));
+      sendPico(cmd.data());
+
+      const Int32 span = driveEscMax - driveEscMin;
+      if(reactiveStatus != reactive::Status::STATUS_OK || reactiveOut.stop
+         || reactiveOut.throttle <= 0.0f || span <= 0)
+      {
+          sendPico("ESC NEUTRAL");
+          return;
+      }
+
+      // The module's 0..1 onto the Drive view's idle..full, the same scale the
+      // throttle bar reads in - so "0.35" here is the 35% you would drag it to.
+      const Int32 us = driveEscMin
+                     + static_cast<Int32>(reactiveOut.throttle * static_cast<Float32>(span) + 0.5f);
+      std::snprintf(cmd.data(), cmd.size(), "ESC %d", us);
+      sendPico(cmd.data());
+  }
+
+  // Every frame, with whether a NEW revolution arrived this frame.
+  Void reactiveTick(Bool newFrame)
+  {
+      if(!reactiveOn)
+      {
+          return;
+      }
+      const Float64 now = ImGui::GetTime();
+
+      // The preconditions, re-checked every frame rather than only at start:
+      // each of these is something that ends a drive, not something to ride
+      // through.
+      if(picoLink.state() != PicoState::PICO_STATE_CONNECTED)
+      {
+          reactiveDisable("Pico link lost");
+          return;
+      }
+      if(!driveArmed)
+      {
+          reactiveDisable("ESC disarmed");
+          return;
+      }
+      if(lidarSource.state() != LidarState::LIDAR_STATE_SCANNING)
+      {
+          reactiveDisable("lidar not scanning");
+          return;
+      }
+
+      if(!newFrame)
+      {
+          if(now - reactiveFrameAtS > REACTIVE_STALE_S)
+          {
+              reactiveDisable("no lidar frames for 500 ms");
+          }
+          return;
+      }
+
+      // A copy, not a reinterpretation: LidarPoint carries a quality byte the
+      // module does not want, so the two structs cannot alias.
+      reactiveRays.clear();
+      reactiveRays.reserve(latestFrame.points.size());
+      for(const LidarPoint& p : latestFrame.points)
+      {
+          reactive::Ray r;
+          r.angleDeg = p.angleDeg;
+          r.distMm = p.distMm;   // 0 means no return, and the module knows that
+          reactiveRays.push_back(r);
+      }
+
+      const Int32 dtMs = (reactiveTickAtS > 0.0)
+                       ? static_cast<Int32>((now - reactiveTickAtS) * 1000.0)
+                       : 0;
+      reactiveTickAtS = now;
+      reactiveFrameAtS = now;
+
+      reactiveStatus = reactive::step(
+          reactiveRays.data(),
+          reactiveRays.size(),
+          dtMs,
+          &reactiveState,
+          &reactiveOut
+      );
+      reactiveSend();
   }
 
   Str trimLine(const Str& s)
@@ -2632,7 +2929,8 @@ namespace
 
   Void pumpData()
   {
-      if(lidarSource.poll(latestFrame))
+      const Bool newFrame = lidarSource.poll(latestFrame);
+      if(newFrame)
       {
           // Telemetry keeps updating whether or not the layer is drawn: hiding a
           // layer is a map decision, not a "stop measuring" decision.
@@ -2657,6 +2955,10 @@ namespace
               recView.push(latestFrame);
           }
       }
+
+      // The car, if the lidar is driving it. Every frame, so a lidar that has
+      // gone quiet is noticed by its silence rather than never.
+      reactiveTick(newFrame);
 
       // Turning the layer off empties the map once rather than every frame, so the
       // the trail does not linger and the fit history does not spring back on return.
@@ -2722,6 +3024,11 @@ namespace
 
   // ------------------------------------------------------------- HUD on map
 
+  // The one inset every overlay on a map uses - the state line, the readout
+  // plate, the recorder caption - and the same 16 logical px radar.cxx puts its
+  // scale bar at, so the overlays share an x. Equals IndentSpacing.
+  constexpr Float32 HUD_INSET = 16.0f;
+
   Void drawMapHud(const ImVec2& p0, const ImVec2& size)
   {
       // Minimal has no HUD. It is the one mode whose subject is the picture, and
@@ -2733,8 +3040,12 @@ namespace
 
       ImDrawList* dl = ImGui::GetWindowDrawList();
       ImFont* f = ui::fonts.small ? ui::fonts.small : ImGui::GetFont();
+      // The numbers in the mono face, at the small size: a proportional face
+      // changes width with every value and the right-aligned block shuffles.
+      ImFont* fn = ui::fonts.mono ? ui::fonts.mono : f;
       const Float32 px = f->LegacySize;
-      const Float32 pad = 14.0f * uiDpiScale;
+      const Float32 pad = HUD_INSET * uiDpiScale;
+      const ImGuiStyle& st = ImGui::GetStyle();
 
       const Char* stateText = lidarStateText();
       const ImU32 accent = lidarStateColorOnViewport();
@@ -2776,8 +3087,8 @@ namespace
           pointsPs,
           ImGui::GetIO().Framerate
       );
-      const Float32 tw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, thru.data()).x;
-      dl->AddText(f, px, ImVec2(p0.x + size.x - pad - tw, y), ui::plot::LABEL, thru.data());
+      const Float32 tw = fn->CalcTextSizeA(px, FLT_MAX, 0.0f, thru.data()).x;
+      dl->AddText(fn, px, ImVec2(p0.x + size.x - pad - tw, y), ui::plot::LABEL, thru.data());
 
       // ---- bottom left: cursor / measurement -------------------------------
       Array<Char, 128> read;
@@ -2805,17 +3116,21 @@ namespace
 
       if(read[0])
       {
-          const Float32 rw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, read.data()).x;
-          const ImVec2 bp(p0.x + pad, p0.y + size.y - pad - px - 10.0f * uiDpiScale);
-          const ImVec2 be(bp.x + rw + 18.0f * uiDpiScale, bp.y + px + 12.0f * uiDpiScale);
+          // Sized like a frame - text plus FramePadding - and from the style's
+          // button colours, so the plate is a key of the same casing, not a
+          // fifth set of numbers and a blue-grey of its own.
+          const Float32 rw = fn->CalcTextSizeA(px, FLT_MAX, 0.0f, read.data()).x;
+          const Float32 ph = px + st.FramePadding.y * 2.0f;
+          const ImVec2 be(p0.x + pad + rw + st.FramePadding.x * 2.0f, p0.y + size.y - pad);
+          const ImVec2 bp(p0.x + pad, be.y - ph);
           // A raised plate, the same treatment the buttons get: a readout sitting
           // on the display still belongs to the machine around it.
-          ui::plate(bp, be, IM_COL32(0x33, 0x36, 0x3B, 0xF2), ImGui::GetStyle().FrameRounding);
+          ui::plate(bp, be, ImGui::GetColorU32(ImGuiCol_Button), st.FrameRounding);
           dl->AddText(
-              f,
+              fn,
               px,
-              ImVec2(bp.x + 9.0f * uiDpiScale, bp.y + 6.0f * uiDpiScale),
-              IM_COL32(235, 238, 242, 255),
+              ImVec2(bp.x + st.FramePadding.x, bp.y + st.FramePadding.y),
+              ImGui::GetColorU32(ImGuiCol_Text),
               read.data()
           );
       }
@@ -2829,11 +3144,12 @@ namespace
           radarView.isAutoFit() ? "fit" : "manual",
           radarView.visibleRangeMm() * 2.0f / 1000.0f
       );
-      const Float32 zw = f->CalcTextSizeA(px, FLT_MAX, 0.0f, zoom.data()).x;
+      // On the plate's text baseline, so the two bottom lines share one.
+      const Float32 zw = fn->CalcTextSizeA(px, FLT_MAX, 0.0f, zoom.data()).x;
       dl->AddText(
-          f,
+          fn,
           px,
-          ImVec2(p0.x + size.x - pad - zw, p0.y + size.y - pad - px),
+          ImVec2(p0.x + size.x - pad - zw, p0.y + size.y - pad - st.FramePadding.y - px),
           ui::plot::LABEL,
           zoom.data()
       );
@@ -2843,7 +3159,7 @@ namespace
       // goes - the widest gap, the tightest sector, how much came back unusable -
       // so the view and its measurement are read together.
       {
-          const Float32 my = y + px + 6.0f * uiDpiScale;
+          const Float32 my = y + px + st.ItemSpacing.y;
           Float32 mx = p0.x + pad;
 
           // Whichever family is actually on screen. Printing the flat map's mode
@@ -2875,6 +3191,16 @@ namespace
       ImGui::TextDisabled("%s", caption);
   }
 
+  // A group heading inside a section: the caption tier (small, muted) over a
+  // rule, so section / group / row are three sizes rather than one.
+  Void groupLabel(const Char* s)
+  {
+      ScopedFont sf(ui::fonts.small);
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+      ImGui::SeparatorText(s);
+      ImGui::PopStyleColor();
+  }
+
   Void keyValue(const Char* k, const Char* fmt, ...)
   {
       Array<Char, 128> buf;
@@ -2901,6 +3227,33 @@ namespace
       ImGui::PushStyleColor(ImGuiCol_Text, col);
       ImGui::TextUnformatted(buf.data());
       ImGui::PopStyleColor();
+  }
+
+  // Text that ends at the cell's edge with an ellipsis, rather than running
+  // under it - a cell that shows "lamps on thc" is worse than one that shows
+  // "lamps on th...", which at least says it was cut. In the current text
+  // colour, so a PushStyleColor around it colours it like TextUnformatted.
+  Void textFit(const Char* s)
+  {
+      const ImVec2  sz = ImGui::CalcTextSize(s);
+      const Float32 avail = ImGui::GetContentRegionAvail().x;
+      if(sz.x <= avail)
+      {
+          ImGui::TextUnformatted(s);
+          return;
+      }
+
+      const ImVec2 p = ImGui::GetCursorScreenPos();
+      ImGui::RenderTextEllipsis(
+          ImGui::GetWindowDrawList(),
+          p,
+          ImVec2(p.x + avail, p.y + sz.y),
+          p.x + avail,
+          s,
+          nullptr,
+          &sz
+      );
+      ImGui::Dummy(ImVec2(avail, sz.y));
   }
 
   // ====================================================================== strip
@@ -2965,10 +3318,18 @@ namespace
 
   Void stripSep(BarPen& p)
   {
-      const Float32 g = ImGui::GetFontSize() * 0.75f;
+      // A one-pixel hairline in the separator tone, one ItemSpacing each side:
+      // the same neutral edge every other divider in the chrome is now, where
+      // this bar still drew a "|" glyph after the flowed rows lost theirs.
+      const Float32 g = ImGui::GetStyle().ItemSpacing.x;
+      const Float32 half = ImGui::GetTextLineHeight() * 0.5f;
       barGap(p, g);
-      barText(p, "|", ImGui::GetColorU32(ImGuiCol_TextDisabled));
-      barGap(p, g);
+      p.dl->AddRectFilled(
+          ImVec2(p.x, p.cy - half),
+          ImVec2(p.x + 1.0f, p.cy + half),
+          ImGui::GetColorU32(ImGuiCol_Separator)
+      );
+      barGap(p, 1.0f + g);
   }
 
   // Builds a label with enough leading spaces to clear an icon drawn in the frame
@@ -3028,24 +3389,25 @@ namespace
 
       const Float32 btnW = ImGui::CalcTextSize("A+").x + sty.FramePadding.x * 2.0f;
       const Float32 pctW = ImGui::CalcTextSize("000%").x;
-      const Float32 gap = sty.ItemInnerSpacing.x;
+      // ItemSpacing.x, the same gap the separators use: one spacing across the bar.
+      const Float32 gap = sty.ItemSpacing.x;
       const Float32 need = btnW * 2.0f + pctW + gap * 2.0f;
 
       const Float32 x0 = rightEdge - need;
 
-      // A SmallButton is NOT GetFrameHeight() tall: ImGui forces FramePadding.y to
-      // zero, so centering on GetFrameHeight() lifts it by one padding.
-      const Float32 bh = ImGui::GetTextLineHeight();
+      // Sized buttons rather than SmallButton: both are btnW wide (the label
+      // would otherwise decide) and one frame tall, filling the bar like a tab.
+      const Float32 bh = ImGui::GetFrameHeight();
 
       const Bool atMin = ui::userScale() <= ui::USER_SCALE_MIN + 0.001f;
       const Bool atMax = ui::userScale() >= ui::USER_SCALE_MAX - 0.001f;
 
-      // SmallButton is a real widget, so it is POSITIONED on the centerline
-      // rather than drawn on it: place the cursor at (center - height/2).
+      // A button is a real widget, so it is POSITIONED on the centerline rather
+      // than drawn on it: place the cursor at (center - height/2).
       ImGui::SetCursorScreenPos(ImVec2(x0, cy - bh * 0.5f));
 
       ImGui::BeginDisabled(atMin);
-      if(ImGui::SmallButton("A-"))
+      if(ImGui::Button("A-", ImVec2(btnW, bh)))
       {
           ui::setUserScale(ui::userScale() - ui::USER_SCALE_STEP);
       }
@@ -3081,7 +3443,7 @@ namespace
 
       ImGui::SetCursorScreenPos(ImVec2(x0 + btnW + pctW + gap * 2.0f, cy - bh * 0.5f));
       ImGui::BeginDisabled(atMax);
-      if(ImGui::SmallButton("A+"))
+      if(ImGui::Button("A+", ImVec2(btnW, bh)))
       {
           ui::setUserScale(ui::userScale() + ui::USER_SCALE_STEP);
       }
@@ -3106,8 +3468,10 @@ namespace
       pen.x = p0.x;
       pen.cy = p0.y + av.y * 0.5f;   // the one centerline everything shares
 
-      // The zoom control first, so the fields know where they have to stop.
-      const Float32 stopAt = drawZoomControl(pen.cy, p0.x + av.x);
+      // The zoom control first, so the fields know where they have to stop. It
+      // ends on the sidebar's CONTENT edge, a scrollbar in from the window's:
+      // that is where every control in the column above it ends.
+      const Float32 stopAt = drawZoomControl(pen.cy, p0.x + av.x - ImGui::GetStyle().ScrollbarSize);
 
       // ---- lidar ----------------------------------------------------------
       Array<Char, 64> lidarExtra= {};
@@ -3181,7 +3545,7 @@ namespace
       // ---- long-running operation ------------------------------------------
       // Dropped, not overlapped, when the window cannot clear the zoom control.
       const FlashState fs = picoFlash.state();
-      if(pen.x + ImGui::GetFontSize() * 8.0f < stopAt)
+      if(pen.x + ImGui::GetStyle().ItemSpacing.x + ImGui::GetFontSize() * 8.0f < stopAt)
       {
           stripSep(pen);
           if(fs == FlashState::FLASH_STATE_WORKING)
@@ -3230,37 +3594,88 @@ namespace
 
   // name | state | live value. The third column stays empty when there is no live
   // value - an empty cell is the honest reading.
+  // A lamp at the start of a state cell, so the column scans as a row of
+  // indicators before any of it is read as words. Flush on the column edge, the
+  // text ItemInnerSpacing after - the same gap iconLabel() leaves between icon
+  // and name in the first column. Both sidebar tables draw one, so their state
+  // text starts on the same x.
+  Void stateLamp(ImU32 col, Bool lit)
+  {
+      const Float32 r = ImGui::GetTextLineHeight() * 0.25f;
+      const ImVec2  cp = ImGui::GetCursorScreenPos();
+      ui::led(
+          ImGui::GetWindowDrawList(),
+          ImVec2(cp.x + r, cp.y + ImGui::GetTextLineHeight() * 0.5f),
+          r,
+          col,
+          lit
+      );
+      ImGui::Dummy(ImVec2(r * 2.0f, ImGui::GetTextLineHeight()));
+      ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+  }
+
   Void subsystemRow(ui::Icon ic, const Char* name, ImU32 col, const Char* state, const Char* value, Bool lit = true)
   {
       ImGui::TableNextRow();
 
       ImGui::TableNextColumn();
       ui::iconLabel(ic);
-      ImGui::TextUnformatted(name);
+      textFit(name);
 
       ImGui::TableNextColumn();
-      // A lamp beside every state, so the column scans as a row of indicators
-      // before any of it is read as words.
-      {
-          const Float32 r = ImGui::GetFontSize() * 0.20f;
-          const ImVec2  cp = ImGui::GetCursorScreenPos();
-          ui::led(
-              ImGui::GetWindowDrawList(),
-              ImVec2(cp.x + r * 1.8f, cp.y + ImGui::GetTextLineHeight() * 0.5f),
-              r,
-              col,
-              lit
-          );
-          ImGui::Dummy(ImVec2(r * 3.8f, ImGui::GetTextLineHeight()));
-          ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-      }
-      colored(col, "%s", state);
+      stateLamp(col, lit);
+      ImGui::PushStyleColor(ImGuiCol_Text, col);
+      textFit(state);
+      ImGui::PopStyleColor();
 
       ImGui::TableNextColumn();
       if(value && value[0])
       {
-          ImGui::TextUnformatted(value);
+          textFit(value);
       }
+  }
+
+  // The tall action button: a frame plus one more FramePadding each side, on
+  // the scale rather than the 1.2x each caller used to compute for itself.
+  Float32 tallButtonHeight()
+  {
+      return ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.y * 2.0f;
+  }
+
+  // The three columns the System table and the Sensors list share, so the state
+  // column sits on one x in both.
+  //
+  // The name column is FIXED at the widest label either table shows, plus one
+  // inner spacing of air: as a stretch weight it clipped the long names and
+  // put the firmware row's lamp four pixels off "Board firmware". The value
+  // column is fixed at the widest thing it shows in practice - a port or a
+  // board name; the UDP host ellipsises there and is in the field under the
+  // table anyway. The state column takes whatever is left, with an ellipsis.
+  Void subsystemColumns()
+  {
+      const ImGuiStyle& st = ImGui::GetStyle();
+
+      // The longest labels of either table. A new row longer than these adds
+      // its name here, or it ellipsises.
+      Float32 nameW = 0.0f;
+      for(const Char* n : { "Board firmware", "Encoder (GP15)", "ToF (GP10-13)", "MicroSD (SPI)" })
+      {
+          nameW = std::max(nameW, ImGui::CalcTextSize(n).x);
+      }
+
+      // One font size for the glyph slot: the icon (16 px) and the sensor rows'
+      // check box (0.86 em) are both under it.
+      nameW += ImGui::GetFontSize() + st.ItemInnerSpacing.x * 2.0f;
+
+      Float32 valueW = 0.0f;
+      for(const Char* v : { "COM10", "RP2350", "pico2_w" })
+      {
+          valueW = std::max(valueW, ImGui::CalcTextSize(v).x);
+      }
+
+      ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthFixed, nameW);
+      ImGui::TableSetupColumn("state", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+      ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed, valueW);
   }
 
   Void drawSubsystems()
@@ -3270,6 +3685,10 @@ namespace
       {
           return;
       }
+      // Declared, not derived: without these ImGui weighs the columns by their
+      // FIRST frame, when the port and board name are still empty, and the value
+      // column never got its width back once "COM10" arrived.
+      subsystemColumns();
 
       // The RPLIDAR deliberately has no row here: the Sensors section below in
       // this same column, and the strip at the top, already carry it.
@@ -3323,15 +3742,17 @@ namespace
       // GP13/GP12 the front indicators. The row says where the SENSORS are going.
       subsystemRow(
           ui::Icon::ICON_TOF,
-          "ToF bumpers (GP10-13)",
+          "ToF (GP10-13)",
           ui::sem::WARN,
           "lamps on those pins",
           "",
           false
       );
+      // "Encoder", not "Wheel encoder": the only label the name column could
+      // not hold, and the pin number is the part the other rows carry.
       subsystemRow(
           ui::Icon::ICON_ENCODER,
-          "Wheel encoder (GP15)",
+          "Encoder (GP15)",
           ui::sem::MUTED,
           "not wired",
           "",
@@ -3381,7 +3802,7 @@ namespace
                           && (ps == PicoState::PICO_STATE_CONNECTED
                               || ps == PicoState::PICO_STATE_CONNECTING);
 
-      ImGui::SeparatorText("Wireless link");
+      groupLabel("Wireless link");
 
       ImGui::BeginDisabled(live);
       ImGui::SetNextItemWidth(-FLT_MIN);
@@ -3474,18 +3895,18 @@ namespace
       }
   }
 
-  Void drawQuickActions()
+  Void drawQuickActions(Float32 bh)
   {
-      const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
       const Bool  busy = picoFlash.busy();
 
-      ImGui::SeparatorText("Quick actions");
+      groupLabel("Quick actions");
 
-      if(ImGui::BeginTable("quick", 2, ImGuiTableFlags_SizingStretchSame))
+      // Two flowed rows rather than a table: both gaps then come from
+      // ItemSpacing, where the table's came from CellPadding, twice, and
+      // differed by axis. The right column ends on the Wi-Fi button's edge.
+      const Float32 half = (ImGui::GetContentRegionAvail().x
+                            - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
       {
-          ImGui::TableNextRow();
-
-          ImGui::TableNextColumn();
           // Keyed on the LINK, not on scanning: off isBusy(), pausing the motor
           // replaced the very button that would start it again.
           if(lidarSource.connected())
@@ -3498,7 +3919,7 @@ namespace
               if(ui::iconButton(spinning ? ui::Icon::ICON_MOTOR_STOP
                                          : ui::Icon::ICON_MOTOR_RUN,
                                 spinning ? "Stop motor" : "Start motor",
-                                ImVec2(-FLT_MIN, bh),
+                                ImVec2(half, bh),
                                 spinning ? ui::Tint::TINT_WARN : ui::Tint::TINT_GOOD))
               {
                   lidarSource.setMotorEnabled(!spinning);
@@ -3510,7 +3931,7 @@ namespace
               if(ui::iconButton(
                   ui::Icon::ICON_PLUG_CONNECT,
                   "Connect lidar",
-                  ImVec2(-FLT_MIN, bh),
+                  ImVec2(half, bh),
                   ui::Tint::TINT_GOOD
               ))
               {
@@ -3519,7 +3940,7 @@ namespace
               ImGui::EndDisabled();
           }
 
-          ImGui::TableNextColumn();
+          ImGui::SameLine();
           const PicoState ps = picoLink.state();
           if(ps == PicoState::PICO_STATE_CONNECTED || ps == PicoState::PICO_STATE_CONNECTING)
           {
@@ -3571,16 +3992,15 @@ namespace
               }
           }
 
-          ImGui::TableNextRow();
-
-          ImGui::TableNextColumn();
           {
+              // Short labels, so BOTH fit their half with the icon beside the
+              // word: "BOOTSEL..." was ellipsised while "Back up flash" fitted.
               const Bool havePort = !picoLink.port().empty() || picoIndex >= 0;
               ImGui::BeginDisabled(!havePort);
               if(ui::iconButton(
                   ui::Icon::ICON_REBOOT,
-                  "Reboot to BOOTSEL...",
-                  ImVec2(-FLT_MIN, bh),
+                  "To BOOTSEL",
+                  ImVec2(half, bh),
                   ui::Tint::TINT_WARN
               ))
               {
@@ -3589,15 +4009,19 @@ namespace
               ImGui::EndDisabled();
           }
 
-          ImGui::TableNextColumn();
+          ImGui::SameLine();
           ImGui::BeginDisabled(busy || backupBuf[0] == '\0');
-          if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up board flash", ImVec2(-FLT_MIN, bh)))
+          if(ui::iconButton(ui::Icon::ICON_BACKUP, "Back up", ImVec2(-FLT_MIN, bh)))
           {
               startBackup();
           }
           ImGui::EndDisabled();
-
-          ImGui::EndTable();
+          if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+          {
+              ImGui::SetTooltip(
+                  "Copies the board's flash to a file before anything overwrites it."
+              );
+          }
       }
 
       // The result of the last BOOTSEL touch, next to the button that asks for
@@ -3617,27 +4041,36 @@ namespace
       // display. pollBoardStatus() rate-limits itself and gives up on old firmware.
       pollBoardStatus();
 
+      const Float32 bh = tallButtonHeight();
+
+      // No Spacing() between: the group heading's own padding is the gap now.
       drawSubsystems();
-      ImGui::Spacing();
-      drawQuickActions();
+      drawQuickActions(bh);
 
       // Under the quick actions rather than among them: this is a two-step thing
       // with a text field in it, not a button you hit without looking.
-      drawWifiLink(ImGui::GetFrameHeight() * 1.2f);
+      drawWifiLink(bh);
   }
 
   // ==================================================================== sensors
   // The fused world view. One rotating scanner today; the ToF ring, encoder and
   // IMU are named so wiring one later fills in a row.
 
-  Void drawConnection()
+  Void drawConnection(Float32 bh)
   {
       const Bool busy = isBusy();
 
+      // Port and baud on one row: the baud combo has one live entry and needs
+      // only its own width, and two full-width rows pushed Connect below the fold.
+      const Float32 baudW = ImGui::CalcTextSize("460800").x + ImGui::GetFrameHeight()
+                          + ImGui::GetStyle().FramePadding.x * 2.0f;
+
       ImGui::BeginDisabled(busy);
-      ImGui::SetNextItemWidth(-FLT_MIN);
+      ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - baudW
+                              - ImGui::GetStyle().ItemSpacing.x);
       if(portItems.empty())
       {
+          ImGui::AlignTextToFramePadding();
           ImGui::TextDisabled("No serial ports found");
       }
       else
@@ -3647,7 +4080,8 @@ namespace
 
       // Drawn by hand rather than with ui::combo, because the point is that two
       // of the three rows are NOT selectable and a combo cannot say that.
-      ImGui::SetNextItemWidth(-FLT_MIN);
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(baudW);
       if(ImGui::BeginCombo("##baud", BAUDS[baudIndex].label))
       {
           for(Int32 i = 0; i < BAUD_COUNT; ++i)
@@ -3678,7 +4112,6 @@ namespace
       }
       ImGui::EndDisabled();
 
-      const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
       if(busy)
       {
           if(ui::iconButton(
@@ -3742,27 +4175,45 @@ namespace
   {
       static Bool never = false;
 
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
       ImGui::PushID(index);
       ImGui::BeginDisabled(!wired);
 
-      ui::checkbox("##vis", wired ? vis : &never);
-      ImGui::SameLine();
-
-      // A list row, not a control: only the selected one is drawn, marked down its
-      // left edge. Outlining every row would read as a column of text fields.
-      const Bool selected = (selSensor == index);
-      const ImVec2 rowSz(ImGui::GetContentRegionAvail().x * 0.52f, 0.0f);
-
-      ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
-      const Bool hit = ui::segmentedButton(name, selected, rowSz, ui::Mark::MARK_LEFT_BAR);
-      ImGui::PopStyleVar();
-      if(hit && wired)
+      // A list row, not a control: a flat Selectable across the row, so the
+      // chosen one is a highlight and not a bevelled plate in a column of text.
+      // Submitted first and overlapped, so the box on top of it still takes the
+      // click; the cursor goes back to the row's start to draw that box.
+      //
+      // ONE TEXT LINE tall, the System table's pitch: at a frame height these
+      // rows were 40 px to the System rows' 29, and the two tables read as two
+      // different lists. The check box is drawn with no vertical frame padding
+      // for the same reason - its hit box is a frame tall by default.
+      const Bool   selected = (selSensor == index);
+      const ImVec2 rowStart = ImGui::GetCursorScreenPos();
+      if(ImGui::Selectable("##row", selected,
+                           ImGuiSelectableFlags_SpanAllColumns
+                           | ImGuiSelectableFlags_AllowOverlap)
+         && wired)
       {
           selSensor = index;
       }
 
-      ImGui::SameLine();
-      colored(col, "%s", state);
+      ImGui::SetCursorScreenPos(rowStart);
+      ImGui::PushStyleVar(
+          ImGuiStyleVar_FramePadding,
+          ImVec2(ImGui::GetStyle().FramePadding.x, 0.0f)
+      );
+      ui::checkbox("##vis", wired ? vis : &never);
+      ImGui::PopStyleVar();
+      ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+      textFit(name);
+
+      ImGui::TableNextColumn();
+      stateLamp(col, wired);
+      ImGui::PushStyleColor(ImGuiCol_Text, col);
+      textFit(state);
+      ImGui::PopStyleColor();
 
       ImGui::EndDisabled();
       ImGui::PopID();
@@ -3781,15 +4232,31 @@ namespace
           std::snprintf(st.data(), st.size(), "%s", lidarStateText());
       }
 
+      // The System table's columns, so the two state columns share an x. The
+      // third column has nothing to say here and stays empty for the alignment.
+      if(!ImGui::BeginTable(
+          "sensors",
+          3,
+          ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg
+      ))
+      {
+          return;
+      }
+      subsystemColumns();
+
       sensorRow(0, true, &layerLidar, "RPLIDAR C1", lidarStateColor(), st.data());
 
       static Bool off = false;
-      sensorRow(1, false, &off, "ToF front level (GP10)",   ui::sem::MUTED, "not wired");
-      sensorRow(2, false, &off, "ToF front down ~20 (GP11)", ui::sem::MUTED, "not wired");
+      // Named the way the System row names them: the mounting notes ("front
+      // level", "front down ~20") did not fit the shared name column.
+      sensorRow(1, false, &off, "ToF (GP10)",                ui::sem::MUTED, "not wired");
+      sensorRow(2, false, &off, "ToF (GP11)",                ui::sem::MUTED, "not wired");
       sensorRow(3, false, &off, "ToF (GP12)",                ui::sem::MUTED, "not wired");
       sensorRow(4, false, &off, "ToF (GP13)",                ui::sem::MUTED, "not wired");
-      sensorRow(5, false, &off, "Wheel encoder (GP15)",      ui::sem::MUTED, "not wired");
+      sensorRow(5, false, &off, "Encoder (GP15)",            ui::sem::MUTED, "not wired");
       sensorRow(6, false, &off, "IMU (I2C)",                 ui::sem::MUTED, "not wired");
+
+      ImGui::EndTable();
   }
 
   Void tabLive()
@@ -4012,7 +4479,7 @@ namespace
       }
 
       ImGui::Spacing();
-      ImGui::SeparatorText("Session");
+      groupLabel("Session");
 
       if(ImGui::BeginTable("sess", 2, ImGuiTableFlags_SizingStretchProp))
       {
@@ -4061,13 +4528,13 @@ namespace
       // two buttons called "Car" - without one they are literally the same widget.
       ImGui::PushID("ego-switch");
 
-      const ImGuiStyle& sty = ImGui::GetStyle();
-      const Float32 w = ImGui::CalcTextSize("Sensor").x + sty.FramePadding.x * 2.0f;
+      // The wider word plus padding, and NO room for a glyph: the Range row
+      // has none to give, and with the icons in "Sensor" ran off its end.
+      const Float32 w = ImGui::CalcTextSize("Sensor").x
+                      + ImGui::GetStyle().FramePadding.x * 2.0f;
 
-      ImGui::AlignTextToFramePadding();
-      ImGui::TextDisabled("Show");
-      ImGui::SameLine();
-
+      // No "Show" caption: the two cells carry their own icons and tooltips,
+      // and the caption was the width the Range row did not have.
       const Bool isCar = (radarView.ego == scene3d::EgoView::EGO_VIEW_CAR);
 
       if(ui::segmentedIconButton(ui::Icon::ICON_SCENE_FIT, "Car", isCar, ImVec2(w, 0.0f)))
@@ -4103,18 +4570,14 @@ namespace
           ImGui::AlignTextToFramePadding();
           ImGui::TextDisabled("Drag to orbit  |  right-drag to pan  |  wheel to zoom");
 
-          ImGui::SameLine();
-          ImGui::TextUnformatted("|");
-          ImGui::SameLine();
+          ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
 
           if(ui::iconButton(ui::Icon::ICON_RESET_VIEW, "Reset camera"))
           {
               radarView.cam = scene3d::Camera{};
           }
 
-          ImGui::SameLine();
-          ImGui::TextUnformatted("|");
-          ImGui::SameLine();
+          ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
           ImGui::AlignTextToFramePadding();
           ImGui::TextDisabled("Lock");
           ImGui::SameLine();
@@ -4158,9 +4621,7 @@ namespace
 
           ImGui::PopID();
 
-          ImGui::SameLine();
-          ImGui::TextUnformatted("|");
-          ImGui::SameLine();
+          ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
           drawEgoSwitch();
 
           ImGui::SameLine();
@@ -4175,18 +4636,26 @@ namespace
       }
 
       ImGui::AlignTextToFramePadding();
+      // The row's own face and colour: as a muted caption it was the one word
+      // on the row in a second tone, beside check boxes labeled in the first.
       ImGui::TextUnformatted("Range");
       ImGui::SameLine();
 
-      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+      // Sized to the widest entry plus the arrow: six font sizes was room the
+      // row did not have once the group gaps were on the style scale.
+      Float32 rangeW = 0.0f;
+      for(Int32 i = 0; i < RANGE_COUNT; ++i)
+      {
+          rangeW = std::max(rangeW, ImGui::CalcTextSize(RANGE_ITEMS[i]).x);
+      }
+      rangeW += ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x * 2.0f;
+      ImGui::SetNextItemWidth(rangeW);
       if(ui::combo("##range", &rangeIndex, RANGE_ITEMS.data(), RANGE_COUNT))
       {
           applyRange();
       }
 
-      ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
+      ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
 
       ui::checkbox("Grid", &radarView.showGrid);
       ImGui::SameLine();
@@ -4196,9 +4665,7 @@ namespace
       ImGui::SameLine();
       ui::checkbox("Nearest", &radarView.showNearest);
 
-      ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
+      ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
 
       if(ui::iconButton(ui::Icon::ICON_RESET_VIEW, "Reset view"))
       {
@@ -4206,9 +4673,7 @@ namespace
           radarView.fit();
       }
 
-      ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
+      ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
       drawEgoSwitch();
   }
 
@@ -4218,12 +4683,12 @@ namespace
   {
       drawSensorList();
 
-      ImGui::SeparatorText("RPLIDAR C1 link");
-      drawConnection();
+      groupLabel("RPLIDAR C1 link");
+      drawConnection(tallButtonHeight());
 
       // The readouts below describe the SELECTED sensor, not the app - saying so
       // keeps the four tab names from reading as global.
-      ImGui::SeparatorText("Telemetry - RPLIDAR C1");
+      groupLabel("Telemetry - RPLIDAR C1");
 
       if(ImGui::BeginTabBar("##lidartabs"))
       {
@@ -4337,8 +4802,8 @@ namespace
                 + sty.ItemSpacing.y * (n - 1.0f)
                 + sty.WindowPadding.y * 2.0f;
 
-      if((view == 0 || view == 1)
-         && modeToggleScrolls(contentW - sty.WindowPadding.x * 2.0f))
+      // The bar is padded top and bottom only, so the strip gets the full width.
+      if((view == 0 || view == 1) && modeToggleScrolls(contentW))
       {
           h += sty.ScrollbarSize;
       }
@@ -4439,6 +4904,24 @@ namespace
       ImGui::EndTooltip();
   }
 
+  // The narrowest cell that still shows its widest label with an icon beside
+  // it. MEASURED: the old 118 logical px floor was wider than the cells an
+  // ordinary window gives the strip, so it scrolled with nothing clipped.
+  Float32 modeCellMinWidth()
+  {
+      const ImGuiStyle& st = ImGui::GetStyle();
+      const Int32 n = activeModeCount();
+      Float32 w = 0.0f;
+      for(Int32 i = 0; i < n; ++i)
+      {
+          const Char* name = (centralView == 1)
+                           ? scene3d::sceneModeName(static_cast<scene3d::SceneMode>(i))
+                           : mapModeName(static_cast<MapMode>(i));
+          w = std::max(w, ImGui::CalcTextSize(name).x);
+      }
+      return w + ui::iconSize() + st.ItemInnerSpacing.x + st.FramePadding.x * 2.0f;
+  }
+
   Bool modeToggleScrolls(Float32 contentW)
   {
       const Int32   n = activeModeCount();
@@ -4446,7 +4929,7 @@ namespace
       const Float32 gap = ImGui::GetStyle().ItemSpacing.x;
       const Float32 w = (contentW - gap * static_cast<Float32>(topN - 1))
                          / static_cast<Float32>(topN);
-      return w < (118.0f * uiDpiScale);
+      return w < modeCellMinWidth();
   }
 
   Void drawModeToggle()
@@ -4462,7 +4945,7 @@ namespace
       const Int32   topN = (n + rows - 1) / rows;
       const Bool    scrolls = modeToggleScrolls(avail);
       const Float32 w = scrolls
-                             ? 118.0f * uiDpiScale
+                             ? modeCellMinWidth()
                              : (avail - gap * static_cast<Float32>(topN - 1))
                                    / static_cast<Float32>(topN);
 
@@ -4557,7 +5040,7 @@ namespace
           return;
       }
 
-      const Float32 pad = 8.0f * uiDpiScale;
+      const Float32 pad = HUD_INSET * uiDpiScale;   // the 2D HUD's inset, see drawMapHud
       ImFont* f = ui::fonts.small ? ui::fonts.small : ImGui::GetFont();
       const Float32 fs = f->LegacySize > 0.0f ? f->LegacySize : ImGui::GetFontSize();
 
@@ -4603,18 +5086,41 @@ namespace
   {
       const Bool live = (lidarSource.state() == LidarState::LIDAR_STATE_SCANNING);
 
+      // One width for the four transport verbs, so the column after them does
+      // not move when Record becomes Stop or Play becomes Pause.
+      const ImGuiStyle& st = ImGui::GetStyle();
+      Float32 tw = 0.0f;
+      for(const Char* verb : { "Record", "Stop", "Play", "Pause" })
+      {
+          tw = std::max(tw, ImGui::CalcTextSize(verb).x);
+      }
+      // What iconButton auto-sizes to: the glyph, its gap, the word, the padding.
+      const Float32 iconRoom = ui::iconsReady() ? ui::iconSize() + st.ItemInnerSpacing.x : 0.0f;
+      tw += st.FramePadding.x * 2.0f + iconRoom;
+      const ImVec2 transportSz(tw, 0.0f);
+
+      // And ONE width for the four file verbs, so Rescan is not the odd one
+      // out at the end of the row and clipping to "Resca" when the row is tight.
+      Float32 fw = 0.0f;
+      for(const Char* verb : { "Clear", "Save", "Load", "Rescan" })
+      {
+          fw = std::max(fw, ImGui::CalcTextSize(verb).x);
+      }
+      fw += st.FramePadding.x * 2.0f + iconRoom;
+      const ImVec2 fileSz(fw, 0.0f);
+
       // ---- row 1: capture and files ---------------------------------------
       ImGui::BeginDisabled(!live && !recArmed);
       if(recArmed)
       {
-          if(ui::iconButton(ui::Icon::ICON_PAUSE, "Stop"))
+          if(ui::iconButton(ui::Icon::ICON_PAUSE, "Stop", transportSz))
           {
               recArmed = false;
           }
       }
       else
       {
-          if(ui::iconButton(ui::Icon::ICON_RECORD, "Record", ImVec2(0, 0), ui::Tint::TINT_BAD))
+          if(ui::iconButton(ui::Icon::ICON_RECORD, "Record", transportSz, ui::Tint::TINT_BAD))
           {
               // A new take replaces the old one: silently appending two runs into
               // one file would be worse than losing the first.
@@ -4635,7 +5141,7 @@ namespace
 
       ImGui::SameLine();
       ImGui::BeginDisabled(recording.empty() || recArmed);
-      if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear"))
+      if(ui::iconButton(ui::Icon::ICON_CLEAR, "Clear", fileSz))
       {
           recording.clear();
           recIndex = 0;
@@ -4644,7 +5150,7 @@ namespace
           recStatus.clear();
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_SAVE, "Save"))
+      if(ui::iconButton(ui::Icon::ICON_SAVE, "Save", fileSz))
       {
           const Str d = rec::dir();
           if(d.empty())
@@ -4671,11 +5177,16 @@ namespace
       }
       ImGui::EndDisabled();
 
-      ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
+      ImGui::SameLine();   // the plain gap, not a glyph: control type separates the groups
 
-      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+      // The rest of the row less the two verbs after it and their gaps, so the
+      // row ends on the panel's edge with no slack for Rescan to clip in.
+      // Sized to the content, the combo pushed Rescan off the row at some widths.
+      const Float32 fileW = std::max(
+          ImGui::GetFontSize() * 4.0f,
+          ImGui::GetContentRegionAvail().x - (fw + st.ItemSpacing.x) * 2.0f
+      );
+      ImGui::SetNextItemWidth(fileW);
       if(recFiles.empty())
       {
           ImGui::BeginDisabled(true);
@@ -4697,7 +5208,7 @@ namespace
 
       ImGui::SameLine();
       ImGui::BeginDisabled(recFiles.empty() || recArmed);
-      if(ui::iconButton(ui::Icon::ICON_OPEN, "Load"))
+      if(ui::iconButton(ui::Icon::ICON_OPEN, "Load", fileSz))
       {
           Str err;
           const Str path = rec::dir() + "\\" + recFiles[static_cast<Size>(recFileIndex)];
@@ -4724,24 +5235,25 @@ namespace
       ImGui::EndDisabled();
 
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Rescan"))
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Rescan", fileSz))
       {
           refreshRecordings();
       }
+      const Float32 row1Right = ImGui::GetItemRectMax().x;
 
       // ---- row 2: playback and readout ------------------------------------
       ImGui::BeginDisabled(recording.empty() || recArmed);
 
       if(recPlaying)
       {
-          if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause"))
+          if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause", transportSz))
           {
               recPlaying = false;
           }
       }
       else
       {
-          if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", ImVec2(0, 0), ui::Tint::TINT_GOOD))
+          if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", transportSz, ui::Tint::TINT_GOOD))
           {
               // Replaying from the end restarts, rather than sitting there doing
               // nothing and looking broken.
@@ -4757,7 +5269,15 @@ namespace
       const Size n = recording.count();
       Int32 idx = static_cast<Int32>(recIndex);
 
-      ImGui::SetNextItemWidth(-ImGui::GetFontSize() * 22.0f);
+      // Ends under Rescan, the last thing on the row above, so the two rows
+      // share a right edge - unless that leaves no room for the readout after
+      // it, which must stay on screen while a take is being recorded.
+      const Float32 readoutW = ImGui::CalcTextSize("REC  0000 rev  000.0 s  00.0 MB").x;
+      const Float32 underRescan = row1Right - ImGui::GetCursorScreenPos().x;
+      const Float32 withReadout = ImGui::GetContentRegionAvail().x - readoutW
+                                - ImGui::GetStyle().ItemSpacing.x;
+      const Float32 scrubW = std::max(ImGui::GetFontSize() * 4.0f, std::min(underRescan, withReadout));
+      ImGui::SetNextItemWidth(scrubW);
       if(ImGui::SliderInt("##scrub", &idx, 0, (n > 0u) ? static_cast<Int32>(n - 1u) : 0, "rev %d"))
       {
           recIndex = static_cast<Size>(idx);
@@ -4786,6 +5306,8 @@ namespace
       }
       else
       {
+          ScopedFont sf(ui::fonts.small);   // a caption, so the caption face
+          ImGui::AlignTextToFramePadding();
           ImGui::TextDisabled("nothing recorded");
       }
 
@@ -4897,7 +5419,6 @@ namespace
       refreshCodeDiags();
       rebuildMacroIndex();
       codeFileStamp = sketch::stamp(path);
-      codeMessage = "opened " + name;
       ui::setNote(codeView, "opened " + name, ImGui::GetTime());
   }
 
@@ -4942,7 +5463,12 @@ namespace
       }
 
       ImGui::SameLine();
-      ImGui::TextDisabled("Files");
+      {
+          // A caption, not greyed body: small + muted is the one caption tier.
+          ScopedFont sf(ui::fonts.small);
+          ImGui::AlignTextToFramePadding();
+          ImGui::TextDisabled("Files");
+      }
       ImGui::Separator();
 
       // Re-scanned on a timer, not every frame: it is two directory enumerations,
@@ -4964,33 +5490,58 @@ namespace
       // act here: deleting a file while iterating the list that drew it is how a
       // tree crashes. `label` tints the NAME as well as the glyph.
       const auto row = [](const Str& name, const Str& path, Bool sel, ui::Icon ic,
-                          Bool deletable, ImU32 label = 0)
+                          ImU32 label = 0)
       {
           ImGui::PushID(path.c_str());
 
-          // The icon, centered on the LABEL, not hung from the top: SameLine aligns
-          // by top edges. Guarded, or an icon TALLER than the text is pushed out.
-          const Float32 iconH = ui::iconSize();
-          const Float32 textH = ImGui::GetTextLineHeight();
-          if(textH > iconH)
-          {
-              ImGui::SetCursorPosY(ImGui::GetCursorPosY()
-                                   + ((textH - iconH) * 0.5f));
-          }
+          // A plain Selectable across the row, NOT a leaf tree node: a leaf
+          // reserves an arrow slot a file has no use for, and in a 200 px panel
+          // that was 37 px of indent per level and every long name cut off.
+          // The row starts where a sibling folder's arrow does; the icon and
+          // the name are drawn over it, at a fixed offset, so the cursor and
+          // the row height stay the Selectable's own.
+          const ImVec2 rowMin = ImGui::GetCursorScreenPos();
+          const Bool   hit = ImGui::Selectable("##file", sel);
 
-          ui::icon(ic);
-          ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-          if(label != 0)
+          // The menu binds to the Selectable, the item whose ID spans the row.
+          const Bool menuOpen = ImGui::BeginPopupContextItem("##rowmenu");
+
           {
-              ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(label));
-          }
-          const Bool hit = ImGui::Selectable(name.c_str(), sel);
-          if(label != 0)
-          {
+              const Float32 lineH = ImGui::GetTextLineHeight();
+              const Float32 inner = ImGui::GetStyle().ItemInnerSpacing.x;
+              const Float32 textX = rowMin.x + ui::iconSize() + inner;
+
+              // The CLIP edge, not the row's: the panel scrolls sideways, so
+              // the row can extend past what is on screen, and an ellipsis at
+              // its end would be cut off with the name.
+              const Float32 right = std::min(
+                  ImGui::GetItemRectMax().x,
+                  ImGui::GetWindowDrawList()->GetClipRectMax().x
+              );
+              const ImU32   col = (label != 0) ? label : ImGui::GetColorU32(ImGuiCol_Text);
+
+              ui::iconAt(
+                  ImGui::GetWindowDrawList(),
+                  ic,
+                  ImVec2(rowMin.x, rowMin.y + (lineH - ui::iconSize()) * 0.5f)
+              );
+
+              // Cut with an ellipsis at the panel's edge: a name that runs under
+              // it reads as a different, shorter name.
+              ImGui::PushStyleColor(ImGuiCol_Text, col);
+              ImGui::RenderTextEllipsis(
+                  ImGui::GetWindowDrawList(),
+                  ImVec2(textX, rowMin.y),
+                  ImVec2(right, rowMin.y + lineH),
+                  right,
+                  name.c_str(),
+                  nullptr,
+                  nullptr
+              );
               ImGui::PopStyleColor();
           }
 
-          if(ImGui::BeginPopupContextItem("##rowmenu"))
+          if(menuOpen)
           {
               ImGui::TextDisabled("%s", name.c_str());
               ImGui::Separator();
@@ -5014,28 +5565,13 @@ namespace
                   }
               }
 
-              if(ui::iconMenuItem(ui::Icon::ICON_OPEN, "Reveal in Explorer"))
-              {
-                  sketch::reveal(path);
-              }
-
               ImGui::Separator();
 
-              // firmware/src files are NOT deletable from here: they are the real
-              // firmware and are in git.
-              ImGui::BeginDisabled(!deletable);
-              ui::pushTint(ui::Tint::TINT_BAD);
-              if(ui::iconMenuItem(ui::Icon::ICON_CLEAR, "Delete"))
-              {
-                  codePendingDelete = path;
-              }
-              ui::popTint(ui::Tint::TINT_BAD);
-              ImGui::EndDisabled();
-
-              if(!deletable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-              {
-                  ImGui::SetTooltip("firmware/ is tracked in git - delete it there");
-              }
+              // The shared entries. A file's "New File" creates a SIBLING - the
+              // folder passed here is the one the file lives in, which is what
+              // "in that same level" means when you right-click a file rather
+              // than the folder around it.
+              treeRowMenu(parentOf(path), path, false);
 
               ImGui::EndPopup();
           }
@@ -5168,10 +5704,38 @@ namespace
                       "##dir", ImGuiTreeNodeFlags_DefaultOpen
                                | ImGuiTreeNodeFlags_SpanAvailWidth);
 
+                  // Taken from the TREE NODE, before the glyph and the label are
+                  // drawn beside it. BeginPopupContextItem would bind to the
+                  // LAST item, which by then is the TextUnformatted - a text
+                  // item with no ID to hang a popup on, and only as wide as the
+                  // word. The node itself is SpanAvailWidth, so this is what
+                  // makes right-clicking anywhere along the row work.
+                  const Bool nodeHovered = ImGui::IsItemHovered();
+
                   ImGui::SameLine(0.0f, 0.0f);
                   folderGlyph(openNode);
                   ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
                   ImGui::TextUnformatted(d.name.c_str());
+
+                  const Str folderPath = dir + "\\" + prefix + d.name;
+
+                  if(nodeHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+                  {
+                      ImGui::OpenPopup("##dirmenu");
+                  }
+                  if(ImGui::BeginPopup("##dirmenu"))
+                  {
+                      ImGui::TextDisabled("%s", d.name.c_str());
+                      ImGui::Separator();
+
+                      // On a FOLDER, a create goes INSIDE it - which is what
+                      // every file tree does and what right-clicking a folder to
+                      // make something in it has to mean. On a file row the same
+                      // menu passes the file's parent, so there it means a
+                      // sibling.
+                      treeRowMenu(folderPath, folderPath, true);
+                      ImGui::EndPopup();
+                  }
 
                   if(openNode)
                   {
@@ -5203,7 +5767,6 @@ namespace
                          doc ? ui::Icon::ICON_DOC
                              : (hdr ? ui::Icon::ICON_FIRMWARE
                                     : ui::Icon::ICON_CODE),
-                         false,
                          doc ? ui::ansi::BRCYAN : 0u))
                   {
                       openCodeFile(p, rel);
@@ -5215,10 +5778,41 @@ namespace
           const Bool openRoot = ImGui::TreeNodeEx(
               "##fw", ImGuiTreeNodeFlags_DefaultOpen
                       | ImGuiTreeNodeFlags_SpanAvailWidth);
+          const Bool rootHovered = ImGui::IsItemHovered();
+
           ImGui::SameLine(0.0f, 0.0f);
           folderGlyph(openRoot);
           ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
           ImGui::TextUnformatted("firmware");
+
+          // The root gets the same menu, or there is no way to make anything at
+          // the top level - which is where a new sibling of app/ or lib/ goes.
+          if(rootHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && !dir.empty())
+          {
+              ImGui::OpenPopup("##rootmenu");
+          }
+          if(ImGui::BeginPopup("##rootmenu"))
+          {
+              ImGui::TextDisabled("firmware");
+              ImGui::Separator();
+
+              // No Rename and no Delete for the root: renaming firmware/ from
+              // inside a view that finds the repo BY that name would leave the
+              // tree pointed at nothing.
+              if(ui::iconMenuItem(ui::Icon::ICON_CODE, "New File..."))
+              {
+                  treeAsk(TreeOp::TREE_OP_NEW_FILE, dir, Str(), false);
+              }
+              if(ui::iconMenuItem(ui::Icon::ICON_OPEN, "New Folder..."))
+              {
+                  treeAsk(TreeOp::TREE_OP_NEW_FOLDER, dir, Str(), false);
+              }
+              if(ui::iconMenuItem(ui::Icon::ICON_OPEN, "Reveal in Explorer"))
+              {
+                  sketch::reveal(dir);
+              }
+              ImGui::EndPopup();
+          }
 
           if(openRoot)
           {
@@ -5234,6 +5828,231 @@ namespace
 
       ImGui::EndChild();
       ImGui::PopStyleColor();
+
+      // ---- the tree's menu: ask first, then act ----------------------------
+      //
+      // OPENED HERE, not in the menu entry that asked for it. A popup has to be
+      // opened at the same ID-stack level it is begun at, and every menu entry
+      // above runs inside its row's PushID - so OpenPopup there and
+      // BeginPopupModal here would never find each other, which shows up as a
+      // menu item that does nothing at all.
+      if(treeModalOpen)
+      {
+          ImGui::OpenPopup(treeOp == TreeOp::TREE_OP_DELETE ? "Delete##tree" : "Name##tree");
+          treeModalOpen = false;
+      }
+
+      // One popup for all three naming operations. They differ in one verb and
+      // one destination; three popups would differ in whatever drifted.
+      if(ImGui::BeginPopupModal("Name##tree", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+      {
+          const Bool renaming = treeOp == TreeOp::TREE_OP_RENAME;
+
+          ImGui::TextDisabled(
+              "%s",
+              renaming ? "Rename"
+                       : (treeOp == TreeOp::TREE_OP_NEW_FOLDER ? "New folder in"
+                                                               : "New file in")
+          );
+          ImGui::TextUnformatted((renaming ? treeOpTarget : treeOpDir).c_str());
+          ImGui::Separator();
+
+          // Focused on the frame it appears, so the popup can be typed into
+          // without clicking it first.
+          if(ImGui::IsWindowAppearing())
+          {
+              ImGui::SetKeyboardFocusHere();
+          }
+          ImGui::SetNextItemWidth(360.0f * uiDpiScale);
+          const Bool entered = ImGui::InputText(
+              "##treename",
+              treeNameBuf.data(),
+              treeNameBuf.size(),
+              ImGuiInputTextFlags_EnterReturnsTrue
+          );
+
+          if(!treeModalError.empty())
+          {
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
+                  "%s",
+                  treeModalError.c_str()
+              );
+          }
+
+          const Bool accept = ImGui::Button("OK") || entered;
+          ImGui::SameLine();
+          const Bool cancel = ImGui::Button("Cancel")
+                           || ImGui::IsKeyPressed(ImGuiKey_Escape);
+
+          if(accept)
+          {
+              const Str name = treeNameBuf.data();
+              Str       err;
+
+              if(!sketch::validName(name, err))
+              {
+                  // Stays open with the reason under the field. Closing on a bad
+                  // name would throw away what was typed and say nothing.
+                  treeModalError = err;
+              }
+              else if((treeOp == TreeOp::TREE_OP_NEW_FILE
+                       || (treeOp == TreeOp::TREE_OP_RENAME && !treeOpIsDir))
+                      && !sketch::shownFile(name))
+              {
+                  // The tree only lists C/C++ sources and .bdoc, so a file with
+                  // any other extension would be created and then never seen -
+                  // which reads as the command having failed. Refused up front
+                  // instead, with the list, so the fix is obvious.
+                  treeModalError = "use .cxx, .hxx, .c, .h or .bdoc";
+              }
+              else
+              {
+                  Str       made;
+                  Bool      done = false;
+
+                  if(treeOp == TreeOp::TREE_OP_NEW_FILE)
+                  {
+                      made = treeOpDir + "\\" + name;
+                      done = sketch::createFile(made, err);
+                  }
+                  else if(treeOp == TreeOp::TREE_OP_NEW_FOLDER)
+                  {
+                      made = treeOpDir + "\\" + name;
+                      done = sketch::createDir(made, err);
+                  }
+                  else
+                  {
+                      // The OPEN file, with edits, is saved BEFORE it moves.
+                      // openCodeFile() below saves a dirty buffer to codePath -
+                      // which after the rename would be the OLD name, quietly
+                      // recreating the file that was just renamed away with
+                      // the edits in it, and loading the new name without them.
+                      if(_stricmp(treeOpTarget.c_str(), codePath.c_str()) == 0
+                         && codeEditor.dirty())
+                      {
+                          saveSketch();
+                      }
+                      made = parentOf(treeOpTarget) + "\\" + name;
+                      done = sketch::rename(treeOpTarget, made, err);
+                  }
+
+                  if(!done)
+                  {
+                      treeModalError = err;
+                  }
+                  else
+                  {
+                      rescanIn = 0;         // the tree must see it now
+                      LOG_INFO("code", "%s", made.c_str());
+
+                      // A new file opens straight away - making one and then
+                      // having to find it in the tree is a step for nothing.
+                      if(treeOp == TreeOp::TREE_OP_NEW_FILE)
+                      {
+                          openCodeFile(made, name);
+                      }
+
+                      // A rename of the OPEN file repoints the editor, or the
+                      // next save writes back to a path that no longer exists.
+                      if(treeOp == TreeOp::TREE_OP_RENAME
+                         && _stricmp(treeOpTarget.c_str(), codePath.c_str()) == 0)
+                      {
+                          openCodeFile(made, name);
+                      }
+
+                      ui::setNote(codeView, renaming ? "renamed" : "created", ImGui::GetTime());
+                      treeOp = TreeOp::TREE_OP_NONE;
+                      ImGui::CloseCurrentPopup();
+                  }
+              }
+          }
+
+          if(cancel)
+          {
+              treeOp = TreeOp::TREE_OP_NONE;
+              ImGui::CloseCurrentPopup();
+          }
+
+          ImGui::EndPopup();
+      }
+
+      // The confirmation. Delete used to be refused outright for anything under
+      // firmware/ on the grounds that it is tracked in git - true, and it also
+      // meant the menu could not do the one thing it was for. The warning moved
+      // in here, where somebody about to delete something will read it.
+      if(ImGui::BeginPopupModal("Delete##tree", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+      {
+          ImGui::TextUnformatted(treeOpIsDir ? "Delete this folder?" : "Delete this file?");
+          ImGui::Spacing();
+          ImGui::TextDisabled("%s", treeOpTarget.c_str());
+          ImGui::Spacing();
+          ImGui::Separator();
+
+          ImGui::TextUnformatted("This cannot be undone here.");
+          ImGui::TextDisabled("Tracked files can be restored with git.");
+          if(treeOpIsDir)
+          {
+              ImGui::TextDisabled("Only an empty folder can be removed.");
+          }
+
+          if(!treeModalError.empty())
+          {
+              ImGui::TextColored(
+                  ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
+                  "%s",
+                  treeModalError.c_str()
+              );
+          }
+
+          ImGui::Spacing();
+
+          // Cancel FIRST and focused, so the default action of a popup that
+          // appeared under the cursor is the harmless one.
+          const Bool cancel = ImGui::Button("Cancel")
+                           || ImGui::IsKeyPressed(ImGuiKey_Escape);
+          ImGui::SameLine();
+
+          ui::pushTint(ui::Tint::TINT_BAD);
+          const Bool confirm = ImGui::Button("Delete");
+          ui::popTint(ui::Tint::TINT_BAD);
+
+          if(confirm)
+          {
+              if(treeOpIsDir)
+              {
+                  Str err;
+                  if(sketch::removeDir(treeOpTarget, err))
+                  {
+                      LOG_INFO("code", "removed folder %s", treeOpTarget.c_str());
+                      rescanIn = 0;
+                      ui::setNote(codeView, "removed", ImGui::GetTime());
+                      treeOp = TreeOp::TREE_OP_NONE;
+                      ImGui::CloseCurrentPopup();
+                  }
+                  else
+                  {
+                      treeModalError = err;
+                  }
+              }
+              else
+              {
+                  // Through the SAME deferred path the old menu used, which
+                  // already handles the case of deleting the file that is open.
+                  codePendingDelete = treeOpTarget;
+                  treeOp = TreeOp::TREE_OP_NONE;
+                  ImGui::CloseCurrentPopup();
+              }
+          }
+
+          if(cancel)
+          {
+              treeOp = TreeOp::TREE_OP_NONE;
+              ImGui::CloseCurrentPopup();
+          }
+
+          ImGui::EndPopup();
+      }
 
       // ---- destructive actions, resolved AFTER the tree has drawn ----------
       // Deleting a file while iterating the list that drew it is how a tree crashes.
@@ -5309,6 +6128,39 @@ namespace
           return;
       }
 
+      if(cmd == "format" || cmd == "fmt")
+      {
+          // Saved first: the formatter reads the file on disk, not the buffer.
+          if(!saveSketch())
+          {
+              return;
+          }
+
+          Str err;
+          if(!sketch::formatFile(codePath, err))
+          {
+              codeMessage = err;
+              return;
+          }
+
+          // Reloaded with the caret where it was. Formatting only moves
+          // whitespace, so the line you were on is still the line you were on.
+          const ed::Cursor keep = codeEditor.cursor();
+          codeEditor.setText(sketch::load(codePath));
+          codeEditor.setCursor(keep.line, keep.col);
+          codeFileStamp = sketch::stamp(codePath);
+          ui::setNote(codeView, "formatted", ImGui::GetTime());
+          return;
+      }
+
+      if(cmd == "outline")
+      {
+          // The Code view owns the list; this only asks for it. Reached from
+          // the editor's own gO as well, which submits the same word.
+          codeView.outlineRequest = true;
+          return;
+      }
+
       codeMessage = "not a command: :" + cmd;
   }
 
@@ -5328,17 +6180,20 @@ namespace
       // cannot have all of them.
 
       ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
 
       // The path, not just the name: the firmware tree is full of repeated leaf
-      // names, and which one is open is the whole question.
-      ImGui::TextDisabled("%s", codePath.empty() ? "(unsaved)" : codePath.c_str());
-
-      if(codeEditor.dirty())
+      // names, and which one is open is the whole question. A caption, so the
+      // caption face - at body size it was the loudest thing on its row.
       {
-          ImGui::SameLine();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN), "modified");
+          ScopedFont sf(ui::fonts.small);
+          ImGui::AlignTextToFramePadding();
+          ImGui::TextDisabled("%s", codePath.empty() ? "(unsaved)" : codePath.c_str());
+
+          if(codeEditor.dirty())
+          {
+              ImGui::SameLine();
+              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::WARN), "modified");
+          }
       }
 
       // ---- the firmware reference ----------------------------------------
@@ -5347,10 +6202,9 @@ namespace
       {
           const Float32 dw = 92.0f * uiDpiScale;
           ImGui::SameLine();
-          ImGui::SetCursorPosX(std::max(
-              ImGui::GetCursorPosX(),
-              ImGui::GetWindowWidth() - dw - ImGui::GetStyle().WindowPadding.x
-          ));
+          // Flush on the content edge, the same edge the editor ends on.
+          const Float32 docsX = std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - dw);
+          ImGui::SetCursorPosX(docsX);
 
           if(ui::iconButton(ui::Icon::ICON_REFERENCE, "Docs", ImVec2(dw, ImGui::GetFrameHeight())))
           {
@@ -5385,14 +6239,13 @@ namespace
 
       const Str target = sketch::targetFor(codePath);
 
+      // One width for the group: Run plus its arrow, and Build, are the same
+      // groupW, so the two buttons share an edge rule.
+      const Float32 groupW = 128.0f * uiDpiScale;
+
       // "Run", the verb every IDE uses; what it ACTUALLY does - compile, then
       // overwrite the board's flash - is in the tooltip. Amber, not green.
-      if(ui::iconButton(
-          ui::Icon::ICON_PLAY,
-          "Run",
-          ImVec2(120.0f * uiDpiScale, bh),
-          ui::Tint::TINT_WARN
-      ))
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Run", ImVec2(groupW - bh, bh), ui::Tint::TINT_WARN))
       {
           if(saveSketch())
           {
@@ -5427,8 +6280,14 @@ namespace
       // Run acts on the file that is OPEN; this is one click to see which source
       // is about to be compiled, and to pick another. A built-in picker rather
       // than the OS dialog: the choosable set is small and known.
-      ImGui::SameLine(0.0f, 1.0f);
-      if(ui::button("v", ImVec2(bh, bh), ui::Tint::TINT_WARN))
+      // Butted against Run, and a real triangle: a letter sits on the baseline
+      // at text weight and never lines up with the icon row.
+      ImGui::SameLine(0.0f, 0.0f);
+      ui::pushTint(ui::Tint::TINT_WARN);
+      const Bool pick = ImGui::ArrowButton("##srcpick_arrow", ImGuiDir_Down);
+      ui::popTint(ui::Tint::TINT_WARN);
+      ui::shadeLastItem();
+      if(pick)
       {
           ImGui::OpenPopup("##srcpick");
       }
@@ -5495,7 +6354,7 @@ namespace
       }
 
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_BUILD, "Build", ImVec2(130.0f * uiDpiScale, bh)))
+      if(ui::iconButton(ui::Icon::ICON_BUILD, "Build", ImVec2(groupW, bh)))
       {
           if(saveSketch())
           {
@@ -5511,10 +6370,9 @@ namespace
       ImGui::EndDisabled();
 
       ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
-
-      if(ImGui::Checkbox("auto", &codeAutosave))
+      // ui::checkbox, like every other box in the program: the stock one sizes
+      // its box to the whole frame and reads as a tile.
+      if(ui::checkbox("auto", &codeAutosave))
       {
           codeAutosaveIn = 180;
       }
@@ -5523,35 +6381,30 @@ namespace
           ImGui::SetTooltip("Autosave a few seconds after you stop typing");
       }
 
-      ImGui::SameLine();
-      ImGui::TextUnformatted("|");
-      ImGui::SameLine();
-
+      // Only failures live on this row. Notes go to the editor's status line
+      // (ui::setNote), which fades; here they stayed green for ever and repeated
+      // the line thirty px above.
+      const Bool bad = codeMessage.find("failed") != Str::npos
+                    || codeMessage.find("cannot") != Str::npos
+                    || codeMessage.find("no Pico") != Str::npos
+                    || codeMessage.find("not a command") != Str::npos;
       if(busy)
       {
+          ImGui::SameLine();
           ImGui::TextColored(
               ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
               "%s...",
               picoFlash.currentOp().c_str()
           );
       }
-      else if(!codeMessage.empty())
+      else if(!codeMessage.empty() && bad)
       {
-          // A message naming a failure is red; everything else is a note.
-          const Bool bad = codeMessage.find("failed") != Str::npos
-                        || codeMessage.find("cannot") != Str::npos
-                        || codeMessage.find("no Pico") != Str::npos
-                        || codeMessage.find("not a command") != Str::npos;
+          ImGui::SameLine();
           ImGui::TextColored(
-              ImGui::ColorConvertU32ToFloat4(bad ? ui::sem::BAD : ui::sem::GOOD),
+              ImGui::ColorConvertU32ToFloat4(ui::sem::BAD),
               "%s",
               codeMessage.c_str()
           );
-      }
-      else
-      {
-          ImGui::TextDisabled("i insert - esc normal - :w save - / find - "
-                              "ciw change word - . repeat");
       }
   }
 
@@ -5615,7 +6468,7 @@ namespace
       // ---- what is wired, said out loud -------------------------------------
       // The pins are read back FROM THE BOARD, not printed from a constant: the
       // failure this view debugs is a wire on the wrong pad.
-      ImGui::SeparatorText("Link");
+      groupLabel("Link");
       if(soundTx >= 0)
       {
           colored(ui::ansi::GRAY, "TX GP%d", soundTx);
@@ -5647,7 +6500,7 @@ namespace
       // ---- the card -------------------------------------------------------
       // FIRST and prominent, because its absence is silent: the SD card takes
       // 1.5-3 s to mount and a play sent before that is discarded with no sound.
-      ImGui::SeparatorText("Card");
+      groupLabel("Card");
 
       if(soundReady)
       {
@@ -5657,13 +6510,12 @@ namespace
       {
           colored(ui::sem::WARN, "not mounted - nothing will play");
       }
-      ImGui::SameLine(0.0f, 16.0f);
+      ImGui::SameLine();
 
-      if(ui::iconButton(
-          ui::Icon::ICON_REBOOT,
-          "Reset / mount card",
-          ImVec2(220.0f * uiDpiScale, 0.0f)
-      ))
+      // Every button row in this view ENDS ON THE PANEL'S EDGE: the groups
+      // below fill their row in equal columns, and a fixed 220 px here was one
+      // of five different right edges on five rows.
+      if(ui::iconButton(ui::Icon::ICON_REBOOT, "Reset / mount card", ImVec2(-FLT_MIN, 0.0f)))
       {
           sendPico("SOUND RESET");
       }
@@ -5675,7 +6527,7 @@ namespace
       }
 
       // ---- volume -----------------------------------------------------------
-      ImGui::SeparatorText("Volume");
+      groupLabel("Volume");
 
       // Sent on RELEASE, not every frame: the link is 9600 baud and the module
       // needs 20-40 ms between commands, so a drag would drop most of them.
@@ -5696,11 +6548,21 @@ namespace
           soundVolMax
       );
 
+      // The width of one of `n` equal columns across the row, so a group of
+      // buttons shares one width and the group fills the row.
+      const auto column = [](Int32 n)
+      {
+          const ImGuiStyle& st = ImGui::GetStyle();
+          return (ImGui::GetContentRegionAvail().x - st.ItemSpacing.x * static_cast<Float32>(n - 1))
+               / static_cast<Float32>(n);
+      };
+
       // Named steps rather than a bare number: "8" means nothing until you have
       // been deafened once, and these modules are painful well below half.
-      const auto vol = [](const Char* label, Int32 level, const Char* why)
+      const Float32 volW = column(4);
+      const auto vol = [volW](const Char* label, Int32 level, const Char* why)
       {
-          if(ui::iconButton(ui::Icon::ICON_SIGNAL, label, ImVec2(96.0f * uiDpiScale, 0.0f)))
+          if(ui::iconButton(ui::Icon::ICON_SIGNAL, label, ImVec2(volW, 0.0f)))
           {
               Array<Char, 48> cmd;
               std::snprintf(cmd.data(), cmd.size(), "SOUND VOL %d", level);
@@ -5723,13 +6585,17 @@ namespace
 
       // ---- tone -------------------------------------------------------------
       // NOT a second volume, and labeled so - it is what people reach for at 30.
-      ImGui::SeparatorText("Tone");
+      groupLabel("Tone");
 
       static constexpr const Char* const EQ_NAME[6] =
       {
           "Normal", "Pop", "Rock", "Jazz", "Classic", "Bass"
       };
 
+      // A segmented strip, like the map's mode strip: the chosen tone is the
+      // cell with the plate fill and bevel, not a green flood - green is a
+      // state colour, and a tone is a choice.
+      const Float32 eqW = column(6);
       for(Int32 e = 0; e < 6; ++e)
       {
           if(e > 0)
@@ -5737,21 +6603,11 @@ namespace
               ImGui::SameLine();
           }
           ImGui::PushID(100 + e);
-
-          const Bool on = (soundEq == e);
-          if(on)
-          {
-              ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(ui::sem::GOOD));
-          }
-          if(ImGui::Button(EQ_NAME[e], ImVec2(74.0f * uiDpiScale, 0.0f)))
+          if(ui::segmentedButton(EQ_NAME[e], soundEq == e, ImVec2(eqW, 0.0f)))
           {
               Array<Char, 32> cmd;
               std::snprintf(cmd.data(), cmd.size(), "SOUND EQ %d", e);
               sendPico(cmd.data());
-          }
-          if(on)
-          {
-              ImGui::PopStyleColor();
           }
           ImGui::PopID();
       }
@@ -5760,7 +6616,7 @@ namespace
       ImGui::TextDisabled("speaker - or quieter, if it clips a cone with no box.");
 
       // ---- the track --------------------------------------------------------
-      ImGui::SeparatorText("Track");
+      groupLabel("Track");
 
       // WHAT IS ON THE CARD, asked of the module rather than assumed. Neither the
       // hub nor the firmware keeps a list: adding an mp3 is the whole of adding.
@@ -5777,8 +6633,8 @@ namespace
       {
           ImGui::TextDisabled("card not counted yet");
       }
-      ImGui::SameLine(0.0f, 12.0f);
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Count", ImVec2(110.0f * uiDpiScale, 0.0f)))
+      ImGui::SameLine();
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Count", ImVec2(-FLT_MIN, 0.0f)))
       {
           sendPico("SOUND FILES");
       }
@@ -5833,8 +6689,10 @@ namespace
 
       ImGui::Spacing();
 
-      // PLAY is green and wide: it is the thing this view is for.
-      if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", ImVec2(160.0f * uiDpiScale, 0.0f)))
+      // The transport: four equal cells, Play first. It is the thing this view
+      // is for, and being first is what says so - not being wider.
+      const Float32 transportW = column(4);
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Play", ImVec2(transportW, 0.0f)))
       {
           Array<Char, 48> cmd;
           std::snprintf(cmd.data(), cmd.size(), "SOUND PLAY %d", soundTrack);
@@ -5842,34 +6700,35 @@ namespace
       }
 
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause", ImVec2(120.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_PAUSE, "Pause", ImVec2(transportW, 0.0f)))
       {
           sendPico("SOUND PAUSE");
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_PLAY, "Resume", ImVec2(120.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_PLAY, "Resume", ImVec2(transportW, 0.0f)))
       {
           sendPico("SOUND RESUME");
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop", ImVec2(120.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "Stop", ImVec2(transportW, 0.0f)))
       {
           sendPico("SOUND STOP");
       }
 
       ImGui::Spacing();
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Prev", ImVec2(110.0f * uiDpiScale, 0.0f)))
+      const Float32 stepW = column(2);
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Prev", ImVec2(stepW, 0.0f)))
       {
           sendPico("SOUND PREV");
       }
       ImGui::SameLine();
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Next", ImVec2(110.0f * uiDpiScale, 0.0f)))
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Next", ImVec2(stepW, 0.0f)))
       {
           sendPico("SOUND NEXT");
       }
 
       // ---- playing ----------------------------------------------------------
-      ImGui::SeparatorText("Playing");
+      groupLabel("Playing");
 
       if(soundBusy == "unwired")
       {
@@ -6296,9 +7155,11 @@ namespace
           std::snprintf(buf.data(), buf.size(), good ? "%d" : "----", tofMm);
 
           ImFont* const f = ui::fonts.big ? ui::fonts.big : ImGui::GetFont();
+          // BIG is the hero-numeral size; a multiple of it exists nowhere else
+          // in the scale.
           const Float32 fs = (f != nullptr && f->LegacySize > 0.0f)
-                           ? f->LegacySize * 2.0f
-                           : ImGui::GetFontSize() * 3.0f;
+                           ? f->LegacySize
+                           : ImGui::GetFontSize() * 2.0f;
 
           dl->AddText(
               f,
@@ -6976,8 +7837,8 @@ namespace
       return (f < 0.0f) ? 0.0f : ((f > 1.0f) ? 1.0f : f);
   }
 
-  // A section head: a rule, the name in the title face, and what it is for. The
-  // captions under it are MUTED body text, so the heading needs the weight.
+  // A section head: a rule, the name in the title face, and what it is for on
+  // the line under it in the caption face - one font per row.
   Void driveSection(const Char* name, const Char* what)
   {
       ImGui::Spacing();
@@ -6991,8 +7852,8 @@ namespace
 
       if(what != nullptr && what[0] != '\0')
       {
-          ImGui::SameLine();
-          ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED), " -  %s", what);
+          ScopedFont sf(ui::fonts.small);
+          ImGui::TextDisabled("%s", what);
       }
   }
 
@@ -8438,6 +9299,92 @@ namespace
           ImGui::TreePop();
       }
 
+      // ---- reactive: the lidar drives --------------------------------------
+      // The switch for the whole autonomy stack as it exists today, and the
+      // readout that says what it is seeing. Everything it needs to run is
+      // checked here so the button is only offered when pressing it does
+      // something.
+      ImGui::Spacing();
+      groupLabel("Reactive");
+      {
+          const Float32 bh = ImGui::GetFrameHeight() * 1.2f;
+          const Bool    lidarOk = (lidarSource.state() == LidarState::LIDAR_STATE_SCANNING);
+          const Bool    canStart = live && driveArmed && lidarOk;
+
+          if(!reactiveOn)
+          {
+              ImGui::BeginDisabled(!canStart);
+              if(ui::iconButton(ui::Icon::ICON_MOTOR_RUN, "Drive by lidar", ImVec2(-FLT_MIN, bh)))
+              {
+                  reactiveStart();
+              }
+              ImGui::EndDisabled();
+
+              if(!canStart)
+              {
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
+                      "Needs the Pico connected, the ESC armed, and the lidar scanning."
+                  );
+              }
+              if(!reactiveWhy.empty())
+              {
+                  ImGui::TextColored(
+                      ImGui::ColorConvertU32ToFloat4(ui::sem::WARN),
+                      "Stopped: %s",
+                      reactiveWhy.c_str()
+                  );
+              }
+          }
+          else
+          {
+              if(ui::iconButton(
+                  ui::Icon::ICON_MOTOR_STOP,
+                  "Stop driving",
+                  ImVec2(-FLT_MIN, bh),
+                  ui::Tint::TINT_BAD
+              ))
+              {
+                  reactiveDisable("button");
+              }
+
+              // Enough to tell "braking for the wall" from "blind" at a glance.
+              const Bool ok = (reactiveStatus == reactive::Status::STATUS_OK);
+              colored(
+                  ok ? ui::sem::GOOD : ui::sem::BAD,
+                  "%s",
+                  ok ? reactive::modeName(reactiveOut.mode) : reactive::why(reactiveStatus)
+              );
+              ImGui::TextDisabled(
+                  "clearance %.0f mm   hits %d   steer %+.2f   throttle %+.2f",
+                  static_cast<Float64>(reactiveOut.clearanceMm),
+                  reactiveOut.corridorHits,
+                  static_cast<Float64>(reactiveOut.steer),
+                  static_cast<Float64>(reactiveOut.throttle)
+              );
+          }
+
+          // Which way the lidar is bolted on. A wrong value here steers the car
+          // confidently into the nearest wall, which is why it is on screen.
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          if(ImGui::SliderFloat(
+              "##rxfwd",
+              &reactiveForwardDeg,
+              -180.0f,
+              180.0f,
+              "lidar forward = %.0f deg"
+          )
+             && reactiveOn)
+          {
+              reactive::Config c = reactive::tuning();
+              c.forwardDeg = reactiveForwardDeg;
+              if(!reactive::configure(c))
+              {
+                  reactiveWhy = "tuning refused";
+              }
+          }
+      }
+
       ui::screenInset(drivePanel0, ImVec2(drivePanel0.x + w, drivePanel0.y + h));
       ImGui::EndChild();
   }
@@ -8553,6 +9500,20 @@ namespace
   // the board state and backup path it shares a subject with.
   Void drawFlashCatalog();
 
+  // The hairline round a map, in the theme's one edge colour, so the flat map
+  // and the recorder's map are framed by the same line.
+  Void mapEdge(const ImVec2& p0, Float32 w, Float32 h)
+  {
+      ImGui::GetWindowDrawList()->AddRect(
+          p0,
+          ImVec2(p0.x + w, p0.y + h),
+          ImGui::GetColorU32(ImGuiCol_Border),
+          0.0f,
+          0,
+          1.0f
+      );
+  }
+
   Void drawViewBody(Int32 view, Float32 w, Float32 h)
   {
       const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -8576,14 +9537,7 @@ namespace
           );
           radarView.draw(ImGui::GetContentRegionAvail());
           drawMapHud(p0, ImVec2(w, h));
-          ImGui::GetWindowDrawList()->AddRect(
-              p0,
-              ImVec2(p0.x + w, p0.y + h),
-              IM_COL32(0x3A, 0x3A, 0x3A, 0xFF),
-              0.0f,
-              0,
-              1.0f
-          );
+          mapEdge(p0, w, h);
           ImGui::EndChild();
       }
       else if(view == 2)
@@ -8596,14 +9550,7 @@ namespace
           );
           recView.draw(ImGui::GetContentRegionAvail());
           drawRecorderHud(p0, ImVec2(w, h));
-          ImGui::GetWindowDrawList()->AddRect(
-              p0,
-              ImVec2(p0.x + w, p0.y + h),
-              IM_COL32(0x3A, 0x3A, 0x3A, 0xFF),
-              0.0f,
-              0,
-              1.0f
-          );
+          mapEdge(p0, w, h);
           ImGui::EndChild();
       }
       else if(view == 3)
@@ -8702,7 +9649,7 @@ namespace
       ImGui::PopStyleColor();
   }
 
-  // The view's name and icon, for both the tab bar and the panel title bars.
+  // The view's name, for the tab bar and the panel title bars.
   const Char* viewName(Int32 view)
   {
       switch(view)
@@ -8736,43 +9683,17 @@ namespace
       return "Range";
   }
 
-  ui::Icon viewIcon(Int32 view)
-  {
-      switch(view)
-      {
-      case 0:  return ui::Icon::ICON_DIM_2D;
-      case 1:  return ui::Icon::ICON_DIM_3D;
-      case 2:  return ui::Icon::ICON_RECORD;
-      case 3:  return ui::Icon::ICON_CODE;
-      default: break;
-      }
-      if(view == RANGE_VIEW)
-      {
-          return ui::Icon::ICON_TOF;
-      }
-      if(view == DRIVE_VIEW)
-      {
-          return ui::Icon::ICON_SERVO;
-      }
-      if(view == CUE_VIEW)
-      {
-          return ui::Icon::ICON_LAMP;
-      }
-      if(view == SOUND_VIEW)
-      {
-          return ui::Icon::ICON_SIGNAL;
-      }
-      if(view == FLASH_VIEW)
-      {
-          return ui::Icon::ICON_FLASH;
-      }
-      return ui::Icon::ICON_TOF;
-  }
-
   // ===================================================== the tabbed layout
 
   Void drawTabbedViews(Float32 mapW, Float32 viewH)
   {
+      // TEXT-ONLY tabs. With the console open the column is ~780 px, and nine
+      // icon+label tabs plus the console's own needed ~820: the choice was
+      // scroll arrows (Flash off the end), the shrink policy (every label two
+      // letters and an ellipsis) or an unlabeled console tab. Without the
+      // glyphs the ten words fit with room over, and a strip of words is what
+      // a tab bar is. The icons stay on the sidebar's telemetry tabs and on the
+      // console panel's two, where there is room for them.
       if(!ImGui::BeginTabBar("##central", ImGuiTabBarFlags_None))
       {
           return;
@@ -8791,12 +9712,7 @@ namespace
       const Int32 total = VIEW_COUNT;
       for(Int32 v = 0; v < total; ++v)
       {
-          Array<Char, 48> label;
-          iconTabLabel(label.data(), label.size(), viewName(v));
-
-          const Bool open = ImGui::BeginTabItem(label.data(), nullptr, viewSel(v));
-          tabIcon(viewIcon(v));
-          if(open)
+          if(ImGui::BeginTabItem(viewName(v), nullptr, viewSel(v)))
           {
               centralView = v;
               wsFocused = v;
@@ -8806,8 +9722,10 @@ namespace
       }
 
       // Right-aligned, so opening the console is where the tabs END rather than a
-      // second row of chrome above them.
-      if(ImGui::TabItemButton(consoleOpen ? "  Console  <  " : "  >  Console  ",
+      // second row of chrome above them. Labeled like the others: it was the one
+      // tab without a word for a while, and a bar of nine words and a glyph
+      // reads as nine tabs and a decoration.
+      if(ImGui::TabItemButton("Console",
                               ImGuiTabItemFlags_Trailing
                               | ImGuiTabItemFlags_NoTooltip))
       {
@@ -8836,12 +9754,18 @@ namespace
       // on a board tab rather than disabled, so the board gets the height back.
       if(ctrlH > 0.0f)
       {
+          // AlwaysUseWindowPadding: a borderless child is otherwise unpadded, and
+          // centralControlHeight() already budgets WindowPadding.y twice. Only
+          // vertically: the rows keep the well's own left and right edges.
+          const ImVec2 barPad(0.0f, ImGui::GetStyle().WindowPadding.y);
+          ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, barPad);
           ImGui::BeginChild(
               "##controls",
               ImVec2(mapW, ctrlH),
-              ImGuiChildFlags_None,
+              ImGuiChildFlags_AlwaysUseWindowPadding,
               ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
           );
+          ImGui::PopStyleVar();
           drawCentralControls(centralView);
           ImGui::EndChild();
       }
@@ -8859,7 +9783,7 @@ namespace
       const Bool        busy = live || st == PicoState::PICO_STATE_CONNECTING;
       const Float32       bh = ImGui::GetFrameHeight() * 1.2f;
 
-      ImGui::SeparatorText("Link");
+      groupLabel("Link");
 
       const Float32 refreshW = ImGui::CalcTextSize("Refresh").x + sty.FramePadding.x * 2.0f;
 
@@ -8964,7 +9888,7 @@ namespace
       const ImGuiStyle& sty = ImGui::GetStyle();
       const Bool        live = (picoLink.state() == PicoState::PICO_STATE_CONNECTED);
 
-      ImGui::SeparatorText("Commands");
+      groupLabel("Commands");
 
       ImGui::BeginDisabled(!live);
       if(ImGui::BeginTable("picocmd", 3, ImGuiTableFlags_SizingStretchSame))
@@ -9030,7 +9954,7 @@ namespace
   // synthesised: with no S line the readouts say "--" and the note says why.
   Void drawControllerState()
   {
-      ImGui::SeparatorText("Controller state");
+      groupLabel("Controller state");
 
       Array<Char, 24> servo = {'-', '-'};
       Array<Char, 24> esc = {'-', '-'};
@@ -9105,7 +10029,7 @@ namespace
   // The lighting bench. See lightInput for what this is and is not connected to.
   Void drawLightingBench()
   {
-      ImGui::SeparatorText("Lighting (bench test)");
+      groupLabel("Lighting (bench test)");
 
       ImGui::TextDisabled("Drives the 3D view only. Nothing is wired to the board.");
       ImGui::Spacing();
@@ -9230,7 +10154,13 @@ namespace
           }
           else
           {
-              hit = ui::segmentedButton(TURNS[i].label, sel, ImVec2(quarter, 0.0f));
+              // At the icon cells' label inset, so the four labels share a column.
+              hit = ui::segmentedButton(
+                  TURNS[i].label,
+                  sel,
+                  ImVec2(quarter, 0.0f),
+                  ui::iconLabelInset()
+              );
           }
 
           if(hit)
@@ -9483,16 +10413,17 @@ namespace
       }
       ImGui::SameLine();
       ui::checkbox("Auto-scroll", &flashAutoscroll);
-      ImGui::SameLine();
       {
+          // On its own row under the controls, where the serial tab puts its
+          // count, so the well's top edge does not move between the two tabs.
           ScopedFont sf(ui::fonts.small);
-          ImGui::AlignTextToFramePadding();
-          ImGui::TextDisabled("%d lines", static_cast<Int32>(flashLog.size()));
+          const Int32 n = static_cast<Int32>(flashLog.size());
+          ImGui::TextDisabled("%d %s", n, n == 1 ? "line" : "lines");
       }
 
-      // The same black ground and mono face as the serial console: the two panes
+      // The same well colour and mono face as the serial console: the two panes
       // are tabs of one console and must not look like two programs.
-      ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::ansi::BLACK);
+      ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
 
       ImGui::BeginChild(id, size, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
       {
@@ -9506,11 +10437,10 @@ namespace
               // forty lines a frame, and none needs its own allocation.
               static Vec<LogRun> runs;
 
-              // The runs butt against each other, so no horizontal item spacing.
-              ImGui::PushStyleVar(
-                  ImGuiStyleVar_ItemSpacing,
-                  ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y)
-              );
+              // The runs butt against each other, so no horizontal item spacing;
+              // and no leading either, the same as the serial log - a log reads
+              // as a terminal, and switching tabs must not change the rhythm.
+              ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
               ImGuiListClipper clipper;
               clipper.Begin(static_cast<Int32>(flashLog.size()));
@@ -9566,9 +10496,18 @@ namespace
       const Float32       bh = ImGui::GetFrameHeight() * 1.2f;
 
       // ---- board -----------------------------------------------------------
-      ImGui::SeparatorText("Board");
+      groupLabel("Board");
 
-      const Float32 refreshW = ImGui::CalcTextSize("Refresh").x + sty.FramePadding.x * 2.0f;
+      // On the heading's row, not the title line: a body-height button beside
+      // title text was two fonts in one row, top-aligned against each other.
+      const Float32 refreshW = ImGui::CalcTextSize("Refresh").x + sty.FramePadding.x * 2.0f
+                             + ui::iconSize() + sty.ItemInnerSpacing.x;
+      ImGui::SameLine(ImGui::GetContentRegionAvail().x - refreshW);
+      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Refresh"))
+      {
+          picoFlash.refreshBoard();
+          picoFlash.refreshCatalog();
+      }
 
       {
           // BOOTSEL is a MODE, and forgetting you are in it is the commonest way
@@ -9592,13 +10531,6 @@ namespace
           {
               colored(ui::sem::MUTED, "No board found");
           }
-      }
-
-      ImGui::SameLine(ImGui::GetContentRegionAvail().x - refreshW);
-      if(ui::iconButton(ui::Icon::ICON_REFRESH, "Refresh"))
-      {
-          picoFlash.refreshBoard();
-          picoFlash.refreshCatalog();
       }
 
       {
@@ -9645,7 +10577,7 @@ namespace
       }
 
       // ---- backup -----------------------------------------------------------
-      ImGui::SeparatorText("Backup");
+      groupLabel("Backup");
 
       ImGui::SetNextItemWidth(-FLT_MIN);
       ImGui::InputTextWithHint(
@@ -9664,7 +10596,7 @@ namespace
 
       // ---- reboot -----------------------------------------------------------
       ImGui::Spacing();
-      ImGui::SeparatorText("Reboot");
+      groupLabel("Reboot");
 
       const Float32 half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
 
@@ -9679,8 +10611,8 @@ namespace
       if(ui::iconButton(ui::Icon::ICON_REBOOT, "Normally", ImVec2(half, bh)))
       {
           releasePicoPortForBoardOp();
-      }
           picoFlash.rebootNormal();
+      }
       ImGui::EndDisabled();
 
   }
@@ -9697,7 +10629,7 @@ namespace
 
       // ---- catalog ----------------------------------------------------------
       ImGui::Spacing();
-      ImGui::SeparatorText("Firmware");
+      groupLabel("Firmware");
 
       const Vec<FirmwareEntry>& cat = picoFlash.catalog();
 
@@ -9721,25 +10653,38 @@ namespace
           descriptionTooltip(e.description);
 
           {
+              // ONE colour for the whole caption. A built image is not a state,
+              // so its size and date are muted like the board name after them;
+              // amber stays for the two lines that do say something is wrong.
+              // The board the image is FOR is stated nowhere else: a .uf2 carries
+              // none, and a Pico 2 W image on a plain Pico 2 runs with a dead LED.
               ScopedFont sf(ui::fonts.small);
+              Array<Char, 96> meta;
               if(e.present)
               {
                   Array<Char, 32> sz;
                   sizeText(sz.data(), sz.size(), e.sizeBytes);
-                  colored(ui::sem::GOOD, "%s   %s", sz.data(), e.builtAt.c_str());
+                  std::snprintf(meta.data(), meta.size(), "%s   %s", sz.data(), e.builtAt.c_str());
               }
               else
               {
-                  colored(ui::sem::WARN, "%s", e.buildable ? "not built yet" : "missing on disk");
+                  std::snprintf(
+                      meta.data(),
+                      meta.size(),
+                      "%s",
+                      e.buildable ? "not built yet" : "missing on disk"
+                  );
               }
-
-              // Which board the image is FOR, stated nowhere else: a .uf2 carries
-              // none, and a Pico 2 W image on a plain Pico 2 runs with a dead LED.
               if(!e.board.empty())
               {
-                  ImGui::SameLine();
-                  colored(ui::sem::MUTED, "   %s", e.board.c_str());
+                  std::strncat(meta.data(), "   ", meta.size() - std::strlen(meta.data()) - 1);
+                  std::strncat(
+                      meta.data(),
+                      e.board.c_str(),
+                      meta.size() - std::strlen(meta.data()) - 1
+                  );
               }
+              colored(e.present ? ui::sem::MUTED : ui::sem::WARN, "%s", meta.data());
           }
 
           const Float32 half = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
@@ -9881,7 +10826,7 @@ namespace
       if(ln.poll)
       {
           // Chatter, when it is shown at all, is dim. It is context, not content.
-          return ansi::GRAY;
+          return ImGui::GetColorU32(ImGuiCol_TextDisabled);
       }
       if(ln.outgoing)
       {
@@ -9891,11 +10836,11 @@ namespace
       const Char* t = ln.text.c_str();
       if(std::strncmp(t, "ERR", 3) == 0)
       {
-          return ansi::RED;
+          return ui::sem::BAD;
       }
       if(std::strncmp(t, "OK", 2) == 0)
       {
-          return ansi::GREEN;
+          return ui::sem::GOOD;
       }
       if(std::strncmp(t, "INFO", 4) == 0)
       {
@@ -9903,9 +10848,10 @@ namespace
       }
       if(std::strncmp(t, "PONG", 4) == 0)
       {
-          return ansi::GREEN;
+          return ui::sem::GOOD;
       }
-      return ansi::WHITE;
+      // The panel's own text colour: a grey of its own made one panel two palettes.
+      return ImGui::GetColorU32(ImGuiCol_Text);
   }
 
   Void drawSerialConsole(const ImVec2& size)
@@ -9968,12 +10914,15 @@ namespace
           ScopedFont sf(ui::fonts.small);
           const Int32 hidden = static_cast<Int32>(picoLog.size())
                              - static_cast<Int32>(logShown.size());
+          // One space each side of a dash: spacing comes from the style, not
+          // from runs of characters.
+          const Int32 total = static_cast<Int32>(picoLog.size());
           if(hidden > 0)
           {
               ImGui::TextDisabled(
-                  "%d of %d lines   -   %d hidden   -   %llu sent / %llu received",
+                  "%d of %d lines - %d hidden - %llu sent / %llu received",
                   static_cast<Int32>(logShown.size()),
-                  static_cast<Int32>(picoLog.size()),
+                  total,
                   hidden,
                   picoLink.txLines(),
                   picoLink.rxLines()
@@ -9982,8 +10931,9 @@ namespace
           else
           {
               ImGui::TextDisabled(
-                  "%d lines   -   %llu sent / %llu received",
-                  static_cast<Int32>(picoLog.size()),
+                  "%d %s - %llu sent / %llu received",
+                  total,
+                  total == 1 ? "line" : "lines",
                   picoLink.txLines(),
                   picoLink.rxLines()
               );
@@ -9991,10 +10941,10 @@ namespace
       }
 
       // ---- the screen -------------------------------------------------------
-      ImGui::PushStyleColor(ImGuiCol_ChildBg, ansi::BLACK);
-      ImGui::PushStyleColor(ImGuiCol_Header,        IM_COL32(0x2A, 0x44, 0x60, 0xFF));
-      ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(0x22, 0x36, 0x4E, 0xFF));
-      ImGui::PushStyleColor(ImGuiCol_HeaderActive,  IM_COL32(0x2A, 0x44, 0x60, 0xFF));
+      // The style's well colour, the same as the filter field above it and the
+      // editor: a black of its own put a grey scrollbar band under a black well.
+      // Selection is the style's Header, like every other list.
+      ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
       ImGui::BeginChild(
@@ -10012,6 +10962,18 @@ namespace
 
       if(!logShown.empty())
       {
+          // The stamp column is as wide as the widest stamp ON SCREEN, not a
+          // fixed eight: stamps are monotonic, so the last shown line has the
+          // widest, and a fixed field left a 47 px hole after "1.04". Right-
+          // aligned in it, so the decimal points line up as they grow.
+          Array<Char, 24> widest;
+          const Int32 stampW = std::snprintf(
+              widest.data(),
+              widest.size(),
+              "%.2f",
+              picoLog[logShown.back()].tS
+          );
+
           ImGuiListClipper clipper;
           clipper.Begin(static_cast<Int32>(logShown.size()));
           while(clipper.Step())
@@ -10025,7 +10987,8 @@ namespace
                   std::snprintf(
                       buf.data(),
                       buf.size(),
-                      "%8.2f  %c  %s",
+                      "%*.2f %c %s",
+                      stampW,
                       ln.tS,
                       ln.outgoing ? '>' : '<',
                       ln.text.c_str()
@@ -10129,14 +11092,16 @@ namespace
       ImGui::EndChild();
 
       ImGui::PopStyleVar();
-      ImGui::PopStyleColor(4);
+      ImGui::PopStyleColor();
   }
 
   // The console column: the two logs, filling their own column on the left - a
   // whole column's height instead of the fifth the sidebar section gave them.
   Void drawConsoleColumn(Float32 w, Float32 h)
   {
-      ImGui::BeginChild("##consolecol", ImVec2(w, h), ImGuiChildFlags_Borders);
+      // No Borders flag: with ChildBorderSize at zero it drew nothing and padded
+      // nothing, and it would grow an outline the day that size changed.
+      ImGui::BeginChild("##consolecol", ImVec2(w, h), ImGuiChildFlags_None);
 
       if(ImGui::BeginTabBar("##concoltabs"))
       {
@@ -10299,24 +11264,58 @@ namespace
   // immediately after the header, which must have had SetNextItemAllowOverlap().
   // SameLine, NOT SetCursorScreenPos: moving the cursor past the last submitted
   // item and ending the window without another is an ImGui assertion.
+  //
+  // A CAPTION-SIZED key: in the header's own title face the word read as a
+  // second heading on the row. The hit box is the row's full height, so the
+  // key stays where SameLine puts it; the plate and the small-face label are
+  // drawn centered inside it, which is what a shorter Button in the row could
+  // not do without moving the cursor.
   Bool tearOffButton(Int32 id, Bool floating)
   {
-      const Char*   lbl = floating ? "dock" : "float";
-      const Float32 w = ImGui::CalcTextSize(lbl).x
-                        + ImGui::GetStyle().FramePadding.x * 2.0f;
+      const ImGuiStyle& st = ImGui::GetStyle();
+      const Char*       lbl = floating ? "dock" : "float";
 
-      const Float32 x = ImGui::GetContentRegionMax().x - w
-                      - ImGui::GetStyle().FramePadding.x;
+      ImVec2 tsz;
+      {
+          ScopedFont sf(ui::fonts.small);
+          tsz = ImGui::CalcTextSize(lbl);
+      }
+      const Float32 w = tsz.x + st.FramePadding.x * 2.0f;
+      const Float32 rowH = ImGui::GetItemRectSize().y;   // the header's
+
+      // Never taller than the row: a torn-off section's placeholder is one
+      // text line, and a key taller than its row would overdraw the next one.
+      const Float32 h = std::min(tsz.y + st.FramePadding.y * 2.0f, rowH);
+      const Float32 x = ImGui::GetContentRegionMax().x - w - st.FramePadding.x;
 
       ImGui::SameLine(x, 0.0f);
       ImGui::PushID(id);
-      const Bool hit = ImGui::Button(lbl, ImVec2(w, 0.0f));
+      const Bool hit = ImGui::InvisibleButton("##tear", ImVec2(w, rowH));
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(floating ? "Put this panel back in the column"
                                      : "Tear this panel off into its own window");
       }
       ImGui::PopID();
+
+      const ImVec2 a = ImGui::GetItemRectMin();
+      const ImVec2 p0(a.x, a.y + (rowH - h) * 0.5f);
+      const ImVec2 p1(p0.x + w, p0.y + h);
+      const ImU32  fill = ImGui::GetColorU32(
+          ImGui::IsItemActive() ? ImGuiCol_ButtonActive
+                                : ImGui::IsItemHovered() ? ImGuiCol_ButtonHovered
+                                                         : ImGuiCol_Button
+      );
+      ui::plate(p0, p1, fill);
+
+      {
+          ScopedFont sf(ui::fonts.small);
+          ImGui::GetWindowDrawList()->AddText(
+              ImVec2(p0.x + st.FramePadding.x, p0.y + (h - tsz.y) * 0.5f),
+              ImGui::GetColorU32(ImGuiCol_TextDisabled),
+              lbl
+          );
+      }
       return hit;
   }
 
@@ -10337,6 +11336,12 @@ namespace
       wasdOn = false;
       wasdSentSteer = 0;
       wasdSentEsc = 0;
+
+      // The lidar stops driving too, and stays stopped: STOP disarms the ESC,
+      // and the tick would otherwise notice that a frame later and log a
+      // second reason for the same event.
+      reactiveOn = false;
+      reactiveWhy = "emergency stop";
 
       sendPico("STOP");
       LOG_WARN("drive", "emergency stop (%s)", how);
@@ -10376,14 +11381,18 @@ namespace
       }
   }
 
-  Void drawEmergencyStop(Float32 width)
+  // Returns the height it took, so the column below can lay out against it.
+  Float32 drawEmergencyStop()
   {
+      // The title face for the whole button: at body size the label floated as
+      // a caption in a red slab. 1.5 title frames lands near the old 2 body
+      // frames, and the label fills it. Minus the scrollbar the column below
+      // always reserves, so the bar's right edge is the rows' right edge.
+      ScopedFont sf(ui::fonts.title);
+      const Float32 w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+      const Float32 h = ImGui::GetFrameHeight() * 1.5f;
       ui::pushTint(ui::Tint::TINT_BAD);
-      if(ui::iconButton(
-          ui::Icon::ICON_MOTOR_STOP,
-          "STOP  [SPACE]",
-          ImVec2(width, ImGui::GetFrameHeight() * 2.0f)
-      ))
+      if(ui::iconButton(ui::Icon::ICON_MOTOR_STOP, "STOP [SPACE]", ImVec2(w, h)))
       {
           emergencyStop("button");
       }
@@ -10411,6 +11420,7 @@ namespace
               "because there space is a character, and a stop that fired on\n"
               "every word typed would be switched off by the end of the day.");
       }
+      return h;
   }
 
   Void drawSidebar(Float32 width, Float32 height)
@@ -10427,17 +11437,20 @@ namespace
       );
       ImGui::PopStyleVar();
 
-      const Float32 stopH = ImGui::GetFrameHeight() * 2.0f;
-      drawEmergencyStop(width);
+      const Float32 stopH = drawEmergencyStop();
       ImGui::Spacing();
 
-      const Float32 rest = height - stopH - ImGui::GetStyle().ItemSpacing.y * 2.0f;
+      // One Spacing() above, so one ItemSpacing off the height - two left the
+      // column a row short at the bottom.
+      const Float32 rest = height - stopH - ImGui::GetStyle().ItemSpacing.y;
 
+      // The scrollbar is always reserved, so the rows' right edge does not jump
+      // when the column grows past the window and the STOP bar can match it.
       ImGui::BeginChild(
           "##sidebar",
           ImVec2(width, std::max(40.0f, rest)),
           ImGuiChildFlags_None,
-          ImGuiWindowFlags_None
+          ImGuiWindowFlags_AlwaysVerticalScrollbar
       );
 
       Int32 dragFrom = -1, dragTo = -1;
@@ -10482,10 +11495,22 @@ namespace
               ImGui::SetNextItemOpen(true, ImGuiCond_Always);
           }
 
+          // The title face for the header, so a section reads a tier above the
+          // rows under it. HALF the frame's vertical padding: the title face
+          // is a step taller than body, and at the full padding the header
+          // was 36 px in a column whose rows are 26 - twelve pixels a 1000 px
+          // window took out of the rows below the fold.
+          ScopedFont titleFace(ui::fonts.title);
+          ImGui::PushStyleVar(
+              ImGuiStyleVar_FramePadding,
+              ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y * 0.5f)
+          );
+
           // So the tear-off button can sit on top of the header's own hit box.
           ImGui::SetNextItemAllowOverlap();
           const Bool open = ImGui::CollapsingHeader(
               e.label, e.openByDefault ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+          ImGui::PopStyleVar();
 
           const ImVec2 hp = ImGui::GetItemRectMin();
           const ImVec2 hq = ImGui::GetItemRectMax();
@@ -10533,10 +11558,13 @@ namespace
 
           if(open)
           {
+              // No Spacing() after the body: the next header's fill is the
+              // break, and the extra row gap was eight pixels the column did
+              // not have at 1000 px.
+              ScopedFont bodyFace(ui::fonts.body);
               ImGui::PushID(e.id);
               e.body();
               ImGui::PopID();
-              ImGui::Spacing();
           }
       }
 
@@ -11168,11 +12196,10 @@ Void app::frame()
     const ImGuiStyle& sty = ImGui::GetStyle();
 
     // ---- the status bar's height, reserved now and DRAWN LAST ----------
-    // Sized to whichever is taller, the type or the icons, plus its padding:
-    // sizing to the text alone is what cropped the old lamps.
-    const Float32 stripPad = 6.0f * uiDpiScale;
-    const Float32 stripH = std::max(ImGui::GetTextLineHeight(), ui::iconSize())
-                           + stripPad * 2.0f;
+    // One frame tall, the same as the tab strips above it; the icon term keeps
+    // the lamps uncropped should the icons ever outgrow the type.
+    const Float32 stripH = std::max(ImGui::GetFrameHeight(),
+                                    ui::iconSize() + sty.FramePadding.y * 2.0f);
 
     // ---- map + sidebar ---------------------------------------------------
     // Everything above the bar lays out against the height the bar leaves.
@@ -11251,15 +12278,16 @@ Void app::frame()
             ImGui::GetColorU32(ImGuiCol_Separator)
         );
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * uiDpiScale, stripPad));
+        // avail.x is the width the columns above were laid out in, so the bar
+        // starts on the console column's left edge and ends on the sidebar's
+        // right edge: equal insets, no padding of its own.
         ImGui::BeginChild("##statusbar",
-                          ImVec2(ws.x - sty.WindowPadding.x * 2.0f, stripH),
+                          ImVec2(avail.x, stripH),
                           ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoScrollbar
                           | ImGuiWindowFlags_NoScrollWithMouse);
         drawStatusBar();
         ImGui::EndChild();
-        ImGui::PopStyleVar();
     }
 
     // ---- the recorder's frame source -----------------------------------
