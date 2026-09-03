@@ -12,6 +12,13 @@
 //
 // It deliberately NEVER calls bootsel_touch(): that would reboot the board into
 // BOOTSEL and yank the port out from under whoever else is working on it.
+//
+// Section 0 needs no board and runs first, so a machine without one still
+// checks the one thing this file was found lying about: that every send() is
+// counted, as transmitted or as dropped. The seams reachable without hardware
+// are a link that is closed and a port that does not exist. The write-timeout
+// and dying-link sweeps can only be exercised with a board attached, and are
+// covered by section 7's invariant.
 #include "shared.hxx"
 #include "../src/pico_link.hxx"
 
@@ -28,6 +35,7 @@ static const Char* stateName(PicoState s)
         case PicoState::PICO_STATE_DISCONNECTED: return "Disconnected";
         case PicoState::PICO_STATE_CONNECTING:   return "Connecting";
         case PicoState::PICO_STATE_CONNECTED:    return "Connected";
+        case PicoState::PICO_STATE_UNPLUGGED:    return "Unplugged";
         case PicoState::PICO_STATE_ERROR:        return "Error";
     }
     return "?";
@@ -47,11 +55,101 @@ static Size pump(PicoLink& link, Vec<PicoLine>& sink, Int32 ms, const Char* what
     return sink.size() - before;
 }
 
-Int32 main()
+// The invariant every section leans on: sends == txLines() + dropped().
+static Void accounted(PicoLink& link, UInt64 sends, const Char* what, Int32& failures)
+{
+    const UInt64 tx = link.txLines();
+    const UInt64 dr = link.dropped();
+    const Bool   ok = tx + dr == sends;
+    printf(
+        "  %s: %llu send(s) == tx %llu + dropped %llu ... %s\n",
+        what,
+        sends,
+        tx,
+        dr,
+        ok ? "PASS" : "FAIL"
+    );
+    if(!ok)
+    {
+        ++failures;
+    }
+}
+
+// `host` as the one argument stops after section 0, so the accounting check can
+// run on a machine with no board, or one whose board somebody else is using.
+Int32 main(Int32 argc, Char** argv)
 {
     Int32 failures = 0;
+    const Bool hostOnly = argc > 1 && Str(argv[1]) == "host";
 
-    printf("=== 1. listPicoPorts() ===\n");
+    printf("=== 0. accounting without a board ===\n");
+    {
+        PicoLink cold;
+
+        // Closed link: every send() is a drop, and says so.
+        cold.send("A");
+        cold.send("B", /*poll=*/true);
+        cold.send("C\r\n");
+        printf(
+            "  3 send()s on a closed link -> tx %llu, dropped %llu\n",
+            cold.txLines(),
+            cold.dropped()
+        );
+        accounted(cold, 3, "closed", failures);
+        if(cold.dropped() != 3)
+        {
+            printf("  FAIL: closed link must drop, not transmit\n");
+            ++failures;
+        }
+
+        // A port that does not exist: connect() resets the counters, the worker
+        // fails to open and settles in a terminal state, and a send() before or
+        // after that is still a counted drop.
+        static constexpr const Char* NOWHERE = "COM255";
+        cold.connect(NOWHERE);
+        cold.send("D");
+        for(Int32 i = 0; i < 300 && cold.state() == PicoState::PICO_STATE_CONNECTING; ++i)
+        {
+            sleepMs(10);
+        }
+        printf(
+            "  connect(%s) settled as %s: '%s'\n",
+            NOWHERE,
+            stateName(cold.state()),
+            cold.error().c_str()
+        );
+        const Bool settled = cold.state() != PicoState::PICO_STATE_CONNECTING
+                             && cold.state() != PicoState::PICO_STATE_CONNECTED;
+        printf("  not connected, not still connecting ... %s\n", settled ? "PASS" : "FAIL");
+        if(!settled)
+        {
+            ++failures;
+        }
+        cold.send("E");
+        accounted(cold, 2, "no such port", failures);
+
+        cold.disconnect();
+        cold.send("F");
+        accounted(cold, 3, "after disconnect", failures);
+
+        Vec<PicoLine> notes;
+        cold.drain(notes);
+        for(const auto& l : notes)
+        {
+            printf("  %8.3f  %s  %s\n", l.tS, l.outgoing ? "TX >" : "RX <", l.text.c_str());
+        }
+    }
+    if(hostOnly)
+    {
+        printf(
+            "\n=== RESULT: %s (%d failure(s), host-only) ===\n",
+            failures ? "FAIL" : "PASS",
+            failures
+        );
+        return failures ? 1 : 0;
+    }
+
+    printf("\n=== 1. listPicoPorts() ===\n");
     Vec<Str> ports = PicoLink::listPicoPorts();
     printf("  %zu Raspberry Pi (VID_2E8A) serial port(s):\n", ports.size());
     for(const auto& p : ports)
@@ -121,6 +219,13 @@ Int32 main()
         sleepMs(120);
         link.drain(lines);
     }
+    if(link.state() != PicoState::PICO_STATE_CONNECTED)
+    {
+        // Not a failure of THIS section: a board whose sketch never reads its
+        // serial input stalls the second write, and the link is right to say so.
+        // Section 7 checks that the stalled lines were still counted.
+        printf("  link left %s: '%s'\n", stateName(link.state()), link.error().c_str());
+    }
 
     printf("\n=== 5. listen 3 s for a reply ===\n");
     pump(link, lines, 3000, "after probes");
@@ -145,9 +250,16 @@ Int32 main()
         age,
         age < 0.0 ? "(negative == nothing ever received, as documented)" : ""
     );
+    // Whatever the board did with them, all three sends must be accounted for.
+    // This is the check that was missing when tx came back 1 and dropped 0.
+    accounted(link, static_cast<UInt64>(probes.size()), "probes", failures);
     printf("  3 probes sent   ... %s\n", link.txLines() == 3 ? "PASS" : "FAIL");
     if(link.txLines() != 3)
     {
+        printf(
+            "  (a board that does not read its USB input stalls the writer: %s)\n",
+            link.error().c_str()
+        );
         ++failures;
     }
     printf("  0 dropped while connected ... %s\n", link.dropped() == 0 ? "PASS" : "FAIL");
