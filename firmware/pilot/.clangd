@@ -1,0 +1,14 @@
+# This directory, not firmware/build.
+#
+# WHY IT IS NEEDED HERE. The parent firmware/.clangd points at the CMake
+# database, which describes ARM cross-compiled files only, and adds the
+# arm-none-eabi system header paths on top. clangd merges every .clangd from a
+# file's directory up to the root, so when pilot/ moved under firmware/ its host
+# code started inheriting --target=arm-none-eabi and failed the same way
+# firmware/tests/.clangd already describes.
+#
+# pilot/ is NOT firmware. It compiles with MSVC on a laptop today and for Linux
+# on the Orange Pi later; it never goes near the Pico's toolchain. The database
+# beside this file says so, and covers src/ and tests/ both.
+CompileFlags:
+  CompilationDatabase: .

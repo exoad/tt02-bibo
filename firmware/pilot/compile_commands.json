@@ -1,0 +1,107 @@
+[
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/src/autonomy.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "src/autonomy.cxx"
+    ]
+  },
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/src/link.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "src/link.cxx"
+    ]
+  },
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/src/proto.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "src/proto.cxx"
+    ]
+  },
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/src/reactive.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "src/reactive.cxx"
+    ]
+  },
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/tests/test_pilot.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "tests/test_pilot.cxx"
+    ]
+  },
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/tests/test_proto.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "tests/test_proto.cxx"
+    ]
+  },
+  {
+    "directory": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot",
+    "file": "C:/Users/error/Code/RPLIDAR-C1/firmware/pilot/tests/test_reactive.cxx",
+    "arguments": [
+      "clang++",
+      "-std=c++20",
+      "-D_CRT_SECURE_NO_WARNINGS",
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\shared",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\pilot\\src",
+      "-IC:\\Users\\error\\Code\\RPLIDAR-C1\\firmware\\lib",
+      "-c",
+      "tests/test_reactive.cxx"
+    ]
+  }
+]

@@ -7,7 +7,7 @@ REM for the Pico, the Orange Pi and the host, and nothing else holds them to it.
 
 setlocal
 set HERE=%~dp0
-call "%~dp0..\..\tools\find_vs.bat"
+call "%~dp0..\..\..\tools\find_vs.bat"
 if errorlevel 1 exit /b 1
 set "VS=%VSROOT%"
 
@@ -26,9 +26,9 @@ REM a SUBSET of a header trips this: 48 warnings here, none about anything wrong
 REM Named rather than hidden behind a blanket /W3. The real fix is `inline` in
 REM those headers, but that is a change to firmware/lib, not to this script.
 cl /nologo /EHsc /O2 /MT /W4 /wd4505 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
-  /I"%HERE%..\..\shared" ^
+  /I"%HERE%..\..\..\shared" ^
   /I"%HERE%..\src" ^
-  /I"%HERE%..\..\firmware\lib" ^
+  /I"%HERE%..\..\lib" ^
   "%HERE%test_pilot.cxx" ^
   "%HERE%..\src\autonomy.cxx" ^
   "%HERE%..\src\link.cxx" ^

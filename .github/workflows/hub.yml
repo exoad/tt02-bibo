@@ -108,7 +108,7 @@ jobs:
           setlocal enabledelayedexpansion
           set FAIL=0
           for %%s in (pilot proto) do (
-            call pilot\tests\build_%%s_test.bat run >nul 2>&1
+            call firmware\pilot\tests\build_%%s_test.bat run >nul 2>&1
             if errorlevel 1 (
               echo   [FAIL] %%s
               set FAIL=1
