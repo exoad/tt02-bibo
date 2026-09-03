@@ -300,92 +300,122 @@ namespace ui
       style.FontScaleDpi = (shellFontScaleDpi > 0.0f) ? shellFontScaleDpi : 1.0f;
 
       // ------------------------------------------------------------- palette
-      // Industrial slate with LED accents. GRAPHITE, NOT BLACK: panels sit around
-      // 15-22% gray. The lidar VIEWPORT is the exception and stays darker - the
-      // point cloud needs the contrast the chrome gives up.
-      auto  slate = [](Float32 v, Float32 a = 1.0f) {
-          // Faintly cool, the way graphite reads under workshop light.
-          return ImVec4(v * 0.96f, v * 0.99f, v * 1.06f, a);
+      // GRUVBOX DARK, on the same skeuomorphic depth the chrome always had. The
+      // palette changed; the physics did not. A field is still milled INTO the
+      // casing and sits a step darker; a key is still pushed OUT of it and sits
+      // a step lighter; bevelRect() still puts a pixel of light along the top
+      // edge and a pixel of shadow along the bottom. Gruvbox's background ramp -
+      // bg0_h, bg0, bg0_s, bg1, bg2, bg3, bg4 - IS that depth scale, which is
+      // why it fits a 2010s dark utility panel better than a flat theme would.
+      //
+      // The editor's syntax colours (syn::gruv) were already this palette. This
+      // brings the chrome around them to the same set, so a file no longer sits
+      // in a differently-coloured window.
+      //
+      // NO ACCENT ON ANY EDGE. Borders, separators, the tab overline and the
+      // selected-segment mark are all neutral now. The one interface accent -
+      // accent::CYAN, which is gruvbox aqua despite its name - is reserved for
+      // marks: a check, a caret, a drop target. Colour on an edge is what made
+      // the old chrome busy, and an edge that changes colour on hover is an
+      // edge asking to be looked at.
+      auto hex = [](Int32 r, Int32 g, Int32 b, Float32 a = 1.0f) {
+          return ImVec4(
+              static_cast<Float32>(r) / 255.0f,
+              static_cast<Float32>(g) / 255.0f,
+              static_cast<Float32>(b) / 255.0f,
+              a
+          );
       };
-      auto  gray = [](Float32 v, Float32 a = 1.0f) { return ImVec4(v, v, v, a); };
 
-      const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(accent::CYAN);
-      const ImVec4 accentHi = ImGui::ColorConvertU32ToFloat4(accent::CYAN_HI);
+      const ImVec4 bg0h = hex(0x1D, 0x20, 0x21);   // the deepest well
+      const ImVec4 bg0 = hex(0x28, 0x28, 0x28);   // the casing
+      const ImVec4 bg0s = hex(0x32, 0x30, 0x2F);   // a panel on the casing
+      const ImVec4 bg1 = hex(0x3C, 0x38, 0x36);   // a key
+      const ImVec4 bg2 = hex(0x50, 0x49, 0x45);   // a key under the pointer
+      const ImVec4 bg3 = hex(0x66, 0x5C, 0x54);   // every hairline edge
+      const ImVec4 bg4 = hex(0x7C, 0x6F, 0x64);
+      const ImVec4 fg1 = hex(0xEB, 0xDB, 0xB2);   // text
+      const ImVec4 fg2 = hex(0xD5, 0xC4, 0xA1);
+      const ImVec4 fg3 = hex(0xBD, 0xAE, 0x93);
+      const ImVec4 fg4 = hex(0xA8, 0x99, 0x84);   // muted text, neutral grabs
+      const ImVec4 aqua = ImGui::ColorConvertU32ToFloat4(accent::CYAN_HI);
+      const ImVec4 blue = hex(0x83, 0xA5, 0x98);
 
       ImVec4* c = style.Colors;
 
       // ---- the casing ----
-      c[ImGuiCol_WindowBg] = slate(0.190f);
-      c[ImGuiCol_ChildBg] = slate(0.220f);
-      c[ImGuiCol_PopupBg] = slate(0.240f);
-      c[ImGuiCol_MenuBarBg] = slate(0.210f);
-      c[ImGuiCol_TitleBg] = slate(0.160f);
-      c[ImGuiCol_TitleBgActive] = slate(0.195f);
-      c[ImGuiCol_TitleBgCollapsed] = slate(0.160f);
+      c[ImGuiCol_WindowBg] = bg0;
+      c[ImGuiCol_ChildBg] = bg0;      // same as the window: one casing, not panels on a casing
+      c[ImGuiCol_PopupBg] = bg1;
+      c[ImGuiCol_MenuBarBg] = bg0;
+      c[ImGuiCol_TitleBg] = bg0h;
+      c[ImGuiCol_TitleBgActive] = bg0;
+      c[ImGuiCol_TitleBgCollapsed] = bg0h;
       c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
-      c[ImGuiCol_TableRowBgAlt] = gray(1.0f, 0.022f);
+      c[ImGuiCol_TableRowBgAlt] = ImVec4(fg1.x, fg1.y, fg1.z, 0.03f);
 
       // ---- wells: a field is milled INTO the casing, so it is darker ----
-      c[ImGuiCol_FrameBg] = slate(0.120f);
-      c[ImGuiCol_FrameBgHovered] = slate(0.150f);
-      c[ImGuiCol_FrameBgActive] = slate(0.100f);
+      c[ImGuiCol_FrameBg] = bg0h;
+      c[ImGuiCol_FrameBgHovered] = bg0;
+      c[ImGuiCol_FrameBgActive] = bg0h;
 
       // ---- keys: pushed OUT of the casing, so they are lighter ----
-      c[ImGuiCol_Button] = slate(0.300f);
-      c[ImGuiCol_ButtonHovered] = slate(0.360f);
-      c[ImGuiCol_ButtonActive] = slate(0.215f);   // sinks when pressed
+      c[ImGuiCol_Button] = bg1;
+      c[ImGuiCol_ButtonHovered] = bg2;
+      c[ImGuiCol_ButtonActive] = bg0s;   // sinks when pressed
 
-      c[ImGuiCol_Header] = slate(0.275f);
-      c[ImGuiCol_HeaderHovered] = slate(0.330f);
-      c[ImGuiCol_HeaderActive] = slate(0.370f);
+      c[ImGuiCol_Header] = bg1;
+      c[ImGuiCol_HeaderHovered] = bg2;
+      c[ImGuiCol_HeaderActive] = bg3;
 
-      c[ImGuiCol_Tab] = slate(0.225f);
-      c[ImGuiCol_TabHovered] = slate(0.325f);
-      c[ImGuiCol_TabSelected] = slate(0.295f);
-      c[ImGuiCol_TabDimmed] = slate(0.190f);
-      c[ImGuiCol_TabDimmedSelected]= slate(0.245f);
-      c[ImGuiCol_TabSelectedOverline] = accent;
+      c[ImGuiCol_Tab] = bg0;
+      c[ImGuiCol_TabHovered] = bg2;
+      c[ImGuiCol_TabSelected] = bg1;
+      c[ImGuiCol_TabDimmed] = bg0;
+      c[ImGuiCol_TabDimmedSelected]= bg1;
 
-      // ---- edges: a dark seam between parts, as machined panels have ----
-      c[ImGuiCol_Border] = gray(0.0f, 0.55f);
+      // The selected tab is the one with the key fill. It does not also get a
+      // coloured line drawn on it.
+      c[ImGuiCol_TabSelectedOverline] = ImVec4(0, 0, 0, 0);
+
+      // ---- edges: one hairline tone, and it does not react ----
+      c[ImGuiCol_Border] = bg3;
       c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
-      c[ImGuiCol_Separator] = gray(0.0f, 0.42f);
-      c[ImGuiCol_SeparatorHovered] = accent;
-      c[ImGuiCol_SeparatorActive] = accentHi;
+      c[ImGuiCol_Separator] = bg3;
+      c[ImGuiCol_SeparatorHovered] = bg4;
+      c[ImGuiCol_SeparatorActive] = fg4;
 
       // ---- controls ----
-      c[ImGuiCol_CheckMark] = accentHi;
-      c[ImGuiCol_SliderGrab] = accent;
-      c[ImGuiCol_SliderGrabActive] = accentHi;
+      c[ImGuiCol_CheckMark] = aqua;
+      c[ImGuiCol_SliderGrab] = fg4;
+      c[ImGuiCol_SliderGrabActive] = fg3;
 
-      c[ImGuiCol_ScrollbarBg] = slate(0.140f);
-      c[ImGuiCol_ScrollbarGrab] = slate(0.330f);
-      c[ImGuiCol_ScrollbarGrabHovered] = slate(0.410f);
-      c[ImGuiCol_ScrollbarGrabActive] = slate(0.490f);
-      c[ImGuiCol_ResizeGrip] = gray(1.0f, 0.08f);
-      c[ImGuiCol_ResizeGripHovered] = gray(1.0f, 0.18f);
-      c[ImGuiCol_ResizeGripActive] = gray(1.0f, 0.30f);
+      c[ImGuiCol_ScrollbarBg] = bg0h;
+      c[ImGuiCol_ScrollbarGrab] = bg2;
+      c[ImGuiCol_ScrollbarGrabHovered] = bg3;
+      c[ImGuiCol_ScrollbarGrabActive] = bg4;
+      c[ImGuiCol_ResizeGrip] = ImVec4(fg1.x, fg1.y, fg1.z, 0.08f);
+      c[ImGuiCol_ResizeGripHovered] = ImVec4(fg1.x, fg1.y, fg1.z, 0.18f);
+      c[ImGuiCol_ResizeGripActive] = ImVec4(fg1.x, fg1.y, fg1.z, 0.30f);
 
-      c[ImGuiCol_TableHeaderBg] = slate(0.260f);
-      c[ImGuiCol_TableBorderStrong] = gray(0.0f, 0.45f);
-      c[ImGuiCol_TableBorderLight] = gray(0.0f, 0.25f);
-      c[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.32f);
-      c[ImGuiCol_InputTextCursor] = accentHi;
+      c[ImGuiCol_TableHeaderBg] = bg1;
+      c[ImGuiCol_TableBorderStrong] = bg3;
+      c[ImGuiCol_TableBorderLight] = ImVec4(0, 0, 0, 0);   // rows are separated by their own alternation
+      c[ImGuiCol_TextSelectedBg] = ImVec4(bg2.x, bg2.y, bg2.z, 0.90f);
+      c[ImGuiCol_InputTextCursor] = fg1;
 
       // ---- the rest of the palette -----------------------------------------
-      c[ImGuiCol_PlotLines] = slate(0.62f);
-      c[ImGuiCol_PlotLinesHovered] = accentHi;
-      c[ImGuiCol_PlotHistogram] = accent;
-      c[ImGuiCol_PlotHistogramHovered] = accentHi;
+      c[ImGuiCol_PlotLines] = fg4;
+      c[ImGuiCol_PlotLinesHovered] = fg2;
+      c[ImGuiCol_PlotHistogram] = bg4;
+      c[ImGuiCol_PlotHistogramHovered] = fg4;
 
-      c[ImGuiCol_NavCursor] = accent;
-      c[ImGuiCol_DragDropTarget] = accentHi;
-      c[ImGuiCol_TextLink] = accentHi;
+      c[ImGuiCol_NavCursor] = fg4;
+      c[ImGuiCol_DragDropTarget] = aqua;
+      c[ImGuiCol_TextLink] = blue;
 
-      // #D6DBE0 on ~18% gray: a comfortable long-session contrast, where
-      // near-white on black was not.
-      c[ImGuiCol_Text] = ImVec4(0.839f, 0.859f, 0.878f, 1.00f);
-      c[ImGuiCol_TextDisabled] = ImVec4(0.478f, 0.510f, 0.541f, 1.00f);
+      c[ImGuiCol_Text] = fg1;
+      c[ImGuiCol_TextDisabled] = fg4;
 
       // ------------------------------------------------------------ geometry
       // SHARP. Every corner in the program, at zero, and set in ONE place so there
@@ -400,22 +430,38 @@ namespace ui
 
       // Widgets are outlined; containers are NOT - panels run flush into one
       // another, or you get boxes ringed inside other ringed boxes.
-      style.FrameBorderSize = 1.0f;    // scaled by ScaleAllSizes below
+      style.FrameBorderSize = 0.0f;    // the bevel is the edge; no outline on top of it
       style.WindowBorderSize = 0.0f;
       style.ChildBorderSize = 0.0f;
 
       // DENSE, on purpose - every value is smaller than a general-purpose UI would
       // use, with the outlines and bevels doing the separating.
-      style.ItemSpacing = ImVec2(5.0f, 3.0f);
-      style.ItemInnerSpacing = ImVec2(4.0f, 3.0f);
-      style.FramePadding = ImVec2(6.0f, 3.0f);
-      style.CellPadding = ImVec2(5.0f, 2.0f);
-      style.WindowPadding = ImVec2(6.0f, 5.0f);
-      style.IndentSpacing = 14.0f;
+      // ONE SCALE, EVEN NUMBERS. These were 5/3, 6/3, 6/5, 14 - each chosen on
+      // its own, none a multiple of any other, so a row of controls, a table,
+      // and a panel edge all sat at slightly different distances and the whole
+      // window read as unevenly spaced. Everything here is now 4 or 8 or a
+      // multiple, which is what makes gaps line up across views without each
+      // view having to be tuned by hand.
+      style.ItemSpacing = ImVec2(8.0f, 6.0f);
+      style.ItemInnerSpacing = ImVec2(6.0f, 4.0f);
+      style.FramePadding = ImVec2(8.0f, 4.0f);
+      // 4/2, not 6/3: the one pair that was off the scale, and a table row is
+      // its text plus twice the y - at 3 the sidebar's sixteen rows ran 44 px
+      // past what a 1000 px window holds.
+      style.CellPadding = ImVec2(4.0f, 2.0f);
+      style.WindowPadding = ImVec2(8.0f, 8.0f);
+      style.IndentSpacing = 16.0f;
+
+      // Sub-headings flush on the content edge, with the frame's vertical
+      // padding above and below: ImGui's default (20,3) was a fourth left edge
+      // in the sidebar and a pad off the 4/8 scale, and the row gap (6) put
+      // the sidebar's three headings twelve pixels over what 1000 px holds.
+      style.SeparatorTextPadding = ImVec2(0.0f, style.FramePadding.y);
+      style.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
 
       // A thin scrollbar; the stock 14px bar is a touch-sized affordance.
       style.ScrollbarSize = 10.0f;
-      style.GrabMinSize = 9.0f;
+      style.GrabMinSize = 10.0f;
 
       // The selected tab is marked only by its overline, so it has to be thick
       // enough to see.
@@ -433,7 +479,7 @@ namespace ui
 
       // Same reason: an outline rounding to zero at some DPI silently undoes the
       // whole look on that machine.
-      style.FrameBorderSize = hairline(dpiScale);
+      style.FrameBorderSize = 0.0f;
 
       // Popups are the one bordered container: they float over arbitrary content
       // and need an edge, or a modal reads as text pasted onto the page.
@@ -608,9 +654,9 @@ namespace ui
   Void plate(const ImVec2& pMin, const ImVec2& pMax, ImU32 fill, Float32 rounding)
   {
       ImDrawList* dl = ImGui::GetWindowDrawList();
+      // Fill and bevel are the whole treatment - no outline on top of the edge.
       dl->AddRectFilled(pMin, pMax, fill, rounding);
       bevelRect(pMin, pMax, false, 0.85f);
-      dl->AddRect(pMin, pMax, IM_COL32(0, 0, 0, 120), rounding, 0, 1.0f);
   }
 
   Void shadeLastItem(Float32 strength)
@@ -765,15 +811,15 @@ namespace ui
       const ImU32 fill = ImGui::GetColorU32(
           act ? ImGuiCol_FrameBgActive : hov ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg
       );
-      dl->AddRectFilled(b0, b1, fill, st.FrameRounding);
+      dl->AddRectFilled(b0, b1, fill, 0.0f);
 
       // Recessed: pressed == true gives shadow on top, light on the bottom.
       bevelRect(b0, b1, true, 1.0f);
 
+      // The neutral hairline in both states: the check strokes below carry the
+      // on-state, and a coloured outline is the one edge the palette forbids.
       const Float32 bw = (st.FrameBorderSize > 0.0f) ? st.FrameBorderSize : hairline(dpi);
-      const ImU32 edge = on  ? ImGui::GetColorU32(ImGuiCol_CheckMark)
-                             : ImGui::GetColorU32(ImGuiCol_Border);
-      dl->AddRect(b0, b1, edge, st.FrameRounding, 0, bw);
+      dl->AddRect(b0, b1, ImGui::GetColorU32(ImGuiCol_Border), 0.0f, 0, bw);
 
       if(on)
       {
@@ -828,32 +874,52 @@ namespace ui
       return changed;
   }
 
-  // One cell of a mutually-exclusive row. Unselected is transparent so the row
-  // reads as one strip; selected takes a plate fill and an accent EDGE, not a
-  // flood.
-  Bool segmentedButton(const Char* label, Bool selected, const ImVec2& size, Mark mark)
+  Float32 buttonWidth(const ImVec2& size, Float32 autoW)
   {
+      if(size.x > 0.0f)
+      {
+          return size.x;
+      }
+      if(size.x < 0.0f)
+      {
+          // CalcItemSize's floor, so a fill-right button in no room still exists.
+          return std::max(4.0f, ImGui::GetContentRegionAvail().x + size.x);
+      }
+      return autoW;
+  }
+
+  Float32 labelAlign(Float32 labelX, Float32 w, Float32 textW)
+  {
+      const Float32 pad = ImGui::GetStyle().FramePadding.x;
+      const Float32 inner = w - pad * 2.0f - textW;
+      return (inner > 0.0f) ? std::clamp((labelX - pad) / inner, 0.0f, 1.0f) : 0.5f;
+  }
+
+  // One cell of a mutually-exclusive row. Unselected is transparent so the row
+  // reads as one strip; selected takes the plate fill and bevel, nothing more -
+  // a bar along one edge was a third treatment on a button and read as a tab
+  // underline.
+  Bool segmentedButton(const Char* label, Bool selected, const ImVec2& size, Float32 labelX)
+  {
+      // A cell in a strip is left-aligned at a FIXED inset when asked, so a
+      // strip that wraps to two rows has its labels in one column; a label
+      // centered per cell lands somewhere else in every cell.
+      const Bool aligned = (labelX >= 0.0f);
+      if(aligned)
+      {
+          const Float32 textW = ImGui::CalcTextSize(label, nullptr, true).x;
+          const Float32 w = buttonWidth(size, textW + ImGui::GetStyle().FramePadding.x * 2.0f);
+          ImGui::PushStyleVar(
+              ImGuiStyleVar_ButtonTextAlign,
+              ImVec2(labelAlign(labelX, w, textW), 0.5f)
+          );
+      }
+
       Bool hit;
       if(selected)
       {
           hit = ImGui::Button(label, size);
           shadeLastItem();
-
-          const ImVec2 a = ImGui::GetItemRectMin();
-          const ImVec2 b = ImGui::GetItemRectMax();
-          const Float32  t = 2.0f * dpiScale();
-          const ImU32  m = ImGui::GetColorU32(ImGuiCol_CheckMark);
-
-          // The mark runs along the edge the set is stacked against: underline for
-          // a horizontal row, left bar for a vertical list.
-          if(mark == Mark::MARK_UNDERLINE)
-          {
-              ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, b.y - t), b, m);
-          }
-          else if(mark == Mark::MARK_LEFT_BAR)
-          {
-              ImGui::GetWindowDrawList()->AddRectFilled(a, ImVec2(a.x + t, b.y), m);
-          }
       }
       else
       {
@@ -863,6 +929,11 @@ namespace ui
           ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
           hit = ImGui::Button(label, size);
           ImGui::PopStyleColor(2);
+      }
+
+      if(aligned)
+      {
+          ImGui::PopStyleVar();
       }
       return hit;
   }

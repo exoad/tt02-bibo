@@ -186,10 +186,12 @@ namespace ui
   // chrome - the status strip, the map HUD - where there is no ImGui item.
   Void iconAt(ImDrawList* dl, Icon ic, const ImVec2& pos, ImU32 tint = IM_COL32_WHITE);
 
-  // A normal ImGui button with an icon set into its left margin.
+  // A normal ImGui button with an icon beside its label.
   //
-  // The label stays centered, which is what leaves the margin free - so this needs
-  // no padded label string and no hand-rolled widget. Returns what Button returns.
+  // The icon, one inner spacing and the label are ONE group, centered in the
+  // button at every width - an auto-sized button is exactly that group plus
+  // padding. No padded label string and no hand-rolled widget: the label is
+  // ImGui's, aligned to sit just right of the glyph. Returns what Button returns.
   [[nodiscard]] Bool iconButton(Icon ic, const Char* label, const ImVec2& size = ImVec2(0, 0), Tint tint = Tint::TINT_NONE);
 
   // A context-menu entry with an icon in its left margin.
@@ -204,9 +206,16 @@ namespace ui
   // the call, keyed on something unique like the full path.
   [[nodiscard]] Bool iconMenuItem(Icon ic, const Char* label, const Char* shortcut = nullptr, Bool enabled = true, Bool selected = false);
 
-  // One cell of a mutually-exclusive row, with an icon in its left margin. The
-  // segmented-button equivalent of iconButton().
+  // One cell of a mutually-exclusive row, with an icon in its left margin and
+  // the label LEFT-ALIGNED after it, at iconLabelInset() - not centered like
+  // iconButton's pair, so a strip wrapped to two rows keeps its labels in one
+  // column. The segmented-button equivalent of iconButton().
   [[nodiscard]] Bool segmentedIconButton(Icon ic, const Char* label, Bool selected, const ImVec2& size = ImVec2(0, 0));
+
+  // Where segmentedIconButton() puts its label, in from the cell's left edge.
+  // An icon-less segmentedButton() in the same strip passes this as its labelX,
+  // so the row's labels share a column whether or not every cell has a glyph.
+  [[nodiscard]] Float32 iconLabelInset() noexcept;
 
   // icon() followed by SameLine(), which is nearly every call site.
   Void iconLabel(Icon ic);
