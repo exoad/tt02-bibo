@@ -151,9 +151,7 @@ namespace bibo::tft
      */
     constexpr UInt16 rgb(const UInt32 r, const UInt32 g, const UInt32 b)
     {
-        return static_cast<UInt16>(((r & 0xF8u) << 8)
-                                   | ((g & 0xFCu) << 3)
-                                   | (b >> 3));
+        return static_cast<UInt16>(((r & 0xF8u) << 8) | ((g & 0xFCu) << 3) | (b >> 3));
     }
 
     /** @brief Common colors, in RGB565, computed at compile time. */
