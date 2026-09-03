@@ -98,23 +98,136 @@ namespace sketch
       return root + "\\firmware";
   }
 
-  // The library's folders, in dependency order rather than alphabetical: the
-  // order a person should read them in, which is also the order they may include
-  // each other in.
+  // ---------------------------------------------------------------------------
+  // A WALK, NOT A LIST.
   //
-  // A fixed list rather than a directory walk. The layout is the architecture -
-  // if a folder appears that is not here, that is a decision somebody made and it
-  // should be a decision somebody writes down, not something a scan quietly
-  // absorbs.
-  constexpr const Char* const FW_DIRS[] = {
-      "lib",
-      "lib\\drivers",
-      "lib\\chassis",
-      "app",
-      "sketches",
-      "docs",
-      "docs\\pinouts",
-  };
+  // This was a fixed array of folder names, on the argument that the layout is
+  // the architecture and a new folder should be a decision somebody writes down
+  // rather than something a scan quietly absorbs. That reasoning was sound right
+  // up until the Code view grew a right-click menu that can CREATE folders: a
+  // fixed list means the folder you just made does not appear in the tree you
+  // made it from, which reads as the command having silently failed.
+  //
+  // So the tree now shows what is on disk. What keeps it honest is the skip list
+  // below rather than an allow list - the difference being that a new source
+  // folder shows up on its own and a new build directory still does not.
+  // ---------------------------------------------------------------------------
+
+  namespace
+  {
+
+    // Directories never descended into. Build output, tool state and vendored
+    // trees - none of them are things anybody edits here, and pico-sdk alone is
+    // tens of thousands of files that would swamp the tree and the rescan.
+    [[nodiscard]] Bool skipDir(const Char* name)
+    {
+        // Anything dotted: .git, .vs, .idea, .cate. One rule rather than six.
+        if(name[0] == '.')
+        {
+            return true;
+        }
+
+        constexpr const Char* const SKIP[] = {
+            "build", "vendor", "pico-sdk", "node_modules", "__pycache__",
+        };
+        for(const Char* s : SKIP)
+        {
+            if(_stricmp(name, s) == 0)
+            {
+                return true;
+            }
+        }
+
+        // build-pico2, build-whatever: one per PICO_BOARD, all of them output.
+        return _strnicmp(name, "build-", 6) == 0;
+    }
+
+  }
+
+  // The extensions the Code view shows and creates. AN ALLOW LIST, and a short
+  // one: this is a C/C++ editor, and the first version of the walk used a deny
+  // list on the theory that anything you create should appear - which let 29
+  // .bat, .ps1, .md, .json and .cmake files into a tree meant for source. The
+  // menu now refuses to create anything outside this list instead, so the two
+  // agree and nothing you make can vanish.
+  //
+  // .bdoc is here because firmware/docs holds the reference documents and they
+  // are edited here like anything else - see hub/src/refdoc.hxx.
+  constexpr const Char* const SHOWN_EXT[] = { ".cxx", ".hxx", ".c", ".h", ".bdoc" };
+
+  [[nodiscard]] Bool shownFile(const Str& name)
+  {
+      const Size dot = name.rfind('.');
+      if(dot == Str::npos)
+      {
+          return false;
+      }
+      const Str ext = name.substr(dot);
+      for(const Char* s : SHOWN_EXT)
+      {
+          if(_stricmp(ext.c_str(), s) == 0)
+          {
+              return true;
+          }
+      }
+      return false;
+  }
+
+  namespace
+  {
+
+    // Guards against a directory symlink loop turning the rescan into a hang.
+    // Nothing in this tree is anywhere near this deep.
+    constexpr Int32 WALK_MAX_DEPTH = 12;
+
+    Void walk(const Str& root, const Str& rel, Int32 depth, Vec<Str>& out)
+    {
+        if(depth > WALK_MAX_DEPTH)
+        {
+            return;
+        }
+
+        const Str dir = rel.empty() ? root : (root + "\\" + rel);
+
+        WIN32_FIND_DATAA fd = {};
+        HANDLE           h = ::FindFirstFileA((dir + "\\*").c_str(), &fd);
+        if(h == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+
+        do
+        {
+            const Str name = fd.cFileName;
+            if(name == "." || name == "..")
+            {
+                continue;
+            }
+
+            if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            {
+                if(!skipDir(fd.cFileName))
+                {
+                    walk(root, rel.empty() ? name : (rel + "\\" + name), depth + 1, out);
+                }
+                continue;
+            }
+
+            if(shownFile(name))
+            {
+                // Relative to the firmware root, so the caller's firmwareDir() +
+                // "\\" + name still resolves - and so the folder a file lives in
+                // is visible in the picker rather than being something you have
+                // to already know.
+                out.push_back(rel.empty() ? name : (rel + "\\" + name));
+            }
+        }
+        while(::FindNextFileA(h, &fd) != 0);
+
+        ::FindClose(h);
+    }
+
+  }
 
   Vec<Str> listFirmware()
   {
@@ -126,41 +239,7 @@ namespace sketch
           return out;
       }
 
-      for(const Char* sub : FW_DIRS)
-      {
-          const Str d = root + "\\" + sub;
-
-          // .bdoc joins the list because firmware/docs holds the reference
-          // documents and they are edited here like anything else. See
-          // hub/src/refdoc.hxx - the Code view renders them, and the toggle above
-          // the editor swaps between the page and the source that made it.
-          constexpr const Char* const PATTERNS[] = { "\\*.cxx", "\\*.hxx",
-                                           "\\*.c", "\\*.h",
-                                           "\\*.bdoc" };
-          for(const Char* pat : PATTERNS)
-          {
-              WIN32_FIND_DATAA fd = {};
-              HANDLE           h = ::FindFirstFileA((d + pat).c_str(), &fd);
-              if(h == INVALID_HANDLE_VALUE)
-              {
-                  continue;
-              }
-              do
-              {
-                  if((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
-                  {
-                      // Relative to the firmware root, so the caller's
-                      // firmwareDir() + "\\" + name still resolves - and so the
-                      // folder a file lives in is visible in the picker rather
-                      // than being something you have to already know.
-                      out.push_back(Str(sub) + "\\" + fd.cFileName);
-                  }
-              }
-              while(::FindNextFileA(h, &fd) != 0);
-              ::FindClose(h);
-          }
-      }
-
+      walk(root, Str(), 0, out);
       return out;
   }
 
@@ -327,6 +406,246 @@ namespace sketch
           return false;
       }
       return ::DeleteFileA(path.c_str()) != 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // What the Code view's right-click menu needs.
+  //
+  // Every one of these takes a name the user typed, which is the reason
+  // validName() exists and is called first in all of them. A tree that hands an
+  // unchecked string to CreateDirectory lets "..\..\hub\src" be a folder name,
+  // and the resulting file lands somewhere the person who typed it will never
+  // look for it.
+  // ---------------------------------------------------------------------------
+
+  Bool validName(const Str& name, Str& err)
+  {
+      if(name.empty())
+      {
+          err = "a name is required";
+          return false;
+      }
+      if(name.size() > 200)
+      {
+          err = "that name is too long";
+          return false;
+      }
+
+      // Separators and traversal, which is the whole point of this function. A
+      // name is a NAME - a path is the caller's business, assembled from a
+      // folder it already knows.
+      if(name.find('\\') != Str::npos || name.find('/') != Str::npos)
+      {
+          err = "a name cannot contain a path separator";
+          return false;
+      }
+      if(name == "." || name == "..")
+      {
+          err = "that is not a name";
+          return false;
+      }
+
+      // The characters Windows refuses outright, named here so the message says
+      // which one rather than letting CreateFile fail with a number.
+      for(const Char c : name)
+      {
+          if(c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>'
+             || c == '|')
+          {
+              err = Str("a name cannot contain ") + c;
+              return false;
+          }
+          if(static_cast<UInt8>(c) < 32u)
+          {
+              err = "a name cannot contain control characters";
+              return false;
+          }
+      }
+
+      // Trailing dots and spaces are accepted by the API and then unopenable,
+      // which is a worse outcome than refusing them here.
+      if(name.back() == '.' || name.back() == ' ')
+      {
+          err = "a name cannot end with a dot or a space";
+          return false;
+      }
+
+      return true;
+  }
+
+  Bool createFile(const Str& path, Str& err)
+  {
+      if(path.empty())
+      {
+          err = "no path";
+          return false;
+      }
+
+      // CREATE_NEW, so an existing file is an ERROR rather than being truncated.
+      // The menu's job is to make a new file; silently emptying one somebody
+      // already had would be the worst possible reading of "New File".
+      const HANDLE h = ::CreateFileA(
+          path.c_str(),
+          GENERIC_WRITE,
+          0,
+          nullptr,
+          CREATE_NEW,
+          FILE_ATTRIBUTE_NORMAL,
+          nullptr
+      );
+      if(h == INVALID_HANDLE_VALUE)
+      {
+          err = (::GetLastError() == ERROR_FILE_EXISTS) ? "that file already exists"
+                                                        : "could not create that file";
+          return false;
+      }
+      ::CloseHandle(h);
+      return true;
+  }
+
+  Bool createDir(const Str& path, Str& err)
+  {
+      if(path.empty())
+      {
+          err = "no path";
+          return false;
+      }
+      if(::CreateDirectoryA(path.c_str(), nullptr) == 0)
+      {
+          err = (::GetLastError() == ERROR_ALREADY_EXISTS) ? "that folder already exists"
+                                                           : "could not create that folder";
+          return false;
+      }
+      return true;
+  }
+
+  Bool rename(const Str& from, const Str& to, Str& err)
+  {
+      if(from.empty() || to.empty())
+      {
+          err = "no path";
+          return false;
+      }
+
+      // NO REPLACE FLAG. MoveFileEx with MOVEFILE_REPLACE_EXISTING would let a
+      // rename silently destroy the file it landed on, and the one thing a
+      // rename must never do is lose the other file.
+      if(::MoveFileA(from.c_str(), to.c_str()) == 0)
+      {
+          const DWORD e = ::GetLastError();
+          err = (e == ERROR_ALREADY_EXISTS || e == ERROR_FILE_EXISTS)
+                  ? "something with that name is already there"
+                  : "could not rename it";
+          return false;
+      }
+      return true;
+  }
+
+  Bool removeDir(const Str& path, Str& err)
+  {
+      if(path.empty())
+      {
+          err = "no path";
+          return false;
+      }
+
+      // EMPTY ONLY. Recursively deleting a directory tree from a right-click is
+      // a great deal of destruction behind one small menu entry, and the undo is
+      // "restore it from git, if it was ever in git". Refusing a non-empty
+      // folder means the person has to look at what is inside it first.
+      if(::RemoveDirectoryA(path.c_str()) == 0)
+      {
+          const DWORD e = ::GetLastError();
+          err = (e == ERROR_DIR_NOT_EMPTY) ? "that folder is not empty"
+                                           : "could not remove that folder";
+          return false;
+      }
+      return true;
+  }
+
+  Bool isDir(const Str& path)
+  {
+      if(path.empty())
+      {
+          return false;
+      }
+      const DWORD a = ::GetFileAttributesA(path.c_str());
+      return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
+  }
+
+  Bool formatFile(const Str& path, Str& err)
+  {
+      if(path.empty())
+      {
+          err = "no file";
+          return false;
+      }
+
+      const Str root = PicoFlash::repoRoot();
+      if(root.empty())
+      {
+          err = "repo root not found";
+          return false;
+      }
+
+      // CreateProcess writes into its command line, so it cannot be a literal.
+      Str cmd = "python \"" + root + "\\tools\\format.py\" --apply \"" + path + "\"";
+      Vec<Char> line(cmd.begin(), cmd.end());
+      line.push_back('\0');
+
+      STARTUPINFOA        si = {};
+      PROCESS_INFORMATION pi = {};
+      si.cb = sizeof(si);
+
+      // No console window: this runs from a GUI on every :format, and a black
+      // box flashing over the editor for a quarter of a second reads as a crash.
+      if(::CreateProcessA(
+          nullptr,
+          line.data(),
+          nullptr,
+          nullptr,
+          FALSE,
+          CREATE_NO_WINDOW,
+          nullptr,
+          root.c_str(),
+          &si,
+          &pi
+      ) == 0)
+      {
+          err = "could not start python - is it on PATH?";
+          return false;
+      }
+
+      const DWORD waited = ::WaitForSingleObject(pi.hProcess, 15000);
+      DWORD       code = 1;
+      if(waited == WAIT_TIMEOUT)
+      {
+          // KILLED, not abandoned. A formatter left running past the timeout
+          // would write the file AFTER the editor had reloaded it, and the
+          // buffer and the disk would quietly disagree from then on.
+          ::TerminateProcess(pi.hProcess, 1);
+      }
+      else
+      {
+          ::GetExitCodeProcess(pi.hProcess, &code);
+      }
+      ::CloseHandle(pi.hThread);
+      ::CloseHandle(pi.hProcess);
+
+      if(waited == WAIT_TIMEOUT)
+      {
+          err = "formatter did not finish and was stopped";
+          return false;
+      }
+      if(code != 0)
+      {
+          // The script refuses to write when its token check fails, and says so
+          // on stdout; that text is not captured here. The one fact that matters
+          // reaches the user: the file was NOT touched.
+          err = "formatter refused the file - run tools\\format.py to see why";
+          return false;
+      }
+      return true;
   }
 
   Void reveal(const Str& path)

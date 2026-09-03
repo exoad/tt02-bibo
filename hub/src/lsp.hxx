@@ -170,4 +170,53 @@ namespace lsp
   // `out` untouched.
   Bool diagnostics(Vec<diag::Item>& out);
 
+  // ---- keeping clangd current ----------------------------------------------
+  //
+  // Sends the buffer if it differs from what clangd last saw, and nothing
+  // otherwise. Returns whether there was a server to send it to.
+  //
+  // THIS IS WHAT MAKES DIAGNOSTICS LIVE. Until it existed the document only
+  // reached clangd inside ask() and askInfo() - so the underlines refreshed
+  // when you asked for a completion or rested the pointer on a word, and at no
+  // other time. Typing a bug and watching the file was watching a file clangd
+  // had not been told about. The Code view now calls this on a short debounce
+  // after every change, and clangd publishes on its own from there.
+  Bool sync(const Str& path, const Str& text, UInt64 version);
+
+  // ---- signature help ------------------------------------------------------
+  //
+  // The signature of the call the caret is inside, with the active parameter
+  // marked. One line; the whole point is that it costs no vertical space.
+  struct Sig
+  {
+      UInt64 serial = 0;
+      Str    path;
+      Int32  line = -1;   // where it was asked, 0-based
+      Int32  col = -1;
+      Str    label;       // the full signature, e.g. `Void open(Pin pin, PinDir dir)`
+      Int32  activeBegin = -1;   // byte range of the active parameter within label,
+      Int32  activeEnd = -1;   // or -1 when clangd did not say
+  };
+
+  // Same contract as askInfo(): fire and forget, its own in-flight slot,
+  // refused until the AST exists. Asked when `(` or `,` is typed.
+  Bool askSig(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col);
+  Bool takeSig(Sig& out);
+
+  // ---- outline -------------------------------------------------------------
+  //
+  // The file's symbols, flat, in source order. `depth` is 1 for a member of
+  // something and 0 otherwise - enough to indent a class's methods under it
+  // without asking clangd for a tree it would have to be told we can read.
+  struct Symbol
+  {
+      Str   name;
+      Str   kind;    // a short tag: fn, cls, ns, var, ...
+      Int32 line = 0;   // 0-based
+      Int32 depth = 0;
+  };
+
+  Bool askOutline(const Str& path, const Str& text, UInt64 version);
+  Bool takeOutline(Vec<Symbol>& out);
+
 }

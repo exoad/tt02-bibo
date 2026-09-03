@@ -245,6 +245,15 @@ namespace ed
       Void undo();
       Void redo();
 
+      // A number that changes whenever the buffer does. Compared, never
+      // interpreted: the Code view keeps the last value it synced to clangd and
+      // sends again when this differs. Derived from the undo counter, so every
+      // mutating command already maintains it without knowing.
+      [[nodiscard]] UInt64 revision() const
+      {
+          return changeSeq;
+      }
+
   private:
       // A whole-buffer snapshot. Sketches are a few dozen lines, so storing the
       // text outright costs nothing measurable and removes every class of bug
@@ -289,6 +298,12 @@ namespace ed
       [[nodiscard]] Bool textObject(Char kind, Char obj, Cursor& a, Cursor& b, Bool& linewise) const;
 
       Void indentLines(Int32 first, Int32 last, Bool rightwards);
+
+      // `//` on or off across a range of lines, as one undo step. Off when
+      // every non-blank line already starts with one, on otherwise - so a mixed
+      // block becomes all-commented rather than flipping line by line, which is
+      // what `gc` over a block is for.
+      Void toggleComment(Int32 first, Int32 last);
       Void substitute(const Str& spec);
       [[nodiscard]] Str wordUnder(Cursor at) const;
 
@@ -314,6 +329,10 @@ namespace ed
       Char  pendFind = 0;   // f F t T, awaiting the target character
       Char  pendObjKind = 0;   // i or a, awaiting the object character
       Char  pendMark = 0;   // m, ' or `, awaiting the mark name
+
+      // `g` typed in visual mode, awaiting its second key - `gc` is the only
+      // one. Separate from pendOp, which visual mode does not use.
+      Bool  visG = false;
 
       // A count typed BETWEEN the operator and the motion: the 3 in d3w. Vim
       // multiplies it by any count before the operator, so 2d3w deletes six.
