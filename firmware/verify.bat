@@ -50,6 +50,13 @@ call :suite control  "%HERE%tests\build_control_test.bat"
 call :suite pursuit  "%HERE%tests\build_pursuit_test.bat"
 call :suite sfx      "%HERE%tests\build_sfx_test.bat"
 
+REM pilot\ is under firmware\ and this gate claims to answer for firmware\, so
+REM the companion-board suites belong here too. Same story as the three above:
+REM written in pilot\tests, listed nowhere, run by nobody.
+call :suite proto    "%HERE%pilot\tests\build_proto_test.bat"
+call :suite pilot    "%HERE%pilot\tests\build_pilot_test.bat"
+call :suite reactive "%HERE%pilot\tests\build_reactive_test.bat"
+
 REM ---- 3. the style audit --------------------------------------------------
 python "%ROOT%\hub\tools\style_audit.py" >nul 2>&1
 if errorlevel 1 (

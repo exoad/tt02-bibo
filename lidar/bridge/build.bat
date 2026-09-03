@@ -8,7 +8,8 @@ call "%~dp0..\..\tools\find_vs.bat"
 if errorlevel 1 exit /b 1
 set "VS=%VSROOT%"
 
-REM vcvarsall's "'vswhere.exe' is not recognized" line is harmless - env is still set.
+REM find_vs.bat has put the VS Installer directory on PATH, so vcvarsall no longer
+REM prints "vswhere.exe is not recognized" on its way in.
 call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
 if errorlevel 1 (
   echo [build] vcvarsall failed
