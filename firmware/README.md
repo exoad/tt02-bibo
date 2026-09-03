@@ -231,3 +231,17 @@ banner in `catalog.txt`.
 > `%LOCALAPPDATA%` where no clone, backup or `git log` would find them. A working
 > VL53L1X range view sat in that slot for weeks; it is `sketches/range-view.cxx`
 > now.
+
+## `pilot/` — the companion board, not the Pico
+
+`firmware/pilot/` is the Orange Pi's program: the line protocol, the link, the
+autonomy tick, and the reactive lidar driver. It lives under `firmware/`
+because the car is one machine even though it is two boards - but **nothing in
+it is built by this directory's CMake**, and it never sees the Pico SDK. It
+compiles with MSVC on a laptop today (`pilot	estsuild_*_test.bat`) and for
+Linux on the Pi later. `verify.bat` runs its three suites alongside the Pico's.
+
+The one thing that IS shared is the maths: `geom`, `kinematics`, `pursuit`,
+`control` and `plan` in `lib/` compile for the Pico, the Pi and the host test
+from one copy, and `pilot/tests/test_pilot.cxx` is what holds them to it. See
+`pilot/README.md`.

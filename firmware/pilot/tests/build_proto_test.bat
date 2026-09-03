@@ -6,7 +6,7 @@ REM so it can be proved before the board it is for exists.
 
 setlocal
 set HERE=%~dp0
-call "%~dp0..\..\tools\find_vs.bat"
+call "%~dp0..\..\..\tools\find_vs.bat"
 if errorlevel 1 exit /b 1
 set "VS=%VSROOT%"
 
@@ -19,7 +19,7 @@ if errorlevel 1 (
 if not exist "%HERE%build" mkdir "%HERE%build"
 
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
-  /I"%HERE%..\..\shared" /I"%HERE%..\src" ^
+  /I"%HERE%..\..\..\shared" /I"%HERE%..\src" ^
   "%HERE%test_proto.cxx" ^
   "%HERE%..\src\proto.cxx" ^
   /Fo"%HERE%build\\" ^

@@ -671,7 +671,7 @@ The C++ conversion dropped every one of them, and a later pass replaced the
 
 `static` at namespace scope gives internal linkage: every translation unit
 including the header emits its own private copy, and a warning for each one it
-does not call. The `pilot/` build took 48 of those. `inline` is what C++ has
+does not call. The `firmware/pilot/` build took 48 of those. `inline` is what C++ has
 for a definition in a header — one copy after the linker, and no diagnostic for
 the ones a consumer never calls.
 
