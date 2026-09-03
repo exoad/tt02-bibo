@@ -88,6 +88,11 @@ public:
     // Queues a line for transmission. A trailing newline is added if absent.
     // Safe to call when disconnected (the line is dropped and counted).
     // `poll` marks a line the hub sent itself on a timer. See PicoLine::poll.
+    //
+    // Every call is counted exactly once, as transmitted or as dropped, so
+    //     calls to send() == txLines() + dropped()
+    // holds whenever the UI looks. A write that fails or times out, and a line
+    // still queued when the link errors or is closed, all land in dropped().
     Void send(const Str& line, Bool poll = false);
 
     // Moves newly logged lines into `out` (appending). Returns how many were
@@ -96,7 +101,10 @@ public:
 
     UInt64 txLines() const;
     UInt64 rxLines() const;
-    UInt64 dropped() const;   // sends attempted while disconnected
+    // Lines send() accepted that never reached the board: sent while not
+    // connected, refused by a full queue, failed or timed out on the wire, or
+    // still queued when the link ended. Each one is also noted in the console.
+    UInt64 dropped() const;
 
     // Seconds since the last received line; large means the board is silent.
     // Returns a negative value when nothing has ever been received.

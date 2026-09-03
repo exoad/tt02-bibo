@@ -45,6 +45,12 @@ namespace
   constexpr DWORD  READ_TIMEOUT_MS = 30;   // read wakeup period == send latency
   constexpr Int32    DEFAULT_BAUD = 115200;
 
+  // How long one WriteFile may sit before it is given up on. A USB CDC write
+  // completes only when the BOARD reads it, so a sketch that never reads its
+  // serial input fills the OUT FIFO after the first line and every later write
+  // waits here. Named because the failure message quotes it.
+  constexpr DWORD WRITE_TIMEOUT_MS = 1000;
+
   // Opening a Pico CDC port at 1200 baud and closing it reboots the board into
   // BOOTSEL (see bootselTouch). Normal traffic must never do that by accident.
   constexpr Int32 BOOTSEL_BAUD = 1200;
@@ -183,6 +189,48 @@ namespace
           {
               log.pop_front();   // a chatty board loses history, never memory
           }
+      }
+
+      // ---- the counting invariant --------------------------------------------
+      // Every line send() accepts is counted EXACTLY ONCE, as `tx` or as `drops`,
+      // so that sends == txLines() + dropped() at every moment the UI looks.
+      // These two are the drop side for lines the writer took but could not
+      // deliver, and they say so in the console: a line that quietly went
+      // nowhere is the whole bug they exist to stop.
+      Void countDropped(Size n, const Str& why)
+      {
+          if(n == 0)
+          {
+              return;
+          }
+          drops.fetch_add(static_cast<UInt64>(n), std::memory_order_relaxed);
+          pushLine(false, "[link] " + std::to_string(n) + " queued line(s) never sent: " + why);
+      }
+
+      // `taken` lines the worker already held, plus everything still in txq.
+      // The txq half is gated on `mine` UNDER the lock: a worker retired by
+      // disconnect() must not take lines a later connection queued, and
+      // disconnect() sweeps on its behalf. Callers set the state FIRST, so a
+      // send() that reaches its own lock after this one sees a link that is not
+      // CONNECTED and counts itself; that pairing is what closes the gap.
+      Void dropQueued(UInt32 mine, Size taken, const Str& why)
+      {
+          Size n = taken;
+          {
+              LockGuard<Mutex> lk(mu);
+              if(current(mine))
+              {
+                  n += txq.size();
+                  txq.clear();
+              }
+          }
+          countDropped(n, why);
+      }
+
+      Str lastErrorOr(const Str& fallback) const
+      {
+          LockGuard<Mutex> lk(mu);
+          return err.empty() ? fallback : err;
       }
 
       Void run(Str port, Int32 baud, UInt32 myGen);
@@ -730,7 +778,7 @@ namespace
       Float64 lastHelloS = -1.0;
       Vec<Char> buf(2048);
 
-      while(!stop.load(std::memory_order_acquire))
+      while(!stop.load(std::memory_order_acquire) && current(myGen))
       {
           // ---- the opening PING ----------------------------------------------
           // Repeated, not sent once: on UDP the first datagram can simply vanish,
@@ -756,11 +804,13 @@ namespace
               if(!sendLine(item.text))
               {
                   // A failed sendto on UDP is a LOCAL problem - no route, no
-                  // adapter - not the peer refusing, so the link stays up.
-                  setErrorIf(
-                      myGen,
-                      winErrText("send failed", static_cast<DWORD>(WSAGetLastError()))
-                  );
+                  // adapter - not the peer refusing, so the link stays up. The
+                  // line does not: it is counted as dropped, not skipped, or
+                  // it would be the one line sends != tx + dropped could not
+                  // explain.
+                  Str msg = winErrText("send failed", static_cast<DWORD>(WSAGetLastError()));
+                  countDropped(1, msg);
+                  setErrorIf(myGen, std::move(msg));
                   continue;
               }
               tx.fetch_add(1, std::memory_order_relaxed);
@@ -830,11 +880,18 @@ namespace
           emit(std::move(accum));
       }
 
-      PicoState expected = PicoState::PICO_STATE_CONNECTED;
-      state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+      if(current(myGen))
+      {
+          PicoState expected = PicoState::PICO_STATE_CONNECTED;
+          state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
 
-      expected = PicoState::PICO_STATE_CONNECTING;
-      state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+          expected = PicoState::PICO_STATE_CONNECTING;
+          state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+      }
+
+      // Same sweep as the serial worker: the state is settled, so anything still
+      // queued is counted before this worker lets go of txq.
+      dropQueued(myGen, 0, lastErrorOr("link closed"));
   }
 
   Void LinkImplBody::run(Str port, Int32 baud, UInt32 myGen)
@@ -899,7 +956,7 @@ namespace
       to.ReadTotalTimeoutMultiplier = MAXDWORD;
       to.ReadTotalTimeoutConstant = READ_TIMEOUT_MS;
       to.WriteTotalTimeoutMultiplier = 0;
-      to.WriteTotalTimeoutConstant = 1000;
+      to.WriteTotalTimeoutConstant = WRITE_TIMEOUT_MS;
       if(!SetCommTimeouts(h, &to))
       {
           setErrorIf(myGen, winErrText("SetCommTimeouts failed", GetLastError()));
@@ -936,7 +993,14 @@ namespace
           pushLine(false, std::move(text));
       };
 
-      while(!stop.load(std::memory_order_acquire))
+      // Lines taken out of txq below that were never written. Counted as dropped
+      // at the tail, together with whatever txq still holds.
+      Size unsent = 0;
+
+      // `current(myGen)` as well as `stop`: a worker disconnect() detached and
+      // gave up on comes back eventually, and it must not swap a LATER
+      // connection's txq out from under that connection's worker.
+      while(!stop.load(std::memory_order_acquire) && current(myGen))
       {
           // ---- transmit anything the UI queued -------------------------------
           Deque<TxItem> outbound;
@@ -945,17 +1009,51 @@ namespace
               outbound.swap(txq);
           }
           Bool writeFailed = false;
+          Size sent = 0;
           for(auto& item : outbound)
           {
               Str&        line = item.text;
               DWORD       written = 0;
               const DWORD n = static_cast<DWORD>(line.size());
-              if(!WriteFile(h, line.data(), n, &written, nullptr) || written != n)
+              const Bool  ok = WriteFile(h, line.data(), n, &written, nullptr) != 0;
+              const DWORD code = ok ? 0 : GetLastError();   // before anything can clobber it
+              if(!ok || written != n)
               {
-                  setErrorIf(myGen, winErrText("write failed", GetLastError()));
+                  // ---- a write that timed out is not a write that FAILED -----
+                  // When WriteTotalTimeoutConstant expires, WriteFile returns
+                  // TRUE with a short count and GetLastError() says whatever it
+                  // said before. The old check saw the short count, then
+                  // reported "write failed: The operation completed
+                  // successfully (error 0)" - which is how a board that never
+                  // reads its USB input presented as a Win32 error nobody could
+                  // look up. Say what happened. An unplug can also surface on
+                  // the write before the read sees it, so the same question the
+                  // read path asks is asked here.
+                  Str msg;
+                  PicoState next = PicoState::PICO_STATE_ERROR;
+                  const dev::Loss why = dev::classify(port, code);
+                  if(why == dev::Loss::LOSS_UNPLUGGED)
+                  {
+                      msg = dev::describe(why, "Pico", port);
+                      next = PicoState::PICO_STATE_UNPLUGGED;
+                  }
+                  else if(ok)
+                  {
+                      msg = "write timed out after " + std::to_string(WRITE_TIMEOUT_MS)
+                            + " ms with " + std::to_string(written) + " of "
+                            + std::to_string(n)
+                            + " bytes taken - the board is not reading its USB serial input";
+                  }
+                  else
+                  {
+                      msg = winErrText("write failed", code);
+                  }
+                  setErrorIf(myGen, std::move(msg));
+                  setStateIf(myGen, next);
                   writeFailed = true;
                   break;
               }
+              ++sent;
               tx.fetch_add(1, std::memory_order_relaxed);
 
               Str echo = line;
@@ -967,7 +1065,24 @@ namespace
           }
           if(writeFailed)
           {
-              setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+              // ---- THE ACCOUNTING GAP ------------------------------------------
+              // This break used to be the whole story, and it lost lines in
+              // three places at once. The line that failed, and every line
+              // behind it in `outbound`, had already been swapped OUT of txq -
+              // so nothing would ever count them as dropped - and had not been
+              // written - so nothing had counted them as sent. Then send() kept
+              // accepting lines INTO txq for as long as state read CONNECTED,
+              // which it did until the store above, and both this function's
+              // exit and disconnect() clear()ed those without a count. Against
+              // a board that never reads its USB input, with the test's
+              // 120 ms between sends: PING written, HELP timed out a second
+              // later, ? queued while it waited - tx 1, dropped 0, two lines
+              // simply gone.
+              //
+              // Now the remainder of this batch is remembered here, the state
+              // is already not CONNECTED, and the tail of run() sweeps txq
+              // under the same lock send() re-checks the state under.
+              unsent = outbound.size() - sent;
               break;
           }
 
@@ -1071,9 +1186,17 @@ namespace
       CloseHandle(h);
 
       // Only a clean stop resets the state; an Error set above is left standing so
-      // the UI can read it before disconnect() clears it.
-      PicoState expected = PicoState::PICO_STATE_CONNECTED;
-      state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+      // the UI can read it before disconnect() clears it. Gated like every other
+      // store, so a retired worker cannot knock a later connection down.
+      if(current(myGen))
+      {
+          PicoState expected = PicoState::PICO_STATE_CONNECTED;
+          state.compare_exchange_strong(expected, PicoState::PICO_STATE_DISCONNECTED);
+      }
+
+      // The state is settled; whatever is still queued is going nowhere. Last
+      // touch of txq by this worker.
+      dropQueued(myGen, unsent, lastErrorOr("link closed"));
   }
 
 }
@@ -1272,9 +1395,18 @@ Void PicoLink::disconnect()
     pimpl->finished.store(false, std::memory_order_release);
     pimpl->state.store(PicoState::PICO_STATE_DISCONNECTED, std::memory_order_release);
 
-    LockGuard<Mutex> lk(pimpl->mu);
-    pimpl->portname.clear();
-    pimpl->txq.clear();
+    // Whatever is still queued was accepted by send() and is never going out.
+    // Normally the worker's own sweep got here first and this finds nothing; it
+    // is the sweep of record when that worker was detached above, since its
+    // generation is retired and it may no longer touch txq.
+    Size left = 0;
+    {
+        LockGuard<Mutex> lk(pimpl->mu);
+        pimpl->portname.clear();
+        left = pimpl->txq.size();
+        pimpl->txq.clear();
+    }
+    pimpl->countDropped(left, "disconnected");
 }
 
 PicoState PicoLink::state() const
@@ -1324,6 +1456,17 @@ Void PicoLink::send(const Str& line, Bool poll)
     payload.push_back('\n');
 
     LockGuard<Mutex> lk(pimpl->mu);
+
+    // Re-checked UNDER the lock. The worker sets a terminal state and then sweeps
+    // txq under this same mutex (dropQueued), so a line that passed the check
+    // above while the link was dying either lands before the sweep and is
+    // counted by it, or arrives after and sees the new state here. Without this
+    // a line could slip into txq between the two and be cleared uncounted.
+    if(pimpl->state.load(std::memory_order_acquire) != PicoState::PICO_STATE_CONNECTED)
+    {
+        pimpl->drops.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
     if(pimpl->txq.size() >= MAX_TX_QUEUE)
     {
         // Backed-up writer; counted here too so the drop is at least visible.
