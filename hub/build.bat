@@ -23,7 +23,8 @@ if /i "%~1"=="clean" (
     if exist "%BUILD%" rmdir /s /q "%BUILD%"
 )
 
-rem --- MSVC x64 env; vcvarsall may print a harmless vswhere-not-recognized line.
+rem --- MSVC x64 env. find_vs.bat puts the VS Installer directory on PATH, which
+rem  is what stops vcvarsall printing "vswhere.exe is not recognized" first.
 echo [env] Visual Studio 2022 x64
 call "%~dp0..\tools\find_vs.bat"
 if errorlevel 1 exit /b 1
@@ -53,7 +54,7 @@ if not exist "%OBJ%"   mkdir "%OBJ%"
 
 rem --- flags ---
 set "CFLAGS=/nologo /c /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS"
-set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%SDK%\sdk\include" /I"%SDK%\sdk\src""
+set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%ROOT%..\firmware\pilot\src" /I"%SDK%\sdk\include" /I"%SDK%\sdk\src""
 
 rem --- Dear ImGui core + backends, compiled once. imgui_demo.cpp is NOT built.
 echo [imgui] core + win32/dx11 backends
@@ -106,6 +107,17 @@ echo [app] src\*.cxx
 cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%ROOT%src\*.cxx"
 if errorlevel 1 (
     echo [error] compiling src\*.cxx
+    exit /b 1
+)
+
+rem --- the reactive driver. ONE source, from the companion board's tree: it is
+rem  pure C++ over shared.hxx, tested on the host, and the hub is its first
+rem  binding to a real lidar and a real Pico. Not copied here - two copies of a
+rem  controller agree until somebody fixes a sign in one of them.
+echo [app] ..\firmware\pilot\src\reactive.cxx
+cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%ROOT%..\firmware\pilot\src\reactive.cxx"
+if errorlevel 1 (
+    echo [error] compiling reactive.cxx
     exit /b 1
 )
 
