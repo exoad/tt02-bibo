@@ -14,14 +14,15 @@ namespace ui
   // PushFont base size is always the font's own LegacySize - never re-multiplied.
   namespace size
   {
-    // Pulled down a step for density; at 1.5x DPI the body face lands at ~22
-    // physical px.
-    inline constexpr Float32 SMALL = 13.0f;   // captions, axis labels, HUD
+    // One ~1.2 ratio anchored on BODY, so each step reads as a step: TITLE two
+    // px over BODY was bold body, not a heading. CODE sits a point under BODY
+    // because the mono face's x-height is taller, and the two share rows.
+    inline constexpr Float32 SMALL = 12.0f;   // captions, axis labels, HUD
     inline constexpr Float32 BODY = 15.0f;   // default UI text
-    inline constexpr Float32 TITLE = 17.0f;   // section headings
-    inline constexpr Float32 STAT = 21.0f;   // metric values
-    inline constexpr Float32 BIG = 26.0f;   // hero numerals
-    inline constexpr Float32 CODE = 15.0f;   // source text in the editor
+    inline constexpr Float32 TITLE = 18.0f;   // section headings
+    inline constexpr Float32 STAT = 22.0f;   // metric values
+    inline constexpr Float32 BIG = 28.0f;   // hero numerals
+    inline constexpr Float32 CODE = 14.0f;   // source text in the editor
   }
 
   struct Fonts
@@ -136,8 +137,13 @@ namespace ui
   namespace accent
   {
 
-    inline constexpr ImU32 CYAN = ansi::CYAN;
-    inline constexpr ImU32 CYAN_HI = ansi::BRCYAN;
+    // Gruvbox aqua, neutral and bright. The names keep their old spelling
+    // because a dozen call sites use them and the MEANING - "the UI is pointing
+    // at this" - has not changed, only the hue. Never on a border, an overline
+    // or a separator: those are bg3 hairlines now, and an accent there is what
+    // made the old chrome busy.
+    inline constexpr ImU32 CYAN = IM_COL32(0x68, 0x9D, 0x6A, 0xFF);
+    inline constexpr ImU32 CYAN_HI = IM_COL32(0x8E, 0xC0, 0x7C, 0xFF);
 
   }
 
@@ -275,15 +281,24 @@ namespace ui
   // button welded to its right. Same signature and return contract.
   Bool combo(const Char* label, Int32* current, const Char* const items[], Int32 count);
 
-  // Where the accent edge goes on a selected cell.
-  enum class Mark { MARK_UNDERLINE, MARK_LEFT_BAR, MARK_NONE };
+  // The width ImGui::Button will take for `size`, BEFORE it is submitted - the
+  // same three cases as CalcItemSize: explicit, fill to the right, or `autoW`.
+  // For anything that has to decide a label's alignment from the final width.
+  [[nodiscard]] Float32 buttonWidth(const ImVec2& size, Float32 autoW);
+
+  // The ButtonTextAlign.x that puts a label's left edge `labelX` in from a
+  // button's left edge, for a button `w` wide and a label `textW` wide. ImGui
+  // places a label at padding + (inner width - text width) * align, so this is
+  // that solved for align. 0.5 when there is no room to solve in.
+  [[nodiscard]] Float32 labelAlign(Float32 labelX, Float32 w, Float32 textW);
 
   // One cell of a mutually-exclusive set: transparent and unoutlined when not
-  // selected, plate fill plus an accent edge when it is. `selected` is the
-  // caller's state; this does not own it. Underline suits a horizontal row,
-  // LeftBar a vertical list. An unselected cell must NOT be outlined, or the set
-  // reads as N controls instead of one.
+  // selected, plate fill and bevel when it is. `selected` is the caller's state;
+  // this does not own it. An unselected cell must NOT be outlined, or the set
+  // reads as N controls instead of one. `labelX` >= 0 left-aligns the label at
+  // that inset from the cell's edge - every cell of a strip passes the same
+  // one, so the labels of a wrapped strip share a column; negative centers it.
   Bool segmentedButton(const Char* label, Bool selected, const ImVec2& size = ImVec2(0, 0),
-                       Mark mark = Mark::MARK_UNDERLINE);
+                       Float32 labelX = -1.0f);
 
 }

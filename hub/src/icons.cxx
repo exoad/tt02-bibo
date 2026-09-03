@@ -521,51 +521,46 @@ namespace ui
   Bool iconButton(Icon ic, const Char* label, const ImVec2& size, Tint tint)
   {
       const ImGuiStyle& sty = ImGui::GetStyle();
-      const Float32     sz = iconSize();
-      const Float32     gap = sty.ItemInnerSpacing.x;
 
-      // An auto-sized button is exactly its text plus padding, so there is no
-      // margin for a glyph to sit in and the fit test below rejected every one -
-      // which it silently did for as long as this function has existed. Widen the
-      // auto case, and push the label flush RIGHT so all of the new space lands on
-      // the left where the icon goes. Centering it instead would split the space in
-      // two and the icon would still not fit.
-      //
-      // Only the auto case. A caller who passed a width meant that width, and the
-      // wide buttons that pass one look right with a centered label and the icon
-      // out at the frame padding, which is the branch below.
-      const Bool  autoW = (size.x == 0.0f) && iconsReady();
-      ImVec2      sz2 = size;
-      if(autoW)
+      if(!iconsReady())
       {
-          sz2.x = ImGui::CalcTextSize(label).x + sty.FramePadding.x * 2.0f + sz + gap;
-          ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(1.0f, 0.5f));
+          return button(label, size, tint);
       }
 
-      const Bool hit = button(label, sz2, tint);
+      const Float32 sz = iconSize();
+      const Float32 gap = sty.ItemInnerSpacing.x;
+      const Float32 pad = sty.FramePadding.x;
+      const Float32 textW = ImGui::CalcTextSize(label).x;
 
-      if(autoW)
-      {
-          ImGui::PopStyleVar();
-      }
+      // ONE RULE at every width: the icon, one inner spacing, and the label are
+      // a single group, and the group is centered in the button. An auto-sized
+      // button is exactly that group plus padding, so the icon lands at the
+      // padding; a 578 px one puts the pair in the middle together. The old
+      // rule pinned the icon at the left padding with the label centered on
+      // its own, and on the wide buttons that put 250 px between the two halves
+      // of one control.
+      const Float32 group = sz + gap + textW;
+      const Float32 w = buttonWidth(size, group + pad * 2.0f);
 
-      if(iconsReady())
+      // Only when the pair clears the padding; on a narrower button the text is
+      // the part that has to survive, so it centers alone and the icon is dropped.
+      const Bool fits = (group <= w - pad * 2.0f);
+
+      const Float32 align = fits
+          ? labelAlign((w - group) * 0.5f + sz + gap, w, textW)
+          : 0.5f;
+
+      ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(align, 0.5f));
+      const Bool hit = button(label, ImVec2((size.x == 0.0f) ? w : size.x, size.y), tint);
+      ImGui::PopStyleVar();
+
+      if(fits)
       {
           const ImVec2  a = ImGui::GetItemRectMin();
           const ImVec2  b = ImGui::GetItemRectMax();
-          const Float32 x = a.x + sty.FramePadding.x;
+          const Float32 x = a.x + ((b.x - a.x) - group) * 0.5f;
           const Float32 y = a.y + ((b.y - a.y) - sz) * 0.5f;
-
-          // Auto-width already reserved the room above. Otherwise only if the
-          // glyph clears the centered label: on a narrow button it would sit on top
-          // of the text, and the text is the part that has to survive.
-          const Bool fits = autoW
-              || (x + sz < (a.x + b.x) * 0.5f - ImGui::CalcTextSize(label).x * 0.5f);
-
-          if(fits)
-          {
-              iconAt(ImGui::GetWindowDrawList(), ic, ImVec2(x, y));
-          }
+          iconAt(ImGui::GetWindowDrawList(), ic, ImVec2(x, y));
       }
       return hit;
   }
@@ -608,38 +603,53 @@ namespace ui
       return hit;
   }
 
+  Float32 iconLabelInset() noexcept
+  {
+      const ImGuiStyle& sty = ImGui::GetStyle();
+      return sty.FramePadding.x + (iconsReady() ? iconSize() + sty.ItemInnerSpacing.x : 0.0f);
+  }
+
   Bool segmentedIconButton(Icon ic, const Char* label, Bool selected, const ImVec2& size)
   {
-      const Bool hit = segmentedButton(label, selected, size);
-
-      if(iconsReady())
+      if(!iconsReady())
       {
-          const ImVec2  a = ImGui::GetItemRectMin();
-          const ImVec2  b = ImGui::GetItemRectMax();
-          const Float32 sz = iconSize();
-          const Float32 gap = ImGui::GetStyle().ItemInnerSpacing.x;
-          const Float32 half = ImGui::CalcTextSize(label).x * 0.5f;
+          return segmentedButton(label, selected, size);
+      }
 
-          // Immediately left of the CENTERED label, not out at the frame padding.
-          // These cells are wide, and an icon pinned to the far margin reads as
-          // unrelated to the word in the middle of the same button.
-          const Float32 x = (a.x + b.x) * 0.5f - half - gap - sz;
-          const Float32 y = a.y + ((b.y - a.y) - sz) * 0.5f;
+      const ImGuiStyle& sty = ImGui::GetStyle();
+      const Float32 sz = iconSize();
+      const Float32 pad = sty.FramePadding.x;
+      const Float32 inset = iconLabelInset();
+      const Float32 textW = ImGui::CalcTextSize(label).x;
+      const Float32 w = buttonWidth(size, inset + textW + pad);
 
-          // Only when it fits inside the cell; on a narrow one the text is the
-          // part that has to survive.
-          if(x > a.x + ImGui::GetStyle().FramePadding.x * 0.5f)
-          {
-              // Unselected cells are quiet, so their icons are too - otherwise a
-              // row of twelve reads as twelve equally-loud things and the
-              // selection stops being the thing you see first.
-              iconAt(
-                  ImGui::GetWindowDrawList(),
-                  ic,
-                  ImVec2(x, y),
-                  selected ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 130)
-              );
-          }
+      // LEFT-ALIGNED at a fixed inset, unlike iconButton's centered pair: these
+      // cells are one strip of alternatives, often wrapped to two rows, and a
+      // label centered per cell lands on a different x in every cell, so the
+      // rows never line up. A cell too narrow for the pair centers its label
+      // alone and drops the glyph; the text is the part that has to survive.
+      const Bool fits = (inset + textW + pad <= w);
+      const Bool hit = segmentedButton(
+          label,
+          selected,
+          ImVec2((size.x == 0.0f) ? w : size.x, size.y),
+          fits ? inset : -1.0f
+      );
+
+      if(fits)
+      {
+          const ImVec2 a = ImGui::GetItemRectMin();
+          const ImVec2 b = ImGui::GetItemRectMax();
+
+          // Unselected cells are quiet, so their icons are too - otherwise a
+          // row of twelve reads as twelve equally-loud things and the
+          // selection stops being the thing you see first.
+          iconAt(
+              ImGui::GetWindowDrawList(),
+              ic,
+              ImVec2(a.x + pad, a.y + ((b.y - a.y) - sz) * 0.5f),
+              selected ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 130)
+          );
       }
       return hit;
   }
