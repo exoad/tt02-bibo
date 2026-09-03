@@ -461,11 +461,18 @@ def sources():
 
 
 def run():
-  files = sources()
+  # Named files on the command line restrict the run to those - the hub's
+  # :format hands over the one file on screen, and reformatting the whole tree
+  # for one buffer would touch files the person is not looking at. Anything on
+  # the command line that is not an existing file is a flag and is ignored here.
+  named = [os.path.relpath(os.path.abspath(a), os.path.abspath(ROOT))
+           for a in sys.argv[1:] if os.path.isfile(a)]
+  files = [f.replace(os.sep, '/') for f in named] if named else sources()
 
   violations = []
   skipped = 0
   rewritten = 0
+  refused = 0
   eqfixed = 0
 
   for rel in files:
@@ -522,6 +529,7 @@ def run():
         if text != raw.replace('\r\n', '\n'):
             if tokens(text) != tokens(raw):
                 print('  !! %s  TOKENS DIFFER - not written' % rel)
+                refused += 1
                 continue
             io.open(path, 'w', encoding='utf-8', errors='surrogateescape',
                     newline='').write(
@@ -543,7 +551,11 @@ def run():
 
   if APPLY:
       print('%d file(s) rewritten' % rewritten)
-      return 0
+      # Non-zero when a file was REFUSED, so a caller - the hub's :format - can
+      # tell "formatted" from "left alone because the token check failed". It
+      # returned 0 either way, and the editor reported success for a file it
+      # had not touched.
+      return 1 if refused else 0
 
   # ---- the report --------------------------------------------------------
   by_kind = {}
