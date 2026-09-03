@@ -23,9 +23,11 @@ PROGRAM
 {
     serial::open();
     static_cast<Void>(serial::waitForHost(2000));
+    const Bool ledUp = led::open();
+    led::write(true);
     gpio::open(HALL_PIN, PIN_DIR_IN);
     gpio::pull(HALL_PIN, PIN_PULL_UP);
-    serial::printf("hall on GP%d, 0 = magnet\n", HALL_PIN);
+    serial::printf("hall on GP%d, 0 = magnet, led=%s\n", HALL_PIN, ledUp ? "on" : "FAILED to open");
     Bool last = !gpio::read(HALL_PIN);
     Int32 edges = 0;
     FOREVER
@@ -37,6 +39,10 @@ PROGRAM
             serial::printf("%d  %s  (edge %d)\n", now ? 1 : 0, now ? "-" : "MAGNET", edges);
             last = now;
         }
+        /*
+         * Inverted because the pin is ACTIVE LOW: 0 is a magnet present.
+         */
+        led::write(!now);
         timing::ms(5);
     }
 }
