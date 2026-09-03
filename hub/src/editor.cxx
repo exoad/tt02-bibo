@@ -59,6 +59,16 @@ namespace ed
 
   Void Editor::setText(const Str& t)
   {
+      // A whole new buffer is a change like any other as far as anything
+      // watching revision() is concerned - :format and the on-disk reload both
+      // come through here with the SAME path, and clangd has to be told.
+      ++changeSeq;
+
+      // Half-typed multi-key commands do not survive a file swap. The one that
+      // bit: `g` in visual mode, then a click in the tree, and the next key
+      // pressed in visual mode was eaten as the second half of a gc.
+      visG = false;
+
       lines.clear();
 
       Str acc;
@@ -140,6 +150,7 @@ namespace ed
           pendObjKind = 0;
           pendMark = 0;
           pendOpCount = 0;
+          visG = false;
       }
       clampCursor();
   }
@@ -251,6 +262,12 @@ namespace ed
       cur = undoStack.back().cur;
       undoStack.pop_back();
       dirtyFlag = true;
+
+      // The buffer changed without going through pushUndo(), which is what
+      // normally bumps this. Without it the Code view's clangd sync sees the
+      // same revision after `u` and sends nothing, and the underline stays on
+      // code that no longer exists.
+      ++changeSeq;
       clampCursor();
   }
 
@@ -270,6 +287,7 @@ namespace ed
       cur = redoStack.back().cur;
       redoStack.pop_back();
       dirtyFlag = true;
+      ++changeSeq;   // see undo()
       clampCursor();
   }
 
@@ -1762,6 +1780,13 @@ namespace ed
           indentLines(a.line, b.line, false);
           break;
 
+      case 'C':
+          // gc: always by whole lines, whatever the motion covered, as vim
+          // does. A comment marker is a line's property.
+          toggleComment(a.line, b.line);
+          cur = Cursor{ a.line, indentOf(a.line) };
+          break;
+
       default:
           break;
       }
@@ -1803,6 +1828,80 @@ namespace ed
               }
           }
       }
+      cur.line = std::max(first, std::min(cur.line, last));
+      cur.col = indentOf(cur.line);
+  }
+
+  Void Editor::toggleComment(Int32 first, Int32 last)
+  {
+      first = std::max(0, first);
+      last = std::min(lineCount() - 1, last);
+      if(first > last)
+      {
+          return;
+      }
+
+      // Decided ONCE for the whole range, before anything is touched. Every
+      // non-blank line already commented means "uncomment"; anything else means
+      // "comment", including a block that is half and half - which comes out
+      // all-commented rather than inverted line by line, so a second gc puts it
+      // back exactly. Blank lines are left alone in both directions: a `//` on
+      // an empty line is noise, and it would make the range read as commented
+      // when it is not.
+      Bool  allCommented = true;
+      Int32 minIndent = -1;
+      for(Int32 l = first; l <= last; ++l)
+      {
+          const Str&  sl = lines[static_cast<Size>(l)];
+          const Int32 ind = indentOf(l);
+          if(ind >= static_cast<Int32>(sl.size()))
+          {
+              continue;   // blank
+          }
+          if(minIndent < 0 || ind < minIndent)
+          {
+              minIndent = ind;
+          }
+          if(sl.compare(static_cast<Size>(ind), 2, "//") != 0)
+          {
+              allCommented = false;
+          }
+      }
+      if(minIndent < 0)
+      {
+          return;   // nothing but blank lines
+      }
+
+      pushUndo();
+      for(Int32 l = first; l <= last; ++l)
+      {
+          Str&        sl = lines[static_cast<Size>(l)];
+          const Int32 ind = indentOf(l);
+          if(ind >= static_cast<Int32>(sl.size()))
+          {
+              continue;
+          }
+
+          if(allCommented)
+          {
+              // The marker and ONE space after it, if there is one - the space
+              // this function put there, or the one a person types by habit.
+              Size take = 2;
+              if(static_cast<Size>(ind) + 2 < sl.size() && sl[static_cast<Size>(ind) + 2] == ' ')
+              {
+                  take = 3;
+              }
+              sl.erase(static_cast<Size>(ind), take);
+          }
+          else
+          {
+              // At the SHALLOWEST indent in the range, not each line's own, so
+              // the markers line up in a column and the block reads as one
+              // thing switched off rather than five things individually.
+              sl.insert(static_cast<Size>(minIndent), "// ");
+          }
+      }
+
       cur.line = std::max(first, std::min(cur.line, last));
       cur.col = indentOf(cur.line);
   }
@@ -2025,6 +2124,22 @@ namespace ed
               cur.line = (pendCount > 0) ? std::min(lineCount() - 1, pendCount - 1) : 0;
               cur.col = indentOf(cur.line);
           }
+          else if(c == 'c')
+          {
+              // `gc` is an OPERATOR, spelled with a capital internally so it
+              // cannot be confused with `c` (change). `gcc` comments the line
+              // the way `dd` deletes it; `gc3j`, `gcap` and the rest fall out of
+              // the same motion machinery every other operator uses.
+              pendOp = 'C';
+              pendOpCount = 0;
+              return;   // keep the count for the motion
+          }
+          else if(c == 'O')
+          {
+              // The outline lives in the Code view. Submitted as a command so
+              // it takes the same path :outline does, and one place handles it.
+              submitted = "outline";
+          }
           else if(c == 'e')
           {
               // Back to the end of the previous word - the motion you want when
@@ -2182,8 +2297,9 @@ namespace ed
       }
 
       // ---- an operator is pending: this key must be its motion ----------------
+      // 'C' is gc, the comment toggle - see the g handler above.
       if(pendOp == 'd' || pendOp == 'c' || pendOp == 'y'
-         || pendOp == '>' || pendOp == '<')
+         || pendOp == '>' || pendOp == '<' || pendOp == 'C')
       {
           // A count typed BETWEEN the operator and the motion - the 3 in d3w.
           // Multiplied by any count before the operator, so 2d3w takes six.
@@ -2227,8 +2343,9 @@ namespace ed
           pendCount = 0;
           pendOpCount = 0;
 
-          // Doubling the operator (dd, cc, yy, >>, <<) acts on whole lines.
-          if(c == op)
+          // Doubling the operator (dd, cc, yy, >>, <<) acts on whole lines. gc
+          // doubles as gcc: its operator is stored as 'C' but typed as 'c'.
+          if(c == op || (op == 'C' && c == 'c'))
           {
               const Int32 n = std::max(1, count);
               Cursor      a = Cursor{ cur.line, 0 };
@@ -2605,7 +2722,26 @@ namespace ed
   {
       if(k.sp == Special::SPECIAL_ESC)
       {
+          visG = false;
           setMode(Mode::MODE_NORMAL);
+          return;
+      }
+
+      // ---- pending g: gc over the selection ---------------------------------
+      if(visG)
+      {
+          visG = false;
+          if(k.ch == 'c')
+          {
+              Cursor a, b;
+              if(selection(a, b))
+              {
+                  toggleComment(a.line, b.line);
+                  setMode(Mode::MODE_NORMAL);
+                  cur = Cursor{ a.line, indentOf(a.line) };
+              }
+          }
+          pendCount = 0;
           return;
       }
 
@@ -2693,6 +2829,10 @@ namespace ed
       case 'V':
           setMode(md == Mode::MODE_VISUAL_LINE ? Mode::MODE_NORMAL : Mode::MODE_VISUAL_LINE);
           break;
+
+      case 'g':
+          visG = true;
+          return;   // the selection and the count survive to the next key
 
       case ':':
           setMode(Mode::MODE_COMMAND);

@@ -94,6 +94,39 @@ namespace ui
       Int32     infoCol = -1;
       Int32     infoIn = 0;   // frames until the question goes out, 0 = sent
 
+      // ---- keeping clangd current ------------------------------------------
+      // The buffer revision clangd last saw, and the one waiting to go. The
+      // send is DEBOUNCED: a keystroke starts a short clock, and the buffer
+      // goes out when the clock runs down without another. One message per
+      // pause rather than one per key, and diagnostics that follow the typing
+      // instead of the last completion request.
+      UInt64  syncedRev = ~0ull;
+      Str     syncedPath;
+      Float64 syncDueS = 0.0;
+      Bool    syncPending = false;
+
+      // ---- signature help --------------------------------------------------
+      // One line above the caret while it sits inside a call: the signature,
+      // with the active parameter in full colour and the rest dimmed. Asked
+      // when `(` or `,` is typed; dropped when insert mode ends, the line
+      // changes, or `)` closes the call.
+      lsp::Sig sigAnswer;
+      Int32    sigLine = -1;   // where it was asked
+      Int32    sigCol = -1;
+      Int32    sigIn = 0;    // frames until the question goes out; retried if refused
+      Int32    sigRetries = 0;
+
+      // ---- outline ---------------------------------------------------------
+      // The file's symbols as a list you can jump from. Opened by :outline or
+      // gO, closed by Escape or by picking one.
+      Bool             outlineRequest = false;   // set by the command; consumed here
+      Bool             outlineOpen = false;
+      Int32            outlineSel = 0;
+      Int32            outlineTop = 0;
+      Int32            outlineIn = 0;
+      Int32            outlineRetries = 0;
+      Vec<lsp::Symbol> outline;
+
       // ---- macros ----------------------------------------------------------
       // Every object-like #define reachable from the open file, set by the
       // caller. Hovering one shows what it finally becomes, not what it says.

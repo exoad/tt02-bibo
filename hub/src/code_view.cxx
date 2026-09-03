@@ -232,6 +232,29 @@ namespace ui
         Bool        fromLsp = false;
     };
 
+    // An identifier character, for the underline and the hover word alike.
+    [[nodiscard]] Bool identChar(Char ch) noexcept
+    {
+        return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+               || (ch >= '0' && ch <= '9') || ch == '_';
+    }
+
+    // Where the token starting at `from` ends, for a diagnostic underline. The
+    // rule was a fixed nine characters from the reported column, which is too
+    // long for `x` and too short for `driveThrottleUs` - and either way the
+    // underline said nothing about what it was under. Now it covers the
+    // identifier, and one cell for punctuation, which is what a compiler's
+    // column actually points at.
+    [[nodiscard]] Int32 tokenEnd(const Str& src, Int32 from, Int32 len) noexcept
+    {
+        Int32 t = from;
+        while(t < len && identChar(src[static_cast<Size>(t)]))
+        {
+            ++t;
+        }
+        return std::max(t, std::min(len, from + 1));
+    }
+
     Bool startsWithFold(const Str& hay, const Str& needle) noexcept
     {
         if(needle.size() > hay.size())
@@ -437,6 +460,11 @@ namespace ui
                               ? font->LegacySize : ImGui::GetFontSize())
                            * fontScale();
 
+      // The status line's insets, read BEFORE the two pushes below zero them:
+      // the ends sit at WindowPadding.x, the slots are ItemSpacing.x apart.
+      const Float32 statusInset = ImGui::GetStyle().WindowPadding.x;
+      const Float32 statusGap = ImGui::GetStyle().ItemSpacing.x;
+
       ImGui::PushFont(font, fontSz);
       ImGui::PushStyleColor(ImGuiCol_ChildBg, syn::gruv::BG0_H);
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
@@ -457,7 +485,9 @@ namespace ui
       Float32 charW = ImGui::CalcTextSize("0").x;
       charW = (charW > 1.0f) ? static_cast<Float32>(static_cast<Int32>(charW + 0.5f))
                              : 1.0f;
-      const Float32 statusH = lineH + 6.0f * dpiScale();
+      // One frame tall - the mono face is pushed, so this is lineH plus the
+      // style's FramePadding twice, not a 6 px of its own.
+      const Float32 statusH = ImGui::GetFrameHeight();
 
       // Gutter wide enough for the largest line number this buffer will ever show,
       // so it does not jump a pixel when the file crosses 100 lines.
@@ -537,7 +567,66 @@ namespace ui
           Bool eatEsc = false;
           Bool eatPage = false;
 
-          if(v.popupOpen)
+          // The outline is modal in the small sense: while it is up, every key
+          // belongs to it and none reach the buffer - j and k move the list,
+          // not the caret.
+          Bool eatAll = false;
+
+          if(v.outlineOpen)
+          {
+              eatAll = true;
+              const Int32 n = static_cast<Int32>(v.outline.size());
+
+              Bool down = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)
+                       || (ctrl && ImGui::IsKeyPressed(ImGuiKey_N, true));
+              Bool up = ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)
+                     || (ctrl && ImGui::IsKeyPressed(ImGuiKey_P, true));
+
+              for(Int32 i = 0; i < io.InputQueueCharacters.Size; ++i)
+              {
+                  const ImWchar wc = io.InputQueueCharacters[i];
+                  down |= (wc == 'j');
+                  up |= (wc == 'k');
+              }
+              io.InputQueueCharacters.resize(0);
+
+              if(n > 0)
+              {
+                  if(down)
+                  {
+                      v.outlineSel = (v.outlineSel + 1) % n;
+                  }
+                  if(up)
+                  {
+                      v.outlineSel = (v.outlineSel + n - 1) % n;
+                  }
+                  if(ImGui::IsKeyPressed(ImGuiKey_PageDown, true))
+                  {
+                      v.outlineSel = std::min(n - 1, v.outlineSel + MAX_VISIBLE);
+                  }
+                  if(ImGui::IsKeyPressed(ImGuiKey_PageUp, true))
+                  {
+                      v.outlineSel = std::max(0, v.outlineSel - MAX_VISIBLE);
+                  }
+                  v.outlineSel = std::max(0, std::min(v.outlineSel, n - 1));
+
+                  if(ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+                  {
+                      const lsp::Symbol& s = v.outline[static_cast<Size>(v.outlineSel)];
+                      e.setCursor(s.line, 0);
+                      v.followCaret = true;
+                      v.outlineOpen = false;
+                      v.lastKeyS = nowS;
+                  }
+              }
+
+              if(ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+              {
+                  v.outlineOpen = false;
+              }
+          }
+
+          if(v.popupOpen && !eatAll)
           {
               const Int32 startCol = e.cursor().col
                                    - static_cast<Int32>(v.popupPrefix.size());
@@ -602,6 +691,10 @@ namespace ui
           // also arrive as characters on some layouts.
           for(const SpecialKey& s : SPECIALS)
           {
+              if(eatAll)
+              {
+                  break;
+              }
               if(eatEnter && s.sp == ed::Special::SPECIAL_ENTER)
               {
                   continue;
@@ -633,7 +726,7 @@ namespace ui
           }
 
           // Ctrl combinations, which produce no usable character.
-          if(ctrl && ImGui::IsKeyPressed(ImGuiKey_R, true))
+          if(!eatAll && ctrl && ImGui::IsKeyPressed(ImGuiKey_R, true))
           {
               ed::Key k;
               k.ch = 'r';
@@ -645,8 +738,18 @@ namespace ui
 
           // Then printable characters, straight off the platform's queue, so layout,
           // shift and dead keys are already resolved.
+          // Whether this frame's typing asks for signature help: `(` opens a
+          // call and `,` moves to its next parameter; `)` closes it. Decided
+          // here, where the character is known, and acted on after the loop.
+          Bool sigAsk = false;
+          Bool sigDrop = false;
+
           for(Int32 i = 0; i < io.InputQueueCharacters.Size; ++i)
           {
+              if(eatAll)
+              {
+                  break;
+              }
               const ImWchar wc = io.InputQueueCharacters[i];
               if(wc < 32 || wc > 126)
               {
@@ -655,6 +758,18 @@ namespace ui
               if(ctrl)
               {
                   continue;                       // handled above
+              }
+
+              if(e.mode() == ed::Mode::MODE_INSERT)
+              {
+                  if(wc == '(' || wc == ',')
+                  {
+                      sigAsk = true;
+                  }
+                  else if(wc == ')')
+                  {
+                      sigDrop = true;
+                  }
               }
 
               // ---- p and P pull from the system clipboard ------------------
@@ -702,6 +817,27 @@ namespace ui
               v.lastKeyS = nowS;
           }
           io.InputQueueCharacters.resize(0);
+
+          if(sigDrop)
+          {
+              // sigLine is invalidated too, not just the answer: takeSig()
+              // accepts any reply for this line, and clangd answers late. A
+              // `)` typed while the ask was still in flight would otherwise
+              // let the reply land after the call was already closed.
+              v.sigAnswer = lsp::Sig();
+              v.sigIn = 0;
+              v.sigLine = -1;
+          }
+          else if(sigAsk)
+          {
+              // Asked from where the caret now is - after the `(` or `,` went
+              // in - which is the position clangd needs to know which
+              // parameter is active.
+              v.sigLine = e.cursor().line;
+              v.sigCol = e.cursor().col;
+              v.sigIn = 1;
+              v.sigRetries = 0;
+          }
 
           // ---- reopen / close decision --------------------------------------
           // Recomputed from the buffer every frame, not tracked as a state machine:
@@ -842,6 +978,94 @@ namespace ui
       // already asked about. Diagnostics win where they overlap: a red underline
       // is a thing to fix and a declaration is a thing to read, and covering the
       // first with the second would be answering a question nobody asked.
+      // ---- keep clangd current, on a debounce -------------------------------
+      // The buffer used to reach clangd only inside a completion or a hover
+      // request, so the underlines refreshed when you asked for something and
+      // at no other time. Now every change starts a short clock, and the file
+      // goes out when the clock runs down without another keystroke. Once
+      // clangd has it, diagnostics arrive on their own.
+      if(!v.lspPath.empty())
+      {
+          const UInt64 rev = e.revision();
+          if(rev != v.syncedRev || v.lspPath != v.syncedPath)
+          {
+              if(!v.syncPending)
+              {
+                  v.syncPending = true;
+                  v.syncDueS = nowS + 0.30;
+              }
+              if(nowS >= v.syncDueS)
+              {
+                  const Str text = e.text();
+                  if(lsp::sync(v.lspPath, text, hashOf(text)))
+                  {
+                      v.syncedRev = rev;
+                      v.syncedPath = v.lspPath;
+                  }
+                  v.syncPending = false;
+              }
+          }
+      }
+
+      // ---- signature help: ask, take, drop ----------------------------------
+      if(v.sigIn > 0 && --v.sigIn == 0)
+      {
+          const Str text = e.text();
+          if(!lsp::askSig(v.lspPath, text, hashOf(text), v.sigLine, v.sigCol))
+          {
+              // Retried while clangd parses, bounded so a server that never
+              // comes up is not asked sixty times a second forever.
+              v.sigIn = (++v.sigRetries < 120) ? 1 : 0;
+          }
+      }
+      {
+          lsp::Sig got;
+          if(lsp::takeSig(got) && got.line == v.sigLine)
+          {
+              v.sigAnswer = got;
+          }
+      }
+      if(v.sigLine >= 0
+         && (e.mode() != ed::Mode::MODE_INSERT || e.cursor().line != v.sigLine))
+      {
+          // Left the call: leaving insert mode, or moving to another line. The
+          // line goes to -1 so a reply still in flight is refused on arrival.
+          v.sigAnswer = lsp::Sig();
+          v.sigIn = 0;
+          v.sigLine = -1;
+      }
+
+      // ---- outline: open on request, ask, take --------------------------------
+      if(v.outlineRequest)
+      {
+          v.outlineRequest = false;
+          if(!v.lspPath.empty())
+          {
+              v.outlineOpen = true;
+              v.outline.clear();
+              v.outlineSel = 0;
+              v.outlineTop = 0;
+              v.outlineIn = 1;
+              v.outlineRetries = 0;
+          }
+      }
+      if(v.outlineOpen && v.outlineIn > 0 && --v.outlineIn == 0)
+      {
+          const Str text = e.text();
+          if(!lsp::askOutline(v.lspPath, text, hashOf(text)))
+          {
+              v.outlineIn = (++v.outlineRetries < 180) ? 1 : 0;
+          }
+      }
+      if(v.outlineOpen)
+      {
+          Vec<lsp::Symbol> syms;
+          if(lsp::takeOutline(syms))
+          {
+              v.outline = syms;
+          }
+      }
+
       Str   hoverWord;
       Int32 hoverLine = -1;
       Int32 hoverCol = -1;
@@ -903,7 +1127,17 @@ namespace ui
       else if(v.infoIn > 0 && --v.infoIn == 0)
       {
           const Str text = e.text();
-          static_cast<Void>(lsp::askInfo(v.lspPath, text, hashOf(text), v.infoLine, v.infoCol));
+
+          // A REFUSED question is asked again next frame, for as long as the
+          // pointer rests. It is refused while clangd is still parsing, and
+          // the old code asked exactly once - so resting on a word during the
+          // first second after opening a file produced nothing, and the word
+          // looked like one clangd had no opinion about. Namespaces were the
+          // usual victim only because they are the first thing you hover.
+          if(!lsp::askInfo(v.lspPath, text, hashOf(text), v.infoLine, v.infoCol))
+          {
+              v.infoIn = 1;
+          }
       }
 
       {
@@ -1019,7 +1253,7 @@ namespace ui
                   // Column 0 means the compiler did not say where, so the whole line
                   // is marked rather than a span invented for it.
                   const Int32 from = (d.column > 0) ? (d.column - 1) : 0;
-                  const Int32 to = (d.column > 0) ? std::min(len, from + 9) : len;
+                  const Int32 to = (d.column > 0) ? tokenEnd(src, from, len) : len;
                   if(to <= from)
                   {
                       continue;
@@ -1052,7 +1286,7 @@ namespace ui
                               continue;
                           }
                           const Int32 of = (o.column > 0) ? (o.column - 1) : 0;
-                          const Int32 ot = (o.column > 0) ? std::min(len, of + 9) : len;
+                          const Int32 ot = (o.column > 0) ? tokenEnd(src, of, len) : len;
 
                           const Float32 ox0 = textX + static_cast<Float32>(of) * charW;
                           const Float32 ox1 = textX + static_cast<Float32>(ot) * charW;
@@ -1152,42 +1386,31 @@ namespace ui
           Vec<HoverRow> rows;
           const Size    show = std::min(underPointer.size(), HOVER_MAX);
 
+          // THE MESSAGE AND NOTHING ELSE. There was a heading per diagnostic -
+          // `error  41:12` - and a rule between them, and the box was three
+          // rows tall for one line of text. The severity is already the colour
+          // of the underline you are pointing at, and the position is where the
+          // pointer is; restating both above every message was the cramped
+          // part.
           for(Size i = 0; i < show; ++i)
           {
               const diag::Item& d = *underPointer[i];
 
               if(i > 0)
               {
-                  rows.push_back(HoverRow{ Str(), syn::gruv::BG3, false });
+                  rows.push_back(HoverRow{ Str(), 0u, false });   // a blank line
               }
-
-              Array<Char, 128> head;
-              if(d.column > 0)
-              {
-                  std::snprintf(
-                      head.data(),
-                      head.size(),
-                      "%s  %d:%d",
-                      severityName(d.severity),
-                      d.line,
-                      d.column
-                  );
-              }
-              else
-              {
-                  std::snprintf(
-                      head.data(),
-                      head.size(),
-                      "%s  line %d",
-                      severityName(d.severity),
-                      d.line
-                  );
-              }
-              rows.push_back(HoverRow{ Str(head.data()),
-                                       severityColor(d.severity), true });
 
               Vec<Str> wrapped;
-              wrapTo(d.message, HOVER_COLS, wrapped);
+              // Wrapped to what the PANE can hold, not to a fixed width: at 76
+              // columns a box anchored mid-pane ran past the editor's edge and
+              // over the panel beside it. Never below 24, so a very narrow pane
+              // still wraps into words rather than into letters.
+              const Size fitCols = std::min(
+                  HOVER_COLS,
+                  static_cast<Size>(std::max(24.0f, (region.x - pad * 4.0f) / charW))
+              );
+              wrapTo(d.message, fitCols, wrapped);
               for(const Str& w : wrapped)
               {
                   rows.push_back(HoverRow{ w, syn::gruv::FG1, false });
@@ -1233,12 +1456,9 @@ namespace ui
           // is the whole difference.
           ImDrawList* fg = ImGui::GetForegroundDrawList();
           fg->AddRectFilled(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH), syn::gruv::BG0_H, 0.0f);
-          fg->AddRect(
-              ImVec2(hx, hy),
-              ImVec2(hx + boxW, hy + boxH),
-              severityColor(underPointer[0]->severity),
-              0.0f
-          );
+
+          // A neutral hairline. The severity is on the underline, not the box.
+          fg->AddRect(ImVec2(hx, hy), ImVec2(hx + boxW, hy + boxH), syn::gruv::BG3, 0.0f);
 
           for(Size i = 0; i < rows.size(); ++i)
           {
@@ -1408,7 +1628,7 @@ namespace ui
                   syn::gruv::BG0_H,
                   0.0f
               );
-              fg->AddRect(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH), syn::gruv::PURPLE, 0.0f);
+              fg->AddRect(ImVec2(mx, my), ImVec2(mx + boxW, my + boxH), syn::gruv::BG3, 0.0f);   // neutral: no coloured edges
 
               for(Size i = 0; i < rows.size(); ++i)
               {
@@ -1473,7 +1693,15 @@ namespace ui
               rows.push_back(InfoRow{ Str(), syn::gruv::BG3 });   // a rule
 
               Vec<Str> wrapped;
-              wrapTo(v.infoAnswer.doc, HOVER_COLS, wrapped);
+              // Wrapped to what the PANE can hold, not to a fixed width: at 76
+              // columns a box anchored mid-pane ran past the editor's edge and
+              // over the panel beside it. Never below 24, so a very narrow pane
+              // still wraps into words rather than into letters.
+              const Size fitCols = std::min(
+                  HOVER_COLS,
+                  static_cast<Size>(std::max(24.0f, (region.x - pad * 4.0f) / charW))
+              );
+              wrapTo(v.infoAnswer.doc, fitCols, wrapped);
 
               // Bounded. A doc comment in this project runs to paragraphs, and a
               // tooltip taller than the window hides the code it describes.
@@ -1514,7 +1742,7 @@ namespace ui
 
           ImDrawList* fg = ImGui::GetForegroundDrawList();
           fg->AddRectFilled(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH), syn::gruv::BG0_H, 0.0f);
-          fg->AddRect(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH), syn::gruv::BLUE, 0.0f);
+          fg->AddRect(ImVec2(ix, iy), ImVec2(ix + boxW, iy + boxH), syn::gruv::BG3, 0.0f);   // neutral: no coloured edges
 
           for(Size i = 0; i < rows.size(); ++i)
           {
@@ -1534,10 +1762,161 @@ namespace ui
           }
       }
 
+      // ---- signature help ---------------------------------------------------
+      // One row, directly above the line being typed: the signature with the
+      // active parameter in full colour and the rest dimmed. Nothing else -
+      // no documentation, no overload count. It is there to answer "which
+      // argument am I on", and a box that answers more than that gets in the
+      // way of the line it is about.
+      if(!v.sigAnswer.label.empty() && e.mode() == ed::Mode::MODE_INSERT
+         && !v.popupOpen && !v.outlineOpen && e.cursor().line == v.sigLine)
+      {
+          const Str&    label = v.sigAnswer.label;
+          const Float32 pad = 6.0f * dpiScale();
+          const Float32 boxW = ImGui::CalcTextSize(label.c_str()).x + pad * 2.0f;
+          const Float32 boxH = lineH + pad;
+
+          Float32 sx = textX + static_cast<Float32>(std::max(0, v.sigCol - 1)) * charW;
+          Float32 sy = origin.y + static_cast<Float32>(v.sigLine) * lineH - v.scrollY - boxH
+                     - 2.0f * dpiScale();
+          if(sy < origin.y)
+          {
+              // No room above: below the line instead, like the popups do.
+              sy = origin.y + static_cast<Float32>(v.sigLine + 1) * lineH - v.scrollY
+                 + 2.0f * dpiScale();
+          }
+          sx = std::max(origin.x, std::min(sx, origin.x + region.x - boxW));
+
+          ImDrawList* fg = ImGui::GetForegroundDrawList();
+          fg->AddRectFilled(ImVec2(sx, sy), ImVec2(sx + boxW, sy + boxH), syn::gruv::BG1, 0.0f);
+          fg->AddRect(ImVec2(sx, sy), ImVec2(sx + boxW, sy + boxH), syn::gruv::BG3, 0.0f);
+
+          // Three pieces: before, the active parameter, after. Drawn as
+          // separate runs at measured offsets rather than as one string with a
+          // colour change, which ImGui cannot do.
+          const Int32 ab = v.sigAnswer.activeBegin;
+          const Int32 ae = v.sigAnswer.activeEnd;
+          const Bool  marked = ab >= 0 && ae > ab && static_cast<Size>(ae) <= label.size();
+
+          const Float32 tx = sx + pad;
+          const Float32 ty = sy + pad * 0.5f;
+          if(!marked)
+          {
+              fg->AddText(ImVec2(tx, ty), syn::gruv::FG4, label.c_str());
+          }
+          else
+          {
+              const Str before = label.substr(0, static_cast<Size>(ab));
+              const Str active = label.substr(static_cast<Size>(ab), static_cast<Size>(ae - ab));
+              const Str after = label.substr(static_cast<Size>(ae));
+
+              Float32 x = tx;
+              fg->AddText(ImVec2(x, ty), syn::gruv::FG4, before.c_str());
+              x += ImGui::CalcTextSize(before.c_str()).x;
+              fg->AddText(ImVec2(x, ty), syn::gruv::FG1, active.c_str());
+              x += ImGui::CalcTextSize(active.c_str()).x;
+              fg->AddText(ImVec2(x, ty), syn::gruv::FG4, after.c_str());
+          }
+      }
+
+      // ---- outline ----------------------------------------------------------
+      // A list in the top-left of the text, the width of its longest name.
+      // Members sit one indent under their owner; the tag on the left says what
+      // each thing is. j/k move, Enter goes, Escape closes.
+      if(v.outlineOpen)
+      {
+          const Int32 n = static_cast<Int32>(v.outline.size());
+          const Int32 shown = std::max(1, std::min(n, MAX_VISIBLE));
+
+          if(v.outlineSel < v.outlineTop)
+          {
+              v.outlineTop = v.outlineSel;
+          }
+          if(v.outlineSel >= v.outlineTop + shown)
+          {
+              v.outlineTop = v.outlineSel - shown + 1;
+          }
+          v.outlineTop = std::max(0, std::min(v.outlineTop, std::max(0, n - shown)));
+
+          const Float32 pad = 8.0f * dpiScale();
+          const Float32 tagW = ImGui::CalcTextSize("struct").x + pad;
+          Float32       nameW = ImGui::CalcTextSize("...").x;
+          for(const lsp::Symbol& s : v.outline)
+          {
+              nameW = std::max(
+                  nameW,
+                  ImGui::CalcTextSize(s.name.c_str()).x
+                      + static_cast<Float32>(s.depth) * charW * 2.0f
+              );
+          }
+
+          const Float32 rowH = lineH + 2.0f * dpiScale();
+          const Float32 barW = (n > shown) ? 4.0f * dpiScale() : 0.0f;
+          const Float32 boxW = tagW + nameW + pad * 2.0f + barW;
+          const Float32 boxH = rowH * static_cast<Float32>(shown) + pad;
+          const Float32 px = textX;
+          const Float32 py = origin.y + 2.0f * dpiScale();
+
+          ImDrawList* fg = ImGui::GetForegroundDrawList();
+          fg->AddRectFilled(ImVec2(px, py), ImVec2(px + boxW, py + boxH), syn::gruv::BG1, 0.0f);
+          fg->AddRect(ImVec2(px, py), ImVec2(px + boxW, py + boxH), syn::gruv::BG3, 0.0f);
+
+          if(n == 0)
+          {
+              // Waiting on clangd, or a file with nothing in it. Either way the
+              // honest thing to draw is that there is nothing yet.
+              fg->AddText(ImVec2(px + pad * 0.5f, py + pad * 0.5f), syn::gruv::GRAY, "...");
+          }
+
+          for(Int32 r = 0; r < shown && r < n; ++r)
+          {
+              const Int32        idx = v.outlineTop + r;
+              const lsp::Symbol& s = v.outline[static_cast<Size>(idx)];
+              const Float32      ry = py + pad * 0.5f + static_cast<Float32>(r) * rowH;
+
+              if(idx == v.outlineSel)
+              {
+                  fg->AddRectFilled(
+                      ImVec2(px + 2.0f, ry),
+                      ImVec2(px + boxW - barW - 2.0f, ry + rowH),
+                      syn::gruv::BG2
+                  );
+              }
+
+              fg->AddText(ImVec2(px + pad * 0.5f, ry), syn::gruv::GRAY, s.kind.c_str());
+              fg->AddText(
+                  ImVec2(px + tagW + static_cast<Float32>(s.depth) * charW * 2.0f, ry),
+                  syn::gruv::FG1,
+                  s.name.c_str()
+              );
+          }
+
+          if(n > shown)
+          {
+              const Float32 trackX = px + boxW - barW - 2.0f * dpiScale();
+              const Float32 frac = static_cast<Float32>(shown) / static_cast<Float32>(n);
+              const Float32 thumbH = std::max(rowH * 0.6f, boxH * frac);
+              const Float32 travel = boxH - thumbH;
+              const Float32 at = static_cast<Float32>(v.outlineTop)
+                                 / static_cast<Float32>(n - shown);
+
+              fg->AddRectFilled(
+                  ImVec2(trackX, py),
+                  ImVec2(trackX + barW, py + boxH),
+                  syn::gruv::BG2
+              );
+              fg->AddRectFilled(
+                  ImVec2(trackX, py + travel * at),
+                  ImVec2(trackX + barW, py + travel * at + thumbH),
+                  syn::gruv::GRAY
+              );
+          }
+      }
+
       // ---- completion popup --------------------------------------------------
       // Drawn on the FOREGROUND draw list so it is not clipped by the editor
       // child, which is what lets it hang below the last visible line.
-      if(v.popupOpen)
+      if(v.popupOpen && !v.outlineOpen)
       {
           const Int32 startCol = e.cursor().col
                                - static_cast<Int32>(v.popupPrefix.size());
@@ -1610,19 +1989,10 @@ namespace ui
               // NO WHEEL SCROLLING HERE: the buffer's own wheel handler runs long
               // before this box has a position, so a wheel over the popup would
               // move the list AND the code under it. Keys only.
+              // Square, like every other corner in the program.
               ImDrawList* fg = ImGui::GetForegroundDrawList();
-              fg->AddRectFilled(
-                  ImVec2(px, py),
-                  ImVec2(px + boxW, py + boxH),
-                  syn::gruv::BG1,
-                  3.0f * dpiScale()
-              );
-              fg->AddRect(
-                  ImVec2(px, py),
-                  ImVec2(px + boxW, py + boxH),
-                  syn::gruv::BG3,
-                  3.0f * dpiScale()
-              );
+              fg->AddRectFilled(ImVec2(px, py), ImVec2(px + boxW, py + boxH), syn::gruv::BG1, 0.0f);
+              fg->AddRect(ImVec2(px, py), ImVec2(px + boxW, py + boxH), syn::gruv::BG3, 0.0f);
 
               for(Int32 r = 0; r < shown; ++r)
               {
@@ -1703,11 +2073,12 @@ namespace ui
                                      : 0.0f;
                   const Float32 dw = std::min(docW + tw + pad * 2.0f, boxW * 1.5f);
 
+                  // Square, like the list above it and every other box.
                   fg->AddRectFilled(
                       ImVec2(px, dy),
                       ImVec2(px + dw, dy + rowH),
                       syn::gruv::BG1,
-                      3.0f * dpiScale()
+                      0.0f
                   );
 
                   if(haveDoc)
@@ -1737,38 +2108,43 @@ namespace ui
       }
 
       // ---- status line -------------------------------------------------------
+      // The casing tone, not BG1: a strip lighter than both the well above and
+      // the panel below was a third surface. One hairline marks the well's edge.
       const Float32 sy = origin.y + viewH;
       dl->AddRectFilled(
           ImVec2(origin.x, sy),
           ImVec2(origin.x + region.x, sy + statusH),
-          syn::gruv::BG1
+          ImGui::GetColorU32(ImGuiCol_WindowBg)
+      );
+      dl->AddLine(
+          ImVec2(origin.x, sy + 0.5f),
+          ImVec2(origin.x + region.x, sy + 0.5f),
+          ImGui::GetColorU32(ImGuiCol_Border)
       );
 
-      const Float32 pad = 6.0f * dpiScale();
-      const Float32 ty = sy + 3.0f * dpiScale();
+      // From the style, captured at the top of drawCode.
+      const Float32 inset = statusInset;
+      const Float32 gap = statusGap;
+      const Float32 ty = sy + ImGui::GetStyle().FramePadding.y;
 
-      // The mode badge, in the mode's own color, reversed like vim's.
+      // The mode, in its own colour but as plain text: a filled chip was the one
+      // coloured block in an otherwise flat line.
       {
           const Char*   mn = modeName(e.mode());
           const Float32 mw = ImGui::CalcTextSize(mn).x;
-          dl->AddRectFilled(
-              ImVec2(origin.x, sy),
-              ImVec2(origin.x + mw + pad * 2.0f, sy + statusH),
-              modeColor(e.mode())
-          );
-          dl->AddText(ImVec2(origin.x + pad, ty), syn::gruv::BG0_H, mn);
+          dl->AddText(ImVec2(origin.x + inset, ty), modeColor(e.mode()), mn);
 
           Array<Char, 64> pos;
           std::snprintf(pos.data(), pos.size(), "%d:%d", e.cursor().line + 1, e.cursor().col + 1);
           const Float32 pw = ImGui::CalcTextSize(pos.data()).x;
-          dl->AddText(ImVec2(origin.x + region.x - pw - pad, ty), syn::gruv::FG4, pos.data());
+          dl->AddText(ImVec2(origin.x + region.x - pw - inset, ty), syn::gruv::FG4, pos.data());
 
           // ---- clangd, always ------------------------------------------------
           // Present in every state, not only when wrong: an empty completion list
           // looks identical whether the server has nothing to suggest, is still
           // parsing, or is not running - and it also says when a question is IN
           // FLIGHT, which otherwise looks like "no suggestions".
-          Float32 rightOf = origin.x + region.x - pw - pad * 3.0f;
+          Float32 rightOf = origin.x + region.x - pw - inset - gap;
           {
               const Char* tag = "clangd";
               ImU32       col = syn::gruv::GRAY;
@@ -1796,7 +2172,7 @@ namespace ui
 
               const Float32 tw = ImGui::CalcTextSize(tag).x;
               dl->AddText(ImVec2(rightOf - tw, ty), col, tag);
-              rightOf -= tw + pad * 2.0f;
+              rightOf -= tw + gap;
           }
 
           // The middle slot, in priority order: the command line (you are looking
@@ -1850,7 +2226,7 @@ namespace ui
 
           if(!mid.empty())
           {
-              dl->AddText(ImVec2(origin.x + mw + pad * 3.0f, ty), midCol, mid.c_str());
+              dl->AddText(ImVec2(origin.x + inset + mw + gap, ty), midCol, mid.c_str());
           }
 
           // ---- a diagnostic count, right of the position ---------------------

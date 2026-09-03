@@ -8,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -299,7 +300,19 @@ namespace lsp
                                    || line.rfind("- `", 0) == 0;
                 if(!noise)
                 {
-                    body.push_back(line);
+                    // Backticks are markdown's, not the reader's. `provided by
+                    // `"hal.hxx"`` is clangd quoting a string it has already
+                    // quoted, and in a tooltip it is just clutter.
+                    Str clean;
+                    clean.reserve(line.size());
+                    for(const Char c : line)
+                    {
+                        if(c != '`')
+                        {
+                            clean.push_back(c);
+                        }
+                    }
+                    body.push_back(clean);
                 }
             }
 
@@ -308,6 +321,36 @@ namespace lsp
                 break;
             }
             i = nl + 1;
+        }
+
+        // NO FENCE AT ALL. For a namespace clangd sends plain text -
+        //
+        //     namespace gpio
+        //
+        //     // In namespace bibo
+        //     namespace gpio {}
+        //
+        // - and nothing in it is fenced, so the walk above filed every line
+        // as prose and the signature stayed empty. An empty signature is what
+        // the Code view reads as "clangd has nothing to say", which is how
+        // hovering a namespace showed nothing at all. In that shape the first
+        // line IS the declaration: it becomes the signature, the rest stays
+        // prose. Measured against clangd 18's actual reply, not guessed.
+        if(sig.empty() && !body.empty())
+        {
+            sig = body.front();
+            body.erase(body.begin());
+        }
+
+        // FOUR LINES OF PROSE, no more. A hover answers "what is this" - the
+        // declaration and the sentence under it. A forty-line doc comment
+        // belongs in the header, where the reader chose to go, not in a box
+        // over the code they were reading.
+        constexpr Size HOVER_PROSE_MAX = 4;
+        if(body.size() > HOVER_PROSE_MAX)
+        {
+            body.resize(HOVER_PROSE_MAX);
+            body.back() += " ...";
         }
 
         for(const Str& l : body)
@@ -373,6 +416,18 @@ namespace lsp
         Mutex         infoMu;
         Info          info;
         Bool          infoFresh = false;
+
+        // Signature help and the outline, each with the same shape as hover and
+        // for the same reason: a shared slot drops whichever reply lands second.
+        Atomic<Int64> sigInFlight{-1};
+        Mutex         sigMu;
+        Sig           sig;
+        Bool          sigFresh = false;
+
+        Atomic<Int64> outlineInFlight{-1};
+        Mutex         outlineMu;
+        Vec<Symbol>   outline;
+        Bool          outlineFresh = false;
 
         // Replaced wholesale on every publish: clangd sends the complete set each
         // time, and an empty array means "clean now", not "nothing to say".
@@ -715,6 +770,163 @@ namespace lsp
             s.send("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}");
             s.st.store(State::STATE_READY);
             s.say("clangd: ready");
+            return;
+        }
+
+        // ---- a signature help reply ----
+        if(static_cast<Int64>(id) == s.sigInFlight.load())
+        {
+            s.sigInFlight.store(-1);
+
+            const js::Value& res = msg.at("result");
+            const js::Value& sigs = res.at("signatures");
+
+            Sig built;
+            if(sigs.isArray() && sigs.size() > 0)
+            {
+                // Which overload. Absent means the first, per the protocol.
+                Int32 which = res.at("activeSignature").integer(0);
+                if(which < 0 || static_cast<Size>(which) >= sigs.size())
+                {
+                    which = 0;
+                }
+                const js::Value& sg = sigs[static_cast<Size>(which)];
+                built.label = sg.at("label").string();
+
+                // The active parameter may be on the signature or on the result;
+                // clangd puts it on the result.
+                Int32 ap = sg.at("activeParameter").integer(-1);
+                if(ap < 0)
+                {
+                    ap = res.at("activeParameter").integer(-1);
+                }
+
+                const js::Value& params = sg.at("parameters");
+                if(ap >= 0 && params.isArray() && static_cast<Size>(ap) < params.size())
+                {
+                    // A parameter's label is EITHER a substring of the signature
+                    // OR a [start, end] pair into it. clangd sends the string;
+                    // the pair costs three lines and means the range is exact
+                    // when a name appears twice.
+                    const js::Value& pl = params[static_cast<Size>(ap)].at("label");
+                    if(pl.isArray() && pl.size() == 2)
+                    {
+                        built.activeBegin = pl[0].integer(-1);
+                        built.activeEnd = pl[1].integer(-1);
+                    }
+                    else
+                    {
+                        const Str  name = pl.string();
+                        const Size at = name.empty() ? Str::npos : built.label.find(name);
+                        if(at != Str::npos)
+                        {
+                            built.activeBegin = static_cast<Int32>(at);
+                            built.activeEnd = static_cast<Int32>(at + name.size());
+                        }
+                    }
+                }
+            }
+
+            {
+                LockGuard<Mutex> lk(s.sigMu);
+                built.serial = s.sig.serial + 1u;
+                built.path = s.sig.path;
+                built.line = s.sig.line;
+                built.col = s.sig.col;
+                s.sig = std::move(built);
+                s.sigFresh = true;
+            }
+            return;
+        }
+
+        // ---- an outline reply ----
+        if(static_cast<Int64>(id) == s.outlineInFlight.load())
+        {
+            s.outlineInFlight.store(-1);
+
+            Vec<Symbol> got;
+            const js::Value& arr = msg.at("result");
+
+            // LSP SymbolKind, the ones a C++ file actually contains.
+            const auto tag = [](Int32 k) -> const Char*
+            {
+                switch(k)
+                {
+                case 3:            return "ns";
+                case 5:            return "cls";
+                case 23:           return "struct";
+                case 10: case 22:  return "enum";     // Enum, EnumMember
+                case 6:  case 12:  return "fn";       // Method, Function
+                case 9:            return "ctor";
+                case 7:  case 8:   return "fld";      // Field, Property
+                case 13:           return "var";
+                case 14:           return "const";
+                case 26:           return "type";
+                default:           return "";
+                }
+            };
+
+            // Two shapes, both legal. SymbolInformation is flat and carries a
+            // `location`; DocumentSymbol is a tree with `range` and `children`.
+            // We advertise no tree support so clangd sends the flat one, but the
+            // tree is handled too, because a different server would not.
+            const auto add = [&](auto&& self, const js::Value& it, Int32 depth) -> Void
+            {
+                Symbol sym;
+                sym.name = it.at("name").string();
+                sym.kind = tag(it.at("kind").integer(0));
+                sym.depth = depth;
+
+                if(!it.at("location").isNull())
+                {
+                    sym.line = it.at("location").at("range").at("start").at("line").integer(0);
+                    if(!it.at("containerName").string().empty())
+                    {
+                        sym.depth = 1;
+                    }
+                }
+                else
+                {
+                    const js::Value& r = it.at("selectionRange").isNull() ? it.at("range")
+                                                                          : it.at("selectionRange");
+                    sym.line = r.at("start").at("line").integer(0);
+                }
+
+                if(!sym.name.empty())
+                {
+                    got.push_back(sym);
+                }
+
+                const js::Value& kids = it.at("children");
+                if(kids.isArray())
+                {
+                    for(Size i = 0; i < kids.size(); ++i)
+                    {
+                        self(self, kids[i], depth + 1);
+                    }
+                }
+            };
+
+            if(arr.isArray())
+            {
+                for(Size i = 0; i < arr.size(); ++i)
+                {
+                    add(add, arr[i], 0);
+                }
+            }
+
+            // Source order, whatever order clangd chose. A list you jump around
+            // in has to read the way the file does.
+            std::sort(got.begin(), got.end(), [](const Symbol& a, const Symbol& b)
+            {
+                return a.line < b.line;
+            });
+
+            {
+                LockGuard<Mutex> lk(s.outlineMu);
+                s.outline = std::move(got);
+                s.outlineFresh = true;
+            }
             return;
         }
 
@@ -1085,12 +1297,21 @@ namespace lsp
       s.send("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{"
              "\"processId\":null,"
              "\"rootUri\":" + js::quote(rootUri) + ","
-             "\"capabilities\":{\"textDocument\":{\"completion\":{"
-               "\"completionItem\":{"
-                 // Snippets OFF: clangd would otherwise send `${1:x}` placeholder
-                 // syntax, which this editor would insert literally.
-                 "\"snippetSupport\":false,"
-                 "\"documentationFormat\":[\"plaintext\"]}}}}}}");
+             "\"capabilities\":{\"textDocument\":{"
+               "\"completion\":{"
+                 "\"completionItem\":{"
+                   // Snippets OFF: clangd would otherwise send `${1:x}` placeholder
+                   // syntax, which this editor would insert literally.
+                   "\"snippetSupport\":false,"
+                   "\"documentationFormat\":[\"plaintext\"]}},"
+               // MARKDOWN HOVERS, asked for by name. With no contentFormat
+               // declared clangd falls back to plain text, and plain text has
+               // no fenced block - so splitHover(), written for the markdown
+               // shape, found no declaration in ANY reply and every hover came
+               // back empty. Namespaces were merely the first thing anyone
+               // hovered. Measured against clangd 18 both ways.
+               "\"hover\":{\"contentFormat\":[\"markdown\",\"plaintext\"]}"
+             "}}}}");
 
       return true;
   }
@@ -1329,6 +1550,90 @@ namespace lsp
       }
       out = s.info;
       s.infoFresh = false;
+      return true;
+  }
+
+  Bool sync(const Str& path, const Str& text, UInt64 version)
+  {
+      return !syncDoc(path, text, version).empty();
+  }
+
+  Bool askSig(const Str& path, const Str& text, UInt64 version, Int32 line, Int32 col)
+  {
+      Impl&     s = impl();
+      const Str uri = syncDoc(path, text, version);
+      if(uri.empty() || !astReady())
+      {
+          return false;
+      }
+
+      const Int64 id = static_cast<Int64>(s.nextId.fetch_add(1));
+      {
+          LockGuard<Mutex> lk(s.sigMu);
+          s.sig.path = path;
+          s.sig.line = line;
+          s.sig.col = col;
+      }
+      s.sigInFlight.store(id);
+
+      Array<Char, 256> head;
+      std::snprintf(head.data(), head.size(),
+                    "{\"jsonrpc\":\"2.0\",\"id\":%lld,"
+                    "\"method\":\"textDocument/signatureHelp\",\"params\":{"
+                    "\"position\":{\"line\":%d,\"character\":%d},"
+                    "\"textDocument\":{\"uri\":",
+                    static_cast<long long>(id), line, col);
+
+      s.send(Str(head.data()) + js::quote(uri) + "}}}");
+      return true;
+  }
+
+  Bool takeSig(Sig& out)
+  {
+      Impl&            s = impl();
+      LockGuard<Mutex> lk(s.sigMu);
+      if(!s.sigFresh)
+      {
+          return false;
+      }
+      out = s.sig;
+      s.sigFresh = false;
+      return true;
+  }
+
+  Bool askOutline(const Str& path, const Str& text, UInt64 version)
+  {
+      Impl&     s = impl();
+      const Str uri = syncDoc(path, text, version);
+      if(uri.empty() || !astReady())
+      {
+          return false;
+      }
+
+      const Int64 id = static_cast<Int64>(s.nextId.fetch_add(1));
+      s.outlineInFlight.store(id);
+
+      Array<Char, 160> head;
+      std::snprintf(head.data(), head.size(),
+                    "{\"jsonrpc\":\"2.0\",\"id\":%lld,"
+                    "\"method\":\"textDocument/documentSymbol\",\"params\":{"
+                    "\"textDocument\":{\"uri\":",
+                    static_cast<long long>(id));
+
+      s.send(Str(head.data()) + js::quote(uri) + "}}}");
+      return true;
+  }
+
+  Bool takeOutline(Vec<Symbol>& out)
+  {
+      Impl&            s = impl();
+      LockGuard<Mutex> lk(s.outlineMu);
+      if(!s.outlineFresh)
+      {
+          return false;
+      }
+      out = s.outline;
+      s.outlineFresh = false;
       return true;
   }
 

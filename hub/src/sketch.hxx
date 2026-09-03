@@ -99,6 +99,58 @@ namespace sketch
   // Deletes a file. False if it could not be removed.
   [[nodiscard]] Bool remove(const Str& path);
 
+  // ---------------------------------------------------------------------------
+  // What the Code view's right-click menu acts through.
+  //
+  // All of these take a name a person typed into a popup, which is why
+  // validName() exists and why every one of them calls it. Handing an unchecked
+  // string to CreateDirectory lets "..\..\hub\src" be a folder name.
+  //
+  // They report through `err` rather than throwing, for the same reason save()
+  // does: the caller is a UI that has to say something useful.
+  // ---------------------------------------------------------------------------
+
+  // Whether `name` is a single, creatable filename - no separators, no
+  // traversal, none of the characters Windows refuses, no trailing dot or
+  // space. `err` says which rule it broke.
+  [[nodiscard]] Bool validName(const Str& name, Str& err);
+
+  // Whether a file with this name would appear in the tree: .cxx, .hxx, .c, .h
+  // or .bdoc. The tree is an allow list, so New File checks this before
+  // creating anything - a file the tree will not show is a file that looks like
+  // it was never made.
+  [[nodiscard]] Bool shownFile(const Str& name);
+
+  // Creates an empty file. FAILS if one is already there rather than truncating
+  // it: "New File" must never be a way to empty a file somebody already had.
+  [[nodiscard]] Bool createFile(const Str& path, Str& err);
+
+  // Creates one directory. Fails if it exists.
+  [[nodiscard]] Bool createDir(const Str& path, Str& err);
+
+  // Renames a file or a folder. Refuses to overwrite whatever is already at
+  // `to` - a rename that destroys the file it lands on is the one outcome that
+  // cannot be recovered from.
+  [[nodiscard]] Bool rename(const Str& from, const Str& to, Str& err);
+
+  // Removes an EMPTY directory. Deliberately not recursive: deleting a tree
+  // from a right-click is a lot of destruction behind a small menu entry.
+  [[nodiscard]] Bool removeDir(const Str& path, Str& err);
+
+  // Whether the path is a directory. False for a missing path, so callers get
+  // "not a directory" rather than having to tell the two apart.
+  [[nodiscard]] Bool isDir(const Str& path);
+
+  // Runs the repository's own formatter on one file, in place.
+  //
+  // tools/format.py, NOT clangd's textDocument/formatting. There is no
+  // .clang-format in this tree, so clangd would apply LLVM defaults - and the
+  // repo already has a formatter with rules of its own (call-site wrapping,
+  // equals padding) that verify.bat enforces. Two formatters that disagree
+  // about one file is a file that is never clean. Blocks for as long as the
+  // script takes, which for one file is well under a second.
+  [[nodiscard]] Bool formatFile(const Str& path, Str& err);
+
   // Opens Explorer with `path` selected. Best-effort and silent on failure -
   // nothing about the app depends on it.
   Void reveal(const Str& path);
