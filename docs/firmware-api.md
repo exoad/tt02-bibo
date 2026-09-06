@@ -65,7 +65,8 @@ violent, and gentling the throttle made the steering vague. A servo should
 arrive promptly — a steering correction that lands late is a correction applied
 to a car that has already gone past the thing. An ESC should be led there:
 throttle slammed on spins the wheels, slammed off pitches the car onto its
-nose, and a brushed motor asked for a step change draws a spike the BEC feels.
+nose, and a motor asked for a step change draws a spike the BEC feels — the
+brushless 21.5T fitted in September more than the brushed 540 before it.
 
 The units are per-tick because that is what the code does; the hub and the
 `SLEW` reply both also print µs/s and a full-travel time, because per-tick is a

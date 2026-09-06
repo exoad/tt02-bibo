@@ -61,8 +61,18 @@
  * creeps at what this file calls idle is a car the deadman does not think is
  * moving.
  */
+/*
+ * MEASURED ON THE BRUSHED 1060 AND THE 540, BOTH GONE. Since 2026-09-06 the
+ * drivetrain is a QuicRun 10BL160 G2 with a 21.5T 3650 G2 brushless, which
+ * maps 1500..2000 almost linearly instead of needing 41 us of dead zone before
+ * the motor turns - so 1541 is probably already creeping and 1600 is no longer
+ * a crawl. The numbers stay only because they are NARROW: a 59 us band cannot
+ * launch the car. Re-measure both from the Drive view, on a stand, before
+ * widening anything, and put the date in THROTTLE_CAL_STAMP when you do.
+ */
 #define THROTTLE_CAL_MIN 1541
 #define THROTTLE_CAL_MAX 1600
+#define THROTTLE_CAL_STAMP "1060 brushed, 2026-08 - superseded, re-measure"
 
 /*
  * ---- tuning, not measurement ---------------------------------------------

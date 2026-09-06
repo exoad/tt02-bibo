@@ -18,7 +18,8 @@
  *     return the servo and the ESC see noise, which presents as erratic behavior
  *     rather than as no behavior. The breadboard rails are split in the middle
  *     and it does not look like it.
- *   - NEVER connect the BEC 5 V to the Pico while USB is attached.
+ *   - NEVER connect the BEC to the Pico. It is 6 V on the 10BL160 G2, which is
+ *     over the Pico's VSYS limit - USB attached or not.
  *   - Put the car on a stand.
  * -------------------------------------------------------------------------
  */
@@ -77,11 +78,18 @@ namespace bibo::drive
      * @brief Startup and absolute throttle limits, in microseconds of ESC
      *        pulse.
      *
-     * Forward only, and barely. 1500 is neutral; 1600 is a crawl on a bench. The
-     * reverse half is not offered - a Hobbywing QuicRun needs a brake-then-reverse
-     * sequence and getting that wrong on a stand is how a gearbox meets a
-     * workbench. Reverse stays unreachable even by widening: finding a steering end
-     * stop is careful work, discovering reverse by accident is not the same kind of
+     * Forward only, and barely. 1500 is neutral; 1600 was a crawl on a bench with
+     * the brushed 540 and is NOT one with the 21.5T brushless that replaced it on
+     * 2026-09-06 - a QuicRun 10BL160 G2 maps 1500..2000 almost linearly, so the
+     * same band is real motion now. THROTTLE_CAL_MIN/MAX in cal.hxx are the
+     * brushed numbers and must be re-measured before anything widens.
+     *
+     * The reverse half is still not offered. The G2 in Forward/Reverse/Brake
+     * mode needs a brake-then-reverse from a stop and in Forward/Reverse mode
+     * reverses at once; the ESC is kept in Forward/Brake, where a pulse below
+     * 1500 only brakes, so a sign error here cannot back the car off a stand.
+     * Reverse stays unreachable even by widening: finding a steering end stop is
+     * careful work, discovering reverse by accident is not the same kind of
      * experiment.
      *
      * @warning ESC_HARD_MIN/ESC_HARD_MAX are the absolute ceiling; nothing
@@ -141,8 +149,10 @@ namespace bibo::drive
      * A servo should get where it is told promptly - a steering correction that
      * arrives late is a correction applied to a car that has already moved past the
      * thing it was avoiding. An ESC should not: throttle slammed on spins the
-     * wheels, throttle slammed off pitches the car onto its nose, and a brushed
-     * motor asked for a step change draws a current spike that the BEC feels.
+     * wheels, throttle slammed off pitches the car onto its nose, and a motor
+     * asked for a step change draws a current spike that the BEC feels - more so
+     * with the brushless 21.5T, which pulls harder and sooner than the brushed
+     * 540 this rate was first tuned against.
      *
      * They shared one number until now, so tuning the steering to be quick made the
      * throttle violent and gentling the throttle made the steering vague. Neither

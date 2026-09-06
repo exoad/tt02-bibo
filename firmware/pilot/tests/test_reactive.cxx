@@ -252,10 +252,7 @@ Int32 main()
         reactive::State   st;
         reactive::Outputs out;
         static_cast<Void>(drive(ring(3000.0f), 20, &st, &out));
-        check(
-            out.steer > -0.05f && out.steer < 0.05f,
-            "equal room either side steers straight"
-        );
+        check(out.steer > -0.05f && out.steer < 0.05f, "equal room either side steers straight");
     }
 
     // ---- THE SIGN THAT IS EASY TO GET WRONG --------------------------------
@@ -304,7 +301,10 @@ Int32 main()
         {
             static_cast<Void>(drive(ring(3000.0f), 100, &st, &out));
         }
-        check(out.mode != reactive::Mode::MODE_REVERSE, "but it does let go once committed time has passed");
+        check(
+            out.mode != reactive::Mode::MODE_REVERSE,
+            "but it does let go once committed time has passed"
+        );
     }
     {
         // Wedged: still blocked when the cap runs out, so it gives up rather

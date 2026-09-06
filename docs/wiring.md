@@ -164,13 +164,16 @@ bugs. Check them first.
   If a servo behaves strangely, check this SECOND, straight after checking the
   signal pin. Before the servo, before the supply, before the code.
 
-- **Never connect BEC 5V to the Pico while USB is attached.** During development
-  the Pico is USB-powered from a power bank. Back-feeding the 5V rail from the
-  BEC with USB also connected risks both.
+- **Never connect the BEC to the Pico. At all.** The 10BL160 G2's BEC is 6 V
+  (7.4 V selectable), which is over the Pico's VSYS limit - so this is no
+  longer "not while USB is attached", it is never. The Pico is USB-powered
+  from a power bank during development and from the compute-domain supply on
+  the car; the BEC feeds the servo and the receiver and nothing else.
 
-- **Consolidating to BEC-only power later needs a 1000 µF / 25 V cap** across the
-  5 V rail. The BEC budget is 2 A total; the lidar draws ~230 mA running on top
-  of a servo, which is tight — it likely wants its own supply.
+- **Consolidating onto the BEC is off the table** now that it is 6 V: nothing in
+  the compute domain may take that rail directly. Its 4 A budget is generous
+  for the servo alone; the lidar and the Pico stay on the compute supply, which
+  is what the two-domain rule above said all along.
 
   Size it on the **start** current, not the running one: the C1 pulls **800 mA
   to spin up** against 230 mA once turning, and the datasheet wants ripple under
@@ -195,7 +198,7 @@ Isolated, joined by exactly one wire.
   CAR DOMAIN                            COMPUTE DOMAIN
   NiMH pack -> ESC -> motor             separate supply -> SBC
                 |                                          |
-              BEC 5V                                    USB out
+              BEC 6V                                    USB out
                 |                                       /      \
           servo, receiver                          Pico       lidar
 
@@ -206,13 +209,22 @@ Isolated, joined by exactly one wire.
 
 ## Connectors and polarity
 
-**ESC — Hobbywing QuicRun/THW 1060**, 60 A, 5 V/2 A BEC, Deans male battery
-connector.
+**ESC — Hobbywing QuicRun 10BL160 G2 sensored brushless** (fitted 2026-09-06,
+replacing the QuicRun/THW 1060 brushed), 6 V / 7.4 V 4 A BEC, Deans male
+battery connector. Motor: QuicRun 3650 G2 21.5T sensored, same pinion.
 
-- Set battery type to **NiMH**, not LiPo. LiPo mode cuts off early on this pack.
-- Motor wiring: ESC **yellow (+) → motor yellow**, ESC **blue (−) → motor green**.
-  If the motor spins backwards, swap them — harmless.
-- A spare kit ESC is kept as a known-good swap for fault isolation.
+- **Low-voltage cutoff: Disabled.** The G2 has no NiMH setting; a pack under
+  9 V is treated as 2S LiPo and a LiPo threshold cuts a healthy 7.2 V NiMH.
+- **Running mode: Forward/Brake.** Reverse exists (Forward/Reverse/Brake needs a
+  brake-then-reverse from a stop) but the firmware does not send it; see
+  `chassis.hxx`. Leave the mode where a reverse pulse does nothing.
+- **Throttle range: calibrate once with the SET button** (neutral, full, brake)
+  with the Pico driving the signal, so the ESC's idea of 1500/2000 is ours.
+- **Arming: the G2 waits for neutral at power-on.** A signal that is not 1500
+  when the ESC powers up is ignored until it is; `ESC ARM` on the board only
+  opens the gate on our side.
+- **Phases A/B/C to A/B/C, plus the 6-pin sensor lead.** Runs backwards: swap
+  two phases or flip the ESC's rotation setting. Never re-pin the sensor cable.
 
 **Servo — Power HD 1501MG.** 17 kg·cm @ 6 V, 0.14 s/60°, deadband ≤ 4 µs.
 

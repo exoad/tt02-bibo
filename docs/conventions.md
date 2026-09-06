@@ -117,7 +117,8 @@ also cannot carry arbitrary data — it outputs servo PWM only.
 
 ## Power — two isolated domains
 
-- **Car:** NiMH pack -> ESC -> motor. BEC 5V -> servo, receiver.
+- **Car:** NiMH pack -> ESC -> motor. BEC 6V (7.4V selectable) -> servo, receiver.
+  **Never the Pico**: 6 V is over its VSYS limit, USB attached or not.
 - **Compute:** separate supply -> SBC -> USB out to Pico and lidar.
 
 Joined by exactly one wire: **common ground**. Signal and ground cross between
@@ -132,7 +133,11 @@ domains; power never does.
 **Chassis:** Tamiya TT-02, ~440 x 190 x 130 mm with shell, ~1.35 kg stock.
 Chassis tub ~90-100 mm wide — that is the usable deck space.
 
-**Motor:** Tamiya 540 Torque Tuned (RS-540SH-7525).
+**Motor:** Hobbywing QuicRun 3650 G2 **21.5T sensored brushless** (fitted
+2026-09-06, replacing the Tamiya 540 Torque Tuned RS-540SH-7525). Same pinion
+as before. Brushless and geared for a stock 540 slot, it reaches the far end
+of the throttle band far sooner than the brushed motor did - every speed
+number measured before this date is an upper bound, not a calibration.
 
 The motor's supplementary sheet calls for a **19T pinion**, **not** the 22T in
 the main kit manual, and the smaller pinion needs the closer motor mount
@@ -165,11 +170,16 @@ here so they are not rediscovered:
   calibration. The axle is the answer; this is worth deciding before it is
   glued, not after.
 
-**ESC:** Hobbywing QuicRun/THW 1060, 60 A, 5V/2A BEC. Deans male battery
-connector. Set battery type to **NiMH, not LiPo** — LiPo mode cuts off early on
-this pack. Motor wiring: ESC yellow (+) -> motor yellow, ESC blue (-) -> motor
-green. If the motor spins backwards, swap them; harmless. A spare kit ESC is held
-as a known-good swap for fault isolation.
+**ESC:** Hobbywing QuicRun **10BL160 G2 sensored brushless** (fitted 2026-09-06,
+replacing the QuicRun/THW 1060 brushed). BEC 6 V / 7.4 V selectable, 4 A
+continuous - four times the 1060's, and a voltage the Pico must never see.
+Deans male battery connector. On NiMH the G2 has no NiMH mode: a pack under
+9 V is treated as 2S LiPo, so set the low-voltage cutoff to **Disabled**
+rather than let a LiPo threshold cut a healthy 7.2 V pack. Running mode:
+**Forward/Brake** until reverse is deliberately turned on - see
+`firmware/lib/chassis/chassis.hxx`. Motor wiring: the three phase leads A/B/C
+to the motor's A/B/C plus the 6-pin sensor cable; if it runs backwards, swap
+any two phases (or flip the ESC's rotation setting), never the sensor cable.
 
 **Servo:** Power HD 1501MG. 17 kg/cm @ 6V, 0.14 s/60deg, deadband <= 4 us. Cable
 is black/white with a white stripe on one outer conductor = signal. Middle pin is
