@@ -738,6 +738,14 @@ static Void handleServo(const CharSeq arg)
  *          A microsecond value is refused with an error while disarmed
  *          rather than stored for later, so ARM does not surprise anyone
  *          with a car that immediately moves.
+ *
+ * @note ARM opens the gate on OUR side only. The QuicRun 10BL160 G2 does its
+ *       own arming: it must see neutral (1500 us) when it powers up, and it
+ *       wants a one-time throttle-range calibration through its SET button
+ *       so its neutral and full match the pulses this board sends. An ESC
+ *       that powered up while the board was already commanding a throttle
+ *       ignores everything until it sees neutral - which reads exactly like
+ *       a dead ESC and is not one.
  */
 static Void handleEsc(const CharSeq arg)
 {

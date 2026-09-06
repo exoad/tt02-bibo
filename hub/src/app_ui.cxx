@@ -8892,7 +8892,7 @@ namespace
               "BEFORE ARMING:\n"
               "  - the car on a stand, wheels off the ground\n"
               "  - common ground between the Pico and the ESC (mandatory)\n"
-              "  - the BEC 5 V NOT connected while USB is\n"
+              "  - the ESC's BEC (6 V) connected to the servo only, never the Pico\n"
               "\n"
               "Enforced on the BOARD, not here. This checkbox is the reminder.");
       }
@@ -9058,8 +9058,9 @@ namespace
               "\n"
               "This is the one that decides whether the car pulls away or\n"
               "lurches. Throttle slammed on spins the wheels; slammed off\n"
-              "pitches the car onto its nose; and a brushed motor asked for\n"
-              "a step change draws a spike the BEC feels.\n"
+              "pitches the car onto its nose; and a motor asked for a step\n"
+              "change draws a spike the BEC feels - the brushless 21.5T more\n"
+              "than the brushed 540 this was first tuned against.\n"
               "\n"
               "The usable range is only %d us wide (%d to %d), so a rate\n"
               "that feels gentle on the steering's %d us of travel crosses\n"
@@ -9079,9 +9080,10 @@ namespace
           );
           ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED),
                              "The board will not go above 1700 whatever is asked,\n"
-                             "and reverse stays unreachable - a QuicRun needs a\n"
-                             "brake-then-reverse sequence, and getting that wrong on\n"
-                             "a stand is how a gearbox meets a workbench.");
+                             "and reverse stays unreachable - the 10BL160 G2 is kept\n"
+                             "in Forward/Brake, where a pulse under 1500 only brakes;\n"
+                             "discovering reverse by accident on a stand is how a\n"
+                             "gearbox meets a workbench.");
           ImGui::Spacing();
 
           if(!driveEscLimitsDirty)
@@ -9290,9 +9292,9 @@ namespace
                              "  ESC signal    ->  GP1\n"
                              "  ESC ground    ->  a Pico GND  (mandatory)\n"
                              "\n"
-                             "The ESC's BEC 5 V goes NOWHERE while USB is plugged\n"
-                             "in - two supplies fighting over one rail is how a\n"
-                             "Pico stops being a Pico.\n"
+                             "The ESC's BEC is 6 V on the 10BL160 G2 and goes\n"
+                             "NOWHERE near the Pico, USB or not - it is over the\n"
+                             "VSYS limit, and that is how a Pico stops being a Pico.\n"
                              "\n"
                              "Nothing else is assumed connected. This view does not\n"
                              "need the display or the ToF sensor.");

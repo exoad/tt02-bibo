@@ -128,9 +128,13 @@ namespace reactive
       // Ordered clear > slow > stop > reverse; configure() enforces it, because
       // a tuning where stop is further than slow produces a car that brakes and
       // accelerates at the same wall and looks like a bug in the controller.
-      Float32 clearMm = 2000.0f;  // beyond this, nothing is in the way
-      Float32 slowMm = 1200.0f;  // start easing off
-      Float32 stopMm = 400.0f;  // no forward motion below this
+      // Sized for the brushless 21.5T fitted on 2026-09-06, which is a much
+      // faster car than the brushed 540 these were first written for - and
+      // braking distance grows with the SQUARE of speed. Deliberately roomy;
+      // tighten them from a measured stopping test, not from a feeling.
+      Float32 clearMm = 2500.0f;  // beyond this, nothing is in the way
+      Float32 slowMm = 1600.0f;  // start easing off
+      Float32 stopMm = 600.0f;  // no forward motion below this
       Float32 reverseMm = 250.0f;  // back out below this
 
       // Added to the threshold when LEAVING a mode, never when entering it.
@@ -139,7 +143,7 @@ namespace reactive
       Float32 hysteresisMm = 120.0f;
 
       // ---- what to send --------------------------------------------------
-      Float32 cruise = 0.35f;   // 0..1 of full forward
+      Float32 cruise = 0.25f;   // 0..1 of the calibrated range; see the note above
       Float32 crawl = 0.15f;   // the slowest that still moves the car
       Float32 reverseThrottle = 0.20f;   // magnitude; the sign is added here
 
