@@ -125,10 +125,54 @@ def uptime():
     return '%dh%02dm' % (seconds // 3600, (seconds % 3600) // 60)
 
 
+class Facts:
+    """The board's description of itself, CACHED.
+
+    `nmcli` and `hostname` are subprocesses, and /json is asked once a second by
+    every viewer: answering it by spawning two processes each time is a cost the
+    board pays out of the same core the pilot drives on. The cheap facts (two
+    file reads) refresh every couple of seconds; the network ones every ten,
+    which is quicker than a hotspot handover takes anyway.
+
+    The subprocesses run OUTSIDE the lock. Two threads may then refresh at once
+    - rare, and the cost of that is one extra `nmcli`, against holding every
+    other request behind a two-second timeout if it went the other way.
+    """
+
+    NET_TTL_S = 10.0
+    FAST_TTL_S = 2.0
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.net = None
+        self.net_at = 0.0
+        self.fast = None
+        self.fast_at = 0.0
+
+    def board(self):
+        now = time.monotonic()
+        with self.lock:
+            net, net_at = self.net, self.net_at
+            fast, fast_at = self.fast, self.fast_at
+        if net is None or now - net_at > self.NET_TTL_S:
+            net = {'host': socket.gethostname(), 'addresses': addresses(), 'wifi': wifi_profile()}
+            with self.lock:
+                self.net, self.net_at = net, now
+        if fast is None or now - fast_at > self.FAST_TTL_S:
+            fast = {'up': uptime(), 'cpuC': cpu_temp_c()}
+            with self.lock:
+                self.fast, self.fast_at = fast, now
+        out = dict(net)
+        out.update(fast)
+        return out
+
+
+facts = Facts()
+
+
 def board():
     """What the board knows about itself, read here and not through the pilot."""
-    return {'host': socket.gethostname(), 'addresses': addresses(),
-            'wifi': wifi_profile(), 'up': uptime(), 'cpuC': cpu_temp_c()}
+    return facts.board()
 
 
 def pilot_status():
@@ -163,6 +207,10 @@ class Feed:
         self.drive_at = 0.0
         self.why = 'feed idle'     # what to say when there is no revolution to show
         self.motor = None          # the feed's last MOTOR line, True/False
+        # Bumped by every F and D line, and handed out as the /scan ETag. A
+        # viewer polling ten times a second usually asks about a revolution it
+        # already has; a counter turns that into a 304 and no kilobytes.
+        self.rev = 0
         threading.Thread(target=self.loop, daemon=True).start()
 
     def want(self):
@@ -234,9 +282,11 @@ class Feed:
             if line.startswith(b'F '):
                 self.frame = line
                 self.frame_at = now
+                self.rev += 1
             elif line.startswith(b'D '):
                 self.drive = line
                 self.drive_at = now
+                self.rev += 1
             elif line.startswith(b'MOTOR '):
                 self.motor = line.endswith(b'1')
                 if not self.motor:
@@ -245,8 +295,8 @@ class Feed:
                 self.why = 'feed: ' + line[4:].decode('utf-8', 'replace')
 
     def scan(self):
-        """(bytes, None) with the latest revolution and a fresh decision if any,
-        else (None, why)."""
+        """(bytes, None, revision) with the latest revolution and a fresh
+        decision if any, else (None, why, revision)."""
         self.want()
         with self.lock:
             now = time.time()
@@ -254,10 +304,10 @@ class Feed:
                 out = self.frame + b'\n'
                 if self.drive is not None and now - self.drive_at <= DRIVE_FRESH_S:
                     out += self.drive + b'\n'
-                return out, None
+                return out, None, self.rev
             if self.frame is not None:
-                return None, 'scan stale'
-            return None, self.why
+                return None, 'scan stale', self.rev
+            return None, self.why, self.rev
 
 
 feed = Feed(FEED)
@@ -280,17 +330,20 @@ def scan_file():
 
 
 def scan_text():
-    data, why = feed.scan()
+    """(bytes, None, tag) or (None, why, tag). `tag` is the ETag for a 200 and
+    None otherwise - a reason is cheap to re-send and must not be cached."""
+    data, why, rev = feed.scan()
     if data is not None:
-        return data, None
+        return data, None, '"f%d"' % rev
     if why.startswith('no scan feed'):
         # No feed to be a client of. The pilot may still be writing its file.
         file_data, file_why = scan_file()
         if file_data is not None:
-            return file_data, None
+            # The file has no revision counter, so the bytes are their own tag.
+            return file_data, None, '"s%d"' % (hash(file_data) & 0xFFFFFFFF)
         if file_why != 'pilot not running':
-            return None, file_why
-    return None, why
+            return None, file_why, None
+    return None, why, None
 
 
 # ---------------------------------------------------------------- the pilot
@@ -478,14 +531,28 @@ def dash_file(path):
 # ---------------------------------------------------------------- the server
 
 class Page(http.server.BaseHTTPRequestHandler):
+    # HTTP/1.1, so a viewer polling ten times a second reuses ONE connection
+    # instead of making the board accept, thread and tear down ten a second.
+    # It is safe here because every reply carries a Content-Length.
+    protocol_version = 'HTTP/1.1'
+
+    # A kept-alive connection holds a thread; this is what lets go of one whose
+    # phone walked out of range.
+    timeout = 30
+
     def do_GET(self):
         path = self.path.split('?', 1)[0]
         if path == '/scan':
-            data, why = scan_text()
+            data, why, tag = scan_text()
             if data is None:
                 self.reply(404, 'text/plain; charset=utf-8', (why + '\n').encode())
+            elif self.headers.get('If-None-Match') == tag:
+                # The same revolution the viewer already has. Saying so costs a
+                # header; sending it again costs five kilobytes, ten times a
+                # second, over a phone hotspot.
+                self.reply(304, 'text/plain; charset=utf-8', b'', tag)
             else:
-                self.reply(200, 'text/plain; charset=utf-8', data)
+                self.reply(200, 'text/plain; charset=utf-8', data, tag)
         elif path == '/dash' or path.startswith('/dash/'):
             found = dash_file(path)
             if found is None:
@@ -520,13 +587,20 @@ class Page(http.server.BaseHTTPRequestHandler):
             code, text = 404, 'no such control'
         self.reply(code, 'text/plain; charset=utf-8', (text + '\n').encode())
 
-    def reply(self, code, kind, body):
+    def reply(self, code, kind, body, tag=None):
         self.send_response(code)
         self.send_header('Content-Type', kind)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store')   # every answer is about NOW
+        # no-store, and an ETag beside it: the tag is not a licence to keep the
+        # answer, it is how the viewer asks "still the same one?" - which is the
+        # question that saves the board from re-sending a revolution it already
+        # sent. `must-revalidate` says the same thing to anything in between.
+        self.send_header('Cache-Control', 'no-cache, must-revalidate' if tag else 'no-store')
+        if tag:
+            self.send_header('ETag', tag)
         self.end_headers()
-        self.wfile.write(body)
+        if body:
+            self.wfile.write(body)
 
     def log_message(self, *_):
         pass    # a phone refreshing every two seconds is not journal material
