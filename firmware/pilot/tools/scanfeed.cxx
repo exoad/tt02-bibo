@@ -14,56 +14,66 @@
 // holds the same serial port exclusively when it runs, and the SDK cannot share
 // one, so a feed that kept the device open between viewers would be a feed
 // that stopped the car from driving. The first client opens the device and the
-// last client's departure parks and closes it; if open() fails because the
-// pilot has the port, that client is told why in an ERR line and closed, and
-// the next client simply tries again. This program runs under systemd all day
-// precisely because being connected to nobody costs the car nothing.
+// last client's departure parks and closes it. This program runs under systemd
+// all day precisely because being connected to nobody costs the car nothing.
+//
+// ---------------------------------------------------------------------------
+// WHILE THE PILOT DRIVES, THIS PROGRAM RELAYS
+//
+// The pilot cannot take port 8011 from a service that is idling on it, and
+// nobody on the board has root to stop the service, so the pilot serves the
+// same wire on scanwire::PILOT_PORT and THIS program stays the address a
+// viewer dials. A client arrives; open() refuses because another program has
+// the port - lidar::Refusal::REFUSAL_HELD, a value and not a sentence - and
+// the client is handed to the pilot's feed by src/feed.hxx's relay: the
+// pilot's greeting, F lines and D lines reach it as they are, its MOTOR lines
+// go to the pilot, which refuses them itself. When the pilot exits, its feed
+// closes, the relay closes the client, the hub's retry reconnects a second
+// later, and open() then succeeds: the device is this program's again with
+// nobody having typed anything. A port held by something that is NOT serving
+// on PILOT_PORT (lidar_probe, say) fails the relay's connect, and that client
+// gets the ERR line it always got. Any other refusal is an ERR line as before.
+//
+// Every arrival asks for the device, not only the first: a second viewer
+// while the pilot drives must be relayed too, and asking for a device that is
+// already open costs nothing.
 //
 // ---------------------------------------------------------------------------
 // TWO THREADS, ONE OWNER EACH
 //
-// The lidar thread is the ONLY thread that calls lidar::*. Those functions
+// This thread - main - is the ONLY thread that calls lidar::*. Those functions
 // share file-scope state with no lock (one device, one caller - lidar.hxx),
 // and grab() blocks for up to two seconds, which a socket loop cannot afford.
-// So the network thread never touches the device: it sets two wishes under a
-// mutex - wantOpen, wantMotor - and the lidar thread makes the device match
-// them between grabs, posting back what happened as messages (opened, failed,
-// motor state, a frame, parked). A self-pipe wakes poll() when a message
-// lands, so a frame reaches the sockets the moment it is formatted rather
-// than at the next poll timeout.
+// The sockets are src/feed.hxx's thread, and it never touches the device: it
+// hands over two wishes - wantOpen, from the client count; wantMotor, from a
+// MOTOR line - under a mutex, and this thread makes the device match them
+// between grabs, publishing what happened (opened, failed, motor state, a
+// frame) back through the feed. The self-pipe inside feed.cxx means a frame
+// reaches the sockets the moment it is formatted rather than at the next
+// poll timeout.
 //
-// The cost is latency on a wish: while the motor is spinning up, the lidar
-// thread sits in a 2 s grab and a MOTOR 0 waits for it. That is the correct
-// trade - the alternative is two threads inside the SDK at once.
+// The cost is latency on a wish: while the motor is spinning up, this thread
+// sits in a 2 s grab and a MOTOR 0 waits for it. That is the correct trade -
+// the alternative is two threads inside the SDK at once.
 //
-// ---------------------------------------------------------------------------
-// A SLOW CLIENT IS DROPPED, NEVER WAITED FOR
-//
-// Every socket is non-blocking. A frame is appended to each client's pending
-// buffer and pushed with send(); whatever the socket will not take stays
-// pending and goes out on POLLOUT. A client whose oldest pending byte is more
-// than BEHIND_MS old is closed. A phone on the far side of a hotspot can stall
-// for seconds, and a blocking write to it would stall the revolution for every
-// other viewer - and, worse, the loop that answers MOTOR 0.
-//
-// Frames are not queued per client beyond that half second: the picture is
-// live or it is nothing, which is the same rule the hub's own lidar worker
-// applies to a stale revolution.
+// What a slow client costs, and why it is dropped rather than waited for, is
+// feed.hxx's business now and is written down there.
 //
 // ---------------------------------------------------------------------------
 // SIGNALS PARK THE DEVICE
 //
-// SIGINT and SIGTERM (systemctl stop) set a flag, the loop notices, the lidar
-// thread is asked to quit and joined, and it stops the motor and closes the
-// port on its way out. The handlers are installed before the socket is bound
-// and long before anything can open the lidar, so there is no window in which
-// a stop leaves the C1 spinning on the bench with nobody attached - the mess
-// lidar_probe.cxx describes and this project has made once already.
+// SIGINT and SIGTERM (systemctl stop) set a flag, the loop notices, the feed
+// is stopped, and the device is parked - motor off, port closed - on the way
+// out. The handlers are installed before the socket is bound and long before
+// anything can open the lidar, so there is no window in which a stop leaves
+// the C1 spinning on the bench with nobody attached - the mess lidar_probe.cxx
+// describes and this project has made once already.
 //
 // Exits 0 on a signal. Exits 1 only when it could not listen at all.
 
 #include "shared.hxx"
 
+#include "feed.hxx"
 #include "lidar.hxx"
 #include "scanwire.hxx"
 
@@ -72,16 +82,6 @@
 
 #if defined(__linux__)
 
-#include <arpa/inet.h>
-#include <cerrno>
-#include <cstring>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 namespace
 {
 
@@ -89,15 +89,9 @@ namespace
   // time, while the motor comes up to speed. Known, and not an error.
   constexpr Int32 GRAB_TIMEOUT_MS = 2000;
 
-  // How far behind a client may fall before it is dropped: five revolutions.
-  constexpr Int64 BEHIND_MS = 500;
-
   // The longest the loop sleeps with nothing to do. Bounds how long a signal
-  // waits to be noticed if poll() happened not to be interrupted by it.
-  constexpr Int32 POLL_MS = 250;
-
-  // A request line longer than this is not a request; the client is dropped.
-  constexpr Size REQUEST_MAX = 1024;
+  // waits to be noticed, since a signal does not wake a condition variable.
+  constexpr Int32 IDLE_WAIT_MS = 250;
 
   // Written from the signal handler, read from the loop. volatile
   // sig_atomic_t is the one type the standard promises is safe in a handler.
@@ -108,65 +102,58 @@ namespace
       interrupted = 1;
   }
 
-  // What the lidar thread tells the network thread.
-  enum class Note
+  // The wishes, set by the feed thread's callbacks and read by the lidar
+  // loop. Every member is touched under `m`.
+  struct Wishes
   {
-      NOTE_OPENED,   // text: the INFO and HEALTH lines, ready to send
-      NOTE_FAILED,   // text: why; the feed tells every client and closes them
-      NOTE_MOTOR,    // on: the motor's state after the request
-      NOTE_FRAME,    // text: one F line
-      NOTE_PARKED,   // motor off, port closed and free
+      Mutex   m;
+      CondVar cv;
+      Bool    wantOpen = false;
+      Bool    wantMotor = false;
+      Size    clients = 0;   // the count the feed last reported
   };
 
-  struct Message
-  {
-      Note kind = Note::NOTE_PARKED;
-      Str  text;
-      Bool on = false;
-  };
+  Wishes wishes;
 
-  // Everything the two threads share. Every member is touched under `m`
-  // except wakeFd, which is set once before the thread starts.
-  struct Shared
-  {
-      Mutex          m;
-      CondVar        cv;
-      Bool           wantOpen = false;
-      Bool           wantMotor = false;
-      Bool           quit = false;
-      Deque<Message> notes;
-      Int32          wakeFd = -1;
-  };
+  // ---- the feed's callbacks, on the feed thread ------------------------------
 
-  // ---- the lidar thread -----------------------------------------------------
-
-  // A constructor in all but name. Not a designated initializer at each call
-  // site: gcc 11's -Wextra reports every member a designated list leaves to
-  // its default, which is the whole point of having defaults.
-  [[nodiscard]] Message note(Note kind, Str text = Str(), Bool on = false)
-  {
-      Message m;
-      m.kind = kind;
-      m.text = std::move(text);
-      m.on = on;
-      return m;
-  }
-
-  Void post(Shared& sh, Message msg)
+  // The wishes follow the client count: every arrival asks for the device
+  // (granted already, or relayed - see the header), the first one also asks
+  // for the motor, the last one leaving withdraws both. An arrival while the
+  // device is open and the motor off changes nothing about the motor -
+  // somebody may have turned it off on purpose.
+  Void onClients(Size n)
   {
       {
-          LockGuard<Mutex> lock(sh.m);
-          sh.notes.push_back(std::move(msg));
+          LockGuard<Mutex> lock(wishes.m);
+          if(n > wishes.clients)
+          {
+              wishes.wantOpen = true;
+          }
+          if(wishes.clients == 0 && n > 0)
+          {
+              wishes.wantMotor = true;
+          }
+          else if(wishes.clients > 0 && n == 0)
+          {
+              wishes.wantOpen = false;
+              wishes.wantMotor = false;
+          }
+          wishes.clients = n;
       }
-      // One byte to wake poll().
-      const Char one = 1;
-      if(::write(sh.wakeFd, &one, 1) < 0)
-      {
-          // Deliberately nothing: a full pipe means thousands of unread
-          // wakeups, so the loop is awake already. glibc marks write()
-          // warn_unused_result, which a cast to Void does not satisfy.
-      }
+      wishes.cv.notify_one();
   }
+
+  Void onMotor(Bool on)
+  {
+      {
+          LockGuard<Mutex> lock(wishes.m);
+          wishes.wantMotor = on;
+      }
+      wishes.cv.notify_one();
+  }
+
+  // ---- the lidar loop, on this thread ----------------------------------------
 
   [[nodiscard]] Str frameLine(const Vec<reactive::Ray>& rays, const Vec<UInt8>& quality, Float32 hz)
   {
@@ -184,8 +171,21 @@ namespace
       return scanwire::formatFrame(f);
   }
 
+  // INFO and HEALTH while open, then the latest MOTOR line: what a late
+  // joiner is told so it does not have to infer the device from the frames.
+  struct Greeting
+  {
+      Str device;
+      Str motor;
+
+      Void apply() const
+      {
+          feed::setGreeting(device + motor);
+      }
+  };
+
   // Motor off, port closed. Safe with nothing open; says nothing then.
-  Void park(Shared& sh)
+  Void park(Greeting& greeting)
   {
       if(!lidar::isOpen())
       {
@@ -197,56 +197,83 @@ namespace
       }
       lidar::close();
       std::printf("parked: motor off, port closed\n");
-      post(sh, note(Note::NOTE_PARKED));
+      greeting.device.clear();
+      greeting.motor.clear();
+      greeting.apply();
   }
 
-  // A failure the clients have to hear about. wantOpen is withdrawn HERE, on
-  // this thread, so the wait below does not spin on a wish that cannot be
-  // granted; the network thread withdraws it again when it closes the clients.
-  Void fail(Shared& sh, const Str& why)
+  // The wish is withdrawn when it cannot be granted, so the wait below does
+  // not spin on it. The clients' departure - closed after an ERR, or when
+  // the pilot's feed closes under a relay - withdraws it again.
+  Void withdrawOpen()
   {
-      {
-          LockGuard<Mutex> lock(sh.m);
-          sh.wantOpen = false;
-      }
-      std::printf("refused: %s\n", why.c_str());
-      post(sh, note(Note::NOTE_FAILED, why));
+      LockGuard<Mutex> lock(wishes.m);
+      wishes.wantOpen = false;
   }
 
-  Void lidarThread(Shared& sh, const Str& port)
+  // A failure the clients have to hear about.
+  Void fail(Greeting& greeting, const Str& why)
+  {
+      withdrawOpen();
+      std::printf("refused: %s\n", why.c_str());
+      greeting.device.clear();
+      greeting.motor.clear();
+      greeting.apply();
+      feed::fail(why);
+  }
+
+  // The device is the pilot's: every client not yet served is handed to the
+  // pilot's feed instead - see the header. The lidar's reason travels with
+  // the request, so a relay the pilot's end refuses answers as fail() would.
+  Void relayToPilot(const Str& why)
+  {
+      withdrawOpen();
+      std::printf(
+          "%s - relaying to the pilot on %u\n",
+          why.c_str(),
+          static_cast<unsigned>(scanwire::PILOT_PORT)
+      );
+      feed::relay("127.0.0.1", scanwire::PILOT_PORT, why);
+  }
+
+  Void lidarLoop(const Str& port)
   {
       Vec<reactive::Ray> rays;
       Vec<UInt8>         quality;
       TimePoint          last;
       Bool               haveLast = false;
+      Greeting           greeting;
 
-      for(;;)
+      while(interrupted == 0)
       {
           Bool wantOpen = false;
           Bool wantMotor = false;
           {
-              UniqueLock<Mutex> lock(sh.m);
+              UniqueLock<Mutex> lock(wishes.m);
               // Sleep only while the device already matches every wish and is
               // not spinning; a spinning device has revolutions to collect.
-              sh.cv.wait(
+              // A timed wait, because the signal handler cannot notify.
+              wishes.cv.wait_for(
                   lock,
+                  Millis(IDLE_WAIT_MS),
                   [&]
                   {
-                      return sh.quit || lidar::isSpinning() || sh.wantOpen != lidar::isOpen()
-                          || (lidar::isOpen() && sh.wantMotor != lidar::isSpinning());
+                      return interrupted != 0 || lidar::isSpinning() || wishes.wantOpen != lidar::isOpen()
+                          || (lidar::isOpen() && wishes.wantMotor != lidar::isSpinning());
                   }
               );
-              if(sh.quit)
+              if(interrupted != 0)
               {
+                  std::printf("stopping: parking the lidar\n");
                   break;
               }
-              wantOpen = sh.wantOpen;
-              wantMotor = sh.wantMotor;
+              wantOpen = wishes.wantOpen;
+              wantMotor = wishes.wantMotor;
           }
 
           if(!wantOpen)
           {
-              park(sh);
+              park(greeting);
               haveLast = false;
               continue;
           }
@@ -255,7 +282,14 @@ namespace
           {
               if(!lidar::open(port))
               {
-                  fail(sh, lidar::reason());
+                  if(lidar::refusal() == lidar::Refusal::REFUSAL_HELD)
+                  {
+                      relayToPilot(lidar::reason());
+                  }
+                  else
+                  {
+                      fail(greeting, lidar::reason());
+                  }
                   continue;
               }
               const lidar::Device d = lidar::device();
@@ -279,7 +313,9 @@ namespace
               {
                   std::printf("health unknown: %s\n", lidar::health().c_str());
               }
-              post(sh, note(Note::NOTE_OPENED, std::move(hello)));
+              greeting.device = hello;
+              greeting.apply();
+              feed::publish(hello);
           }
 
           if(wantMotor != lidar::isSpinning())
@@ -288,7 +324,7 @@ namespace
               {
                   if(!lidar::motorOn())
                   {
-                      fail(sh, lidar::reason());
+                      fail(greeting, lidar::reason());
                       continue;
                   }
                   haveLast = false;
@@ -300,7 +336,9 @@ namespace
               // The state the device is actually in, not the one requested.
               const Bool on = lidar::isSpinning();
               std::printf("motor %s\n", on ? "on" : "off");
-              post(sh, note(Note::NOTE_MOTOR, Str(), on));
+              greeting.motor = scanwire::formatMotor(on);
+              greeting.apply();
+              feed::publish(greeting.motor);
           }
 
           if(lidar::isSpinning())
@@ -322,257 +360,11 @@ namespace
               }
               last = now;
               haveLast = true;
-              post(sh, note(Note::NOTE_FRAME, frameLine(rays, quality, hz)));
+              feed::publish(frameLine(rays, quality, hz));
           }
       }
 
-      park(sh);
-  }
-
-  // ---- the network thread ----------------------------------------------------
-
-  struct Client
-  {
-      Int32     fd = -1;
-      Str       peer;
-      Str       inbuf;          // bytes read and not yet a whole line
-      Str       pending;        // bytes owed and not yet taken by the socket
-      TimePoint pendingSince;   // when `pending` last went from empty to not
-      Str       dropWhy;        // non-empty: to be closed by reap()
-  };
-
-  [[nodiscard]] Int32 listenOn(UInt16 port)
-  {
-      const Int32 fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-      if(fd < 0)
-      {
-          std::printf("cannot create a socket: %s\n", std::strerror(errno));
-          return -1;
-      }
-      // Without it a restart within a minute of a stop fails with "address in
-      // use" while the old connections sit in TIME_WAIT - and systemd's
-      // Restart=on-failure would then restart it into the same failure.
-      const Int32 yes = 1;
-      static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)));
-
-      sockaddr_in addr{};
-      addr.sin_family = AF_INET;
-      addr.sin_addr.s_addr = htonl(INADDR_ANY);
-      addr.sin_port = htons(port);
-      if(::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0)
-      {
-          std::printf(
-              "cannot bind 0.0.0.0:%u: %s\n",
-              static_cast<unsigned>(port),
-              std::strerror(errno)
-          );
-          ::close(fd);
-          return -1;
-      }
-      if(::listen(fd, 8) < 0)
-      {
-          std::printf("cannot listen: %s\n", std::strerror(errno));
-          ::close(fd);
-          return -1;
-      }
-      return fd;
-  }
-
-  // Pushes what the socket will take. false when the client is gone or has
-  // fallen more than BEHIND_MS behind; dropWhy says which.
-  [[nodiscard]] Bool flush(Client& c)
-  {
-      while(!c.pending.empty())
-      {
-          // MSG_NOSIGNAL: a peer that vanished must be an error here, not a
-          // SIGPIPE that kills the feed for everyone else.
-          const ISize n = ::send(
-              c.fd,
-              c.pending.data(),
-              c.pending.size(),
-              MSG_NOSIGNAL | MSG_DONTWAIT
-          );
-          if(n > 0)
-          {
-              c.pending.erase(0, static_cast<Size>(n));
-              continue;
-          }
-          if(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-          {
-              break;
-          }
-          c.dropWhy = n == 0 ? Str("closed") : Str(std::strerror(errno));
-          return false;
-      }
-      if(!c.pending.empty() && elapsedMs(c.pendingSince) > static_cast<Float64>(BEHIND_MS))
-      {
-          Array<Char, 48> why{};
-          std::snprintf(why.data(), why.size(), "%.0f ms behind", elapsedMs(c.pendingSince));
-          c.dropWhy = why.data();
-          return false;
-      }
-      return true;
-  }
-
-  Void queue(Client& c, const Str& bytes)
-  {
-      if(c.pending.empty())
-      {
-          c.pendingSince = monoNow();
-      }
-      c.pending += bytes;
-      static_cast<Void>(flush(c));
-  }
-
-  Void broadcast(Vec<Client>& clients, const Str& bytes)
-  {
-      for(Client& c : clients)
-      {
-          if(c.dropWhy.empty())
-          {
-              queue(c, bytes);
-          }
-      }
-  }
-
-  Void dropAll(Vec<Client>& clients, const Str& why)
-  {
-      for(Client& c : clients)
-      {
-          if(c.dropWhy.empty())
-          {
-              c.dropWhy = why;
-          }
-      }
-  }
-
-  // Closes and forgets every client marked for dropping, saying so.
-  Void reap(Vec<Client>& clients)
-  {
-      Size kept = 0;
-      for(Size i = 0; i < clients.size(); ++i)
-      {
-          Client& c = clients[i];
-          if(c.dropWhy.empty())
-          {
-              if(kept != i)
-              {
-                  clients[kept] = std::move(c);
-              }
-              ++kept;
-              continue;
-          }
-          std::printf("client %s dropped: %s\n", c.peer.c_str(), c.dropWhy.c_str());
-          ::close(c.fd);
-      }
-      clients.resize(kept);
-  }
-
-  // Tells the lidar thread what the clients currently want.
-  Void wish(Shared& sh, Bool open, Bool motor)
-  {
-      {
-          LockGuard<Mutex> lock(sh.m);
-          sh.wantOpen = open;
-          sh.wantMotor = motor;
-      }
-      sh.cv.notify_one();
-  }
-
-  // One request line from a client. Anything but MOTOR and QUIT is ignored,
-  // so a hub that learns a new verb before the board does costs nothing here.
-  Void request(Shared& sh, Client& c, StrView line)
-  {
-      scanwire::Line parsed;
-      switch(scanwire::parse(line, &parsed))
-      {
-      case scanwire::Kind::KIND_MOTOR:
-      {
-          std::printf("client %s asks MOTOR %d\n", c.peer.c_str(), parsed.motor ? 1 : 0);
-          LockGuard<Mutex> lock(sh.m);
-          sh.wantMotor = parsed.motor;
-          sh.cv.notify_one();
-          break;
-      }
-      case scanwire::Kind::KIND_QUIT:
-          c.dropWhy = "QUIT";
-          break;
-      default:
-          break;
-      }
-  }
-
-  Void readFrom(Shared& sh, Client& c)
-  {
-      Array<Char, 512> chunk{};
-      const ISize n = ::recv(c.fd, chunk.data(), chunk.size(), MSG_DONTWAIT);
-      if(n == 0)
-      {
-          c.dropWhy = "left";
-          return;
-      }
-      if(n < 0)
-      {
-          if(errno != EAGAIN && errno != EWOULDBLOCK)
-          {
-              c.dropWhy = std::strerror(errno);
-          }
-          return;
-      }
-      c.inbuf.append(chunk.data(), static_cast<Size>(n));
-      Size nl = c.inbuf.find('\n');
-      while(nl != Str::npos && c.dropWhy.empty())
-      {
-          request(sh, c, StrView(c.inbuf).substr(0, nl));
-          c.inbuf.erase(0, nl + 1);
-          nl = c.inbuf.find('\n');
-      }
-      if(c.inbuf.size() > REQUEST_MAX)
-      {
-          c.dropWhy = "not speaking the protocol";
-      }
-  }
-
-  // Takes every connection waiting on the listening socket.
-  Void acceptAll(Int32 listenFd, Vec<Client>& clients, const Str& greeting)
-  {
-      for(;;)
-      {
-          sockaddr_in peer{};
-          socklen_t   len = sizeof(peer);
-          const Int32 fd = ::accept4(listenFd, reinterpret_cast<sockaddr*>(&peer), &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
-          if(fd < 0)
-          {
-              return;
-          }
-          // Each F line is one write and should be one segment train, now,
-          // not held back by Nagle waiting for the next one 100 ms later.
-          const Int32 yes = 1;
-          static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)));
-
-          Array<Char, INET_ADDRSTRLEN> ip{};
-          static_cast<Void>(::inet_ntop(AF_INET, &peer.sin_addr, ip.data(), ip.size()));
-          Array<Char, 64> name{};
-          std::snprintf(
-              name.data(),
-              name.size(),
-              "%s:%u",
-              ip.data(),
-              static_cast<unsigned>(ntohs(peer.sin_port))
-          );
-
-          Client c;
-          c.fd = fd;
-          c.peer = name.data();
-          std::printf("client from %s\n", c.peer.c_str());
-          // A late joiner is told what the first one was told, so it does not
-          // have to infer the device from the frames.
-          if(!greeting.empty())
-          {
-              queue(c, greeting);
-          }
-          clients.push_back(std::move(c));
-      }
+      park(greeting);
   }
 
   [[nodiscard]] Int32 run(const Str& port)
@@ -588,156 +380,22 @@ namespace
       std::signal(SIGTERM, onInterrupt);
       std::signal(SIGPIPE, SIG_IGN);
 
-      Array<Int32, 2> wake{ -1, -1 };
-      if(::pipe2(wake.data(), O_NONBLOCK | O_CLOEXEC) < 0)
+      feed::Policy policy;
+      policy.motor = feed::Motor::MOTOR_OBEY;
+      policy.onMotor = onMotor;
+      policy.onClients = onClients;
+      // No fallbackPort, deliberately: this is the address viewers dial. A
+      // pilot already on 8011 (started with no service running) means exit 1
+      // and systemd retrying every two seconds until the pilot is done - a
+      // feed that moved to 8012 would be relaying to itself.
+      if(!feed::start(scanwire::PORT, policy))
       {
-          std::printf("cannot create the wake pipe: %s\n", std::strerror(errno));
           return 1;
       }
-      const Int32 listenFd = listenOn(scanwire::PORT);
-      if(listenFd < 0)
-      {
-          return 1;
-      }
-      std::printf(
-          "listening on 0.0.0.0:%u for %s\n",
-          static_cast<unsigned>(scanwire::PORT),
-          port.c_str()
-      );
+      std::printf("serving %s\n", port.c_str());
 
-      Shared sh;
-      sh.wakeFd = wake[1];
-      Thread worker(lidarThread, std::ref(sh), port);
-
-      Vec<Client> clients;
-      Str greeting;    // INFO and HEALTH while open, then the latest MOTOR line
-      Str motorLine;
-
-      while(interrupted == 0)
-      {
-          Vec<pollfd> fds;
-          fds.push_back(pollfd{ listenFd, POLLIN, 0 });
-          fds.push_back(pollfd{ wake[0], POLLIN, 0 });
-          for(const Client& c : clients)
-          {
-              // pollfd's events is a short; Int16 is that type on this ABI.
-              fds.push_back(
-                  pollfd{ c.fd, static_cast<Int16>(POLLIN | (c.pending.empty() ? 0 : POLLOUT)), 0 }
-              );
-          }
-
-          if(::poll(fds.data(), fds.size(), POLL_MS) < 0 && errno != EINTR)
-          {
-              std::printf("poll failed: %s\n", std::strerror(errno));
-              break;
-          }
-
-          const Size before = clients.size();
-          if((fds[0].revents & POLLIN) != 0)
-          {
-              acceptAll(listenFd, clients, greeting + motorLine);
-          }
-          if((fds[1].revents & POLLIN) != 0)
-          {
-              Array<Char, 64> sink{};
-              while(::read(wake[0], sink.data(), sink.size()) > 0)
-              {
-              }
-          }
-
-          // The lidar thread's news, taken all at once so the lock is held
-          // for a swap and not for a send.
-          Deque<Message> notes;
-          {
-              LockGuard<Mutex> lock(sh.m);
-              notes.swap(sh.notes);
-          }
-          for(const Message& msg : notes)
-          {
-              switch(msg.kind)
-              {
-              case Note::NOTE_OPENED:
-                  greeting = msg.text;
-                  broadcast(clients, msg.text);
-                  break;
-              case Note::NOTE_FAILED:
-                  // ERR then close, for everyone waiting on this open; the
-                  // next client to arrive tries again from idle.
-                  broadcast(clients, scanwire::formatErr(msg.text));
-                  dropAll(clients, "ERR sent");
-                  greeting.clear();
-                  motorLine.clear();
-                  break;
-              case Note::NOTE_MOTOR:
-                  motorLine = scanwire::formatMotor(msg.on);
-                  broadcast(clients, motorLine);
-                  break;
-              case Note::NOTE_FRAME:
-                  broadcast(clients, msg.text);
-                  break;
-              case Note::NOTE_PARKED:
-                  greeting.clear();
-                  motorLine.clear();
-                  break;
-              }
-          }
-
-          // Client sockets, in the order the pollfds were built. Only the
-          // clients that existed before accept() have an entry.
-          for(Size i = 0; i < before && i < clients.size(); ++i)
-          {
-              Client& c = clients[i];
-              const Int16 ev = fds[2 + i].revents;
-              if(!c.dropWhy.empty())
-              {
-                  continue;
-              }
-              if((ev & (POLLERR | POLLHUP | POLLNVAL)) != 0 && (ev & POLLIN) == 0)
-              {
-                  c.dropWhy = "hung up";
-                  continue;
-              }
-              if((ev & POLLIN) != 0)
-              {
-                  readFrom(sh, c);
-              }
-              if(c.dropWhy.empty() && !c.pending.empty())
-              {
-                  static_cast<Void>(flush(c));
-              }
-          }
-
-          reap(clients);
-
-          // The wishes follow the client count: the first client asks for the
-          // device and the motor, the last one leaving withdraws both. A
-          // client arriving while open changes nothing - somebody may have
-          // turned the motor off on purpose.
-          if(before == 0 && !clients.empty())
-          {
-              wish(sh, true, true);
-          }
-          else if(before > 0 && clients.empty())
-          {
-              wish(sh, false, false);
-          }
-      }
-
-      std::printf("stopping: parking the lidar\n");
-      {
-          LockGuard<Mutex> lock(sh.m);
-          sh.quit = true;
-      }
-      sh.cv.notify_one();
-      worker.join();
-
-      for(Client& c : clients)
-      {
-          ::close(c.fd);
-      }
-      ::close(listenFd);
-      ::close(wake[0]);
-      ::close(wake[1]);
+      lidarLoop(port);
+      feed::stop();
       return 0;
   }
 

@@ -12,7 +12,8 @@ Restart=on-failure
 RestartSec=2
 # Idle costs nothing: with no client connected the lidar is closed and the
 # serial port is free for the pilot. A client that connects while the pilot
-# holds the port is told so in an ERR line and closed; nothing here retries.
+# holds the port is relayed to the pilot's own feed on 8012 (README, "Seeing
+# the lidar from the hub"); nothing here needs stopping for the car to drive.
 # No port below 1024 and no device the user cannot already open (dialout), so
 # no capability is granted.
 NoNewPrivileges=yes

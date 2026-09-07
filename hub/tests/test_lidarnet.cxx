@@ -1,11 +1,16 @@
 // LidarSource over the network, against fake_scanfeed.py.
 //
-//   test_lidarnet.exe PORT LOGFILE
+//   test_lidarnet.exe PORT LOGFILE PILOTPORT PILOTLOG
 //
 // build_lidarnet_test.bat starts the fake on PORT with the session list this
 // file expects - junk, abrupt:5, err:3 - and hands over the path of its log,
-// which the last section reads to prove the hub said MOTOR 0, MOTOR 1 and QUIT.
+// which section 5 reads to prove the hub said MOTOR 0, MOTOR 1 and QUIT.
 // PORT+1 must have nothing listening on it; that is the refused-connect case.
+//
+// A second fake on PILOTPORT is the PILOT's feed (--drive --pilot, sessions
+// normal, pilotquit:5): D lines after the frames, and a MOTOR 0 it refuses.
+// Sections 6 to 8 are about that one, and its log proves the hub sent MOTOR 0
+// exactly once.
 //
 // No hardware, no SDK call reached: the serial half of lidar_source.cxx is
 // linked in because it is the same object, and never started.
@@ -17,6 +22,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace
 {
@@ -139,6 +145,40 @@ namespace
       return false;
   }
 
+  // The tag the fake writes into every revolution and the decision that
+  // follows it: the frame index mod 100, as 10.0xx Hz on the F line and as the
+  // hit count on the D line. Recovered from the rate here.
+  Int32 frameTag(const LidarFrame& f)
+  {
+      return static_cast<Int32>((f.hz - 10.0f) * 1000.0f + 0.5f);
+  }
+
+  // Polls until a decision arrives, or the deadline passes.
+  Bool waitDrive(LidarSource& src, LidarDrive& out, Int32 ms)
+  {
+      const TimePoint began = monoNow();
+      while(elapsedMs(began) < ms)
+      {
+          if(src.pollDrive(out))
+          {
+              return true;
+          }
+          sleepMs(5);
+      }
+      return false;
+  }
+
+  Int32 countOf(const Str& text, const Char* needle)
+  {
+      Int32 n = 0;
+      const Size len = std::strlen(needle);
+      for(Size at = text.find(needle); at != Str::npos; at = text.find(needle, at + len))
+      {
+          ++n;
+      }
+      return n;
+  }
+
   Str readFile(const Str& path)
   {
       Str text;
@@ -161,19 +201,27 @@ namespace
 
 Int32 main(Int32 argc, Char** argv)
 {
-    if(argc < 3)
+    if(argc < 5)
     {
-        std::printf("usage: test_lidarnet.exe PORT LOGFILE\n");
+        std::printf("usage: test_lidarnet.exe PORT LOGFILE PILOTPORT PILOTLOG\n");
         return 1;
     }
     const Int32 port = std::atoi(argv[1]);
     const Str   logPath = argv[2];
+    const Int32 pilotPort = std::atoi(argv[3]);
+    const Str   pilotLogPath = argv[4];
     const Str   target = "127.0.0.1:" + std::to_string(port);
     const Str   nowhere = "127.0.0.1:" + std::to_string(port + 1);
+    const Str   pilot = "127.0.0.1:" + std::to_string(pilotPort);
 
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::printf("=== LidarSource over the scan feed ===\n");
-    std::printf("feed at %s, nothing at %s\n", target.c_str(), nowhere.c_str());
+    std::printf(
+        "feed at %s, nothing at %s, the pilot at %s\n",
+        target.c_str(),
+        nowhere.c_str(),
+        pilot.c_str()
+    );
 
     // ---- 1. nothing listening ----------------------------------------------
     std::printf("\n-- 1. nothing listening --\n");
@@ -332,6 +380,215 @@ Int32 main(Int32 argc, Char** argv)
         checkContains(log, "rx MOTOR 1", "hub sent MOTOR 1");
         checkContains(log, "QUIT received", "hub sent QUIT on stop()");
         checkContains(log, "all sessions served", "fake served every session and exited");
+    }
+
+    // ---- 6. the pilot drives ------------------------------------------------
+    std::printf("\n-- 6. the pilot drives (pilot session: normal, --drive --pilot) --\n");
+    {
+        LidarSource src;
+        LidarDrive  d;
+        // Not connectWhenListening(): that waits for Connecting to END, which
+        // is the first frame, and the point here is what comes BEFORE it. The
+        // pilot's fake has been listening since the first fake was started.
+        src.start(pilot, 0);
+
+        // Before any revolution: the pilot deciding on nothing while the lidar
+        // spins up. Delivered without a frame, and says so.
+        if(waitDrive(src, d, DEADLINE_MS))
+        {
+            check(d.mode == "blind", "first decision is blind, before any frame");
+            check(d.stop, "a blind decision stops the car");
+            check(d.hits == 0 && d.clearanceMm == 0, "and measures nothing");
+            check(d.fresh(), "fresh() as it arrives");
+            check(
+                src.state() != LidarState::LIDAR_STATE_SCANNING,
+                "delivered while still Connecting - no F yet"
+            );
+        }
+        else
+        {
+            check(false, "a decision arrived");
+        }
+
+        if(waitState(src, LidarState::LIDAR_STATE_SCANNING, "first frame"))
+        {
+            // Each revolution's decision, matched to it by the fake's tag.
+            LidarFrame f;
+            Int32 matched = 0;
+            Int32 mismatched = 0;
+            Int32 missing = 0;
+            Bool  sawCruise = false;
+            Bool  sawSlow = false;
+            Bool  sawStop = false;
+            Bool  sawReverse = false;
+            Bool  stopSaysStop = true;
+            Bool  reverseBacks = true;
+            const TimePoint began = monoNow();
+            while(elapsedMs(began) < 2500)
+            {
+                if(!src.poll(f))
+                {
+                    sleepMs(5);
+                    continue;
+                }
+                const Int32 tag = frameTag(f);
+                // The D follows its F on the wire, so it is either already in
+                // or a few milliseconds behind; an older one is skipped.
+                Bool got = false;
+                const TimePoint asked = monoNow();
+                while(elapsedMs(asked) < 250)
+                {
+                    if(src.pollDrive(d))
+                    {
+                        if(d.hits == tag)
+                        {
+                            got = true;
+                            break;
+                        }
+                        if(d.hits != (tag + 99) % 100)
+                        {
+                            ++mismatched;
+                            break;
+                        }
+                    }
+                    sleepMs(2);
+                }
+                if(!got)
+                {
+                    ++missing;
+                    continue;
+                }
+                ++matched;
+                sawCruise = sawCruise || d.mode == "cruise";
+                sawSlow = sawSlow || d.mode == "slow";
+                sawStop = sawStop || d.mode == "stop";
+                sawReverse = sawReverse || d.mode == "reverse";
+                if(d.mode == "stop" && !d.stop)
+                {
+                    stopSaysStop = false;
+                }
+                if(d.mode == "reverse" && !(d.throttle < 0.0f && !d.stop))
+                {
+                    reverseBacks = false;
+                }
+            }
+            Array<Char, 128> line;
+            std::snprintf(
+                line.data(),
+                line.size(),
+                "%d decisions matched their revolution, %d wrong, %d missing (want >= 15, 0, 0)",
+                matched,
+                mismatched,
+                missing
+            );
+            check(matched >= 15 && mismatched == 0 && missing == 0, line.data());
+            check(sawCruise && sawSlow && sawStop && sawReverse, "all four driving modes seen");
+            check(stopSaysStop, "every stop decision carries stop=1");
+            check(reverseBacks, "every reverse decision is a negative throttle, not a stop");
+            check(
+                d.steer >= -0.3f && d.steer <= 0.3f,
+                "steer is the fraction, not the thousandths"
+            );
+            check(d.fresh(), "the last one is fresh");
+
+            // Stop motor: the pilot says no. One MOTOR 0 goes out, MOTOR 1
+            // comes back, and the hub does not argue.
+            src.setMotorEnabled(false);
+            sleepMs(1200);   // two worker ticks and the answer
+            check(src.motorEnabled(), "motorEnabled() stays true after MOTOR 1 came back");
+            check(src.pollMotorRefused(), "pollMotorRefused() reports it once");
+            check(!src.pollMotorRefused(), "and only once");
+            check(src.state() == LidarState::LIDAR_STATE_SCANNING, "still Scanning");
+            const Int32 still = countFrames(src, 600, f);
+            std::snprintf(
+                line.data(),
+                line.size(),
+                "%d frames in 0.6 s after the refusal (want >= 3)",
+                still
+            );
+            check(still >= 3, line.data());
+            sleepMs(1200);   // two more ticks in which a resend would happen
+            check(src.motorEnabled(), "motor still on two ticks later");
+        }
+
+        src.stop();
+        check(src.state() == LidarState::LIDAR_STATE_IDLE, "stop() -> Idle");
+    }
+
+    // ---- 7. the pilot stops deciding -------------------------------------------
+    std::printf("\n-- 7. the pilot stops, the scan does not (pilot session: pilotquit:5) --\n");
+    {
+        LidarSource src;
+        LidarDrive  d;
+        LidarFrame  f;
+        Int32 decisions = 0;
+        Bool  freshOnArrival = true;
+
+        // Counted from start(), because the blind ticks come before the first
+        // frame and pollDrive() hands over only the newest: a count begun at
+        // Scanning would have the spin-up overwritten before it was read.
+        src.start(pilot, 0);
+        {
+            const TimePoint began = monoNow();
+            while(elapsedMs(began) < 3000)
+            {
+                if(src.pollDrive(d))
+                {
+                    ++decisions;
+                    freshOnArrival = freshOnArrival && d.fresh();
+                }
+                src.poll(f);
+                sleepMs(5);
+            }
+        }
+
+        if(waitState(src, LidarState::LIDAR_STATE_SCANNING, "scanning"))
+        {
+            Array<Char, 128> line;
+            std::snprintf(
+                line.data(),
+                line.size(),
+                "%d decisions, then none (want 3 blind + 5)",
+                decisions
+            );
+            check(decisions == 8, line.data());
+            check(freshOnArrival, "each was fresh as it arrived");
+            std::snprintf(
+                line.data(),
+                line.size(),
+                "the last is stale %.0f ms later (want > %d)",
+                elapsedMs(d.at),
+                LidarDrive::STALE_MS
+            );
+            check(!d.fresh(), line.data());
+            check(src.state() == LidarState::LIDAR_STATE_SCANNING, "the scan carries on");
+            const Int32 still = countFrames(src, 600, f);
+            std::snprintf(line.data(), line.size(), "%d frames in 0.6 s (want >= 3)", still);
+            check(still >= 3, line.data());
+            check(!src.pollDrive(d), "pollDrive() has nothing new");
+        }
+        src.stop();
+    }
+
+    // ---- 8. what the pilot's fake saw ------------------------------------------
+    std::printf("\n-- 8. what the pilot's fake saw --\n");
+    {
+        sleepMs(500);
+        const Str log = readFile(pilotLogPath);
+        check(!log.empty(), "the pilot's fake wrote a log");
+        const Int32 motorOffs = countOf(log, "rx MOTOR 0");
+        Array<Char, 96> line;
+        std::snprintf(
+            line.data(),
+            line.size(),
+            "hub sent MOTOR 0 %d time(s) (want exactly 1)",
+            motorOffs
+        );
+        check(motorOffs == 1, line.data());
+        checkContains(log, "MOTOR 0 refused", "and the fake refused it");
+        check(countOf(log, "rx MOTOR 1") == 0, "hub never sent MOTOR 1 - nothing to put back");
+        check(countOf(log, "QUIT received") == 2, "QUIT on both stop()s");
+        checkContains(log, "all sessions served", "fake served both sessions and exited");
     }
 
     std::printf("\n%d check(s), %d failure(s)\n", checks, failures);

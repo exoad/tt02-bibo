@@ -6,7 +6,8 @@ REM "run" starts hub\tests\fake_scanfeed.py on the port below - no board, no
 REM lidar, no network beyond localhost - then runs the test against it. The fake
 REM serves the three sessions the test expects and exits on its own (or after
 REM 90 s, so a crashed test leaves no server behind). Its log is what section 5
-REM of the test reads.
+REM of the test reads. A second fake on PILOTPORT plays the PILOT's feed - D
+REM lines, and a MOTOR 0 it refuses - for sections 6 to 8, with its own log.
 REM
 REM lidar_source.cxx is one object with both workers in it, so the SDK's driver
 REM library links here even though nothing serial is started. /MT and /LTCG for
@@ -20,6 +21,9 @@ set SRC=%HERE%..\src
 set PILOT=%ROOT%\firmware\pilot\src
 set PORT=18011
 set LOG=%HERE%build\fake_scanfeed.log
+REM PORT+1 is the test's "nothing listening" case, so the pilot sits at +2.
+set PILOTPORT=18013
+set PILOTLOG=%HERE%build\fake_scanfeed_pilot.log
 
 call "%~dp0..\..\tools\find_vs.bat"
 if errorlevel 1 exit /b 1
@@ -59,8 +63,11 @@ REM All 11 scripts once exited 0 while printing OVERALL: FAIL.
 if /i not "%~1"=="run" exit /b 0
 
 if exist "%LOG%" del "%LOG%"
+if exist "%PILOTLOG%" del "%PILOTLOG%"
 echo [test] starting fake_scanfeed.py on 127.0.0.1:%PORT%
 start "" /b python "%HERE%fake_scanfeed.py" %PORT% --sessions junk,abrupt:5,err:3 --log "%LOG%" --timeout 90
+echo [test] starting the pilot's fake_scanfeed.py on 127.0.0.1:%PILOTPORT%
+start "" /b python "%HERE%fake_scanfeed.py" %PILOTPORT% --sessions normal,pilotquit:5 --drive --pilot --log "%PILOTLOG%" --timeout 90
 echo.
-"%HERE%build\test_lidarnet.exe" %PORT% "%LOG%"
+"%HERE%build\test_lidarnet.exe" %PORT% "%LOG%" %PILOTPORT% "%PILOTLOG%"
 exit /b %errorlevel%

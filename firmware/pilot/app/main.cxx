@@ -81,6 +81,37 @@
 // moves left out.
 //
 // ---------------------------------------------------------------------------
+// THE FEED RIDES ALONG
+//
+// While it drives, the pilot serves the same wire tools/scanfeed.cxx does -
+// src/feed.hxx on scanwire::PORT - so the hub and the board's own dashboard
+// can watch the car see. Each revolution goes out as the F line it was and is
+// followed by a D line saying what was decided about it; a blind tick sends
+// only the D, so a viewer's mode and clearance stay live through the spin-up
+// and through a lost lidar rather than freezing on the last good picture.
+//
+// A viewer may not stop the motor. scanfeed obeys MOTOR 0 because the lidar
+// is spinning for the viewer alone; here it is spinning for the car, and a
+// viewer that could stop it could stop the car seeing. The request is answered
+// with the true state - MOTOR 1 - and logged once per client.
+//
+// The tick pays for none of it. publish() takes a mutex for a push and wakes
+// the feed thread, which does the sends; a viewer that stalls is dropped by
+// that thread, and a tick with no viewer connected pays for nothing at all.
+// The same F and D text goes to scanwire::SCAN_FILE on tmpfs for the status
+// page, a write and a rename. The exit summary prints what the two cost.
+//
+// The feed is on by default and --no-feed turns it off, the scan file with
+// it: the flag means "no viewers", not "no sockets". scanwire::PORT is the
+// address, and when it is already taken - scanfeed idling under systemd,
+// which is the field case and one nobody on the board has root to stop -
+// the feed falls back to scanwire::PILOT_PORT and says so. scanfeed, finding
+// the lidar held, relays every viewer there, so the hub keeps dialing 8011
+// and sees the car drive. A feed that could not bind either is said once
+// and driven without, the file still written: the car does not wait for its
+// audience.
+//
+// ---------------------------------------------------------------------------
 // WHAT IS COUNTED
 //
 // Every revolution, every grab that timed out, every line the board answered
@@ -92,10 +123,12 @@
 
 #include "shared.hxx"
 
+#include "feed.hxx"
 #include "lidar.hxx"
 #include "link.hxx"
 #include "proto.hxx"
 #include "reactive.hxx"
+#include "scanwire.hxx"
 
 // The car's measured numbers - see cal.hxx, and "WHAT THE CAR IS TOLD" above,
 // for why the throttle pair is used despite being out of date.
@@ -134,17 +167,19 @@ namespace
   // three seconds as "pilot not running" - the file is a heartbeat, not a log.
   constexpr CharSeq STATUS_FILE = "/tmp/bibo-pilot.json";
 
-  Void writeStatus(const Str& json)
+  // The whole file at once, through a rename, so a reader never sees half of
+  // it. The heartbeat and the scan file are both written this way.
+  Void writeWhole(CharSeq path, const Str& text)
   {
-      const Str tmp = Str(STATUS_FILE) + ".tmp";
+      const Str tmp = Str(path) + ".tmp";
       std::FILE* f = std::fopen(tmp.c_str(), "w");
       if(f == nullptr)
       {
           return;    // no /tmp here (a laptop): the page is a Linux thing
       }
-      std::fputs(json.c_str(), f);
+      std::fputs(text.c_str(), f);
       std::fclose(f);
-      static_cast<Void>(std::rename(tmp.c_str(), STATUS_FILE));
+      static_cast<Void>(std::rename(tmp.c_str(), path));
   }
 
   [[nodiscard]] Float64 epochNow()
@@ -174,18 +209,23 @@ namespace
       Bool    arm = false;
       Float32 forwardDeg = 0.0f;
       Float64 seconds = -1.0;   // negative: until a signal
+      Bool    feed = true;      // serve the scan feed on scanwire::PORT
   };
 
   Void usage()
   {
       std::printf(
-          "pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N]\n"
+          "pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N] [--no-feed]\n"
           "  --lidar PORT   the C1's serial device        (default /dev/ttyUSB0)\n"
           "  --pico PORT    the car's serial device       (default /dev/ttyACM0)\n"
           "  --dry          never open the Pico; print each decision instead\n"
           "  --arm          send ESC ARM once the link is up, so throttle is obeyed\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
           "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n"
+          "  --no-feed      no viewers: neither the scan feed on TCP %u (or %u) nor %s\n",
+          static_cast<unsigned>(scanwire::PORT),
+          static_cast<unsigned>(scanwire::PILOT_PORT),
+          scanwire::SCAN_FILE
       );
   }
 
@@ -228,6 +268,10 @@ namespace
           else if(flag == "--arm")
           {
               o.arm = true;
+          }
+          else if(flag == "--no-feed")
+          {
+              o.feed = false;
           }
           else if(flag == "--lidar")
           {
@@ -469,6 +513,73 @@ namespace
       return Str(buf.data());
   }
 
+  // ---- the viewers -------------------------------------------------------------
+
+  // What a new client is told: INFO, HEALTH when the device answered, and the
+  // motor state - which, while the pilot runs, is on.
+  [[nodiscard]] Str greetingFor(const lidar::Device& d)
+  {
+      scanwire::Info info;
+      info.model = d.model;
+      info.fwMajor = d.fwMajor;
+      info.fwMinor = d.fwMinor;
+      info.hwRev = d.hwRev;
+      info.serial = d.serial;
+      Str hello = scanwire::formatInfo(info);
+      // HEALTH carries only the three values the wire defines; -1 (the device
+      // did not answer) is left out rather than sent as a line every reader
+      // would have to reject.
+      if(d.health >= 0 && d.health <= 2)
+      {
+          hello += scanwire::formatHealth(d.health);
+      }
+      hello += scanwire::formatMotor(true);
+      return hello;
+  }
+
+  // The revolution as the feed sends it. `hz` is what this tick measured, so
+  // the viewer sees the rate the car is deciding at.
+  [[nodiscard]] Str frameLine(const Vec<reactive::Ray>& rays, const Vec<UInt8>& quality, Int32 dtMs)
+  {
+      scanwire::Frame f;
+      f.hz = dtMs > 0 ? 1000.0f / static_cast<Float32>(dtMs) : 0.0f;
+      f.samples.reserve(rays.size());
+      for(Size i = 0; i < rays.size(); ++i)
+      {
+          scanwire::Sample s;
+          s.angleDeg = rays[i].angleDeg;
+          s.distMm = rays[i].distMm;
+          s.quality = i < quality.size() ? quality[i] : static_cast<UInt8>(0);
+          f.samples.push_back(s);
+      }
+      return scanwire::formatFrame(f);
+  }
+
+  // The decision as the feed sends it. "blind" for a tick with no revolution,
+  // the same word describe() prints, whatever mode the module was left in.
+  [[nodiscard]] Str driveLine(const reactive::Outputs& out, Bool got)
+  {
+      scanwire::Drive d;
+      d.mode = got ? reactive::modeName(out.mode) : "blind";
+      d.clearanceMm = static_cast<Int32>(out.clearanceMm + 0.5f);
+      d.hits = out.corridorHits;
+      d.steer = out.steer;
+      d.throttle = out.throttle;
+      d.stop = out.stop;
+      return scanwire::formatDrive(d);
+  }
+
+  // What serving the viewers cost the tick, so "adds nothing" is a number in
+  // the exit summary rather than a belief.
+  struct Viewer
+  {
+      Bool    serving = false;   // feed::start succeeded
+      UInt64  frames = 0;        // F lines published
+      Float64 costMaxUs = 0.0;   // the longest publish + file write of any tick
+      Float64 costSumUs = 0.0;
+      UInt64  costTicks = 0;
+  };
+
 }
 
 Int32 main(Int32 argc, Char** argv)
@@ -576,13 +687,48 @@ Int32 main(Int32 argc, Char** argv)
         );
     }
 
+    // ---- the viewers -------------------------------------------------------------------
+    // After the motor, so the greeting's MOTOR 1 is true when it is sent, and
+    // never fatal: a port already taken is scanfeed idling under systemd, the
+    // feed moves next door and scanfeed relays to it, and the car drives with
+    // or without an audience either way.
+    Viewer viewer;
+    if(opt.feed && interrupted == 0)
+    {
+        feed::Policy policy;
+        policy.greeting = greetingFor(lidar::device());
+        policy.motor = feed::Motor::MOTOR_REFUSE;
+        policy.motorOn = true;
+        policy.refusal = "viewer asked for the motor; the pilot keeps it while driving";
+        policy.fallbackPort = scanwire::PILOT_PORT;
+        viewer.serving = feed::start(scanwire::PORT, policy);
+        if(!viewer.serving)
+        {
+            std::printf("feed: not serving - driving without viewers\n");
+        }
+        else if(feed::port() == scanwire::PORT)
+        {
+            std::printf("feed: serving on port %u\n", static_cast<unsigned>(feed::port()));
+        }
+        else
+        {
+            std::printf(
+                "feed: port %u is taken (scanfeed, most likely) - serving on %u, which scanfeed relays to\n",
+                static_cast<unsigned>(scanwire::PORT),
+                static_cast<unsigned>(feed::port())
+            );
+        }
+    }
+
     // ---- the loop ------------------------------------------------------------------
     reactive::State   state;
     reactive::Outputs out;
     reactive::Status  status = reactive::Status::STATUS_BLIND;
     Vec<reactive::Ray> rays;
+    Vec<UInt8>         quality;
     Vec<Str>           lines;
     Replies            replies;
+    Str                lastFrame;   // the latest F line, for the scan file
 
     UInt64 revolutions = 0;
     UInt64 timeouts = 0;
@@ -613,7 +759,7 @@ Int32 main(Int32 argc, Char** argv)
         // Empty on a timeout, and handed to step() anyway: an empty scan is the
         // module's STATUS_BLIND, which is a stop, which is what a tick with no
         // revolution behind it should send. lidar.hxx explains the emptying.
-        const Bool got = lidar::grab(rays, REV_WAIT_MS);
+        const Bool got = lidar::grab(rays, REV_WAIT_MS, &quality);
         const TimePoint now = monoNow();
         const Duration<Float64, std::milli> sinceTick = now - lastTick;
         const Int32 dtMs = haveTick ? static_cast<Int32>(sinceTick.count()) : 0;
@@ -643,6 +789,32 @@ Int32 main(Int32 argc, Char** argv)
         }
 
         status = reactive::step(rays.data(), rays.size(), dtMs, &state, &out);
+
+        // The viewers, before the car is told: the car's lines go to a serial
+        // port that may stall for WRITE_WAIT_MS, and the feed's go to a queue
+        // that cannot. Timed, so the summary can say what they cost. The scan
+        // file carries the last revolution under this tick's decision, so the
+        // dashboard's mode goes blind when the feed's does.
+        if(opt.feed)
+        {
+            const TimePoint before = monoNow();
+            const Str drive = driveLine(out, got);
+            if(got)
+            {
+                lastFrame = frameLine(rays, quality, dtMs);
+                ++viewer.frames;
+                feed::publish(lastFrame);
+            }
+            feed::publish(drive);
+            writeWhole(scanwire::SCAN_FILE, lastFrame + drive);
+            const Float64 costUs = elapsedMs(before) * 1000.0;
+            viewer.costSumUs += costUs;
+            ++viewer.costTicks;
+            if(costUs > viewer.costMaxUs)
+            {
+                viewer.costMaxUs = costUs;
+            }
+        }
 
         // The board's silence, judged before deciding, so this tick's throttle
         // already reflects it. Announced on each change rather than each tick.
@@ -767,7 +939,7 @@ Int32 main(Int32 argc, Char** argv)
                 lidarLost ? "true" : "false",
                 pico.data()
             );
-            writeStatus(json.data());
+            writeWhole(STATUS_FILE, json.data());
 
             // A lost link is retried here, once a second, rather than every tick:
             // open() probes the device and a board that is being replugged does
@@ -822,12 +994,30 @@ Int32 main(Int32 argc, Char** argv)
         );
     }
 
+    if(viewer.costTicks > 0)
+    {
+        std::printf(
+            "feed: %llu frames published to %s, viewer cost per tick avg %.0f us, max %.0f us\n",
+            static_cast<unsigned long long>(viewer.frames),
+            viewer.serving ? "the feed and the scan file" : "the scan file only",
+            viewer.costSumUs / static_cast<Float64>(viewer.costTicks),
+            viewer.costMaxUs
+        );
+    }
+
     if(!lidar::motorOff())
     {
         std::printf("lidar motor off: %s\n", lidar::reason().c_str());
     }
     lidar::close();
     carlink::close();
+
+    // The viewers last: they were watching a car that has now stopped, and
+    // their sockets closing is how they learn it. The scan file goes with
+    // them - a revolution from a pilot that has exited is not a picture of
+    // anything, and the page reads its absence as "pilot not running".
+    feed::stop();
+    static_cast<Void>(std::remove(scanwire::SCAN_FILE));
 
     // A signal is a person asking, and 0 is the answer to a request that was
     // carried out. A timed run that saw no revolution at all is the other case:

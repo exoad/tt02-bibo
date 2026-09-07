@@ -142,6 +142,30 @@ namespace scanwire
       return line;
   }
 
+  Str formatDrive(const Drive& d)
+  {
+      // The mode is one word or the line is not a D line: a space in it would
+      // shift every field after it for the reader.
+      Str mode;
+      for(const Char c : d.mode)
+      {
+          mode += (c == ' ' || c == '\t') ? '_' : c;
+      }
+      Array<Char, 96> buf{};
+      std::snprintf(
+          buf.data(),
+          buf.size(),
+          "D %s %d %d %d %d %d\n",
+          mode.empty() ? "-" : mode.c_str(),
+          d.clearanceMm,
+          d.hits,
+          roundToInt(d.steer * 1000.0f),
+          roundToInt(d.throttle * 1000.0f),
+          d.stop ? 1 : 0
+      );
+      return Str(buf.data());
+  }
+
   Str formatInfo(const Info& i)
   {
       Array<Char, 128> buf{};
@@ -240,6 +264,37 @@ namespace scanwire
       }
 
       out->frame.samples.clear();
+
+      if(word == "D")
+      {
+          StrView mode;
+          Array<StrView, 5> tok{};
+          Array<Int64, 5>   v{};
+          if(!w.next(&mode))
+          {
+              return bad(out);
+          }
+          for(Size i = 0; i < tok.size(); ++i)
+          {
+              if(!w.next(&tok[i]) || !wholeInt(tok[i], &v[i]))
+              {
+                  return bad(out);
+              }
+          }
+          if(v[0] < 0 || v[1] < 0 || v[2] < -1000 || v[2] > 1000 || v[3] < -1000 || v[3] > 1000
+             || (v[4] != 0 && v[4] != 1))
+          {
+              return bad(out);
+          }
+          out->drive.mode = Str(mode);
+          out->drive.clearanceMm = static_cast<Int32>(v[0]);
+          out->drive.hits = static_cast<Int32>(v[1]);
+          out->drive.steer = static_cast<Float32>(v[2]) / 1000.0f;
+          out->drive.throttle = static_cast<Float32>(v[3]) / 1000.0f;
+          out->drive.stop = v[4] == 1;
+          out->kind = Kind::KIND_DRIVE;
+          return out->kind;
+      }
 
       if(word == "INFO")
       {

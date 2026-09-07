@@ -247,6 +247,15 @@ struct LidarSource::Impl
     LidarFrame          frame;
     UInt64            frameSeq = 0;   // bumped on every published frame
 
+    // The pilot's newest decision, feed only. Its own sequence because it does
+    // not come in step with the frames - see LidarDrive in the header.
+    LidarDrive          drive;
+    UInt64              driveSeq = 0;
+
+    // MOTOR 0 lines the board answered with MOTOR 1. Bumped by the feed worker,
+    // consumed by pollMotorRefused() on the UI thread.
+    Atomic<UInt32>      motorRefused{0};
+
     // Session counters. Written only by the worker, read by the UI thread, so
     // atomics keep them off the publish mutex - the UI reads them every frame
     // while the worker only touches them once per revolution.
@@ -256,8 +265,10 @@ struct LidarSource::Impl
     TimePoint scanStart{};
     Atomic<Bool>               scanStarted{false};
 
-    // Touched only by poll(), i.e. only by the UI thread.
+    // Touched only by poll() and its siblings, i.e. only by the UI thread.
     UInt64 lastSeenSeq = 0;
+    UInt64 lastDriveSeq = 0;
+    UInt32 lastRefusedSeen = 0;
 
     // The port this session was opened on - "COM7" or "host:port". Written by
     // start() and held under mtx so the UI can read it after the worker has
@@ -825,6 +836,22 @@ Void LidarSource::Impl::runFeed(Str target)
                 state.store(LidarState::LIDAR_STATE_SCANNING, std::memory_order_release);
                 break;
             }
+            case scanwire::Kind::KIND_DRIVE:
+            {
+                // Stamped with THIS side's clock, because the wire carries no
+                // time and the age of the last one is what says whether the
+                // pilot is still there.
+                LockGuard<Mutex> lock(mtx);
+                drive.mode = line.drive.mode;
+                drive.clearanceMm = line.drive.clearanceMm;
+                drive.hits = line.drive.hits;
+                drive.steer = line.drive.steer;
+                drive.throttle = line.drive.throttle;
+                drive.stop = line.drive.stop;
+                drive.at = monoNow();
+                ++driveSeq;
+                break;
+            }
             case scanwire::Kind::KIND_INFO:
             {
                 LockGuard<Mutex> lock(mtx);
@@ -848,6 +875,18 @@ Void LidarSource::Impl::runFeed(Str target)
                 // proven it, so a spin-up reads as Connecting, not as a picture
                 // that has not arrived.
                 motorActual.store(line.motor, std::memory_order_release);
+                if(line.motor && !motorSent)
+                {
+                    // This side asked for off and the board says on: the pilot
+                    // is driving and keeps its lidar. The WISH is put back to
+                    // match the board's word, because leaving it at off would
+                    // have the next tick see "want != sent" and argue forever,
+                    // one MOTOR 0 per tick against a board that will not budge.
+                    // Counted so the UI can say so once.
+                    motorOn.store(true, std::memory_order_release);
+                    motorSent = true;
+                    motorRefused.fetch_add(1, std::memory_order_release);
+                }
                 if(!line.motor)
                 {
                     state.store(LidarState::LIDAR_STATE_IDLE, std::memory_order_release);
@@ -991,6 +1030,8 @@ Void LidarSource::start(const Str& port, Int32 baud)
         pimpl->scanInfo = LidarScanInfo();
         pimpl->frame = LidarFrame();
         pimpl->frameSeq = 0;
+        pimpl->drive = LidarDrive();
+        pimpl->driveSeq = 0;
 
         // Recorded HERE, not by the worker: port() has to answer the moment
         // start() returns, and a worker that has not been scheduled yet has
@@ -998,8 +1039,11 @@ Void LidarSource::start(const Str& port, Int32 baud)
         pimpl->openedPort = port;
     }
     pimpl->lastSeenSeq = 0;
+    pimpl->lastDriveSeq = 0;
+    pimpl->lastRefusedSeen = 0;
 
     // Counters describe one session, so they restart with it.
+    pimpl->motorRefused.store(0, std::memory_order_relaxed);
     pimpl->statFrames.store(0, std::memory_order_relaxed);
     pimpl->statPoints.store(0, std::memory_order_relaxed);
     pimpl->statTimeouts.store(0, std::memory_order_relaxed);
@@ -1121,6 +1165,29 @@ Bool LidarSource::poll(LidarFrame& out)
 
     out = pimpl->frame;
     pimpl->lastSeenSeq = pimpl->frameSeq;
+    return true;
+}
+
+Bool LidarSource::pollDrive(LidarDrive& out)
+{
+    LockGuard<Mutex> lock(pimpl->mtx);
+    if(pimpl->driveSeq == pimpl->lastDriveSeq)
+    {
+        return false;
+    }
+    out = pimpl->drive;
+    pimpl->lastDriveSeq = pimpl->driveSeq;
+    return true;
+}
+
+Bool LidarSource::pollMotorRefused()
+{
+    const UInt32 now = pimpl->motorRefused.load(std::memory_order_acquire);
+    if(now == pimpl->lastRefusedSeen)
+    {
+        return false;
+    }
+    pimpl->lastRefusedSeen = now;
     return true;
 }
 

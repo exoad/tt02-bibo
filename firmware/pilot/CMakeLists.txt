@@ -36,6 +36,7 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/autonomy.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx
+    src/feed.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -80,10 +81,11 @@ if(PILOT_RPLIDAR_SDK)
     add_executable(lidar_probe tools/lidar_probe.cxx)
     target_link_libraries(lidar_probe PRIVATE pilotlib)
 
-    # The scan feed: the C1's revolutions on TCP 8011 for the hub. SDK builds
-    # only, like the probe - its source compiles on any Linux, but a feed whose
-    # lidar half refuses would listen all day and answer every client with ERR.
-    # tools/status/install.sh points a systemd unit at this binary.
+    # The scan feed: the C1's revolutions on TCP 8011 for the hub, src/feed.cxx
+    # with a lidar loop on top. SDK builds only, like the probe - its source
+    # compiles on any Linux, but a feed whose lidar half refuses would listen
+    # all day and answer every client with ERR. tools/status/install.sh points
+    # a systemd unit at this binary.
     add_executable(scanfeed tools/scanfeed.cxx)
     target_link_libraries(scanfeed PRIVATE pilotlib)
 
@@ -97,7 +99,11 @@ if(PILOT_RPLIDAR_SDK)
 endif()
 
 enable_testing()
-foreach(t proto pilot reactive scanwire)
+# test_feed is here and NOT in firmware/verify.bat: feed.cxx's real half is
+# Linux sockets, and on MSVC every call refuses, so a .bat could only prove
+# that start() returns false - which test_pilot already proves for the lidar
+# and the link. On the board it exercises the feed over loopback TCP.
+foreach(t proto pilot reactive scanwire feed)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

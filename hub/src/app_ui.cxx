@@ -64,6 +64,12 @@ namespace
   LidarFrame latestFrame;
   Bool       haveFrame = false;
 
+  // The pilot's last decision over the feed, kept past its freshness so the
+  // one that went stale can still be read in a log; pilotDriving() is the test
+  // before anything is drawn from it.
+  LidarDrive latestDrive;
+  Bool       haveDrive = false;
+
   // The C1 is specified over 0.05 - 12 m: below is the housing, above is noise.
   // The same window governs what the map draws, so nothing is shown uncounted.
   constexpr Float32 MIN_VALID_MM = 50.0f;
@@ -3070,6 +3076,17 @@ namespace
 
   Void pumpData()
   {
+      // The pilot's word, when there is one. Read before the frame so a D that
+      // followed its F is on screen in the same frame as the scan it judged.
+      if(lidarSource.pollDrive(latestDrive))
+      {
+          haveDrive = true;
+      }
+      if(lidarSource.pollMotorRefused())
+      {
+          LOG_WARN("lidar", "the pilot keeps the motor while it drives");
+      }
+
       const Bool newFrame = lidarSource.poll(latestFrame);
       if(newFrame)
       {
@@ -3165,6 +3182,7 @@ namespace
 
       radarView.clear();
       haveFrame = false;
+      haveDrive = false;
       hzCount = 0;
       lidarSource.start(target, feedSelected() ? 0 : BAUDS[baudIndex].rate);
   }
@@ -3184,6 +3202,109 @@ namespace
   // plate, the recorder caption - and the same 16 logical px radar.cxx puts its
   // scale bar at, so the overlays share an x. Equals IndentSpacing.
   constexpr Float32 HUD_INSET = 16.0f;
+
+  // ---------------------------------------------------- the pilot's decision
+
+  // Whether someone on the board is driving the car off this scan: the pilot's
+  // last decision is recent. The feed is the same whether the pilot or a bare
+  // scanfeed serves it, so the age of the last D line is the only thing that
+  // tells them apart - and nothing is drawn from a stale one.
+  Bool pilotDriving()
+  {
+      return haveDrive && latestDrive.fresh();
+  }
+
+  // A decision that halts or backs the car is the WARN semantic; one that
+  // drives it is the map's accent. Keyed on what was SENT, not on the mode's
+  // name: stop and blind both send STOP, reverse sends a negative throttle.
+  ImU32 pilotColor()
+  {
+      const Bool halting = latestDrive.stop || latestDrive.throttle < 0.0f;
+      return halting ? ui::plot::WARN : ui::plot::ACCENT;
+  }
+
+  // Full lock on the steering, as the heading arrow draws it. About what the
+  // servo's throw is on this chassis (1230 to 1670 us around 1484, see
+  // docs/conventions.md); the arrow only has to say which way and how hard,
+  // it does not measure the wheels.
+  constexpr Float32 PILOT_STEER_LOCK_DEG = 30.0f;
+
+  // Over the flat map while the pilot drives: the corridor it measures
+  // clearance in, the clearance it found, and the heading it chose. From the
+  // sensor and with 0 deg up, because that is where and how the pilot measures
+  // (reactive.hxx: d*cos(b) ahead of the LIDAR) and neither the map nor the
+  // wire knows a lidar-to-vehicle transform. Drawn the way the Fit mode draws
+  // its corridor and the map draws its heading arrow, so it reads as the map's
+  // own furniture rather than a second drawing on top.
+  Void drawPilotOverlay(ImDrawList* dl)
+  {
+      // Minimal is the picture and nothing else, the same rule as the HUD.
+      if(!pilotDriving() || radarView.is3D || radarView.mode == MapMode::MAP_MODE_MINIMAL)
+      {
+          return;
+      }
+
+      // Blind is a decision with no measurement behind it. A corridor and a
+      // heading drawn from nothing would be the picture of a scan the pilot did
+      // not have; the HUD line says "blind" and the map shows the scan as is.
+      if(latestDrive.mode == "blind")
+      {
+          return;
+      }
+
+      const ImVec2  s0 = radarView.toScreen(ImVec2(0.0f, 0.0f));
+      const Float32 ppm = (radarView.toScreen(ImVec2(1000.0f, 0.0f)).x - s0.x) / 1000.0f;
+      if(!(ppm > 0.0f))
+      {
+          return;
+      }
+
+      const Float32 dpi = uiDpiScale;
+      const ImU32   col = pilotColor();
+      const ImU32   dim = (col & 0x00FFFFFFu) | (static_cast<ImU32>(0xB0u) << IM_COL32_A_SHIFT);
+      const ImU32   glow = (col & 0x00FFFFFFu) | (static_cast<ImU32>(34u) << IM_COL32_A_SHIFT);
+      const reactive::Config& cfg = reactive::tuning();
+
+      // The corridor: two lines at the pilot's half width, from the sensor to
+      // its horizon - beyond clearMm nothing counts as in the way - or to the
+      // clearance if that sits further out. The clearance is a bar across it,
+      // where the Nth-nearest return was and the one number the mode came from.
+      const Float32 hw = cfg.halfWidthMm * ppm;
+      const Float32 clearMm = static_cast<Float32>(latestDrive.clearanceMm);
+      const Float32 yTop = s0.y - std::max(cfg.clearMm, clearMm) * ppm;
+      const Float32 yClear = s0.y - clearMm * ppm;
+      if(hw >= 1.5f)
+      {
+          dl->AddLine(ImVec2(s0.x - hw, s0.y), ImVec2(s0.x - hw, yTop), dim, 1.4f * dpi);
+          dl->AddLine(ImVec2(s0.x + hw, s0.y), ImVec2(s0.x + hw, yTop), dim, 1.4f * dpi);
+          dl->AddLine(ImVec2(s0.x - hw, yClear), ImVec2(s0.x + hw, yClear), col, 2.2f * dpi);
+      }
+
+      // The heading: a short arrow from the sensor, swung by the steering
+      // fraction at full lock per unit. Left is negative on the wire and the
+      // map's bearings grow clockwise, so a negative angle is left here too.
+      // Half a metre of the world, kept between two screen sizes so it neither
+      // vanishes zoomed out nor spans the room zoomed in.
+      const Float32 ang = latestDrive.steer * PILOT_STEER_LOCK_DEG * (IM_PI / 180.0f);
+      const ImVec2  d(std::sin(ang), -std::cos(ang));
+      const Float32 len = std::clamp(500.0f * ppm, 24.0f * dpi, 80.0f * dpi);
+      const Float32 th = 2.0f * dpi;
+      const Float32 head = len * 0.30f;
+      const ImVec2  t(s0.x + d.x * len, s0.y + d.y * len);
+
+      // Emissive, like the map's heading arrow: a wide dim pass under a narrow
+      // bright one, and an open head of two strokes swept back at +/-26 deg.
+      dl->AddLine(s0, t, glow, th * 3.2f);
+      dl->AddLine(s0, t, col, th);
+      for(Int32 s = -1; s <= 1; s += 2)
+      {
+          const Float32 back = ang + IM_PI + static_cast<Float32>(s) * 26.0f * (IM_PI / 180.0f);
+          const ImVec2  b(std::sin(back), -std::cos(back));
+          const ImVec2  e(t.x + b.x * head, t.y + b.y * head);
+          dl->AddLine(t, e, glow, th * 3.2f);
+          dl->AddLine(t, e, col, th);
+      }
+  }
 
   Void drawMapHud(const ImVec2& p0, const ImVec2& size)
   {
@@ -3337,6 +3458,35 @@ namespace
           if(radarView.diag[0] != 0)
           {
               dl->AddText(f, px, ImVec2(mx, my), ui::plot::LABEL, radarView.diag.data());
+          }
+      }
+
+      // ---- third line, top left: the pilot's decision ----------------------
+      // The same shape as the mode line - the word in a state colour, the
+      // numbers after it - and only while someone is deciding. A blind tick
+      // has no numbers worth printing: they are all zero by definition.
+      if(pilotDriving())
+      {
+          const Float32 py = y + (px + st.ItemSpacing.y) * 2.0f;
+          Float32       hx = p0.x + pad;
+
+          Array<Char, 32> who;
+          std::snprintf(who.data(), who.size(), "pilot  %s", latestDrive.mode.c_str());
+          dl->AddText(f, px, ImVec2(hx, py), pilotColor(), who.data());
+
+          if(latestDrive.mode != "blind")
+          {
+              hx += f->CalcTextSizeA(px, FLT_MAX, 0.0f, who.data()).x + 12.0f * uiDpiScale;
+              Array<Char, 96> what;
+              std::snprintf(
+                  what.data(),
+                  what.size(),
+                  "clear %d mm   steer %+.2f  thr %.2f",
+                  latestDrive.clearanceMm,
+                  static_cast<Float64>(latestDrive.steer),
+                  static_cast<Float64>(latestDrive.throttle)
+              );
+              dl->AddText(fn, px, ImVec2(hx, py), ui::plot::LABEL, what.data());
           }
       }
   }
@@ -3641,10 +3791,13 @@ namespace
       Array<Char, 64> lidarExtra= {};
       if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
       {
-          std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s  %.1f Hz",
+          // "pilot" beside the rate while the board is driving off this scan:
+          // one word, because the strip is one line.
+          std::snprintf(lidarExtra.data(), lidarExtra.size(), "%s  %.1f Hz%s",
                         (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
                             ? lidarPorts[portIndex].c_str() : "",
-                        haveFrame ? latestFrame.hz : 0.0f);
+                        haveFrame ? latestFrame.hz : 0.0f,
+                        pilotDriving() ? "  pilot" : "");
       }
       else if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
       {
@@ -4441,7 +4594,15 @@ namespace
       Array<Char, 48> st;
       if(lidarSource.state() == LidarState::LIDAR_STATE_SCANNING)
       {
-          std::snprintf(st.data(), st.size(), "%.1f Hz", haveFrame ? latestFrame.hz : 0.0f);
+          std::snprintf(
+              st.data(),
+              st.size(),
+              "%.1f Hz%s",
+              haveFrame ? latestFrame.hz : 0.0f,
+              // One word, the same one the strip uses: "pilot driving" was
+              // cut to "pilot dr..." by the state column at the default width.
+              pilotDriving() ? "  pilot" : ""
+          );
       }
       else
       {
@@ -9754,6 +9915,7 @@ namespace
               ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
           );
           radarView.draw(ImGui::GetContentRegionAvail());
+          drawPilotOverlay(ImGui::GetWindowDrawList());
           drawMapHud(p0, ImVec2(w, h));
           mapEdge(p0, w, h);
           ImGui::EndChild();
