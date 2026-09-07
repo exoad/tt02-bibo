@@ -163,8 +163,10 @@ else may open it; a file older than three seconds reads as "pilot not running".
 
 installs a systemd unit and a NetworkManager dispatcher hook, so the page
 starts when the board joins `WhoopWhoop` and stops when it leaves, and turns
-mDNS on for that profile. `BIBO_STATUS_PORT=8080 python3 status_server.py`
-runs it by hand, on any network, without root.
+mDNS on - both systemd-resolved's global switch and the profile's, since on
+this Ubuntu the second cannot exceed the first. Run it again after a pull; it
+is idempotent. `BIBO_STATUS_PORT=8080 python3 status_server.py` runs the page
+by hand, on any network, without root.
 
 The first run of `pilot --dry --seconds 12` against the real C1 was on the
 Orange Pi on 2026-09-06, with the Pico still on the laptop: the board saw its

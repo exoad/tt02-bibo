@@ -122,12 +122,13 @@ in `/etc/NetworkManager/system-connections/` and nowhere else - not in this
 repo, not in a chat.
 
 **Addresses come from the phone's DHCP and will change**, so members are named,
-not numbered: the Pi is `bibobox` and should answer as `bibobox.local` over
-mDNS (the responder is not on yet - `sudo nmcli connection modify WhoopWhoop
-connection.mdns yes` turns systemd-resolved's on for that profile; Windows
-resolves `.local` natively). Until then the tailnet address `100.125.100.51`
-works whenever the phone has data. The hub's "car's address" field accepts a
-hostname for the same reason.
+not numbered: the Pi is `bibobox` and answers as `bibobox.local` over mDNS
+(systemd-resolved's responder; `firmware/pilot/tools/status/install.sh` turns it
+on, globally AND per profile, because on Ubuntu 22.04 the profile setting alone
+cannot exceed the global one, which ships off). Windows and phones resolve
+`.local` natively. The tailnet address `100.125.100.51` also works whenever the
+phone has data. The hub's "car's address" field accepts a hostname for the same
+reason.
 
 While the car is out, the Pi serves one plain-text page - `http://bibobox.local/`,
 CPU temperature, lidar and Pico state from the pilot, refreshed every two
