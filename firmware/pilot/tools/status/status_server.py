@@ -108,7 +108,10 @@ def lines():
             fmt(status.get('revPerS')), fmt(status.get('mode')),
             fmt(status.get('clearanceMm')), fmt(status.get('hits')),
             '  LOST' if status.get('lidarLost') else ''))
-        out.append('pico          %s' % fmt(status.get('pico')))
+        # The pilot's phrase is the console's, and the console's begins with the
+        # word this line already starts with.
+        pico = fmt(status.get('pico'))
+        out.append('pico          %s' % (pico[5:] if pico.startswith('pico ') else pico))
     else:
         if status is None:
             out.append('pilot         not running (no status file)')
