@@ -35,7 +35,10 @@
 
 #include "shared.hxx"
 
-namespace link
+// carlink, not link: `link` is a POSIX function in <unistd.h>, which glibc's
+// <thread> drags in, and a namespace with a libc function's name will not
+// compile on the board this file exists for. MSVC never noticed.
+namespace carlink
 {
 
   enum class Result

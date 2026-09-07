@@ -48,19 +48,19 @@ Int32 main()
 
     // ---- the link refuses, and says which absence it is --------------------
     {
-        link::Config cfg;
+        carlink::Config cfg;
         cfg.where = "/dev/ttyACM0";
 
-        const link::Result r = link::open(cfg);
+        const carlink::Result r = carlink::open(cfg);
         check(
-            r == link::Result::RESULT_NO_PLATFORM,
+            r == carlink::Result::RESULT_NO_PLATFORM,
             "open() refuses, and not by pretending the port is missing"
         );
-        std::printf("        \"%s\"\n", link::why(r));
+        std::printf("        \"%s\"\n", carlink::why(r));
 
-        check(!link::isOpen(), "and the link is not open afterwards");
+        check(!carlink::isOpen(), "and the link is not open afterwards");
         check(
-            link::send("PING") == link::Result::RESULT_NOT_OPEN,
+            carlink::send("PING") == carlink::Result::RESULT_NOT_OPEN,
             "send() on no link is NOT_OPEN, not a silent success"
         );
 
@@ -69,26 +69,26 @@ Int32 main()
         Vec<Str> lines;
         lines.push_back("a line from somewhere else");
         check(
-            link::drain(lines) == link::Result::RESULT_NOT_OPEN,
+            carlink::drain(lines) == carlink::Result::RESULT_NOT_OPEN,
             "drain() on no link is NOT_OPEN"
         );
         check(lines.size() == 1, "and it did not clear a caller's vector on the way out");
 
-        check(link::silentForMs() == -1, "silence is unknown, not zero");
+        check(carlink::silentForMs() == -1, "silence is unknown, not zero");
     }
 
     // Every Result has a sentence, including whatever gets added later.
     {
-        const link::Result all[] = {
-            link::Result::RESULT_OK,           link::Result::RESULT_NO_PLATFORM,
-            link::Result::RESULT_NO_PORT,      link::Result::RESULT_DENIED,
-            link::Result::RESULT_NOT_OPEN,     link::Result::RESULT_WRITE_FAILED,
-            link::Result::RESULT_CLOSED,
+        const carlink::Result all[] = {
+            carlink::Result::RESULT_OK,           carlink::Result::RESULT_NO_PLATFORM,
+            carlink::Result::RESULT_NO_PORT,      carlink::Result::RESULT_DENIED,
+            carlink::Result::RESULT_NOT_OPEN,     carlink::Result::RESULT_WRITE_FAILED,
+            carlink::Result::RESULT_CLOSED,
         };
         Bool named = true;
-        for(const link::Result r : all)
+        for(const carlink::Result r : all)
         {
-            const CharSeq s = link::why(r);
+            const CharSeq s = carlink::why(r);
             if(s == nullptr || std::strcmp(s, "?") == 0 || *s == '\0')
             {
                 named = false;
