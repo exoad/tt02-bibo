@@ -1,0 +1,10 @@
+[Unit]
+Description=bibo: switch to the field hotspot when it is in the air
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+# install.sh rewrites this path to wherever the checkout actually is.
+ExecStart=/bin/sh /home/jack/tt02-bibo/firmware/pilot/tools/status/prefer-hotspot.sh
+
+# No [Install] section: the TIMER is what gets enabled, and it pulls this in.

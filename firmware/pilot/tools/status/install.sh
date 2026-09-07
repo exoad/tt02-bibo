@@ -17,8 +17,13 @@
 #      systemd-resolved's GLOBAL setting, which ships off: the drop-in turns
 #      the global on, the profile setting turns the link on at each connect,
 #      and `resolvectl mdns` turns the link on NOW without a reconnect.
-#   5. starts both now if the hotspot is already up, since the dispatcher
-#      only fires on the NEXT connect
+#   5. the hotspot-preference timer: NetworkManager never leaves a working
+#      connection for another, so a board that booted at home stays on the
+#      home Wi-Fi while the phone's hotspot comes up beside it. The timer asks
+#      every 20 s and switches; and the hotspot profile gets a higher
+#      autoconnect priority so a boot with both in the air picks it outright.
+#   6. starts both services now if the hotspot is already up, since the
+#      dispatcher only fires on the NEXT connect
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -42,7 +47,14 @@ if [ ! -x "$SCANFEED" ]; then
 fi
 
 install -m 755 "$HERE/90-bibo-status" /etc/NetworkManager/dispatcher.d/90-bibo-status
+
+sed "s|ExecStart=.*|ExecStart=/bin/sh $HERE/prefer-hotspot.sh|" \
+    "$HERE/bibo-prefer-hotspot.service" > /etc/systemd/system/bibo-prefer-hotspot.service
+chmod 644 /etc/systemd/system/bibo-prefer-hotspot.service
+install -m 644 "$HERE/bibo-prefer-hotspot.timer" /etc/systemd/system/bibo-prefer-hotspot.timer
 systemctl daemon-reload
+systemctl enable --now bibo-prefer-hotspot.timer > /dev/null 2>&1
+echo "hotspot preference: checking every 20 s ($(systemctl is-active bibo-prefer-hotspot.timer))"
 
 mkdir -p /etc/systemd/resolved.conf.d
 printf '[Resolve]\n# The car answers as %s.local on the field network; see install.sh.\nMulticastDNS=yes\n' \
@@ -51,6 +63,7 @@ systemctl restart systemd-resolved
 
 if nmcli -t -f NAME connection show | grep -qx WhoopWhoop; then
     nmcli connection modify WhoopWhoop connection.mdns yes
+    nmcli connection modify WhoopWhoop connection.autoconnect-priority 10
     echo "mDNS on for WhoopWhoop: the board answers as $(hostname).local there"
 else
     echo "no WhoopWhoop profile - profile mDNS not touched; add the hotspot profile first"

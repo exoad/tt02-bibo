@@ -1,0 +1,13 @@
+[Unit]
+Description=bibo: look for the field hotspot every 20 s
+
+[Timer]
+# Half a minute after boot, then every 20 s after each run. A missed hotspot
+# costs at most one cycle; a scan every 20 s while on the home network costs
+# nothing anyone notices.
+OnBootSec=30s
+OnUnitActiveSec=20s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
