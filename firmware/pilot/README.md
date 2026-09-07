@@ -191,33 +191,61 @@ Pico has been heard), and honest absences for what nothing measures yet
 and the page reads it, because the pilot holds the lidar's port and nothing
 else may open it; a file older than three seconds reads as "pilot not running".
 
-`/dash` on the same port is the page for when the car drives itself. It is a
-client-side app in `tools/status/dash/` - `index.html`, `dash.css` and six ES
-modules, vanilla, nothing fetched from anywhere but the board - and
-`status_server.py` serves those files and data, nothing else: `/scan` is the
-feed's F line and, while a pilot is deciding, its D line (`src/scanwire.hxx`,
-served as-is so there is one wire format), a 404 with the reason when there is
-no revolution younger than three seconds; `/json` is the text page's numbers
-plus the heartbeat and the page's own pilot process. The page polls `/scan`
-every 100 ms and `/json` every second, one request of each in flight, and
-draws only on new data.
+`/dash` on the same port is the page for when the car drives itself: the hub
+(`hub/`) in a browser, the same chrome, views and words, so the phone and the
+laptop read as one product. It is a client-side app in `tools/status/dash/` -
+`index.html`, `dash.css` and seven ES modules, vanilla, nothing fetched from
+anywhere but the board, no font either: the type is whatever the phone has
+closest to the hub's Segoe UI and Cascadia Mono - and `status_server.py`
+serves those files and data, nothing else: `/scan` is the feed's F line and,
+while a pilot is deciding, its D line (`src/scanwire.hxx`, served as-is so
+there is one wire format), a 404 with the reason when there is no revolution
+younger than three seconds; `/json` is the text page's numbers plus the
+heartbeat and the page's own pilot process. The page polls `/scan` every
+100 ms and `/json` every second, one request of each in flight, and draws
+only on new data.
 
-What it draws: a 2D radar (front up, bearings clockwise, rings labelled, the
-range growing at once and shrinking slowly, the nearest return ringed in red
-with its millimetres, the forward arrow always; with a D line the corridor,
-the clearance bar and a steer arrow - accent when the throttle is on, orange in
-stop, reverse and blind), a 3D cloud of the same revolution on a ground grid
-around a car box, orbited by drag, zoomed by wheel or pinch, reset by a double
-tap, from the hub's default camera behind and above the car (a 2D-canvas
-perspective projection, not WebGL: five hundred points a frame cost nothing
-either way, and the 2D path is the one no phone browser lacks), and a sidebar
-of states with the mode as the biggest word and every absence worded - "pilot
-not running", "not in the heartbeat", "no answer from the car" - never a stale
-number. When there is no scan the radar draws only the car and the reason in
-large type: a picture of a wall the car has already left is a lie with better
-graphics. On a laptop the two views and the sidebar sit side by side; on a
-phone in portrait they stack, and the bar with LOOK and STOP stays at the
-bottom edge under the thumb.
+The look is `hub/src/theme.cxx` transcribed: gruvbox dark on the casing
+(bg0), keys a step lighter with one pixel of light on top and one of shadow
+below (`ui::bevelRect`), wells a step darker with the bevel inverted, every
+hairline bg3, no rounding, no accent on any edge; the hub's type scale
+(12/15/18/22 px), its spacing (8/6, 8/4), its lamps (`ui::led`), and inside
+the viewport the hub's map palette - the sixteen ANSI colours on pure black,
+nothing tinted. The chrome is the hub's too: a tab strip over the view - 2D,
+3D, Log; `?tab=3d` opens one and the address follows a click - the view set
+into the casing under it, a 360 px sidebar of collapsing panels (System: Pico
+link, Board, Lidar, Pilot, Feed rows with a lamp and a state word, then Quick
+actions with LOOK in the green casing and STOP in the amber one and their
+one-line reply; Sensors, the RPLIDAR C1 row and the not-wired ones as the hub
+lists them; Pilot, the mode in the stat face over clear / hits / steer /
+throttle / sent), and the status strip along the bottom: LIDAR, PICO, BOARD,
+PILOT with a dot and a state each. On a laptop that is the hub's window, no
+page scroll; on a phone in portrait the same parts stack - strip, a square
+view, the panels - and the status strip stays stuck to the bottom edge.
+
+What the views draw: the 2D radar as `radar.cxx` draws Points mode - front
+up, bearings clockwise, the axes, rings a metre apart with their distances in
+a column at 25 deg, a compass ring at the fit radius ticked every 5 deg with
+the bearing numbers inside it, white points, the nearest return ringed in red
+with its millimetres, the emissive cyan heading arrow, the car to scale, a map
+scale bottom-left, and the HUD: the state lamp and word with the host
+top-left, "Points", the pilot's line ("pilot stop  clear 330 mm  steer -0.62
+thr 0.00", amber when the decision halts or backs the car, cyan when it
+drives), pts/s and Hz top-right, "fit N m across" bottom-right; with a D line
+the pilot overlay from `app_ui.cxx` - the corridor to the pilot's horizon,
+the clearance bar, the steer arrow at full lock 30 deg - and nothing for
+blind. The 3D cloud is the hub's Cloud scene: rings and radials on the
+ground, each return a white tick from the ground to the scan plane, the car
+box, the heading along +y, the same HUD with "Cloud  N returns | car lock,
+orbit 0 deg, 4.2 m out"; orbited by drag, zoomed by wheel or pinch, reset by
+a double tap, from the hub's default camera (a 2D-canvas perspective
+projection, not WebGL: five hundred points a frame cost nothing either way,
+and the 2D path is the one no phone browser lacks). The Log is what the page
+saw happen, timestamped, newest at the bottom: the feed coming and going, the
+board answering, the pilot process and its last line, and what LOOK and STOP
+were told. Every absence is worded - "not running", "no answer", "No scan
+data" with the reason under it - never a stale number: a picture of a wall
+the car has already left is a lie with better graphics.
 
 LOOK starts the pilot in dry mode as this service's child and STOP stops it;
 each answers one line, shown for three seconds. There is deliberately no
