@@ -78,9 +78,18 @@ should not be planned around until something needs it.
 
 ## Building
 
-    tests\build_proto_test.bat run
-    tests\build_pilot_test.bat run
+On the laptop, MSVC:
 
-Both compile with MSVC on a laptop. There is no Pi build yet because there is no
-Pi, and no serial implementation to build for it - see `src/link.hxx`, which says
-so in its own words rather than returning success.
+    testsuild_proto_test.bat run
+    testsuild_pilot_test.bat run
+    testsuild_reactive_test.bat run
+
+On the board (or any Linux box), g++ and CMake - the same sources, no Pico SDK:
+
+    cmake -S firmware/pilot -B build-pilot && cmake --build build-pilot -j
+    ctest --test-dir build-pilot --output-on-failure
+
+First built on the Orange Pi on 2026-09-07: Ubuntu Jammy, gcc 11.4, aarch64,
+41 + 17 + 45 checks passing. The first thing the Pi build found was that
+`namespace link` collides with POSIX `link()` from `<unistd.h>` - a name MSVC
+never objected to - which is why the link's namespace is `carlink`.

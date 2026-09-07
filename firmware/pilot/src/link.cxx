@@ -6,7 +6,7 @@
 
 #include "link.hxx"
 
-namespace link
+namespace carlink
 {
   namespace
   {

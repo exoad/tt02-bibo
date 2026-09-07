@@ -65,7 +65,7 @@ namespace autonomy
 
       // The car has not spoken within Config::silenceMs. The correct response
       // is to stop it, and the caller owns that decision - see the note on
-      // link::silentForMs.
+      // carlink::silentForMs.
       STATUS_STALE,
   };
 
@@ -110,7 +110,7 @@ namespace autonomy
       Float32 tickHz = 50.0f;
 
       // Longest the car may be silent before STATUS_STALE. Deliberately the
-      // same default as link::Config::silenceMs, and deliberately a separate
+      // same default as carlink::Config::silenceMs, and deliberately a separate
       // number: one is about a dead cable and this is about a dead loop.
       Int32 silenceMs = 500;
 
