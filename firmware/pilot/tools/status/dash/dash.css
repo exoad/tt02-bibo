@@ -1,193 +1,343 @@
-/* The field screen's chrome. A clean dark dashboard, as a good phone app
-   draws one: a near-black neutral ground with the scan on it, soft rounded
-   panels in translucent dark grey with a hairline of white at 8 % where a
-   surface is needed at all, the phone's own sans with tabular numerals, one
-   accent (blue) for what is the car's own - the heading arrow, the active
-   toggle, LOOK - and three state colours that mean one thing everywhere:
-   green drives, amber backs off, red halts or is missing. theme.js carries
-   the same values for the canvases. Nothing is fetched, so nothing can fail
-   to arrive.
+/* The field page's chrome, Material Design 3, dark scheme. Every colour on
+   this page - in CSS and, through theme.js, on the two canvases - is one of
+   the tokens below: the M3 baseline dark scheme plus two custom colours for
+   the car's states (success drives, warning backs off or is blind; error is
+   the scheme's own and halts or is missing). Type is the M3 scale on the
+   phone's Roboto; shape is the M3 scale; elevation in dark is tonal, no
+   shadows; every interactive element carries an M3 state layer.
 
-   MAIN is the viewport: no page scroll, the canvas is the whole thing, the
-   words and keys float over it at the top and the bottom under scrims so
-   they read over points in sunlight. Portrait first; a laptop gets the same
-   thing centred at phone width; a landscape phone the same with a smaller
-   word and narrower keys. DETAILS is a normal scrolling page of cards. */
+   The layout is a grid over the whole viewport, fluid in both axes: a top
+   app bar, one navigation element that is a bar at the bottom on a compact
+   window and a rail on the left from 600 px, and the panes. The dash - the
+   scan and its stat cards - takes all remaining space; inside it the stage
+   (the canvas) takes all remaining space and the stat cards dock under it on
+   a tall box or beside it on a wide one (a container query on aspect ratio).
+   From 840 px the supporting pane with the details cards is always beside
+   the dash. Nothing here has a fixed width or a fixed height but the bars. */
 
 :root {
-  --bg: #0b0f14;
-  --panel: rgba(20, 24, 30, .85);
-  --line: rgba(255, 255, 255, .08);
-  --ink: #ffffff;
-  --muted: rgba(255, 255, 255, .6);
-  --dim: rgba(255, 255, 255, .35);
-  --accent: #4f8cff; --accent-press: #3a72db;
-  --good: #34d399; --warn: #fbbf24; --bad: #f87171; --bad-press: #d95f5f;
-  --ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
-  --scrim: rgba(11, 15, 20, .82);
+  /* ---- M3 baseline dark scheme ---------------------------------------- */
+  --md-sys-color-surface: #141218;
+  --md-sys-color-surface-dim: #141218;
+  --md-sys-color-surface-bright: #3B383E;
+  --md-sys-color-surface-container-lowest: #0F0D13;
+  --md-sys-color-surface-container-low: #1D1B20;
+  --md-sys-color-surface-container: #211F26;
+  --md-sys-color-surface-container-high: #2B2930;
+  --md-sys-color-surface-container-highest: #36343B;
+  --md-sys-color-on-surface: #E6E0E9;
+  --md-sys-color-on-surface-variant: #CAC4D0;
+  --md-sys-color-outline: #938F99;
+  --md-sys-color-outline-variant: #49454F;
+  --md-sys-color-primary: #D0BCFF;
+  --md-sys-color-on-primary: #381E72;
+  --md-sys-color-primary-container: #4F378B;
+  --md-sys-color-on-primary-container: #EADDFF;
+  --md-sys-color-secondary: #CCC2DC;
+  --md-sys-color-on-secondary: #332D41;
+  --md-sys-color-secondary-container: #4A4458;
+  --md-sys-color-on-secondary-container: #E8DEF8;
+  --md-sys-color-tertiary: #EFB8C8;
+  --md-sys-color-on-tertiary: #492532;
+  --md-sys-color-tertiary-container: #633B48;
+  --md-sys-color-on-tertiary-container: #FFD8E4;
+  --md-sys-color-error: #F2B8B5;
+  --md-sys-color-on-error: #601410;
+  --md-sys-color-error-container: #8C1D18;
+  --md-sys-color-on-error-container: #F9DEDC;
+  --md-sys-color-inverse-surface: #E6E0E9;
+  --md-sys-color-inverse-on-surface: #322F35;
+  --md-sys-color-scrim: #000000;
+  /* ---- custom colours, harmonized to the scheme ------------------------ */
+  --md-custom-color-success: #7ED89A;
+  --md-custom-color-on-success: #003917;
+  --md-custom-color-success-container: #005227;
+  --md-custom-color-on-success-container: #9AF5B6;
+  --md-custom-color-warning: #E9C46A;
+  --md-custom-color-on-warning: #3F2E00;
+  --md-custom-color-warning-container: #5B4300;
+  --md-custom-color-on-warning-container: #FFDF9E;
+  /* ---- type ------------------------------------------------------------ */
+  --md-ref-typeface-plain: Roboto, "Segoe UI", system-ui, sans-serif;
+  --md-ref-typeface-mono: "Roboto Mono", Consolas, "Cascadia Mono", Menlo, monospace;
+  /* ---- shape ----------------------------------------------------------- */
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 9999px;
+  /* ---- state layers and motion ----------------------------------------- */
+  --md-sys-state-hover-opacity: 0.08;
+  --md-sys-state-focus-opacity: 0.10;
+  --md-sys-state-pressed-opacity: 0.10;
+  --md-sys-motion-duration-short: 150ms;
+  /* The stage's ground; the canvases read it for the halo under their text. */
+  --scan-bg: var(--md-sys-color-surface);
 }
 
-html { background: var(--bg); color: var(--ink); font: 16px/1.3 var(--ui); font-variant-numeric: tabular-nums; }
-body { margin: 0; min-height: 100vh; min-height: 100dvh; -webkit-text-size-adjust: 100%; }
+/* ---- the M3 type scale ------------------------------------------------- */
+.display-large  { font: 400 57px/64px var(--md-ref-typeface-plain); letter-spacing: -0.25px; }
+.display-medium { font: 400 45px/52px var(--md-ref-typeface-plain); }
+.display-small  { font: 400 36px/44px var(--md-ref-typeface-plain); }
+.headline-large  { font: 400 32px/40px var(--md-ref-typeface-plain); }
+.headline-medium { font: 400 28px/36px var(--md-ref-typeface-plain); }
+.headline-small  { font: 400 24px/32px var(--md-ref-typeface-plain); }
+.title-large  { font: 400 22px/28px var(--md-ref-typeface-plain); }
+.title-medium { font: 500 16px/24px var(--md-ref-typeface-plain); letter-spacing: 0.15px; }
+.title-small  { font: 500 14px/20px var(--md-ref-typeface-plain); letter-spacing: 0.1px; }
+.body-large  { font: 400 16px/24px var(--md-ref-typeface-plain); letter-spacing: 0.5px; }
+.body-medium { font: 400 14px/20px var(--md-ref-typeface-plain); letter-spacing: 0.25px; }
+.body-small  { font: 400 12px/16px var(--md-ref-typeface-plain); letter-spacing: 0.4px; }
+.label-large  { font: 500 14px/20px var(--md-ref-typeface-plain); letter-spacing: 0.1px; }
+.label-medium { font: 500 12px/16px var(--md-ref-typeface-plain); letter-spacing: 0.5px; }
+.label-small  { font: 500 11px/16px var(--md-ref-typeface-plain); letter-spacing: 0.5px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- tones: colour means a state or it is not used ---------------------- */
+.tone-success { color: var(--md-custom-color-success); }
+.tone-warning { color: var(--md-custom-color-warning); }
+.tone-error   { color: var(--md-sys-color-error); }
+.tone-variant { color: var(--md-sys-color-on-surface-variant); }
+.tone-surface { color: var(--md-sys-color-on-surface); }
+
+/* ---- ground ------------------------------------------------------------- */
 * { box-sizing: border-box; }
+html { height: 100%; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; width: 100vw; width: 100dvw; height: 100vh; height: 100dvh; overflow: hidden;
+  background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  font: 400 14px/20px var(--md-ref-typeface-plain); letter-spacing: 0.25px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "top" "main" "nav";
+}
 [hidden] { display: none !important; }
 button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+h1, h2, p { margin: 0; }
+.icon { display: block; flex: none; }
+:focus-visible { outline: 3px solid var(--md-sys-color-secondary); outline-offset: 2px; }
 
-/* Colour means a state or it is not used. */
-.good { color: var(--good); }
-.warn { color: var(--warn); }
-.bad { color: var(--bad); }
-.muted { color: var(--muted); }
-.ink { color: var(--ink); }
+/* An M3 state layer: the on-colour at 8 / 10 / 10 %, on every interactive
+   element, as a layer that follows the element's shape. */
+.state { position: relative; }
+.state::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: currentColor; opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short) linear;
+}
+.state:hover::before { opacity: var(--md-sys-state-hover-opacity); }
+.state:focus-visible::before { opacity: var(--md-sys-state-focus-opacity); }
+.state:active::before { opacity: var(--md-sys-state-pressed-opacity); }
+.state:disabled::before { opacity: 0; }
+/* The 48 px touch target M3 gives a 40 px control. */
+.target::after { content: ""; position: absolute; inset: -4px; }
 
-/* ---- MAIN ------------------------------------------------------------------ */
-#main {
-  position: fixed; inset: 0; height: 100vh; height: 100dvh;
-  overflow: hidden; background: var(--bg);
+/* ---- top app bar (small; centre-aligned on compact) --------------------- */
+.top-bar {
+  grid-area: top; height: 64px; display: flex; align-items: center; gap: 4px;
+  padding: 0 4px; background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
 }
-#main canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-/* The drag on the cloud is ours - an orbit, not a scroll - so the browser
-   must not take it. */
-#cloud-c { touch-action: none; }
-
-/* The overlays let touches through to the canvas except on their controls. */
-#top, #bottom { position: absolute; left: 0; right: 0; pointer-events: none; }
-#top button, #bottom button { pointer-events: auto; }
-
-#top {
-  top: 0; padding: calc(12px + env(safe-area-inset-top, 0px)) 20px 36px;
-  background: linear-gradient(var(--scrim) 0%, var(--scrim) 55%, rgba(11, 15, 20, 0) 100%);
-}
-#bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-
-/* The 2D / 3D switch: a small segmented control on a rounded track. */
-#seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
-#seg button {
-  height: 32px; min-width: 52px; padding: 0 14px; border: 0; border-radius: 999px;
-  background: transparent; color: var(--muted); font-weight: 600; font-size: 15px; cursor: pointer;
-}
-#seg button.on { background: var(--accent); color: var(--ink); }
-
-/* The way to the details: one round translucent key. */
-#info {
-  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line);
-  background: var(--panel); color: var(--ink); font-weight: 700; font-size: 20px;
-  font-family: Georgia, "Times New Roman", serif; font-style: italic; cursor: pointer;
-}
-#info:active { background: rgba(255, 255, 255, .18); }
-
-/* The one line that matters: the mode, or the reason there is no scan. */
-#word {
-  font-size: 64px; line-height: 1; font-weight: 800; letter-spacing: -.01em;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, .8);
-  overflow-wrap: anywhere;      /* SPINNING UP takes two lines on a narrow phone rather than a smaller face */
-}
-#clear {
-  margin-top: 6px; display: flex; align-items: baseline; gap: 10px;
-  font-size: 44px; line-height: 1; font-weight: 600; text-shadow: 0 2px 10px rgba(0, 0, 0, .8);
-}
-#clear-c { font-size: 16px; font-weight: 500; color: var(--muted); }
-#cmd { margin-top: 8px; font-size: 20px; color: var(--muted); text-shadow: 0 1px 8px rgba(0, 0, 0, .8); }
-
-#bottom {
-  bottom: 0; padding: 40px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(rgba(11, 15, 20, 0) 0%, var(--scrim) 40%, var(--scrim) 100%);
-}
-/* A control's one-line answer, for three seconds, above the keys. */
-#reply {
-  margin: 0 auto 10px; padding: 10px 14px; border-radius: 14px;
-  background: var(--panel); border: 1px solid var(--line);
-  font-size: 16px; text-align: center; overflow-wrap: anywhere;
-}
-#keys { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-#keys button {
-  height: 72px; border: 0; border-radius: 18px;
-  font-size: 26px; font-weight: 800; letter-spacing: .04em; color: var(--ink); cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
-}
-#look { background: var(--accent); }
-#look:active { background: var(--accent-press); }
-#stop { background: var(--bad); }
-#stop:active { background: var(--bad-press); }
-/* A key that cannot be pressed makes no claim about what pressing it would do. */
-#keys button:disabled { opacity: .4; cursor: default; box-shadow: none; }
-#line {
-  margin-top: 10px; font-size: 14px; color: var(--muted); text-align: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.top-bar h1 { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-bar .spacer { width: 48px; flex: none; }
+.icon-btn {
+  position: relative; width: 48px; height: 48px; flex: none; border: 0; background: transparent;
+  border-radius: var(--md-sys-shape-corner-full); color: var(--md-sys-color-on-surface-variant);
+  display: grid; place-items: center; cursor: pointer;
 }
 
-/* A landscape phone: a smaller word, the keys narrower and shorter. */
-@media (orientation: landscape) and (max-height: 520px) {
-  #top { padding-top: 10px; padding-bottom: 24px; }
-  #bar { margin-bottom: 4px; }
-  #word { font-size: 44px; }
-  #clear { font-size: 32px; margin-top: 2px; }
-  #cmd { font-size: 16px; margin-top: 4px; }
-  #bottom { padding-top: 24px; }
-  #keys { max-width: 60%; margin: 0 auto; }
-  #keys button { height: 56px; font-size: 22px; border-radius: 16px; }
-  #reply { max-width: 60%; }
+/* ---- navigation: a bar on compact, a rail from 600 px -------------------- */
+.nav { grid-area: nav; display: flex; }
+.nav-title { display: none; }
+.nav-item {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 0; background: transparent; color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+  padding: 0;
+}
+.nav-ind {
+  position: relative; width: 64px; height: 32px; border-radius: var(--md-sys-shape-corner-full);
+  display: grid; place-items: center; color: inherit;
+}
+.nav-item[aria-current="page"] { color: var(--md-sys-color-on-surface); }
+.nav-item[aria-current="page"] .nav-ind { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+/* the bar */
+.nav { height: 80px; background: var(--md-sys-color-surface-container); padding: 12px 8px 16px; justify-content: space-around; align-items: flex-start; }
+.nav-item { flex: 1 1 0; max-width: 200px; }
+
+/* ---- main: the panes ------------------------------------------------------ */
+.main { grid-area: main; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+body:not([data-dest="scan"]) .dash { display: none; }
+body[data-dest="scan"] .support { display: none; }
+
+/* ---- the dash: the scan and its stat cards ---------------------------------
+   A size container, so its own box - not the window - decides whether the
+   cards dock under the stage (tall) or beside it (wide, >= 4:3). */
+.dash { min-height: 0; min-width: 0; container-type: size; container-name: dash; }
+.dash-grid {
+  height: 100%; display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(200px, 1fr) auto auto;
+  grid-template-areas: "tools" "stage" "side" "actions";
+}
+.tools { grid-area: tools; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; }
+.stage { grid-area: stage; position: relative; min-height: 0; min-width: 0; background: var(--scan-bg); overflow: hidden; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#cloud-c { touch-action: none; }   /* the drag is an orbit, not a scroll */
+.side { grid-area: side; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 16px 0; scrollbar-width: thin; }
+.side .stats { order: 1; }
+.side .chips { order: 2; }
+.actions { grid-area: actions; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 16px 16px; }
+
+@container dash (min-aspect-ratio: 4/3) {
+  .dash-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 34%);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "tools side" "stage side" "actions side";
+  }
+  .side { padding: 8px 16px 16px 0; }
+  .side .stats { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+  .side .chips { order: 1; }
+  .side .stats { order: 2; }
+  .actions { grid-template-columns: repeat(2, minmax(0, 240px)); justify-content: center; }
 }
 
-/* A laptop: the same screen, centred at phone width. */
-@media (min-width: 700px) and (min-height: 600px) {
-  html { background: #05070a; }
-  #main { left: 50%; right: auto; width: 480px; margin-left: -240px; }
+/* The HUD over the stage: the mode word and the clearance, display and
+   headline sizes that grow with the window inside the M3 scale, over a
+   scrim in the ground's own colour so points never cut a glyph. */
+.hud {
+  position: absolute; top: 0; left: 0; max-width: 70%; padding: 12px 56px 28px 16px; pointer-events: none;
+  background: linear-gradient(to right, color-mix(in srgb, var(--scan-bg) 90%, transparent) 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+}
+#word { font-size: clamp(36px, 4.5vmin + 12px, 57px); line-height: 1.1; font-weight: 400; letter-spacing: 0; overflow-wrap: anywhere; }
+.clear { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+#clear-v { font-size: clamp(28px, 2.6vmin + 14px, 45px); line-height: 1.15; font-weight: 400; }
+#clear-c { color: var(--md-sys-color-on-surface-variant); }
+
+/* ---- stat cards (filled cards, surface-container-highest, shape medium) --- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.stat {
+  min-width: 0; padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-sys-shape-corner-medium);
+}
+.stat-l { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; min-width: 0; }
+.stat-v { flex: none; font-size: clamp(24px, 2.2vmin + 10px, 45px); line-height: 1.15; font-weight: 400; white-space: nowrap; }
+.stat-u { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* ---- chips (assist, outlined) --------------------------------------------- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  position: relative; height: 32px; padding: 0 16px 0 8px; display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small);
+  background: transparent; color: var(--md-sys-color-on-surface); white-space: nowrap; max-width: 100%;
+}
+.chip .icon { width: 18px; height: 18px; }
+.chip-l { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- buttons -------------------------------------------------------------- */
+.btn {
+  position: relative; height: 40px; min-width: 0; padding: 0 24px 0 16px; border: 0;
+  border-radius: var(--md-sys-shape-corner-full); display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer; white-space: nowrap;
+}
+.btn .icon { width: 18px; height: 18px; }
+.btn-primary { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+.btn-error { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+.btn:disabled {
+  cursor: default;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
 }
 
-/* ---- DETAILS --------------------------------------------------------------- */
-#details { max-width: 640px; margin: 0 auto; padding: 0 16px 32px; }
-#dhead {
-  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 16px;
-  padding: calc(10px + env(safe-area-inset-top, 0px)) 0 10px; background: var(--bg);
+/* ---- segmented button (outlined, single-select, check on the selected) ---- */
+.seg { display: inline-flex; height: 40px; border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-full); overflow: hidden; }
+.seg-btn {
+  position: relative; min-width: 48px; padding: 0 12px; border: 0; background: transparent; color: var(--md-sys-color-on-surface);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
 }
-#back {
-  height: 48px; padding: 0 20px; border: 1px solid var(--line); border-radius: 999px;
-  background: var(--panel); color: var(--ink); font-size: 18px; font-weight: 600; cursor: pointer;
+.seg-btn + .seg-btn { border-left: 1px solid var(--md-sys-color-outline); }
+.seg-btn:focus-visible { outline-offset: -3px; }
+.seg-btn .icon { display: none; width: 18px; height: 18px; }
+.seg-btn[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.seg-btn[aria-pressed="true"] .icon { display: block; }
+
+/* ---- the supporting pane: filled cards of list items ---------------------- */
+.support { min-height: 0; min-width: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; scrollbar-width: thin; }
+.card { background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-sys-shape-corner-medium); padding: 16px 0 8px; flex: none; }
+.card > h2 { padding: 0 16px 8px; color: var(--md-sys-color-on-surface); }
+.li { position: relative; display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 8px 16px; }
+.li.two { min-height: 72px; }
+.li + .li::before { content: ""; position: absolute; top: 0; left: 56px; right: 16px; height: 1px; background: var(--md-sys-color-outline-variant); }
+.li.plain + .li.plain::before { left: 16px; }
+.li-lead { width: 24px; height: 24px; flex: none; color: var(--md-sys-color-on-surface-variant); }
+.li-body { flex: 1; min-width: 0; }
+.li-head { color: var(--md-sys-color-on-surface); }
+.li-sup { color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+.li-trail { flex: none; text-align: right; color: var(--md-sys-color-on-surface-variant); max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+.li.off .li-lead, .li.off .li-head, .li.off .li-sup, .li.off .li-trail { opacity: 0.38; }
+.card-note { padding: 8px 16px 4px; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+
+/* The log card: a well in the lowest container, mono, newest at the bottom. */
+.card-log { display: flex; flex-direction: column; }
+.well { margin: 0 16px 8px; min-height: 160px; max-height: 50vh; overflow: auto; border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-low); scrollbar-width: thin; }
+#log { margin: 0; padding: 12px 16px; font: 400 12px/18px var(--md-ref-typeface-mono); color: var(--md-sys-color-on-surface); white-space: pre-wrap; overflow-wrap: anywhere; }
+#log:empty::before { content: "nothing yet"; color: var(--md-sys-color-on-surface-variant); }
+
+/* ---- snackbar --------------------------------------------------------------- */
+.snackbar {
+  position: fixed; left: 16px; right: 16px; bottom: 96px; z-index: 5; min-height: 48px; padding: 14px 16px;
+  background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);
+  border-radius: var(--md-sys-shape-corner-extra-small); overflow-wrap: anywhere;
 }
-#back:active { background: rgba(255, 255, 255, .18); }
-#dhead h1 { margin: 0; font-size: 22px; font-weight: 700; }
 
-.card {
-  margin-top: 12px; padding: 14px 16px 10px; border-radius: 16px;
-  background: var(--panel); border: 1px solid var(--line);
+/* ---- compact: the Log destination gives the log the whole pane ---------------- */
+@media (max-width: 839px), (max-height: 479px) {
+  body[data-dest="log"] .support .card:not(.card-log) { display: none; }
+  body[data-dest="log"] .card-log { flex: 1; min-height: 0; }
+  body[data-dest="log"] .well { flex: 1; max-height: none; }
 }
-.card h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 
-/* A row: name, then the lamp and the state in the state's colour, then a value. */
-.row {
-  display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; align-items: center;
-  min-height: 40px; column-gap: 8px; white-space: nowrap; border-top: 1px solid var(--line);
+/* ---- medium and up: the rail ---------------------------------------------------- */
+@media (min-width: 600px) {
+  body {
+    grid-template-columns: 80px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "nav top" "nav main";
+  }
+  .top-bar h1 { text-align: left; padding-left: 12px; }
+  .top-bar .spacer { display: none; }
+  .nav { height: auto; width: 80px; flex-direction: column; justify-content: flex-start; align-items: center; gap: 12px; padding: 44px 0 16px; background: var(--md-sys-color-surface); }
+  .nav-item { flex: none; max-width: none; width: 80px; }
+  .nav-ind { width: 56px; }
+  .stage { margin: 0 16px; border-radius: var(--md-sys-shape-corner-large); --scan-bg: var(--md-sys-color-surface-container-low); }
+  .snackbar { left: 96px; right: auto; bottom: 16px; min-width: 288px; max-width: 560px; }
+  .actions { grid-template-columns: repeat(2, minmax(0, 240px)); justify-content: center; }
 }
-.row:first-of-type { border-top: 0; }
-.row .name { color: var(--muted); }
-.row .cell { display: flex; align-items: center; min-width: 0; overflow: hidden; }
-.row .st { white-space: normal; overflow-wrap: anywhere; padding: 6px 0; }   /* a long state wraps; this page is complete, not tidy */
-.row .val { color: var(--muted); }
-.row.off { color: var(--dim); }
-.row.off .name, .row.off .st { color: var(--dim); }
 
-/* A lamp: a dot in the state's colour, lit throws a halo. */
-.lamp { flex: none; width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; background: var(--muted); opacity: .35; }
-.lamp.good { background: var(--good); }
-.lamp.warn { background: var(--warn); }
-.lamp.bad { background: var(--bad); }
-.lamp.lit { opacity: 1; }
-.lamp.lit.good { box-shadow: 0 0 8px 1px rgba(52, 211, 153, .5); }
-.lamp.lit.warn { box-shadow: 0 0 8px 1px rgba(251, 191, 36, .5); }
-.lamp.lit.bad { box-shadow: 0 0 8px 1px rgba(248, 113, 113, .5); }
+/* A short window (a phone on its side, a small landscape panel): no room for
+   a top app bar; the title moves into the rail. */
+@media (min-width: 600px) and (max-height: 479px) {
+  body { grid-template-rows: minmax(0, 1fr); grid-template-areas: "nav main"; }
+  .top-bar { display: none; }
+  .nav { padding-top: 12px; }
+  .nav-title { display: block; color: var(--md-sys-color-on-surface); padding-bottom: 4px; }
+  .tools { padding-top: 12px; }
+}
 
-.note { padding: 10px 0 4px; color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+/* ---- expanded: two panes, the details always beside the scan (given the
+   height for it; a short wide window keeps one pane and the rail) ------------ */
+@media (min-width: 840px) and (min-height: 480px) {
+  .main { grid-template-columns: minmax(0, 1fr) clamp(360px, 28vw, 412px); column-gap: 24px; padding-right: 24px; }
+  body:not([data-dest="scan"]) .dash { display: grid; }
+  body[data-dest="scan"] .support { display: flex; }
+  .dash { display: grid; }
+  .support { padding: 0 0 24px; }
+  .well { min-height: 240px; }
+}
 
-/* The pilot's mode over its source, then label / value pairs. */
-.stat { padding: 2px 0 8px; }
-.stat-v { display: block; font-size: 30px; font-weight: 700; line-height: 1.15; text-transform: uppercase; }
-.stat-c { display: block; font-size: 14px; color: var(--muted); }
-.kv { display: grid; grid-template-columns: 7em minmax(0, 1fr); align-items: center; min-height: 36px; border-top: 1px solid var(--line); }
-.kv .k { color: var(--muted); }
-
-/* The log: a well, mono, newest at the bottom. */
-.well { max-height: 50vh; overflow: auto; border-radius: 10px; background: rgba(0, 0, 0, .35); scrollbar-width: thin; }
-#log { margin: 0; padding: 10px 12px; font: 13px/1.45 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
-#log:empty::before { content: "nothing yet"; color: var(--dim); }
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { transition: none !important; animation: none !important; }
+}

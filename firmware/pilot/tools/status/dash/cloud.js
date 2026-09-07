@@ -1,13 +1,13 @@
 // The 3D view: the hub's Cloud scene (hub/src/scene3d.cxx) on a canvas, in
-// the field's palette. The same revolution as returns standing on the ground
+// the page's tokens. The same revolution as returns standing on the ground
 // around a car box at the origin, seen from an orbiting camera. World axes are the hub's scene: x
 // right, y forward, z up; a lidar bearing b at range d lands on the scan
 // plane at (d sin b, d cos b, SCAN_Z) and is drawn as a tick from the ground
 // up to it, which is how the hub draws a return that has a height but no
 // depth. The ground is range rings and radials, the way the flat map's is,
-// with the heading along +y in cyan so which way is forward survives an
+// with the heading along +y in primary so which way is forward survives an
 // orbit. The default camera is the hub's - behind and above, looking
-// forward.
+// forward. The view uses the whole rectangle the stage gives it.
 //
 // A 2D-canvas perspective projection, not WebGL, on purpose. The scene is
 // ~500 ticks, a few rings and a box: a few thousand line calls a frame,
@@ -39,7 +39,7 @@ let focal = 1, hw = 0, hh = 0;
 // The last projection's output. A function returning a pair would allocate.
 let px = 0, py = 0;
 
-let lastScan = null;
+let lastScan = null, lastHud = null;
 let pending = false;    // a frame is queued; a drag at 60 Hz and data at 10 Hz share it
 
 export function init(c) {
@@ -56,9 +56,9 @@ export function resize() {
 }
 
 // `scan` is the parsed revolution or null. When it is null only the ground,
-// the car and the heading are drawn: the reason is the page's big word.
-export function draw(scan) {
-  lastScan = scan;
+// the car and the heading are drawn: the reason is the page's mode word.
+export function draw(scan, hud) {
+  lastScan = scan; lastHud = hud;
   schedule();
 }
 
@@ -137,27 +137,28 @@ function arrow3(x0, y0, z0, bearing, len, head) {
 function render() {
   pending = false;
   if (!ctx || W < 40 || H < 40) return;
+  const C = T.color;
   updateCamera();
-  ctx.fillStyle = T.ui.bg; ctx.fillRect(0, 0, W, H);
+  ctx.clearRect(0, 0, W, H);
   ctx.textBaseline = 'alphabetic';
   const far = RING_STEP * RING_N;
 
   // The ground: rings a metre apart, major every fifth, radials every 45 deg
-  // with the two axes stronger, all faint.
+  // with the two axes stronger, in the outline tokens.
   ctx.lineWidth = 1;
-  ctx.strokeStyle = T.map.GRID; ctx.beginPath();
+  ctx.strokeStyle = C.outlineVariant; ctx.beginPath();
   for (let i = 1; i <= RING_N; i++) if (i % 5) ring3(i * RING_STEP);
   for (let b = 45; b < 360; b += 90) {
     const s = Math.sin(b * Math.PI / 180), c = Math.cos(b * Math.PI / 180);
     line3(0, 0, 0, far * s, far * c, 0);
   }
   ctx.stroke();
-  ctx.strokeStyle = T.map.GRID_MAJOR; ctx.beginPath();
+  ctx.strokeStyle = C.outline; ctx.beginPath();
   for (let i = 5; i <= RING_N; i += 5) ring3(i * RING_STEP);
   line3(-far, 0, 0, far, 0, 0); line3(0, -far, 0, 0, 0, 0);
   ctx.stroke();
-  // The heading along +y, in its own colour, so which way is forward survives an orbit.
-  ctx.strokeStyle = T.map.HEADING; ctx.globalAlpha = 0.7; ctx.lineWidth = 2.5;
+  // The heading along +y, in primary, so which way is forward survives an orbit.
+  ctx.strokeStyle = C.primary; ctx.globalAlpha = 0.7; ctx.lineWidth = 2.5;
   ctx.beginPath(); line3(0, 0, 0, 0, far, 0); ctx.stroke();
   ctx.globalAlpha = 1; ctx.lineWidth = 1;
 
@@ -166,10 +167,9 @@ function render() {
   const overlay = d && d.mode !== 'blind';
   if (overlay) {
     // The corridor on the ground at +-halfWidth to the pilot's horizon, and the
-    // clearance bar across it, in the decision's colour like the flat map's.
-    const col = T.pilotColor(d);
+    // clearance bar across it, in primary like the flat map's.
     const w = T.HALF_WIDTH_MM, top = Math.max(T.HORIZON_MM, d.clearMm);
-    ctx.strokeStyle = col; ctx.globalAlpha = 0.75; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.strokeStyle = C.primary; ctx.globalAlpha = 0.75; ctx.lineWidth = 2; ctx.beginPath();
     line3(-w, 0, 0, -w, top, 0); line3(w, 0, 0, w, top, 0);
     ctx.stroke();
     ctx.globalAlpha = 1; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath();
@@ -179,9 +179,9 @@ function render() {
   }
 
   if (scan) {
-    // Each return a white tick from the ground to the scan plane, with the
-    // return itself a dot at the top.
-    ctx.strokeStyle = T.map.POINT; ctx.fillStyle = T.map.POINT; ctx.globalAlpha = 0.7;
+    // Each return an on-surface tick from the ground to the scan plane, with
+    // the return itself a dot at the top.
+    ctx.strokeStyle = C.onSurface; ctx.fillStyle = C.onSurface; ctx.globalAlpha = 0.7;
     ctx.beginPath();
     const n = scan.n, a = scan.a, dd = scan.d;
     for (let i = 0; i < n; i++) {
@@ -201,12 +201,12 @@ function render() {
   if (scan && scan.near >= 0) {
     const r = scan.d[scan.near], b = scan.a[scan.near];
     if (project(r * Math.sin(b), r * Math.cos(b), T.SCAN_Z_MM)) {
-      ctx.strokeStyle = T.map.NEAREST; ctx.lineWidth = 2.5; ctx.beginPath();
+      ctx.strokeStyle = C.error; ctx.lineWidth = 2.5; ctx.beginPath();
       ctx.arc(px, py, 10, 0, 2 * Math.PI); ctx.stroke();
-      ctx.font = T.fontUI(20, 600);
+      ctx.font = T.LABEL_LARGE;
       const right = px > W - 110;
       ctx.textAlign = right ? 'right' : 'left';
-      T.shadowText(ctx, right ? px - 16 : px + 16, py + 7, T.metres(r), T.map.NEAREST);
+      T.haloText(ctx, right ? px - 16 : px + 16, py + 5, T.metres(r), C.error);
       ctx.textAlign = 'left'; ctx.lineWidth = 1;
     }
   }
@@ -217,12 +217,20 @@ function render() {
     arrow3(0, 0, T.CAR_HEIGHT_MM + 2, d.steer * T.STEER_DEG * Math.PI / 180, ARROW_MM, ARROW_MM * 0.3);
     ctx.lineWidth = 1; ctx.lineCap = 'butt';
   }
+
+  const hud = lastHud || {};
+  T.corners(ctx, W, H, {
+    tr: hud.tr,
+    bl: ['orbit: drag', 'zoom: pinch or wheel', 'reset: double-tap'],
+    br: ['eye ' + T.metres(dist), 'pitch ' + Math.round(pitch * 180 / Math.PI) + '°'],
+  });
 }
 
 function car() {
-  // A box to the TT-02's plan, nose at +y, the roof filled in the accent so
-  // it reads as a solid, white edges, a windscreen line a quarter back from
-  // the nose.
+  // A box to the TT-02's plan, nose at +y, the roof filled in primary-container
+  // so it reads as a solid, on-surface edges, a windscreen line a quarter
+  // back from the nose in the ground's colour.
+  const C = T.color;
   const w = T.CAR_MM[0] / 2, l = T.CAR_MM[1] / 2, h = T.CAR_HEIGHT_MM;
   if (project(-w, l, h)) {
     const x0 = px, y0 = py;
@@ -231,19 +239,19 @@ function car() {
       if (project(w, -l, h)) {
         const x2 = px, y2 = py;
         if (project(-w, -l, h)) {
-          ctx.fillStyle = T.map.HEADING; ctx.globalAlpha = 0.55; ctx.beginPath();
+          ctx.fillStyle = C.primaryContainer; ctx.beginPath();
           ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(px, py);
-          ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+          ctx.closePath(); ctx.fill();
         }
       }
     }
   }
-  ctx.strokeStyle = T.map.CAR; ctx.lineWidth = 1.5; ctx.beginPath();
+  ctx.strokeStyle = C.onSurface; ctx.lineWidth = 1.5; ctx.beginPath();
   line3(-w, l, 0, w, l, 0); line3(w, l, 0, w, -l, 0); line3(w, -l, 0, -w, -l, 0); line3(-w, -l, 0, -w, l, 0);
   line3(-w, l, h, w, l, h); line3(w, l, h, w, -l, h); line3(w, -l, h, -w, -l, h); line3(-w, -l, h, -w, l, h);
   line3(-w, l, 0, -w, l, h); line3(w, l, 0, w, l, h); line3(w, -l, 0, w, -l, h); line3(-w, -l, 0, -w, -l, h);
   ctx.stroke();
-  ctx.strokeStyle = T.ui.bg; ctx.beginPath(); line3(-w, l * 0.5, h, w, l * 0.5, h); ctx.stroke();
+  ctx.strokeStyle = C.scanBg; ctx.beginPath(); line3(-w, l * 0.5, h, w, l * 0.5, h); ctx.stroke();
   ctx.lineWidth = 1;
 }
 
