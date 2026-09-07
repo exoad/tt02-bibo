@@ -1,91 +1,127 @@
 <!doctype html>
-<!-- The field screen's skeleton: two views. MAIN is the whole viewport, the
-     scan behind everything, the big word and the clearance over it at the
-     top, LOOK and STOP under the thumb at the bottom; nothing scrolls.
-     DETAILS is the sit-down page: every row the panels had, as cards, and
-     the log. Every element here is a slot the modules fill; nothing is drawn
-     or fetched from anywhere but this board (see dash.css and app.js).
-     Absolute /dash/ paths, because /dash without a slash resolves a relative
-     "dash.css" to /dash.css, which is nothing. -->
+<!-- The field page's skeleton, Material 3. One top app bar, one navigation
+     element (a bar at the bottom on a phone, a rail on the left from 600 px),
+     and two panes: the DASH - the scan stage with the mode and the clearance
+     over it, the stat cards and the chips around it, LOOK and STOP - and the
+     SUPPORT pane of details cards (System, Sensors, Pilot, Log). On a compact
+     or medium window one pane shows, chosen by the destination; from 840 px
+     both are side by side and the destinations scroll the support pane.
+     Every element is a slot the modules fill; nothing is fetched from anywhere
+     but this board - icons are inline SVG paths (icons.js), the type is the
+     phone's Roboto. Absolute /dash/ paths: /dash without a slash would
+     resolve a relative "dash.css" to /dash.css, which is nothing. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0f14">
+<meta name="theme-color" content="#141218">
+<meta name="color-scheme" content="dark">
 <title>bibo</title>
 <link rel="stylesheet" href="/dash/dash.css">
 </head>
-<body>
+<body data-dest="scan">
 
-<section id="main">
-  <canvas id="radar-c"></canvas>
-  <canvas id="cloud-c" hidden></canvas>
+<header class="top-bar">
+  <span class="spacer"></span>
+  <h1 class="title-large">bibo</h1>
+  <button class="icon-btn state" id="about" type="button" aria-label="Details" title="Details"><i data-icon="info"></i></button>
+</header>
 
-  <div id="top">
-    <div id="bar">
-      <div id="seg" role="group" aria-label="view">
-        <button type="button" data-view="2d" class="on">2D</button>
-        <button type="button" data-view="3d">3D</button>
+<nav class="nav" aria-label="Destinations">
+  <span class="nav-title label-medium">bibo</span>
+  <button class="nav-item" type="button" data-dest="scan" aria-current="page"><span class="nav-ind state"><i data-icon="radar"></i></span><span class="label-medium">Scan</span></button>
+  <button class="nav-item" type="button" data-dest="details"><span class="nav-ind state"><i data-icon="list"></i></span><span class="label-medium">Details</span></button>
+  <button class="nav-item" type="button" data-dest="log"><span class="nav-ind state"><i data-icon="info"></i></span><span class="label-medium">Log</span></button>
+</nav>
+
+<main class="main">
+
+  <section class="dash" aria-label="Scan">
+    <div class="dash-grid">
+      <div class="tools">
+        <div class="seg" role="group" aria-label="Scan view">
+          <button class="seg-btn state label-large" type="button" data-view="2d" aria-pressed="true"><i data-icon="check" data-size="18"></i>2D</button>
+          <button class="seg-btn state label-large" type="button" data-view="3d" aria-pressed="false"><i data-icon="check" data-size="18"></i>3D</button>
+        </div>
       </div>
-      <button id="info" type="button" aria-label="details" title="details">i</button>
+
+      <div class="stage" id="stage">
+        <canvas id="radar-c"></canvas>
+        <canvas id="cloud-c" hidden></canvas>
+        <div class="hud">
+          <div id="word" class="tone-error num">NO ANSWER</div>
+          <div class="clear"><span id="clear-v" class="num">--</span><span id="clear-c" class="label-large"></span></div>
+        </div>
+      </div>
+
+      <div class="side">
+        <div class="stats" aria-label="Decision">
+          <div class="stat" id="s-steer"><span class="stat-l label-medium">Steer</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
+          <div class="stat" id="s-throttle"><span class="stat-l label-medium">Throttle</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
+          <div class="stat" id="s-hits"><span class="stat-l label-medium">Hits</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
+          <div class="stat" id="s-nearest"><span class="stat-l label-medium">Nearest</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
+          <div class="stat" id="s-hz"><span class="stat-l label-medium">Lidar rate</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
+          <div class="stat" id="s-sent"><span class="stat-l label-medium">Sent</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
+        </div>
+        <div class="chips" aria-label="State">
+          <span class="chip label-large tone-error" id="c-feed"><i data-icon="sensors" data-size="18"></i><span class="chip-l">no answer</span></span>
+          <span class="chip label-large tone-variant" id="c-pilot"><i data-icon="speed" data-size="18"></i><span class="chip-l">pilot: no answer</span></span>
+          <span class="chip label-large tone-variant" id="c-pico"><i data-icon="developer_board" data-size="18"></i><span class="chip-l">pico: no answer</span></span>
+          <span class="chip label-large tone-variant" id="c-board"><i data-icon="memory" data-size="18"></i><span class="chip-l">board: no answer</span></span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary state target label-large" id="look" type="button" disabled><i data-icon="visibility" data-size="18"></i>LOOK</button>
+        <button class="btn btn-error state target label-large" id="stop" type="button" disabled><i data-icon="stop" data-size="18"></i>STOP</button>
+      </div>
     </div>
-    <div id="word" class="bad">NO ANSWER</div>
-    <div id="clear"><span id="clear-v">--</span><span id="clear-c"></span></div>
-    <div id="cmd" hidden></div>
-  </div>
-
-  <div id="bottom">
-    <div id="reply" hidden></div>
-    <div id="keys">
-      <button id="look" type="button" disabled>LOOK</button>
-      <button id="stop" type="button" disabled>STOP</button>
-    </div>
-    <div id="line">no answer from the car</div>
-  </div>
-</section>
-
-<section id="details" hidden>
-  <header id="dhead">
-    <button id="back" type="button">&#8592; main</button>
-    <h1>bibo</h1>
-  </header>
-
-  <section class="card" id="p-system">
-    <h2>System</h2>
-    <div class="row" id="r-pico"><span class="name">Pico link</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-    <div class="row" id="r-board"><span class="name">Board</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-    <div class="row" id="r-lidar"><span class="name">Lidar</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-    <div class="row" id="r-pilot"><span class="name">Pilot</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-    <div class="row" id="r-feed"><span class="name">Feed</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-    <div class="note" id="pstate">pilot: no answer from the car</div>
   </section>
 
-  <section class="card" id="p-sensors">
-    <h2>Sensors</h2>
-    <div class="row" id="r-c1"><span class="name">RPLIDAR C1</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-    <div class="row off"><span class="name">ToF (GP10)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-    <div class="row off"><span class="name">ToF (GP11)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-    <div class="row off"><span class="name">ToF (GP12)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-    <div class="row off"><span class="name">ToF (GP13)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-    <div class="row off"><span class="name">Encoder (GP15)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-    <div class="row off"><span class="name">IMU (I2C)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
+  <section class="support" id="support" aria-label="Details">
+    <section class="card" id="card-system">
+      <h2 class="title-medium">System</h2>
+      <div class="li two" id="r-pico"><span class="li-lead"><i data-icon="developer_board"></i></span><span class="li-body"><span class="li-head body-large">Pico link</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
+      <div class="li two" id="r-board"><span class="li-lead"><i data-icon="memory"></i></span><span class="li-body"><span class="li-head body-large">Board</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
+      <div class="li two" id="r-lidar"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">Lidar</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
+      <div class="li two" id="r-pilot"><span class="li-lead"><i data-icon="speed"></i></span><span class="li-body"><span class="li-head body-large">Pilot</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
+      <div class="li two" id="r-feed"><span class="li-lead"><i data-icon="wifi"></i></span><span class="li-body"><span class="li-head body-large">Feed</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
+      <p class="card-note body-medium" id="pstate">pilot: no answer from the car</p>
+    </section>
+
+    <section class="card" id="card-sensors">
+      <h2 class="title-medium">Sensors</h2>
+      <div class="li two" id="r-c1"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">RPLIDAR C1</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
+      <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">ToF (GP10)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
+      <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">ToF (GP11)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
+      <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">ToF (GP12)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
+      <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">ToF (GP13)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
+      <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">Encoder (GP15)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
+      <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">IMU (I2C)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
+    </section>
+
+    <section class="card" id="card-pilot">
+      <h2 class="title-medium">Pilot</h2>
+      <div class="li two"><span class="li-lead"><i data-icon="speed"></i></span><span class="li-body"><span class="li-head headline-small tone-variant" id="p-mode">no pilot</span><br><span class="li-sup body-medium" id="p-src">no answer from the car</span></span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Clearance</span></span><span class="li-trail label-large num" id="p-clear">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Hits in corridor</span></span><span class="li-trail label-large num" id="p-hits">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Steer</span></span><span class="li-trail label-large num" id="p-steer">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Throttle</span></span><span class="li-trail label-large num" id="p-throttle">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Sent</span></span><span class="li-trail label-large num" id="p-sent">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Lidar rate</span></span><span class="li-trail label-large num" id="p-revs">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Revolutions</span></span><span class="li-trail label-large num" id="p-revolutions">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Timeouts</span></span><span class="li-trail label-large num" id="p-timeouts">-</span></div>
+    </section>
+
+    <section class="card card-log" id="card-log">
+      <h2 class="title-medium">Log</h2>
+      <div class="well"><pre id="log"></pre></div>
+    </section>
   </section>
 
-  <section class="card" id="p-pilot">
-    <h2>Pilot</h2>
-    <div class="stat"><span class="stat-v muted" id="p-mode">no pilot</span><span class="stat-c" id="p-src">no answer from the car</span></div>
-    <div class="kv"><span class="k">clear</span><span class="v" id="p-clear">-</span></div>
-    <div class="kv"><span class="k">hits</span><span class="v" id="p-hits">-</span></div>
-    <div class="kv"><span class="k">steer</span><span class="v" id="p-steer">-</span></div>
-    <div class="kv"><span class="k">throttle</span><span class="v" id="p-throttle">-</span></div>
-    <div class="kv"><span class="k">sent</span><span class="v" id="p-sent">-</span></div>
-  </section>
+</main>
 
-  <section class="card" id="p-log">
-    <h2>Log</h2>
-    <div class="well"><pre id="log"></pre></div>
-  </section>
-</section>
+<div class="snackbar body-medium" id="snackbar" role="status" aria-live="polite" hidden></div>
 
 <script type="module" src="/dash/app.js"></script>
 </body>

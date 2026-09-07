@@ -193,67 +193,78 @@ else may open it; a file older than three seconds reads as "pilot not running".
 
 `/dash` on the same port is the page for when the car drives itself, made for
 the hand that holds it: outside, walking behind the car, glanced at in
-sunlight, worked with a thumb. It is a client-side app in `tools/status/dash/`
-- `index.html`, `dash.css` and seven ES modules, vanilla, nothing fetched from
-anywhere but the board, no font either: the type is whatever the phone has
-closest to Inter - and `status_server.py` serves those files and data, nothing
-else: `/scan` is the feed's F line and, while a pilot is deciding, its D line
+sunlight, worked with a thumb - and for the laptop beside the track. It is a
+client-side app in `tools/status/dash/` - `index.html`, `dash.css` and eight
+ES modules, vanilla, nothing fetched from anywhere but the board: the icons
+are Material Symbols paths inlined in `icons.js`, the type is the phone's own
+Roboto - and `status_server.py` serves those files and data, nothing else:
+`/scan` is the feed's F line and, while a pilot is deciding, its D line
 (`src/scanwire.hxx`, served as-is so there is one wire format), a 404 with the
 reason when there is no revolution younger than three seconds; `/json` is the
 text page's numbers plus the heartbeat and the page's own pilot process. The
 page polls `/scan` every 100 ms and `/json` every second, one request of each
 in flight, and draws only on new data.
 
-Two views. MAIN is the whole screen and never scrolls: the scan fills it edge
-to edge - the 2D radar, or the 3D cloud through a small 2D / 3D switch at the
-top left, the choice remembered on the phone (`?tab=3d` picks one for a
-link). Over the scan, at the top, one word in 64 px: the pilot's mode - CRUISE
-and SLOW in green, STOP in red, REVERSE and BLIND in amber - or LIDAR in white
-when a scan comes with nobody deciding, or in red the reason there is no scan:
-NO FEED, STALE, NO ANSWER, SPINNING UP, MOTOR OFF. Under it, at 44 px, the
-metres: the pilot's clearance while it decides ("1.6 m clear"), the nearest
-return when only the lidar is on ("0.33 m nearest"), "--" when there is no
-scan; and one small line of steer and throttle, only while a pilot is deciding
-on something it saw. At the bottom, two keys the full width and 72 px tall,
-LOOK in the accent and STOP in red, enabled from `/json`'s word on the process
-exactly as before, their one-line answer above them for three seconds, and
-under them one muted line: `bibobox · WhoopWhoop · lidar 9.8 Hz · pilot look
-42 s` (or "pilot not running", "pilot running elsewhere"). A round "i" at the
-top right opens DETAILS. That is the entire main view. On a laptop it is the
-same screen centred at phone width; on a phone held sideways the same with a
-smaller word and narrower keys.
+The design is Material 3, dark, to the spec: the baseline dark scheme as CSS
+custom properties (`--md-sys-color-*`) plus two custom colours harmonized to
+it for the car's states, success (green) and warning (amber), with the
+scheme's own error for red - and nothing on the page, DOM or canvas, is any
+colour but a token: `theme.js` reads them from the computed style once per
+resize for the two canvases. Cruise and slow are success, stop is error,
+reverse and blind are warning, the lidar alone is on-surface-variant, the
+reasons there is no scan are error. The M3 type scale (display for the mode
+word, headline for the clearance, label for everything small, tabular
+numerals for values), the M3 shape scale (cards 12, chips 8, buttons and the
+segmented button pill, the stage 16), tonal surface containers for elevation
+with no shadows, an 8 / 10 / 10 % state layer on every interactive element, a
+3 px focus ring for the keyboard, `prefers-reduced-motion` honoured.
 
-What the scan draws, for a phone in daylight: the rings a metre apart, the
-compass ring and the bearing numbers kept but faint; the returns white and
-three pixels; the nearest return ringed in red with its distance in 20 px
-type, set on the side away from the car; the heading arrow in the accent and
-the car - a rounded box to the TT-02's plan, never smaller than a fingertip -
-both bigger than the hub's; with a D line the pilot's corridor to its
-horizon, the clearance bar and the steer arrow at full lock 30 deg, all in the
-mode's colour, and nothing for blind. No HUD text on the picture - the word
-and the bottom line replace it. The range fits the farthest return, grows at
-once and shrinks after two seconds, and is never tighter than three metres.
-The honesty rules are the hub's: no scan means only the car and the heading
-are drawn and the reason is the big word; a decision older than a second is
-not drawn; nothing is ever the last thing we knew.
+The layout is one CSS grid over the whole viewport, fluid in both axes, by
+M3's window size classes. A small top app bar ("bibo", a trailing Details
+icon), one navigation element with three destinations - Scan, Details, Log -
+that is a navigation bar at the bottom under 600 px and a navigation rail on
+the left from 600 px, and two panes. The DASH is the scan's pane and takes
+all the room there is: a 2D | 3D segmented button (the choice remembered on
+the phone; `?tab=3d` picks one for a link), the stage - the radar or the
+cloud, drawn to the stage's actual box by a ResizeObserver, the circle
+centred with its radius half the shorter side - with the mode word and the
+clearance over its top left, six Grafana-style stat cards (steer, throttle,
+hits, nearest, lidar rate, sent: label above, value in headline size with the
+state's colour, unit beside), four assist chips (feed, pilot process, Pico,
+board, each in its state's colour), and LOOK and STOP as filled buttons,
+primary and error, a full-width pair on a phone. The cards and chips dock
+under the stage when the dash's box is taller than 4:3 and beside it when it
+is wider (a container query), so a phone on its side or a small landscape
+panel keeps the scan big. The SUPPORT pane is the details: filled cards of
+list items with a leading icon, headline, supporting text and trailing value
+- System (Pico link, Board with uptime, network and temperature, Lidar,
+Pilot, Feed, and the process in a sentence under them), Sensors (the RPLIDAR
+C1 and the not-wired ones as the hub lists them), Pilot (the mode over where
+the word came from, then clearance, hits, steer, throttle, sent, lidar rate,
+revolutions, timeouts) and the Log - what the page saw happen, timestamped,
+newest at the bottom. Under 840 px one pane shows at a time and the
+destinations switch them (Log gives the log the whole pane); from 840 px,
+given 480 px of height, the support pane is always beside the dash at 360 to
+412 px and Details and Log scroll it to their card. `?view=details` and
+`?view=log` open one directly. The replies to LOOK and STOP are a snackbar,
+four seconds.
 
-DETAILS is the page for when you sit down, complete rather than pretty, a
-scrolling page of cards with a big "← main" key at the top: System (Pico link,
-Board, Lidar, Pilot, Feed, each a lamp, a state word and a value, and the
-pilot process in a sentence under them), Sensors (the RPLIDAR C1 and the
-not-wired ones as the hub lists them), Pilot (the mode over where the word
-came from, then clear / hits / steer / throttle / sent), and the Log - what
-the page saw happen, timestamped, newest at the bottom: the feed coming and
-going, the board answering, the pilot process and its last line, and what
-LOOK and STOP were told. `?view=details` opens it directly.
-
-The look is a plain dark dashboard: near-black behind the scan, rounded
-translucent panels with a hairline where a surface is needed at all, the
-phone's own sans with tabular numerals, one accent (blue) for what is the
-car's own - the heading arrow, the active switch, LOOK - and three state
-colours that mean one thing everywhere: green drives, amber backs off or is
-blind, red halts or is missing. `theme.js` and `dash.css` carry the same
-values, one for the canvases and one for the DOM.
+What the scan draws: the rings a metre apart, the compass ring and the
+bearing numbers in the outline tokens; the returns on-surface and three
+pixels; the nearest return ringed in error with its distance in label-large,
+set on the side away from the car; the heading arrow in primary and the car -
+a rounded box to the TT-02's plan, never smaller than a fingertip; with a D
+line the pilot's corridor to its horizon at primary 12 %, the clearance bar in
+primary and the steer arrow at full lock 30 deg in the mode's colour, and
+nothing for blind. In the corners, label-medium in on-surface-variant: the
+feed word and the host, points a revolution and a second and the rate top
+right, a scale bar bottom left, "fit N m across" bottom right. The range fits
+the farthest return, grows at once and shrinks after two seconds, and is
+never tighter than three metres. The honesty rules are the hub's: no scan
+means only the car and the heading are drawn and the reason is the mode word;
+a decision older than a second is not drawn; nothing is ever the last thing
+we knew; the caption under the number says whether it is the pilot's "clear"
+or the lidar's "nearest".
 
 LOOK starts the pilot in dry mode as this service's child and STOP stops it;
 each answers one line, shown for three seconds. There is deliberately no

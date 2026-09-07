@@ -1,34 +1,42 @@
-// The page's palette, once, for the two canvases - a CSS variable does not
-// reach a canvas context - and the car's constants the views draw to scale.
-// dash.css carries the same values for the DOM.
+// The canvases' side of the design tokens, and the car's constants the views
+// draw to scale. A CSS custom property does not reach a canvas context, so
+// refresh() reads the M3 tokens from the computed style - once per resize,
+// which fitCanvas does - into `color`. Nothing here is a literal colour: the
+// map's palette IS the page's, and dash.css is the one place a value lives.
 //
-// A field screen's set: a near-black neutral ground, white for what is
-// measured, one accent for what is the car's own (the heading, the active
-// control), and three state colours that mean one thing everywhere - green
-// drives, amber backs off or is blind, red halts or is missing. Nothing on
-// the map is any other colour.
+// What each token means on the map: points on-surface, rings outline-variant
+// (major rings outline), bearings and corner text on-surface-variant, the
+// heading primary, the nearest return error, the corridor primary at 12 %,
+// the clearance bar primary, the steer arrow the decision's colour: success
+// drives, warning backs off or is blind, error halts.
 
-export const ui = {
-  bg: '#0b0f14',
-  text: '#ffffff',
-  muted: 'rgba(255,255,255,0.6)',
-  accent: '#4f8cff',
-  good: '#34d399', warn: '#fbbf24', bad: '#f87171',
+export const color = {
+  surface: '', scanBg: '', onSurface: '', onSurfaceVariant: '', outline: '', outlineVariant: '',
+  primary: '', primaryContainer: '', secondary: '', error: '', success: '', warning: '',
 };
 
-// What each one means on the map.
-export const map = {
-  GRID: 'rgba(255,255,255,0.10)', GRID_MAJOR: 'rgba(255,255,255,0.18)',
-  TICK: 'rgba(255,255,255,0.14)', LABEL: 'rgba(255,255,255,0.45)',
-  HEADING: ui.accent, NEAREST: ui.bad, POINT: '#ffffff',
-  CAR: '#ffffff', CAR_FILL: 'rgba(79,140,255,0.28)',
+const SYS = {
+  surface: 'surface', onSurface: 'on-surface', onSurfaceVariant: 'on-surface-variant',
+  outline: 'outline', outlineVariant: 'outline-variant', primary: 'primary',
+  primaryContainer: 'primary-container', secondary: 'secondary', error: 'error',
 };
 
-export const sem = { GOOD: ui.good, WARN: ui.warn, BAD: ui.bad, MUTED: ui.muted };
+// `el` is the element whose computed tokens apply - the stage, whose --scan-bg
+// changes with the window class. Falls back to the document root.
+export function refresh(el) {
+  const root = getComputedStyle(document.documentElement);
+  const here = el ? getComputedStyle(el) : root;
+  for (const k in SYS) color[k] = root.getPropertyValue('--md-sys-color-' + SYS[k]).trim();
+  color.success = root.getPropertyValue('--md-custom-color-success').trim();
+  color.warning = root.getPropertyValue('--md-custom-color-warning').trim();
+  color.scanBg = here.getPropertyValue('--scan-bg').trim() || color.surface;
+}
 
-// The phone's own sans, Inter first when it has it; mono only for the log.
-export const UI = 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
-export const MONO = 'ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace';
+// The M3 type scale, as canvas fonts. Roboto is on every Android; nothing fetched.
+export const FAMILY = 'Roboto, "Segoe UI", system-ui, sans-serif';
+export function fontUI(px, weight) { return (weight || 400) + ' ' + px + 'px ' + FAMILY; }
+export const LABEL_LARGE = fontUI(14, 500);
+export const LABEL_MEDIUM = fontUI(12, 500);
 
 export const HALF_WIDTH_MM = 160;       // reactive::Config::halfWidthMm - the corridor the pilot reasons in
 export const HORIZON_MM = 2500;         // reactive::Config::clearMm - beyond this nothing is in the way
@@ -38,25 +46,32 @@ export const CAR_HEIGHT_MM = 140;       // vehicle::CAR_HEIGHT_MM
 export const SCAN_Z_MM = 167;           // vehicle::C1_SCAN_Z_MM: the plane the returns are in, the 3D tick's top
 export const STALE_S = 3;               // the server's rule for /scan, applied here to /json as well
 
-// A decision's tone, keyed on the mode's name: cruise and slow drive (good),
-// stop halts (bad), reverse and blind back off or see nothing (warn). The
-// same word colours the big word, the corridor, the clearance bar and the
-// steer arrow, so one glance says the same thing everywhere.
+// A decision's tone, keyed on the mode's name: cruise and slow drive
+// (success), stop halts (error), reverse and blind back off or see nothing
+// (warning). The same word colours the mode, the stat values and the steer
+// arrow, so one glance says the same thing everywhere. 'variant' is
+// on-surface-variant: the lidar alone, nobody deciding.
 export function modeTone(mode) {
-  if (mode === 'cruise' || mode === 'slow') return 'good';
-  if (mode === 'stop') return 'bad';
-  if (mode === 'reverse' || mode === 'blind') return 'warn';
-  return 'ink';
+  if (mode === 'cruise' || mode === 'slow') return 'success';
+  if (mode === 'stop') return 'error';
+  if (mode === 'reverse' || mode === 'blind') return 'warning';
+  return 'surface';
 }
-const TONE_COLOR = { good: ui.good, warn: ui.warn, bad: ui.bad, muted: ui.muted, ink: ui.text };
-export function toneColor(tone) { return TONE_COLOR[tone] || ui.text; }
+export function toneColor(tone) {
+  if (tone === 'success') return color.success;
+  if (tone === 'warning') return color.warning;
+  if (tone === 'error') return color.error;
+  if (tone === 'variant') return color.onSurfaceVariant;
+  return color.onSurface;
+}
 export function pilotColor(drive) { return toneColor(modeTone(drive.mode)); }
 
 // Sizes a canvas to its CSS box at device pixels, capped at 2x: a phone's 3x
-// panel would triple the fill for dots that are still three pixels. Returns
-// the CSS size to draw in. Setting width resets the context, hence the
-// transform.
+// panel would triple the fill for dots that are still three pixels. Rereads
+// the tokens while it is at it. Returns the CSS size to draw in. Setting
+// width resets the context, hence the transform.
 export function fitCanvas(canvas, ctx) {
+  refresh(canvas.parentElement);
   const w = canvas.clientWidth, h = canvas.clientHeight;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
@@ -65,15 +80,14 @@ export function fitCanvas(canvas, ctx) {
   return { w: w, h: h };
 }
 
-export function fontUI(px, weight) { return (weight || 400) + ' ' + px + 'px ' + UI; }
-
-// Text with a soft shadow under it, so a ring or a point never cuts a
-// number, and nothing needs a box behind it. Clears the shadow after.
-export function shadowText(ctx, x, y, text, color) {
-  ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 6;
-  ctx.fillStyle = color;
+// Text with a halo of the ground under it, so a ring or a point never cuts a
+// glyph and nothing needs a plate behind it.
+export function haloText(ctx, x, y, text, col) {
+  ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = color.scanBg;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = col;
   ctx.fillText(text, x, y);
-  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  ctx.lineWidth = 1; ctx.lineJoin = 'miter';
 }
 
 // A rounded rectangle path; roundRect is not on every phone's canvas yet.
@@ -86,6 +100,26 @@ export function rrect(ctx, x, y, w, h, r) {
   ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
   ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
   ctx.closePath();
+}
+
+// The corner text every view carries, label-medium in on-surface-variant, no
+// plates: `hud` is {tl: [], tr: [], bl: [], br: []}, lines from the corner
+// inward. The top-left corner is the DOM's (the mode word), so views leave
+// it empty.
+export function corners(ctx, W, H, hud) {
+  if (!hud) return;
+  ctx.font = LABEL_MEDIUM; ctx.textBaseline = 'alphabetic';
+  const lh = 16, pad = 12;
+  const put = function (lines, right, bottom) {
+    if (!lines || !lines.length) return;
+    ctx.textAlign = right ? 'right' : 'left';
+    for (let i = 0; i < lines.length; i++) {
+      const y = bottom ? H - pad - 4 - (lines.length - 1 - i) * lh : pad + 12 + i * lh;
+      haloText(ctx, right ? W - pad : pad, y, lines[i], color.onSurfaceVariant);
+    }
+  };
+  put(hud.tl, false, false); put(hud.tr, true, false); put(hud.bl, false, true); put(hud.br, true, true);
+  ctx.textAlign = 'left';
 }
 
 // Metres with one decimal ("1.6 m"), two under a metre ("0.33 m") so the
