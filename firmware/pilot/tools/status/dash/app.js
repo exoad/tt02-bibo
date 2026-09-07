@@ -28,6 +28,15 @@ let scanBusy = false, beatBusy = false;
 function signal() { return AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined; }
 let scanMisses = 0;
 
+// The board runs the pilot and the lidar feed; this page is a guest on it.
+// /scan is polled ten times a second and most of those polls are the same
+// revolution we already drew, so the poll is conditional: the last ETag goes
+// back as If-None-Match and a 304 costs the board a header and this page
+// nothing - no body read, no parse, no draw. A server that sends no ETag is
+// not an error: `scanEtag` stays empty, no condition is sent, and the
+// text-compare below catches the repeat exactly as it did before.
+let scanEtag = '';
+
 function drawScan() {
   const hud = panels.hud(st);
   radar.draw(st.scan, hud);
@@ -57,13 +66,21 @@ function note() {
 function pollScan() {
   if (scanBusy) return;   // the last one has not come back; do not stack another behind it
   scanBusy = true;
-  fetch('/scan', { cache: 'no-store', signal: signal() }).then(function (r) {
+  const opt = { cache: 'no-store', signal: signal() };
+  if (scanEtag) opt.headers = { 'If-None-Match': scanEtag };
+  fetch('/scan', opt).then(function (r) {
     scanMisses = 0;
+    // Not modified: the revolution we already have. Do not touch the body.
+    if (r.status === 304) return;
     return r.text().then(function (t) {
       if (r.status === 200) {
+        scanEtag = r.headers.get('ETag') || '';
         if (t === scanText) return;   // same revolution; nothing new to draw
         scanText = t; st.scan = parseScan(t, scanBuf); st.scanGone = '';
       } else {
+        // A 404 with the reason. Drop the tag: the next revolution must come
+        // in whole, not as a 304 against a body we no longer hold.
+        scanEtag = '';
         scanText = ''; st.scan = null; st.scanGone = t.trim() || ('http ' + r.status);
       }
       drawScan();
@@ -74,6 +91,10 @@ function pollScan() {
     // an absence; the second in a row is.
     if (++scanMisses < 2) return;
     if (st.scan || st.scanGone !== 'no answer') {
+      // The tag goes with the picture. Keeping it would let the board answer
+      // 304 to a revolution this page no longer holds - a screen stuck on NO
+      // ANSWER while the feed is fine, which is the worst kind of lie here.
+      scanEtag = '';
       scanText = ''; st.scan = null; st.scanGone = 'no answer';
       drawScan();
     }
@@ -164,7 +185,6 @@ document.querySelectorAll('.seg-btn').forEach(function (b) {
 document.querySelectorAll('.nav-item').forEach(function (b) {
   b.addEventListener('click', function () { selectDest(b.dataset.dest); });
 });
-document.getElementById('about').addEventListener('click', function () { selectDest('details'); });
 
 radar.init(radarC);
 cloud.init(cloudC);

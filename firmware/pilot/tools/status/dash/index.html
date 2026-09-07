@@ -1,20 +1,28 @@
 <!doctype html>
-<!-- The field page's skeleton, Material 3. One top app bar, one navigation
-     element (a bar at the bottom on a phone, a rail on the left from 600 px),
-     and two panes: the DASH - the scan stage with the mode and the clearance
-     over it, the stat cards and the chips around it, LOOK and STOP - and the
-     SUPPORT pane of details cards (System, Sensors, Pilot, Log). On a compact
-     or medium window one pane shows, chosen by the destination; from 840 px
-     both are side by side and the destinations scroll the support pane.
-     Every element is a slot the modules fill; nothing is fetched from anywhere
-     but this board - icons are inline SVG paths (icons.js), the type is the
-     phone's Roboto. Absolute /dash/ paths: /dash without a slash would
-     resolve a relative "dash.css" to /dash.css, which is nothing. -->
+<!-- The field page's skeleton, Material 3, blue baseline. One small top app
+     bar, one navigation element (a bar at the bottom on a phone, a rail on
+     the left from 600 px), and two panes: the DASH - the scan stage with the
+     mode and the clearance over it, the decision readout beside or under it,
+     Look and Stop - and the SUPPORT pane of cards (System, Sensors, Pilot,
+     Log). On a compact or medium window one pane shows, chosen by the
+     destination; from 840 px both are side by side and the destinations
+     scroll the support pane.
+
+     It is an instrument, so every number is a row of a list, not a card of
+     its own, and nothing on it says the same thing twice: the state chips
+     that used to sit under the readout repeated the System card's rows word
+     for word and are gone, and the Pilot card no longer repeats the
+     readout's steer, throttle, hits and rate.
+
+     Every element is a slot the modules fill; nothing is fetched from
+     anywhere but this board - icons are inline SVG paths (icons.js), the
+     type is the phone's Roboto. Absolute /dash/ paths: /dash without a slash
+     would resolve a relative "dash.css" to /dash.css, which is nothing. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#141218">
+<meta name="theme-color" content="#111318">
 <meta name="color-scheme" content="dark">
 <title>bibo</title>
 <link rel="stylesheet" href="/dash/dash.css">
@@ -22,13 +30,11 @@
 <body data-dest="scan">
 
 <header class="top-bar">
-  <span class="spacer"></span>
   <h1 class="title-large">bibo</h1>
-  <button class="icon-btn state" id="about" type="button" aria-label="Details" title="Details"><i data-icon="info"></i></button>
 </header>
 
 <nav class="nav" aria-label="Destinations">
-  <span class="nav-title label-medium">bibo</span>
+  <span class="nav-title title-small">bibo</span>
   <button class="nav-item" type="button" data-dest="scan" aria-current="page"><span class="nav-ind state"><i data-icon="radar"></i></span><span class="label-medium">Scan</span></button>
   <button class="nav-item" type="button" data-dest="details"><span class="nav-ind state"><i data-icon="list"></i></span><span class="label-medium">Details</span></button>
   <button class="nav-item" type="button" data-dest="log"><span class="nav-ind state"><i data-icon="info"></i></span><span class="label-medium">Log</span></button>
@@ -40,8 +46,8 @@
     <div class="dash-grid">
       <div class="tools">
         <div class="seg" role="group" aria-label="Scan view">
-          <button class="seg-btn state label-large" type="button" data-view="2d" aria-pressed="true"><i data-icon="check" data-size="18"></i>2D</button>
-          <button class="seg-btn state label-large" type="button" data-view="3d" aria-pressed="false"><i data-icon="check" data-size="18"></i>3D</button>
+          <button class="seg-btn state target label-large" type="button" data-view="2d" aria-pressed="true"><i data-icon="check" data-size="18"></i>2D</button>
+          <button class="seg-btn state target label-large" type="button" data-view="3d" aria-pressed="false"><i data-icon="check" data-size="18"></i>3D</button>
         </div>
       </div>
 
@@ -49,36 +55,33 @@
         <canvas id="radar-c"></canvas>
         <canvas id="cloud-c" hidden></canvas>
         <div class="hud">
-          <div id="word" class="tone-error num">NO ANSWER</div>
-          <div class="clear"><span id="clear-v" class="num">--</span><span id="clear-c" class="label-large"></span></div>
+          <div id="word" class="tone-error">NO ANSWER</div>
+          <div class="clear"><span id="clear-v" class="num">--</span><span id="clear-c" class="label-medium"></span></div>
         </div>
       </div>
 
-      <div class="side">
-        <div class="stats" aria-label="Decision">
-          <div class="stat" id="s-steer"><span class="stat-l label-medium">Steer</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
-          <div class="stat" id="s-throttle"><span class="stat-l label-medium">Throttle</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
-          <div class="stat" id="s-hits"><span class="stat-l label-medium">Hits</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
-          <div class="stat" id="s-nearest"><span class="stat-l label-medium">Nearest</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
-          <div class="stat" id="s-hz"><span class="stat-l label-medium">Lidar rate</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
-          <div class="stat" id="s-sent"><span class="stat-l label-medium">Sent</span><span class="stat-row"><span class="stat-v num">-</span><span class="stat-u label-medium"></span></span></div>
-        </div>
-        <div class="chips" aria-label="State">
-          <span class="chip label-large tone-error" id="c-feed"><i data-icon="sensors" data-size="18"></i><span class="chip-l">no answer</span></span>
-          <span class="chip label-large tone-variant" id="c-pilot"><i data-icon="speed" data-size="18"></i><span class="chip-l">pilot: no answer</span></span>
-          <span class="chip label-large tone-variant" id="c-pico"><i data-icon="developer_board" data-size="18"></i><span class="chip-l">pico: no answer</span></span>
-          <span class="chip label-large tone-variant" id="c-board"><i data-icon="memory" data-size="18"></i><span class="chip-l">board: no answer</span></span>
-        </div>
+      <div class="side scrolls">
+        <section class="card" aria-label="Decision">
+          <h2 class="title-medium">Decision</h2>
+          <div class="readout">
+            <div class="ro" id="s-steer"><span class="ro-l label-medium">Steer</span><span class="ro-vu"><span class="ro-v num">-</span><span class="ro-u label-medium"></span></span></div>
+            <div class="ro" id="s-throttle"><span class="ro-l label-medium">Throttle</span><span class="ro-vu"><span class="ro-v num">-</span><span class="ro-u label-medium"></span></span></div>
+            <div class="ro" id="s-hits"><span class="ro-l label-medium">Hits</span><span class="ro-vu"><span class="ro-v num">-</span><span class="ro-u label-medium"></span></span></div>
+            <div class="ro" id="s-nearest"><span class="ro-l label-medium">Nearest</span><span class="ro-vu"><span class="ro-v num">-</span><span class="ro-u label-medium"></span></span></div>
+            <div class="ro" id="s-hz"><span class="ro-l label-medium">Lidar rate</span><span class="ro-vu"><span class="ro-v num">-</span><span class="ro-u label-medium"></span></span></div>
+            <div class="ro" id="s-sent"><span class="ro-l label-medium">Sent</span><span class="ro-vu"><span class="ro-v num">-</span><span class="ro-u label-medium"></span></span></div>
+          </div>
+        </section>
       </div>
 
       <div class="actions">
-        <button class="btn btn-primary state target label-large" id="look" type="button" disabled><i data-icon="visibility" data-size="18"></i>LOOK</button>
-        <button class="btn btn-error state target label-large" id="stop" type="button" disabled><i data-icon="stop" data-size="18"></i>STOP</button>
+        <button class="btn btn-primary state target label-large" id="look" type="button" disabled><i data-icon="visibility" data-size="18"></i>Look</button>
+        <button class="btn btn-error state target label-large" id="stop" type="button" disabled><i data-icon="stop" data-size="18"></i>Stop</button>
       </div>
     </div>
   </section>
 
-  <section class="support" id="support" aria-label="Details">
+  <section class="support scrolls" id="support" aria-label="Details">
     <section class="card" id="card-system">
       <h2 class="title-medium">System</h2>
       <div class="li two" id="r-pico"><span class="li-lead"><i data-icon="developer_board"></i></span><span class="li-body"><span class="li-head body-large">Pico link</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
@@ -100,22 +103,21 @@
       <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">IMU (I2C)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
     </section>
 
+    <!-- What the readout does not already say: where the mode came from, the
+         clearance to the millimetre, what was sent, and the heartbeat's
+         counters. Steer, throttle, hits and rate live on the dash. -->
     <section class="card" id="card-pilot">
       <h2 class="title-medium">Pilot</h2>
-      <div class="li two"><span class="li-lead"><i data-icon="speed"></i></span><span class="li-body"><span class="li-head headline-small tone-variant" id="p-mode">no pilot</span><br><span class="li-sup body-medium" id="p-src">no answer from the car</span></span></div>
+      <div class="li two"><span class="li-lead"><i data-icon="speed"></i></span><span class="li-body"><span class="li-head body-large tone-variant" id="p-mode">no pilot</span><br><span class="li-sup body-medium" id="p-src">no answer from the car</span></span></div>
       <div class="li plain"><span class="li-body"><span class="li-head body-large">Clearance</span></span><span class="li-trail label-large num" id="p-clear">-</span></div>
-      <div class="li plain"><span class="li-body"><span class="li-head body-large">Hits in corridor</span></span><span class="li-trail label-large num" id="p-hits">-</span></div>
-      <div class="li plain"><span class="li-body"><span class="li-head body-large">Steer</span></span><span class="li-trail label-large num" id="p-steer">-</span></div>
-      <div class="li plain"><span class="li-body"><span class="li-head body-large">Throttle</span></span><span class="li-trail label-large num" id="p-throttle">-</span></div>
       <div class="li plain"><span class="li-body"><span class="li-head body-large">Sent</span></span><span class="li-trail label-large num" id="p-sent">-</span></div>
-      <div class="li plain"><span class="li-body"><span class="li-head body-large">Lidar rate</span></span><span class="li-trail label-large num" id="p-revs">-</span></div>
       <div class="li plain"><span class="li-body"><span class="li-head body-large">Revolutions</span></span><span class="li-trail label-large num" id="p-revolutions">-</span></div>
       <div class="li plain"><span class="li-body"><span class="li-head body-large">Timeouts</span></span><span class="li-trail label-large num" id="p-timeouts">-</span></div>
     </section>
 
     <section class="card card-log" id="card-log">
       <h2 class="title-medium">Log</h2>
-      <div class="well"><pre id="log"></pre></div>
+      <div class="well scrolls"><pre id="log"></pre></div>
     </section>
   </section>
 

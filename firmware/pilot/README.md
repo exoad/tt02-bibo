@@ -203,50 +203,91 @@ Roboto - and `status_server.py` serves those files and data, nothing else:
 reason when there is no revolution younger than three seconds; `/json` is the
 text page's numbers plus the heartbeat and the page's own pilot process. The
 page polls `/scan` every 100 ms and `/json` every second, one request of each
-in flight, and draws only on new data.
+in flight, and draws only on new data. The `/scan` poll is conditional: the
+last ETag goes back as `If-None-Match`, and most polls answer 304 - no body
+off the board, no parse and no redraw on the phone. Measured on the bench,
+95 of 130 polls in thirteen seconds were 304s, 260 kB where the
+unconditional poll would have moved 860. A server that sends no ETag is not
+an error; the poll falls back to comparing the text it got.
 
-The design is Material 3, dark, to the spec: the baseline dark scheme as CSS
-custom properties (`--md-sys-color-*`) plus two custom colours harmonized to
-it for the car's states, success (green) and warning (amber), with the
-scheme's own error for red - and nothing on the page, DOM or canvas, is any
-colour but a token: `theme.js` reads them from the computed style once per
-resize for the two canvases. Cruise and slow are success, stop is error,
-reverse and blind are warning, the lidar alone is on-surface-variant, the
-reasons there is no scan are error. The M3 type scale (display for the mode
-word, headline for the clearance, label for everything small, tabular
-numerals for values), the M3 shape scale (cards 12, chips 8, buttons and the
-segmented button pill, the stage 16), tonal surface containers for elevation
-with no shadows, an 8 / 10 / 10 % state layer on every interactive element, a
-3 px focus ring for the keyboard, `prefers-reduced-motion` honoured.
+The design is Material 3, dark, to the spec: the **baseline blue** dark
+scheme (source `#0B57D0`, primary `#A8C7FA`) as CSS custom properties
+(`--md-sys-color-*`) plus two custom colours for the car's states, success
+(green) and warning (gold), with the scheme's own error for red - and nothing
+on the page, DOM or canvas, is any colour but a token: `theme.js` reads them
+from the computed style once per resize for the two canvases. The two custom
+colours are harmonized to *this* scheme and not by eye: a tonal ladder at a
+fixed hue with L\* set to the tone (M3's HCT tone is L\*), the hue rotated the
+15 degrees toward the source that `Blend.harmonize` caps at, which puts the
+green at hue 160 and the gold at 95. Cruise and slow are success, stop is
+error, reverse and blind are warning, the lidar alone is on-surface-variant,
+the reasons there is no scan are error. Those tone classes are utilities, so
+every component's own `color` is written `:where(.li-sup)` at zero
+specificity - written plainly the component rule wins on source order, which
+is how every state colour on the System and Sensors rows was silently grey
+for a while.
+
+The type is the M3 scale at its named steps and never between them: the mode
+word is the one hero (display-small on a phone, headline-large from 840 px,
+where the scan has the room), the clearance is headline-small, a readout
+value is title-large with tabular numerals, a label is label-medium, a list
+item is body-large over body-medium, and the only monospace on the page is
+the log. The M3 shape scale (cards 12, the log well and the segmented ends 8,
+buttons and the segmented button pill, the stage 16), tonal surface
+containers for elevation with no shadows and no borders - the page and its
+bars are `surface`, the navigation bar and every card `surface-container`,
+and a data well (the scan stage, the log) is `surface-container-lowest` - an
+8 / 10 / 10 % state layer on every interactive element, a 48 px touch target
+under every 40 px control, a 3 px focus ring for the keyboard,
+`prefers-reduced-motion` honoured. Every scrolling region is themed down to
+its scrollbar: `scrollbar-color` and `scrollbar-width` for Firefox and
+`::-webkit-scrollbar` for Chromium (which ignores the first once the second
+exists), a 6 px outline-variant thumb at the full corner in a 10 px lane, no
+track, no buttons, no corner, with `overscroll-behavior: contain` so the
+wheel stops at the pane's edge and `scrollbar-gutter: stable` so a bar
+appearing shifts nothing.
+
+It is an instrument, not a consumer app, so it takes M3's dense conventions
+and cuts ornament: no card holds a single value where a list row will do, and
+nothing says the same thing twice. The six stat cards are now six one-line
+56 dp rows of one Decision card, and the four state chips are gone - they
+repeated the System card's five rows word for word - as have the Pilot card's
+steer, throttle, hits and rate, which the readout already says.
 
 The layout is one CSS grid over the whole viewport, fluid in both axes, by
-M3's window size classes. A small top app bar ("bibo", a trailing Details
-icon), one navigation element with three destinations - Scan, Details, Log -
-that is a navigation bar at the bottom under 600 px and a navigation rail on
-the left from 600 px, and two panes. The DASH is the scan's pane and takes
-all the room there is: a 2D | 3D segmented button (the choice remembered on
-the phone; `?tab=3d` picks one for a link), the stage - the radar or the
-cloud, drawn to the stage's actual box by a ResizeObserver, the circle
-centred with its radius half the shorter side - with the mode word and the
-clearance over its top left, six Grafana-style stat cards (steer, throttle,
-hits, nearest, lidar rate, sent: label above, value in headline size with the
-state's colour, unit beside), four assist chips (feed, pilot process, Pico,
-board, each in its state's colour), and LOOK and STOP as filled buttons,
-primary and error, a full-width pair on a phone. The cards and chips dock
-under the stage when the dash's box is taller than 4:3 and beside it when it
-is wider (a container query), so a phone on its side or a small landscape
-panel keeps the scan big. The SUPPORT pane is the details: filled cards of
-list items with a leading icon, headline, supporting text and trailing value
-- System (Pico link, Board with uptime, network and temperature, Lidar,
-Pilot, Feed, and the process in a sentence under them), Sensors (the RPLIDAR
-C1 and the not-wired ones as the hub lists them), Pilot (the mode over where
-the word came from, then clearance, hits, steer, throttle, sent, lidar rate,
-revolutions, timeouts) and the Log - what the page saw happen, timestamped,
-newest at the bottom. Under 840 px one pane shows at a time and the
+M3's window size classes. A small top app bar, 64 px, the title in
+title-large; one navigation element with three destinations - Scan, Details,
+Log - that is an 80 px navigation bar at the bottom under 600 px and a
+navigation rail on the left from 600 px, its active indicator the M3
+geometry (64x32 in the bar, 56x32 in the rail); and two panes. The DASH is
+the scan's pane and takes all the room there is: a 2D | 3D segmented button
+(the choice remembered on the phone; `?tab=3d` picks one for a link), the
+stage - the radar or the cloud, drawn to the stage's actual box by a
+ResizeObserver, the circle centred with its radius half the shorter side -
+with the mode word and the clearance over its top left, the Decision readout
+(steer, throttle, hits, nearest, lidar rate, sent: label at the leading edge,
+value trailing in the state's colour, unit beside), and Look and Stop as
+filled buttons, primary and error, a full-width pair on a phone. The readout
+reflows to the room it has: one column in a narrow pane, two from 320 px,
+three from 560, and all six on one line from 900, with the M3 divider between
+rows and between columns. It docks BESIDE the stage only when the dash's box
+is too short to stack it (under 560 px) and wide enough to split - a phone on
+its side, a small landscape panel - because aspect ratio alone put a
+1920x1080 window in that branch and left a hole beside the scan.
+
+The SUPPORT pane is the details: cards of list items with a leading icon,
+headline, supporting text and trailing value, one-line at 56 and two-line at
+72, divided by an inset outline-variant rule - System (Pico link, Board with
+uptime, network and temperature, Lidar, Pilot, Feed, and the process in a
+sentence under them), Sensors (the RPLIDAR C1 and the not-wired ones as the
+hub lists them, at M3's 38 % disabled), Pilot (the mode over where the word
+came from, then clearance, sent, revolutions, timeouts - only what the
+readout does not already say) and the Log - what the page saw happen,
+timestamped, newest at the bottom. Under 840 px one pane shows at a time and the
 destinations switch them (Log gives the log the whole pane); from 840 px,
 given 480 px of height, the support pane is always beside the dash at 360 to
 412 px and Details and Log scroll it to their card. `?view=details` and
-`?view=log` open one directly. The replies to LOOK and STOP are a snackbar,
+`?view=log` open one directly. The replies to Look and Stop are a snackbar,
 four seconds.
 
 What the scan draws: the rings a metre apart, the compass ring and the
@@ -266,11 +307,12 @@ a decision older than a second is not drawn; nothing is ever the last thing
 we knew; the caption under the number says whether it is the pilot's "clear"
 or the lidar's "nearest".
 
-LOOK starts the pilot in dry mode as this service's child and STOP stops it;
-each answers one line, shown for three seconds. There is deliberately no
-control that moves the car: the keys follow `/json`'s word on the process,
-and a pilot started at a shell shows as "running elsewhere", which STOP on the
-page cannot stop. `BIBO_SCAN_FILE`, `BIBO_STATUS_FILE`, `BIBO_FEED` and
+Look starts the pilot in dry mode as this service's child and Stop stops it;
+each answers one line in the snackbar. The labels are sentence case because
+M3's are - all-caps buttons are Material 1's - and they are the same two
+controls they always were. There is deliberately no control that moves the
+car: the keys follow `/json`'s word on the process, and a pilot started at a
+shell shows as "running elsewhere", which Stop on the page cannot stop. `BIBO_SCAN_FILE`, `BIBO_STATUS_FILE`, `BIBO_FEED` and
 `BIBO_PILOT` point everything at fakes on a laptop.
 
     sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
