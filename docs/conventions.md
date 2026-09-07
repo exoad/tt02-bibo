@@ -106,7 +106,37 @@ loop.**
 
 ## Link
 
-Pico 2 W runs its own AP with WPA2. Laptop joins directly, no router.
+**The field network is a phone hotspot.** Outdoors there is no router, so the
+phone makes one: SSID `WhoopWhoop`, hidden, WPA2-PSK. Everything on the local
+stack joins it - the laptop running the hub, the Orange Pi running the pilot,
+and the Pico 2 W once it has Wi-Fi - and they talk to each other across it.
+Nothing in the control loop leaves the hotspot; the phone's data uplink is
+incidental (Tailscale rides on it when it is there, and `ssh jack@bibobox` keeps
+working through the tailnet), and nothing depends on it.
+
+The Orange Pi is configured (NetworkManager, 2026-09-07) to join the hotspot on
+its own at boot: connection `WhoopWhoop` on `wlan0`, `wifi.hidden yes`,
+`autoconnect yes`. The home network stays as a second profile at the same
+priority, so the board takes whichever is there. The passphrase lives root-only
+in `/etc/NetworkManager/system-connections/` and nowhere else - not in this
+repo, not in a chat.
+
+**Addresses come from the phone's DHCP and will change**, so members are named,
+not numbered: the Pi is `bibobox` and should answer as `bibobox.local` over
+mDNS (the responder is not on yet - `sudo nmcli connection modify WhoopWhoop
+connection.mdns yes` turns systemd-resolved's on for that profile; Windows
+resolves `.local` natively). Until then the tailnet address `100.125.100.51`
+works whenever the phone has data. The hub's "car's address" field accepts a
+hostname for the same reason.
+
+While the car is out, the Pi serves one plain-text page - `http://bibobox.local/`,
+CPU temperature, lidar and Pico state from the pilot, refreshed every two
+seconds - for the phone walking behind it. It comes up with the hotspot and
+goes down with it (`firmware/pilot/tools/status/`).
+
+The earlier plan - the Pico 2 W running its own AP that the laptop joins
+directly - is superseded by the hotspot for the same three members; the
+protocol below is unchanged.
 
 **UDP, not TCP** — newest command wins; retransmitting a stale command is worse
 than dropping it. Every packet carries a rolling counter and an HMAC; the Pico

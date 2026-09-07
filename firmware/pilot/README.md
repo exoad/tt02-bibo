@@ -140,6 +140,32 @@ the program prints each refusal, which is the correct behaviour for a car that
 was not meant to go anywhere. Ctrl-C sends STOP, stops the motor, and exits 0.
 A timed run that saw no revolution at all exits 1.
 
+### Reaching the board
+
+Outdoors the board joins the phone's hotspot (`WhoopWhoop`, hidden) by itself
+at boot; join the laptop to the same hotspot and the two are on one LAN with
+nothing in between. The hotspot hands out addresses, so use the name: `ssh
+jack@bibobox.local` once mDNS is enabled on the board, or the tailnet address
+`jack@bibobox` (100.125.100.51) whenever the phone has data. docs/conventions.md
+"Link" has the whole picture.
+
+### The status page
+
+`tools/status/` is the car's one URL: `http://bibobox.local/` on the phone,
+walking behind the car. Plain text, refreshed every two seconds: CPU
+temperature, the pilot's last second (lidar rev/s, mode, clearance; whether the
+Pico has been heard), and honest absences for what nothing measures yet
+(battery, localization). The pilot writes `/tmp/bibo-pilot.json` once a second
+and the page reads it, because the pilot holds the lidar's port and nothing
+else may open it; a file older than three seconds reads as "pilot not running".
+
+    sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
+
+installs a systemd unit and a NetworkManager dispatcher hook, so the page
+starts when the board joins `WhoopWhoop` and stops when it leaves, and turns
+mDNS on for that profile. `BIBO_STATUS_PORT=8080 python3 status_server.py`
+runs it by hand, on any network, without root.
+
 The first run of `pilot --dry --seconds 12` against the real C1 was on the
 Orange Pi on 2026-09-06, with the Pico still on the laptop: the board saw its
 room and decided, ten times a second. Driving the car is the next milestone

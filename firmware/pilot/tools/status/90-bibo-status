@@ -1,0 +1,14 @@
+#!/bin/sh
+# NetworkManager dispatcher: runs as root on every interface event with
+# $1 = interface, $2 = action, and the profile's name in $CONNECTION_ID.
+#
+# The status page comes up with the field network and goes down with it. Only
+# the hotspot: at home the board is reached over ssh and the page would just be
+# one more thing listening.
+[ "$CONNECTION_ID" = "WhoopWhoop" ] || exit 0
+
+case "$2" in
+    up)   systemctl start bibo-status.service ;;
+    down) systemctl stop bibo-status.service ;;
+esac
+exit 0

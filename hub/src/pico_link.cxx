@@ -659,9 +659,23 @@ namespace
       peer.sin_port = htons(port);
       if(inet_pton(AF_INET, host.c_str(), &peer.sin_addr) != 1)
       {
-          setErrorIf(myGen, "not an IPv4 address: " + host);
-          setStateIf(myGen, PicoState::PICO_STATE_ERROR);
-          return;
+          // Not a dotted quad, so a NAME. In the field the car's members sit on
+          // a phone hotspot whose DHCP hands out a different address every
+          // outing, so the thing worth typing is `bibobox.local`, not whatever
+          // 10.x it drew today. Windows resolves .local over mDNS itself.
+          addrinfo hints;
+          ZeroMemory(&hints, sizeof(hints));
+          hints.ai_family = AF_INET;
+          hints.ai_socktype = SOCK_DGRAM;
+          addrinfo* found = nullptr;
+          if(getaddrinfo(host.c_str(), nullptr, &hints, &found) != 0 || found == nullptr)
+          {
+              setErrorIf(myGen, "not an IPv4 address, and no such name: " + host);
+              setStateIf(myGen, PicoState::PICO_STATE_ERROR);
+              return;
+          }
+          peer.sin_addr = reinterpret_cast<sockaddr_in*>(found->ai_addr)->sin_addr;
+          freeaddrinfo(found);
       }
 
       SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);

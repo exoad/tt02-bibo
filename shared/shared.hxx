@@ -190,6 +190,11 @@ using Atomic = std::atomic<T>;
 // finish before it started is a clock bug wearing a timing bug's clothes.
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
+
+// The exception: a TIMESTAMP that another process or machine will compare
+// with its own clock - the pilot's heartbeat file, read by the status page.
+// Never for an interval; see above.
+using WallClock = std::chrono::system_clock;
 using Millis = std::chrono::milliseconds;
 using Nanos = std::chrono::nanoseconds;
 
