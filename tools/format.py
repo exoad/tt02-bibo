@@ -61,6 +61,45 @@ DECL = re.compile(
     r'(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|'
     r'Float64|Size|Str|Char|Utf8|CharSeq|Pin|auto|void|bool|int)\b')
 
+# Words that can stand right before a call without making it a declaration.
+# `return foo(` is a call; `Commands foo(` is not.
+STATEMENT_WORDS = {'return', 'co_return', 'co_yield', 'co_await', 'new', 'delete',
+                   'throw', 'case', 'goto', 'else', 'do', 'operator'}
+
+
+def is_decl(code, before, line, name):
+    """Is the parenthesis after `before` opening a parameter list, not a call?
+
+    The DECL regex knows the aliases in shared.hxx and nothing else, so a
+    declaration returning a project type - `Commands commandsFor(...)` - used to
+    read as a call and have its PARAMETERS wrapped, the one thing
+    docs/conventions.md says never happens. What actually marks a declaration
+    is the thing before the name: a type. A call is preceded by an operator, a
+    statement word, or nothing at all.
+    """
+    if DECL.match(line):
+        return True
+    j = before
+    while j >= 0 and code[j] in ' \t':
+        j -= 1
+    if j < 0 or code[j] == '\n':
+        # Nothing before the name on its line. A constructor has no return type
+        # and is written like a type - `Wide(` or `Wide::Wide(` - while a call
+        # statement is a camelCase function and a macro is ALL CAPS.
+        seg = name.split(':')[-1]
+        return seg[:1].isupper() and not seg.isupper()
+    c = code[j]
+    if c in '>&*~':
+        return True                                  # Vec<X>& f(  Str* f(  ~T(
+    if c == ']' and j > 0 and code[j - 1] == ']':
+        return True                                  # [[nodiscard]] f(
+    if c.isalnum() or c == '_':
+        e = j
+        while j >= 0 and (code[j].isalnum() or code[j] == '_'):
+            j -= 1
+        return code[j + 1:e + 1] not in STATEMENT_WORDS
+    return False
+
 
 def blank_noise(text):
     """Comment and string BODIES become spaces, offsets preserved.
@@ -270,7 +309,7 @@ def scan(text):
             continue
 
         ln = line_of(i)
-        if DECL.match(lines[ln]) or lines[ln].lstrip().startswith('#'):
+        if is_decl(code, j, lines[ln], name) or lines[ln].lstrip().startswith('#'):
             i += 1
             continue
 
