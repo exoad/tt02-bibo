@@ -1,6 +1,6 @@
-// The 3D view: the hub's Cloud scene (hub/src/scene3d.cxx) on a canvas. The
-// same revolution as returns standing on the ground around a car box at the
-// origin, seen from an orbiting camera. World axes are the hub's scene: x
+// The 3D view: the hub's Cloud scene (hub/src/scene3d.cxx) on a canvas, in
+// the field's palette. The same revolution as returns standing on the ground
+// around a car box at the origin, seen from an orbiting camera. World axes are the hub's scene: x
 // right, y forward, z up; a lidar bearing b at range d lands on the scan
 // plane at (d sin b, d cos b, SCAN_Z) and is drawn as a tick from the ground
 // up to it, which is how the hub draws a return that has a height but no
@@ -39,7 +39,7 @@ let focal = 1, hw = 0, hh = 0;
 // The last projection's output. A function returning a pair would allocate.
 let px = 0, py = 0;
 
-let lastScan = null, lastGone = 'no answer', lastRange = 3000, lastHud = null;
+let lastScan = null;
 let pending = false;    // a frame is queued; a drag at 60 Hz and data at 10 Hz share it
 
 export function init(c) {
@@ -55,10 +55,10 @@ export function resize() {
   render();
 }
 
-// `scan` is the parsed revolution or null; `rangeMm` is the radar's current
-// range, so the corridor is drawn as far as the other view draws it.
-export function draw(scan, gone, rangeMm, hud) {
-  lastScan = scan; lastGone = gone; lastRange = rangeMm; lastHud = hud;
+// `scan` is the parsed revolution or null. When it is null only the ground,
+// the car and the heading are drawn: the reason is the page's big word.
+export function draw(scan) {
+  lastScan = scan;
   schedule();
 }
 
@@ -138,26 +138,26 @@ function render() {
   pending = false;
   if (!ctx || W < 40 || H < 40) return;
   updateCamera();
-  ctx.fillStyle = T.ansi.BLACK; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = T.ui.bg; ctx.fillRect(0, 0, W, H);
   ctx.textBaseline = 'alphabetic';
   const far = RING_STEP * RING_N;
 
   // The ground: rings a metre apart, major every fifth, radials every 45 deg
-  // with the two axes stronger, all at the grid's alphas.
+  // with the two axes stronger, all faint.
   ctx.lineWidth = 1;
-  ctx.strokeStyle = T.map.GRID; ctx.globalAlpha = 0.69; ctx.beginPath();
+  ctx.strokeStyle = T.map.GRID; ctx.beginPath();
   for (let i = 1; i <= RING_N; i++) if (i % 5) ring3(i * RING_STEP);
   for (let b = 45; b < 360; b += 90) {
     const s = Math.sin(b * Math.PI / 180), c = Math.cos(b * Math.PI / 180);
     line3(0, 0, 0, far * s, far * c, 0);
   }
   ctx.stroke();
-  ctx.strokeStyle = T.map.GRID_MAJOR; ctx.globalAlpha = 0.5; ctx.beginPath();
+  ctx.strokeStyle = T.map.GRID_MAJOR; ctx.beginPath();
   for (let i = 5; i <= RING_N; i += 5) ring3(i * RING_STEP);
   line3(-far, 0, 0, far, 0, 0); line3(0, -far, 0, 0, 0, 0);
   ctx.stroke();
   // The heading along +y, in its own colour, so which way is forward survives an orbit.
-  ctx.strokeStyle = T.map.HEADING; ctx.globalAlpha = 0.6; ctx.lineWidth = 1.6;
+  ctx.strokeStyle = T.map.HEADING; ctx.globalAlpha = 0.7; ctx.lineWidth = 2.5;
   ctx.beginPath(); line3(0, 0, 0, 0, far, 0); ctx.stroke();
   ctx.globalAlpha = 1; ctx.lineWidth = 1;
 
@@ -169,19 +169,19 @@ function render() {
     // clearance bar across it, in the decision's colour like the flat map's.
     const col = T.pilotColor(d);
     const w = T.HALF_WIDTH_MM, top = Math.max(T.HORIZON_MM, d.clearMm);
-    ctx.strokeStyle = col; ctx.globalAlpha = 0.69; ctx.lineWidth = 1.4; ctx.beginPath();
+    ctx.strokeStyle = col; ctx.globalAlpha = 0.75; ctx.lineWidth = 2; ctx.beginPath();
     line3(-w, 0, 0, -w, top, 0); line3(w, 0, 0, w, top, 0);
     ctx.stroke();
-    ctx.globalAlpha = 1; ctx.lineWidth = 2.2; ctx.beginPath();
+    ctx.globalAlpha = 1; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath();
     line3(-w, d.clearMm, 0, w, d.clearMm, 0);
     ctx.stroke();
-    ctx.lineWidth = 1;
+    ctx.lineCap = 'butt'; ctx.lineWidth = 1;
   }
 
   if (scan) {
     // Each return a white tick from the ground to the scan plane, with the
     // return itself a dot at the top.
-    ctx.strokeStyle = T.map.POINT; ctx.fillStyle = T.map.POINT; ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = T.map.POINT; ctx.fillStyle = T.map.POINT; ctx.globalAlpha = 0.7;
     ctx.beginPath();
     const n = scan.n, a = scan.a, dd = scan.d;
     for (let i = 0; i < n; i++) {
@@ -192,7 +192,7 @@ function render() {
     ctx.globalAlpha = 1;
     for (let i = 0; i < n; i++) {
       const r = dd[i], b = a[i];
-      if (project(r * Math.sin(b), r * Math.cos(b), T.SCAN_Z_MM)) ctx.fillRect(px - 1, py - 1, 2, 2);
+      if (project(r * Math.sin(b), r * Math.cos(b), T.SCAN_Z_MM)) ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
     }
   }
 
@@ -201,40 +201,28 @@ function render() {
   if (scan && scan.near >= 0) {
     const r = scan.d[scan.near], b = scan.a[scan.near];
     if (project(r * Math.sin(b), r * Math.cos(b), T.SCAN_Z_MM)) {
-      ctx.strokeStyle = T.map.NEAREST; ctx.lineWidth = 1.5; ctx.beginPath();
-      ctx.arc(px, py, 6, 0, 2 * Math.PI); ctx.stroke();
-      ctx.fillStyle = T.map.NEAREST; ctx.font = T.fontMono(T.size.SMALL);
-      ctx.textAlign = px > W - 80 ? 'right' : 'left';
-      ctx.fillText(r + ' mm', px > W - 80 ? px - 9 : px + 9, py + 4);
+      ctx.strokeStyle = T.map.NEAREST; ctx.lineWidth = 2.5; ctx.beginPath();
+      ctx.arc(px, py, 10, 0, 2 * Math.PI); ctx.stroke();
+      ctx.font = T.fontUI(20, 600);
+      const right = px > W - 110;
+      ctx.textAlign = right ? 'right' : 'left';
+      T.shadowText(ctx, right ? px - 16 : px + 16, py + 7, T.metres(r), T.map.NEAREST);
       ctx.textAlign = 'left'; ctx.lineWidth = 1;
     }
   }
 
   if (overlay) {
     // The steer arrow, above the car's roof so the box does not hide it.
-    ctx.strokeStyle = T.pilotColor(d); ctx.lineWidth = 2;
+    ctx.strokeStyle = T.pilotColor(d); ctx.lineWidth = 3; ctx.lineCap = 'round';
     arrow3(0, 0, T.CAR_HEIGHT_MM + 2, d.steer * T.STEER_DEG * Math.PI / 180, ARROW_MM, ARROW_MM * 0.3);
-    ctx.lineWidth = 1;
-  }
-
-  const cx = W / 2, cy = H / 2;
-  if (!scan) T.noScan(ctx, cx, cy, H * 0.16, lastGone);
-
-  if (lastHud) {
-    // The camera, in words, as the hub says it; and how much ground the view
-    // spans at the car, as the flat map says its fit.
-    const atHome = yaw === DEFAULT_YAW && pitch === DEFAULT_PITCH && dist === DEFAULT_DIST;
-    const across = 2 * dist * Math.tan(FOV_Y / 2) * (W / H) / 1000;
-    const diag = (scan ? scan.n + ' returns' : 'no returns') + '  |  car lock, orbit ' +
-                 Math.round(yaw * 180 / Math.PI) + ' deg, ' + (dist / 1000).toFixed(1) + ' m out';
-    T.drawHud(ctx, W, H, lastHud, 'Cloud', diag, (atHome ? 'fit   ' : 'manual   ') + across.toFixed(1) + ' m across');
+    ctx.lineWidth = 1; ctx.lineCap = 'butt';
   }
 }
 
 function car() {
-  // A box to the TT-02's plan, nose at +y, the roof filled in the hub's car
-  // blue so it reads as a solid, white edges, a windscreen line a quarter
-  // back from the nose.
+  // A box to the TT-02's plan, nose at +y, the roof filled in the accent so
+  // it reads as a solid, white edges, a windscreen line a quarter back from
+  // the nose.
   const w = T.CAR_MM[0] / 2, l = T.CAR_MM[1] / 2, h = T.CAR_HEIGHT_MM;
   if (project(-w, l, h)) {
     const x0 = px, y0 = py;
@@ -243,19 +231,20 @@ function car() {
       if (project(w, -l, h)) {
         const x2 = px, y2 = py;
         if (project(-w, -l, h)) {
-          ctx.fillStyle = T.map.CAR; ctx.beginPath();
+          ctx.fillStyle = T.map.HEADING; ctx.globalAlpha = 0.55; ctx.beginPath();
           ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(px, py);
-          ctx.closePath(); ctx.fill();
+          ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
         }
       }
     }
   }
-  ctx.strokeStyle = T.map.LABEL; ctx.lineWidth = 1; ctx.beginPath();
+  ctx.strokeStyle = T.map.CAR; ctx.lineWidth = 1.5; ctx.beginPath();
   line3(-w, l, 0, w, l, 0); line3(w, l, 0, w, -l, 0); line3(w, -l, 0, -w, -l, 0); line3(-w, -l, 0, -w, l, 0);
   line3(-w, l, h, w, l, h); line3(w, l, h, w, -l, h); line3(w, -l, h, -w, -l, h); line3(-w, -l, h, -w, l, h);
   line3(-w, l, 0, -w, l, h); line3(w, l, 0, w, l, h); line3(w, -l, 0, w, -l, h); line3(-w, -l, 0, -w, -l, h);
   ctx.stroke();
-  ctx.strokeStyle = T.ansi.BLACK; ctx.beginPath(); line3(-w, l * 0.5, h, w, l * 0.5, h); ctx.stroke();
+  ctx.strokeStyle = T.ui.bg; ctx.beginPath(); line3(-w, l * 0.5, h, w, l * 0.5, h); ctx.stroke();
+  ctx.lineWidth = 1;
 }
 
 // ---- input: drag orbits, wheel or pinch zooms, a double tap resets -------

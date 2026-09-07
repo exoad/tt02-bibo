@@ -1,237 +1,193 @@
-/* The dashboard's chrome: the hub's (hub/src/theme.cxx applyStyle) in CSS.
-   Gruvbox dark on the same skeuomorphic depth: the window is the casing
-   (bg0); a key is pushed OUT of it and sits a step lighter (bg1), with one
-   pixel of light along its top edge and one of shadow along its bottom -
-   ui::bevelRect, and the only edge treatment there is; a field is milled
-   INTO it and sits a step darker (bg0h) with the bevel inverted. Every
-   hairline is bg3 and none of them react. No accent on any edge: the one
-   interface accent, gruvbox aqua, is for marks only. Every corner square,
-   every gap 4 or 8 or a multiple. The lidar viewport is a display set into
-   the console: pure black, recessed. Nothing is fetched, so nothing can
-   fail to arrive: the type is whatever the phone has closest to Segoe UI
-   and Cascadia Mono, the hub's two faces.
+/* The field screen's chrome. A clean dark dashboard, as a good phone app
+   draws one: a near-black neutral ground with the scan on it, soft rounded
+   panels in translucent dark grey with a hairline of white at 8 % where a
+   surface is needed at all, the phone's own sans with tabular numerals, one
+   accent (blue) for what is the car's own - the heading arrow, the active
+   toggle, LOOK - and three state colours that mean one thing everywhere:
+   green drives, amber backs off, red halts or is missing. theme.js carries
+   the same values for the canvases. Nothing is fetched, so nothing can fail
+   to arrive.
 
-   One layout language at two sizes. A laptop is the hub's window: the tab
-   strip and the view in the middle, a 360 px column of panels on the right,
-   the status strip along the bottom, no page scroll. A phone in portrait
-   stacks the same parts - strip, square view, panels - and keeps the status
-   strip stuck to the bottom edge. */
+   MAIN is the viewport: no page scroll, the canvas is the whole thing, the
+   words and keys float over it at the top and the bottom under scrims so
+   they read over points in sunlight. Portrait first; a laptop gets the same
+   thing centred at phone width; a landscape phone the same with a smaller
+   word and narrower keys. DETAILS is a normal scrolling page of cards. */
 
 :root {
-  --bg0h: #1d2021; --bg0: #282828; --bg0s: #32302f; --bg1: #3c3836;
-  --bg2: #504945; --bg3: #665c54; --bg4: #7c6f64;
-  --fg1: #ebdbb2; --fg2: #d5c4a1; --fg3: #bdae93; --fg4: #a89984;
-  --aqua: #689d6a; --aqua-hi: #8ec07c;
-  /* ui::sem, forwarded to the map's set: one green means one thing everywhere. */
-  --good: #00ff00; --warn: #ffff00; --bad: #ff0000; --muted: #7f7f7f;
-  /* Tint::TINT_GOOD / TINT_WARN over the key colours, as pushTint mixes them:
-     the hue rescaled to the key's brightness first, then 38 / 48 / 58 % in. */
-  --key-good: #254221; --key-good-hover: #2a5d24; --key-good-active: #154214;
-  --key-warn: #3d3a21; --key-warn-hover: #545024; --key-warn-active: #393814;
-  /* bevelRect: light 42/255 on top, shadow 105/255 on the bottom; inverted
-     when pressed, with a second shadow line along the top inner edge. */
-  --bevel: inset 0 1px 0 rgba(255,255,255,.165), inset 0 -1px 0 rgba(0,0,0,.41);
-  --bevel-pressed: inset 0 1px 0 rgba(0,0,0,.41), inset 0 2px 0 rgba(0,0,0,.22), inset 0 -1px 0 rgba(255,255,255,.165);
-  /* screenInset: one dark pixel top/left, one light pixel bottom/right. */
-  --inset: inset 1px 1px 0 rgba(0,0,0,.63), inset -1px -1px 0 rgba(255,255,255,.10);
-  --ui: "Segoe UI", "Segoe UI Variable Text", Cantarell, Roboto, system-ui, sans-serif;
-  --mono: "Cascadia Mono", Consolas, Menlo, "DejaVu Sans Mono", ui-monospace, monospace;
+  --bg: #0b0f14;
+  --panel: rgba(20, 24, 30, .85);
+  --line: rgba(255, 255, 255, .08);
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, .6);
+  --dim: rgba(255, 255, 255, .35);
+  --accent: #4f8cff; --accent-press: #3a72db;
+  --good: #34d399; --warn: #fbbf24; --bad: #f87171; --bad-press: #d95f5f;
+  --ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  --scrim: rgba(11, 15, 20, .82);
 }
 
-html { background: var(--bg0); color: var(--fg1); font: 15px/1.2 var(--ui); height: 100%; }
-body {
-  margin: 0; min-height: 100%; box-sizing: border-box;
-  padding: 8px;                        /* WindowPadding */
-  display: grid; gap: 6px;             /* ItemSpacing.y */
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto auto auto;
-  grid-template-areas: "tabs" "views" "side" "strip";
-}
+html { background: var(--bg); color: var(--ink); font: 16px/1.3 var(--ui); font-variant-numeric: tabular-nums; }
+body { margin: 0; min-height: 100vh; min-height: 100dvh; -webkit-text-size-adjust: 100%; }
 * { box-sizing: border-box; }
-button { font: inherit; color: inherit; }
-
-/* ---- the tab strip ------------------------------------------------------ */
-/* ImGui's: text-only tabs at FramePadding, the selected one the key fill and
-   bevel, the rest flat; a one-pixel line in the key tone under the row. */
-#tabs { grid-area: tabs; display: flex; gap: 6px; border-bottom: 1px solid var(--bg1); }
-.tab {
-  background: transparent; border: 0; padding: 4px 8px; min-width: 44px;
-  color: var(--fg1); cursor: pointer;
-}
-.tab:hover { background: var(--bg2); }
-.tab.on { background: var(--bg1); box-shadow: var(--bevel); }
-
-/* ---- the view ----------------------------------------------------------- */
-#views { grid-area: views; position: relative; background: #000; height: min(calc(100vw - 16px), 72vh); }
-#views::after { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: var(--inset); }
-.view { position: absolute; inset: 0; }
-.view canvas { display: block; width: 100%; height: 100%; }
-/* The drag on the cloud is ours - an orbit, not a scroll - so the browser
-   must not take it. The rest of the page still scrolls from anywhere else. */
-#v-3d canvas { touch-action: none; }
-/* The log is a well: a field milled into the casing, mono, newest at the bottom. */
-#v-log { background: var(--bg0h); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--bg2) var(--bg0h); }
-#log {
-  margin: 0; padding: 8px; min-height: 100%;
-  font: 14px/1.35 var(--mono); color: var(--fg1);
-  white-space: pre-wrap; overflow-wrap: anywhere;
-}
-#log:empty::before { content: "nothing yet"; color: var(--fg4); }
-
-/* ---- the sidebar -------------------------------------------------------- */
-#side { grid-area: side; min-width: 0; scrollbar-width: thin; scrollbar-color: var(--bg2) var(--bg0h); }
-.panel { margin-bottom: 6px; }
-
-/* CollapsingHeader in the title face at half the frame's vertical padding:
-   the triangle, the icon, the title, and the tear-off key at the right end. */
-.hdr {
-  display: flex; align-items: center; height: 22px; padding: 0 8px;
-  background: var(--bg1); box-shadow: var(--bevel);
-  cursor: pointer; user-select: none; -webkit-user-select: none;
-}
-.hdr:hover { background: var(--bg2); }
-.tri {
-  width: 0; height: 0; flex: none;
-  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--fg1);
-}
-.panel.closed .tri {
-  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
-  border-left: 7px solid var(--fg1); border-right: 0;
-}
-.hdr .ic { margin-left: 12px; color: var(--fg3); }
-.hdr .title { margin-left: 8px; font-size: 18px; font-weight: 600; }
-.float {
-  margin-left: auto; padding: 0 8px; height: 18px;
-  font-size: 12px; color: var(--fg4);
-  background: var(--bg1); border: 0; box-shadow: var(--bevel); cursor: default;
-}
-.panel.closed .body { display: none; }
-.body { padding: 2px 0 4px; }
-
-.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
-
-/* A table row: name, then the lamp and the state in the state's colour, then
-   a value. Text plus CellPadding, alternate rows 3 % lighter. */
-.row {
-  display: grid; grid-template-columns: 9.6em minmax(0, 1fr) auto; align-items: center;
-  height: 19px; padding: 0 4px; column-gap: 4px; white-space: nowrap;
-}
-.row:nth-child(even) { background: rgba(235, 219, 178, .03); }
-.row .name, .row .cell { display: flex; align-items: center; min-width: 0; overflow: hidden; }
-.row .name .ic { margin-right: 6px; color: var(--fg3); }
-.row .st { overflow: hidden; text-overflow: ellipsis; }
-.row .val { color: var(--fg1); }
-.row.off { color: var(--fg4); }
-
-/* ui::led: the socket always; lit throws a halo, unlit is a dim disc in a rim. */
-.lamp {
-  flex: none; width: 8px; height: 8px; border-radius: 50%; margin: 0 6px 0 2px;
-  box-shadow: 0 0 0 2px rgba(0,0,0,.43), inset 0 0 0 1px rgba(255,255,255,.11);
-}
-.lamp.good { background: rgba(0,255,0,.235); }
-.lamp.warn { background: rgba(255,255,0,.235); }
-.lamp.bad { background: rgba(255,0,0,.235); }
-.lamp.muted { background: rgba(127,127,127,.235); }
-.lamp.lit.good { background: var(--good); box-shadow: 0 0 0 2px rgba(0,0,0,.43), 0 0 6px 2px rgba(0,255,0,.28); }
-.lamp.lit.warn { background: var(--warn); box-shadow: 0 0 0 2px rgba(0,0,0,.43), 0 0 6px 2px rgba(255,255,0,.28); }
-.lamp.lit.bad { background: var(--bad); box-shadow: 0 0 0 2px rgba(0,0,0,.43), 0 0 6px 2px rgba(255,0,0,.28); }
-.lamp.lit.muted { background: var(--muted); box-shadow: 0 0 0 2px rgba(0,0,0,.43); }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 
 /* Colour means a state or it is not used. */
 .good { color: var(--good); }
 .warn { color: var(--warn); }
 .bad { color: var(--bad); }
 .muted { color: var(--muted); }
+.ink { color: var(--ink); }
 
-/* ui::checkbox: a well, so the inverted bevel, the neutral hairline, and two
-   strokes of the accent for the check. */
-.cb {
-  flex: none; width: 13px; height: 13px; margin: 0 6px 0 1px; position: relative;
-  background: var(--bg0h); border: 1px solid var(--bg3);
-  box-shadow: inset 0 1px 0 rgba(0,0,0,.41), inset 0 -1px 0 rgba(255,255,255,.165);
+/* ---- MAIN ------------------------------------------------------------------ */
+#main {
+  position: fixed; inset: 0; height: 100vh; height: 100dvh;
+  overflow: hidden; background: var(--bg);
 }
-.cb.on::after {
-  content: ""; position: absolute; left: 3px; top: 0; width: 4px; height: 7px;
-  border: solid var(--aqua-hi); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+#main canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* The drag on the cloud is ours - an orbit, not a scroll - so the browser
+   must not take it. */
+#cloud-c { touch-action: none; }
+
+/* The overlays let touches through to the canvas except on their controls. */
+#top, #bottom { position: absolute; left: 0; right: 0; pointer-events: none; }
+#top button, #bottom button { pointer-events: auto; }
+
+#top {
+  top: 0; padding: calc(12px + env(safe-area-inset-top, 0px)) 20px 36px;
+  background: linear-gradient(var(--scrim) 0%, var(--scrim) 55%, rgba(11, 15, 20, 0) 100%);
+}
+#bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+
+/* The 2D / 3D switch: a small segmented control on a rounded track. */
+#seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+#seg button {
+  height: 32px; min-width: 52px; padding: 0 14px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--muted); font-weight: 600; font-size: 15px; cursor: pointer;
+}
+#seg button.on { background: var(--accent); color: var(--ink); }
+
+/* The way to the details: one round translucent key. */
+#info {
+  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); font-weight: 700; font-size: 20px;
+  font-family: Georgia, "Times New Roman", serif; font-style: italic; cursor: pointer;
+}
+#info:active { background: rgba(255, 255, 255, .18); }
+
+/* The one line that matters: the mode, or the reason there is no scan. */
+#word {
+  font-size: 64px; line-height: 1; font-weight: 800; letter-spacing: -.01em;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .8);
+  overflow-wrap: anywhere;      /* SPINNING UP takes two lines on a narrow phone rather than a smaller face */
+}
+#clear {
+  margin-top: 6px; display: flex; align-items: baseline; gap: 10px;
+  font-size: 44px; line-height: 1; font-weight: 600; text-shadow: 0 2px 10px rgba(0, 0, 0, .8);
+}
+#clear-c { font-size: 16px; font-weight: 500; color: var(--muted); }
+#cmd { margin-top: 8px; font-size: 20px; color: var(--muted); text-shadow: 0 1px 8px rgba(0, 0, 0, .8); }
+
+#bottom {
+  bottom: 0; padding: 40px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(rgba(11, 15, 20, 0) 0%, var(--scrim) 40%, var(--scrim) 100%);
+}
+/* A control's one-line answer, for three seconds, above the keys. */
+#reply {
+  margin: 0 auto 10px; padding: 10px 14px; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-size: 16px; text-align: center; overflow-wrap: anywhere;
+}
+#keys { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#keys button {
+  height: 72px; border: 0; border-radius: 18px;
+  font-size: 26px; font-weight: 800; letter-spacing: .04em; color: var(--ink); cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+}
+#look { background: var(--accent); }
+#look:active { background: var(--accent-press); }
+#stop { background: var(--bad); }
+#stop:active { background: var(--bad-press); }
+/* A key that cannot be pressed makes no claim about what pressing it would do. */
+#keys button:disabled { opacity: .4; cursor: default; box-shadow: none; }
+#line {
+  margin-top: 10px; font-size: 14px; color: var(--muted); text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* A group heading inside a section: the caption tier over a rule. */
-.group { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; color: var(--fg4); }
-.group::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
-
-/* The tall action key: a frame plus one more FramePadding each side, the icon
-   and label one centred group; tinted for what pressing it does. */
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.key {
-  height: 31px; padding: 0 8px; border: 0;
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: var(--bg1); box-shadow: var(--bevel); cursor: pointer;
+/* A landscape phone: a smaller word, the keys narrower and shorter. */
+@media (orientation: landscape) and (max-height: 520px) {
+  #top { padding-top: 10px; padding-bottom: 24px; }
+  #bar { margin-bottom: 4px; }
+  #word { font-size: 44px; }
+  #clear { font-size: 32px; margin-top: 2px; }
+  #cmd { font-size: 16px; margin-top: 4px; }
+  #bottom { padding-top: 24px; }
+  #keys { max-width: 60%; margin: 0 auto; }
+  #keys button { height: 56px; font-size: 22px; border-radius: 16px; }
+  #reply { max-width: 60%; }
 }
-.key:hover { background: var(--bg2); }
-.key:active { background: var(--bg0s); box-shadow: var(--bevel-pressed); }
-.key.good { color: var(--fg1); background: var(--key-good); }
-.key.good:hover { background: var(--key-good-hover); }
-.key.good:active { background: var(--key-good-active); }
-.key.warn { color: var(--fg1); background: var(--key-warn); }
-.key.warn:hover { background: var(--key-warn-hover); }
-.key.warn:active { background: var(--key-warn-active); }
-.key .ic { color: var(--fg3); }
-.key.good .ic { color: var(--good); }
-.key.warn .ic { color: var(--warn); }
-/* BeginDisabled: the plain key at ImGui's DisabledAlpha, and no tint - a key
-   that cannot be pressed makes no claim about what pressing it would do. */
-.key:disabled, .key:disabled:hover, .key:disabled:active {
-  color: var(--fg4); background: var(--bg1); box-shadow: var(--bevel); opacity: .6; cursor: default;
-}
-.key:disabled .ic { color: var(--fg4); }
-.reply { margin-top: 6px; padding: 0 4px; min-height: 18px; color: var(--fg4); overflow-wrap: anywhere; }
 
-/* statCell: the value in the stat face over its caption; keyValue rows under. */
-.stat { padding: 4px 4px 6px; }
-.stat-v { display: block; font-size: 22px; font-weight: 600; line-height: 1.15; }
-.stat-c { display: block; font-size: 12px; color: var(--fg4); }
-.kv { display: grid; grid-template-columns: 7em minmax(0, 1fr); align-items: center; height: 19px; padding: 0 4px; }
-.kv:nth-child(even) { background: rgba(235, 219, 178, .03); }
-.kv .k { color: var(--fg4); }
-.kv .v { font-family: var(--mono); font-size: 14px; }
-
-/* ---- the status strip --------------------------------------------------- */
-/* One line, always visible: an icon-tone dot, the dim name, the state in its
-   colour, the detail dim again; a bg3 hairline one ItemSpacing each side. */
-#strip {
-  grid-area: strip; position: sticky; bottom: 0; z-index: 1;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;
-  padding: 4px 8px; background: var(--bg0); border-top: 1px solid var(--bg3);
-  font-size: 12px; white-space: nowrap;
+/* A laptop: the same screen, centred at phone width. */
+@media (min-width: 700px) and (min-height: 600px) {
+  html { background: #05070a; }
+  #main { left: 50%; right: auto; width: 480px; margin-left: -240px; }
 }
-.field { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
-.field .st, .field .ex { overflow: hidden; text-overflow: ellipsis; }
-.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.dot.good { background: var(--good); }
-.dot.warn { background: var(--warn); }
-.dot.bad { background: var(--bad); }
-.lbl, .ex { color: var(--fg4); }
-.sep { display: none; }
-/* Two by two on a phone, and only the board's address as a detail: the lidar's
-   host and rate are in the HUD a thumb's width above. */
-#s-lidar .ex, #s-pilot .ex, #s-pico .ex { display: none; }
 
-/* ---- laptop ------------------------------------------------------------- */
-@media (min-width: 900px) {
-  html { overflow: hidden; }
-  body {
-    height: 100vh; column-gap: 8px;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "tabs side" "views side" "strip strip";
-  }
-  #views { height: auto; min-height: 0; }
-  #side { overflow-y: auto; min-height: 0; }
-  #strip {
-    position: static; display: flex; align-items: center; height: 27px; padding: 0 8px; gap: 0;
-    font-size: 15px;
-  }
-  .field { flex: none; }
-  .field .ex { display: inline; }
-  .sep { display: block; flex: none; width: 1px; height: 15px; margin: 0 8px; background: var(--bg3); }
+/* ---- DETAILS --------------------------------------------------------------- */
+#details { max-width: 640px; margin: 0 auto; padding: 0 16px 32px; }
+#dhead {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 16px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 0 10px; background: var(--bg);
 }
+#back {
+  height: 48px; padding: 0 20px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); color: var(--ink); font-size: 18px; font-weight: 600; cursor: pointer;
+}
+#back:active { background: rgba(255, 255, 255, .18); }
+#dhead h1 { margin: 0; font-size: 22px; font-weight: 700; }
+
+.card {
+  margin-top: 12px; padding: 14px 16px 10px; border-radius: 16px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.card h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* A row: name, then the lamp and the state in the state's colour, then a value. */
+.row {
+  display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; align-items: center;
+  min-height: 40px; column-gap: 8px; white-space: nowrap; border-top: 1px solid var(--line);
+}
+.row:first-of-type { border-top: 0; }
+.row .name { color: var(--muted); }
+.row .cell { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.row .st { white-space: normal; overflow-wrap: anywhere; padding: 6px 0; }   /* a long state wraps; this page is complete, not tidy */
+.row .val { color: var(--muted); }
+.row.off { color: var(--dim); }
+.row.off .name, .row.off .st { color: var(--dim); }
+
+/* A lamp: a dot in the state's colour, lit throws a halo. */
+.lamp { flex: none; width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; background: var(--muted); opacity: .35; }
+.lamp.good { background: var(--good); }
+.lamp.warn { background: var(--warn); }
+.lamp.bad { background: var(--bad); }
+.lamp.lit { opacity: 1; }
+.lamp.lit.good { box-shadow: 0 0 8px 1px rgba(52, 211, 153, .5); }
+.lamp.lit.warn { box-shadow: 0 0 8px 1px rgba(251, 191, 36, .5); }
+.lamp.lit.bad { box-shadow: 0 0 8px 1px rgba(248, 113, 113, .5); }
+
+.note { padding: 10px 0 4px; color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+
+/* The pilot's mode over its source, then label / value pairs. */
+.stat { padding: 2px 0 8px; }
+.stat-v { display: block; font-size: 30px; font-weight: 700; line-height: 1.15; text-transform: uppercase; }
+.stat-c { display: block; font-size: 14px; color: var(--muted); }
+.kv { display: grid; grid-template-columns: 7em minmax(0, 1fr); align-items: center; min-height: 36px; border-top: 1px solid var(--line); }
+.kv .k { color: var(--muted); }
+
+/* The log: a well, mono, newest at the bottom. */
+.well { max-height: 50vh; overflow: auto; border-radius: 10px; background: rgba(0, 0, 0, .35); scrollbar-width: thin; }
+#log { margin: 0; padding: 10px 12px; font: 13px/1.45 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+#log:empty::before { content: "nothing yet"; color: var(--dim); }

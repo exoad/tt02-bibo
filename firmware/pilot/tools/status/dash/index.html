@@ -1,116 +1,91 @@
 <!doctype html>
-<!-- The dashboard's skeleton: the hub (hub/src/app_ui.cxx) in a browser. A
-     tab strip over the view, a sidebar of collapsing panels, a status strip
-     along the bottom. Every element here is a slot the modules fill; nothing
-     is drawn or fetched from anywhere but this board (see dash.css and
-     app.js). Absolute /dash/ paths, because /dash without a slash resolves a
-     relative "dash.css" to /dash.css, which is nothing. -->
+<!-- The field screen's skeleton: two views. MAIN is the whole viewport, the
+     scan behind everything, the big word and the clearance over it at the
+     top, LOOK and STOP under the thumb at the bottom; nothing scrolls.
+     DETAILS is the sit-down page: every row the panels had, as cards, and
+     the log. Every element here is a slot the modules fill; nothing is drawn
+     or fetched from anywhere but this board (see dash.css and app.js).
+     Absolute /dash/ paths, because /dash without a slash resolves a relative
+     "dash.css" to /dash.css, which is nothing. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
 <title>bibo</title>
 <link rel="stylesheet" href="/dash/dash.css">
 </head>
 <body>
 
-<!-- The icon set: 16 px line glyphs standing in for the hub's Fugue icons,
-     one symbol each, in currentColor. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <symbol id="i-system" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="8" rx="0"/><path d="M5 13.5h6M8 10.5v3"/><path d="M4 8l2-3 2 2 2-3 2 4" stroke-width="1"/></symbol>
-    <symbol id="i-sensors" viewBox="0 0 16 16"><path d="M1.5 8h2l1.5-4 2 8 2-6 1.5 4h4"/></symbol>
-    <symbol id="i-pilot" viewBox="0 0 16 16"><path d="M2.5 10.5V8l1.5-3.5h8L13.5 8v2.5"/><rect x="1.5" y="8.5" width="13" height="4"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="12.5" r="1.5"/></symbol>
-    <symbol id="i-link" viewBox="0 0 16 16"><path d="M5 2v3M9 2v3"/><path d="M3.5 5h7v3a3.5 3.5 0 0 1-7 0z"/><path d="M7 11.5V14"/></symbol>
-    <symbol id="i-firmware" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9"/><rect x="6" y="6" width="4" height="4"/><path d="M6 1.5v2M10 1.5v2M6 12.5v2M10 12.5v2M1.5 6h2M1.5 10h2M12.5 6h2M12.5 10h2"/></symbol>
-    <symbol id="i-radar" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="8" r="3"/><path d="M8 8l4.5-4.5"/></symbol>
-    <symbol id="i-processor" viewBox="0 0 16 16"><rect x="4.5" y="4.5" width="7" height="7"/><path d="M6 2v2.5M10 2v2.5M6 11.5V14M10 11.5V14M2 6h2.5M2 10h2.5M11.5 6H14M11.5 10H14"/></symbol>
-    <symbol id="i-feed" viewBox="0 0 16 16"><path d="M1.5 12.5l4-5 3 3 5.5-6"/><path d="M11 4.5h3v3"/></symbol>
-    <symbol id="i-play" viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z" fill="currentColor" stroke="none"/></symbol>
-    <symbol id="i-stop" viewBox="0 0 16 16"><path d="M3 3h3v10H3zM8 3v10l6-5z" fill="currentColor" stroke="none"/></symbol>
-    <symbol id="i-tof" viewBox="0 0 16 16"><circle cx="5" cy="9" r="3"/><circle cx="11" cy="9" r="3"/><path d="M5 6V3M11 6V3"/></symbol>
-    <symbol id="i-encoder" viewBox="0 0 16 16"><rect x="1.5" y="4.5" width="13" height="7"/><path d="M4.5 6.5v3M7.5 6.5v3M10.5 6.5v3"/></symbol>
-    <symbol id="i-imu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M10.5 5.5L9 9l-3.5 1.5L7 7z" fill="currentColor" stroke="none"/></symbol>
-    <symbol id="i-log" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11"/><path d="M4 6l2.5 2L4 10M8 10h4"/></symbol>
-  </defs>
-</svg>
+<section id="main">
+  <canvas id="radar-c"></canvas>
+  <canvas id="cloud-c" hidden></canvas>
 
-<nav id="tabs" aria-label="views">
-  <button class="tab" type="button" data-tab="2d">2D</button>
-  <button class="tab" type="button" data-tab="3d">3D</button>
-  <button class="tab" type="button" data-tab="log">Log</button>
-</nav>
-
-<main id="views">
-  <section id="v-2d" class="view"><canvas id="radar-c"></canvas></section>
-  <section id="v-3d" class="view" hidden><canvas id="cloud-c"></canvas></section>
-  <section id="v-log" class="view well" hidden><pre id="log"></pre></section>
-</main>
-
-<aside id="side">
-
-  <section class="panel" id="p-system">
-    <header class="hdr">
-      <span class="tri"></span><svg class="ic"><use href="#i-system"/></svg><span class="title">System</span>
-      <button class="float" type="button" title="Tearing a panel off into its own window is the hub's; a page has one window">float</button>
-    </header>
-    <div class="body">
-      <div class="row" id="r-pico"><span class="name"><svg class="ic"><use href="#i-link"/></svg>Pico link</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-      <div class="row" id="r-board"><span class="name"><svg class="ic"><use href="#i-firmware"/></svg>Board</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-      <div class="row" id="r-lidar"><span class="name"><svg class="ic"><use href="#i-radar"/></svg>Lidar</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-      <div class="row" id="r-pilot"><span class="name"><svg class="ic"><use href="#i-pilot"/></svg>Pilot</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-      <div class="row" id="r-feed"><span class="name"><svg class="ic"><use href="#i-feed"/></svg>Feed</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-      <div class="group">Quick actions</div>
-      <div class="actions">
-        <button id="look" class="key good" type="button" disabled><svg class="ic"><use href="#i-play"/></svg><span>LOOK</span></button>
-        <button id="stop" class="key warn" type="button" disabled><svg class="ic"><use href="#i-stop"/></svg><span>STOP</span></button>
+  <div id="top">
+    <div id="bar">
+      <div id="seg" role="group" aria-label="view">
+        <button type="button" data-view="2d" class="on">2D</button>
+        <button type="button" data-view="3d">3D</button>
       </div>
-      <div class="reply" id="reply">pilot: no answer from the car</div>
+      <button id="info" type="button" aria-label="details" title="details">i</button>
     </div>
+    <div id="word" class="bad">NO ANSWER</div>
+    <div id="clear"><span id="clear-v">--</span><span id="clear-c"></span></div>
+    <div id="cmd" hidden></div>
+  </div>
+
+  <div id="bottom">
+    <div id="reply" hidden></div>
+    <div id="keys">
+      <button id="look" type="button" disabled>LOOK</button>
+      <button id="stop" type="button" disabled>STOP</button>
+    </div>
+    <div id="line">no answer from the car</div>
+  </div>
+</section>
+
+<section id="details" hidden>
+  <header id="dhead">
+    <button id="back" type="button">&#8592; main</button>
+    <h1>bibo</h1>
+  </header>
+
+  <section class="card" id="p-system">
+    <h2>System</h2>
+    <div class="row" id="r-pico"><span class="name">Pico link</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
+    <div class="row" id="r-board"><span class="name">Board</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
+    <div class="row" id="r-lidar"><span class="name">Lidar</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
+    <div class="row" id="r-pilot"><span class="name">Pilot</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
+    <div class="row" id="r-feed"><span class="name">Feed</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
+    <div class="note" id="pstate">pilot: no answer from the car</div>
   </section>
 
-  <section class="panel" id="p-sensors">
-    <header class="hdr">
-      <span class="tri"></span><svg class="ic"><use href="#i-sensors"/></svg><span class="title">Sensors</span>
-      <button class="float" type="button" title="Tearing a panel off into its own window is the hub's; a page has one window">float</button>
-    </header>
-    <div class="body">
-      <div class="row" id="r-c1"><span class="name"><span class="cb on"></span>RPLIDAR C1</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
-      <div class="row off"><span class="name"><span class="cb"></span>ToF (GP10)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-      <div class="row off"><span class="name"><span class="cb"></span>ToF (GP11)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-      <div class="row off"><span class="name"><span class="cb"></span>ToF (GP12)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-      <div class="row off"><span class="name"><span class="cb"></span>ToF (GP13)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-      <div class="row off"><span class="name"><span class="cb"></span>Encoder (GP15)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-      <div class="row off"><span class="name"><span class="cb"></span>IMU (I2C)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
-    </div>
+  <section class="card" id="p-sensors">
+    <h2>Sensors</h2>
+    <div class="row" id="r-c1"><span class="name">RPLIDAR C1</span><span class="cell"><span class="lamp muted"></span><span class="st muted">no answer</span></span><span class="val"></span></div>
+    <div class="row off"><span class="name">ToF (GP10)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
+    <div class="row off"><span class="name">ToF (GP11)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
+    <div class="row off"><span class="name">ToF (GP12)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
+    <div class="row off"><span class="name">ToF (GP13)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
+    <div class="row off"><span class="name">Encoder (GP15)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
+    <div class="row off"><span class="name">IMU (I2C)</span><span class="cell"><span class="lamp muted"></span><span class="st muted">not wired</span></span><span class="val"></span></div>
   </section>
 
-  <section class="panel" id="p-pilot">
-    <header class="hdr">
-      <span class="tri"></span><svg class="ic"><use href="#i-pilot"/></svg><span class="title">Pilot</span>
-      <button class="float" type="button" title="Tearing a panel off into its own window is the hub's; a page has one window">float</button>
-    </header>
-    <div class="body">
-      <div class="stat"><span class="stat-v muted" id="p-mode">no pilot</span><span class="stat-c" id="p-src">no answer from the car</span></div>
-      <div class="kv"><span class="k">clear</span><span class="v" id="p-clear">-</span></div>
-      <div class="kv"><span class="k">hits</span><span class="v" id="p-hits">-</span></div>
-      <div class="kv"><span class="k">steer</span><span class="v" id="p-steer">-</span></div>
-      <div class="kv"><span class="k">throttle</span><span class="v" id="p-throttle">-</span></div>
-      <div class="kv"><span class="k">sent</span><span class="v" id="p-sent">-</span></div>
-    </div>
+  <section class="card" id="p-pilot">
+    <h2>Pilot</h2>
+    <div class="stat"><span class="stat-v muted" id="p-mode">no pilot</span><span class="stat-c" id="p-src">no answer from the car</span></div>
+    <div class="kv"><span class="k">clear</span><span class="v" id="p-clear">-</span></div>
+    <div class="kv"><span class="k">hits</span><span class="v" id="p-hits">-</span></div>
+    <div class="kv"><span class="k">steer</span><span class="v" id="p-steer">-</span></div>
+    <div class="kv"><span class="k">throttle</span><span class="v" id="p-throttle">-</span></div>
+    <div class="kv"><span class="k">sent</span><span class="v" id="p-sent">-</span></div>
   </section>
 
-</aside>
-
-<footer id="strip">
-  <span class="field" id="s-lidar"><span class="dot muted"></span><span class="lbl">LIDAR</span><span class="st muted">No answer</span><span class="ex"></span></span>
-  <span class="sep"></span>
-  <span class="field" id="s-pico"><span class="dot muted"></span><span class="lbl">PICO</span><span class="st muted">no answer</span><span class="ex"></span></span>
-  <span class="sep"></span>
-  <span class="field" id="s-board"><span class="dot muted"></span><span class="lbl">BOARD</span><span class="st muted">no answer</span><span class="ex"></span></span>
-  <span class="sep"></span>
-  <span class="field" id="s-pilot"><span class="dot muted"></span><span class="lbl">PILOT</span><span class="st muted">no answer</span><span class="ex"></span></span>
-</footer>
+  <section class="card" id="p-log">
+    <h2>Log</h2>
+    <div class="well"><pre id="log"></pre></div>
+  </section>
+</section>
 
 <script type="module" src="/dash/app.js"></script>
 </body>
