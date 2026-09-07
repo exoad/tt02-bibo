@@ -82,6 +82,27 @@ namespace lidar
   // carry the port name and the SDK's hex code, neither of which is a literal.
   [[nodiscard]] const Str& reason();
 
+  // WHY the most recent open() refused, as a value a program can branch on.
+  // reason() is the sentence for a person; this is the same fact for code,
+  // because matching on the sentence would tie a caller to its wording.
+  // scanfeed branches on REFUSAL_HELD: a port held by another program is the
+  // pilot driving, and the right answer is to relay to it, not to say no.
+  enum class Refusal
+  {
+      REFUSAL_NONE,            // the last open() succeeded, or none was tried
+      REFUSAL_NO_SDK,          // this build has no SDK (the refusing half)
+      REFUSAL_NO_PORT,         // no such device - the cable
+      REFUSAL_NO_PERMISSION,   // the device exists and this user may not open it
+      REFUSAL_HELD,            // another program has it open exclusively
+      REFUSAL_CANNOT_OPEN,     // the port would not open for some other reason
+      REFUSAL_NOT_A_LIDAR,     // opened, and nothing answered - baud, or not a lidar
+      REFUSAL_SDK,             // the SDK failed between the port and the device
+  };
+
+  // Set by every open(); untouched by every other call, so it describes the
+  // last open() even after a later grab() has written its own reason().
+  [[nodiscard]] Refusal refusal();
+
   // Spins the motor up and starts the scan the SDK considers typical for the
   // device. grab() has nothing to return until this has succeeded.
   [[nodiscard]] Bool motorOn();

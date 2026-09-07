@@ -38,6 +38,34 @@ struct LidarFrame
     Float32 maxDistMm = 0.0f;
 };
 
+// What the pilot decided about the revolution it just sent - the scan feed's D
+// line, firmware/pilot/src/scanwire.hxx. Only the pilot sends it; a bare
+// scanfeed streams the same F lines and never decides, so on most sessions this
+// never arrives at all. It is its own record rather than a field of LidarFrame
+// because the two do not come in step: the pilot also decides on BLIND ticks
+// when no revolution came, and a frame carries a copy of the scan while this is
+// a dozen bytes the UI wants beside it, not inside it.
+struct LidarDrive
+{
+    Str     mode;                // cruise slow stop reverse blind - the pilot's own word
+    Int32   clearanceMm = 0;     // how far ahead the corridor is free
+    Int32   hits = 0;            // corridor returns the clearance rests on
+    Float32 steer = 0.0f;        // -1..1, left negative
+    Float32 throttle = 0.0f;     // -1..1, negative is reverse
+    Bool    stop = true;         // the pilot sent STOP rather than the two above
+    TimePoint at{};              // when this side read it
+
+    // A decision older than this is not one. The pilot has stopped and the scan
+    // may well carry on - the feed is the same either way - so the age of the
+    // last D line is the only thing that says whether anyone is driving.
+    static constexpr Int32 STALE_MS = 1000;
+
+    [[nodiscard]] Bool fresh() const noexcept
+    {
+        return at != TimePoint{} && elapsedMs(at) < static_cast<Float64>(STALE_MS);
+    }
+};
+
 struct LidarDeviceInfo
 {
     Int32         model = 0;
@@ -158,6 +186,19 @@ public:
     // Copies the newest frame into `out`. Returns false when nothing new has
     // arrived since the previous call, in which case `out` is untouched.
     Bool poll(LidarFrame& out);
+
+    // The pilot's newest decision, the same way: false and `out` untouched when
+    // none has arrived since the previous call. `out.at` is when it was read,
+    // and out.fresh() is the caller's test - a caller that keeps the last one
+    // must let it go stale rather than draw a decision nobody is making.
+    [[nodiscard]] Bool pollDrive(LidarDrive& out);
+
+    // True once for each MOTOR 0 the board answered with MOTOR 1: the pilot
+    // keeps the lidar while it drives, and a viewer does not get to switch it
+    // off under the car. The worker has already put the wish back to match
+    // the board's word, so nothing is resent; this is only so the UI can say
+    // so, once.
+    [[nodiscard]] Bool pollMotorRefused();
 
     // Serial ports present on the system, e.g. {"COM3","COM7"}. Never throws.
     static Vec<Str> listPorts();

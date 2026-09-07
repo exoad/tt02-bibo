@@ -41,17 +41,31 @@ late tick is a servo that stops being told anything.
                        hub: one revolution per text line, integers only, the
                        same object file compiled into both ends. Pure; its
                        header comment is the spec and tests/test_scanwire.cxx
-                       holds it to it.
+                       holds it to it. The pilot adds a D line - its decision
+                       about the revolution just sent.
+    src/feed.hxx       the scan feed's network half, namespace `feed`: a TCP
+                       server on its own thread that hands complete lines to
+                       every client, drops one that falls half a second
+                       behind, and takes MOTOR and QUIT back as wishes for
+                       the owner. It never touches the lidar - the program
+                       that owns the device does, from its own thread - so
+                       scanfeed and the pilot serve one wire from one file.
+                       Linux behind `#if defined(__linux__)`; refuses
+                       elsewhere. tests/test_feed.cxx, on the board only.
     app/main.cxx       the program, `pilot`. Grabs a revolution, runs
                        reactive::step with the measured dt, sends STEER and
                        ESC (or NEUTRAL) to the car; sends anyway after 200 ms
                        without a revolution so the board's 400 ms deadman is
-                       never what stops the car. `--dry` decides without a
-                       Pico. Built only with the SDK.
+                       never what stops the car. Serves the scan feed while it
+                       drives, and the same lines to /tmp/bibo-scan.txt for
+                       the status page. `--dry` decides without a Pico;
+                       `--no-feed` drives without viewers. Built only with
+                       the SDK.
     tools/lidar_probe  is the lidar there and what does it see. Run it first.
     tools/scanfeed     the lidar's revolutions on TCP 8011 for the hub, under
-                       systemd. Idle with the port free until a client
-                       connects. See "Seeing the lidar from the hub".
+                       systemd: a lidar-owning loop on top of src/feed.hxx.
+                       Idle with the port free until a client connects. See
+                       "Seeing the lidar from the hub".
 
 `proto` was finished first because it is the part that could be finished: pure
 string work, provable on a laptop, and where the bugs in a text protocol live.
@@ -139,9 +153,16 @@ SDK (`make` in `rplidar_sdk`; the library lands in `output/Linux/Release`):
     build-pilot/pilot --dry --seconds 12     # decide for 12 s, touch no car
     build-pilot/pilot --arm                  # drive, until Ctrl-C
 
-    pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N]
+    pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N] [--no-feed]
 
 The lidar is `/dev/ttyUSB0` and the Pico `/dev/ttyACM0` unless told otherwise.
+While it runs the pilot also serves the scan feed on TCP 8011 and writes
+`/tmp/bibo-scan.txt` for the status page - see "Seeing the lidar from the
+hub"; `--no-feed` turns both off. When 8011 is already taken (scanfeed idling
+under systemd) the feed moves to 8012 and the log says so; scanfeed relays
+viewers there, so nothing on the laptop changes. A feed that can bind neither
+is said once and the pilot drives without viewers rather than refusing to
+start.
 `--forward` is the raw lidar angle that points along the car - a mounting
 fact, not a tuning, and 0 is an assumption until it is measured. `--arm` is
 what lets the car move: without it the board refuses every throttle pulse and
@@ -168,6 +189,18 @@ Pico has been heard), and honest absences for what nothing measures yet
 and the page reads it, because the pilot holds the lidar's port and nothing
 else may open it; a file older than three seconds reads as "pilot not running".
 
+`/dash` on the same port is the page for when the car drives itself: the last
+revolution as dots around the car, the corridor and the clearance the pilot
+acted on, an arrow for the steering, and the mode as the biggest word on the
+screen. It polls `/scan`, which serves `/tmp/bibo-scan.txt` (`src/scanwire.hxx`,
+`SCAN_FILE`: the F line then the D line, rewritten every revolution) as plain
+text and answers 404 with the reason once the file is missing or three seconds
+old, so the page draws only the car and says "pilot not running" or "scan
+stale" rather than an old wall as a live one. The page is one HTML string with
+nothing to fetch but those two URLs, because the phone on the hotspot has no
+internet; `BIBO_SCAN_FILE` and `BIBO_STATUS_FILE` point both at fake files on
+a laptop.
+
     sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
 
 installs a systemd unit and a NetworkManager dispatcher hook, so the page
@@ -190,15 +223,59 @@ The hub's lidar source is the intended client; the no-tool check is
 
 which prints the device and then a revolution ten times a second until Ctrl-C.
 
-**The pilot and the feed are exclusive.** Slamtec's SDK holds the serial port,
-so only one of them can have the lidar. The feed is built for that: with no
-client it keeps the lidar CLOSED and the port free, opens it for the first
-client and parks it (motor off, port closed) when the last one leaves. A client
-that connects while the pilot is running gets one `ERR another program has
-/dev/ttyUSB0` line and is closed; the next connection tries again. Running
-`pilot` while somebody is watching the feed fails the same way, from the other
-side. A client too slow to take a frame (half a second behind) is dropped
-rather than allowed to stall the others.
+**The pilot serves the same feed while it drives.** Same port, same lines,
+from `src/feed.hxx` - the network half scanfeed is built on - plus one the
+standalone feed never sends: after each `F` a `D <mode> <clearance-mm> <hits>
+<steer> <throttle> <stop>` saying what the pilot decided about that revolution,
+steer and throttle in thousandths. A blind tick sends only the `D`, so a
+viewer's mode reads `blind` when the pilot's does rather than freezing on the
+last picture. What differs is who the lidar is spinning for: **a viewer cannot
+stop the motor while the pilot runs.** `MOTOR 0` is answered with the true
+state, `MOTOR 1`, and the log says "viewer asked for the motor; the pilot keeps
+it while driving" once per client. Measured on the Pi on 2026-09-07, serving
+two clients cost the tick under a millisecond and left its ~100 ms dt where it
+was; a viewer that stalls is dropped by the feed's thread, not waited for by
+the car. The same `F` and `D` text goes to `/tmp/bibo-scan.txt` each tick,
+rewritten whole through a rename, for the status page; `--no-feed` turns the
+feed and the file off together, and the file is removed at exit.
+
+**One address, always answered: 8011 is scanfeed's, and it hands over.**
+Slamtec's SDK holds the serial port, so only one program can have the lidar.
+scanfeed is built for that: with no client it keeps the lidar CLOSED and the
+port free, opens it for the first client and parks it (motor off, port
+closed) when the last one leaves. The rule while the car drives, in three
+lines:
+
+- The service always answers on 8011. An idle scanfeed still holds the port,
+  so a pilot started beside the systemd unit serves its feed on **8012**
+  (`scanwire::PILOT_PORT`) and logs `feed: port 8011 is taken ... serving on
+  8012`. Nobody needs root to make room for it.
+- While the pilot drives, the service RELAYS to it. A client connecting to
+  8011 makes scanfeed try the lidar; the open is refused because another
+  program holds the port (`lidar::Refusal::REFUSAL_HELD` - a value, so the
+  wording of the reason is nobody's contract), and scanfeed connects that
+  client through to `127.0.0.1:8012`. The pilot's greeting, `F` lines and `D`
+  lines arrive as they are; `MOTOR 0` goes to the pilot, which answers `MOTOR
+  1` as it always did. Each client gets its own connection to the pilot, so
+  the pilot's feed is the one dropping a slow viewer, as before. scanfeed's
+  log says `relay to 127.0.0.1:8012 for client ... started`.
+- When the pilot stops, viewers reconnect and the service opens the lidar
+  itself. The pilot's feed closes, the relay closes each client with it, the
+  hub's retry reconnects within a second, and this time the open succeeds:
+  `F` lines without `D` lines, `MOTOR 0` obeyed, the device parked when the
+  last viewer leaves. No unit is stopped or started by anyone.
+
+Measured on the Pi on 2026-09-07 with the real C1 and `pilot --dry`: two
+clients through the relay saw the pilot's `D` lines at ~10/s, both were
+closed the moment the pilot exited, and a reconnect 1 s later was served by
+scanfeed's own device. The other direction is unchanged: running `pilot`
+while somebody is watching scanfeed's own device fails with `another program
+has /dev/ttyUSB0` and exits 1 - the viewer got there first. A port held by
+something that is NOT a pilot (lidar_probe, say) fails the relay's connect
+and the client gets the `ERR another program has /dev/ttyUSB0` line it always
+got. A pilot started with no scanfeed running (a laptop, or the service not
+up) serves 8011 directly. A client too slow to take a frame (half a second
+behind) is dropped by either program rather than allowed to stall the others.
 
 Built only with the SDK, next to `pilot` and `lidar_probe`. On the board it
 runs as the systemd unit `bibo-scanfeed`, installed by the same

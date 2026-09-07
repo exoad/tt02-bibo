@@ -35,6 +35,13 @@
 //     F <count> <freq_mHz> <a>,<d>,<q> ...                    one revolution: a centi-degrees
 //                                                             0..35999, d mm (0 = no return),
 //                                                             q quality 0..63
+//     D <mode> <clear_mm> <hits> <steer_milli> <throttle_milli> <stop>
+//                                                             the pilot's decision for the
+//                                                             revolution just sent: mode is one
+//                                                             of cruise slow stop reverse blind,
+//                                                             steer/throttle are thousandths of
+//                                                             -1..1, stop is 0|1. Only the pilot
+//                                                             sends it; scanfeed never decides.
 //     ERR <message>                                           something failed; the feed closes
 //
 //   hub -> board
@@ -57,6 +64,22 @@ namespace scanwire
   // Where the board's feed listens. One port, fixed, so the hub can offer
   // "the Orange Pi" as a choice rather than a form.
   constexpr UInt16 PORT = 8011;
+
+  // Where the pilot listens when PORT is already taken - by the standalone
+  // feed idling under systemd, which is the field case. Both programs need
+  // the number: the pilot falls back to it (feed::Policy::fallbackPort) and
+  // scanfeed relays every client to it while the pilot holds the lidar, so
+  // PORT stays the one address a viewer ever dials. PORT + 1 rather than a
+  // second arbitrary number, so a person who knows one knows the other.
+  constexpr UInt16 PILOT_PORT = PORT + 1;
+
+  // Where the PILOT leaves its latest revolution and decision for the board's
+  // own dashboard (tools/status/status_server.py serves it to the phone): the
+  // F line then the D line, rewritten whole through a rename each tick. A
+  // browser cannot open a TCP socket, and reading the feed as a client would
+  // make a standalone scanfeed spin the lidar for a page nobody is looking at;
+  // a file on tmpfs costs the pilot one write per revolution and nothing else.
+  constexpr CharSeq SCAN_FILE = "/tmp/bibo-scan.txt";
 
   // One measurement as the hub draws it: hub/src/lidar_source.hxx's LidarPoint,
   // spelled here so the pilot tree does not include the hub's.
@@ -82,9 +105,23 @@ namespace scanwire
       Str   serial;   // hex, as printed
   };
 
+  // What the pilot decided about the revolution it just sent. Fractions here,
+  // thousandths on the wire; the hub draws the corridor and the heading from
+  // it, the dashboard prints it.
+  struct Drive
+  {
+      Str     mode;   // cruise slow stop reverse blind
+      Int32   clearanceMm = 0;
+      Int32   hits = 0;
+      Float32 steer = 0.0f;      // -1..1, left negative
+      Float32 throttle = 0.0f;   // -1..1, negative is reverse
+      Bool    stop = true;
+  };
+
   enum class Kind
   {
       KIND_FRAME = 0,
+      KIND_DRIVE,
       KIND_INFO,
       KIND_HEALTH,
       KIND_MOTOR,
@@ -100,6 +137,7 @@ namespace scanwire
   {
       Kind  kind = Kind::KIND_EMPTY;
       Frame frame;
+      Drive drive;
       Info  info;
       Int32 health = -1;
       Bool  motor = false;
@@ -109,6 +147,7 @@ namespace scanwire
   // ---- writing ---------------------------------------------------------------
   // Every formatter returns a complete line including its '\n'.
   [[nodiscard]] Str formatFrame(const Frame& f);
+  [[nodiscard]] Str formatDrive(const Drive& d);
   [[nodiscard]] Str formatInfo(const Info& i);
   [[nodiscard]] Str formatHealth(Int32 health);
   [[nodiscard]] Str formatMotor(Bool on);

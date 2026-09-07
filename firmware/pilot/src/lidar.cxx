@@ -18,11 +18,20 @@ namespace lidar
     // same shape of answer it will read on the board.
     Str why;
 
+    // The last open()'s verdict as a value. Set beside `why` on every path out
+    // of open(), and by nothing else - see the header.
+    Refusal refused = Refusal::REFUSAL_NONE;
+
   }
 
   const Str& reason()
   {
       return why;
+  }
+
+  Refusal refusal()
+  {
+      return refused;
   }
 
 }
@@ -131,15 +140,19 @@ namespace lidar
         {
         case ENOENT:
             why = "no such port " + port;
+            refused = Refusal::REFUSAL_NO_PORT;
             break;
         case EACCES:
             why = "permission denied opening " + port + " - is this user in the dialout group?";
+            refused = Refusal::REFUSAL_NO_PERMISSION;
             break;
         case EBUSY:
             why = "another program has " + port;
+            refused = Refusal::REFUSAL_HELD;
             break;
         default:
             why = "cannot open " + port + ": " + std::strerror(errno);
+            refused = Refusal::REFUSAL_CANNOT_OPEN;
             break;
         }
         return false;
@@ -251,6 +264,7 @@ namespace lidar
   Bool open(const Str& port, const Int32 baud)
   {
       why.clear();
+      refused = Refusal::REFUSAL_NONE;
       if(drv != nullptr)
       {
           return true;
@@ -266,6 +280,7 @@ namespace lidar
       {
           dropGuard();
           why = "the SDK could not create a driver (SDK code " + hex(d.err) + ")";
+          refused = Refusal::REFUSAL_SDK;
           return false;
       }
 
@@ -276,6 +291,7 @@ namespace lidar
           dropGuard();
           why = "the SDK could not create a serial channel for " + port
               + " (SDK code " + hex(ch.err) + ")";
+          refused = Refusal::REFUSAL_SDK;
           return false;
       }
 
@@ -286,6 +302,7 @@ namespace lidar
           delete *ch;
           dropGuard();
           why = "cannot connect to " + port + " (SDK code " + hex(r) + ")";
+          refused = Refusal::REFUSAL_SDK;
           return false;
       }
 
@@ -308,6 +325,7 @@ namespace lidar
           dropGuard();
           why = port + " opened but nothing answered at " + std::to_string(baud) + " baud"
               + " (SDK code " + hex(r) + ") - wrong baud, or not a lidar";
+          refused = Refusal::REFUSAL_NOT_A_LIDAR;
           return false;
       }
 
@@ -578,6 +596,7 @@ namespace lidar
       static_cast<Void>(port);
       static_cast<Void>(baud);
       why = NO_SDK;
+      refused = Refusal::REFUSAL_NO_SDK;
       return false;
   }
 

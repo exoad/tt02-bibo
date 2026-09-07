@@ -371,6 +371,104 @@ Int32 main()
         );
     }
 
+    // ---- the pilot's decision, out and back -------------------------------------
+    {
+        scanwire::Drive d;
+        d.mode = "slow";
+        d.clearanceMm = 1234;
+        d.hits = 7;
+        d.steer = -0.4567f;     // -456.7 thousandths: rounds away from zero to -457
+        d.throttle = 0.25f;
+        d.stop = false;
+        checkStr(
+            scanwire::formatDrive(d),
+            "D slow 1234 7 -457 250 0\n",
+            "a D line: mode, clearance, hits, steer and throttle in thousandths, stop"
+        );
+
+        Line out;
+        check(
+            scanwire::parse("D slow 1234 7 -457 250 0", &out) == Kind::KIND_DRIVE,
+            "parses as a decision"
+        );
+        checkStr(out.drive.mode, "slow", "with its mode");
+        check(out.drive.clearanceMm == 1234 && out.drive.hits == 7, "its clearance and hits");
+        check(out.drive.steer == -0.457f, "its steer, exact to the thousandth");
+        check(out.drive.throttle == 0.25f, "its throttle");
+        check(!out.drive.stop, "and stop as false");
+
+        d.steer = 0.0004f;    // 0.4 thousandths is 0
+        d.throttle = -1.0f;   // full reverse is -1000
+        d.stop = true;
+        checkStr(
+            scanwire::formatDrive(d),
+            "D slow 1234 7 0 -1000 1\n",
+            "0.0004 rounds to 0, -1.0 is -1000, stop is 1"
+        );
+
+        d.mode.clear();
+        checkStr(
+            scanwire::formatDrive(d),
+            "D - 1234 7 0 -1000 1\n",
+            "an empty mode is written as -"
+        );
+
+        // The mode is one word or every field after it shifts for the reader.
+        d.mode = "no scan";
+        checkStr(
+            scanwire::formatDrive(d),
+            "D no_scan 1234 7 0 -1000 1\n",
+            "a mode containing a space is written with _"
+        );
+        check(
+            scanwire::parse("D no_scan 1234 7 0 -1000 1", &out) == Kind::KIND_DRIVE && out.drive.mode == "no_scan",
+            "and reads back as one word"
+        );
+    }
+
+    // ---- decisions that are known and wrong are BAD -------------------------------
+    {
+        Line out;
+        check(
+            scanwire::parse("D slow 1234 7 -457 250", &out) == Kind::KIND_BAD,
+            "a D line missing a field is BAD"
+        );
+        check(
+            scanwire::parse("D slow 1234 7 x 250 0", &out) == Kind::KIND_BAD,
+            "a D line with a non-integer is BAD"
+        );
+        check(
+            scanwire::parse("D slow 1234 7 1001 250 0", &out) == Kind::KIND_BAD,
+            "a steer of 1001 is BAD - the wire says -1000..1000"
+        );
+        check(
+            scanwire::parse("D slow 1234 7 0 -1001 0", &out) == Kind::KIND_BAD,
+            "and so is a throttle of -1001"
+        );
+        check(
+            scanwire::parse("D slow 1234 7 0 0 2", &out) == Kind::KIND_BAD,
+            "a stop of 2 is BAD - the wire says 0 or 1"
+        );
+        check(
+            scanwire::parse("D slow -1 7 0 0 0", &out) == Kind::KIND_BAD,
+            "a negative clearance is BAD"
+        );
+        check(scanwire::parse("D", &out) == Kind::KIND_BAD, "a D with nothing after it is BAD");
+    }
+
+    // ---- and a decision empties the Frame like every other kind --------------------
+    {
+        Line out;
+        check(
+            scanwire::parse("F 2 0 100,200,3 200,300,4", &out) == Kind::KIND_FRAME,
+            "a frame fills the Frame"
+        );
+        check(
+            scanwire::parse("D cruise 2500 12 100 250 0", &out) == Kind::KIND_DRIVE && out.frame.samples.empty(),
+            "D empties it - the decision is about the revolution, not a revolution"
+        );
+    }
+
     // ---- the locale trap, again -------------------------------------------------
     //
     // Nothing on the wire is a float, so a comma can only appear as the
