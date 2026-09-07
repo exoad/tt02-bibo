@@ -127,6 +127,33 @@ namespace
   constexpr Int32 ESC_MAX_US = THROTTLE_CAL_MAX;
   static_assert(ESC_MAX_US > ESC_MIN_US, "cal.hxx throttle band is empty or inverted");
 
+  // Where the status page (tools/status/status_server.py) reads the pilot's
+  // last second from. One JSON object per write, rewritten whole once a second
+  // through a rename so a reader never sees half a line; tmpfs, so it is gone
+  // at reboot with the process it described. The page treats a file older than
+  // three seconds as "pilot not running" - the file is a heartbeat, not a log.
+  constexpr CharSeq STATUS_FILE = "/tmp/bibo-pilot.json";
+
+  Void writeStatus(const Str& json)
+  {
+      const Str tmp = Str(STATUS_FILE) + ".tmp";
+      std::FILE* f = std::fopen(tmp.c_str(), "w");
+      if(f == nullptr)
+      {
+          return;    // no /tmp here (a laptop): the page is a Linux thing
+      }
+      std::fputs(json.c_str(), f);
+      std::fclose(f);
+      static_cast<Void>(std::rename(tmp.c_str(), STATUS_FILE));
+  }
+
+  [[nodiscard]] Float64 epochNow()
+  {
+      // Wall time, not the monotonic Clock everything else here uses: the page
+      // compares it with its own time.time() to say how old the heartbeat is.
+      return Duration<Float64>(WallClock::now().time_since_epoch()).count();
+  }
+
   // Written from the signal handler, read from the loop. volatile sig_atomic_t
   // is the one type the standard promises is safe to touch in a handler; the
   // Atomic<> alias is not guaranteed lock-free and so is not.
@@ -707,18 +734,40 @@ Int32 main(Int32 argc, Char** argv)
                     static_cast<unsigned long long>(replies.err)
                 );
             }
+            const Float64 revPerS = windowS > 0.0 ? static_cast<Float64>(windowRevs) / windowS : 0.0;
             std::printf(
                 "%6.1f s  %s  steer %+.2f  thr %.2f  %5.1f rev/s  timeouts %llu  %s\n",
                 elapsedS(start),
                 describe(status, out, got).c_str(),
                 static_cast<Float64>(out.steer),
                 static_cast<Float64>(out.throttle),
-                windowS > 0.0 ? static_cast<Float64>(windowRevs) / windowS : 0.0,
+                revPerS,
                 static_cast<unsigned long long>(timeouts),
                 pico.data()
             );
             windowRevs = 0;
             lastStatus = now;
+
+            // The same second, for the phone. `pico` is the printed phrase, so
+            // the page shows exactly what the console showed.
+            Array<Char, 320> json{};
+            std::snprintf(
+                json.data(),
+                json.size(),
+                "{\"ts\":%.3f,\"mode\":\"%s\",\"clearanceMm\":%.0f,\"hits\":%d,"
+                "\"revPerS\":%.1f,\"timeouts\":%llu,\"revolutions\":%llu,"
+                "\"lidarLost\":%s,\"pico\":\"%s\"}\n",
+                epochNow(),
+                got ? reactive::modeName(out.mode) : "blind",
+                static_cast<Float64>(out.clearanceMm),
+                out.corridorHits,
+                revPerS,
+                static_cast<unsigned long long>(timeouts),
+                static_cast<unsigned long long>(revolutions),
+                lidarLost ? "true" : "false",
+                pico.data()
+            );
+            writeStatus(json.data());
 
             // A lost link is retried here, once a second, rather than every tick:
             // open() probes the device and a board that is being replugged does

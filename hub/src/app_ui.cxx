@@ -3808,7 +3808,7 @@ namespace
       ImGui::SetNextItemWidth(-FLT_MIN);
       if(ImGui::InputTextWithHint(
           "##carip",
-          "the car's address, e.g. 192.168.1.42",
+          "the car's address or name, e.g. bibobox.local",
           wifiHost.data(),
           wifiHost.size()
       ))
