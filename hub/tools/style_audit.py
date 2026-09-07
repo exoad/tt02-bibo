@@ -34,10 +34,14 @@ DIRS = [
     at('firmware', 'app'),
     at('firmware', 'sketches'),
     at('firmware', 'tests'),
-    # The companion board's program. Stubs today - listed from its first commit
-    # so nobody has to remember to add it later.
-    at('pilot', 'src'),
-    at('pilot', 'tests'),
+    # The companion board's program. It lived at the repo root until 2bde514
+    # moved it under firmware/; the old paths stayed here and matched nothing,
+    # so for a while the whole tree was silently outside the audit. An entry
+    # that names a directory that does not exist is now an error, below.
+    at('firmware', 'pilot', 'src'),
+    at('firmware', 'pilot', 'tests'),
+    at('firmware', 'pilot', 'app'),
+    at('firmware', 'pilot', 'tools'),
     at('shared'),
 ]
 
@@ -340,8 +344,12 @@ def rd(p):
     return io.open(p, encoding='utf-8', errors='surrogateescape').read()
 
 files = []
+missing = []
 for d in DIRS:
     if not os.path.isdir(d):
+        # Not skipped silently: that is how firmware/pilot fell out of the audit
+        # for weeks. A path in DIRS that matches nothing is a broken promise.
+        missing.append(os.path.relpath(d, ROOT))
         continue
     for f in sorted(os.listdir(d)):
         if f.endswith(('.cxx', '.hxx', '.h', '.c')):
@@ -980,4 +988,8 @@ print('\n%d file(s): %s' % (
     ', '.join(sorted(set(os.path.relpath(os.path.dirname(f), ROOT).replace('\\', '/')
                          for f in files)))))
 print('%d violation(s), %d waived by EXEMPT' % (total, waived))
+for m in missing:
+    print('DIRS names a directory that does not exist: %s' % m)
+total += len(missing)
+
 sys.exit(0 if total == 0 else 1)
