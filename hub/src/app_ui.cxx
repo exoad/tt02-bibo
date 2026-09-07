@@ -34,6 +34,7 @@
 #include "radar.hxx"
 #include "icons.hxx"
 #include "lights.hxx"
+#include "face.hxx"
 #include "applog.hxx"
 #include "diagnostics.hxx"
 #include "code_view.hxx"
@@ -6823,7 +6824,11 @@ namespace
   // The firmware catalog. APPENDED rather than slotted in beside the other board
   // views: a settings file holding a view index would open on a different tab.
   constexpr Int32 FLASH_VIEW = SOUND_VIEW + 1;
-  constexpr Int32 VIEW_COUNT = FLASH_VIEW + 1;
+
+  // The face designer. Appended for the same reason, and it is the one view with
+  // nothing behind it: no board, no device, no protocol. See drawFaceBody().
+  constexpr Int32 FACE_VIEW = FLASH_VIEW + 1;
+  constexpr Int32 VIEW_COUNT = FACE_VIEW + 1;
 
   // ================================================ the cue board ==
   // A button per cue, and the grid comes FROM THE BOARD: CUE LIST is asked once
@@ -9875,6 +9880,471 @@ namespace
       ImGui::EndChild();
   }
 
+  // ================================================== the face designer ==
+  //
+  // The car wears a face on its windshield: TWO screens, one per eye, side by
+  // side, each 240 x 320 PORTRAIT. Each shows one rounded rectangle and nothing
+  // else - no pupil, no brow, no lid, no mouth. This view is where the animation
+  // gets designed and watched. Nothing here is wired to anything: no device, no
+  // protocol, no firmware. It is a bench for face.hxx.
+  //
+  // EVERYTHING COMES OUT OF face.hxx IN PANEL PIXELS and is multiplied by one
+  // scale on the way to the screen. That is the whole conversion, and it is why
+  // the 1:1 toggle is worth having: at scale 1 this window is showing exactly
+  // what the panel will show, pixel for pixel, and a 32 px corner on a 150 px
+  // eye is a very different thing at true size from what it looks like blown up
+  // four times. Judging a face only at 4x is how you ship a lozenge.
+  //
+  // WHAT IS FIXED AND WHAT SCALES. Both panels keep 3:4 portrait exactly, at one
+  // shared scale, with a gap of half a panel width between them - they are two
+  // separate screens with their own bezels, not one wide one. A layout that
+  // fitted each panel to its own share of the region would let a wide window
+  // pull the eyes apart and a tall one squash them, and a face that distorts
+  // with the window is a face nobody can judge.
+  //
+  // WHY THE CORNER IS A CONSTANT AND NOT A POSE FIELD. It used to be
+  // per-expression, as a fraction of the eye's own shorter side, and that gave a
+  // short eye small corners and a tall eye large ones - twelve expressions each
+  // speaking a different corner language. It is now face::CORNER_PX, identical
+  // on every pose. The only thing that changes it is geometry: a corner can
+  // never exceed half the rectangle's own shorter side, so a nearly-shut eye
+  // degrades to a stadium bar instead of drawing wrong.
+  // ==========================================================================
+
+  face::State  faceState;
+  face::Config faceCfg;
+  Int32        faceWhich = 0;       // which button reads as active
+  Bool         facePlaying = true;
+  Bool         faceCycle = false;
+  Bool         faceEdges = true;
+  Bool         faceTrueSize = false;
+  Float64      faceCycleAt = 0.0;
+
+  constexpr Float64 FACE_CYCLE_S = 3.0;
+
+  // The gap between the two panels, in panel widths. They are two screens with
+  // their own bezels, so the gap is a real distance on the windshield rather
+  // than a margin in a drawing.
+  constexpr Float32 FACE_GAP_PANELS = 0.5f;
+
+  // Points per corner arc. Twelve is smooth on a 900-pixel eye, and the whole
+  // outline is 48 points - nothing next to a point cloud.
+  constexpr Int32 FACE_CORNER_PTS = 12;
+  constexpr Int32 FACE_LOOP_PTS = FACE_CORNER_PTS * 4;
+
+  // A closed eye is a BAR, not an absence. A panel that goes blank reads as a
+  // panel that went out, so h = 0 still draws this many panel pixels.
+  constexpr Float32 FACE_MIN_BAR_PX = 8.0f;
+
+  // ---- the ink -------------------------------------------------------------
+  // Warm cream rather than pure white: on a black panel, white reads as a
+  // headlight and cream reads as something lit. Three stops, top to bottom, and
+  // this is the ONE place to tune them.
+  //
+  // The ramp runs down the rectangle's OWN axis, not the screen's, so it tilts
+  // and stretches with the shape. That matters once squash and stretch is
+  // moving: a gradient pinned to a fixed pixel height makes the eyes look like
+  // they are sliding under a stationary lamp.
+  constexpr ImU32 FACE_INK_TOP = IM_COL32(0xFF, 0xF6, 0xD8, 255);
+  constexpr ImU32 FACE_INK_BODY = IM_COL32(0xF6, 0xE7, 0xB4, 255);
+  constexpr ImU32 FACE_INK_BOTTOM = IM_COL32(0xE3, 0xCE, 0x86, 255);
+
+  constexpr ImU32 FACE_GROUND = IM_COL32(0, 0, 0, 255);
+
+  // Barely there on purpose: the panel edges are a reminder of where the glass
+  // stops, not part of the face. They stay grey - they are chrome, not face.
+  constexpr ImU32 FACE_PANEL_EDGE = IM_COL32(34, 34, 34, 255);
+
+  // One panel on screen: where its center is, and how many screen pixels one
+  // panel pixel is worth. Bundled rather than passed loose because a center and
+  // a scale in a parameter list is how a scale ends up doubled, and because
+  // docs/conventions.md's parameter lists do not wrap.
+  struct FaceBox
+  {
+      ImVec2  center;
+      Float32 scale = 1.0f;
+  };
+
+  [[nodiscard]] Float32 faceClamp(Float32 v, Float32 lo, Float32 hi) noexcept
+  {
+      return (v < lo) ? lo : ((v > hi) ? hi : v);
+  }
+
+  // Byte-wise lerp of two packed colors. Order-agnostic, so it does not care
+  // which byte IM_COL32 put where.
+  [[nodiscard]] ImU32 faceMix(ImU32 a, ImU32 b, Float32 t) noexcept
+  {
+      const Float32 k = faceClamp(t, 0.0f, 1.0f);
+      ImU32 out = 0;
+      for(Int32 i = 0; i < 4; ++i)
+      {
+          const Int32   shift = i * 8;
+          const Float32 av = static_cast<Float32>((a >> shift) & 0xFFu);
+          const Float32 bv = static_cast<Float32>((b >> shift) & 0xFFu);
+          const ImU32   v = static_cast<ImU32>(av + (bv - av) * k + 0.5f);
+          out |= (v & 0xFFu) << shift;
+      }
+      return out;
+  }
+
+  // `t` is 0 at the top of the rectangle and 1 at its bottom. Two straight
+  // segments meeting at the body tone in the middle, which is what lets the fan
+  // below reproduce the ramp exactly rather than approximately - see there.
+  [[nodiscard]] ImU32 faceInk(Float32 t) noexcept
+  {
+      if(t < 0.5f)
+      {
+          return faceMix(FACE_INK_TOP, FACE_INK_BODY, t * 2.0f);
+      }
+      return faceMix(FACE_INK_BODY, FACE_INK_BOTTOM, (t - 0.5f) * 2.0f);
+  }
+
+  Void drawFaceScreen(ImDrawList* dl, const FaceBox& box)
+  {
+      const Float32 hw = static_cast<Float32>(face::PANEL_W) * 0.5f * box.scale;
+      const Float32 hh = static_cast<Float32>(face::PANEL_H) * 0.5f * box.scale;
+      const ImVec2  a(box.center.x - hw, box.center.y - hh);
+      const ImVec2  b(box.center.x + hw, box.center.y + hh);
+      dl->AddRect(a, b, FACE_PANEL_EDGE, 6.0f * box.scale, 0, std::max(1.0f, box.scale));
+  }
+
+  // One eye: a filled rounded rectangle with a soft vertical fall down it, and
+  // nothing else. The pose is in PANEL pixels; `box.scale` is the only place it
+  // becomes screen pixels.
+  //
+  // `inner` is +1 when the nose is to the RIGHT of this eye and -1 when it is to
+  // the left, and it is the only thing that differs between the two. Tilt is
+  // defined about the INNER end, so without it an angry face has one angry eye
+  // and one worried one.
+  Void drawFaceEye(ImDrawList* dl, const face::Eye& e, const FaceBox& box, Float32 inner)
+  {
+      const Float32 s = box.scale;
+      const Float32 hw = std::max(1.0f, e.w * 0.5f) * s;
+      const Float32 hh = std::max(FACE_MIN_BAR_PX * 0.5f, e.h * 0.5f) * s;
+
+      // ONE corner size for every pose, then the only limit geometry allows:
+      // half the rectangle's own shorter side. A shut eye ends up a stadium bar
+      // because that is all the room a bar has, not because it asked to.
+      const Float32 r = std::min(face::CORNER_PX * s, std::min(hw, hh));
+
+      const Float32 cx = box.center.x + e.x * s;
+      const Float32 cy = box.center.y + e.y * s;
+
+      const Float32 ang = e.tilt * inner * 3.14159265f / 180.0f;
+      const Float32 ca = std::cos(ang);
+      const Float32 sa = std::sin(ang);
+
+      Array<ImVec2, FACE_LOOP_PTS> loop{};
+      Array<ImU32, FACE_LOOP_PTS>  tint{};
+
+      // Four quarter arcs, clockwise in screen coordinates: top-left, top-right,
+      // bottom-right, bottom-left. At r = 0 all twelve points of a corner land
+      // on the same spot, which fills correctly and is a hard-cornered bar.
+      const Array<ImVec2, 4> hub = {
+          ImVec2(-hw + r, -hh + r),
+          ImVec2(hw - r, -hh + r),
+          ImVec2(hw - r, hh - r),
+          ImVec2(-hw + r, hh - r)
+      };
+
+      Size out = 0;
+      for(Int32 corner = 0; corner < 4; ++corner)
+      {
+          const Float32 a0 = (180.0f + 90.0f * static_cast<Float32>(corner)) * 3.14159265f / 180.0f;
+          for(Int32 i = 0; i < FACE_CORNER_PTS; ++i)
+          {
+              const Float32 t =
+                  static_cast<Float32>(i) / static_cast<Float32>(FACE_CORNER_PTS - 1);
+              const Float32 a = a0 + t * (3.14159265f * 0.5f);
+              const Float32 lx = hub[static_cast<Size>(corner)].x + r * std::cos(a);
+              const Float32 ly = hub[static_cast<Size>(corner)].y + r * std::sin(a);
+
+              // The ramp is taken from the LOCAL y and divided by the shape's own
+              // height, so it rotates with the tilt and stretches with the squash
+              // instead of staying a band of fixed pixels on the panel.
+              tint[out] = faceInk((ly + hh) / (2.0f * hh));
+              loop[out] = ImVec2(cx + lx * ca - ly * sa, cy + lx * sa + ly * ca);
+              ++out;
+          }
+      }
+
+      // The silhouette, anti-aliased, in the body tone. The gradient fan below
+      // has no anti-aliasing of its own, so this is what keeps the outline
+      // smooth: the fan lands inside this shape's fringe rather than replacing
+      // it.
+      dl->AddConvexPolyFilled(loop.data(), FACE_LOOP_PTS, FACE_INK_BODY);
+
+      // ...then the gradient, as a triangle fan from the shape's center with the
+      // color carried on the vertices. A fan reproduces a ramp that is linear in
+      // y EXACTLY when the center vertex sits on the ramp's own knee, which is
+      // why faceInk is two straight segments meeting at the middle rather than a
+      // curve: barycentric interpolation of a linear function is that function.
+      const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+      dl->PrimReserve(FACE_LOOP_PTS * 3, FACE_LOOP_PTS + 1);
+
+      // UInt32, not the `unsigned int` ImGui declares _VtxCurrentIdx as: on this
+      // toolchain they are the same type, and docs/conventions.md wants ours
+      // spelled our way even where a third-party field hands it over.
+      const UInt32 base = dl->_VtxCurrentIdx;
+      dl->PrimWriteVtx(ImVec2(cx, cy), uv, FACE_INK_BODY);
+      for(Int32 i = 0; i < FACE_LOOP_PTS; ++i)
+      {
+          dl->PrimWriteVtx(loop[static_cast<Size>(i)], uv, tint[static_cast<Size>(i)]);
+      }
+      for(Int32 i = 0; i < FACE_LOOP_PTS; ++i)
+      {
+          const UInt32 here = base + 1u + static_cast<UInt32>(i);
+          const UInt32 next = base + 1u + static_cast<UInt32>((i + 1) % FACE_LOOP_PTS);
+          dl->PrimWriteIdx(static_cast<ImDrawIdx>(base));
+          dl->PrimWriteIdx(static_cast<ImDrawIdx>(here));
+          dl->PrimWriteIdx(static_cast<ImDrawIdx>(next));
+      }
+  }
+
+  Void drawFacePicture(ImDrawList* dl, const ImVec2& p0, Float32 w, Float32 h)
+  {
+      dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), FACE_GROUND);
+
+      const Float32 panelW = static_cast<Float32>(face::PANEL_W);
+      const Float32 panelH = static_cast<Float32>(face::PANEL_H);
+      const Float32 spanW = panelW * (2.0f + FACE_GAP_PANELS);
+
+      // ONE scale for both panels, so the pair can never distort and the two
+      // eyes are always the same size. At 1:1 it is exactly one screen pixel per
+      // panel pixel and the fit is not consulted at all - that is the point of
+      // the toggle, and clamping it to the region would quietly defeat it.
+      const Float32 margin = 1.08f;
+      const Float32 fit = std::min(w / (spanW * margin), h / (panelH * margin));
+      const Float32 s = faceTrueSize ? 1.0f : fit;
+      if(s <= 0.04f)
+      {
+          return;   // too small to be a face rather than a smudge
+      }
+
+      const Float32 cx = p0.x + w * 0.5f;
+      const Float32 cy = p0.y + h * 0.5f;
+      const Float32 dx = panelW * (1.0f + FACE_GAP_PANELS) * 0.5f * s;
+
+      FaceBox leftBox;
+      leftBox.center = ImVec2(cx - dx, cy);
+      leftBox.scale = s;
+
+      FaceBox rightBox = leftBox;
+      rightBox.center = ImVec2(cx + dx, cy);
+
+      if(faceEdges)
+      {
+          drawFaceScreen(dl, leftBox);
+          drawFaceScreen(dl, rightBox);
+      }
+
+      // The car's LEFT eye is the one on the viewer's left, because this is a
+      // face being looked at rather than a chassis being driven. The nose is
+      // therefore to the right of it, which is what `inner` says.
+      drawFaceEye(dl, faceState.pose.left, leftBox, 1.0f);
+      drawFaceEye(dl, faceState.pose.right, rightBox, -1.0f);
+  }
+
+  Void drawFaceBody(Float32 w, Float32 h)
+  {
+      ImGui::BeginChild(
+          "##face",
+          ImVec2(w, h),
+          ImGuiChildFlags_None,
+          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+      );
+
+      const ImVec2      p0 = ImGui::GetCursorScreenPos();
+      const ImGuiStyle& sty = ImGui::GetStyle();
+      const Float32     availW = ImGui::GetContentRegionAvail().x;
+      const Float32     availH = ImGui::GetContentRegionAvail().y;
+
+      // Off the hub's OWN frame clock, the way every other animated view here
+      // does it. A wall clock of its own would run on while the tab is not drawn
+      // and the face would teleport on the frame you came back to it.
+      const Float32 dtMs = ImGui::GetIO().DeltaTime * 1000.0f;
+      if(facePlaying)
+      {
+          face::step(&faceState, faceCfg, dtMs);
+      }
+
+      if(faceCycle && facePlaying)
+      {
+          const Float64 now = ImGui::GetTime();
+          if(now - faceCycleAt >= FACE_CYCLE_S)
+          {
+              faceCycleAt = now;
+              faceWhich = (faceWhich + 1) % face::EXPRESSION_COUNT;
+              face::set(&faceState, static_cast<face::Expression>(faceWhich));
+          }
+      }
+
+      // ---- how much of the region the controls need -------------------------
+      const Float32 frameH = ImGui::GetFrameHeight();
+      const Float32 btnH = frameH * 1.35f;
+      const Float32 cellMin = 112.0f * uiDpiScale;
+      const Int32   cols = std::max(2, std::min(6, static_cast<Int32>(availW / cellMin)));
+      const Int32   gridRows = (face::EXPRESSION_COUNT + cols - 1) / cols;
+
+      const Float32 ctrlH = static_cast<Float32>(gridRows) * (btnH + sty.ItemSpacing.y)
+                          + (frameH + sty.ItemSpacing.y) * 3.0f
+                          + ImGui::GetTextLineHeightWithSpacing() * 2.0f
+                          + sty.ItemSpacing.y * 4.0f;
+
+      const Float32 canvasH = std::max(120.0f * uiDpiScale, availH - ctrlH);
+
+      // ---- the face ---------------------------------------------------------
+      drawFacePicture(ImGui::GetWindowDrawList(), p0, availW, canvasH);
+      ui::screenInset(p0, ImVec2(p0.x + availW, p0.y + canvasH));
+      ImGui::Dummy(ImVec2(availW, canvasH));
+
+      // ---- the controls -----------------------------------------------------
+      // In their own child so an unusually short region scrolls the controls
+      // rather than clipping the last row of them off the bottom.
+      const Float32 ctrlBoxH = std::max(frameH, availH - canvasH - sty.ItemSpacing.y);
+      ImGui::BeginChild("##facectl", ImVec2(availW, ctrlBoxH));
+
+      const Float32 gridW = ImGui::GetContentRegionAvail().x;
+      const Float32 cellW =
+          (gridW - sty.ItemSpacing.x * static_cast<Float32>(cols - 1)) / static_cast<Float32>(cols);
+
+      for(Int32 i = 0; i < face::EXPRESSION_COUNT; ++i)
+      {
+          if((i % cols) != 0)
+          {
+              ImGui::SameLine();
+          }
+
+          const face::Expression which = static_cast<face::Expression>(i);
+          if(ui::segmentedButton(face::name(which), i == faceWhich, ImVec2(cellW, btnH)))
+          {
+              faceWhich = i;
+              faceCycle = false;   // a click is a choice; walking away from it is not
+              face::set(&faceState, which);
+          }
+      }
+
+      ImGui::Spacing();
+
+      // A SCOPE OF ITS OWN, because "Wink" is both an expression and a thing you
+      // can make the face do right now - two widgets, one label, and ImGui makes
+      // an ID out of the label. Without this the second one silently inherits the
+      // first one's identity and stops responding to clicks entirely, which is
+      // exactly what it did.
+      ImGui::PushID("transport");
+
+      if(ui::iconButton(ui::Icon::ICON_LAMP, "Blink"))
+      {
+          face::blink(&faceState);
+      }
+      ImGui::SameLine();
+
+      if(ui::iconButton(ui::Icon::ICON_LAMP_DIM, "Wink"))
+      {
+          face::wink(&faceState);
+      }
+      ImGui::SameLine();
+
+      if(ui::iconButton(
+          facePlaying ? ui::Icon::ICON_PAUSE : ui::Icon::ICON_PLAY,
+          facePlaying ? "Pause" : "Play"
+      ))
+      {
+          facePlaying = !facePlaying;
+      }
+      ImGui::SameLine();
+
+      if(ui::segmentedButton("Cycle", faceCycle))
+      {
+          faceCycle = !faceCycle;
+          faceCycleAt = ImGui::GetTime();
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip("Walks the whole set, one every three seconds.");
+      }
+      ImGui::SameLine();
+
+      if(ui::segmentedButton("1:1", faceTrueSize))
+      {
+          faceTrueSize = !faceTrueSize;
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip(
+              "Draws both panels at exactly %d x %d device pixels - true size.\n"
+              "\n"
+              "This is the honest check. Everything reads at four times scale;\n"
+              "what matters is whether a %.0f px corner on a 150 px eye still\n"
+              "looks like a corner on the glass that is actually going on the\n"
+              "car.",
+              face::PANEL_W,
+              face::PANEL_H,
+              static_cast<Float64>(face::CORNER_PX)
+          );
+      }
+      ImGui::SameLine();
+
+      if(ui::iconButton(ui::Icon::ICON_RESET_VIEW, "Reset"))
+      {
+          faceCfg = face::Config{};
+      }
+
+      ImGui::PopID();
+
+      ImGui::SetNextItemWidth(std::min(300.0f * uiDpiScale, gridW * 0.5f));
+      ImGui::SliderFloat("Speed", &faceCfg.speed, 0.25f, 3.0f, "%.2fx");
+
+      ui::checkbox("Auto-blink", &faceCfg.autoBlink);
+      ImGui::SameLine();
+      ui::checkbox("Idle motion", &faceCfg.idleMotion);
+      ImGui::SameLine();
+      ui::checkbox("Screen edges", &faceEdges);
+
+      // ---- the numbers ------------------------------------------------------
+      // IN PANEL PIXELS, because that is what the firmware will carry and what a
+      // person tuning this has to be able to write down. A design tool whose
+      // readout is in some normalized unit of its own makes every number in it a
+      // conversion away from being useful.
+      {
+          const ScopedFont mono(ui::fonts.mono ? ui::fonts.mono : ui::fonts.small);
+          const ImVec4 dim = ImGui::ColorConvertU32ToFloat4(ui::sem::MUTED);
+          const face::Eye& l = faceState.pose.left;
+          const face::Eye& r = faceState.pose.right;
+          const face::Spring sp = face::springOf(static_cast<face::Expression>(faceWhich));
+
+          ImGui::TextColored(
+              dim,
+              "L  %3.0f x %3.0f px   at %+4.0f %+4.0f   tilt %+5.1f%s%s",
+              static_cast<Float64>(l.w),
+              static_cast<Float64>(l.h),
+              static_cast<Float64>(l.x),
+              static_cast<Float64>(l.y),
+              static_cast<Float64>(l.tilt),
+              face::blinking(faceState) ? "    BLINK" : "",
+              face::winking(faceState) ? "    WINK" : ""
+          );
+          ImGui::TextColored(
+              dim,
+              "R  %3.0f x %3.0f px   at %+4.0f %+4.0f   tilt %+5.1f"
+              "      panel %dx%d  corner %.0f  spring %.0f rad/s  zeta %.2f",
+              static_cast<Float64>(r.w),
+              static_cast<Float64>(r.h),
+              static_cast<Float64>(r.x),
+              static_cast<Float64>(r.y),
+              static_cast<Float64>(r.tilt),
+              face::PANEL_W,
+              face::PANEL_H,
+              static_cast<Float64>(face::CORNER_PX),
+              static_cast<Float64>(sp.freq),
+              static_cast<Float64>(sp.damp)
+          );
+      }
+
+      ImGui::EndChild();
+      ImGui::EndChild();
+  }
+
   // Defined with the rest of the firmware UI several hundred lines below, beside
   // the board state and backup path it shares a subject with.
   Void drawFlashCatalog();
@@ -10015,6 +10485,10 @@ namespace
       {
           drawFlashCatalog();
       }
+      else if(view == FACE_VIEW)
+      {
+          drawFaceBody(w, h);
+      }
       else
       {
           // Range is the terminal branch, so an index from a stale settings file
@@ -10059,6 +10533,10 @@ namespace
       if(view == FLASH_VIEW)
       {
           return "Flash";
+      }
+      if(view == FACE_VIEW)
+      {
+          return "Face";
       }
       return "Range";
   }
