@@ -1,24 +1,25 @@
-// The 2D view: the hub's radar (hub/src/radar.cxx, Points mode) on a canvas.
-// The sensor's zero is the car's front and it points UP; bearings run
-// clockwise, which is the screen's own sense. Black inside the frame, the
-// axes through the sensor, range rings a metre apart with their distances in
-// a column at bearing 25 deg, a compass ring at the fit radius ticked every
-// 5 deg with the bearing numbers inside it, white points, the nearest return
-// ringed in red with its millimetres, the emissive cyan heading arrow, the
-// car to scale, a map scale bottom-left and the HUD from theme.js. With a D
-// line, the pilot overlay from app_ui.cxx drawPilotOverlay: the corridor,
-// the clearance bar and the steer arrow, in the accent or the warning.
+// The 2D view for the field: the hub's radar (hub/src/radar.cxx, Points
+// mode) drawn for a phone held at arm's length in daylight. The sensor's
+// zero is the car's front and it points UP; bearings run clockwise, which is
+// the screen's own sense. Range rings a metre apart and a compass ring at
+// the fit radius, all faint - they are furniture; the returns are the data,
+// white and three pixels; the nearest return ringed in red with its distance
+// in type a thumb can cover; the heading arrow in the accent; the car to
+// scale, never smaller than a fingertip. With a D line, the pilot overlay
+// from app_ui.cxx drawPilotOverlay: the corridor, the clearance bar and the
+// steer arrow, in the decision's colour. No HUD text: the words are the
+// page's, above and below the picture (panels.js).
 //
 // Nothing here animates: a frame is drawn on new data or a resize.
 
 import * as T from './theme.js';
 
-const MIN_RANGE_MM = 3000;
+const MIN_RANGE_MM = 3000;              // never tighter than three metres: a wall at 2 m must not fill the screen
 const RING_LABEL_BEARING = 25;          // deg; every ring label sits on this bearing, a column
 
 let canvas = null, ctx = null, W = 0, H = 0;
 let rangeMm = MIN_RANGE_MM, smallerFor = 0;
-let lastScan = null, lastGone = 'no answer', lastHud = null;
+let lastScan = null;
 
 export function init(c) {
   canvas = c;
@@ -32,10 +33,10 @@ export function resize() {
   render();
 }
 
-// `scan` is the parsed revolution or null; `gone` says why when it is null;
-// `hud` is app.js's summary for the overlay text.
-export function draw(scan, gone, hud) {
-  lastScan = scan; lastGone = gone; lastHud = hud;
+// `scan` is the parsed revolution or null. When it is null only the car and
+// the heading are drawn: the reason is the page's big word, not the map's.
+export function draw(scan) {
+  lastScan = scan;
   updateRange();
   render();
 }
@@ -55,19 +56,11 @@ function updateRange() {
   else if (++smallerFor > 20) { rangeMm = want; smallerFor = 0; }
 }
 
-// 1, 2 or 5 times a power of ten, rounded DOWN: the scale bar's drawn length
-// must never exceed its budget.
-function niceStepDown(mm) {
-  const p = Math.pow(10, Math.floor(Math.log10(mm)));
-  const m = mm / p;
-  return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * p;
-}
+function formatRing(mm) { return (mm / 1000).toFixed(0) + ' m'; }
 
-function formatRing(mm) { return (mm / 1000).toFixed(1) + ' m'; }
-
-// An emissive arrow, the hub's: a wide dim pass under a narrow bright one, an
-// open head of two strokes swept back 26 deg. From (x0, y0) along a bearing;
-// `headK` is the head's length as a fraction of the shaft's.
+// An arrow with a soft glow under it: a wide dim pass under a narrow bright
+// one, an open head of two strokes swept back 26 deg. From (x0, y0) along a
+// bearing; `headK` is the head's length as a fraction of the shaft's.
 function arrow(x0, y0, ang, len, th, color, headK) {
   const tx = x0 + len * Math.sin(ang), ty = y0 - len * Math.cos(ang);
   const head = len * headK;
@@ -80,42 +73,41 @@ function arrow(x0, y0, ang, len, th, color, headK) {
     }
     ctx.stroke();
   };
-  ctx.strokeStyle = color; ctx.lineCap = 'round';
-  ctx.globalAlpha = 0.13; ctx.lineWidth = th * 3.2; strokes();
+  ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalAlpha = 0.18; ctx.lineWidth = th * 3; strokes();
   ctx.globalAlpha = 1; ctx.lineWidth = th; strokes();
-  ctx.lineCap = 'butt';
+  ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
 }
 
 function render() {
   if (!ctx || W < 40 || H < 40) return;
   const cx = W / 2, cy = H / 2;
-  const R = Math.min(W, H) / 2 - 18;      // the compass ring; room outside it for nothing but air
+  const R = Math.min(W, H) / 2 - 16;      // the compass ring; room outside it for nothing but air
   const ppm = R / rangeMm;                // px per mm
 
-  ctx.fillStyle = T.ansi.BLACK; ctx.fillRect(0, 0, W, H);
-  ctx.lineWidth = 1; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = T.ui.bg; ctx.fillRect(0, 0, W, H);
+  ctx.lineWidth = 1; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
 
-  // The axes, across the whole widget: the one furniture drawn under the rings.
-  ctx.strokeStyle = T.map.AXIS; ctx.beginPath();
-  ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
+  // Radials every 45 deg out to the compass ring, the two axes a touch stronger.
+  for (let b = 0; b < 360; b += 45) {
+    const a = b * Math.PI / 180;
+    ctx.strokeStyle = b % 90 === 0 ? T.map.GRID_MAJOR : T.map.GRID;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + R * Math.sin(a), cy - R * Math.cos(a)); ctx.stroke();
+  }
 
-  // Range rings, major every fifth, at the grid's two alphas.
+  // Range rings, major every fifth.
   const step = ringStep(rangeMm);
   for (let i = 1, r = step; r <= rangeMm + 1; i++, r += step) {
-    const major = i % 5 === 0;
-    ctx.strokeStyle = major ? T.map.GRID_MAJOR : T.map.GRID;
-    ctx.globalAlpha = major ? 0.65 : 0.6;
+    ctx.strokeStyle = i % 5 === 0 ? T.map.GRID_MAJOR : T.map.GRID;
     ctx.beginPath(); ctx.arc(cx, cy, r * ppm, 0, 2 * Math.PI); ctx.stroke();
   }
-  ctx.globalAlpha = 1;
 
-  // The compass ring at the fit radius, ticked every 5 deg, longer every 45.
-  ctx.strokeStyle = T.map.GRID_MAJOR; ctx.globalAlpha = 0.65;
+  // The compass ring at the fit radius, ticked every 15 deg, longer every 45.
+  ctx.strokeStyle = T.map.GRID_MAJOR;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.stroke();
-  ctx.globalAlpha = 1;
-  for (let b = 0; b < 360; b += 5) {
+  for (let b = 0; b < 360; b += 15) {
     const a = b * Math.PI / 180, sx = Math.sin(a), sy = -Math.cos(a);
-    const major = b % 45 === 0, len = major ? 6 : 3;
+    const major = b % 45 === 0, len = major ? 7 : 4;
     ctx.strokeStyle = major ? T.map.GRID_MAJOR : T.map.TICK;
     ctx.beginPath();
     ctx.moveTo(cx + sx * (R - len), cy + sy * (R - len)); ctx.lineTo(cx + sx * (R + len), cy + sy * (R + len));
@@ -135,113 +127,95 @@ function render() {
     const hw = T.HALF_WIDTH_MM * ppm;
     const yTop = cy - Math.max(T.HORIZON_MM, d.clearMm) * ppm;
     const yClear = cy - d.clearMm * ppm;
-    if (hw >= 1.5) {
-      ctx.strokeStyle = col; ctx.globalAlpha = 0.69; ctx.lineWidth = 1.4; ctx.beginPath();
+    if (hw >= 2) {
+      ctx.fillStyle = col; ctx.globalAlpha = 0.10;
+      ctx.fillRect(cx - hw, yTop, hw * 2, cy - yTop);
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.75; ctx.lineWidth = 2; ctx.beginPath();
       ctx.moveTo(cx - hw, cy); ctx.lineTo(cx - hw, yTop);
       ctx.moveTo(cx + hw, cy); ctx.lineTo(cx + hw, yTop);
       ctx.stroke();
-      ctx.globalAlpha = 1; ctx.lineWidth = 2.2; ctx.beginPath();
+      ctx.globalAlpha = 1; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath();
       ctx.moveTo(cx - hw, yClear); ctx.lineTo(cx + hw, yClear); ctx.stroke();
+      ctx.lineCap = 'butt'; ctx.lineWidth = 1;
     }
   }
 
-  // The points: white, two pixels, one fill each.
+  // The points: white, three pixels, one fill each.
   if (scan) {
     ctx.fillStyle = T.map.POINT;
     const n = scan.n, a = scan.a, dd = scan.d;
     for (let i = 0; i < n; i++) {
       const r = dd[i] * ppm;
-      ctx.fillRect(cx + r * Math.sin(a[i]) - 1, cy - r * Math.cos(a[i]) - 1, 2, 2);
+      ctx.fillRect(cx + r * Math.sin(a[i]) - 1.5, cy - r * Math.cos(a[i]) - 1.5, 3, 3);
     }
   }
 
   // The heading: which way is forward, always, from the sensor straight up.
   // Two metres of the world, kept between two screen sizes.
-  arrow(cx, cy, 0, Math.min(R * 0.45, Math.max(2000 * ppm, 36)), 2, T.map.HEADING, 0.16);
+  arrow(cx, cy, 0, Math.min(R * 0.5, Math.max(2000 * ppm, 56)), 3.5, T.map.HEADING, 0.18);
 
   // The steer arrow: half a metre of the world, swung by the steering fraction
   // at full lock, over the heading so the decision reads on top of the fact.
   if (overlay) {
-    arrow(cx, cy, d.steer * T.STEER_DEG * Math.PI / 180, Math.min(80, Math.max(24, 500 * ppm)), 2, T.pilotColor(d), 0.30);
+    arrow(cx, cy, d.steer * T.STEER_DEG * Math.PI / 180, Math.min(110, Math.max(40, 600 * ppm)), 4, T.pilotColor(d), 0.32);
   }
 
   // The car, nose up, to the TT-02's plan at the scan's scale - never smaller
-  // than a thumbnail can be pointed at.
-  const cw = Math.max(8, T.CAR_MM[0] * ppm), ch = Math.max(16, T.CAR_MM[1] * ppm);
-  ctx.strokeStyle = T.map.LABEL; ctx.lineWidth = 1;
-  ctx.strokeRect(cx - cw / 2 + 0.5, cy - ch / 2 + 0.5, cw - 1, ch - 1);
+  // than a fingertip. A rounded box filled in the accent, a windscreen line a
+  // quarter back from the nose.
+  const cw = Math.max(16, T.CAR_MM[0] * ppm), ch = Math.max(32, T.CAR_MM[1] * ppm);
+  T.rrect(ctx, cx - cw / 2, cy - ch / 2, cw, ch, Math.min(5, cw / 4));
+  ctx.fillStyle = T.map.CAR_FILL; ctx.fill();
+  ctx.strokeStyle = T.map.CAR; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx - cw / 2, cy - ch * 0.25); ctx.lineTo(cx + cw / 2, cy - ch * 0.25); ctx.stroke();
-  // The sensor itself: the cyan hub with a white core.
-  ctx.fillStyle = T.map.HEADING; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 2 * Math.PI); ctx.fill();
-  ctx.fillStyle = T.map.LABEL; ctx.beginPath(); ctx.arc(cx, cy, 1.2, 0, 2 * Math.PI); ctx.fill();
+  // The sensor itself: the accent hub with a white core.
+  ctx.fillStyle = T.map.HEADING; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fill();
+  ctx.fillStyle = T.map.CAR; ctx.beginPath(); ctx.arc(cx, cy, 1.6, 0, 2 * Math.PI); ctx.fill();
 
   // The nearest return, ringed and labelled, over everything: the one number
   // a person behind the car wants without reading anything.
   if (scan && scan.near >= 0) {
     const r = scan.d[scan.near] * ppm;
     const nx = cx + r * Math.sin(scan.a[scan.near]), ny = cy - r * Math.cos(scan.a[scan.near]);
-    ctx.strokeStyle = T.map.NEAREST; ctx.lineWidth = 1.5; ctx.beginPath();
-    ctx.arc(nx, ny, 7, 0, 2 * Math.PI); ctx.stroke();
-    ctx.font = T.fontMono(T.size.SMALL); ctx.textAlign = nx > W - 80 ? 'right' : 'left';
-    ctx.fillStyle = T.map.NEAREST;
-    ctx.fillText(scan.d[scan.near] + ' mm', nx > W - 80 ? nx - 11 : nx + 11, ny + 4);
+    ctx.strokeStyle = T.map.NEAREST; ctx.lineWidth = 2.5; ctx.beginPath();
+    ctx.arc(nx, ny, 11, 0, 2 * Math.PI); ctx.stroke();
+    // The label on the side away from the car, so it never crosses the
+    // heading or the steer arrow; the other side when that would leave the
+    // screen.
+    ctx.font = T.fontUI(20, 600);
+    const label = T.metres(scan.d[scan.near]), lw = ctx.measureText(label).width + 17;
+    let left = nx < cx;
+    if (left && nx - lw < 4) left = false;
+    if (!left && nx + lw > W - 4) left = true;
+    ctx.textAlign = left ? 'right' : 'left';
+    T.shadowText(ctx, left ? nx - 17 : nx + 17, ny + 7, label, T.map.NEAREST);
     ctx.textAlign = 'left';
   }
 
-  // ---- labels, on plates, over the picture ----------------------------------
-  ctx.font = T.fontUI(T.size.SMALL);
+  // ---- labels, faint, over the picture --------------------------------------
+  ctx.font = T.fontUI(13, 500);
 
   // Ring distances, a column at one bearing, only when the rings are far
   // enough apart for the column not to collide with itself.
-  if (step * ppm > T.size.SMALL * 1.9) {
+  if (step * ppm > 30) {
     const a = RING_LABEL_BEARING * Math.PI / 180;
     for (let r = step; r <= rangeMm + 1; r += step) {
       const x = cx + Math.sin(a) * r * ppm, y = cy - Math.cos(a) * r * ppm;
-      if (y < T.HUD_INSET + T.size.SMALL * 4 && x < W * 0.5) continue;   // under the HUD's lines
-      T.plateText(ctx, x + 2, y + 4, formatRing(r), T.map.RING_TEXT);
+      T.shadowText(ctx, x + 4, y + 4, formatRing(r), T.map.LABEL);
     }
   }
 
-  // Bearing numbers, inside the compass ring: 0 in the heading colour,
-  // cardinals in white, the rest grey.
-  if (R > 34) {
-    const rl = R - 21;
+  // Bearing numbers, inside the compass ring: 0 in the heading colour, the
+  // rest faint.
+  if (R > 60) {
+    const rl = R - 20;
     ctx.textAlign = 'center';
     for (let b = 0; b < 360; b += 45) {
       const a = b * Math.PI / 180;
       const x = cx + Math.sin(a) * rl, y = cy - Math.cos(a) * rl;
-      const col = b === 0 ? T.map.HEADING : b % 90 === 0 ? T.map.CARDINAL : T.map.BEARING;
-      const text = String(b), w = ctx.measureText(text).width;
-      ctx.fillStyle = T.map.PLATE; ctx.fillRect(x - w / 2 - 2, y - T.size.SMALL * 0.45, w + 4, T.size.SMALL * 1.15);
-      ctx.fillStyle = col; ctx.fillText(text, x, y + T.size.SMALL * 0.4);
+      T.shadowText(ctx, x, y + 5, String(b), b === 0 ? T.map.HEADING : T.map.LABEL);
     }
     ctx.textAlign = 'left';
   }
-
-  // The map scale, bottom-left: half-filled like a map's, the midpoint tick
-  // the free half-value, and its length on a plate above it.
-  {
-    const budget = Math.min(W * 0.24, 200);
-    if (budget >= 30) {
-      const lenMm = niceStepDown(budget / ppm), lenPx = lenMm * ppm;
-      if (lenPx > 8) {
-        const x0 = T.HUD_INSET + 4, y = H - T.HUD_INSET - 12, x1 = x0 + lenPx, cap = 5;
-        ctx.fillStyle = T.map.SCALE; ctx.strokeStyle = T.map.SCALE; ctx.lineWidth = 1.8;
-        ctx.fillRect(x0, y - cap / 2, lenPx / 2, cap);
-        ctx.strokeRect(x0, y - cap / 2, lenPx, cap);
-        ctx.beginPath();
-        ctx.moveTo(x0, y - cap * 1.6); ctx.lineTo(x0, y + cap * 1.6);
-        ctx.moveTo(x1, y - cap * 1.6); ctx.lineTo(x1, y + cap * 1.6);
-        ctx.stroke();
-        T.plateText(ctx, x0, y - cap * 1.8 - 3, formatRing(lenMm), T.map.SCALE);
-      }
-    }
-  }
-
-  if (!scan) T.noScan(ctx, cx, cy, Math.max(ch / 2 + T.size.BODY * 1.6, R * 0.3), lastGone);
-
-  if (lastHud) {
-    T.drawHud(ctx, W, H, lastHud, 'Points', scan ? scan.n + ' returns' : '',
-              'fit   ' + (rangeMm * 2 / 1000).toFixed(1) + ' m across');
-  }
+  ctx.lineWidth = 1;
 }

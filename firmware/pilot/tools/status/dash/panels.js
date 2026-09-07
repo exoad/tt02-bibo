@@ -1,13 +1,16 @@
-// The words around the pictures: the sidebar's panels and the status strip,
-// and the one summary the two views share for their HUD. Every value is the
-// board's own word, said once, and an absence is worded as an absence -
-// "not running", "no answer" - never a zero and never the last thing we
-// knew. The buttons follow /json's word on the pilot process, not the last
-// tap: a tap that failed leaves them as they were, and says why beside them.
-// Colour means a state or it is not used: good / warn / bad / muted are
-// ui::sem, on the lamp and on the state word beside it, nowhere else.
+// The words around the pictures. On the main view: the big word (the
+// pilot's mode, LIDAR when only the lidar is on, or the reason there is no
+// scan), the clearance under it, the steer and throttle while a pilot is
+// deciding, the keys, their three-second reply, and the one muted line at
+// the bottom. On the details view: the System, Sensors and Pilot cards.
+// Every value is the board's own word, said once, and an absence is worded
+// as an absence - "not running", "no answer" - never a zero and never the
+// last thing we knew. The keys follow /json's word on the pilot process, not
+// the last tap: a tap that failed leaves them as they were, and says why.
+// Colour means a state or it is not used: good / warn / bad / muted on the
+// lamp and on the state word beside it, the mode's tone on the big word.
 
-import { STALE_S, sem } from './theme.js';
+import { STALE_S, modeTone, metres } from './theme.js';
 
 function el(id) { return document.getElementById(id); }
 
@@ -16,29 +19,17 @@ function row(id) {
   const n = el(id);
   return { lamp: n.querySelector('.lamp'), st: n.querySelector('.st'), val: n.querySelector('.val') };
 }
-// A strip field: its dot, its state, its detail.
-function field(id) {
-  const n = el(id);
-  return { dot: n.querySelector('.dot'), st: n.querySelector('.st'), ex: n.querySelector('.ex') };
-}
 
 const rows = { pico: row('r-pico'), board: row('r-board'), lidar: row('r-lidar'), pilot: row('r-pilot'), feed: row('r-feed'), c1: row('r-c1') };
-const strip = { lidar: field('s-lidar'), pico: field('s-pico'), board: field('s-board'), pilot: field('s-pilot') };
 const modeEl = el('p-mode'), srcEl = el('p-src');
 const pv = { clear: el('p-clear'), hits: el('p-hits'), steer: el('p-steer'), throttle: el('p-throttle'), sent: el('p-sent') };
-const lookBtn = el('look'), stopBtn = el('stop'), replyEl = el('reply');
+const lookBtn = el('look'), stopBtn = el('stop');
+const replyEl = el('reply'), stateEl = el('pstate');
+const wordEl = el('word'), clearV = el('clear-v'), clearC = el('clear-c'), cmdEl = el('cmd'), lineEl = el('line');
 
 export function bind(onLook, onStop) {
   lookBtn.addEventListener('click', onLook);
   stopBtn.addEventListener('click', onStop);
-  // A header folds its panel, as the hub's CollapsingHeader does. The float
-  // key is inert - a page has one window - and says so on hover.
-  document.querySelectorAll('.panel .hdr').forEach(function (h) {
-    h.addEventListener('click', function (e) {
-      if (e.target.closest('.float')) return;
-      h.parentNode.classList.toggle('closed');
-    });
-  });
 }
 
 function text(node, s) { if (node.textContent !== s) node.textContent = s; }
@@ -50,14 +41,8 @@ function setRow(r, tone, lit, state, value) {
   text(r.st, state);
   text(r.val, value || '');
 }
-function setField(f, tone, state, extra) {
-  cls(f.dot, 'dot ' + tone);
-  cls(f.st, 'st ' + tone);
-  text(f.st, state);
-  text(f.ex, extra || '');
-}
 
-function signed(v) { return (v < 0 ? '' : '+') + v.toFixed(2); }
+function signed(v) { return (v < 0 ? '−' : '+') + Math.abs(v).toFixed(2); }
 function nz(v, unit) { return v === undefined || v === null ? 'unknown' : v + (unit || ''); }
 
 // The text page's lines, keyed by their first word: "pico          /dev/ttyACM0
@@ -73,7 +58,7 @@ function byLabel(beat) {
 }
 
 // The lidar's state as the hub words it, from /scan's answer: a word, a tone,
-// and whether the lamp is lit. Shared by the HUD, the strip and two rows.
+// and whether the lamp is lit. Shared by the rows and the log.
 export function lidarState(st) {
   if (st.scan) return { word: 'Scanning', tone: 'good', lit: true };
   const why = st.scanGone;
@@ -86,18 +71,16 @@ export function lidarState(st) {
   return { word: 'No scan', tone: 'muted', lit: false };
 }
 
-const TONE = { good: sem.GOOD, warn: sem.WARN, bad: sem.BAD, muted: sem.MUTED };
-
-// The HUD's summary for the canvases: the state and its colour, where the
-// page is talking to, the throughput, and the decision if one is being made.
-export function hud(st) {
-  const ls = lidarState(st), scan = st.scan;
-  return {
-    state: ls.word, color: TONE[ls.tone], lit: ls.lit,
-    host: location.host,
-    ptsPerS: scan ? scan.n * scan.hz : 0, hz: scan ? scan.hz : 0,
-    pilot: scan && scan.drive ? scan.drive : null,
-  };
+// The big word when there is no scan: the reason, in caps, always red - a
+// screen with no picture of now is a screen to act on.
+function goneWord(why) {
+  if (why === 'no answer') return 'NO ANSWER';
+  if (why === 'scan stale') return 'STALE';
+  if (why === 'feed connecting' || why === 'lidar spinning up' || why === 'feed idle') return 'SPINNING UP';
+  if (why === 'motor off') return 'MOTOR OFF';
+  if (why.indexOf('no scan feed') === 0 || why === 'pilot not running') return 'NO FEED';
+  if (why.indexOf('feed') === 0) return 'FEED ERROR';
+  return 'NO SCAN';
 }
 
 // The pilot as a process. /json's pilotProc is only THIS page's child; a
@@ -122,7 +105,45 @@ export function render(st) {
   const ls = lidarState(st);
   const pw = pilotWord(beat, live);
 
-  // ---- System ------------------------------------------------------------
+  // ---- the main view -------------------------------------------------------
+  // The big word: the decision's mode; LIDAR when a scan comes with nobody
+  // deciding; the reason when there is none.
+  if (d) { text(wordEl, d.mode.toUpperCase()); cls(wordEl, modeTone(d.mode)); }
+  else if (scan) { text(wordEl, 'LIDAR'); cls(wordEl, 'ink'); }
+  else { text(wordEl, goneWord(st.scanGone)); cls(wordEl, 'bad'); }
+
+  // The number: the pilot's clearance while it is deciding; the nearest
+  // return when only the lidar is on, and the caption says which.
+  if (d && d.mode !== 'blind') { text(clearV, metres(d.clearMm)); text(clearC, 'clear'); }
+  else if (scan && scan.near >= 0) { text(clearV, metres(scan.d[scan.near])); text(clearC, 'nearest'); }
+  else { text(clearV, '--'); text(clearC, ''); }
+
+  // Steer and throttle, only while a pilot is deciding on something it saw.
+  if (d && d.mode !== 'blind') { text(cmdEl, 'steer ' + signed(d.steer) + '   thr ' + signed(d.throttle)); cmdEl.hidden = false; }
+  else cmdEl.hidden = true;
+
+  // The keys follow the process word, and the reply shows for three seconds.
+  const p = beat && beat.pilotProc;
+  const running = !!(p && p.running);
+  lookBtn.disabled = !beat || running;
+  stopBtn.disabled = !beat || !running;
+  const showing = Date.now() < st.msgUntil;
+  replyEl.hidden = !showing;
+  if (showing) text(replyEl, st.msg);
+
+  // The bottom line: host, network, the lidar's rate, the pilot as a process.
+  const first = beat && beat.lines && beat.lines[0] ? beat.lines[0].split('  ') : [];
+  const wifi = first.length >= 3 ? first[2] : '';
+  if (!beat) text(lineEl, 'no answer from the car');
+  else {
+    const parts = [beat.host];
+    if (wifi && wifi !== 'no wifi') parts.push(wifi);
+    if (scan) parts.push('lidar ' + scan.hz.toFixed(1) + ' Hz');
+    parts.push(running ? 'pilot ' + p.mode + ' ' + p.sinceS.toFixed(0) + ' s' : live ? 'pilot running elsewhere' : 'pilot not running');
+    text(lineEl, parts.join(' · '));
+  }
+
+  // ---- System --------------------------------------------------------------
   // Pico link: the pilot's own phrase while it is running; otherwise whether
   // the device is even there, from the text page's line.
   if (live) {
@@ -131,7 +152,7 @@ export function render(st) {
     setRow(rows.pico, gone ? 'muted' : /dry/i.test(pico) ? 'warn' : 'good', !gone, pico, '');
   } else if (beat) {
     const m = /^(\S+)\s+(absent|present)/.exec(L.pico || '');
-    if (m) setRow(rows.pico, m[2] === 'present' ? 'muted' : 'muted', false, m[2] + (m[2] === 'present' ? ', no pilot' : ''), m[1]);
+    if (m) setRow(rows.pico, 'muted', false, m[2] + (m[2] === 'present' ? ', no pilot' : ''), m[1]);
     else setRow(rows.pico, 'muted', false, 'unknown', '');
   } else {
     setRow(rows.pico, 'bad', true, 'no answer', '');
@@ -140,11 +161,8 @@ export function render(st) {
   // Board: answering, and how long it has been up, from the text page's first
   // line - "<host>  <addresses>  <wifi>  up <time>  <clock>", two spaces
   // between - with the Wi-Fi profile beside it; the CPU temperature as the
-  // value. The address goes on the strip.
-  const first = beat && beat.lines && beat.lines[0] ? beat.lines[0].split('  ') : [];
+  // value.
   const up = first.length >= 4 ? first[3] : '';
-  const wifi = first.length >= 3 ? first[2] : '';
-  const addr = beat ? (beat.addresses.join(' ') || 'no address') : '';
   if (beat) setRow(rows.board, 'good', true, (up || 'answering') + (wifi ? '  ' + wifi : ''), beat.cpuC !== null && beat.cpuC !== undefined ? beat.cpuC.toFixed(1) + ' C' : 'no temp');
   else setRow(rows.board, 'bad', true, 'no answer', '');
 
@@ -167,28 +185,24 @@ export function render(st) {
   if (scan) setRow(rows.feed, 'good', true, 'live', scan.hz.toFixed(1) + ' Hz');
   else setRow(rows.feed, ls.tone, ls.lit, st.scanGone, '');
 
-  // ---- Quick actions -----------------------------------------------------
-  const p = beat && beat.pilotProc;
-  const running = !!(p && p.running);
-  lookBtn.disabled = !beat || running;
-  stopBtn.disabled = !beat || !running;
+  // The process, in a sentence, under the rows.
   let state;
   if (!beat) state = 'pilot: no answer from the car';
   else if (running) state = 'pilot: ' + p.mode + ' ' + p.sinceS.toFixed(0) + ' s (pid ' + p.pid + ')';
   else if (live) state = 'pilot: running elsewhere - not started from this page, so STOP here cannot stop it';
   else if (p && p.exitCode !== null && p.exitCode !== undefined) state = 'pilot: exited ' + p.exitCode + (p.lastLine ? ' - ' + p.lastLine : '');
   else state = 'pilot: not running';
-  text(replyEl, Date.now() < st.msgUntil ? st.msg : state);
+  text(stateEl, showing ? st.msg : state);
 
-  // ---- Sensors -----------------------------------------------------------
+  // ---- Sensors -------------------------------------------------------------
   if (scan) setRow(rows.c1, 'good', true, scan.hz.toFixed(1) + ' Hz' + (d ? '  pilot' : ''), '');
   else setRow(rows.c1, ls.tone, ls.lit, ls.word, '');
 
-  // ---- Pilot -------------------------------------------------------------
+  // ---- Pilot ---------------------------------------------------------------
   // The mode as the value, and under it where the word came from, every time.
   let mode, tone, source;
   if (d) {
-    mode = d.mode; tone = (d.stop || d.throttle < 0) ? 'warn' : 'good';
+    mode = d.mode; tone = modeTone(d.mode);
     source = 'deciding on this scan, ' + scan.hz.toFixed(1) + ' Hz' + (scan.bad ? ' - F line unreadable, not drawn' : '');
     text(pv.clear, d.clearMm + ' mm'); text(pv.hits, String(d.hits));
     text(pv.steer, signed(d.steer)); text(pv.throttle, signed(d.throttle));
@@ -207,11 +221,4 @@ export function render(st) {
   }
   text(modeEl, mode); cls(modeEl, 'stat-v ' + tone);
   text(srcEl, source);
-
-  // ---- the strip ---------------------------------------------------------
-  setField(strip.lidar, ls.tone, ls.word, scan ? location.hostname + '  ' + scan.hz.toFixed(1) + ' Hz' + (d ? '  pilot' : '') : '');
-  setField(strip.pico, rows.pico.st.className.replace('st ', ''), rows.pico.st.textContent, '');
-  if (beat) setField(strip.board, 'good', beat.host, addr);
-  else setField(strip.board, 'bad', 'no answer', '');
-  setField(strip.pilot, pw.tone, pw.word, '');
 }
