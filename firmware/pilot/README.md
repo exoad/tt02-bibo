@@ -191,17 +191,40 @@ Pico has been heard), and honest absences for what nothing measures yet
 and the page reads it, because the pilot holds the lidar's port and nothing
 else may open it; a file older than three seconds reads as "pilot not running".
 
-`/dash` on the same port is the page for when the car drives itself: the last
-revolution as dots around the car, the corridor and the clearance the pilot
-acted on, an arrow for the steering, and the mode as the biggest word on the
-screen. It polls `/scan`, which serves `/tmp/bibo-scan.txt` (`src/scanwire.hxx`,
-`SCAN_FILE`: the F line then the D line, rewritten every revolution) as plain
-text and answers 404 with the reason once the file is missing or three seconds
-old, so the page draws only the car and says "pilot not running" or "scan
-stale" rather than an old wall as a live one. The page is one HTML string with
-nothing to fetch but those two URLs, because the phone on the hotspot has no
-internet; `BIBO_SCAN_FILE` and `BIBO_STATUS_FILE` point both at fake files on
-a laptop.
+`/dash` on the same port is the page for when the car drives itself. It is a
+client-side app in `tools/status/dash/` - `index.html`, `dash.css` and six ES
+modules, vanilla, nothing fetched from anywhere but the board - and
+`status_server.py` serves those files and data, nothing else: `/scan` is the
+feed's F line and, while a pilot is deciding, its D line (`src/scanwire.hxx`,
+served as-is so there is one wire format), a 404 with the reason when there is
+no revolution younger than three seconds; `/json` is the text page's numbers
+plus the heartbeat and the page's own pilot process. The page polls `/scan`
+every 100 ms and `/json` every second, one request of each in flight, and
+draws only on new data.
+
+What it draws: a 2D radar (front up, bearings clockwise, rings labelled, the
+range growing at once and shrinking slowly, the nearest return ringed in red
+with its millimetres, the forward arrow always; with a D line the corridor,
+the clearance bar and a steer arrow - accent when the throttle is on, orange in
+stop, reverse and blind), a 3D cloud of the same revolution on a ground grid
+around a car box, orbited by drag, zoomed by wheel or pinch, reset by a double
+tap, from the hub's default camera behind and above the car (a 2D-canvas
+perspective projection, not WebGL: five hundred points a frame cost nothing
+either way, and the 2D path is the one no phone browser lacks), and a sidebar
+of states with the mode as the biggest word and every absence worded - "pilot
+not running", "not in the heartbeat", "no answer from the car" - never a stale
+number. When there is no scan the radar draws only the car and the reason in
+large type: a picture of a wall the car has already left is a lie with better
+graphics. On a laptop the two views and the sidebar sit side by side; on a
+phone in portrait they stack, and the bar with LOOK and STOP stays at the
+bottom edge under the thumb.
+
+LOOK starts the pilot in dry mode as this service's child and STOP stops it;
+each answers one line, shown for three seconds. There is deliberately no
+control that moves the car: the buttons follow `/json`'s word on the process,
+and a pilot started at a shell shows as "running elsewhere", which STOP on the
+page cannot stop. `BIBO_SCAN_FILE`, `BIBO_STATUS_FILE`, `BIBO_FEED` and
+`BIBO_PILOT` point everything at fakes on a laptop.
 
     sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
 

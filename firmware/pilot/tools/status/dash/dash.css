@@ -1,0 +1,115 @@
+/* The dashboard's chrome. Dark 2010s utility app, on purpose: flat panels on
+   one ground, hairline borders (a 1 px grid gap over a lighter body is the
+   lines), one accent, no gradients, no rounding, and whatever monospace face
+   the phone already has - nothing is fetched, so nothing can fail to arrive.
+   The palette is the hub's (Gruvbox), so the two screens read as one.
+
+   One grid, two layouts. A phone in portrait stacks top bar, radar, cloud,
+   states, controls and scrolls, with the controls stuck to the bottom edge so
+   STOP is under the thumb wherever the page is. A laptop gets three columns
+   between the bars and no scrolling at all. */
+
+:root {
+  --bg0h: #1d2021; --bg0: #282828; --bg1: #3c3836; --bg2: #504945; --bg3: #665c54;
+  --fg1: #ebdbb2; --fg4: #a89984;
+  --accent: #8ec07c; --accent-dim: #689d6a;
+  --ok: #b8bb26; --warn: #fe8019; --bad: #fb4934;
+  --mono: ui-monospace, Consolas, "DejaVu Sans Mono", Menlo, monospace;
+}
+
+html { background: var(--bg0h); color: var(--fg1); font: 13px/1.4 var(--mono); height: 100%; }
+body { margin: 0; }
+
+body {
+  display: grid;
+  gap: 1px;
+  background: var(--bg1);            /* shows through the gaps: the hairlines */
+  min-height: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "top" "radar" "cloud" "side" "bottom";
+}
+body > * { background: var(--bg0h); min-width: 0; }
+
+/* ---- top bar ---------------------------------------------------------- */
+#top {
+  grid-area: top;
+  display: flex; flex-wrap: wrap; gap: 2px 1.6em;
+  padding: 6px 10px;
+  background: var(--bg0);
+}
+.cell { white-space: nowrap; }
+.k { color: var(--fg4); text-transform: uppercase; font-size: 11px; margin-right: .6em; }
+
+/* ---- the two views ---------------------------------------------------- */
+/* Explicit heights, not aspect-ratio: a grid with a fixed height squeezes an
+   aspect-ratio item's row to nothing and leaves the canvas hanging over the
+   panel below it. The radar is a square the width of the phone; the cloud
+   is a little shorter, being a horizon and not a disc. */
+.view { position: relative; overflow: hidden; height: min(100vw, 75vh); }
+#radar { grid-area: radar; }
+#cloud { grid-area: cloud; height: min(75vw, 60vh); }
+.view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* The drag on the cloud is ours - an orbit, not a scroll - so the browser
+   must not take it. The rest of the page still scrolls from anywhere else. */
+#cloud canvas { touch-action: none; }
+.cap {
+  position: absolute; top: 5px; left: 8px;
+  color: var(--fg4); font-size: 11px; text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* ---- the states ------------------------------------------------------- */
+#side { grid-area: side; padding: 8px 12px 12px; background: var(--bg0); }
+#mode {
+  font-size: 56px; font-weight: bold; line-height: 1.05; letter-spacing: .02em;
+  margin: 2px 0; overflow-wrap: anywhere;
+}
+#source { color: var(--fg4); font-size: 12px; margin-bottom: 8px; }
+.row {
+  display: grid; grid-template-columns: 7.5em minmax(0, 1fr);
+  padding: 4px 0; border-top: 1px solid var(--bg1);
+}
+.row .k { align-self: baseline; }
+.row .v { overflow-wrap: anywhere; }
+
+/* ---- the controls ----------------------------------------------------- */
+#bottom {
+  grid-area: bottom;
+  position: sticky; bottom: 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center;
+  padding: 8px 10px;
+  background: var(--bg0);
+  border-top: 1px solid var(--bg1);
+}
+#msg { grid-column: 1 / -1; min-height: 1.4em; color: var(--fg4); overflow-wrap: anywhere; }
+button {
+  height: 52px;                      /* a finger, with a glove */
+  font: bold 17px var(--mono); letter-spacing: .08em;
+  background: var(--bg1); color: var(--fg1);
+  border: 1px solid var(--bg3); border-radius: 0;
+  cursor: pointer;
+}
+button:disabled { color: var(--fg4); background: var(--bg0); border-color: var(--bg2); cursor: default; }
+button.go { background: var(--accent); color: var(--bg0h); border-color: var(--accent); }
+button.halt { background: var(--warn); color: var(--bg0h); border-color: var(--warn); }
+
+/* Color means a state or it is not used. */
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+.dim { color: var(--fg4); }
+
+/* ---- laptop ----------------------------------------------------------- */
+@media (min-width: 900px) {
+  body {
+    height: 100%; overflow: hidden;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 18em;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "top top top" "radar cloud side" "bottom bottom bottom";
+  }
+  .view, #cloud { height: auto; min-height: 0; }
+  #side { overflow: auto; }
+  #mode { font-size: 44px; }
+  #bottom { grid-template-columns: 10em 10em minmax(0, 1fr); }
+  #msg { grid-column: auto; }
+}
