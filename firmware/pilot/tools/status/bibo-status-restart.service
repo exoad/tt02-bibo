@@ -1,0 +1,8 @@
+[Unit]
+Description=bibo: restart the status page (fired by bibo-status.path)
+
+[Service]
+Type=oneshot
+# Only if it is running: at home, off the hotspot, the page stays down and a
+# file change must not bring it up.
+ExecStart=/bin/sh -c 'systemctl is-active --quiet bibo-status.service && systemctl restart bibo-status.service || true'

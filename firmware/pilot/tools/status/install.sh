@@ -48,12 +48,20 @@ fi
 
 install -m 755 "$HERE/90-bibo-status" /etc/NetworkManager/dispatcher.d/90-bibo-status
 
+# The page restarts itself when its files change on disk (a git pull), so the
+# routine after a pull is "reload the page", not "find someone with root".
+sed "s|^PathModified=.*status_server.py|PathModified=$HERE/status_server.py|; s|^PathModified=.*/dash$|PathModified=$HERE/dash|" "$HERE/bibo-status.path" > /etc/systemd/system/bibo-status.path
+install -m 644 "$HERE/bibo-status-restart.service" /etc/systemd/system/bibo-status-restart.service
+chmod 644 /etc/systemd/system/bibo-status.path
+
 sed "s|ExecStart=.*|ExecStart=/bin/sh $HERE/prefer-hotspot.sh|" \
     "$HERE/bibo-prefer-hotspot.service" > /etc/systemd/system/bibo-prefer-hotspot.service
 chmod 644 /etc/systemd/system/bibo-prefer-hotspot.service
 install -m 644 "$HERE/bibo-prefer-hotspot.timer" /etc/systemd/system/bibo-prefer-hotspot.timer
 systemctl daemon-reload
 systemctl enable --now bibo-prefer-hotspot.timer > /dev/null 2>&1
+systemctl enable --now bibo-status.path > /dev/null 2>&1
+echo "page follows the checkout: a pull restarts it ($(systemctl is-active bibo-status.path))"
 echo "hotspot preference: checking every 20 s ($(systemctl is-active bibo-prefer-hotspot.timer))"
 
 mkdir -p /etc/systemd/resolved.conf.d
