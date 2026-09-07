@@ -24,13 +24,17 @@ if not exist "%HERE%build" mkdir "%HERE%build"
 
 REM /MT matches the prebuilt driver lib's static CRT; anything else fails at
 REM link time with CRT conflicts.
+REM scanwire.cxx, from the board's tree: lidar_source.cxx is one object with the
+REM network worker in it too, and that worker parses the feed with scanwire.
 cl /nologo /EHsc /O2 /MT /W3 /std:c++20 ^
   /I"%HERE%..\..\shared" ^
   /I "%ROOT%\vendor\rplidar_sdk\sdk\include" ^
   /I "%ROOT%\vendor\rplidar_sdk\sdk\src" ^
+  /I "%ROOT%\firmware\pilot\src" ^
   "%HERE%test_lidar_source.cxx" ^
   "%ROOT%\hub\src\lidar_source.cxx" ^
   "%ROOT%\hub\src\devlink.cxx" ^
+  "%ROOT%\firmware\pilot\src\scanwire.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_lidar_source.exe" ^
   /link /LTCG "%ROOT%\vendor\rplidar_sdk\output\x64\Release\rplidar_driver.lib" ws2_32.lib advapi32.lib

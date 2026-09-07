@@ -1,7 +1,22 @@
-// Threaded wrapper around Slamtec's rplidar_sdk driver.
+// The lidar, wherever it is, as a stream of revolutions the UI thread can poll.
 //
-// The SDK's grabScanDataHq() blocks until a full revolution is ready, so it runs
-// on a worker thread and publishes completed frames for the UI thread to poll.
+// Two places it can be, one worker for each, and nothing above poll() knows
+// which is running:
+//
+//   - On a local serial port, through Slamtec's rplidar_sdk. The SDK's
+//     grabScanDataHq() blocks until a full revolution is ready, so it runs on a
+//     worker thread and publishes completed frames.
+//
+//   - On the Orange Pi (bibobox), whose scanfeed service holds the device and
+//     streams one revolution per text line over TCP - the format is
+//     firmware/pilot/src/scanwire.hxx, compiled into both programs. The SDK can
+//     only talk to a serial port and the C1 rides on the board, so this is the
+//     only way the laptop sees it in the field. That worker owns the socket the
+//     same way the serial one owns the driver: the UI thread never writes it,
+//     it flips a flag and the worker sends MOTOR 0/1 on its own tick.
+//
+// start() picks the worker from the target string: a ':' makes it a network
+// target, because no COM port has one and every host:port does.
 #pragma once
 
 #include "shared.hxx"
@@ -48,7 +63,11 @@ struct LidarStats
 {
     UInt64 frames = 0;   // revolutions delivered to the UI
     UInt64 points = 0;   // measurements across all revolutions
-    UInt32       timeouts = 0;   // grab timeouts (a dropped revolution)
+    // Revolutions the UI never got: a grab timeout on the serial path, or on the
+    // feed a line that did not read whole (scanwire's KIND_BAD). One counter
+    // because they are one thing to the person reading it - the device turned
+    // and the picture did not update - and the UI already labels it that way.
+    UInt32       timeouts = 0;
     Float64             uptimeS = 0.0; // since start() succeeded
 };
 
@@ -61,6 +80,10 @@ enum class LidarState
     // The cable came out. Deliberately NOT an error: unplugging a USB device is
     // something a person does on purpose, and answering it with a red banner and
     // a Win32 code trains them to ignore red banners. See devlink.hxx.
+    //
+    // The feed closing is the same state for the same reason: the board
+    // rebooting or the hotspot dropping is not a fault in the hub, and it comes
+    // back on its own.
     LIDAR_STATE_UNPLUGGED,
 
     LIDAR_STATE_ERROR,
@@ -76,8 +99,15 @@ public:
     LidarSource& operator=(const LidarSource&) = delete;
 
     // Non-blocking. Spins up the worker; watch state() for the outcome.
-    // `port` is a bare name such as "COM7"; the \\.\ prefix is added internally.
+    // `port` is a bare name such as "COM7" (the \\.\ prefix is added internally),
+    // or a network target "host:port" - "bibobox.local:8011" - in which case
+    // `baud` is ignored and the host may be a name: the hotspot's DHCP hands the
+    // board a different address every outing and the name is what stays true.
     Void start(const Str& port, Int32 baud);
+
+    // Whether `port` names the scan feed rather than a serial port. The one
+    // rule, so the UI and start() cannot disagree about what a ':' means.
+    [[nodiscard]] static Bool isFeedTarget(const Str& port) noexcept;
 
     // Blocks until the worker has stopped the scan and the motor.
     Void stop();
@@ -95,18 +125,34 @@ public:
     // scanning state loses the control that would start it again.
     [[nodiscard]] Bool connected() const noexcept;
 
+    // Asks; the worker does it on its next tick. motorEnabled() answers with what
+    // the DEVICE is doing as far as this side knows - the state the serial worker
+    // last set, or the last MOTOR line the board sent - not with what was asked,
+    // so a button keyed off it flips when the rotor does and not before.
     Void setMotorEnabled(Bool on);
     [[nodiscard]] Bool motorEnabled() const noexcept;
+
+    // True once this session got as far as the device: a port that answered the
+    // info request, or a feed that accepted the connection. A session that ended
+    // in ERROR before that failed to REACH the thing, which is the case worth
+    // retrying quietly - the feed appears when the hotspot does - while a fault
+    // after reaching it is one to leave on screen.
+    [[nodiscard]] Bool reachedDevice() const noexcept;
 
     LidarState      state() const;
     Str     error() const;        // last error message, empty if none
 
-    // The port this session was opened on, whether or not it is still there.
-    // Kept so the UI can watch for the device coming back without having to
-    // remember what it was talking to.
+    // The port this session was opened on, whether or not it is still there -
+    // "COM7", or the "host:port" string for the feed. Kept so the UI can watch
+    // for the device coming back without having to remember what it was talking
+    // to.
     [[nodiscard]] Str port() const;
     LidarDeviceInfo info() const;
-    LidarScanInfo   scanInfo() const;    // valid once scanning starts
+
+    // Valid once scanning starts on the serial path. The feed does not send
+    // mode information, so over the network this stays at its defaults and the
+    // UI shows "--" for each field.
+    LidarScanInfo   scanInfo() const;
     LidarStats      stats() const;        // session counters, always readable
 
     // Copies the newest frame into `out`. Returns false when nothing new has

@@ -1,0 +1,25 @@
+[Unit]
+Description=bibo scan feed - the lidar's revolutions on TCP 8011 for the hub
+After=network.target
+
+[Service]
+User=jack
+# install.sh rewrites this path to the build directory on this board. The
+# binary is only built with the lidar SDK (-DPILOT_RPLIDAR_SDK), so install.sh
+# says so when it is not there yet rather than installing a unit that fails.
+ExecStart=/home/jack/build-pilot-app/scanfeed /dev/ttyUSB0
+Restart=on-failure
+RestartSec=2
+# Idle costs nothing: with no client connected the lidar is closed and the
+# serial port is free for the pilot. A client that connects while the pilot
+# holds the port is told so in an ERR line and closed; nothing here retries.
+# No port below 1024 and no device the user cannot already open (dialout), so
+# no capability is granted.
+NoNewPrivileges=yes
+
+# Deliberately NOT enabled at boot. NetworkManager's dispatcher starts it when
+# the WhoopWhoop hotspot comes up and stops it when it goes down - see
+# 90-bibo-status beside this file, which handles this unit and the status
+# page together. `systemctl start bibo-scanfeed` by hand works any time, for
+# testing on another network. There is no [Install] section, so `systemctl
+# enable` has nothing to do - that is intended.

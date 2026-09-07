@@ -37,6 +37,11 @@ late tick is a servo that stops being told anything.
     src/autonomy.hxx   one tick of pursuit along a path. Tunings are real;
                        step() returns STATUS_NOT_IMPLEMENTED and touches no
                        output. Waits on an encoder.
+    src/scanwire.hxx   the wire format between the board's scan feed and the
+                       hub: one revolution per text line, integers only, the
+                       same object file compiled into both ends. Pure; its
+                       header comment is the spec and tests/test_scanwire.cxx
+                       holds it to it.
     app/main.cxx       the program, `pilot`. Grabs a revolution, runs
                        reactive::step with the measured dt, sends STEER and
                        ESC (or NEUTRAL) to the car; sends anyway after 200 ms
@@ -44,6 +49,9 @@ late tick is a servo that stops being told anything.
                        never what stops the car. `--dry` decides without a
                        Pico. Built only with the SDK.
     tools/lidar_probe  is the lidar there and what does it see. Run it first.
+    tools/scanfeed     the lidar's revolutions on TCP 8011 for the hub, under
+                       systemd. Idle with the port free until a client
+                       connects. See "Seeing the lidar from the hub".
 
 `proto` was finished first because it is the part that could be finished: pure
 string work, provable on a laptop, and where the bugs in a text protocol live.
@@ -106,6 +114,7 @@ On the laptop, MSVC:
     tests\build_proto_test.bat run
     tests\build_pilot_test.bat run
     tests\build_reactive_test.bat run
+    tests\build_scanwire_test.bat run
 
 On the board (or any Linux box), g++ and CMake - the same sources, no Pico SDK:
 
@@ -167,6 +176,38 @@ mDNS on - both systemd-resolved's global switch and the profile's, since on
 this Ubuntu the second cannot exceed the first. Run it again after a pull; it
 is idempotent. `BIBO_STATUS_PORT=8080 python3 status_server.py` runs the page
 by hand, on any network, without root.
+
+### Seeing the lidar from the hub
+
+`tools/scanfeed` is the board's end of `src/scanwire.hxx`: a TCP server on
+port 8011 that opens the C1, spins it up, and writes one text line per
+revolution - `F <count> <milli-hertz> <centi-deg>,<mm>,<quality> ...` - to
+every client connected, after an `INFO`, a `HEALTH` and a `MOTOR 1`. A client
+may write `MOTOR 0` and `MOTOR 1` to stop and restart the motor, or `QUIT`.
+The hub's lidar source is the intended client; the no-tool check is
+
+    nc bibobox.local 8011
+
+which prints the device and then a revolution ten times a second until Ctrl-C.
+
+**The pilot and the feed are exclusive.** Slamtec's SDK holds the serial port,
+so only one of them can have the lidar. The feed is built for that: with no
+client it keeps the lidar CLOSED and the port free, opens it for the first
+client and parks it (motor off, port closed) when the last one leaves. A client
+that connects while the pilot is running gets one `ERR another program has
+/dev/ttyUSB0` line and is closed; the next connection tries again. Running
+`pilot` while somebody is watching the feed fails the same way, from the other
+side. A client too slow to take a frame (half a second behind) is dropped
+rather than allowed to stall the others.
+
+Built only with the SDK, next to `pilot` and `lidar_probe`. On the board it
+runs as the systemd unit `bibo-scanfeed`, installed by the same
+`tools/status/install.sh` as the status page and started and stopped with the
+`WhoopWhoop` hotspot by the same dispatcher hook; `systemctl start
+bibo-scanfeed` runs it on any network. The unit points at
+`~jack/build-pilot-app/scanfeed` and the installer says so if that has not
+been built yet. By hand: `build-pilot/scanfeed [/dev/ttyUSB0]`, one log line
+per event on stdout; SIGINT or SIGTERM parks the device and exits 0.
 
 The first run of `pilot --dry --seconds 12` against the real C1 was on the
 Orange Pi on 2026-09-06, with the Pico still on the laptop: the board saw its

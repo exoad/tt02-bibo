@@ -60,6 +60,12 @@ namespace lidar
   // 460800 is what the C1 enumerates at; the A-series units use 115200 or
   // 256000 and are not what is bolted to this car.
   //
+  // The port is held EXCLUSIVELY while open (TIOCEXCL on Linux), so a second
+  // program - the pilot against the scan feed, or the reverse - is refused
+  // here with "another program has <port>" rather than quietly sharing one
+  // byte stream and breaking both. See guardFd in lidar.cxx for the day that
+  // was measured.
+  //
   // Idempotent: a second call while open is true. false is explained by
   // reason().
   [[nodiscard]] Bool open(const Str& port, Int32 baud = 460800);
@@ -113,11 +119,41 @@ namespace lidar
   // until it has one at a steady rate. motorOn() does not wait that out for
   // you, because the time is better spent by a caller that has other things to
   // set up - and a caller that has not should expect one blind tick.
-  [[nodiscard]] Bool grab(Vec<reactive::Ray>& out, Int32 timeoutMs = 2000);
+  //
+  // `quality` is optional and PARALLEL to `out`: when it is given, quality[i]
+  // is the C1's 0..63 return strength for out[i], and it is emptied on every
+  // path that empties `out`, so the two can never disagree in length. A
+  // pointer rather than a second overload because reactive::step does not want
+  // it and the scan feed does, and a Ray carries no quality on purpose - the
+  // driver reads distances, and a field it must ignore is a field it will one
+  // day read by mistake.
+  [[nodiscard]] Bool grab(Vec<reactive::Ray>& out, Int32 timeoutMs = 2000, Vec<UInt8>* quality = nullptr);
 
   // The device's identity as it reported it at open(): model, firmware,
   // hardware revision, serial. Empty when nothing is open.
   [[nodiscard]] Str info();
+
+  // The same identity, as numbers, for a program that has to WRITE it rather
+  // than print it - the scan feed puts these on the wire one field at a time
+  // and a hub parses them back. info() is the sentence; this is the record.
+  //
+  // model, fwMajor, fwMinor, hwRev and serial are captured at open() and do
+  // not change while it is open. health is the SDK's status - 0 good, 1
+  // warning, 2 error - from the MOST RECENT reading: open() takes one, and
+  // motorOn() and health() take another. -1 is "unknown": nothing is open,
+  // or the device did not answer the query.
+  struct Device
+  {
+      Int32 model = 0;
+      Int32 fwMajor = 0;
+      Int32 fwMinor = 0;
+      Int32 hwRev = 0;
+      Str   serial;   // 16 bytes as 32 upper-case hex digits; empty when not open
+      Int32 health = -1;
+  };
+
+  // A default Device (health -1, serial empty) when nothing is open.
+  [[nodiscard]] Device device();
 
   // The device's self-report, re-read from the device when the motor is off
   // and repeated from the last reading when it is spinning - the SDK serialises

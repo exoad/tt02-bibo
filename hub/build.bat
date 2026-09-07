@@ -121,6 +121,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem --- the scan feed's wire format, same argument: the board FORMATS lines with
+rem  it and lidar_source.cxx PARSES them with it, out of one object file.
+echo [app] ..\firmware\pilot\src\scanwire.cxx
+cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%ROOT%..\firmware\pilot\src\scanwire.cxx"
+if errorlevel 1 (
+    echo [error] compiling scanwire.cxx
+    exit /b 1
+)
+
 rem --- resources: the icon and VERSIONINFO. rc.exe (Windows SDK, on PATH after
 rem  vcvarsall) is not fatal if missing - the app just runs without an icon.
 set "RES=%OBJ%\app.res"
