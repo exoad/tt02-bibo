@@ -30,6 +30,7 @@
 #include "pico_flash.hxx"
 #include "pico_link.hxx"
 #include "reactive.hxx"
+#include "scanwire.hxx"
 #include "radar.hxx"
 #include "icons.hxx"
 #include "lights.hxx"
@@ -1173,6 +1174,51 @@ namespace
       }
   };
 
+  // ---- the scan feed on the Orange Pi ---------------------------------------
+  // The last entry of the port combo, always. Typed once and remembered, the way
+  // the car's address is and for the same reason: the hotspot's DHCP renumbers
+  // the board every outing and the name does not change. "host" or "host:port";
+  // without a port it is scanwire's.
+  Array<Char, 64> lidarFeedHost{};
+  Bool            lidarFeedHostLoaded = false;
+  Str             lidarFeedLabel;   // what the combo shows for that entry
+
+  const Char* const LIDAR_FEED_FILE = "lidar-feed-host.txt";
+  const Char* const LIDAR_FEED_DEFAULT = "bibobox.local";
+
+  Void loadLidarFeedHost()
+  {
+      if(lidarFeedHostLoaded)
+      {
+          return;
+      }
+      lidarFeedHostLoaded = true;
+
+      const Str saved = settings::read(LIDAR_FEED_FILE);
+      Size n = 0;
+      while(n < saved.size() && n + 1 < lidarFeedHost.size()
+            && saved[n] != '\n' && saved[n] != '\r')
+      {
+          lidarFeedHost[n] = saved[n];
+          ++n;
+      }
+      lidarFeedHost[n] = '\0';
+  }
+
+  // "host:port" for LidarSource::start(). An emptied field falls back to the
+  // board's name rather than producing ":8011", so the entry is always something
+  // that can be connected to.
+  Str lidarFeedTarget()
+  {
+      loadLidarFeedHost();
+      Str host = lidarFeedHost[0] != '\0' ? Str(lidarFeedHost.data()) : Str(LIDAR_FEED_DEFAULT);
+      if(!LidarSource::isFeedTarget(host))
+      {
+          host += ":" + std::to_string(static_cast<Int32>(scanwire::PORT));
+      }
+      return host;
+  }
+
   Void refreshPorts()
   {
       // Captured BEFORE the list is replaced, and restored by NAME, not by index:
@@ -1186,7 +1232,8 @@ namespace
 
       // A port that vanished while it was selected STAYS in the list: after an
       // unplug the combo should still read COM7, which is what you reconnect to.
-      if(!wasSelected.empty())
+      // The feed entry is not a port and is appended below whatever happened.
+      if(!wasSelected.empty() && !LidarSource::isFeedTarget(wasSelected))
       {
           Bool present = false;
           for(const Str& p : lidarPorts)
@@ -1203,21 +1250,29 @@ namespace
           }
       }
 
+      // The Orange Pi, last. Offered whether or not it answers, because the
+      // question "is the board there" is answered by connecting to it, not by
+      // anything Windows can enumerate.
+      const Str feedTarget = lidarFeedTarget();
+      lidarPorts.push_back(feedTarget);
+      lidarFeedLabel = "Orange Pi (" + feedTarget.substr(0, feedTarget.rfind(':')) + ")";
+
       portItems.clear();
       for(const auto& s : lidarPorts)
       {
-          portItems.push_back(s.c_str());
+          portItems.push_back(LidarSource::isFeedTarget(s) ? lidarFeedLabel.c_str() : s.c_str());
       }
 
-      if(lidarPorts.empty())
-      {
-          portIndex = -1;
-          return;
-      }
-
-      // Whatever was chosen stays chosen, present or not.
+      // Whatever was chosen stays chosen, present or not. The feed entry is
+      // matched by KIND rather than by name, so editing the host while it is
+      // selected keeps it selected.
       if(!wasSelected.empty())
       {
+          if(LidarSource::isFeedTarget(wasSelected))
+          {
+              portIndex = static_cast<Int32>(lidarPorts.size()) - 1;
+              return;
+          }
           for(Int32 i = 0; i < static_cast<Int32>(lidarPorts.size()); ++i)
           {
               if(_stricmp(lidarPorts[static_cast<Size>(i)].c_str(), wasSelected.c_str()) == 0)
@@ -1256,6 +1311,13 @@ namespace
   Bool portCouldBeLidar(const Str& port)
   {
       return dev::couldBeLidar(dev::portKind(port));
+  }
+
+  // Whether the combo's choice is the Orange Pi rather than a serial port.
+  Bool feedSelected()
+  {
+      return portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size())
+          && LidarSource::isFeedTarget(lidarPorts[static_cast<Size>(portIndex)]);
   }
 
   Bool isBusy()
@@ -1310,6 +1372,15 @@ namespace
       wifiHost[n] = '\0';
   }
   Bool lidarUserDisconnected = false;
+
+  // ---- the scan feed coming back --------------------------------------------
+  // A serial adapter announces itself: Windows enumerates the port and
+  // pumpDeviceScan() sees it appear. The feed has no such signal - the only way
+  // to know the board is back is to knock - so while it is away this knocks once
+  // a second, and says so in the log ONCE per outage rather than once per knock.
+  Bool  feedWaiting = false;     // between "it went away" and "it is back"
+  Int32 feedRetryIn = 0;         // frames until the next knock
+  Bool  feedBadLogged = false;   // the first unreadable line of a session, noted once
 
   Void refreshPicoPorts()
   {
@@ -2823,6 +2894,76 @@ namespace
       LOG_WARN("pico", "%s did not come back after the operation", picoRelinkPort.c_str());
   }
 
+  Void pumpFeed()
+  {
+      // ~1 s at 60 fps. The board takes longer than that to boot, and a refused
+      // connect on a LAN costs nothing, so there is no reason to be slower.
+      constexpr Int32 RETRY_FRAMES = 60;
+
+      if(!feedSelected() || lidarUserDisconnected)
+      {
+          feedWaiting = false;
+          return;
+      }
+
+      const LidarState s = lidarSource.state();
+
+      // A line the board sent that could not be read whole. Counted by the source
+      // under "Dropped revs" and never drawn; the log gets the first one so a
+      // board speaking a newer dialect is a thing somebody can find out about.
+      if(!feedBadLogged && lidarSource.stats().timeouts > 0)
+      {
+          feedBadLogged = true;
+          LOG_WARN(
+              "lidar",
+              "the scan feed at %s sent a line that did not read whole; dropped, not drawn",
+              lidarSource.port().c_str()
+          );
+      }
+
+      if(s == LidarState::LIDAR_STATE_SCANNING)
+      {
+          if(feedWaiting)
+          {
+              LOG_INFO("lidar", "scan feed at %s is back", lidarSource.port().c_str());
+              feedWaiting = false;
+          }
+          return;
+      }
+
+      // Absent, as opposed to broken: the peer went away, or a session that never
+      // reached the board ended in error. A fault the board itself reported stays
+      // on screen - knocking again would only make it say the same thing.
+      const Bool absent = s == LidarState::LIDAR_STATE_UNPLUGGED
+                       || (s == LidarState::LIDAR_STATE_ERROR && !lidarSource.reachedDevice());
+      if(!absent)
+      {
+          return;
+      }
+
+      if(!feedWaiting)
+      {
+          feedWaiting = true;
+          feedRetryIn = RETRY_FRAMES;
+          LOG_INFO(
+              "lidar",
+              "waiting for the scan feed at %s; retrying every second",
+              lidarSource.port().c_str()
+          );
+          return;
+      }
+
+      if(--feedRetryIn > 0)
+      {
+          return;
+      }
+      feedRetryIn = RETRY_FRAMES;
+
+      // Straight to start(), not connect(): that logs and clears the map, and
+      // the last picture is worth keeping while the board reboots.
+      lidarSource.start(lidarFeedTarget(), 0);
+  }
+
   Void pumpFlash()
   {
       // Mirror the scripts' output into the session log: it is the toolchain's own
@@ -2974,6 +3115,7 @@ namespace
       pumpPico();
       pumpFlash();
       pumpDeviceScan();
+      pumpFeed();
       pumpCodeLint();
       pumpCodeIntel();
       pumpPicoRelink();
@@ -2997,20 +3139,34 @@ namespace
   Void connect()
   {
       lidarUserDisconnected = false;
+      feedWaiting = false;
+      feedBadLogged = false;
 
-      LOG_INFO("lidar", "connect requested: port=%s baud=%d",
-               (portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
-                   ? lidarPorts[portIndex].c_str() : "(none)",
-               BAUDS[baudIndex].rate);
       if(portIndex < 0 || portIndex >= static_cast<Int32>(lidarPorts.size()))
       {
+          LOG_INFO("lidar", "connect requested with no port selected");
           return;
+      }
+
+      const Str& target = lidarPorts[static_cast<Size>(portIndex)];
+      if(feedSelected())
+      {
+          LOG_INFO("lidar", "connect requested: scan feed at %s", target.c_str());
+      }
+      else
+      {
+          LOG_INFO(
+              "lidar",
+              "connect requested: port=%s baud=%d",
+              target.c_str(),
+              BAUDS[baudIndex].rate
+          );
       }
 
       radarView.clear();
       haveFrame = false;
       hzCount = 0;
-      lidarSource.start(lidarPorts[portIndex], BAUDS[baudIndex].rate);
+      lidarSource.start(target, feedSelected() ? 0 : BAUDS[baudIndex].rate);
   }
 
   Void startBackup()
@@ -3067,14 +3223,22 @@ namespace
 
       if(portIndex >= 0 && portIndex < static_cast<Int32>(lidarPorts.size()))
       {
-          Array<Char, 64> conn;
-          std::snprintf(
-              conn.data(),
-              conn.size(),
-              "%s  -  %d baud",
-              lidarPorts[portIndex].c_str(),
-              BAUDS[baudIndex].rate
-          );
+          Array<Char, 96> conn;
+          if(feedSelected())
+          {
+              // A baud rate means nothing over TCP; the target says it all.
+              std::snprintf(conn.data(), conn.size(), "%s", lidarPorts[portIndex].c_str());
+          }
+          else
+          {
+              std::snprintf(
+                  conn.data(),
+                  conn.size(),
+                  "%s  -  %d baud",
+                  lidarPorts[portIndex].c_str(),
+                  BAUDS[baudIndex].rate
+              );
+          }
           dl->AddText(f, px, ImVec2(x, y), ui::plot::LABEL, conn.data());
       }
 
@@ -4065,9 +4229,16 @@ namespace
       const Float32 baudW = ImGui::CalcTextSize("460800").x + ImGui::GetFrameHeight()
                           + ImGui::GetStyle().FramePadding.x * 2.0f;
 
+      // The Orange Pi entry has no baud rate, so the combo takes the whole row
+      // and the host goes on a row of its own beneath it. Not a grayed baud
+      // combo: a disabled control asks to be explained, and "this is not a
+      // serial port" is not worth a tooltip.
+      const Bool feed = feedSelected();
+
       ImGui::BeginDisabled(busy);
-      ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - baudW
-                              - ImGui::GetStyle().ItemSpacing.x);
+      ImGui::SetNextItemWidth(feed ? -FLT_MIN
+                                   : ImGui::GetContentRegionAvail().x - baudW
+                                         - ImGui::GetStyle().ItemSpacing.x);
       if(portItems.empty())
       {
           ImGui::AlignTextToFramePadding();
@@ -4078,37 +4249,65 @@ namespace
           ui::combo("##port", &portIndex, portItems.data(), static_cast<Int32>(portItems.size()));
       }
 
-      // Drawn by hand rather than with ui::combo, because the point is that two
-      // of the three rows are NOT selectable and a combo cannot say that.
-      ImGui::SameLine();
-      ImGui::SetNextItemWidth(baudW);
-      if(ImGui::BeginCombo("##baud", BAUDS[baudIndex].label))
+      if(feed)
       {
-          for(Int32 i = 0; i < BAUD_COUNT; ++i)
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          if(ImGui::InputTextWithHint(
+              "##feedhost",
+              "the board's name or address, e.g. bibobox.local",
+              lidarFeedHost.data(),
+              lidarFeedHost.size()
+          ))
           {
-              ImGui::BeginDisabled(!BAUDS[i].supported);
-              if(ImGui::Selectable(BAUDS[i].label, i == baudIndex))
-              {
-                  baudIndex = i;
-              }
-              ImGui::EndDisabled();
-
-              if(!BAUDS[i].supported
-                 && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-              {
-                  ImGui::SetTooltip(
-                      "Not a rate the C1 has.\n"
-                      "\n"
-                      "The C1M1 datasheet lists 460800 and nothing else - no\n"
-                      "minimum, no maximum, no alternative. Other RPLIDAR models\n"
-                      "do run at 115200, which is where the expectation comes\n"
-                      "from, and it is why this is grayed rather than absent.\n"
-                      "\n"
-                      "Selecting it would open the port and then receive nothing,\n"
-                      "which looks like a dead sensor rather than a wrong number.");
-              }
+              settings::write(LIDAR_FEED_FILE, Str(lidarFeedHost.data()));
+              // The entry's label and target are derived from the host, and the
+              // combo restores the selection by kind, so this keeps it chosen.
+              refreshPorts();
           }
-          ImGui::EndCombo();
+          if(ImGui::IsItemHovered())
+          {
+              ImGui::SetTooltip(
+                  "Where the Orange Pi is. bibobox.local on the hotspot,\n"
+                  "100.125.100.51 over Tailscale. Port %u unless you write\n"
+                  "host:port.",
+                  static_cast<unsigned>(scanwire::PORT)
+              );
+          }
+      }
+      else
+      {
+          // Drawn by hand rather than with ui::combo, because the point is that
+          // two of the three rows are NOT selectable and a combo cannot say that.
+          ImGui::SameLine();
+          ImGui::SetNextItemWidth(baudW);
+          if(ImGui::BeginCombo("##baud", BAUDS[baudIndex].label))
+          {
+              for(Int32 i = 0; i < BAUD_COUNT; ++i)
+              {
+                  ImGui::BeginDisabled(!BAUDS[i].supported);
+                  if(ImGui::Selectable(BAUDS[i].label, i == baudIndex))
+                  {
+                      baudIndex = i;
+                  }
+                  ImGui::EndDisabled();
+
+                  if(!BAUDS[i].supported
+                     && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                  {
+                      ImGui::SetTooltip(
+                          "Not a rate the C1 has.\n"
+                          "\n"
+                          "The C1M1 datasheet lists 460800 and nothing else - no\n"
+                          "minimum, no maximum, no alternative. Other RPLIDAR models\n"
+                          "do run at 115200, which is where the expectation comes\n"
+                          "from, and it is why this is grayed rather than absent.\n"
+                          "\n"
+                          "Selecting it would open the port and then receive nothing,\n"
+                          "which looks like a dead sensor rather than a wrong number.");
+                  }
+              }
+              ImGui::EndCombo();
+          }
       }
       ImGui::EndDisabled();
 
@@ -4148,6 +4347,13 @@ namespace
           ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::BAD);
           ImGui::TextWrapped("%s", err.c_str());
           ImGui::PopStyleColor();
+
+          // Unreachable, as opposed to broken (pumpFeed() draws the line): the
+          // message says what to check, this says the app is still trying.
+          if(feedWaiting)
+          {
+              ImGui::TextDisabled("retrying every second");
+          }
       }
       else if(!err.empty() && ls == LidarState::LIDAR_STATE_UNPLUGGED)
       {
@@ -4159,8 +4365,18 @@ namespace
 
           // And the useful half: say when it is back, so the answer to "did it
           // come back" is on screen instead of being something to go and check.
+          // The feed has no enumeration to consult - pumpFeed() knocks instead,
+          // and this says so - and portPresent() answers "true" for a name it
+          // cannot check, which would call the board back while it is not.
           const Str was = lidarSource.port();
-          if(!was.empty() && dev::portPresent(was))
+          if(LidarSource::isFeedTarget(was))
+          {
+              if(feedWaiting)
+              {
+                  ImGui::TextDisabled("retrying every second");
+              }
+          }
+          else if(!was.empty() && dev::portPresent(was))
           {
               ImGui::PushStyleColor(ImGuiCol_Text, ui::sem::GOOD);
               ImGui::TextWrapped("%s is back - connect when ready", was.c_str());
@@ -4430,7 +4646,7 @@ namespace
       if(ImGui::BeginTable("scan", 2, ImGuiTableFlags_SizingStretchProp))
       {
           keyValue("Mode", "%s", si.mode.empty() ? "--" : si.mode.c_str());
-          keyValue("Mode id", "%d", si.modeId);
+          keyValue("Mode id", si.modeId >= 0 ? "%d" : "--", si.modeId);
           keyValue("Sample period", si.usPerSample > 0 ? "%.2f us" : "--", si.usPerSample);
           keyValue(
               "Sample rate",
@@ -12003,7 +12219,20 @@ Void app::init(Float32 dpiScale)
         {
             const Char* want = __argv[i + 1];
             Bool        found = false;
-            for(Int32 p = 0; p < static_cast<Int32>(lidarPorts.size()); ++p)
+
+            // `--connect host:port` is the Orange Pi entry with that host, for
+            // this launch only - a command line is not a preference.
+            if(LidarSource::isFeedTarget(want))
+            {
+                // Loaded first, or the first lazy load would put the file back.
+                loadLidarFeedHost();
+                std::snprintf(lidarFeedHost.data(), lidarFeedHost.size(), "%s", want);
+                refreshPorts();
+                portIndex = static_cast<Int32>(lidarPorts.size()) - 1;
+                found = true;
+            }
+
+            for(Int32 p = 0; !found && p < static_cast<Int32>(lidarPorts.size()); ++p)
             {
                 if(_stricmp(lidarPorts[p].c_str(), want) == 0)
                 {

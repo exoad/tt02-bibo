@@ -34,7 +34,8 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 # binary a person runs, so the library it is built from takes the longer name.
 # Everything else here - the tests, the probe - links this.
 add_library(
-    pilotlib STATIC src/proto.cxx src/link.cxx src/autonomy.cxx src/reactive.cxx src/lidar.cxx
+    pilotlib STATIC
+    src/proto.cxx src/link.cxx src/autonomy.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -79,6 +80,13 @@ if(PILOT_RPLIDAR_SDK)
     add_executable(lidar_probe tools/lidar_probe.cxx)
     target_link_libraries(lidar_probe PRIVATE pilotlib)
 
+    # The scan feed: the C1's revolutions on TCP 8011 for the hub. SDK builds
+    # only, like the probe - its source compiles on any Linux, but a feed whose
+    # lidar half refuses would listen all day and answer every client with ERR.
+    # tools/status/install.sh points a systemd unit at this binary.
+    add_executable(scanfeed tools/scanfeed.cxx)
+    target_link_libraries(scanfeed PRIVATE pilotlib)
+
     # The program. Only with the SDK, on purpose: without a lidar half that can
     # see, app/main.cxx would open the car and send it a stop once a tick, which
     # is a test of the link wearing the program's name. The source itself is
@@ -89,7 +97,7 @@ if(PILOT_RPLIDAR_SDK)
 endif()
 
 enable_testing()
-foreach(t proto pilot reactive)
+foreach(t proto pilot reactive scanwire)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

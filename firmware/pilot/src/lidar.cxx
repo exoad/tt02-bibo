@@ -32,6 +32,7 @@ namespace lidar
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 #include "sl_lidar.h"
@@ -64,6 +65,36 @@ namespace lidar
     Str healthStr;
     Int32 healthStatus = -1;
 
+    // The identity as numbers, filled at open() and cleared at close(). Its
+    // `health` member is NOT kept here - device() copies healthStatus into it
+    // on the way out, so there is one place the status lives and the record
+    // cannot lag a reading that readHealth() just took.
+    Device dev;
+
+    // A second descriptor on the port, held for as long as the SDK's is, with
+    // the tty marked EXCLUSIVE (TIOCEXCL) - so that every later open() of the
+    // device by any other unprivileged process fails with EBUSY, which is the
+    // answer probePort() below already knew how to read.
+    //
+    // Without it that branch could never fire. Linux lets any number of
+    // processes open one tty, and the SDK takes no lock, so on 2026-09-07
+    // `pilot --dry` opened /dev/ttyUSB0 WHILE the scan feed was streaming
+    // from it: the pilot reported "nothing answered at 460800 baud" (the
+    // feed had the bytes), and the feed lost five revolutions in a row to
+    // the pilot's probe commands. Two programs each convinced the other did
+    // not exist. The flag is cleared by the kernel when the last descriptor
+    // on the tty closes, so a crash releases it as surely as close() does.
+    Int32 guardFd = -1;
+
+    Void dropGuard()
+    {
+        if(guardFd >= 0)
+        {
+            ::close(guardFd);
+            guardFd = -1;
+        }
+    }
+
     [[nodiscard]] Str hex(const sl_result r)
     {
         Array<Char, 16> buf{};
@@ -71,8 +102,9 @@ namespace lidar
         return Str(buf.data());
     }
 
-    // Opens and immediately closes the port, to find out whether it CAN be
-    // opened before the SDK touches it.
+    // Opens the port, to find out whether it CAN be opened before the SDK
+    // touches it, and keeps the descriptor as guardFd for open() to mark
+    // exclusive once the SDK has its own.
     //
     // This exists because the SDK cannot be trusted to report an unopenable
     // port: hub/src/lidar_source.cxx documents the shadowed `ans` in the SDK's
@@ -91,7 +123,7 @@ namespace lidar
         const Int32 fd = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
         if(fd >= 0)
         {
-            ::close(fd);
+            guardFd = fd;
             return true;
         }
 
@@ -147,26 +179,39 @@ namespace lidar
         return true;
     }
 
-    [[nodiscard]] Str describe(const sl_lidar_response_device_info_t& di)
+    // The SDK's packed reply as this header's record. firmware_version is one
+    // 16-bit word, major in the high byte - the split is the SDK sample's.
+    [[nodiscard]] Device record(const sl_lidar_response_device_info_t& di)
+    {
+        Device d;
+        d.model = static_cast<Int32>(di.model);
+        d.fwMajor = static_cast<Int32>(di.firmware_version >> 8);
+        d.fwMinor = static_cast<Int32>(di.firmware_version & 0xFF);
+        d.hwRev = static_cast<Int32>(di.hardware_version);
+        for(const sl_u8 b : di.serialnum)
+        {
+            Array<Char, 4> two{};
+            std::snprintf(two.data(), two.size(), "%02X", static_cast<unsigned>(b));
+            d.serial += two.data();
+        }
+        return d;
+    }
+
+    // The sentence info() returns, built from the record so the two cannot
+    // disagree about a field.
+    [[nodiscard]] Str describe(const Device& d)
     {
         Array<Char, 96> buf{};
         std::snprintf(
             buf.data(),
             buf.size(),
             "model 0x%02X  firmware %d.%02d  hardware %d  serial ",
-            static_cast<unsigned>(di.model),
-            static_cast<int>(di.firmware_version >> 8),
-            static_cast<int>(di.firmware_version & 0xFF),
-            static_cast<int>(di.hardware_version)
+            static_cast<unsigned>(d.model),
+            d.fwMajor,
+            d.fwMinor,
+            d.hwRev
         );
-        Str s(buf.data());
-        for(const sl_u8 b : di.serialnum)
-        {
-            Array<Char, 4> two{};
-            std::snprintf(two.data(), two.size(), "%02X", static_cast<unsigned>(b));
-            s += two.data();
-        }
-        return s;
+        return Str(buf.data()) + d.serial;
     }
 
     // stop, settle, motor off - in that order, and BOTH halves run whatever the
@@ -219,6 +264,7 @@ namespace lidar
       sl::Result<sl::ILidarDriver*> d = sl::createLidarDriver();
       if(!d || *d == nullptr)
       {
+          dropGuard();
           why = "the SDK could not create a driver (SDK code " + hex(d.err) + ")";
           return false;
       }
@@ -227,6 +273,7 @@ namespace lidar
       if(!ch || *ch == nullptr)
       {
           delete *d;
+          dropGuard();
           why = "the SDK could not create a serial channel for " + port
               + " (SDK code " + hex(ch.err) + ")";
           return false;
@@ -237,9 +284,16 @@ namespace lidar
       {
           delete *d;
           delete *ch;
+          dropGuard();
           why = "cannot connect to " + port + " (SDK code " + hex(r) + ")";
           return false;
       }
+
+      // Only NOW, with the SDK's own descriptor open: TIOCEXCL refuses every
+      // open() that comes after it, and the SDK's would have been one of
+      // them. Best effort - a tty that will not take the flag is still a
+      // working lidar, just an unguarded one.
+      static_cast<Void>(::ioctl(guardFd, TIOCEXCL));
 
       // The first real exchange. The probe above proved the port opens, so a
       // silence here is the device end: the wrong baud, or a serial adapter
@@ -251,6 +305,7 @@ namespace lidar
           (*d)->disconnect();
           delete *d;
           delete *ch;
+          dropGuard();
           why = port + " opened but nothing answered at " + std::to_string(baud) + " baud"
               + " (SDK code " + hex(r) + ") - wrong baud, or not a lidar";
           return false;
@@ -259,7 +314,8 @@ namespace lidar
       drv = *d;
       channel = *ch;
       nodes.assign(MAX_NODES, sl_lidar_response_measurement_node_hq_t{});
-      infoStr = describe(di);
+      dev = record(di);
+      infoStr = describe(dev);
 
       // A previous session that was TERMINATED rather than closed - a crash,
       // a kill, a lost SSH session - leaves the C1 spinning and streaming,
@@ -298,11 +354,15 @@ namespace lidar
       delete channel;
       channel = nullptr;
 
+      // Last, so the port is never unguarded while the SDK still has it.
+      dropGuard();
+
       nodes.clear();
       nodes.shrink_to_fit();
       infoStr.clear();
       healthStr.clear();
       healthStatus = -1;
+      dev = Device{};
   }
 
   Bool isOpen()
@@ -385,12 +445,17 @@ namespace lidar
       return spinning;
   }
 
-  Bool grab(Vec<reactive::Ray>& out, const Int32 timeoutMs)
+  Bool grab(Vec<reactive::Ray>& out, const Int32 timeoutMs, Vec<UInt8>* quality)
   {
       // Emptied FIRST, so that every path out of here that is not a fresh
       // revolution leaves nothing stale behind - see the header for why an
-      // empty scan is the safe thing to hand to reactive::step.
+      // empty scan is the safe thing to hand to reactive::step. The quality
+      // vector follows the same rule, so it is never longer than `out`.
       out.clear();
+      if(quality != nullptr)
+      {
+          quality->clear();
+      }
 
       if(drv == nullptr)
       {
@@ -426,6 +491,10 @@ namespace lidar
       static_cast<Void>(drv->ascendScanData(nodes.data(), count));
 
       out.reserve(count);
+      if(quality != nullptr)
+      {
+          quality->reserve(count);
+      }
       for(Size i = 0; i < count; ++i)
       {
           const sl_lidar_response_measurement_node_hq_t& n = nodes[i];
@@ -436,6 +505,12 @@ namespace lidar
           ray.angleDeg = static_cast<Float32>(n.angle_z_q14) * 90.0f / 16384.0f;
           ray.distMm = static_cast<Float32>(n.dist_mm_q2) / 4.0f;
           out.push_back(ray);
+          if(quality != nullptr)
+          {
+              // The low two bits of the byte are flags; the strength is the
+              // six above them, which is where the wire's 0..63 comes from.
+              quality->push_back(static_cast<UInt8>(n.quality >> SL_LIDAR_RESP_MEASUREMENT_QUALITY_SHIFT));
+          }
       }
 
       why.clear();
@@ -445,6 +520,17 @@ namespace lidar
   Str info()
   {
       return drv == nullptr ? Str() : infoStr;
+  }
+
+  Device device()
+  {
+      if(drv == nullptr)
+      {
+          return Device{};
+      }
+      Device d = dev;
+      d.health = healthStatus;
+      return d;
   }
 
   Str health()
@@ -521,12 +607,16 @@ namespace lidar
       return false;
   }
 
-  Bool grab(Vec<reactive::Ray>& out, const Int32 timeoutMs)
+  Bool grab(Vec<reactive::Ray>& out, const Int32 timeoutMs, Vec<UInt8>* quality)
   {
       static_cast<Void>(timeoutMs);
       // Emptied, as the header promises, so a caller that ignores the Bool
       // hands reactive::step a blind scan and not whatever was there before.
       out.clear();
+      if(quality != nullptr)
+      {
+          quality->clear();
+      }
       why = NO_SDK;
       return false;
   }
@@ -534,6 +624,11 @@ namespace lidar
   Str info()
   {
       return Str();
+  }
+
+  Device device()
+  {
+      return Device{};
   }
 
   Str health()

@@ -1,4 +1,5 @@
-// Threaded wrapper around Slamtec's rplidar_sdk driver.
+// Two workers behind one LidarSource: the serial one over Slamtec's SDK, the
+// network one over the board's scan feed. See lidar_source.hxx for why both.
 //
 // The SDK is entirely blocking: grabScanDataHq() parks until a full revolution
 // has been assembled (~100ms at 10Hz), and connect()/getDeviceInfo() can sit on
@@ -8,11 +9,16 @@
 // which keeps the lifetime rules trivial. What crosses threads is only plain
 // data: state, error text, device info, and the most recent completed frame,
 // each guarded below.
+//
+// The feed worker (runFeed, at the bottom) owns its socket the same way, and
+// publishes through the same members with the same counters, so poll() and
+// everything above it cannot tell the two apart.
 
 #include "shared.hxx"
 #include "lidar_source.hxx"
 
 #include "devlink.hxx"
+#include "scanwire.hxx"
 
 #include <atomic>
 #include <chrono>
@@ -29,7 +35,16 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+
+// BEFORE windows.h, which otherwise pulls in the original winsock.h that
+// winsock2.h then redefines half of - see pico_link.cxx, which met the same
+// hundred errors first.
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 #include <windows.h>
+
+#pragma comment(lib, "ws2_32.lib")
 
 #include <cctype>
 
@@ -50,6 +65,88 @@ namespace
   // At a 2s grab timeout this gives the device ~10s of silence before the worker
   // gives up. Long enough to ride out a hiccup, short enough to notice a unplug.
   constexpr Int32 MAX_CONSECUTIVE_TIMEOUTS = 5;
+
+  // ---- the feed's tunables ---------------------------------------------------
+
+  // How long the feed worker waits on the socket before going round to look at
+  // the quit flag and the motor flag. A silent board costs two wakeups a second;
+  // a Stop or a motor toggle is honoured within one tick.
+  constexpr Int32 FEED_TICK_MS = 500;
+
+  // Past this the board is not there. On a LAN a refused connect comes back in
+  // a millisecond; the wait is for a name that resolved to an address nothing
+  // answers at, which is what an unplugged board on the hotspot looks like.
+  constexpr Int32 FEED_CONNECT_TIMEOUT_MS = 3000;
+
+  // A revolution is ~8 KB of text. Bytes that pass this without a newline are
+  // not a long line, they are a stream that lost its framing, and keeping them
+  // is how a worker grows by one byte per read forever.
+  constexpr Size FEED_MAX_LINE = 256 * 1024;
+
+  // "host:port" -> its two halves. The LAST colon splits, so a host that is
+  // itself written with one - unlikely, but a v6 literal would be - still
+  // finds its port. Returns false when there is no port, or not a number.
+  [[nodiscard]] Bool splitTarget(const Str& target, Str* host, UInt16* port)
+  {
+      const Size colon = target.rfind(':');
+      if(colon == Str::npos || colon == 0 || colon + 1 >= target.size())
+      {
+          return false;
+      }
+      Char* stop = nullptr;
+      const long v = std::strtol(target.c_str() + colon + 1, &stop, 10);
+      if(*stop != '\0' || v <= 0 || v > 65535)
+      {
+          return false;
+      }
+      *host = target.substr(0, colon);
+      *port = static_cast<UInt16>(v);
+      return true;
+  }
+
+  // One select() on one socket, for `ms`. True when it is ready in the asked
+  // direction; false on a timeout OR an error, which the caller then finds out
+  // about from the recv/send that follows.
+  [[nodiscard]] Bool socketReady(SOCKET s, Bool forWrite, Int32 ms)
+  {
+      fd_set set;
+      FD_ZERO(&set);
+      FD_SET(s, &set);
+      timeval tv;
+      tv.tv_sec = ms / 1000;
+      tv.tv_usec = (ms % 1000) * 1000;
+      const Int32 n = select(0, forWrite ? nullptr : &set, forWrite ? &set : nullptr, nullptr, &tv);
+      return n > 0 && FD_ISSET(s, &set);
+  }
+
+  // Writes the whole of `text` to a non-blocking socket, waiting for room
+  // when the stack has none. The lines this side sends are a dozen bytes, so
+  // the wait is theoretical - but a send that returned short and was not
+  // finished would hand the board half a command, which is worse than a slow
+  // one. False when the link is gone.
+  [[nodiscard]] Bool sendAll(SOCKET s, const Str& text)
+  {
+      Size done = 0;
+      while(done < text.size())
+      {
+          const Int32 n = send(s, text.data() + done, static_cast<Int32>(text.size() - done), 0);
+          if(n > 0)
+          {
+              done += static_cast<Size>(n);
+              continue;
+          }
+          if(n == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK)
+          {
+              if(!socketReady(s, true, 1000))
+              {
+                  return false;
+              }
+              continue;
+          }
+          return false;
+      }
+      return true;
+  }
 
   // Checks that the port can actually be opened, returning a specific complaint
   // or an empty string if all is well.
@@ -128,6 +225,16 @@ struct LidarSource::Impl
     // Owned by the UI thread, read by the worker. Starts true so a connect
     // spins up as it always has.
     Atomic<Bool> motorOn{ true };
+
+    // What the device is doing, as last confirmed: written by the worker when
+    // it has switched the motor (serial) or when the board says so (feed).
+    // Separate from motorOn because the two differ for the moment between the
+    // ask and the act, and motorEnabled() promises the act.
+    Atomic<Bool> motorActual{ true };
+
+    // Set once the session got as far as the device itself. See the header.
+    Atomic<Bool> reached{ false };
+
     Atomic<Bool> running{false};   // worker exists and has not been joined
 
     Atomic<LidarState> state{LidarState::LIDAR_STATE_IDLE};
@@ -152,9 +259,10 @@ struct LidarSource::Impl
     // Touched only by poll(), i.e. only by the UI thread.
     UInt64 lastSeenSeq = 0;
 
-    // The port this session was opened on. Held under mtx so the UI can read it
-    // after the worker has gone, which is exactly when it is wanted: to watch
-    // for the device coming back.
+    // The port this session was opened on - "COM7" or "host:port". Written by
+    // start() and held under mtx so the UI can read it after the worker has
+    // gone, which is exactly when it is wanted: to watch for the device coming
+    // back.
     Str openedPort;
 
     Void setError(const Str& msg)
@@ -185,7 +293,41 @@ struct LidarSource::Impl
                     std::memory_order_release);
     }
 
+    // The feed's counterpart to setLost, and NOT a call to it: setLost decides
+    // "gone or broken" from a Win32 code and whether the COM port is still
+    // enumerated, and a socket has neither - classify() would call every loss
+    // an unplug for a reason that does not apply. Here the classification is
+    // already made by the caller: the peer closing, or the read failing under
+    // us, is the board or the hotspot going away, and that is UNPLUGGED for the
+    // reason the header gives.
+    Void setGone(const Str& msg)
+    {
+        {
+            LockGuard<Mutex> lock(mtx);
+            errorMsg = msg;
+        }
+        state.store(LidarState::LIDAR_STATE_UNPLUGGED, std::memory_order_release);
+    }
+
+    // Publishes one revolution, from either worker, so the counters agree.
+    Void publish(LidarFrame& staging)
+    {
+        const Size count = staging.points.size();
+
+        // The lock is held only for the swap and counter bump, so a UI thread
+        // polling at 60Hz never waits on the scan conversion.
+        {
+            LockGuard<Mutex> lock(mtx);
+            std::swap(frame, staging);
+            ++frameSeq;
+        }
+
+        statFrames.fetch_add(1, std::memory_order_relaxed);
+        statPoints.fetch_add(count, std::memory_order_relaxed);
+    }
+
     Void run(Str port, Int32 baud);
+    Void runFeed(Str target);
 };
 
 // ---------------------------------------------------------------------------
@@ -193,11 +335,6 @@ struct LidarSource::Impl
 Void LidarSource::Impl::run(Str port, Int32 baud)
 {
     using namespace sl;
-
-    {
-        LockGuard<Mutex> lock(mtx);
-        openedPort = port;
-    }
 
     state.store(LidarState::LIDAR_STATE_CONNECTING, std::memory_order_release);
 
@@ -296,6 +433,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
             LockGuard<Mutex> lock(mtx);
             devInfo = di;
         }
+        reached.store(true, std::memory_order_release);
 
         // A hard health error means the unit will not produce usable data until
         // it is power cycled; starting the motor anyway just makes noise.
@@ -389,6 +527,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                     state.store(LidarState::LIDAR_STATE_IDLE, std::memory_order_release);
                 }
                 motorRunning = want;
+                motorActual.store(want, std::memory_order_release);
                 consecutiveTimeouts = 0;
             }
 
@@ -452,16 +591,7 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
                 staging.points.push_back(p);
             }
 
-            // Publish. The lock is held only for the swap and counter bump, so
-            // a UI thread polling at 60Hz never waits on the scan conversion.
-            {
-                LockGuard<Mutex> lock(mtx);
-                std::swap(frame, staging);
-                ++frameSeq;
-            }
-
-            statFrames.fetch_add(1, std::memory_order_relaxed);
-            statPoints.fetch_add(count, std::memory_order_relaxed);
+            publish(staging);
         }
     } while(false);
 
@@ -496,6 +626,344 @@ Void LidarSource::Impl::run(Str port, Int32 baud)
 }
 
 // ---------------------------------------------------------------------------
+//  the feed worker
+// ---------------------------------------------------------------------------
+//
+// Shape: resolve, connect with a deadline, then one loop that each tick sends
+// a MOTOR line if the flag moved, waits up to FEED_TICK_MS for bytes, and
+// hands every complete line to scanwire::parse. Everything it learns goes into
+// the same members the serial worker fills, through the same publish().
+//
+// The states mean what they mean on the serial path. CONNECTING until the
+// first F line - a TCP accept proves the SERVICE is there, not the lidar, and
+// the board only starts streaming once it has the device spinning. SCANNING
+// while frames arrive. IDLE when the board says MOTOR 0: the link is open and
+// parked, which is what "Motor off" in the UI means. UNPLUGGED when the peer
+// goes, ERROR when the board says ERR or the feed could not be reached.
+
+Void LidarSource::Impl::runFeed(Str target)
+{
+    state.store(LidarState::LIDAR_STATE_CONNECTING, std::memory_order_release);
+
+    Str    host;
+    UInt16 port = 0;
+    if(!splitTarget(target, &host, &port))
+    {
+        setError("not a scan feed address: \"" + target + "\" (want host:port)");
+        return;
+    }
+
+    // The one message for "nothing there", whether refused, timed out or the
+    // name did not resolve to anything that answers. It names both things a
+    // person can do about it, because those ARE the two causes.
+    const Str noFeed = "no scan feed at " + target
+                     + " - is scanfeed running on the board, and are you on the same network?";
+
+    // Winsock is reference counted, so start/stop here is correct even if
+    // something else in the process has it open too.
+    WSADATA wsa;
+    ZeroMemory(&wsa, sizeof(wsa));
+    if(WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        setError("WSAStartup failed");
+        return;
+    }
+    struct WsaGuard
+    {
+        ~WsaGuard()
+        {
+            WSACleanup();
+        }
+    } wsaGuard;
+
+    sockaddr_in peer;
+    ZeroMemory(&peer, sizeof(peer));
+    peer.sin_family = AF_INET;
+    peer.sin_port = htons(port);
+    if(inet_pton(AF_INET, host.c_str(), &peer.sin_addr) != 1)
+    {
+        // Not a dotted quad, so a NAME - bibobox.local over the hotspot's
+        // mDNS, which Windows resolves natively. The same reasoning as the
+        // Pico's UDP link: the address changes every outing, the name does not.
+        addrinfo hints;
+        ZeroMemory(&hints, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        addrinfo* found = nullptr;
+        if(getaddrinfo(host.c_str(), nullptr, &hints, &found) != 0 || found == nullptr)
+        {
+            setError("cannot resolve " + host + " - is the board on the same network?");
+            return;
+        }
+        peer.sin_addr = reinterpret_cast<sockaddr_in*>(found->ai_addr)->sin_addr;
+        freeaddrinfo(found);
+    }
+
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if(s == INVALID_SOCKET)
+    {
+        setError("socket failed (winsock error " + std::to_string(WSAGetLastError()) + ")");
+        return;
+    }
+    struct SockGuard
+    {
+        SOCKET h;
+        ~SockGuard()
+        {
+            closesocket(h);
+        }
+    } sockGuard{s};
+
+    // Non-blocking, so the connect has a deadline this side chooses and a Stop
+    // pressed during it is honoured within a tick rather than after the stack's
+    // own twenty-second retry schedule.
+    u_long nonBlocking = 1;
+    ioctlsocket(s, FIONBIO, &nonBlocking);
+
+    if(connect(s, reinterpret_cast<const sockaddr*>(&peer), sizeof(peer)) == SOCKET_ERROR
+       && WSAGetLastError() != WSAEWOULDBLOCK)
+    {
+        setError(noFeed);
+        return;
+    }
+
+    {
+        const TimePoint began = monoNow();
+        Bool connected = false;
+        while(!connected)
+        {
+            if(quit.load(std::memory_order_acquire))
+            {
+                return;
+            }
+            if(elapsedMs(began) > FEED_CONNECT_TIMEOUT_MS)
+            {
+                setError(noFeed);
+                return;
+            }
+
+            // Writable means the handshake finished - one way or the other.
+            // SO_ERROR says which; a refusal lands here as WSAECONNREFUSED.
+            fd_set write;
+            fd_set except;
+            FD_ZERO(&write);
+            FD_ZERO(&except);
+            FD_SET(s, &write);
+            FD_SET(s, &except);
+            timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = FEED_TICK_MS * 1000;
+            if(select(0, nullptr, &write, &except, &tv) <= 0)
+            {
+                continue;
+            }
+            Int32 soErr = 0;
+            Int32 len = static_cast<Int32>(sizeof(soErr));
+            getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<Char*>(&soErr), &len);
+            if(FD_ISSET(s, &except) || soErr != 0)
+            {
+                setError(noFeed);
+                return;
+            }
+            connected = true;
+        }
+    }
+
+    // The service is there. Whether the lidar behind it is, the first frame
+    // will say - but this is the line past which a failure is the board's to
+    // explain rather than the network's.
+    reached.store(true, std::memory_order_release);
+
+    // The board spins the device up on connect, so the last thing "told" to it
+    // is on; the first MOTOR line this side sends is the first change.
+    Bool motorSent = true;
+    Bool gotFrame = false;
+    Bool keepGoing = true;
+
+    Str            accum;
+    scanwire::Line line;
+    LidarFrame     staging;
+    staging.points.reserve(1024);
+    Vec<Char> buf(65536);
+
+    const Str gone = "the scan feed on " + host + " went away";
+
+    auto handleLine = [&](StrView text)
+    {
+        switch(scanwire::parse(text, &line))
+        {
+            case scanwire::Kind::KIND_FRAME:
+            {
+                staging.points.clear();
+                staging.hz = line.frame.hz;
+                staging.validCount = 0;
+                staging.maxDistMm = 0.0f;
+                for(const scanwire::Sample& smp : line.frame.samples)
+                {
+                    LidarPoint p;
+                    p.angleDeg = smp.angleDeg;
+                    p.distMm = smp.distMm;
+                    p.quality = smp.quality;
+                    if(p.distMm > 0.0f)
+                    {
+                        ++staging.validCount;
+                        if(p.distMm > staging.maxDistMm)
+                        {
+                            staging.maxDistMm = p.distMm;
+                        }
+                    }
+                    staging.points.push_back(p);
+                }
+                publish(staging);
+
+                if(!gotFrame)
+                {
+                    gotFrame = true;
+                    scanStart = monoNow();
+                    scanStarted.store(true, std::memory_order_release);
+                }
+                state.store(LidarState::LIDAR_STATE_SCANNING, std::memory_order_release);
+                break;
+            }
+            case scanwire::Kind::KIND_INFO:
+            {
+                LockGuard<Mutex> lock(mtx);
+                devInfo.model = line.info.model;
+                devInfo.fwMajor = line.info.fwMajor;
+                devInfo.fwMinor = line.info.fwMinor;
+                devInfo.hwRev = line.info.hwRev;
+                devInfo.serial = line.info.serial;
+                break;
+            }
+            case scanwire::Kind::KIND_HEALTH:
+            {
+                LockGuard<Mutex> lock(mtx);
+                devInfo.health = line.health;
+                break;
+            }
+            case scanwire::Kind::KIND_MOTOR:
+                // The board's word, not this side's wish - it is what
+                // motorEnabled() promises. Off parks the link in IDLE the way
+                // the serial worker does; on is SCANNING only once a frame has
+                // proven it, so a spin-up reads as Connecting, not as a picture
+                // that has not arrived.
+                motorActual.store(line.motor, std::memory_order_release);
+                if(!line.motor)
+                {
+                    state.store(LidarState::LIDAR_STATE_IDLE, std::memory_order_release);
+                }
+                else if(gotFrame)
+                {
+                    state.store(LidarState::LIDAR_STATE_SCANNING, std::memory_order_release);
+                }
+                break;
+            case scanwire::Kind::KIND_ERR:
+                // The board's words are already for a person. The feed closes
+                // after ERR, so stop here rather than let the close that follows
+                // rewrite this as "went away".
+                setError(line.text.empty() ? Str("the board reported an error") : line.text);
+                keepGoing = false;
+                break;
+            case scanwire::Kind::KIND_BAD:
+                // A revolution the board sent and this side could not read
+                // whole. Counted where a dropped revolution is counted, never
+                // drawn: half a frame is a wrong picture, not a smaller one.
+                statTimeouts.fetch_add(1, std::memory_order_relaxed);
+                break;
+            case scanwire::Kind::KIND_UNKNOWN:
+            case scanwire::Kind::KIND_QUIT:
+            case scanwire::Kind::KIND_EMPTY:
+                // A line from a newer board, or nothing. Not ours to mind.
+                break;
+        }
+    };
+
+    while(keepGoing && !quit.load(std::memory_order_acquire))
+    {
+        // The motor flag, on this thread's tick: the UI never writes the socket.
+        const Bool want = motorOn.load(std::memory_order_acquire);
+        if(want != motorSent)
+        {
+            if(!sendAll(s, scanwire::formatMotor(want)))
+            {
+                setGone(gone);
+                break;
+            }
+            motorSent = want;
+        }
+
+        if(!socketReady(s, false, FEED_TICK_MS))
+        {
+            continue;
+        }
+
+        const Int32 n = recv(s, buf.data(), static_cast<Int32>(buf.size()), 0);
+        if(n == 0)
+        {
+            // An orderly close: the board parked the device and hung up, or
+            // scanfeed was stopped. Either way it is not here any more.
+            setGone(gone);
+            break;
+        }
+        if(n < 0)
+        {
+            if(WSAGetLastError() == WSAEWOULDBLOCK)
+            {
+                continue;
+            }
+            // A reset mid-stream is what a rebooting board or a dropped hotspot
+            // looks like from here. Same thing, same state.
+            setGone(gone);
+            break;
+        }
+
+        accum.append(buf.data(), static_cast<Size>(n));
+
+        Size from = 0;
+        for(;;)
+        {
+            const Size nl = accum.find('\n', from);
+            if(nl == Str::npos)
+            {
+                break;
+            }
+            handleLine(StrView(accum).substr(from, nl - from));
+            from = nl + 1;
+            if(!keepGoing)
+            {
+                break;
+            }
+        }
+        accum.erase(0, from);
+
+        if(accum.size() > FEED_MAX_LINE)
+        {
+            // Whatever this was, it was not a line. Drop it as one bad
+            // revolution and pick the stream up at the next newline.
+            accum.clear();
+            statTimeouts.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    // Tell the board we are leaving so it parks the device when the last client
+    // goes. (Not a cast to Void: MSVC's C4834 only recognises the literal
+    // `void`, and this project spells it with the alias.)
+    if(!sendAll(s, scanwire::formatQuit()))
+    {
+        // Already gone, then. The board has nobody to park the device for, and
+        // it knows that without being told.
+    }
+
+    // A clean shutdown returns to Idle; a failure keeps its state and message.
+    const LidarState endState = state.load(std::memory_order_acquire);
+    if(endState != LidarState::LIDAR_STATE_ERROR
+       && endState != LidarState::LIDAR_STATE_UNPLUGGED)
+    {
+        state.store(LidarState::LIDAR_STATE_IDLE, std::memory_order_release);
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 LidarSource::LidarSource() : pimpl(new Impl) {}
 
@@ -509,6 +977,8 @@ Void LidarSource::start(const Str& port, Int32 baud)
 {
     // A connect always spins up, whatever the last session left the flag on.
     pimpl->motorOn.store(true, std::memory_order_release);
+    pimpl->motorActual.store(true, std::memory_order_release);
+    pimpl->reached.store(false, std::memory_order_release);
 
     // Starting over an existing session would leak a thread and leave the motor
     // spinning, so the previous one is retired first.
@@ -521,6 +991,11 @@ Void LidarSource::start(const Str& port, Int32 baud)
         pimpl->scanInfo = LidarScanInfo();
         pimpl->frame = LidarFrame();
         pimpl->frameSeq = 0;
+
+        // Recorded HERE, not by the worker: port() has to answer the moment
+        // start() returns, and a worker that has not been scheduled yet has
+        // not written anything.
+        pimpl->openedPort = port;
     }
     pimpl->lastSeenSeq = 0;
 
@@ -535,7 +1010,19 @@ Void LidarSource::start(const Str& port, Int32 baud)
     pimpl->running.store(true, std::memory_order_release);
 
     Impl* impl = pimpl;
-    pimpl->worker = Thread([impl, port, baud] { impl->run(port, baud); });
+    if(isFeedTarget(port))
+    {
+        pimpl->worker = Thread([impl, port] { impl->runFeed(port); });
+    }
+    else
+    {
+        pimpl->worker = Thread([impl, port, baud] { impl->run(port, baud); });
+    }
+}
+
+Bool LidarSource::isFeedTarget(const Str& port) noexcept
+{
+    return port.find(':') != Str::npos;
 }
 
 Bool LidarSource::connected() const noexcept
@@ -550,7 +1037,12 @@ Void LidarSource::setMotorEnabled(Bool on)
 
 Bool LidarSource::motorEnabled() const noexcept
 {
-    return pimpl->motorOn.load(std::memory_order_acquire);
+    return pimpl->motorActual.load(std::memory_order_acquire);
+}
+
+Bool LidarSource::reachedDevice() const noexcept
+{
+    return pimpl->reached.load(std::memory_order_acquire);
 }
 
 Void LidarSource::stop()
@@ -567,7 +1059,8 @@ Void LidarSource::stop()
 
     // The worker performs the scan stop, the 200ms settle and the motor stop
     // before returning, so joining is exactly the "blocks until the motor is
-    // off" guarantee the header promises. Worst case is one grab timeout.
+    // off" guarantee the header promises. Worst case is one grab timeout on
+    // the serial path, or one tick plus the QUIT on the feed.
     pimpl->worker.join();
     pimpl->running.store(false, std::memory_order_release);
 }

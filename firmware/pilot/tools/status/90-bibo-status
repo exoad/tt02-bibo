@@ -2,13 +2,15 @@
 # NetworkManager dispatcher: runs as root on every interface event with
 # $1 = interface, $2 = action, and the profile's name in $CONNECTION_ID.
 #
-# The status page comes up with the field network and goes down with it. Only
-# the hotspot: at home the board is reached over ssh and the page would just be
-# one more thing listening.
+# The field services come up with the field network and go down with it: the
+# status page (bibo-status) and the lidar's scan feed for the hub
+# (bibo-scanfeed). Only the hotspot: at home the board is reached over ssh and
+# both would just be two more things listening. One hook for both rather than
+# one each, so they cannot disagree about which network is the field.
 [ "$CONNECTION_ID" = "WhoopWhoop" ] || exit 0
 
 case "$2" in
-    up)   systemctl start bibo-status.service ;;
-    down) systemctl stop bibo-status.service ;;
+    up)   systemctl start bibo-status.service bibo-scanfeed.service ;;
+    down) systemctl stop bibo-status.service bibo-scanfeed.service ;;
 esac
 exit 0
