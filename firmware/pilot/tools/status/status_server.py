@@ -34,8 +34,10 @@ is sending them, its D line (src/scanwire.hxx) served as-is, so the page parses
 the one wire format and there is no second one. A revolution older than three
 seconds is a 404 and the page draws NOTHING but the car and says why: a picture
 of a wall the car has already left is a lie with better graphics. The page is
-one self-contained HTML string because the phone on the hotspot has no
-internet and must not need any.
+the static files in dash/ next to this script, served from here and nowhere
+else - no CDN, no fonts, no framework - because the phone on the hotspot has
+no internet and a page that needs any is a page that is blank in the field.
+All drawing is the phone's; this program serves data.
 
 THE PILOT, FROM THE PHONE. In the field there is no ssh, so /pilot/look starts
 the pilot in dry mode (it decides at 10 Hz and touches nothing) and /pilot/stop
@@ -63,6 +65,7 @@ import socket
 import subprocess
 import threading
 import time
+import urllib.parse
 
 STATUS_FILE = os.environ.get('BIBO_STATUS_FILE', '/tmp/bibo-pilot.json')  # app/main.cxx
 SCAN_FILE = os.environ.get('BIBO_SCAN_FILE', '/tmp/bibo-scan.txt')        # src/scanwire.hxx
@@ -433,329 +436,43 @@ def lines(me):
 
 # ---------------------------------------------------------------- the dashboard
 
-# Inline everything: the phone is on the car's hotspot and a page that needs a
-# CDN would be a page that is blank in the field. Dark 2010s utility app, on
-# purpose: one ground, one ink, one accent, and a warning tint for the two
-# modes where the car is doing something you did not ask for. The palette is
-# the hub's (Gruvbox), so the two screens read as one.
-DASH_HTML = r"""<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>bibo</title>
-<style>
-html,body{margin:0;background:#1d2021;color:#ebdbb2;
-  font:14px/1.45 ui-monospace,Menlo,Consolas,"DejaVu Sans Mono",monospace}
-body{max-width:600px;margin:0 auto;padding-bottom:12px}
-canvas{display:block;width:100%}
-#ctl{display:flex;gap:8px;padding:8px 10px 0}
-#ctl button{flex:1;height:52px;font:bold 18px ui-monospace,Menlo,Consolas,monospace;
-  background:#3c3836;color:#ebdbb2;border:1px solid #665c54;border-radius:0}
-#ctl button:disabled{opacity:.35}
-#ctl button.go{background:#b8bb26;color:#1d2021;border-color:#b8bb26}
-#ctl button.halt{background:#fe8019;color:#1d2021;border-color:#fe8019}
-#ctlmsg{padding:4px 10px;min-height:1.45em}
-#strip{padding:4px 10px;white-space:pre-wrap}
-#mode{font-size:64px;line-height:1.05;font-weight:bold;margin:2px 0 6px}
-.ok{color:#b8bb26}.warn{color:#fe8019}.dim{opacity:.55}
-</style>
-<canvas id="c"></canvas>
-<div id="ctl"><button id="look">LOOK</button><button id="stop">STOP</button></div>
-<div id="ctlmsg"></div>
-<div id="strip"><div id="mode">-</div><div id="lines"></div></div>
-<script>
-'use strict';
-var BG = '#1d2021', FG = '#ebdbb2', ACCENT = '#b8bb26', WARN = '#fe8019';
-var HEADING = '#8ec07c', RED = '#fb4934';   // the hub's heading arrow and its nearest-return mark
-var FAINT = 'rgba(235,219,178,0.28)';
-var HALF_WIDTH_MM = 160;   // reactive::Config::halfWidthMm - the corridor the pilot reasons in
-var STEER_DEG = 30;        // full lock drawn at 30 degrees; a fraction has no angle of its own
-var STALE_S = 3;           // the server's rule for /scan, applied here to /json as well
-var CAR_MM = [190, 430];   // the TT-02's width and length, so the car is drawn to the same scale
-var MIN_RANGE_MM = 3000;
+# The client app lives in dash/ beside this file and is served as it is on
+# disk. The rules, in order: /dash and /dash/ are index.html; /dash/<name> is
+# that file, only if its resolved path is still inside dash/ (so ../ and its
+# percent-encoded spellings get a 404, not the source of this program), only
+# if it is a file and not a directory (no listings), and only if it is one of
+# the kinds a page is made of - a stray editor backup in the directory is not
+# served. Every answer is no-store like the rest: a phone that cached last
+# week's app.js against this week's server would be a page that lies quietly.
+DASH_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dash'))
+DASH_KINDS = {'.html': 'text/html; charset=utf-8',
+              '.css': 'text/css; charset=utf-8',
+              '.js': 'text/javascript; charset=utf-8',
+              '.svg': 'image/svg+xml',
+              '.png': 'image/png'}
 
-var canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
-var modeEl = document.getElementById('mode'), linesEl = document.getElementById('lines');
-var lookBtn = document.getElementById('look'), stopBtn = document.getElementById('stop');
-var msgEl = document.getElementById('ctlmsg');
 
-var scan = null;        // the last good /scan: {samples:[{a,d}], hz, drive, bad}
-var scanGone = 'no answer';   // why there is no scan, when scan is null
-var scanText = '';      // the last /scan body, to render only on new data
-var beat = null;        // the last /json body, or null when the car did not answer
-var scanBusy = false, beatBusy = false;   // never two of the same request in flight
-var rangeMm = MIN_RANGE_MM, smallerFor = 0;
-var msgUntil = 0;
-
-function fit() {
-  // Square, the width of the phone, drawn at device pixels so the dots are dots.
-  var w = canvas.clientWidth, dpr = window.devicePixelRatio || 1;
-  canvas.style.height = w + 'px';
-  canvas.width = Math.round(w * dpr); canvas.height = Math.round(w * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-
-function parseScan(text) {
-  // The wire format of src/scanwire.hxx, by split: F <n> <mHz> a,d,q ... then
-  // D <mode> <clear> <hits> <steer> <throttle> <stop>. A frame whose count does
-  // not match is BAD, not shorter - the same rule as the C++ reader.
-  var out = {samples: [], hz: 0, drive: null, bad: false};
-  var lines = text.split('\n');
-  for (var i = 0; i < lines.length; i++) {
-    var w = lines[i].trim().split(' ');
-    if (w[0] === 'F') {
-      out.hz = Number(w[2]) / 1000;
-      if (w.length - 3 !== Number(w[1])) { out.bad = true; continue; }
-      for (var k = 3; k < w.length; k++) {
-        var p = w[k].split(',');
-        var d = Number(p[1]);
-        if (d > 0) out.samples.push({a: Number(p[0]) / 100, d: d});   // 0 mm is no return
-      }
-    } else if (w[0] === 'D' && w.length >= 7) {
-      out.drive = {mode: w[1], clearMm: Number(w[2]), hits: Number(w[3]),
-                   steer: Number(w[4]) / 1000, throttle: Number(w[5]) / 1000,
-                   stop: w[6] === '1'};
-    }
-  }
-  return out;
-}
-
-function ringStep(mm) { return mm > 10000 ? 5000 : mm > 5000 ? 2000 : 1000; }
-
-function updateRange() {
-  var far = 0;
-  if (scan) for (var i = 0; i < scan.samples.length; i++) if (scan.samples[i].d > far) far = scan.samples[i].d;
-  var step = ringStep(far);
-  var want = Math.max(MIN_RANGE_MM, Math.ceil(far / step) * step);
-  // Grow at once - a wall that just appeared must be on the page - but shrink
-  // only after it has been smaller for about two seconds, or the picture
-  // breathes with every dropped return at the far wall.
-  if (want >= rangeMm) { rangeMm = want; smallerFor = 0; }
-  else if (++smallerFor > 20) { rangeMm = want; smallerFor = 0; }
-}
-
-function polar(cx, cy, s, aDeg, dMm) {
-  // Lidar zero is up and angles run clockwise, which is the screen's own sense.
-  var r = aDeg * Math.PI / 180;
-  return [cx + dMm * s * Math.sin(r), cy - dMm * s * Math.cos(r)];
-}
-
-function draw() {
-  var W = canvas.clientWidth, H = W, cx = W / 2, cy = H / 2;
-  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
-  updateRange();
-  var s = (W / 2 - 10) / rangeMm;   // px per mm
-
-  // Range rings, labelled inside so the outer label stays on the page, and the
-  // four bearings at the rim - the hub's 2D view, in miniature: the sensor's
-  // zero is the car's front and it points UP, angles run clockwise.
-  ctx.strokeStyle = FAINT; ctx.fillStyle = FAINT; ctx.lineWidth = 1;
-  ctx.font = '12px ui-monospace,Menlo,Consolas,monospace'; ctx.textAlign = 'right';
-  for (var r = ringStep(rangeMm); r <= rangeMm; r += ringStep(rangeMm)) {
-    ctx.beginPath(); ctx.arc(cx, cy, r * s, 0, 2 * Math.PI); ctx.stroke();
-    ctx.fillText((r / 1000) + ' m', cx + r * s * 0.707 - 4, cy - r * s * 0.707 + 14);
-  }
-  ctx.textAlign = 'center';
-  var rim = rangeMm * s;
-  ctx.fillText('0', cx, 12);
-  ctx.fillText('180', cx, H - 4);
-  ctx.textAlign = 'left'; ctx.fillText('270', 2, cy + 4);
-  ctx.textAlign = 'right'; ctx.fillText('90', W - 2, cy + 4);
-  ctx.beginPath(); ctx.moveTo(cx, cy - rim); ctx.lineTo(cx, cy + rim);
-  ctx.moveTo(cx - rim, cy); ctx.lineTo(cx + rim, cy); ctx.stroke();
-
-  // The corridor: what the pilot looks down. Two lines ahead at +-halfWidth.
-  ctx.beginPath();
-  ctx.moveTo(cx - HALF_WIDTH_MM * s, cy); ctx.lineTo(cx - HALF_WIDTH_MM * s, 0);
-  ctx.moveTo(cx + HALF_WIDTH_MM * s, cy); ctx.lineTo(cx + HALF_WIDTH_MM * s, 0);
-  ctx.stroke();
-
-  if (scan) {
-    ctx.fillStyle = FG;
-    var near = null;
-    for (var i = 0; i < scan.samples.length; i++) {
-      var p = polar(cx, cy, s, scan.samples[i].a, scan.samples[i].d);
-      ctx.fillRect(p[0] - 1, p[1] - 1, 2, 2);
-      if (!near || scan.samples[i].d < near.d) near = scan.samples[i];
-    }
-    if (near) {
-      // The nearest return, ringed and labelled, as the hub marks it: the one
-      // number a person behind the car wants without reading anything.
-      var np = polar(cx, cy, s, near.a, near.d);
-      ctx.strokeStyle = RED; ctx.lineWidth = 1.5; ctx.beginPath();
-      ctx.arc(np[0], np[1], 7, 0, 2 * Math.PI); ctx.stroke();
-      ctx.fillStyle = RED; ctx.textAlign = 'left';
-      ctx.font = '12px ui-monospace,Menlo,Consolas,monospace';
-      ctx.fillText(near.d + ' mm', np[0] + 10, np[1] + 4);
-    }
-    var d = scan.drive;
-    if (d) {
-      // The clearance, as a bar across the corridor at the distance the pilot acted on.
-      if (d.clearMm > 0 && d.clearMm <= rangeMm) {
-        ctx.strokeStyle = ACCENT; ctx.lineWidth = 2; ctx.beginPath();
-        ctx.moveTo(cx - HALF_WIDTH_MM * s - 4, cy - d.clearMm * s);
-        ctx.lineTo(cx + HALF_WIDTH_MM * s + 4, cy - d.clearMm * s);
-        ctx.stroke();
-      }
-      // The heading: where the wheels point. Ink, not accent, when the throttle
-      // is zero - the car is not going there, it is only pointing there.
-      var L = W * 0.22, ang = d.steer * STEER_DEG;
-      var tip = polar(cx, cy, 1, ang, L);
-      var l1 = polar(tip[0], tip[1], 1, ang + 150, 9), l2 = polar(tip[0], tip[1], 1, ang - 150, 9);
-      ctx.strokeStyle = d.throttle !== 0 ? ACCENT : FG; ctx.lineWidth = 2; ctx.beginPath();
-      ctx.moveTo(cx, cy); ctx.lineTo(tip[0], tip[1]);
-      ctx.moveTo(l1[0], l1[1]); ctx.lineTo(tip[0], tip[1]); ctx.lineTo(l2[0], l2[1]);
-      ctx.stroke();
-    }
-  }
-
-  // The car, nose up, at the scan's origin. To scale, but never smaller than a
-  // thumbnail can be pointed at.
-  var cw = Math.max(8, CAR_MM[0] * s), ch = Math.max(16, CAR_MM[1] * s);
-  ctx.fillStyle = FG; ctx.fillRect(cx - cw / 2, cy - ch / 2, cw, ch);
-  ctx.fillStyle = BG; ctx.fillRect(cx - cw / 2, cy - ch / 2 + ch * 0.25, cw, 1);   // the windscreen
-
-  // The front, always: the hub's heading arrow, in the hub's colour, from the
-  // car straight up. Scan or no scan, the page must say which way is forward.
-  var fl = Math.max(ch * 0.9, W * 0.16);
-  ctx.strokeStyle = HEADING; ctx.lineWidth = 2; ctx.beginPath();
-  ctx.moveTo(cx, cy - ch / 2); ctx.lineTo(cx, cy - ch / 2 - fl);
-  ctx.moveTo(cx - 7, cy - ch / 2 - fl + 11); ctx.lineTo(cx, cy - ch / 2 - fl); ctx.lineTo(cx + 7, cy - ch / 2 - fl + 11);
-  ctx.stroke();
-
-  if (!scan) {
-    // Nothing to draw is drawn as nothing, plus the reason, big: below the
-    // car, where no ring label lives, on a patch of ground so no ring cuts it.
-    var text = scanGone.toUpperCase();
-    var size = Math.min(28, Math.floor((W - 24) / (text.length * 0.62)));
-    ctx.font = 'bold ' + size + 'px ui-monospace,Menlo,Consolas,monospace';
-    var tw = ctx.measureText(text).width, ty = cy + H * 0.25;
-    ctx.fillStyle = BG; ctx.fillRect(cx - tw / 2 - 8, ty - size, tw + 16, size * 1.4);
-    ctx.fillStyle = FG; ctx.textAlign = 'center';
-    ctx.fillText(text, cx, ty);
-  }
-}
-
-function signed(v) { return (v < 0 ? '' : '+') + v.toFixed(3); }
-function nz(v, unit) { return v === undefined || v === null ? 'unknown' : v + (unit || ''); }
-
-function strip() {
-  var pilot = beat && beat.pilot, live = pilot && beat.pilotAgeS <= STALE_S;
-  var d = scan && scan.drive;
-  var mode, cls = '', out = [];
-  // The first line says where the big word came from, every time.
-  if (d) {
-    mode = d.mode;
-    out.push('scan      live, ' + scan.hz.toFixed(1) + ' Hz' + (scan.bad ? ' - F line unreadable, not drawn' : ''));
-    out.push('clear     ' + d.clearMm + ' mm   hits ' + d.hits + (d.stop ? '   STOP' : ''));
-    out.push('steer     ' + signed(d.steer) + '   throttle ' + signed(d.throttle));
-  } else if (scan) {
-    // The lidar through the feed, no pilot deciding: a picture, not a decision.
-    mode = 'LIDAR'; cls = 'dim';
-    out.push('scan      live, ' + scan.hz.toFixed(1) + ' Hz - no pilot, lidar via scanfeed');
-    out.push('clear     -   hits -');
-    out.push('steer     -   throttle -');
-  } else if (live) {
-    // No scan, but the heartbeat is fresh: its second-old numbers, said to be so.
-    mode = pilot.mode;
-    out.push('scan      none - ' + scanGone);
-    out.push('mode      the heartbeat\'s, ' + beat.pilotAgeS.toFixed(0) + ' s old');
-    out.push('clear     ' + nz(pilot.clearanceMm, ' mm') + '   hits ' + nz(pilot.hits));
-    out.push('steer     -   throttle -   (not in the heartbeat)');
-  } else {
-    mode = 'NO SCAN'; cls = 'dim';
-    out.push('scan      none - ' + scanGone);
-    out.push('clear     -   hits -');
-    out.push('steer     -   throttle -');
-  }
-  if (!cls) cls = (mode === 'cruise' || mode === 'slow') ? 'ok' : (mode === 'stop') ? '' : 'warn';
-
-  if (live) {
-    var pico = String(pilot.pico || 'unknown');
-    out.push('pico      ' + (pico.indexOf('pico ') === 0 ? pico.slice(5) : pico));
-    out.push('lidar     ' + nz(pilot.revPerS, ' rev/s') + (pilot.lidarLost ? '   LOST' : ''));
-  } else if (pilot) {
-    out.push('pico      pilot STALE - last heard ' + beat.pilotAgeS.toFixed(0) + ' s ago');
-    out.push('lidar     pilot STALE');
-  } else if (beat) {
-    out.push('pico      pilot not running');
-    out.push('lidar     ' + (scan ? 'via scanfeed' : 'pilot not running'));
-  } else {
-    out.push('pico      no answer from the car');
-    out.push('lidar     no answer from the car');
-  }
-  out.push('cpu       ' + (beat && beat.cpuC !== null && beat.cpuC !== undefined ? beat.cpuC.toFixed(1) + ' C' : 'unknown'));
-  out.push('board     ' + (beat ? beat.host + '  ' + (beat.addresses.join(' ') || 'no address') : 'no answer'));
-
-  modeEl.textContent = mode.toUpperCase(); modeEl.className = cls;
-  var text = out.join('\n');
-  if (linesEl.textContent !== text) linesEl.textContent = text;
-  controls();
-}
-
-function controls() {
-  // The buttons follow the board's word on the pilot process, not the last
-  // tap: a tap that failed leaves the buttons as they were, and says why below.
-  var p = beat && beat.pilotProc;
-  var running = !!(p && p.running);
-  lookBtn.disabled = !beat || running;
-  stopBtn.disabled = !beat || !running;
-  lookBtn.className = running ? '' : 'go';
-  stopBtn.className = running ? 'halt' : '';
-  var state;
-  if (!beat) state = 'pilot: no answer from the car';
-  else if (running) state = 'pilot: ' + p.mode + ' ' + p.sinceS.toFixed(0) + ' s';
-  else if (p && p.exitCode !== null && p.exitCode !== undefined) state = 'pilot: exited ' + p.exitCode + (p.lastLine ? ' - ' + p.lastLine : '');
-  else state = 'pilot: not running';
-  if (Date.now() > msgUntil) msgEl.textContent = state;
-}
-
-function post(path) {
-  fetch(path, {method: 'POST', cache: 'no-store', signal: signal()})
-    .then(function (r) { return r.text(); })
-    .then(function (t) { msgEl.textContent = t.trim(); msgUntil = Date.now() + 3000; pollBeat(); })
-    .catch(function () { msgEl.textContent = 'no answer from the car'; msgUntil = Date.now() + 3000; });
-}
-lookBtn.addEventListener('click', function () { post('/pilot/look'); });
-stopBtn.addEventListener('click', function () { post('/pilot/stop'); });
-
-function signal() { return AbortSignal.timeout ? AbortSignal.timeout(1500) : undefined; }
-
-function pollScan() {
-  if (scanBusy) return;   // the last one has not come back; do not stack another behind it
-  scanBusy = true;
-  fetch('/scan', {cache: 'no-store', signal: signal()}).then(function (r) {
-    return r.text().then(function (t) {
-      if (r.status === 200) {
-        if (t === scanText) return;   // same revolution; nothing new to draw
-        scanText = t; scan = parseScan(t); scanGone = '';
-      } else {
-        scanText = ''; scan = null; scanGone = t.trim() || ('http ' + r.status);
-      }
-      draw(); strip();
-    });
-  }).catch(function () {
-    // The car did not answer (hotspot dropped, board rebooted). The last
-    // picture is not a picture of now.
-    if (scan || scanGone !== 'no answer') { scanText = ''; scan = null; scanGone = 'no answer'; draw(); strip(); }
-  }).then(function () { scanBusy = false; });
-}
-
-function pollBeat() {
-  if (beatBusy) return;
-  beatBusy = true;
-  fetch('/json', {cache: 'no-store', signal: signal()}).then(function (r) { return r.json(); })
-    .then(function (j) { beat = j; strip(); })
-    .catch(function () { if (beat) { beat = null; strip(); } })
-    .then(function () { beatBusy = false; });
-}
-
-fit(); draw(); strip();
-window.addEventListener('resize', function () { fit(); draw(); });
-setInterval(pollScan, 100);
-setInterval(pollBeat, 1000);
-pollScan(); pollBeat();
-</script>
-"""
+def dash_file(path):
+    """(content type, bytes) for a /dash... request path, or None for a 404."""
+    if path in ('/dash', '/dash/'):
+        rel = 'index.html'
+    elif path.startswith('/dash/'):
+        rel = urllib.parse.unquote(path[len('/dash/'):])
+    else:
+        return None
+    if not rel or '\0' in rel:
+        return None
+    full = os.path.realpath(os.path.join(DASH_DIR, rel))
+    if not full.startswith(DASH_DIR + os.sep) or not os.path.isfile(full):
+        return None
+    kind = DASH_KINDS.get(os.path.splitext(full)[1].lower())
+    if kind is None:
+        return None
+    try:
+        with open(full, 'rb') as f:
+            return kind, f.read()
+    except OSError:
+        return None
 
 
 # ---------------------------------------------------------------- the server
@@ -769,8 +486,12 @@ class Page(http.server.BaseHTTPRequestHandler):
                 self.reply(404, 'text/plain; charset=utf-8', (why + '\n').encode())
             else:
                 self.reply(200, 'text/plain; charset=utf-8', data)
-        elif path == '/dash':
-            self.reply(200, 'text/html; charset=utf-8', DASH_HTML.encode())
+        elif path == '/dash' or path.startswith('/dash/'):
+            found = dash_file(path)
+            if found is None:
+                self.reply(404, 'text/plain; charset=utf-8', b'no such page\n')
+            else:
+                self.reply(200, found[0], found[1])
         elif path.startswith('/pilot/'):
             self.reply(405, 'text/plain; charset=utf-8', b'POST, not GET: a page reload must not start a car\n')
         else:

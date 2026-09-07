@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- The dashboard's skeleton. Every element here is a slot the modules fill;
+     nothing is drawn or fetched from anywhere but this board (see dash.css
+     and app.js). Absolute /dash/ paths, because /dash without a slash
+     resolves a relative "dash.css" to /dash.css, which is nothing. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bibo</title>
+<link rel="stylesheet" href="/dash/dash.css">
+</head>
+<body>
+
+<header id="top">
+  <span class="cell"><span class="k">board</span><span id="t-board" class="v">no answer</span></span>
+  <span class="cell"><span class="k">net</span><span id="t-net" class="v">-</span></span>
+  <span class="cell"><span class="k">feed</span><span id="t-feed" class="v bad">NO ANSWER</span></span>
+  <span class="cell"><span class="k">lidar</span><span id="t-rate" class="v">-</span></span>
+  <span class="cell"><span class="k">pilot</span><span id="t-pilot" class="v">-</span></span>
+</header>
+
+<section id="radar" class="view">
+  <canvas id="radar-c"></canvas>
+  <span class="cap">radar</span>
+</section>
+
+<section id="cloud" class="view">
+  <canvas id="cloud-c"></canvas>
+  <span class="cap">cloud &middot; drag orbits &middot; wheel or pinch zooms &middot; double tap resets</span>
+</section>
+
+<aside id="side">
+  <div id="mode" class="dim">NO SCAN</div>
+  <div id="source">scan none - no answer</div>
+  <div class="row"><span class="k">clear</span><span id="r-clear" class="v">-</span></div>
+  <div class="row"><span class="k">hits</span><span id="r-hits" class="v">-</span></div>
+  <div class="row"><span class="k">steer</span><span id="r-steer" class="v">-</span></div>
+  <div class="row"><span class="k">throttle</span><span id="r-throttle" class="v">-</span></div>
+  <div class="row"><span class="k">stop</span><span id="r-stop" class="v">-</span></div>
+  <div class="row"><span class="k">pico</span><span id="r-pico" class="v">no answer from the car</span></div>
+  <div class="row"><span class="k">lidar</span><span id="r-lidar" class="v">no answer from the car</span></div>
+  <div class="row"><span class="k">cpu</span><span id="r-cpu" class="v">unknown</span></div>
+  <div class="row"><span class="k">revolutions</span><span id="r-revolutions" class="v">-</span></div>
+  <div class="row"><span class="k">timeouts</span><span id="r-timeouts" class="v">-</span></div>
+  <div class="row"><span class="k">battery</span><span id="r-battery" class="v">not measured - nothing on the car reads the pack yet</span></div>
+</aside>
+
+<footer id="bottom">
+  <button id="look" disabled>LOOK</button>
+  <button id="stop" disabled>STOP</button>
+  <span id="msg">pilot: no answer from the car</span>
+</footer>
+
+<script type="module" src="/dash/app.js"></script>
+</body>
+</html>
