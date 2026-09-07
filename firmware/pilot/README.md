@@ -173,8 +173,10 @@ A timed run that saw no revolution at all exits 1.
 ### Reaching the board
 
 Outdoors the board joins the phone's hotspot (`WhoopWhoop`, hidden) by itself
-at boot; join the laptop to the same hotspot and the two are on one LAN with
-nothing in between. The hotspot hands out addresses, so use the name: `ssh
+at boot, and switches to it within 20 s whenever it appears while the board is
+on some other network (the `bibo-prefer-hotspot` timer; NetworkManager would
+otherwise stay put); join the laptop to the same hotspot and the two are on one
+LAN with nothing in between. The hotspot hands out addresses, so use the name: `ssh
 jack@bibobox.local` once mDNS is enabled on the board, or the tailnet address
 `jack@bibobox` (100.125.100.51) whenever the phone has data. docs/conventions.md
 "Link" has the whole picture.

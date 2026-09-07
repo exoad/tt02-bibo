@@ -116,8 +116,10 @@ working through the tailnet), and nothing depends on it.
 
 The Orange Pi is configured (NetworkManager, 2026-09-07) to join the hotspot on
 its own at boot: connection `WhoopWhoop` on `wlan0`, `wifi.hidden yes`,
-`autoconnect yes`. The home network stays as a second profile at the same
-priority, so the board takes whichever is there. The passphrase lives root-only
+`autoconnect yes`, priority above the home network. NetworkManager never leaves
+a working connection for another, so a root timer (`bibo-prefer-hotspot`, every
+20 s) switches to the hotspot whenever it is in the air while something else is
+active; when it goes away NM falls back on its own. The passphrase lives root-only
 in `/etc/NetworkManager/system-connections/` and nowhere else - not in this
 repo, not in a chat.
 
