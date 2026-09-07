@@ -1,6 +1,7 @@
 # pilot
 
-The companion board's program. Stubs, ahead of hardware that is not here yet.
+The companion board's program. It sees a room and decides; it has not yet been
+handed the car.
 
 ## What runs where
 
@@ -19,14 +20,36 @@ late tick is a servo that stops being told anything.
 
     src/proto.hxx      the car's line protocol, read and written. Finished and
                        tested - 41 checks.
-    src/link.hxx       the transport to the car. Declared, and REFUSES: there is
-                       no implementation for any platform this compiles on.
-    src/autonomy.hxx   one tick of the driving. Tunings are real; step() returns
-                       STATUS_NOT_IMPLEMENTED and touches no output.
+    src/link.hxx       the transport to the car, namespace `carlink`. POSIX
+                       termios behind `#if defined(__linux__)`, a reader thread
+                       splitting bytes into lines, the port held exclusively,
+                       a 100 ms cap on a stalled write, and every send()
+                       counted once as transmitted or dropped. Tested on the
+                       Pi against a pseudo-terminal; NOT yet against the real
+                       Pico. Everywhere else it refuses (RESULT_NO_PLATFORM).
+    src/lidar.hxx      the C1 over Slamtec's SDK, one revolution at a time as
+                       a `Vec<reactive::Ray>`. Real only when CMake is given
+                       -DPILOT_RPLIDAR_SDK on Linux; otherwise every call
+                       refuses with a reason, and grab() EMPTIES its vector on
+                       every failure so an ignored Bool reads as blind.
+    src/reactive.hxx   the dumb driver: one scan in, steer and throttle out.
+                       Pure; the three traps that crash cars are its tests.
+    src/autonomy.hxx   one tick of pursuit along a path. Tunings are real;
+                       step() returns STATUS_NOT_IMPLEMENTED and touches no
+                       output. Waits on an encoder.
+    app/main.cxx       the program, `pilot`. Grabs a revolution, runs
+                       reactive::step with the measured dt, sends STEER and
+                       ESC (or NEUTRAL) to the car; sends anyway after 200 ms
+                       without a revolution so the board's 400 ms deadman is
+                       never what stops the car. `--dry` decides without a
+                       Pico. Built only with the SDK.
+    tools/lidar_probe  is the lidar there and what does it see. Run it first.
 
-`proto` is finished first because it is the part that can be finished. It is
-pure string work, so it is provable on a laptop months before the board arrives,
-and it is where the bugs in a text protocol actually live.
+`proto` was finished first because it is the part that could be finished: pure
+string work, provable on a laptop, and where the bugs in a text protocol live.
+`reactive` came next for the same reason. The two files that touch hardware
+each carry a refusing half, so that a build without the device says "no
+device" rather than pretending to have one.
 
 ## The maths is the firmware's
 
@@ -80,9 +103,9 @@ should not be planned around until something needs it.
 
 On the laptop, MSVC:
 
-    testsuild_proto_test.bat run
-    testsuild_pilot_test.bat run
-    testsuild_reactive_test.bat run
+    tests\build_proto_test.bat run
+    tests\build_pilot_test.bat run
+    tests\build_reactive_test.bat run
 
 On the board (or any Linux box), g++ and CMake - the same sources, no Pico SDK:
 
@@ -93,3 +116,31 @@ First built on the Orange Pi on 2026-09-07: Ubuntu Jammy, gcc 11.4, aarch64,
 41 + 17 + 45 checks passing. The first thing the Pi build found was that
 `namespace link` collides with POSIX `link()` from `<unistd.h>` - a name MSVC
 never objected to - which is why the link's namespace is `carlink`.
+
+That builds the library and the three tests, with the lidar half refusing. To
+build the program and the probe, point CMake at a built checkout of Slamtec's
+SDK (`make` in `rplidar_sdk`; the library lands in `output/Linux/Release`):
+
+    cmake -S firmware/pilot -B build-pilot -DPILOT_RPLIDAR_SDK=$HOME/rplidar_sdk
+    cmake --build build-pilot -j
+
+## Running
+
+    build-pilot/lidar_probe                  # is the C1 there, what does it see
+    build-pilot/pilot --dry --seconds 12     # decide for 12 s, touch no car
+    build-pilot/pilot --arm                  # drive, until Ctrl-C
+
+    pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N]
+
+The lidar is `/dev/ttyUSB0` and the Pico `/dev/ttyACM0` unless told otherwise.
+`--forward` is the raw lidar angle that points along the car - a mounting
+fact, not a tuning, and 0 is an assumption until it is measured. `--arm` is
+what lets the car move: without it the board refuses every throttle pulse and
+the program prints each refusal, which is the correct behaviour for a car that
+was not meant to go anywhere. Ctrl-C sends STOP, stops the motor, and exits 0.
+A timed run that saw no revolution at all exits 1.
+
+The first run of `pilot --dry --seconds 12` against the real C1 was on the
+Orange Pi on 2026-09-06, with the Pico still on the laptop: the board saw its
+room and decided, ten times a second. Driving the car is the next milestone
+and it waits on one cable moving.

@@ -9,6 +9,17 @@
 #
 # pilot/ is NOT firmware. It compiles with MSVC on a laptop today and for Linux
 # on the Orange Pi later; it never goes near the Pico's toolchain. The database
-# beside this file says so, and covers src/ and tests/ both.
+# beside this file says so, and covers src/, tests/, app/ and tools/. It is
+# hand-written: a new .cxx here means a new entry there, or clangd parses the
+# file as ARM again and every std header fails.
 CompileFlags:
   CompilationDatabase: .
+
+  # The parent firmware/.clangd also ADDS the arm-none-eabi libstdc++ include
+  # paths to every file below it, and fragments merge, so pilot's host code was
+  # being parsed with the ARM standard library: `static assertion failed:
+  # __is_integer_nonstrict<unsigned __int128>` in <cstddef>, then Vec, Mutex
+  # and every alias in shared.hxx "undeclared". A deeper fragment's Remove runs
+  # after the parent's Add, and clangd strips a flag's argument with it.
+  Remove:
+    - -isystem

@@ -1,6 +1,9 @@
 @echo off
-REM Builds and (with "run") executes the link and autonomy stub tests.
+REM Builds and (with "run") executes the link, lidar and autonomy stub tests.
 REM   tests\build_pilot_test.bat [run]   - compile, optionally run
+REM lidar.cxx is compiled here without the SDK, on purpose: this is the build
+REM that exercises its refusing half, and the only one that does so on the
+REM laptop. Leaving it out made lidar.hxx's claim about this script untrue.
 REM Compiles firmware/lib's pure headers into a program that is NOT firmware,
 REM which is the point: geom, kinematics, pursuit and control all claim to build
 REM for the Pico, the Orange Pi and the host, and nothing else holds them to it.
@@ -31,6 +34,7 @@ cl /nologo /EHsc /O2 /MT /W4 /wd4505 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\..\lib" ^
   "%HERE%test_pilot.cxx" ^
   "%HERE%..\src\autonomy.cxx" ^
+  "%HERE%..\src\lidar.cxx" ^
   "%HERE%..\src\link.cxx" ^
   /Fo"%HERE%build\pilot\\" ^
   /Fe"%HERE%build\test_pilot.exe" ^
