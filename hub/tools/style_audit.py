@@ -45,6 +45,21 @@ DIRS = [
     at('shared'),
 ]
 
+# Listed in DIRS, and allowed to be ABSENT: reserved for what lands there
+# tomorrow rather than describing something that exists today.
+#
+# board_preview holds an untracked build/ and no sources, and git does not track
+# an empty directory - so it is here on the machine that made it and nowhere in
+# a fresh checkout. Without this set the missing-directory error below fired on
+# every CI run while passing on every laptop, which is the worst shape a gate
+# can have: green where it is written, red where it is read.
+#
+# Keep this set SMALL. Every name in it is a directory the audit is not really
+# auditing; the moment sources land there, delete the line.
+RESERVED = {
+    at('hub', 'tests', 'board_preview'),
+}
+
 # Rules C cannot follow, so they are not applied to it:
 #   - named casts. C has no static_cast; `(Int64) x` is the only spelling there
 #     is. NOT silently: the carve-out is counted and reported at the end, since
@@ -348,8 +363,10 @@ missing = []
 for d in DIRS:
     if not os.path.isdir(d):
         # Not skipped silently: that is how firmware/pilot fell out of the audit
-        # for weeks. A path in DIRS that matches nothing is a broken promise.
-        missing.append(os.path.relpath(d, ROOT))
+        # for weeks. A path in DIRS that matches nothing is a broken promise -
+        # unless it is one this file made on purpose, see RESERVED.
+        if d not in RESERVED:
+            missing.append(os.path.relpath(d, ROOT))
         continue
     for f in sorted(os.listdir(d)):
         if f.endswith(('.cxx', '.hxx', '.h', '.c')):
