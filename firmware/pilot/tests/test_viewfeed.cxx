@@ -104,12 +104,20 @@ struct Wire
     Vec<UInt8> held;        // the frame most recently taken, kept alive
     bibowire::Frame f;      // points INTO `held`
 
-    [[nodiscard]] Bool connect(UInt16 port)
+    // `rcvBuf` non-zero caps this end's receive buffer, BEFORE connect so the
+    // window scale is negotiated with it. That is what makes backpressure a
+    // thing this test can create on demand: loopback otherwise autotunes to
+    // megabytes and swallows everything a stalled viewer is sent.
+    [[nodiscard]] Bool connect(UInt16 port, Int32 rcvBuf = 0)
     {
         fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if(fd < 0)
         {
             return false;
+        }
+        if(rcvBuf > 0)
+        {
+            static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvBuf, sizeof(rcvBuf)));
         }
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -360,41 +368,86 @@ struct Datagram
         ));
     }
 
-    // One CTLSTATE, decoded, within `ms`.
-    [[nodiscard]] Bool state(Int32 ms, bibowire::CtlState* out)
+    // Drains the socket to EMPTY and keeps the NEWEST CTLSTATE in it.
+    //
+    // THIS IS THE RULE THE BOARD ITSELF APPLIES TO CONTROL, and this suite got
+    // it wrong first time in exactly the way the protocol warns about. CTLSTATE
+    // arrives at 20 Hz, so by the time a check runs there is a queue of them;
+    // a reader that returns the FIRST is reading the past, and five assertions
+    // failed on the board asserting values the board had long since moved on
+    // from. A stale datagram read as current is this protocol's whole subject.
+    [[nodiscard]] Bool newest(bibowire::CtlState* out)
     {
-        const TimePoint start = monoNow();
-        while(elapsedMs(start) < static_cast<Float64>(ms))
+        Bool any = false;
+        for(;;)
         {
-            pollfd p{};
-            p.fd = fd;
-            p.events = POLLIN;
-            if(::poll(&p, 1, 50) <= 0)
-            {
-                continue;
-            }
             Array<UInt8, 1500> buf{};
-            const ISize n = ::recv(fd, buf.data(), buf.size(), 0);
+            const ISize n = ::recv(fd, buf.data(), buf.size(), MSG_DONTWAIT);
             if(n <= 0)
             {
-                continue;
+                return any;
             }
             bibowire::Frame got;
             Size used = 0;
             const bibowire::Take t = bibowire::take(buf.data(), static_cast<Size>(n), &got, &used);
-            if(t != bibowire::Take::TAKE_FRAME)
+            if(t != bibowire::Take::TAKE_FRAME || got.head.type != bibowire::Type::TYPE_CTLSTATE)
             {
                 continue;
             }
-            if(got.head.type == bibowire::Type::TYPE_CTLSTATE)
+            bibowire::CtlState one;
+            if(bibowire::readCtlState(got.body, got.head.ver, &one))
             {
-                if(bibowire::readCtlState(got.body, got.head.ver, out))
-                {
-                    return true;
-                }
+                *out = one;
+                any = true;
             }
         }
-        return false;
+    }
+
+    // The newest CTLSTATE, waiting up to `ms` for at least one to exist.
+    [[nodiscard]] Bool state(Int32 ms, bibowire::CtlState* out)
+    {
+        const TimePoint start = monoNow();
+        for(;;)
+        {
+            if(newest(out))
+            {
+                return true;
+            }
+            const Float64 left = static_cast<Float64>(ms) - elapsedMs(start);
+            if(left <= 0.0)
+            {
+                return false;
+            }
+            pollfd p{};
+            p.fd = fd;
+            p.events = POLLIN;
+            if(::poll(&p, 1, static_cast<Int32>(left > 50.0 ? 50.0 : left)) < 0)
+            {
+                return false;
+            }
+        }
+    }
+
+    // Keeps draining until the newest CTLSTATE satisfies `ok`, or `ms` passes.
+    // The board applies a CONTROL on its own thread, so a check that reads once
+    // and asserts is racing it; this waits for the state to arrive rather than
+    // sleeping a guessed interval and hoping.
+    template<typename Pred>
+    [[nodiscard]] Bool stateWhere(Int32 ms, bibowire::CtlState* out, Pred ok)
+    {
+        const TimePoint start = monoNow();
+        for(;;)
+        {
+            if(newest(out) && ok(*out))
+            {
+                return true;
+            }
+            if(elapsedMs(start) >= static_cast<Float64>(ms))
+            {
+                return false;
+            }
+            sleepMs(10);
+        }
     }
 
     Void close()
@@ -514,10 +567,11 @@ Int32 main()
         check(st.scanAgeMs < 2000u, "and scanAgeMs is a real, recent age");
 
         udp.control(port, session, 1, bibowire::BUTTON_ENABLE);
-        sleepMs(150);
-        check(udp.state(2000, &st), "CTLSTATE after a CONTROL is applied");
+        const Bool applied = udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
+            return s.ackSeq == 1u;
+        });
+        check(applied, "CTLSTATE after a CONTROL names the seq the board applied");
         check(st.controlAgeMs != bibowire::CONTROL_AGE_NEVER, "controlAgeMs is a measurement now");
-        check(st.ackSeq == 1u, "naming the seq the board applied");
 
         fresh.close();
         udp.close();
@@ -650,6 +704,7 @@ Int32 main()
         bibowire::Welcome w;
         check(bibowire::readWelcome(loud.f.body, loud.f.head.ver, &w), "the WELCOME reads whole");
         check(w.accepted == 2u, "and accepted, not refused for an unknown bit");
+        check(clientsReach(1, 2000), "and counted before anything is published to it");
         viewfeed::publishScan(aScan(64, 901));
         check(loud.nextOf(bibowire::Type::TYPE_SCAN, 2000), "and it is served telemetry");
         loud.close();
@@ -741,9 +796,11 @@ Int32 main()
             sleepMs(10);
         }
         bibowire::CtlState st;
-        check(udpA.state(1000, &st), "the holder gets CTLSTATE back on UDP");
-        check(st.ackSeq == 8u, "carrying the seq the board APPLIED");
-        check(st.holder == 1u, "and telling it the wheel is its own");
+        const Bool eight = udpA.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
+            return s.ackSeq == 8u;
+        });
+        check(eight, "the holder's CTLSTATE carries the seq the board APPLIED");
+        check(st.holder == 1u, "and tells it the wheel is its own");
 
         // The observer's are counted and discarded, and above all do not feed
         // the timer. This is Design 3's fatal flaw, pinned by a test.
@@ -767,9 +824,10 @@ Int32 main()
         const Size len = bibowire::writeLeave(leave, body.data(), body.size());
         driver.put(bibowire::Type::TYPE_LEAVE, body.data(), len, 1);
         check(driver.closed(2000), "LEAVE closes the driver's connection");
-        sleepMs(100);
-        check(udpB.state(1500, &st), "the observer still hears CTLSTATE");
-        check(st.holder == 0u, "and the wheel is nobody's again");
+        const Bool released = udpB.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
+            return s.holder == 0u;
+        });
+        check(released, "the observer hears that the wheel is nobody's again");
 
         driver.close();
         second.close();
@@ -788,8 +846,10 @@ Int32 main()
         check(old != 0u, "and takes control");
         udp.control(port, old, 1, bibowire::BUTTON_ENABLE);
         bibowire::CtlState st;
-        check(udp.state(1000, &st), "its control is applied");
-        check(st.ackSeq == 1u, "and acknowledged");
+        const Bool first1 = udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
+            return s.ackSeq == 1u;
+        });
+        check(first1, "its control is applied and acknowledged");
         first.close();
         check(clientsReach(0, 2000), "then the hotspot blips and it is gone");
 
@@ -817,9 +877,10 @@ Int32 main()
         // And the high-water mark was reset by the handshake, so a viewer that
         // restarts at seq 1 is heard rather than frozen out.
         udp.control(port, fresh, 1, bibowire::BUTTON_ENABLE);
-        sleepMs(150);
-        check(udp.state(1000, &st), "the new session sends seq 1");
-        check(st.ackSeq == 1u, "and it is applied - the mark is reset per session");
+        const Bool reset = udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
+            return s.ackSeq == 1u;
+        });
+        check(reset, "the new session's seq 1 is applied - the mark is reset per session");
 
         again.close();
         udp.close();
@@ -849,63 +910,99 @@ Int32 main()
     }
 
     // ---- 9. (35) one viewer stalls, the other keeps seeing the car ---------------------
+    //
+    // THE FIRST VERSION OF THIS TEST PROVED NOTHING, and how it failed is worth
+    // keeping. It published 2.5 MB at a viewer that never read, expecting the
+    // ring to coalesce - and loopback autotuned its buffers into the megabytes
+    // and swallowed every byte. The socket never pushed back, so the ring never
+    // filled, nothing was ever coalesced, droppedSinceLast stayed 0, and the
+    // stalled viewer was finally closed by the PING timeout at twelve seconds
+    // rather than by backpressure at five hundred milliseconds. Three
+    // assertions were green about a mechanism that had never once run.
+    //
+    // A small SO_RCVBUF set BEFORE connect is what makes the condition real:
+    // one 1024-point revolution is 5160 bytes and will not fit, so the board is
+    // pushing back within milliseconds and the drop classes have to decide.
     {
+        constexpr Int32 TINY_RCVBUF = 2048;
+
+        // ---- 9a. a viewer that falls behind is COALESCED to the newest ----------
+        Wire lag;
+        check(lag.connect(port, TINY_RCVBUF), "a viewer with a tiny receive buffer connects");
+        check(handshake(lag, 0, 0) != 0u, "and is welcomed");
+        check(clientsReach(1, 2000), "and is counted");
+
+        // A burst it cannot absorb, with no reads at all. Kept short so this
+        // finishes well inside the first PING, whose own vital frame would
+        // otherwise close the client on BEHIND_MS before it can be read from.
+        for(UInt32 i = 0; i < 24u; ++i)
+        {
+            viewfeed::publishScan(aScan(1024, 200u + i));
+        }
+        sleepMs(120);
+
+        UInt16 told = 0;
+        UInt32 got = 0;
+        while(got < 4u && lag.nextOf(bibowire::Type::TYPE_SCAN, 500))
+        {
+            bibowire::Scan s;
+            if(!bibowire::readScan(lag.f.body, lag.f.head.ver, &s))
+            {
+                break;
+            }
+            ++got;
+            if(s.droppedSinceLast > told)
+            {
+                told = s.droppedSinceLast;
+            }
+        }
+        check(got > 0u, "it still receives whole revolutions");
+        check(told > 0u, "and is TOLD how many were coalesced away for it");
+        std::printf("        (droppedSinceLast reached %u)\n", static_cast<unsigned>(told));
+        lag.close();
+        check(clientsReach(0, 3000), "it leaves");
+
+        // ---- 9b. one stalls and is dropped, the other keeps receiving -----------
         Wire slow;
         Wire fast;
-        check(slow.connect(port), "a slow viewer connects");
+        check(slow.connect(port, TINY_RCVBUF), "a stalling viewer connects");
         check(handshake(slow, 0, 0) != 0u, "and is welcomed");
-        check(fast.connect(port), "a fast viewer connects");
+        check(fast.connect(port), "a reading viewer connects");
         check(handshake(fast, 0, 0) != 0u, "and is welcomed too");
         check(clientsReach(2, 2000), "two viewers");
 
-        // `slow` never reads again. Full 1024-point revolutions, until its
-        // kernel buffers fill and viewfeed's own ring starts holding frames -
-        // at which point the coalescing and then BEHIND_MS decide.
         const TimePoint stall = monoNow();
-        Bool slowDropped = false;
-        Bool fastKept = true;
-        UInt32 rev = 100;
+        Bool slowGone = false;
         UInt32 seen = 0;
-        UInt16 dropped = 0;
-        while(elapsedMs(stall) < 12000.0 && !slowDropped && fastKept)
+        UInt32 rev = 300;
+        while(elapsedMs(stall) < 8000.0 && !slowGone)
         {
-            for(Int32 i = 0; i < 8; ++i)
+            for(Int32 i = 0; i < 4; ++i)
             {
                 viewfeed::publishScan(aScan(1024, rev));
                 ++rev;
             }
-            // The fast viewer keeps receiving live revolutions throughout.
-            if(fast.nextOf(bibowire::Type::TYPE_SCAN, 2000))
+            if(fast.nextOf(bibowire::Type::TYPE_SCAN, 500))
             {
-                bibowire::Scan s;
-                if(bibowire::readScan(fast.f.body, fast.f.head.ver, &s))
-                {
-                    ++seen;
-                    if(s.droppedSinceLast > dropped)
-                    {
-                        dropped = s.droppedSinceLast;
-                    }
-                }
-                else
-                {
-                    fastKept = false;
-                }
+                ++seen;
             }
-            slowDropped = viewfeed::clients() == 1;
+            slowGone = viewfeed::clients() <= 1u;
             sleepMs(20);
         }
-        check(slowDropped, "the viewer that stopped reading is dropped");
-        check(fastKept && seen > 0u, "while the other kept receiving whole revolutions");
+        const Float64 tookMs = elapsedMs(stall);
+        check(slowGone, "the viewer that stopped reading is dropped");
+        // The PING timeout cannot fire before 1000 + 4000 ms, so a drop sooner
+        // than that is BACKPRESSURE and not the half-open check doing this
+        // check's job by accident. Telling those two apart is the whole point:
+        // the first version could not, and passed anyway.
+        check(tookMs < 4000.0, "for being BEHIND, not by the PING timeout");
+        check(seen > 0u, "while the reading viewer kept receiving revolutions");
         check(slow.closed(2000), "and the stalled socket is closed");
         std::printf(
-            "        (dropped after %.0f ms; the reader saw %u revolutions, %u coalesced away)\n",
-            elapsedMs(stall),
-            static_cast<unsigned>(seen),
-            static_cast<unsigned>(dropped)
+            "        (dropped after %.0f ms, the reader saw %u revolutions)\n",
+            tookMs,
+            static_cast<unsigned>(seen)
         );
-        // Coalescing is what droppedSinceLast reports: the viewer is told what
-        // it missed rather than left to believe it saw everything.
-        check(dropped > 0u, "and the reader was TOLD how many it missed");
 
         slow.close();
         fast.close();

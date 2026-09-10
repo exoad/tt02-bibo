@@ -671,10 +671,19 @@ namespace viewfeed
                 c.sentOfHead += static_cast<Size>(n);
                 if(c.sentOfHead >= q.bytes.size())
                 {
+                    // Cleared only now, because only now has the viewer been
+                    // TOLD. A count cleared at encode time is a count the
+                    // viewer never receives, and the whole purpose of the field
+                    // is that gaps are counted rather than smoothed over.
+                    const bibowire::Type sent = q.type;
                     c.outBytes -= q.bytes.size();
                     c.sentOfHead = 0;
                     c.out.pop_front();
                     countFrame(false);
+                    if(sent == bibowire::Type::TYPE_SCAN)
+                    {
+                        c.droppedLive = 0;
+                    }
                 }
                 continue;
             }
@@ -910,6 +919,15 @@ namespace viewfeed
         c.welcomedAt = monoNow();
         c.lastPingAt = monoNow();
         c.lastCtlAt = monoNow();
+
+        // COUNTED THE MOMENT IT IS WELCOMED, not at the end of this pass. The
+        // count is what publish() checks before it takes the lock, and what the
+        // BOARD frame reports as `clients` - so a client counted a pass late is
+        // a client whose own first BOARD says it is not there, and a
+        // revolution published in that window is dropped at the door of a feed
+        // that does have a viewer. Both were found on the board: the BOARD
+        // frame said 0 clients to the very viewer reading it.
+        sh.count.store(liveClients(clients));
 
         emit(c, bibowire::Type::TYPE_WELCOME, [&w](UInt8* out, Size cap) {
             return bibowire::writeWelcome(w, out, cap);
@@ -1572,13 +1590,20 @@ namespace viewfeed
                 // droppedSinceLast is per CLIENT, and it is zeroed only once
                 // the frame carrying it has been built - a count that is
                 // cleared before it is reported is a count nobody ever sees.
+                // The count is stamped from what has accumulated SO FAR and is
+                // NOT cleared here. Clearing it after emit() was a bug the
+                // board found and no amount of reading had: the drop happens
+                // INSIDE emit(), when enqueue() coalesces this frame over the
+                // one already queued, so zeroing the counter on the next line
+                // destroyed every increment the instant it was made and
+                // droppedSinceLast could never be anything but 0. It is cleared
+                // in flush(), when the frame carrying it has actually gone.
                 bibowire::Scan s = item.scan;
                 s.droppedSinceLast = c.droppedLive;
                 s.scanDivisor = c.scanDivisor;
                 emit(c, bibowire::Type::TYPE_SCAN, [&s](UInt8* out, Size cap) {
                     return bibowire::writeScan(s, out, cap);
                 });
-                c.droppedLive = 0;
             }
             break;
         case What::WHAT_DECIDE:
@@ -1710,6 +1735,23 @@ namespace viewfeed
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)));
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl)));
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt)));
+
+            // THE KERNEL'S SEND BUFFER HAS TO BE SMALL OR THE RING IS NOT THE
+            // BOUND. Section 7 promises that a stalled viewer's pending bytes
+            // stay at about one SCAN plus one of each vital frame, "regardless
+            // of how long the stall lasts". That is only true if send() starts
+            // refusing while the queue is still ours to manage: with the
+            // default socket buffer - megabytes on loopback, and autotuned
+            // upward on a real link - send() keeps succeeding and revolutions
+            // pile up INSIDE THE KERNEL, where the drop classes cannot coalesce
+            // them, BEHIND_MS cannot age them and a viewer is handed seconds of
+            // stale pictures in order. Found on the board: a viewer that read
+            // nothing for five seconds was killed by the PING timeout with the
+            // ring empty the whole time, because 2.5 MB had gone into the
+            // socket. 32 KiB is about six revolutions, so what is beyond this
+            // module's reach stays under a second even at full rate.
+            const Int32 sndBuf = 32 * 1024;
+            static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndBuf, sizeof(sndBuf)));
 
             Array<Char, INET_ADDRSTRLEN> ip{};
             static_cast<Void>(::inet_ntop(AF_INET, &peer.sin_addr, ip.data(), ip.size()));
