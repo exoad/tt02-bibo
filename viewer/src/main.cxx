@@ -10,6 +10,7 @@
 #include "shared.hxx"
 
 #include <cstdio>
+#include <cmath>
 #include <windows.h>
 #include <dwmapi.h>
 #include <d3d11.h>
@@ -422,9 +423,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     ::RegisterClassExW(&wc);
 
     const DWORD style = WS_OVERLAPPEDWINDOW;
+    // lround, not a cast of x + 0.5f: the two agree for the positive numbers a
+    // window size always is, but the cast is the shape that rounds the wrong way
+    // on a negative, so it reads as a bug wherever it is copied to next.
     RECT rc = { 0, 0,
-                static_cast<LONG>((DEFAULT_WIDTH * uiScale) + 0.5f),
-                static_cast<LONG>((DEFAULT_HEIGHT * uiScale) + 0.5f) };
+                std::lround(DEFAULT_WIDTH * uiScale),
+                std::lround(DEFAULT_HEIGHT * uiScale) };
     ::AdjustWindowRectEx(&rc, style, FALSE, 0);
 
     HWND hwnd = ::CreateWindowExW(
