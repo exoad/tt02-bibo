@@ -26,6 +26,9 @@ CompileFlags:
     - -I../../firmware/pilot/src
     - -I../../third_party/imgui
     - -I../../third_party/imgui/backends
+    # stb_image, for the camera window's JPEG decode. Gitignored and cloned,
+    # the same arrangement imgui has - see THIRD_PARTY.md.
+    - -I../../third_party/stb
     - -D_CRT_SECURE_NO_WARNINGS
 
     # MSVC's <yvals_core.h> hard-fails on any Clang older than 19 - `error

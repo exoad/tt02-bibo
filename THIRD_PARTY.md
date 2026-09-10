@@ -5,7 +5,7 @@ what that licence obliges. The project's own code is **not** open source — see
 [COPYRIGHT](COPYRIGHT) — but several things below carry conditions that survive
 that, and two of them bind any distributed **binary**, not just the source.
 
-Most of these are **cloned, not vendored**: `vendor/` and `hub/third_party/` are
+Most of these are **cloned, not vendored**: `vendor/` and `third_party/` are
 gitignored, so this repository contains no third-party source. It does contain
 third-party **assets** (icons, one 3D model), which is why the attribution
 obligations below are live rather than theoretical.
@@ -38,7 +38,8 @@ The Pico SDK (BSD-3) carries the same shape of obligation for a distributed
 
 | Component | Version | Licence | Where | In this repo? |
 |---|---|---|---|---|
-| [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9 | MIT | `hub/third_party/imgui` | no, cloned |
+| [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9 | MIT | `third_party/imgui` | no, cloned |
+| [stb_image](https://github.com/nothings/stb) | 2.30 | MIT **or** public domain | `third_party/stb` | no, cloned |
 | [Slamtec rplidar_sdk](https://github.com/Slamtec/rplidar_sdk) | — | BSD-2-Clause | `vendor/rplidar_sdk` | no, cloned |
 | [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk) | — | BSD-3-Clause | `vendor/pico-sdk` | no, cloned |
 | [picotool](https://github.com/raspberrypi/pico-sdk-tools) | 2.3.0 | BSD-3-Clause | `vendor/picotool-2.3.0` | no, downloaded |
@@ -52,6 +53,18 @@ Shanghai Slamtec Co., Ltd. Two clauses, no endorsement clause — see the binary
 obligation above.
 
 **Pico SDK** is copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+
+**stb_image** is by Sean Barrett and is released under **two** licences, at the
+user's choice: MIT, or public domain via the Unlicense. Either way there is
+nothing to reproduce in a binary — unlike the two above, it adds **no**
+obligation to a distributed `bibo.exe`. It is recorded here because knowing
+where a file came from is worth more than the licence obliges, which is the
+same reason the CC0 car model is listed below.
+
+Only its **JPEG** decoder is compiled in (`STBI_ONLY_JPEG`, `STBI_NO_STDIO` in
+`viewer/src/jpeg.cxx`). `CAMERA`'s codec byte defines `1 = JPEG` and nothing
+else, so the other eight decoders would be eight more parsers reachable from a
+network payload in exchange for no feature.
 
 ## Assets — these ARE in this repository
 

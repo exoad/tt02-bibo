@@ -70,6 +70,38 @@ the backoff schedule. What it does **not** cover — sockets, the connect
 deadline, the reconnect loop itself — is listed at the top of `test_link.cxx`
 rather than left to be assumed.
 
+## The camera
+
+Its own floating window, opened from the **camera** checkbox in the View panel
+and closed by its own title-bar X. `CAMERA` (0x20) carries a JPEG; `stb_image`
+decodes it and it is uploaded to a D3D11 texture, recreated only when the
+dimensions change rather than every frame.
+
+- **The window being open *is* the subscription.** Opening it sends
+  `SUBSCRIBE` with the camera bit set; closing it sends one without, and
+  releases the texture. The board only opens `/dev/video0` while somebody is
+  subscribed, and the stream is roughly **1 MB/s at 640×480** — against
+  §10's assumption of ~200 KB/s and its verdict that even *that* does not fit
+  alongside the scan on this hotspot. A camera window nobody is looking at
+  costs nothing, exactly as the scan already does.
+- **The bit is `tag - 0x10`, so `CAMERA` is bit 16.** That convention is
+  settled in `firmware/pilot/src/viewfeed.cxx`, not here. The naive
+  `1u << (tag & 0x1F)` is a known bug — `DECIDE` and `SCHEMA` collide on it.
+- **An unsubscribe is never a zero mask**, because a zero mask means
+  *everything* to the board. Turning the camera off names every other type.
+- **Staleness is the scan's, unchanged.** Past 400 ms the picture is drawn
+  desaturated with its age; past 1500 ms it is **not drawn at all** and the
+  window says why on an empty background. A photograph looks equally
+  convincing whether it was taken now or forty seconds ago.
+- **It says why there is no picture**: not connected, handshaking, not
+  subscribed yet, subscribed with nothing yet arrived, or too old — and any
+  `EVENT` the board sent mentioning the camera is shown **verbatim** beside
+  it, so "the phone dashboard has the camera" reaches the person instead of an
+  empty rectangle.
+- **Gaps are counted, never smoothed** — `frameIndex` is monotonic, so the
+  window reports `frames 91-94 missing` rather than showing the next picture
+  as though nothing were dropped.
+
 ## Not wired yet
 
 - **Driving.** The viewer connects as an *observer*: `HELLO` carries

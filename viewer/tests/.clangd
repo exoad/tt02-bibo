@@ -21,6 +21,8 @@ CompileFlags:
     - -I../../shared
     - -I../../firmware/pilot/src
     - -I../../third_party/imgui
+    # stb_image, for the camera decode this suite exercises through jpeg.cxx.
+    - -I../../third_party/stb
     - -D_CRT_SECURE_NO_WARNINGS
 
     # MSVC's <yvals_core.h> hard-fails on any Clang older than 19 with

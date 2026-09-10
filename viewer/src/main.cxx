@@ -37,6 +37,7 @@
 
 #include "scene.hxx"
 #include "link.hxx"
+#include "camera.hxx"
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -503,7 +504,7 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     ImGui::End();
 }
 
-static Void drawViewWindow(scene::Scene& sc)
+static Void drawViewWindow(scene::Scene& sc, camview::View& cam)
 {
     static constexpr Array<CharSeq, 2> COLOR_NAMES = { "uniform", "by distance" };
 
@@ -519,6 +520,21 @@ static Void drawViewWindow(scene::Scene& sc)
     ImGui::Checkbox("points", &sc.opt.points);
     ImGui::Checkbox("car", &sc.opt.car);
     ImGui::Checkbox("axes", &sc.opt.axes);
+
+    ImGui::Separator();
+
+    // NOT a view option like the four above, and it is here only because this
+    // is where the toggles live. Ticking it opens a separate window AND
+    // subscribes to the camera; the box and the window's own X are two ways to
+    // set one thing. It costs the board a megabyte a second, so it says so.
+    ImGui::Checkbox("camera", &cam.open);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "a separate window, and the board only sends\n"
+            "the camera while it is open - about 1 MB/s"
+        );
+    }
 
     ImGui::Separator();
 
@@ -776,6 +792,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     scene::Scene sc;
     scene::resetCamera(sc.cam);
 
+    // The camera window. Closed on purpose at startup: opening it costs the
+    // board about a megabyte a second, so it is something a person asks for
+    // and never something that happens because the program started.
+    camview::View cam;
+    camview::init(d3dDevice, d3dContext, uiScale);
+
     // `net`, not `link`: the module is namespace `link`, and a variable of that
     // name would hide it for the rest of the function.
     Link net;
@@ -858,8 +880,9 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         scene::draw(ImGui::GetBackgroundDrawList(), where, sc);
 
         drawConnectionWindow(net, snap, nowMs);
-        drawViewWindow(sc);
+        drawViewWindow(sc, cam);
         drawCarWindow(snap, nowMs);
+        camview::drawWindow(cam, net.client, snap, nowMs);
 
         ImGui::Render();
 
@@ -874,6 +897,11 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     // thread, and a process that exits through a thread sitting in recv() is a
     // crash report nobody can read.
     link::close(net.client);
+
+    // Before the device goes: the camera window owns a texture created on it,
+    // and releasing a resource after its device has been destroyed is a crash
+    // that only happens on the way out, where nobody is looking.
+    camview::shutdown(cam);
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

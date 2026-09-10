@@ -186,6 +186,29 @@ namespace link
         return Str(t.data());
     }
 
+    // Does this sentence talk about the camera?
+    //
+    // A HEURISTIC, and deliberately a visible one. EVENT carries a `code`
+    // byte, but bibowire defines no code for the camera anywhere - not in the
+    // document, not in the header, not in its 312 checks - so there is nothing
+    // structured to match on and the alternative is showing an empty window
+    // beside a note list the operator has to read for themselves.
+    //
+    // ASCII by construction: section 5 says EVENT text is ASCII, so this
+    // comparison has no locale in it and does not call std::tolower, whose
+    // answer depends on one.
+    [[nodiscard]] Bool mentionsCamera(const Str& text)
+    {
+        Str lower;
+        lower.reserve(text.size());
+        for(const Char c : text)
+        {
+            const Bool upper = c >= 'A' && c <= 'Z';
+            lower.push_back(upper ? static_cast<Char>(c - 'A' + 'a') : c);
+        }
+        return lower.find("camera") != Str::npos;
+    }
+
     // ---- the connection -----------------------------------------------------
 
     // SOCKET is UINT_PTR and INVALID_SOCKET is ~0, so these stay out of link.hxx
@@ -200,6 +223,12 @@ namespace link
         Bool udpFiltered = false;
         Vec<UInt8> rx;
         Size rxUsed = 0;
+
+        // What THIS connection has told the board it wants. 0 means "never
+        // asked", which is not the same fact as "asked for nothing" - see
+        // syncSubscription. Reset with the connection, because the board keeps
+        // no subscription across a session either.
+        UInt32 sentMask = 0;
     };
 
     Void dropConn(Conn& c)
@@ -218,6 +247,7 @@ namespace link
         c.txSeq = 0;
         c.udpPort = 0;
         c.udpFiltered = false;
+        c.sentMask = 0;
     }
 
     Void setNonBlocking(SOCKET fd)
@@ -635,6 +665,65 @@ namespace link
         return sendFrame(c, bibowire::Type::TYPE_HELLO, body.data(), n);
     }
 
+    // SUBSCRIBE, and only when it would say something new.
+    //
+    // THIS ONE FRAME IS THE WHOLE COST CONTROL. The board never sends a type
+    // the mask did not claim, so it is the entire difference between a link
+    // carrying 2.5 KB per revolution and one carrying about a megabyte a
+    // second, and between a board that opens /dev/video0 and one that leaves
+    // it alone.
+    [[nodiscard]] Bool syncSubscription(Conn& c, Session& s, Bool wantCam)
+    {
+        // HELLO is the first bytes on the connection and nothing else goes out
+        // until WELCOME has answered it.
+        if(!s.haveWelcome)
+        {
+            return true;
+        }
+
+        const UInt32 want = subscriptionMask(wantCam);
+
+        // NEVER ASKED, AND NOTHING WANTED: say nothing at all. The board's
+        // default already sends the telemetry this viewer draws, so a
+        // SUBSCRIBE here would change nothing except to make this viewer's
+        // first act on every connection a frame nobody needed - and it would
+        // change the behaviour of a viewer whose camera window has never been
+        // opened, which is every viewer until somebody opens one.
+        if(c.sentMask == 0u && !wantCam)
+        {
+            return true;
+        }
+        if(c.sentMask == want)
+        {
+            return true;
+        }
+
+        bibowire::Subscribe sub;
+        sub.sessionId = s.welcome.sessionId;
+        sub.typeMask = want;
+        // 1 = every revolution. The camera does NOT quietly buy itself room by
+        // thinning the scan: which of the two matters is the operator's
+        // decision, and halving the scan the moment a window opened would be
+        // exactly the silent degradation the drop classes exist to make
+        // visible instead.
+        sub.scanDivisor = 1;
+
+        Array<UInt8, 32> body = {};
+        const Size n = bibowire::writeSubscribe(sub, body.data(), body.size());
+        if(n == 0)
+        {
+            return false;
+        }
+        if(!sendFrame(c, bibowire::Type::TYPE_SUBSCRIBE, body.data(), n))
+        {
+            return false;
+        }
+
+        c.sentMask = want;
+        s.cameraSubscribed = wantCam;
+        return true;
+    }
+
     Void sendLeave(Conn& c, const Session& s)
     {
         if(c.tcp == INVALID_SOCKET || !s.haveWelcome)
@@ -843,6 +932,17 @@ namespace link
                     filterUdpToBoard(conn, live.welcome.controlUdpPort);
                 }
 
+                // Re-asserted every pass, because the answer can change at any
+                // moment: the operator closes the camera window mid-outing, or
+                // the link drops and comes back and the new session has been
+                // told nothing. `sentMask` went with the old connection, so a
+                // window that was open before the drop is asked for again.
+                if(!syncSubscription(conn, live, c->cameraOn.load()))
+                {
+                    why = "could not send SUBSCRIBE";
+                    break;
+                }
+
                 if(live.haveBye)
                 {
                     why = live.byeText.empty() ? Str("the board said BYE") : live.byeText;
@@ -1048,6 +1148,33 @@ namespace link
       c.ageMs = age;
       c.stale = age > FRESH_MS;
       return c;
+  }
+
+  Opt<CameraShot> Session::cameraShot(Int64 nowMs) const
+  {
+      if(!haveCamera)
+      {
+          return {};
+      }
+      const Int64 age = ageOf(*this, nowMs, cameraAtMs, camera.tMonoUs);
+      if(age > GONE_MS)
+      {
+          // No picture at all, rather than a dimmer one. A photograph of a
+          // corridor is equally convincing whether it was taken now or forty
+          // seconds ago - there is nothing in the image itself for a person to
+          // read the age off, which makes absence matter MORE here than it
+          // does for the cloud.
+          return {};
+      }
+      CameraShot shot;
+      shot.frameIndex = camera.frameIndex;
+      shot.width = camera.width;
+      shot.height = camera.height;
+      shot.codec = camera.codec;
+      shot.bytes = camera.data;
+      shot.ageMs = age;
+      shot.stale = age > FRESH_MS;
+      return shot;
   }
 
   Opt<Int64> Session::rttMs() const
@@ -1277,6 +1404,48 @@ namespace link
           return;
       }
 
+      case bibowire::Type::TYPE_CAMERA:
+      {
+          bibowire::Camera m;
+          if(!bibowire::readCamera(f.body, ver, &m))
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          // GAPS ARE COUNTED, NEVER SMOOTHED - the scan's rule, applied here
+          // for the same reason. frameIndex is monotonic, so what is missing
+          // is knowable exactly, and a window that simply showed the next
+          // picture would hide a link dropping half the stream.
+          //
+          // CAMERA is CLASS_BULK and is discarded before any scan or state
+          // frame, so on a bad hotspot this is the counter that moves FIRST.
+          // That is the design working, not a fault - what degrades is the
+          // camera and not the car's picture of the world.
+          if(s.haveCamera && m.frameIndex > s.camera.frameIndex + 1u)
+          {
+              s.missedCameraFrames += m.frameIndex - s.camera.frameIndex - 1u;
+              Array<Char, 64> line = {};
+              std::snprintf(
+                  line.data(),
+                  line.size(),
+                  "frames %u-%u missing",
+                  s.camera.frameIndex + 1u,
+                  m.frameIndex - 1u
+              );
+              s.cameraGapText = line.data();
+          }
+
+          s.haveCamera = true;
+          s.cameraAtMs = nowMs;
+          ++s.cameraFrames;
+          noteOffset(s, nowMs, m.tMonoUs);
+          // Moved rather than copied: the body is a whole JPEG, tens of
+          // kilobytes, and this runs on the network thread several times a
+          // second.
+          s.camera = std::move(m);
+          return;
+      }
+
       case bibowire::Type::TYPE_EVENT:
       {
           bibowire::Event m;
@@ -1297,6 +1466,19 @@ namespace link
           {
               note.text += " (+" + numberText(m.droppedSince) + " suppressed)";
           }
+          // Kept where the camera window can reach it, as well as in the note
+          // list. "another program holds /dev/video0" is the sentence that
+          // turns a blank rectangle into an answer, and an operator should not
+          // have to find it in a scrolling list to learn why there is no
+          // picture. See link.hxx: matching on the text is a heuristic, and a
+          // deliberate one.
+          if(mentionsCamera(note.text))
+          {
+              s.haveCameraNote = true;
+              s.cameraNoteText = note.text;
+              s.cameraNoteAtMs = nowMs;
+          }
+
           s.notes.push_back(note);
           while(s.notes.size() > MAX_EVENTS)
           {
@@ -1522,6 +1704,50 @@ namespace link
   {
       LockGuard<Mutex> held(c.lock);
       return c.shared;
+  }
+
+  // ---- the subscription --------------------------------------------------
+
+  UInt32 typeBit(bibowire::Type type)
+  {
+      // bit = tag - 0x10 for the board->viewer telemetry range, which is what
+      // "a bit per telemetry type" means. Settled in viewfeed.cxx and asserted
+      // by its suite; restated here rather than invented, and the viewer's own
+      // suite pins the same answers so the two ends cannot drift apart in
+      // silence. A type outside the range has no bit and is always sent.
+      const UInt8 tag = static_cast<UInt8>(type);
+      return tag >= 0x10u && tag <= 0x2Fu ? (1u << (tag - 0x10u)) : 0u;
+  }
+
+  UInt32 subscriptionMask(Bool withCamera)
+  {
+      // Every telemetry type this viewer actually draws, named one at a time.
+      // Spelled out rather than left as 0, because 0 means EVERYTHING to the
+      // board - so an unsubscribe written as 0 would ask for MORE than it
+      // started with, which is the opposite of what the caller meant and the
+      // exact bug that would only show up as a bandwidth figure.
+      UInt32 mask = typeBit(bibowire::Type::TYPE_SCAN)
+                    | typeBit(bibowire::Type::TYPE_DECIDE)
+                    | typeBit(bibowire::Type::TYPE_BOARD)
+                    | typeBit(bibowire::Type::TYPE_LIDAR_INFO)
+                    | typeBit(bibowire::Type::TYPE_EVENT)
+                    | typeBit(bibowire::Type::TYPE_CTLSTATE)
+                    | typeBit(bibowire::Type::TYPE_CMDACK);
+      if(withCamera)
+      {
+          mask |= typeBit(bibowire::Type::TYPE_CAMERA);
+      }
+      return mask;
+  }
+
+  Void wantCamera(Client& c, Bool on)
+  {
+      c.cameraOn.store(on);
+  }
+
+  Bool cameraWanted(const Client& c)
+  {
+      return c.cameraOn.load();
   }
 
 }
