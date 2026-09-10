@@ -140,6 +140,17 @@
       <div class="li two off"><span class="li-lead"><i data-icon="sensors"></i></span><span class="li-body"><span class="li-head body-large">IMU (I2C)</span><br><span class="li-sup body-medium">not wired</span></span><span class="li-trail label-large"></span></div>
     </section>
 
+    <!-- The camera. OFF until asked for: the stream is about half a megabyte a
+         second and the board stops capturing five seconds after the last
+         request, so a card that streamed merely because Details was open would
+         undo that and nothing on screen would say so. See cam.js. -->
+    <section class="card" id="card-camera">
+      <h2 class="title-medium">Camera</h2>
+      <img class="cam-view" id="cam-img" alt="the car's view" hidden>
+      <div class="li two" id="r-cam"><span class="li-lead"><i data-icon="visibility"></i></span><span class="li-body"><span class="li-head body-large">USB camera</span><br><span class="li-sup body-medium" id="cam-note">no answer</span></span><span class="li-trail label-large num" id="cam-state">-</span></div>
+      <button class="btn btn-tonal state target label-large" id="cam-btn" type="button"><i data-icon="visibility" data-size="18"></i>Show camera</button>
+    </section>
+
     <!-- What the readout does not already say: where the mode came from, the
          clearance to the millimetre, what was sent, and the heartbeat's
          counters. Steer, throttle, hits and rate live on the dash. -->

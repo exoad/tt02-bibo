@@ -112,6 +112,30 @@ INPUT_DEADMAN_S = 0.200                 # no input for this long and the throttl
 DEADMAN_DISARM_TICKS = 2                # ...and after this many ticks of it, disarmed
 WRITE_DEADLINE_S = 0.1                  # a CDC port whose board stopped reading must not hang the sender
 
+# ---- the camera -----------------------------------------------------------
+# MJPEG, PASSED THROUGH AND NEVER RE-ENCODED. /dev/video0 offers MJPG as its
+# FIRST format - 640x480, 1280x720 and 1920x1080, all at 30 fps - so the JPEGs
+# the sensor already produced are what the phone renders and what an archive
+# records. Re-encoding would spend the CPU the control loop runs on to arrive
+# at a worse picture, and there is no ffmpeg on this board to do it with anyway.
+#
+# v4l2-ctl rather than a Python binding because none is installed - no cv2, no
+# v4l2, no PIL, no numpy - and one long-lived process streaming mmap'd buffers
+# into a pipe is cheaper than any of them would be: the kernel does the DMA and
+# this program only looks for frame boundaries.
+#
+# CAM_FPS CAPS THE STREAM, NOT THE CAMERA. Measured here, 640x480 came off the
+# device at 25 fps and 1121 KB/s - five times the 200 KB/s docs/bibowire.md
+# assumes for a camera, and more than a phone hotspot should carry beside the
+# scan. Capping on this side rather than with --set-parm means a device that
+# ignores the request cannot silently leave the rate unchanged.
+CAM_DEV = os.environ.get('BIBO_CAM_DEV', '/dev/video0')
+CAM_SIZE = os.environ.get('BIBO_CAM_SIZE', '640x480')
+CAM_FPS = float(os.environ.get('BIBO_CAM_FPS', '12'))
+CAM_WANT_S = 5.0                        # how long a /cam request keeps the capture open
+CAM_SOI = b'\xff\xd8\xff'               # JPEG start-of-image: where one frame ends and the next starts
+CAM_MAX_FRAME = 4 << 20                 # bytes with no boundary in them mean lost sync, not a picture
+
 
 def esc_band():
     """The working throttle band, microseconds, from BIBO_ESC_BAND.
@@ -400,6 +424,191 @@ def scan_text():
         if file_why != 'pilot not running':
             return None, file_why, None
     return None, why, None
+
+
+# ---------------------------------------------------------------- the camera
+
+class Camera:
+    """The USB camera, MJPEG, held open only while somebody is watching.
+
+    The same bargain the lidar already gets: a page nobody is looking at must
+    not keep a capture running. One v4l2-ctl streams mmap'd buffers into a pipe,
+    a thread splits that pipe on JPEG start-of-image markers, and ONLY THE
+    NEWEST frame is kept - every older one is dropped. A viewer on a slow
+    hotspot therefore falls behind in TIME and never in MEMORY; the alternative,
+    a queue, is how a phone that walked out of range becomes a gigabyte of stale
+    pictures on the board.
+
+    NOTHING HERE RE-ENCODES. The bytes the sensor produced are the bytes the
+    phone renders and the bytes an archive will record.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.ready = threading.Condition(self.lock)
+        self.wanted_until = 0.0
+        self.frame = None          # the newest whole JPEG, bytes
+        self.frame_at = 0.0
+        self.seq = 0               # bumped per frame, so a stream can wait for a NEW one
+        self.frames = 0            # since this capture started; 0 is a camera that never delivered
+        self.why = 'camera idle'
+        self.proc = None
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def want(self):
+        with self.lock:
+            if time.time() >= self.wanted_until:
+                self.why = 'camera starting'   # first ask after a lull; the thread is on it
+            self.wanted_until = time.time() + CAM_WANT_S
+
+    def wanted(self):
+        with self.lock:
+            return time.time() < self.wanted_until
+
+    def note(self, why):
+        with self.lock:
+            self.why = why
+
+    def size(self):
+        width, _, height = CAM_SIZE.partition('x')
+        try:
+            return int(width), int(height)
+        except ValueError:
+            return 640, 480
+
+    def argv(self):
+        width, height = self.size()
+        return ['v4l2-ctl', '-d', CAM_DEV,
+                '--set-fmt-video=width=%d,height=%d,pixelformat=MJPG' % (width, height),
+                '--stream-mmap', '--stream-count=0', '--stream-to=-']
+
+    def state(self):
+        with self.lock:
+            fresh = self.frame is not None and (time.time() - self.frame_at) < 2.0
+            return {'live': fresh,
+                    'why': self.why,
+                    'frames': self.frames,
+                    'size': CAM_SIZE,
+                    'device': CAM_DEV,
+                    'ageS': None if not self.frame_at else round(time.time() - self.frame_at, 2)}
+
+    def latest(self, after, timeout):
+        """(seq, jpeg) once a frame that EXISTS and is newer than `after` is in
+        hand, else (after, None) when the timeout runs out first.
+
+        Waiting on a sequence number rather than polling is what keeps a stream
+        at the camera's rate instead of a sleeper's, and what stops it sending
+        the same picture twice.
+
+        BOTH HALVES OF THAT CONDITION ARE LOAD-BEARING, and the first one is
+        here because it was missing. `seq` counts frames for the life of the
+        process, but parking the camera clears `frame` and does NOT rewind
+        `seq` - so after the first park there is a lasting state where
+        `seq` is 300 and `frame` is None. Waiting on the number alone returned
+        that pair instantly, every caller read it as "no picture", and the
+        camera never recovered from its first idle: a stream answered 200 with
+        an empty body in two milliseconds and a snapshot answered 503, while
+        the capture behind them was running and delivering frames nobody
+        collected. It worked exactly once per service start, which is the most
+        misleading way for this to fail."""
+        deadline = time.time() + timeout
+        with self.ready:
+            while self.frame is None or self.seq <= after:
+                left = deadline - time.time()
+                if left <= 0:
+                    return after, None
+                self.ready.wait(left)
+            return self.seq, self.frame
+
+    def give(self, jpeg):
+        with self.ready:
+            self.frame = jpeg
+            self.frame_at = time.time()
+            self.seq += 1
+            self.frames += 1
+            self.why = 'camera live'
+            self.ready.notify_all()
+
+    def loop(self):
+        while True:
+            if not self.wanted():
+                with self.lock:
+                    self.frame = None
+                    self.frames = 0
+                    self.why = 'camera idle'
+                time.sleep(0.2)
+                continue
+            if not os.path.exists(CAM_DEV):
+                self.note('%s absent - camera unplugged' % CAM_DEV)
+                time.sleep(2.0)
+                continue
+            try:
+                proc = subprocess.Popen(self.argv(), stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL)
+            except OSError as why:
+                self.note('cannot start v4l2-ctl: %s' % why)
+                time.sleep(2.0)
+                continue
+            with self.lock:
+                self.proc = proc
+            try:
+                self.pump(proc)
+            except OSError:
+                self.note('camera read failed')
+            finally:
+                self.kill(proc)
+            time.sleep(0.5)
+
+    def pump(self, proc):
+        buf = b''
+        while self.wanted():
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                self.note('camera stream ended - is something else holding %s?' % CAM_DEV)
+                return
+            buf += chunk
+            # A frame is whole only once the NEXT one has begun. Start-of-image is
+            # the only boundary MJPEG gives - a JPEG's own end marker can occur
+            # inside its payload - so this costs exactly one frame of latency and
+            # is the reason a still is never half a picture.
+            while True:
+                start = buf.find(CAM_SOI)
+                if start < 0:
+                    break
+                nxt = buf.find(CAM_SOI, start + len(CAM_SOI))
+                if nxt < 0:
+                    break
+                self.give(buf[start:nxt])
+                buf = buf[nxt:]
+            if len(buf) > CAM_MAX_FRAME:
+                # Not a picture. Rather than grow without bound, drop back to
+                # hunting for the next marker - the deliberate resync the scan
+                # feed already does on an impossible line.
+                buf = b''
+                self.note('camera resyncing')
+
+    def kill(self, proc):
+        try:
+            proc.terminate()
+            proc.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        with self.lock:
+            self.proc = None
+            self.frame = None
+
+    def shutdown(self):
+        """Nothing may outlive this process holding the camera open."""
+        with self.lock:
+            proc = self.proc
+        if proc is not None:
+            self.kill(proc)
+
+
+camera = Camera()
 
 
 # ---------------------------------------------------------------- the pilot
@@ -917,6 +1126,10 @@ def car_shutdown():
 
 
 atexit.register(car_shutdown)
+# The capture is a CHILD PROCESS, so it outlives this one unless something says
+# otherwise - and a v4l2-ctl still holding /dev/video0 is why the next start
+# would find the camera busy.
+atexit.register(camera.shutdown)
 
 
 # ---------------------------------------------------------------- the text page
@@ -968,6 +1181,9 @@ def lines(me):
                    ('%s present' % PICO_DEV if os.path.exists(PICO_DEV) else
                     '%s absent - Pico unplugged' % PICO_DEV))
     out.append(control_line(pilot.state()))
+    cam = camera.state()
+    out.append('camera        %s' % ('%s %s, %d frame(s)' % (cam['device'], cam['size'], cam['frames'])
+                                     if cam['live'] else cam['why']))
     out.append('localization  none - reactive layer only, no pose estimate')
     return out, status, age
 
@@ -1044,6 +1260,23 @@ class Page(http.server.BaseHTTPRequestHandler):
                 self.reply(404, 'text/plain; charset=utf-8', b'no such page\n')
             else:
                 self.reply(200, found[0], found[1])
+        elif path == '/cam/stream':
+            self.stream_camera()
+        elif path == '/cam/snapshot':
+            camera.want()
+            # Six seconds, not two. A COLD ask has to pay for spawning v4l2-ctl,
+            # opening the device and waiting out the sensor's first frames, and
+            # two seconds was a budget set by guesswork rather than measurement.
+            # A snapshot that gives up before the camera it just started has had
+            # a chance to answer reports an absence it caused itself.
+            seq, jpeg = camera.latest(0, 6.0)
+            if jpeg is None:
+                # A reason, not a broken image icon. Same rule as a stale
+                # revolution: say why there is no picture.
+                self.reply(503, 'text/plain; charset=utf-8',
+                           (camera.state()['why'] + '\n').encode())
+            else:
+                self.reply(200, 'image/jpeg', jpeg)
         elif path.startswith('/pilot/'):
             self.reply(405, 'text/plain; charset=utf-8', b'POST, not GET: a page reload must not start a car\n')
         elif path.startswith('/car/'):
@@ -1056,13 +1289,49 @@ class Page(http.server.BaseHTTPRequestHandler):
                 body = json.dumps({'lines': text, 'pilot': status, 'pilotAgeS': age,
                                    'host': me['host'], 'addresses': me['addresses'],
                                    'cpuC': me['cpuC'], 'pilotProc': pilot.state(),
-                                   'car': car.state()}).encode()
+                                   'car': car.state(), 'camera': camera.state()}).encode()
                 self.reply(200, 'application/json', body)
             else:
                 text.append('dashboard: /dash')
                 self.reply(200, 'text/html; charset=utf-8',
                            ('<meta http-equiv="refresh" content="2"><pre>%s</pre>\n'
                             % '\n'.join(text)).encode())
+
+    def stream_camera(self):
+        """multipart/x-mixed-replace - the one answer here with NO Content-Length.
+
+        Every other reply carries one, which is what makes HTTP/1.1 keep-alive
+        safe on this server. A stream has no length by definition, so this one
+        says `Connection: close` and owns its socket until the viewer goes away.
+
+        The rate is capped here rather than at the device, and each iteration
+        re-arms `want()`: a phone that closes the tab stops asking, and five
+        seconds later the capture stops and the camera's LED goes out."""
+        camera.want()
+        boundary = 'bibocam'
+        self.send_response(200)
+        self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=%s' % boundary)
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+        seq = 0
+        period = 1.0 / CAM_FPS if CAM_FPS > 0 else 0.0
+        try:
+            while True:
+                camera.want()
+                seq, jpeg = camera.latest(seq, 5.0)
+                if jpeg is None:
+                    return      # nothing arrived and state() says why; the page retries
+                self.wfile.write(b'--' + boundary.encode() + b'\r\n')
+                self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                self.wfile.write(b'Content-Length: %d\r\n\r\n' % len(jpeg))
+                self.wfile.write(jpeg)
+                self.wfile.write(b'\r\n')
+                if period:
+                    time.sleep(period)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return              # the tab closed, or the phone walked out of range
 
     def take_body(self):
         """The request body, read whole. A body left unread on a kept-alive

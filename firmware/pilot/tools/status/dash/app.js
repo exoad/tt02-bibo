@@ -13,6 +13,7 @@ import * as panels from './panels.js';
 import * as log from './log.js';
 import * as icons from './icons.js';
 import * as drive from './drive.js';
+import * as cam from './cam.js';
 
 const st = {
   scan: null,             // the parsed revolution, or null
@@ -44,6 +45,7 @@ function drawScan() {
   cloud.draw(st.scan, hud);
   panels.render(st);
   drive.render(st);
+  cam.render(st);
   note();
 }
 
@@ -182,6 +184,10 @@ function selectDest(name) {
   // every key and stops the send; the server's 200 ms deadman finishes the job
   // a fifth of a second later even if this page never speaks again.
   drive.setActive(dest === 'drive');
+  // The camera lives in Details, and leaving that destination CLOSES the
+  // stream: an <img> left attached would keep the board capturing for a page
+  // nobody is looking at.
+  cam.setActive(dest === 'details');
   if (history.replaceState) history.replaceState(null, '', dest === 'scan' ? location.pathname : '?view=' + dest);
 }
 
@@ -201,6 +207,7 @@ panels.bind(function () { post('/pilot/look', 'look'); }, function () { post('/p
 // screen: hold-to-drive must not be listening for keys on a page showing the
 // scan.
 drive.init(post, say);
+cam.init(say);
 
 const q = new URLSearchParams(location.search);
 selectScanView(q.get('tab') || recall('bibo.scanView') || '2d');
