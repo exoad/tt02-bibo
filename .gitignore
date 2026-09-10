@@ -4,6 +4,12 @@ vendor/
 # Telemetry pulled off the SD card.
 data/*.csv
 
+# Recorded runs. One .bibo holds a whole run - the lidar revolutions, the board
+# and control state, and the camera's JPEG frames verbatim as CAMERA bodies - so
+# a few minutes of driving is tens of megabytes and a long one is more. Evidence,
+# not source: it belongs beside the CSVs and never in a commit.
+data/*.bibo
+
 # Build trees (firmware, host, viewer, bridge).
 build/
 **/build/
