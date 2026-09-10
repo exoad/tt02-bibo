@@ -1,0 +1,32 @@
+# What the editor needs to parse the viewer's test suite.
+#
+# THE ORDER OF THE FIRST THREE IS LOAD-BEARING, and it is not a style choice.
+# firmware/pilot/src has a link.hxx of its own - the Pico's carlink - and this
+# suite includes "link.hxx" meaning the VIEWER's. With the board's directory
+# ahead of ../src, the test compiles against the wrong header entirely; the
+# build script hit exactly that and says so at the top of its cl line. An editor
+# resolving a different link.hxx than the compiler does is worse than either one
+# being wrong on its own, because then the two disagree and neither says so.
+#
+# Mirrors viewer/tests/build_link_test.bat. When that file's include list moves,
+# this one moves with it.
+#
+# RELATIVE, not absolute: a path naming a home directory names the machine it
+# was written on, and tools/style_audit.py fails the build for exactly that.
+# These resolve against this directory, viewer/tests.
+CompileFlags:
+  Add:
+    - -std=c++20
+    - -I../src
+    - -I../../shared
+    - -I../../firmware/pilot/src
+    - -I../../third_party/imgui
+    - -D_CRT_SECURE_NO_WARNINGS
+
+    # MSVC's <yvals_core.h> hard-fails on any Clang older than 19 with
+    # `error STL1000: Unexpected compiler version`, thrown from inside
+    # <type_traits> before a line of ours is read. clangd here is 18.1.8 and the
+    # real build is cl.exe, so the STL is complaining to the wrong compiler
+    # about a combination that never gets compiled. Same define, same reason, as
+    # viewer/src/.clangd and firmware/pilot/compile_commands.json.
+    - -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH

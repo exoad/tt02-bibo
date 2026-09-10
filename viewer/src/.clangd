@@ -20,6 +20,10 @@ CompileFlags:
   Add:
     - -std=c++20
     - -I../../shared
+    # The board's tree, for bibowire.hxx. The codec is compiled into this exe
+    # from there rather than copied here, so the editor has to look where
+    # build.bat looks or every bibowire:: name is red in a file that compiles.
+    - -I../../firmware/pilot/src
     - -I../../third_party/imgui
     - -I../../third_party/imgui/backends
     - -D_CRT_SECURE_NO_WARNINGS

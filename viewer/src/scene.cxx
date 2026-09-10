@@ -6,9 +6,6 @@
 namespace scene
 {
 
-  constexpr Float32 PI = 3.14159265358979f;
-  constexpr Float32 TWO_PI = PI * 2.0f;
-
   // The clip plane, in metres. Anything nearer than this is behind the glass.
   constexpr Float32 NEAR_PLANE = 0.05f;
 
@@ -229,160 +226,6 @@ namespace scene
       cam.dist = std::min(std::max(cam.dist, DIST_MIN), DIST_MAX);
   }
 
-  // ---- the synthetic scan --------------------------------------------------
-
-  // An axis-aligned rectangle on the ground, and a ray across it.
-  struct Rect
-  {
-      Float32 minX;
-      Float32 minY;
-      Float32 maxX;
-      Float32 maxY;
-  };
-
-  struct Ray
-  {
-      Float32 ox;
-      Float32 oy;
-      Float32 dx;
-      Float32 dy;
-  };
-
-  constexpr Rect ROOM = { -4.0f, -3.0f, 4.0f, 3.0f };
-
-  constexpr Array<Rect, 2> OBSTACLES = {
-      Rect{ -2.6f, 0.4f, -1.4f, 1.6f },
-      Rect{ 1.2f, -2.0f, 2.4f, -0.8f }
-  };
-
-  constexpr Int32 SCAN_POINTS = 480;          // about one C1 revolution
-  constexpr Float32 LIDAR_HEIGHT = 0.16f;
-  constexpr Float32 TURN_RATE = 0.22f;        // radians per second
-
-  // Nearest positive hit of a ray against a rectangle, by the slab method.
-  // `inside` asks for the EXIT rather than the entry, which is how a room's
-  // walls are hit by a scanner standing in the middle of them.
-  static Float32 hitRect(const Ray& ray, const Rect& box, Bool inside)
-  {
-      Float32 t0 = -1.0e30f;
-      Float32 t1 = 1.0e30f;
-
-      if(std::fabs(ray.dx) < 1.0e-6f)
-      {
-          if(ray.ox < box.minX || ray.ox > box.maxX)
-          {
-              return -1.0f;
-          }
-      }
-      else
-      {
-          Float32 lo = (box.minX - ray.ox) / ray.dx;
-          Float32 hi = (box.maxX - ray.ox) / ray.dx;
-          if(lo > hi)
-          {
-              std::swap(lo, hi);
-          }
-          t0 = std::max(t0, lo);
-          t1 = std::min(t1, hi);
-      }
-
-      if(std::fabs(ray.dy) < 1.0e-6f)
-      {
-          if(ray.oy < box.minY || ray.oy > box.maxY)
-          {
-              return -1.0f;
-          }
-      }
-      else
-      {
-          Float32 lo = (box.minY - ray.oy) / ray.dy;
-          Float32 hi = (box.maxY - ray.oy) / ray.dy;
-          if(lo > hi)
-          {
-              std::swap(lo, hi);
-          }
-          t0 = std::max(t0, lo);
-          t1 = std::min(t1, hi);
-      }
-
-      if(t1 < t0 || t1 < 0.0f)
-      {
-          return -1.0f;
-      }
-      const Float32 t = inside ? t1 : t0;
-      return t > 0.0f ? t : -1.0f;
-  }
-
-  static Float32 rangeAt(const Ray& ray)
-  {
-      Float32 best = hitRect(ray, ROOM, true);
-      for(const Rect& box : OBSTACLES)
-      {
-          const Float32 t = hitRect(ray, box, false);
-          if(t > 0.0f && (best < 0.0f || t < best))
-          {
-              best = t;
-          }
-      }
-      return best;
-  }
-
-  // ---------------------------------------------------------------------------
-  // THE STAND-IN SCAN, AND THE ONE CALL THAT REPLACES IT.
-  //
-  // A room raycast from wherever the car is standing, so the cloud has the
-  // shape a real revolution has: a closed outline with the shadows of two
-  // obstacles cut out of it, at the lidar's own height, moving because the car
-  // is turning. A ring of random points would have looked live and taught
-  // nothing about whether the projection is right.
-  //
-  // WHEN THE PROTOCOL CLIENT LANDS this function goes away. Its one caller in
-  // main.cxx fills sc.cloud from the board's scan message instead, and nothing
-  // else in the viewer knows or cares where the points came from - the cloud is
-  // already just a Vec<Vec3> in the car's own frame.
-  // ---------------------------------------------------------------------------
-  Void fillSyntheticCloud(Vec<Vec3>& out, Float64 seconds)
-  {
-      const Float32 t = static_cast<Float32>(seconds);
-      const Float32 heading = t * TURN_RATE;
-
-      // The car wanders a little as well as turning, so the walls change range
-      // and not just bearing.
-      Ray ray;
-      ray.ox = std::sin(t * 0.25f) * 0.9f;
-      ray.oy = std::cos(t * 0.17f) * 0.6f;
-      ray.dx = 0.0f;
-      ray.dy = 0.0f;
-
-      out.clear();
-      out.reserve(static_cast<Size>(SCAN_POINTS));
-
-      for(Int32 i = 0; i < SCAN_POINTS; ++i)
-      {
-          const Float32 f = static_cast<Float32>(i) / static_cast<Float32>(SCAN_POINTS);
-          const Float32 a = TWO_PI * f;
-
-          // The ray is cast in the ROOM's frame, where the rectangles are axis
-          // aligned; the hit comes back as a range, and a range at bearing `a`
-          // is a point in the CAR's frame without any further rotation. That is
-          // what lets the room stay axis-aligned while the car turns inside it.
-          ray.dx = std::sin(a + heading);
-          ray.dy = std::cos(a + heading);
-
-          const Float32 range = rangeAt(ray);
-          if(range <= 0.0f)
-          {
-              continue;
-          }
-
-          // Sensor noise, so the outline reads as measurements rather than as a
-          // drawn shape.
-          const Float32 n = std::sin((static_cast<Float32>(i) * 12.9898f) + t) * 0.012f;
-          const Float32 r = range + n;
-          out.push_back(Vec3{ r * std::sin(a), r * std::cos(a), LIDAR_HEIGHT });
-      }
-  }
-
   // ---- drawing -------------------------------------------------------------
 
   static Void drawGrid(ImDrawList* dl, const Basis& b)
@@ -450,6 +293,13 @@ namespace scene
       const ImU32 flat = IM_COL32(122, 214, 255, 235);
       const Bool byRange = sc.opt.coloring == PointColor::POINT_COLOR_DISTANCE;
 
+      // A revolution past its freshness band keeps its SHAPE and loses its
+      // colour, so it cannot be mistaken for the live one at a glance. It is
+      // deliberately not the only defence - the panel prints the age and the
+      // client stops handing over points entirely once they are older still.
+      const Float32 tint = sc.cloudStale ? 0.35f : 1.0f;
+      const Float32 dim = sc.cloudStale ? 0.55f : 1.0f;
+
       for(const Vec3& p : sc.cloud)
       {
           const Projected q = project(b, p);
@@ -476,6 +326,13 @@ namespace scene
               // Cyan near, amber far. Two ends of one ramp rather than a rainbow:
               // a hue wheel puts two very different ranges at the same colour.
               col = rgbaOf(0.35f + (0.65f * u), 0.85f - (0.30f * u), 1.00f - (0.72f * u), 0.92f);
+          }
+          if(sc.cloudStale)
+          {
+              // Toward one flat grey, at reduced alpha: the ramp's information
+              // is exactly what must stop being readable.
+              const Float32 g = 0.62f * dim;
+              col = rgbaOf(g, g, g, 0.92f * tint);
           }
           dl->AddCircleFilled(q.at, r, col, 8);
       }

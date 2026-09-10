@@ -66,6 +66,14 @@ namespace scene
       Camera cam;
       ViewOptions opt;
       Vec<Vec3> cloud;
+
+      // The cloud is past its first freshness band and is drawn DESATURATED,
+      // with its age printed in the panel beside it (docs/bibowire.md section
+      // 7). It is not an option a person sets - it is a fact about the data, and
+      // the renderer is told rather than left to work it out. A revolution older
+      // still is not flagged, it is ABSENT: the client hands over no points at
+      // all, because absence is the only rendering a person cannot misread.
+      Bool cloudStale = false;
   };
 
   // Where on screen the view lives, in ImGui's pixel coordinates.
@@ -82,10 +90,6 @@ namespace scene
   Void orbit(Camera& cam, Float32 dx, Float32 dy);
   Void pan(Camera& cam, Float32 dx, Float32 dy);
   Void zoom(Camera& cam, Float32 notches);
-
-  // THE STAND-IN SCAN. The real one replaces this call and nothing else - see
-  // the comment on the definition in scene.cxx.
-  Void fillSyntheticCloud(Vec<Vec3>& out, Float64 seconds);
 
   Void draw(ImDrawList* dl, const Viewport& vp, const Scene& sc);
 

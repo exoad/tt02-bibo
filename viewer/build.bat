@@ -19,6 +19,12 @@ set "BUILD=%ROOT%build"
 set "OBJ=%BUILD%\obj"
 set "IMGUI=%ROOT%..\third_party\imgui"
 
+rem  The board's source tree. bibowire.cxx is compiled INTO this exe rather than
+rem  copied or reimplemented: docs/bibowire.md section 11 requires the viewer and
+rem  the pilot to share the object file so the encoder and the decoder cannot
+rem  drift into disagreeing about a field's offset while both still compile.
+set "PILOT=%ROOT%..\firmware\pilot\src"
+
 rem  BIBO_EXE_NAME overrides the output name, for one situation: the viewer is
 rem  running and holding bibo.exe, so the link cannot replace it.
 if not defined BIBO_EXE_NAME set "BIBO_EXE_NAME=bibo.exe"
@@ -50,7 +56,7 @@ if not exist "%BUILD%" mkdir "%BUILD%"
 if not exist "%OBJ%"   mkdir "%OBJ%"
 
 set "CFLAGS=/nologo /c /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS"
-set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%ROOT%..\shared""
+set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%PILOT%""
 
 rem --- Dear ImGui core + the win32/dx11 backends, compiled once and cached.
 rem  imgui_demo.cpp is NOT built: nothing here shows the demo window.
@@ -79,6 +85,16 @@ if not exist "%OBJ%\imgui_impl_win32.obj" (
 if not exist "%OBJ%\imgui_impl_dx11.obj" (
     cl %CFLAGS% %INC% /Fo"%OBJ%\imgui_impl_dx11.obj" "%IMGUI%\backends\imgui_impl_dx11.cpp"
     if errorlevel 1 exit /b 1
+)
+
+rem --- the shared codec. NOT cached like the ImGui objects above: it is the one
+rem  file in this build that also belongs to another program, and a stale copy of
+rem  it is the exact failure the shared-object rule exists to prevent.
+echo [codec] firmware\pilot\src\bibowire.cxx
+cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%PILOT%\bibowire.cxx"
+if errorlevel 1 (
+    echo [error] compiling bibowire.cxx
+    exit /b 1
 )
 
 rem --- the viewer. Wildcard on purpose: every .cxx in src\ is built.
