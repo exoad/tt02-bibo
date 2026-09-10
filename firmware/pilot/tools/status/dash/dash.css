@@ -377,6 +377,38 @@ body[data-dest="scan"] .support { display: none; }
 #log { margin: 0; padding: 12px 16px; font: 400 12px/18px var(--md-ref-typeface-mono); color: var(--md-sys-color-on-surface); white-space: pre-wrap; overflow-wrap: anywhere; }
 #log:empty::before { content: "nothing yet"; color: var(--md-sys-color-on-surface-variant); }
 
+/* ---- the Drive destination -------------------------------------------------
+   The panel that tells you why the car is NOT moving, so it is rows like every
+   other value on the page, with two things given size: the forward clearance,
+   at display-small because it is the number a person reads while walking
+   behind the car, and the pad, at a thumb's size. The pad's keys are
+   surface-container-high - a control ON a card, so one step up from it - and
+   the held one takes primary-container, the same "this is on" the segmented
+   button and the navigation indicator use. */
+.ahead { display: flex; align-items: baseline; gap: 8px; padding: 0 16px 8px; }
+.ahead-v { font: 400 36px/44px var(--md-ref-typeface-plain); }
+.ahead-l { color: var(--md-sys-color-on-surface-variant); }
+
+.drive-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 8px; }
+.drive-acts .btn:first-child { grid-column: 1 / -1; }
+/* M3's filled tonal button; the page had filled and error only. */
+.btn-tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+
+.pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 4px 16px 8px; max-width: 336px; }
+.pad-btn {
+  position: relative; height: 64px; border: 0; padding: 0;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+  display: grid; place-items: center; cursor: pointer;
+  touch-action: none;              /* a held key is not a scroll gesture */
+  -webkit-user-select: none; user-select: none;
+}
+.pad-btn[data-key="w"] { grid-area: 1 / 2; }
+.pad-btn[data-key="a"] { grid-area: 2 / 1; }
+.pad-btn[data-key="s"] { grid-area: 2 / 2; }
+.pad-btn[data-key="d"] { grid-area: 2 / 3; }
+.pad-btn[aria-pressed="true"] { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+
 /* ---- snackbar --------------------------------------------------------------- */
 .snackbar {
   position: fixed; left: 16px; right: 16px; bottom: 96px; z-index: 5;
@@ -387,6 +419,7 @@ body[data-dest="scan"] .support { display: none; }
 
 /* ---- compact: the Log destination gives the log the whole pane ---------------- */
 @media (max-width: 839px), (max-height: 479px) {
+  body[data-dest="drive"] .support .card:not(.card-drive) { display: none; }
   body[data-dest="log"] .support .card:not(.card-log) { display: none; }
   body[data-dest="log"] .card-log { flex: 1; min-height: 0; }
   body[data-dest="log"] .well { flex: 1; max-height: none; }

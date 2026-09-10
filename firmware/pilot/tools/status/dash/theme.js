@@ -46,6 +46,14 @@ export const CAR_HEIGHT_MM = 140;       // vehicle::CAR_HEIGHT_MM
 export const SCAN_Z_MM = 167;           // vehicle::C1_SCAN_Z_MM: the plane the returns are in, the 3D tick's top
 export const STALE_S = 3;               // the server's rule for /scan, applied here to /json as well
 
+// The forward sector the Drive view watches, degrees either side of straight
+// ahead. The number a person driving by hand actually wants is not the global
+// nearest - that is as often a wall beside the car - but the nearest thing IN
+// FRONT, and it is the same number reactive avoidance will act on later. Read
+// by drive.js for the "ahead" readout and by radar.js to draw the wedge, so
+// the number and the picture cannot disagree.
+export const AHEAD_DEG = 30;
+
 // A decision's tone, keyed on the mode's name: cruise and slow drive
 // (success), stop halts (error), reverse and blind back off or see nothing
 // (warning). The same word colours the mode, the stat values and the steer
