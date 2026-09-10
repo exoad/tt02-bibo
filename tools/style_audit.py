@@ -30,9 +30,9 @@ def at(*parts):
 # interesting mistake, a directory nobody remembered.
 DIRS = [
     # hub/ was deleted on 2026-09-08 and replaced by a much smaller viewer.
-    # Its entries lived here; viewer/ takes their place the moment it has
-    # sources, and until then this list simply does not name it - a directory
-    # that does not exist is an error below, and an aspiration is not a rule.
+    # Its entries lived here; viewer/ took their place the moment it had
+    # sources, which it now does - one window, one 3D view, three panels.
+    at('viewer', 'src'),
     at('lidar', 'bridge'),
     at('firmware', 'lib'),
     at('firmware', 'lib', 'drivers'),

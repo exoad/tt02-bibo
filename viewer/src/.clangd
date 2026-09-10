@@ -1,0 +1,33 @@
+# What the editor needs to parse this directory, and nothing more.
+#
+# viewer/build.bat is the authoritative build; there is no CMake project here
+# and no generated compile_commands.json, so clangd has no command to copy and
+# falls back to a bare one with none of our include paths. The symptom is thirty
+# red lines saying `shared.hxx` file not found and every Float32 unknown, in
+# files that compile clean at /W4 - an editor disagreeing with the compiler,
+# which trains you to ignore the editor.
+#
+# RELATIVE, not absolute. A path with a home directory in it names the machine
+# it was written on, and tools/style_audit.py fails the build for exactly that
+# ('absolute user path'). These resolve against this directory, viewer/src.
+#
+# No compile_commands.json, unlike firmware/pilot/. That one is hand-written and
+# has to gain an entry every time a .cxx appears, or the new file is parsed as
+# ARM. Here the fallback command is enough - clangd runs it with the working
+# directory set to the file's own, which is what makes the relative -I above
+# resolve - so a fourth source file needs no bookkeeping at all.
+CompileFlags:
+  Add:
+    - -std=c++20
+    - -I../../shared
+    - -I../../third_party/imgui
+    - -I../../third_party/imgui/backends
+    - -D_CRT_SECURE_NO_WARNINGS
+
+    # MSVC's <yvals_core.h> hard-fails on any Clang older than 19 - `error
+    # STL1000: Unexpected compiler version`, thrown from inside <type_traits>
+    # before a line of ours is read. clangd here is 18.1.8 and the actual build
+    # is cl.exe, so the STL is complaining to the wrong compiler about a
+    # combination that never gets compiled. Same define, same reason, as
+    # firmware/pilot/compile_commands.json.
+    - -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
