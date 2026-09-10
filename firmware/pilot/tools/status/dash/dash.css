@@ -367,6 +367,14 @@ body[data-dest="scan"] .support { display: none; }
 }
 .card-note { padding: 8px 16px 16px; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
 
+/* The camera card. The picture IS the content, so it spans the card and keeps
+   the sensor's own aspect ratio rather than one we picked - a 4:3 sensor in a
+   16:9 box is a cropped or letterboxed lie about what the car can see. The
+   lowest tone behind it so an image that has not arrived reads as an empty
+   well and not as a hole in the card. */
+.cam-view { display: block; width: 100%; height: auto; background: var(--md-sys-color-surface-container-lowest); }
+#card-camera .btn { margin: 0 16px 16px; }
+
 /* The log card: a data well at the page's lowest tone, mono - the only
    monospace on the page - newest at the bottom. */
 .card-log { display: flex; flex-direction: column; }
