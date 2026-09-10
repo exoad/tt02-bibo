@@ -12,6 +12,7 @@ import * as cloud from './cloud.js';
 import * as panels from './panels.js';
 import * as log from './log.js';
 import * as icons from './icons.js';
+import * as drive from './drive.js';
 
 const st = {
   scan: null,             // the parsed revolution, or null
@@ -42,6 +43,7 @@ function drawScan() {
   radar.draw(st.scan, hud);
   cloud.draw(st.scan, hud);
   panels.render(st);
+  drive.render(st);
   note();
 }
 
@@ -160,7 +162,7 @@ function selectScanView(name) {
 
 let dest = 'scan';
 function selectDest(name) {
-  dest = name === 'details' || name === 'log' ? name : 'scan';
+  dest = name === 'details' || name === 'log' || name === 'drive' ? name : 'scan';
   document.body.dataset.dest = dest;
   document.querySelectorAll('.nav-item').forEach(function (b) {
     if (b.dataset.dest === dest) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
@@ -168,13 +170,18 @@ function selectDest(name) {
   if (dest !== 'scan') {
     // The support pane is on screen: scroll it to the destination's card,
     // and the log to its newest line (a hidden pre has no scroll height).
-    const card = document.getElementById(dest === 'log' ? 'card-log' : 'card-system');
+    const card = document.getElementById(
+      dest === 'log' ? 'card-log' : dest === 'drive' ? 'card-drive' : 'card-system');
     if (expanded.matches) card.scrollIntoView({ block: 'start' });
     else supportEl.scrollTop = 0;
     log.follow();
   } else if (expanded.matches) {
     supportEl.scrollTop = 0;
   }
+  // Hold-to-drive belongs to this destination alone. Leaving it lets go of
+  // every key and stops the send; the server's 200 ms deadman finishes the job
+  // a fifth of a second later even if this page never speaks again.
+  drive.setActive(dest === 'drive');
   if (history.replaceState) history.replaceState(null, '', dest === 'scan' ? location.pathname : '?view=' + dest);
 }
 
@@ -190,6 +197,10 @@ radar.init(radarC);
 cloud.init(cloudC);
 log.init(document.getElementById('log'));
 panels.bind(function () { post('/pilot/look', 'look'); }, function () { post('/pilot/stop', 'stop'); });
+// Before selectDest below, which tells it whether it is the destination on
+// screen: hold-to-drive must not be listening for keys on a page showing the
+// scan.
+drive.init(post, say);
 
 const q = new URLSearchParams(location.search);
 selectScanView(q.get('tab') || recall('bibo.scanView') || '2d');

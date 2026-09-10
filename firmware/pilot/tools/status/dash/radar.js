@@ -26,6 +26,7 @@ const INSET = 20;                       // px outside the compass ring
 let canvas = null, ctx = null, W = 0, H = 0;
 let rangeMm = MIN_RANGE_MM, smallerFor = 0;
 let lastScan = null, lastHud = null;
+let showSector = false;     // the Drive destination's forward sector
 
 export function init(c) {
   canvas = c;
@@ -48,6 +49,14 @@ export function draw(scan, hud) {
 }
 
 export function range() { return rangeMm; }
+
+// Drawn only while the Drive destination is showing: the sector the "ahead"
+// number is measured over, so the number and the picture agree.
+export function setSector(on) {
+  if (on === showSector) return;
+  showSector = on;
+  render();
+}
 
 function ringStep(mm) { return mm > 10000 ? 5000 : mm > 5000 ? 2000 : 1000; }
 
@@ -119,6 +128,28 @@ function render() {
     ctx.beginPath();
     ctx.moveTo(cx + sx * (R - len), cy + sy * (R - len)); ctx.lineTo(cx + sx * (R + len), cy + sy * (R + len));
     ctx.stroke();
+  }
+
+  // The forward sector, under everything: a faint primary wedge of the same
+  // half-angle drive.js measures its "ahead" number over. Canvas angles run
+  // from +x and clockwise on screen, so bearing b is b - 90 deg here.
+  if (showSector) {
+    const lim = T.AHEAD_DEG * Math.PI / 180;
+    ctx.fillStyle = C.primary;
+    ctx.globalAlpha = 0.10;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, R, -Math.PI / 2 - lim, -Math.PI / 2 + lim);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.45; ctx.strokeStyle = C.primary; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let s = -1; s <= 1; s += 2) {
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + R * Math.sin(s * lim), cy - R * Math.cos(s * lim));
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
 
   const scan = lastScan;

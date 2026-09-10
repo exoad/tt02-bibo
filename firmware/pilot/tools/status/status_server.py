@@ -51,18 +51,36 @@ and systemd stops the page, the pilot is stopped too and sends STOP to the car
 on its way out. That is the degradation chain working - the link failed and the
 car stopped - not a bug.
 
+DRIVING IT BY HAND. /dash's Drive destination is an RC transmitter: WASD on a
+laptop, arrows under a thumb on a phone, held down. The browser sends steer and
+throttle twenty times a second to /car/open's link, and the Car class here is
+the only thing in this process that opens the Pico. ONE OWNER AT A TIME - the
+pilot process holds that port when it runs, so /car/open refuses while it is
+running and /pilot/look refuses while the manual link is open. Arming is its
+own request and nothing moves until it happens, and three deadmen in a chain
+stop the car when the person stops asking for it: see Car.sender.
+
 BIBO_FEED, BIBO_STATUS_FILE, BIBO_SCAN_FILE, BIBO_PILOT and BIBO_PILOT_ARGS
 override the feed address, the two paths, the pilot binary and its fixed extra
 arguments, so the whole thing can be exercised on a laptop against fakes.
+BIBO_PICO, BIBO_ESC_BAND and BIBO_ALLOW_REVERSE do the same for the car: point
+BIBO_PICO at a pseudo-terminal and the whole manual path can be driven with no
+Pico attached at all.
 """
+import atexit
+import collections
+import errno
+import fcntl
 import glob
 import http.server
 import json
 import os
 import pwd
+import select
 import signal
 import socket
 import subprocess
+import termios
 import threading
 import time
 import urllib.parse
@@ -81,6 +99,44 @@ HOME = pwd.getpwuid(os.getuid()).pw_dir     # systemd's User= does not promise $
 PILOT_BIN = os.environ.get('BIBO_PILOT', os.path.join(HOME, 'build-pilot-app', 'pilot'))
 PILOT_ARGS = os.environ.get('BIBO_PILOT_ARGS', '').split()
 PILOT_LOG = '/tmp/bibo-pilot.log'
+
+# ---- the manual link ------------------------------------------------------
+# The Pico, driven BY HAND from the page. Everything else in this file serves
+# the car that drives itself; this serves the car a person drives, and it is
+# the only thing in this process that opens the Pico's port.
+PICO_PORT = os.environ.get('BIBO_PICO', PICO_DEV)
+NEUTRAL_US = 1500                       # chassis.hxx DRIVE_NEUTRAL_US
+SEND_HZ = 20.0                          # the sender's tick; see Car.sender
+SEND_PERIOD_S = 1.0 / SEND_HZ
+INPUT_DEADMAN_S = 0.200                 # no input for this long and the throttle goes neutral
+DEADMAN_DISARM_TICKS = 2                # ...and after this many ticks of it, disarmed
+WRITE_DEADLINE_S = 0.1                  # a CDC port whose board stopped reading must not hang the sender
+
+
+def esc_band():
+    """The working throttle band, microseconds, from BIBO_ESC_BAND.
+
+    Default 1500..1560 - deliberately gentle. The calibration in
+    lib/chassis/cal.hxx is stale brushed-motor numbers; the QuicRun 10BL160 G2
+    that replaced them maps 1500..2000 nearly linearly, so the old "1600 is a
+    crawl" is not true any more and a wide band on a stand is how something
+    gets broken. Widen it from a measured test, not from here.
+    """
+    parts = os.environ.get('BIBO_ESC_BAND', '1500 1560').split()
+    try:
+        lo, hi = int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return NEUTRAL_US, 1560
+    return (lo, hi) if lo < hi else (NEUTRAL_US, 1560)
+
+
+# Forward only by default, matching the pilot. Note that the FIRMWARE refuses
+# reverse whatever this says: chassis.hxx pins ESC_HARD_MIN at 1500 and clamps
+# both setThrottleLimits() and throttleUs() into it, so a pulse below neutral
+# cannot be commanded at all. The flag is honoured here so this file is not the
+# thing standing in the way once the ESC is in a mode that has a reverse; until
+# then setting it buys nothing.
+ALLOW_REVERSE = bool(os.environ.get('BIBO_ALLOW_REVERSE'))
 
 
 # ---------------------------------------------------------------- the board
@@ -434,6 +490,435 @@ def tail(path):
 pilot = Pilot()
 
 
+# ---------------------------------------------------------------- the car
+
+class Car:
+    """The Pico link for MANUAL driving: one port, one sender, two deadmen.
+
+    ARMING IS A SEPARATE ACT. `armed` starts false and throttle is ignored
+    entirely while it is - every tick sends ESC NEUTRAL - so a page that is
+    merely open cannot move the car. Arming sends ESC ARM; anything that goes
+    wrong disarms.
+
+    SERVO ON IS NOT OPTIONAL, and it is the part that is easy to leave out.
+    The board's steering pin is RELEASED at boot (chassis.hxx rule 1: 1500 us
+    is not a safe place to park a linkage whose horn is a tooth off its
+    spline), and drive::stop() releases it again. STEER only sets a target;
+    pump() writes the pin `if(servoLive)`. So a link that sent nothing but
+    STEER and ESC would get "OK drive ..." back for every command and turn no
+    wheels at all - success reported over a measurement nobody made. SERVO ON
+    goes out on open and again on every arm, because STOP will have dropped it.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.txlock = threading.Lock()
+        self.fd = -1
+        self.port = PICO_PORT
+        self.armed = False
+        self.steer = 0.0
+        self.throttle = 0.0
+        self.clamped = False        # the last input was out of range and was clamped
+        self.esc_us = NEUTRAL_US
+        self.last_input = 0.0       # monotonic; when /car/input last arrived
+        self.had_input = False
+        self.deadman = False        # the 200 ms input deadman is holding the throttle at neutral
+        self.deadman_ticks = 0
+        self.error = ''
+        self.replies = collections.deque(maxlen=8)
+        self.running = False
+        self.threads = []
+        self.band = esc_band()
+
+    # ---- state -------------------------------------------------------------
+
+    def is_open(self):
+        with self.lock:
+            return self.fd >= 0
+
+    def state(self):
+        with self.lock:
+            opened = self.fd >= 0
+            age = None
+            if opened and self.had_input:
+                age = int(max(0.0, time.monotonic() - self.last_input) * 1000)
+            return {'open': opened, 'armed': self.armed,
+                    'steerCmd': round(self.steer, 3), 'throttleCmd': round(self.throttle, 3),
+                    'escUs': self.esc_us, 'port': self.port, 'inputAgeMs': age,
+                    'lastReply': self.replies[-1] if self.replies else '',
+                    'deadman': self.deadman, 'clamped': self.clamped,
+                    'band': list(self.band), 'reverse': ALLOW_REVERSE,
+                    'error': self.error}
+
+    # ---- the port ----------------------------------------------------------
+
+    def open(self):
+        """(code, one line). The pilot owns the Pico when it runs; one owner."""
+        if pilot.state()['running']:
+            return 409, 'the pilot is driving - stop it first'
+        with self.lock:
+            if self.fd >= 0:
+                return 200, 'manual control ready'
+        try:
+            # O_NOCTTY so a modem-control line cannot make this port the
+            # process's controlling terminal and SIGHUP us. O_NONBLOCK so a
+            # board that stopped draining its CDC buffer gives the sender
+            # EAGAIN against a deadline instead of blocking it forever - a
+            # sender thread stuck in write() is a car still holding its last
+            # throttle.
+            fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        except OSError as e:
+            if e.errno in (errno.ENOENT, errno.ENXIO, errno.ENODEV, errno.ENOTDIR):
+                return 404, 'no Pico at %s - is it plugged in?' % self.port
+            if e.errno in (errno.EACCES, errno.EPERM):
+                return 403, 'permission denied on %s - is this user in dialout?' % self.port
+            if e.errno == errno.EBUSY:
+                return 409, 'another program holds %s' % self.port
+            return 500, '%s: %s' % (self.port, e.strerror or e)
+        try:
+            self.raw(fd)
+        except OSError as e:
+            os.close(fd)
+            return 500, '%s opened but is not a serial line: %s' % (self.port, e.strerror or e)
+        with self.lock:
+            self.fd = fd
+            self.armed = False
+            self.steer = 0.0
+            self.throttle = 0.0
+            self.esc_us = NEUTRAL_US
+            self.deadman = False
+            self.deadman_ticks = 0
+            self.had_input = False
+            self.last_input = time.monotonic()
+            self.error = ''
+            self.replies.clear()
+            self.running = True
+            self.threads = [threading.Thread(target=self.reader, args=(fd,), daemon=True),
+                            threading.Thread(target=self.sender, daemon=True)]
+        for t in self.threads:
+            t.start()
+        # The band first, then the steering engaged, then neutral held. Not
+        # ESC ARM: that is the person's own act, through /car/arm.
+        self.send('ESCLIMITS %d %d' % self.band)
+        self.send('SERVO ON')
+        self.send('ESC NEUTRAL')
+        return 200, 'manual control ready'
+
+    def raw(self, fd):
+        """cfmakeraw, by hand: no echo, no canonical mode, no CR/LF translation
+        in either direction, no flow control, VMIN 0 VTIME 0. The line
+        discipline would otherwise eat the bytes the protocol is made of. It is
+        USB CDC so the rate is ignored by the hardware; 115200 is set anyway so
+        the port is not left at whatever the last opener wanted."""
+        mode = termios.tcgetattr(fd)
+        iflag, oflag, cflag, lflag, ispeed, ospeed, cc = mode
+        iflag &= ~(termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP |
+                   termios.INLCR | termios.IGNCR | termios.ICRNL | termios.IXON |
+                   termios.IXOFF | termios.IXANY)
+        oflag &= ~termios.OPOST
+        lflag &= ~(termios.ECHO | termios.ECHONL | termios.ICANON | termios.ISIG | termios.IEXTEN)
+        cflag &= ~(termios.CSIZE | termios.PARENB | termios.CSTOPB | termios.CRTSCTS)
+        cflag |= termios.CS8 | termios.CLOCAL | termios.CREAD
+        cc = list(cc)
+        cc[termios.VMIN] = 0
+        cc[termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSANOW, [iflag, oflag, cflag, lflag,
+                                                termios.B115200, termios.B115200, cc])
+        termios.tcflush(fd, termios.TCIFLUSH)
+        # Exclusive, the way the pilot's carlink takes it: a second opener gets
+        # EBUSY rather than half of every line. Not fatal if the ioctl is
+        # refused - the link works, it is just not alone.
+        try:
+            fcntl.ioctl(fd, termios.TIOCEXCL)
+        except OSError:
+            pass
+
+    def close(self):
+        """Always safe, and safe to call twice."""
+        with self.lock:
+            fd = self.fd
+        if fd < 0:
+            return 200, 'manual control was not open'
+        self.command('STOP')
+        with self.lock:
+            self.armed = False
+            self.running = False
+            self.fd = -1
+            self.steer = self.throttle = 0.0
+            self.esc_us = NEUTRAL_US
+            threads = self.threads
+            self.threads = []
+        for t in threads:
+            t.join(timeout=1.0)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return 200, 'manual control released'
+
+    def lost(self, why):
+        """The board went away under us. Disarm, drop the port, say why."""
+        with self.lock:
+            if self.fd < 0:
+                return
+            fd = self.fd
+            self.fd = -1
+            self.running = False
+            self.armed = False
+            self.esc_us = NEUTRAL_US
+            self.error = why
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+    # ---- writing -----------------------------------------------------------
+
+    def send(self, line):
+        """One command line. False when it did not go."""
+        with self.lock:
+            fd = self.fd
+        if fd < 0:
+            return False
+        data = (line + '\n').encode()
+        end = time.monotonic() + WRITE_DEADLINE_S
+        with self.txlock:
+            while data:
+                try:
+                    n = os.write(fd, data)
+                    data = data[n:]
+                except BlockingIOError:
+                    left = end - time.monotonic()
+                    if left <= 0:
+                        return False        # the board is not taking bytes; the next tick tries again
+                    select.select([], [fd], [], left)
+                except OSError as e:
+                    self.lost('write: %s' % (e.strerror or e))
+                    return False
+        return True
+
+    def command(self, line):
+        """A one-off command from a handler, outside the sender's tick."""
+        return self.send(line)
+
+    # ---- reading -----------------------------------------------------------
+
+    def reader(self, fd):
+        """The board's replies. Every ESC and STEER is answered with an OK
+        drive line, so at 20 Hz this drains 40 lines a second - which is the
+        point: a CDC buffer nobody empties blocks the board's own printf for
+        half a second at a time, and that is the console the car speaks through."""
+        buf = b''
+        while True:
+            with self.lock:
+                if not self.running or self.fd != fd:
+                    return
+            try:
+                r, _, _ = select.select([fd], [], [], 0.1)
+            except OSError:
+                return
+            if not r:
+                continue
+            try:
+                data = os.read(fd, 4096)
+            except BlockingIOError:
+                continue
+            except OSError as e:
+                self.lost('read: %s' % (e.strerror or e))
+                return
+            if not data:
+                # EOF on a tty: the cable came out, or the board rebooted.
+                self.lost('the Pico went away - cable out, or it rebooted')
+                return
+            buf += data
+            while b'\n' in buf:
+                line, buf = buf.split(b'\n', 1)
+                line = line.strip().decode('utf-8', 'replace')
+                if line:
+                    with self.lock:
+                        self.replies.append(line)
+            if len(buf) > 65536:
+                buf = b''
+
+    # ---- the sender --------------------------------------------------------
+
+    def sender(self):
+        """20 Hz, every tick, whether or not anything changed.
+
+        THE DEADMAN IS THREE LAYERS, and each covers a failure the others
+        cannot:
+
+          1. THE BROWSER sends /car/input every 50 ms while anything is held.
+             That is the keepalive; there is no separate one.
+
+          2. THIS SENDER, 200 ms. No input for that long and the throttle goes
+             to NEUTRAL, and after two ticks of it the ESC is disarmed. This
+             covers the tab closing, the tab being backgrounded and throttled
+             by the browser, the phone locking, and Wi-Fi dropping - all of
+             which stop the input arriving and none of which the car can see.
+
+          3. THE PICO, 400 ms (DEADMAN_MS in app/main.cxx). This is the only
+             layer that covers the ORANGE PI ITSELF hanging or the USB link
+             dying, because nothing running on the Pi can save you from the
+             Pi. Do NOT tighten that constant: pilot/app/main.cxx waits up to
+             REV_WAIT_MS = 200 ms for a lidar revolution precisely because it
+             is half of the board's 400, and taking the board to 200 would
+             leave the autonomous path with no margin at all. Manual driving
+             gets its tightness from layer 2 instead.
+
+        Writing at a steady rate is also what keeps layer 3 fed while driving:
+        the board resets its timer on any command line, and STEER is sent every
+        tick even when the throttle is neutral.
+        """
+        next_at = time.monotonic()
+        while True:
+            next_at += SEND_PERIOD_S
+            sleep = next_at - time.monotonic()
+            if sleep > 0:
+                time.sleep(sleep)
+            else:
+                next_at = time.monotonic()      # we fell behind; do not spin to catch up
+
+            with self.lock:
+                if not self.running or self.fd < 0:
+                    return
+                stale = (time.monotonic() - self.last_input) > INPUT_DEADMAN_S
+                if stale:
+                    self.deadman_ticks += 1
+                else:
+                    self.deadman_ticks = 0
+                    # Input is flowing again, so the deadman's own message must
+                    # not outlive the condition it describes. This panel has one
+                    # job - to say why the car is not moving - and "input
+                    # stopped for 200 ms" while input is arriving every 50 ms is
+                    # the one lie it is able to tell. The screen showed exactly
+                    # that: the message sitting there at 61 ms of input age.
+                    if self.error.startswith('input stopped'):
+                        self.error = ''
+                self.deadman = stale
+                disarm = stale and self.armed and self.deadman_ticks >= DEADMAN_DISARM_TICKS
+                if disarm:
+                    self.armed = False
+                    self.throttle = 0.0
+                armed = self.armed
+                steer = self.steer
+                throttle = 0.0 if (stale or not armed) else self.throttle
+                us = self.pulse(throttle) if armed else NEUTRAL_US
+                self.esc_us = us
+
+            self.send('STEER %.3f' % steer)
+            self.send('ESC NEUTRAL' if us == NEUTRAL_US else 'ESC %d' % us)
+            if disarm:
+                # Said after the throttle is already neutral, not before.
+                self.send('ESC DISARM')
+                with self.lock:
+                    self.error = 'input stopped for %d ms - disarmed' % int(INPUT_DEADMAN_S * 1000)
+
+    def pulse(self, throttle):
+        """A throttle fraction onto the working band. 0 is neutral; 1 is the
+        band's top. Reverse mirrors the same span below neutral, and only with
+        BIBO_ALLOW_REVERSE - see the note by ALLOW_REVERSE for why the board
+        will refuse it anyway."""
+        lo, hi = self.band
+        span = hi - lo
+        if throttle > 0:
+            return int(round(lo + throttle * span))
+        if throttle < 0 and ALLOW_REVERSE:
+            return int(round(NEUTRAL_US + throttle * span))
+        return NEUTRAL_US
+
+    # ---- what the page asks for -------------------------------------------
+
+    def arm(self):
+        if not self.is_open():
+            return 409, 'manual control is not open'
+        # SERVO ON again: a STOP since the last arm released the steering, and
+        # a car that steers nothing is the failure this whole class is careful
+        # about. Engaging writes the measured centre immediately.
+        self.send('SERVO ON')
+        if not self.send('ESC ARM'):
+            return 500, 'could not reach the Pico'
+        with self.lock:
+            self.armed = True
+            self.throttle = 0.0
+            self.last_input = time.monotonic()
+            self.deadman_ticks = 0
+            self.error = ''
+        return 200, 'armed - the throttle is live'
+
+    def disarm(self):
+        if not self.is_open():
+            return 409, 'manual control is not open'
+        with self.lock:
+            self.armed = False
+            self.throttle = 0.0
+            self.esc_us = NEUTRAL_US
+        self.send('ESC NEUTRAL')
+        self.send('ESC DISARM')
+        return 200, 'disarmed'
+
+    def input(self, steer, throttle):
+        """The 20 Hz one. Out-of-range values are CLAMPED rather than refused -
+        a joystick that overshoots by a thousandth must not stop the car - and
+        the clamp is reported in the state instead."""
+        if not self.is_open():
+            return 409, 'manual control is not open'
+        clamped = not (-1.0 <= steer <= 1.0 and -1.0 <= throttle <= 1.0)
+        steer = max(-1.0, min(1.0, steer))
+        throttle = max(-1.0, min(1.0, throttle))
+        if throttle < 0 and not ALLOW_REVERSE:
+            throttle = 0.0
+        with self.lock:
+            self.steer = steer
+            self.throttle = throttle
+            self.clamped = clamped
+            self.last_input = time.monotonic()
+            self.had_input = True
+            self.deadman_ticks = 0
+        return 204, ''
+
+    def stop(self):
+        """The emergency one: STOP, disarmed, the command cleared. STOP also
+        releases the steering on the board, which is why arm() re-engages it."""
+        with self.lock:
+            self.armed = False
+            self.steer = self.throttle = 0.0
+            self.esc_us = NEUTRAL_US
+            opened = self.fd >= 0
+        if opened:
+            self.send('ESC NEUTRAL')
+            self.send('STOP')
+        return opened
+
+
+car = Car()
+
+
+def car_stop_all():
+    """The big red button and the space bar: the manual link stopped, and the
+    pilot stopped too if it is the thing driving."""
+    said = []
+    if car.stop():
+        said.append('STOP sent, disarmed')
+    else:
+        said.append('manual control is not open')
+    if pilot.state()['running']:
+        code, text = pilot.stop()
+        said.append('pilot ' + text)
+    return 200, '; '.join(said)
+
+
+def car_shutdown():
+    """Nothing may outlive this process armed."""
+    try:
+        car.close()
+    except Exception:
+        pass
+
+
+atexit.register(car_shutdown)
+
+
 # ---------------------------------------------------------------- the text page
 
 def fmt(value, unit='', missing='unknown'):
@@ -561,13 +1046,17 @@ class Page(http.server.BaseHTTPRequestHandler):
                 self.reply(200, found[0], found[1])
         elif path.startswith('/pilot/'):
             self.reply(405, 'text/plain; charset=utf-8', b'POST, not GET: a page reload must not start a car\n')
+        elif path.startswith('/car/'):
+            self.reply(405, 'text/plain; charset=utf-8',
+                       b'POST, not GET: a page reload must not arm or drive a car\n')
         else:
             me = board()
             text, status, age = lines(me)
             if path.startswith('/json'):
                 body = json.dumps({'lines': text, 'pilot': status, 'pilotAgeS': age,
                                    'host': me['host'], 'addresses': me['addresses'],
-                                   'cpuC': me['cpuC'], 'pilotProc': pilot.state()}).encode()
+                                   'cpuC': me['cpuC'], 'pilotProc': pilot.state(),
+                                   'car': car.state()}).encode()
                 self.reply(200, 'application/json', body)
             else:
                 text.append('dashboard: /dash')
@@ -575,14 +1064,60 @@ class Page(http.server.BaseHTTPRequestHandler):
                            ('<meta http-equiv="refresh" content="2"><pre>%s</pre>\n'
                             % '\n'.join(text)).encode())
 
+    def take_body(self):
+        """The request body, read whole. A body left unread on a kept-alive
+        connection is the next request's first line."""
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            return b''
+        return self.rfile.read(n) if 0 < n <= 65536 else b''
+
     def do_POST(self):
-        # No authentication: the hotspot is the trust boundary, and nothing
-        # here can move the car - look mode touches nothing, stop only stops.
+        # No authentication: the hotspot is the trust boundary. What has
+        # changed since that was written is that something here CAN now move
+        # the car - so the deliberate act is /car/arm, its own request, and
+        # every layer under it holds the car still until somebody makes it.
         path = self.path.split('?', 1)[0]
+        body = self.take_body()
+
+        if path == '/car/input':
+            # The 20 Hz one. 204 and no body: this is answered twenty times a
+            # second per viewer and the cheapest true answer is nothing.
+            try:
+                want = json.loads(body or b'{}')
+                steer = float(want.get('steer', 0.0))
+                throttle = float(want.get('throttle', 0.0))
+            except (ValueError, TypeError, AttributeError):
+                self.reply(400, 'text/plain; charset=utf-8',
+                           b'want {"steer": -1..1, "throttle": -1..1}\n')
+                return
+            code, text = car.input(steer, throttle)
+            if code == 204:
+                self.send_response(204)
+                self.end_headers()
+                return
+            self.reply(code, 'text/plain; charset=utf-8', (text + '\n').encode())
+            return
+
         if path == '/pilot/look':
-            code, text = pilot.start('look')
+            # One owner at a time, said from both sides.
+            if car.is_open():
+                code, text = 409, 'manual control holds the Pico - release it first'
+            else:
+                code, text = pilot.start('look')
         elif path == '/pilot/stop':
             code, text = pilot.stop()
+        elif path == '/car/open':
+            code, text = car.open()
+        elif path == '/car/close':
+            code, text = car.close()
+        elif path == '/car/arm':
+            code, text = car.arm()
+        elif path == '/car/disarm':
+            code, text = car.disarm()
+        elif path == '/car/stop':
+            code, text = car_stop_all()
         else:
             code, text = 404, 'no such control'
         self.reply(code, 'text/plain; charset=utf-8', (text + '\n').encode())
@@ -607,4 +1142,13 @@ class Page(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    # systemd stops this with SIGTERM, and Python's default handler exits
+    # WITHOUT running atexit - which would leave the car armed with nobody
+    # asking it to be. Both signals go out through the shutdown instead.
+    def bye(_signum, _frame):
+        car_shutdown()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, bye)
+    signal.signal(signal.SIGINT, bye)
     http.server.ThreadingHTTPServer(('', PORT), Page).serve_forever()

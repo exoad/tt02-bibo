@@ -36,6 +36,7 @@
 <nav class="nav" aria-label="Destinations">
   <span class="nav-title title-small">bibo</span>
   <button class="nav-item" type="button" data-dest="scan" aria-current="page"><span class="nav-ind state"><i data-icon="radar"></i></span><span class="label-medium">Scan</span></button>
+  <button class="nav-item" type="button" data-dest="drive"><span class="nav-ind state"><i data-icon="gamepad"></i></span><span class="label-medium">Drive</span></button>
   <button class="nav-item" type="button" data-dest="details"><span class="nav-ind state"><i data-icon="list"></i></span><span class="label-medium">Details</span></button>
   <button class="nav-item" type="button" data-dest="log"><span class="nav-ind state"><i data-icon="info"></i></span><span class="label-medium">Log</span></button>
 </nav>
@@ -82,6 +83,42 @@
   </section>
 
   <section class="support scrolls" id="support" aria-label="Details">
+
+    <!-- DRIVE: the car by hand. The big number is the nearest return within
+         +-30 deg of straight ahead - not the global nearest, which is as often
+         a wall beside the car - and the radar draws the same wedge while this
+         destination is showing. Everything below it is hold-to-drive. -->
+    <section class="card card-drive" id="card-drive">
+      <h2 class="title-medium">Drive</h2>
+
+      <div class="ahead">
+        <span class="ahead-v num tone-variant" id="d-ahead">--</span>
+        <span class="ahead-l label-medium">ahead &middot; &plusmn;30&deg;</span>
+      </div>
+
+      <div class="drive-acts">
+        <button class="btn btn-primary state target label-large" id="d-open" type="button"><i data-icon="developer_board" data-size="18"></i>Take manual control</button>
+        <button class="btn btn-tonal state target label-large" id="d-arm" type="button" disabled><i data-icon="speed" data-size="18"></i>ARM</button>
+        <button class="btn btn-error state target label-large" id="d-stop" type="button"><i data-icon="stop" data-size="18"></i>STOP</button>
+      </div>
+
+      <div class="pad" id="pad" role="group" aria-label="Drive pad">
+        <button class="pad-btn state" type="button" data-key="w" aria-pressed="false" aria-label="Forward"><i data-icon="arrow_upward"></i></button>
+        <button class="pad-btn state" type="button" data-key="a" aria-pressed="false" aria-label="Left"><i data-icon="arrow_back"></i></button>
+        <button class="pad-btn state" type="button" data-key="s" aria-pressed="false" aria-label="Brake"><i data-icon="arrow_downward"></i></button>
+        <button class="pad-btn state" type="button" data-key="d" aria-pressed="false" aria-label="Right"><i data-icon="arrow_forward"></i></button>
+      </div>
+
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Link</span></span><span class="li-trail label-large num" id="d-link">closed</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Armed</span></span><span class="li-trail label-large num tone-variant" id="d-armed">no</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Steer</span></span><span class="li-trail label-large num" id="d-steer">0.00</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Throttle</span></span><span class="li-trail label-large num" id="d-throttle">0.00</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">ESC</span></span><span class="li-trail label-large num" id="d-esc">-</span></div>
+      <div class="li plain"><span class="li-body"><span class="li-head body-large">Input age</span></span><span class="li-trail label-large num" id="d-age">-</span></div>
+      <p class="card-note body-medium" id="d-said">link closed - take manual control to drive</p>
+      <p class="card-note body-medium">Hold W A S D or the pad. Space stops everything. Let go and the car stops itself.</p>
+    </section>
+
     <section class="card" id="card-system">
       <h2 class="title-medium">System</h2>
       <div class="li two" id="r-pico"><span class="li-lead"><i data-icon="developer_board"></i></span><span class="li-body"><span class="li-head body-large">Pico link</span><br><span class="li-sup body-medium">no answer</span></span><span class="li-trail label-large num"></span></div>
