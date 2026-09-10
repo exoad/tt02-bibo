@@ -66,4 +66,4 @@ jobs:
           python-version: '3.12'
 
       - name: style audit
-        run: python hub/tools/style_audit.py
+        run: python tools/style_audit.py

@@ -20,4 +20,6 @@ project(bibo CXX)
 # test binaries happily and then reports "No tests were found".
 enable_testing()
 
-add_subdirectory(hub)
+# hub/ was deleted on 2026-09-08 and replaced by a far smaller viewer.
+# add_subdirectory(viewer) goes here once viewer/ has a CMakeLists of its own;
+# viewer/build.bat is the authoritative build either way.

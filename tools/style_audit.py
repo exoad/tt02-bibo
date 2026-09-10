@@ -1,4 +1,4 @@
-"""Audits hub/ against Jack's C++ Style Guide as recorded in docs/conventions.md.
+"""Audits this repo's C++ against Jack's Style Guide as recorded in docs/conventions.md.
 
     python tools/style_audit.py
 
@@ -10,7 +10,14 @@ file is full of prose describing the rules it enforces.
 import io, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.join(HERE, '..', '..')
+
+# ONE level up, not two. This file lived at hub/tools/ until 2026-09-08, where
+# two was right; it now lives at tools/. The moment it moved, every path in
+# DIRS resolved to a directory ABOVE the repo, and the audit scanned nothing at
+# all while still being perfectly runnable - the exact shape of bug this repo
+# keeps finding. The missing-directory check below turned it into twelve loud
+# failures instead of a silent pass, which is what that check is for.
+ROOT = os.path.join(HERE, '..')
 
 
 def at(*parts):
@@ -22,11 +29,10 @@ def at(*parts):
 # that adding a directory is a decision somebody makes - a walk hides the
 # interesting mistake, a directory nobody remembered.
 DIRS = [
-    at('hub', 'src'),
-    at('hub', 'tests'),
-    # board_preview holds only a build/ directory now - no sources. Kept so
-    # whatever lands there tomorrow is scanned.
-    at('hub', 'tests', 'board_preview'),
+    # hub/ was deleted on 2026-09-08 and replaced by a much smaller viewer.
+    # Its entries lived here; viewer/ takes their place the moment it has
+    # sources, and until then this list simply does not name it - a directory
+    # that does not exist is an error below, and an aspiration is not a rule.
     at('lidar', 'bridge'),
     at('firmware', 'lib'),
     at('firmware', 'lib', 'drivers'),

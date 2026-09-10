@@ -59,9 +59,9 @@ call :suite reactive "%HERE%pilot\tests\build_reactive_test.bat"
 call :suite scanwire "%HERE%pilot\tests\build_scanwire_test.bat"
 
 REM ---- 3. the style audit --------------------------------------------------
-python "%ROOT%\hub\tools\style_audit.py" >nul 2>&1
+python "%ROOT%\tools\style_audit.py" >nul 2>&1
 if errorlevel 1 (
-  echo   [FAIL] audit          violations - run hub\tools\style_audit.py
+  echo   [FAIL] audit          violations - run tools\style_audit.py
   set FAIL=1
 ) else (
   echo   [ ok ] audit          0 violations
