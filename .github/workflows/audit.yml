@@ -24,4 +24,4 @@ jobs:
 
       # The audit asks git for untracked files, so it needs a real checkout.
       - name: style audit
-        run: python hub/tools/style_audit.py
+        run: python tools/style_audit.py
