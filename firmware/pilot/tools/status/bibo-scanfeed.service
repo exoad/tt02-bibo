@@ -18,9 +18,8 @@ RestartSec=2
 # no capability is granted.
 NoNewPrivileges=yes
 
-# Deliberately NOT enabled at boot. NetworkManager's dispatcher starts it when
-# the WhoopWhoop hotspot comes up and stops it when it goes down - see
-# 90-bibo-status beside this file, which handles this unit and the status
-# page together. `systemctl start bibo-scanfeed` by hand works any time, for
-# testing on another network. There is no [Install] section, so `systemctl
-# enable` has nothing to do - that is intended.
+# ON WHENEVER THE BOARD IS, for the reason in bibo-status.service: the board
+# lives on the car now, and a feed that only exists on the hotspot is a feed
+# that is missing on the bench. Idle it costs nothing - no client, no lidar.
+[Install]
+WantedBy=multi-user.target
