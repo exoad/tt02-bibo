@@ -158,6 +158,29 @@ namespace link
       Bool stale = false;
   };
 
+  // One JPEG from the car's camera, still true enough to draw.
+  //
+  // The bytes are carried VERBATIM and are not decoded here: this module owns
+  // the wire and the question "is this still true", and a JPEG decoder in it
+  // would put a third-party parser on the network thread. jpeg.cxx decodes, on
+  // the UI thread, once per frame index.
+  struct CameraShot
+  {
+      UInt32 frameIndex = 0;
+      UInt16 width = 0;
+      UInt16 height = 0;
+
+      // Echoed on every frame so a capture is self-describing - 1 is JPEG and
+      // nothing else is defined. Carried rather than assumed, so a frame in
+      // some future codec is refused by name instead of being fed to a decoder
+      // that will find out the hard way.
+      UInt8 codec = 0;
+
+      Vec<UInt8> bytes;
+      Int64 ageMs = 0;
+      Bool stale = false;
+  };
+
   struct Note
   {
       bibowire::Severity severity = bibowire::Severity::SEVERITY_INFO;
@@ -220,6 +243,48 @@ namespace link
       bibowire::CtlState control;
       Int64 controlAtMs = 0;
 
+      // ---- the camera --------------------------------------------------
+      //
+      // Arrives ONLY while this viewer has subscribed to it. CAMERA is
+      // CLASS_BULK and the stream is about 1 MB/s at 640x480, so a viewer that
+      // received it whether or not anybody was looking would spend the scan's
+      // bandwidth on a window that is closed.
+      Bool haveCamera = false;
+      bibowire::Camera camera;
+      Int64 cameraAtMs = 0;
+
+      // Counted, never smoothed - frameIndex is monotonic, so what is missing
+      // is knowable exactly. The same rule the scan's missedRevs follows, and
+      // for the same reason: showing the next picture as though nothing were
+      // dropped hides a link losing half the stream.
+      UInt32 cameraFrames = 0;
+      UInt32 missedCameraFrames = 0;
+      Str cameraGapText;
+
+      // WHAT THIS VIEWER HAS SENT, not what the board has confirmed. There is
+      // no acknowledgement for SUBSCRIBE in the protocol, so this is the
+      // honest name for it: the difference between "we have not asked yet" and
+      // "we asked and nothing came back" is a real distinction for a person
+      // staring at an empty rectangle, and it is the only part of it this end
+      // can actually know. Cleared with the rest of the session, because a
+      // subscription belongs to one connection.
+      Bool cameraSubscribed = false;
+
+      // The board's last sentence ABOUT THE CAMERA, kept apart from the
+      // general note list so the camera window can show it beside the empty
+      // rectangle it explains - "the phone dashboard has /dev/video0" is the
+      // one thing that turns a blank window into an answer.
+      //
+      // Matched on the TEXT, which is a heuristic and is written down as one.
+      // EVENT carries a `code` byte, but bibowire defines no code for the
+      // camera anywhere - not in the document, not in the header, not in its
+      // 312 checks - so there is nothing structured to match on yet. When the
+      // board-side producer lands and claims a code, THIS is the line to
+      // change, and it is one line.
+      Bool haveCameraNote = false;
+      Str cameraNoteText;
+      Int64 cameraNoteAtMs = 0;
+
       // The last frame of ANY type. The silence watchdog reads this and nothing
       // else: a link that is delivering BOARD but no SCAN is a live link with a
       // dead sensor, and those two facts must not share one timer.
@@ -278,6 +343,13 @@ namespace link
       [[nodiscard]] Opt<Decision> decision(Int64 nowMs) const;
       [[nodiscard]] Opt<Board> boardState(Int64 nowMs) const;
       [[nodiscard]] Opt<Control> controlState(Int64 nowMs) const;
+
+      // Empty when the newest frame is too old to draw, exactly like the scan.
+      // A frozen last picture drawn as though it were live is the precise lie
+      // section 7 is written to prevent, and it is worse for a camera than for
+      // the cloud: a photograph of a corridor looks equally convincing whether
+      // it was taken now or forty seconds ago.
+      [[nodiscard]] Opt<CameraShot> cameraShot(Int64 nowMs) const;
 
       // The measured latency, empty until a PONG has actually come back. This is
       // the NETWORK's number and it answers a different question from the ages
@@ -341,6 +413,12 @@ namespace link
       // bounded by one poll slice rather than by a socket timeout.
       Atomic<Bool> quit = false;
       Atomic<Bool> running = false;
+
+      // Set by the UI thread from whether the camera window is open, read by
+      // the worker, which sends SUBSCRIBE whenever it differs from what this
+      // connection last asked for. An atomic rather than a lock because it is
+      // one bit written once a frame and read once a poll slice.
+      Atomic<Bool> cameraOn = false;
   };
 
   // Starts the worker. Returns false when one is already running.
@@ -354,6 +432,32 @@ namespace link
   // Newest-wins: a copy of the most recently published state. The frame loop
   // holds the lock for a memcpy and never for a socket.
   [[nodiscard]] Snapshot snapshot(Client& c);
+
+  // ---- the subscription ------------------------------------------------------
+  //
+  // THE MASK CONVENTION, and it is not this file's invention: bit = tag - 0x10
+  // for tags 0x10..0x2F, settled in firmware/pilot/src/viewfeed.cxx and
+  // asserted by its suite. So CAMERA (0x20) is bit 16.
+  //
+  // The obvious mapping - `1u << (tag & 0x1F)` - is a known bug and not a
+  // simplification: DECIDE (0x11) and SCHEMA (0xF1) collide on it, so
+  // subscribing to one would silently subscribe to the other. A type outside
+  // the telemetry range has no bit and is always sent.
+  [[nodiscard]] UInt32 typeBit(bibowire::Type type);
+
+  // What this viewer asks for. NEVER ZERO, and that is the point: a zero mask
+  // means "everything" to the board, so an unsubscribe spelled as 0 would ask
+  // for more than it started with rather than less. Turning the camera off
+  // names every other type explicitly instead.
+  [[nodiscard]] UInt32 subscriptionMask(Bool withCamera);
+
+  // Ask the board for the camera, or stop asking. Safe from the UI thread and
+  // safe before a connection exists - the worker sends SUBSCRIBE once WELCOME
+  // has arrived, and again after every reconnect, because a new connection has
+  // subscribed to nothing.
+  Void wantCamera(Client& c, Bool on);
+
+  [[nodiscard]] Bool cameraWanted(const Client& c);
 
   // ---------------------------------------------------------------------------
   // SEAM: sending CONTROL and COMMAND - driving the car - goes here.

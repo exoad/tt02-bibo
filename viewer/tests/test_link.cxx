@@ -20,6 +20,15 @@
 //   - anything about CONTROL. This viewer does not send it; the Pico is not
 //     connected to the board, so that path could not be exercised even with a
 //     pilot running.
+//   - THE CAMERA'S SOCKET HALF. The decode path below is driven with
+//     hand-built CAMERA frames and a real JPEG, but no SUBSCRIBE has ever been
+//     put on a wire: the board-side producer is being written in parallel and
+//     no board has ever sent a CAMERA frame. What is proved here is that the
+//     bytes survive the codec and become pixels; what is NOT proved is that
+//     the board answers a subscription, that it stops sending when one is
+//     withdrawn, or that a real camera's JPEG looks like this one.
+//   - the texture upload and the window. Those need a D3D11 device, which is
+//     why the decoder is its own module (jpeg.cxx) and the window is not.
 //
 // The framing, the CRC, the resync and every message body belong to
 // firmware/pilot/src/bibowire.cxx and its 312 checks; this file uses that codec
@@ -31,6 +40,7 @@
 
 #include "bibowire.hxx"
 #include "link.hxx"
+#include "jpeg.hxx"
 
 #include <cmath>
 #include <cstdio>
@@ -251,6 +261,107 @@ static Size pushUnknown(Vec<UInt8>& out)
     const Size n = bibowire::put(h, payload, frame.data(), frame.size());
     out.insert(out.end(), frame.begin(), frame.begin() + static_cast<ISize>(n));
     return n;
+}
+
+// A REAL, DECODABLE JPEG - 16x12, quality 92 - and not a plausible-looking
+// blob, because a blob would prove the framing and quietly prove nothing about
+// the decoder this viewer actually ships.
+//
+// It carries a COM segment holding two kinds of hostile bytes:
+//
+//   - `ff d8 ff` runs, which is what an embedded EXIF thumbnail looks like. A
+//     valid JPEG cannot carry those in its entropy-coded data - 0xFF is always
+//     byte-stuffed - so a comment segment is how they really turn up, and this
+//     one puts them at offsets 6, 12, 14 and 21 as well as at 0.
+//   - `42 57`, which is BIBOWIRE'S OWN FRAME MAGIC, four times over. A reader
+//     that hunted for the magic inside a payload instead of trusting byteLen
+//     would resync in the middle of a picture; this is the byte pattern that
+//     catches it, and testCameraByteAtATime is where it would show.
+static const Array<UInt8, 741> TINY_JPEG = {
+    0xFF, 0xD8, 0xFF, 0xFE, 0x00, 0x18, 0xFF, 0xD8, 0xFF, 0xE0, 0x42, 0x57, 0xFF, 0xD8,
+    0xFF, 0xD8, 0xFF, 0x42, 0x57, 0x42, 0x57, 0xFF, 0xD8, 0xFF, 0x42, 0x57, 0x00, 0x10,
+    0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+    0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x02, 0x02,
+    0x02, 0x03, 0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04, 0x06, 0x04, 0x04, 0x04,
+    0x04, 0x04, 0x08, 0x06, 0x06, 0x05, 0x06, 0x09, 0x08, 0x0A, 0x0A, 0x09, 0x08, 0x09,
+    0x09, 0x0A, 0x0C, 0x0F, 0x0C, 0x0A, 0x0B, 0x0E, 0x0B, 0x09, 0x09, 0x0D, 0x11, 0x0D,
+    0x0E, 0x0F, 0x10, 0x10, 0x11, 0x10, 0x0A, 0x0C, 0x12, 0x13, 0x12, 0x10, 0x13, 0x0F,
+    0x10, 0x10, 0x10, 0xFF, 0xDB, 0x00, 0x43, 0x01, 0x03, 0x03, 0x03, 0x04, 0x03, 0x04,
+    0x08, 0x04, 0x04, 0x08, 0x10, 0x0B, 0x09, 0x0B, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+    0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+    0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+    0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+    0x10, 0x10, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x0C, 0x00, 0x10, 0x03, 0x01, 0x22,
+    0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00, 0x01,
+    0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0xFF, 0xC4,
+    0x00, 0xB5, 0x10, 0x00, 0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04,
+    0x04, 0x00, 0x00, 0x01, 0x7D, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21,
+    0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1,
+    0x08, 0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72, 0x82,
+    0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x34,
+    0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A,
+    0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86,
+    0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2,
+    0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+    0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3,
+    0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+    0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFF,
+    0xC4, 0x00, 0x1F, 0x01, 0x00, 0x03, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0A, 0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x11, 0x00, 0x02, 0x01, 0x02, 0x04,
+    0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00, 0x01, 0x02, 0x77, 0x00, 0x01, 0x02,
+    0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13,
+    0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52,
+    0xF0, 0x15, 0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25, 0xF1, 0x17, 0x18,
+    0x19, 0x1A, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43,
+    0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+    0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77,
+    0x78, 0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93,
+    0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8,
+    0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4,
+    0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9,
+    0xDA, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5,
+    0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFF, 0xDA, 0x00, 0x0C, 0x03, 0x01, 0x00, 0x02, 0x11,
+    0x03, 0x11, 0x00, 0x3F, 0x00, 0xF0, 0x0F, 0xF8, 0x49, 0xB4, 0x3F, 0xF9, 0xFE, 0xFF,
+    0x00, 0xC8, 0x4F, 0xFE, 0x15, 0xF6, 0x7F, 0xFC, 0x28, 0x4F, 0x8B, 0x3F, 0xF4, 0x2A,
+    0x7F, 0xE4, 0xF5, 0xB7, 0xFF, 0x00, 0x1C, 0xAF, 0xCF, 0x4A, 0xFD, 0xCB, 0xAF, 0x6F,
+    0xC4, 0x8F, 0x09, 0xB2, 0x5C, 0x93, 0xEA, 0xBF, 0x57, 0xAB, 0x55, 0xF3, 0xF3, 0xDF,
+    0x9A, 0x50, 0x7B, 0x72, 0x6D, 0x68, 0x2E, 0xE6, 0x7C, 0x73, 0x8F, 0xA9, 0xE2, 0x8F,
+    0xB0, 0xFE, 0xD8, 0x4A, 0x1F, 0x57, 0xE7, 0xE5, 0xF6, 0x5A, 0x5F, 0xDA, 0x72, 0xDF,
+    0x9B, 0x99, 0xCE, 0xF6, 0xE4, 0x56, 0xB5, 0xBA, 0xDE, 0xFD, 0x3F, 0xFF, 0xD9,
+};
+
+static Size pushCamera(Vec<UInt8>& out, UInt32 index, UInt64 tUs, const Vec<UInt8>& pic)
+{
+    bibowire::Camera m;
+    m.tMonoUs = tUs;
+    m.frameIndex = index;
+    m.width = 16;
+    m.height = 12;
+    m.codec = 1;
+    m.flags = 0;
+    m.data = pic;
+    Vec<UInt8> body(4096, 0);
+    const Size n = bibowire::writeCamera(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_CAMERA, body.data(), n);
+}
+
+[[nodiscard]] static UInt8 channelAt(const jpeg::Picture& pic, Int32 x, Int32 y, Int32 ch)
+{
+    const Size row = static_cast<Size>(y) * static_cast<Size>(pic.width);
+    const Size at = ((row + static_cast<Size>(x)) * 4u) + static_cast<Size>(ch);
+    return at < pic.rgba.size() ? pic.rgba[at] : 0u;
+}
+
+// JPEG is lossy, so the tolerance is real. The numbers it is compared against
+// are what PIL decoded the SAME bytes to, which makes this a comparison
+// between two independent decoders rather than against what was painted.
+[[nodiscard]] static Bool nearByte(UInt8 got, Int32 want)
+{
+    const Int32 delta = static_cast<Int32>(got) - want;
+    return delta > -24 && delta < 24;
 }
 
 static Size feed(link::Session& s, const Vec<UInt8>& bytes, Int64 nowMs)
@@ -721,6 +832,244 @@ static Void testSilenceInput()
     check(s.frames == 1u, "and is counted as a frame");
 }
 
+static Void testCameraFrames()
+{
+    std::printf("\n-- a CAMERA frame, carried verbatim --\n");
+
+    // The array is the whole file, not a truncated paste: a short one would
+    // zero-fill silently and every check below would still be testing
+    // something, just not a JPEG.
+    check(TINY_JPEG[TINY_JPEG.size() - 1] == 0xD9u, "the sample ends with a JPEG EOI");
+
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCamera(wire, 7, 1000000, jpegBytes));
+
+    link::Session s;
+    const Size used = feed(s, wire, 1000);
+    check(used == wire.size(), "the whole camera frame is consumed");
+    check(s.haveCamera, "a camera frame arrived");
+    check(s.cameraFrames == 1u, "and is counted");
+    check(s.camera.frameIndex == 7u, "with its frame index");
+    check(s.camera.width == 16u && s.camera.height == 12u, "and its dimensions");
+    check(s.camera.codec == 1u, "and its codec tag, echoed rather than assumed");
+
+    // THE BYTES, EXACTLY. The payload contains bibowire's own frame magic and
+    // five ff d8 ff runs; a reader that scanned for either instead of trusting
+    // byteLen would have truncated the picture here.
+    check(s.camera.data.size() == jpegBytes.size(), "the JPEG is the length it was sent at");
+    check(s.camera.data == jpegBytes, "and is byte-for-byte what the board sent");
+
+    // A reconnect subscribes to nothing and carries no picture: the board
+    // keeps no subscription across a session, so neither may this.
+    s.cameraSubscribed = true;
+    link::clearSession(s);
+    check(!s.cameraSubscribed, "a reconnect subscribes to nothing");
+    check(!s.haveCamera, "and carries no picture across");
+}
+
+static Void testCameraByteAtATime()
+{
+    std::printf("\n-- the same camera frame, one byte at a time --\n");
+
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+    Vec<UInt8> wire;
+    static_cast<Void>(pushScan(wire, scanOf(3, 900000)));
+    static_cast<Void>(pushCamera(wire, 1, 1000000, jpegBytes));
+    static_cast<Void>(pushScan(wire, scanOf(4, 1100000)));
+
+    link::Session drip;
+    Vec<UInt8> ring;
+    for(Size i = 0; i < wire.size(); ++i)
+    {
+        ring.push_back(wire[i]);
+        const Size used = link::ingestBytes(drip, ring.data(), ring.size(), 1000);
+        ring.erase(ring.begin(), ring.begin() + static_cast<ISize>(used));
+    }
+
+    check(ring.empty(), "nothing is left over when the last byte lands");
+    check(drip.haveCamera, "the camera frame is reassembled");
+    check(drip.camera.data == jpegBytes, "byte for byte, across every split");
+    check(drip.revIndex == 4u, "and the scan after it still parses");
+
+    // THE ONE THAT MATTERS. The JPEG contains `42 57` four times, which is the
+    // frame magic. A single resynced byte here would mean the reader had gone
+    // looking for structure inside a payload it was already told the length of.
+    check(drip.resyncBytes == 0u, "with no resync inside the picture");
+}
+
+static Void testCameraDecodes()
+{
+    std::printf("\n-- and it is a picture stb_image can actually read --\n");
+
+    // The thing a hand-built frame cannot prove on its own: that what came off
+    // the wire is a real JPEG, and that the decoder this viewer ships turns it
+    // into the pixels the camera saw.
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCamera(wire, 11, 1000000, jpegBytes));
+
+    link::Session s;
+    static_cast<Void>(feed(s, wire, 1000));
+
+    const Opt<link::CameraShot> shot = s.cameraShot(1000);
+    check(shot.has_value(), "a fresh camera frame is there to draw");
+    if(!shot.has_value())
+    {
+        return;
+    }
+
+    jpeg::Picture pic;
+    Str why;
+    const Bool ok = jpeg::decode(shot->bytes.data(), shot->bytes.size(), &pic, &why);
+    check(ok, "the JPEG decodes");
+    if(!ok)
+    {
+        std::printf("        %s\n", why.c_str());
+        return;
+    }
+
+    check(pic.width == 16 && pic.height == 12, "to the size the frame claimed");
+    check(pic.rgba.size() == 16u * 12u * 4u, "with four bytes a pixel, RGBA");
+
+    // Four quadrants, sampled well inside each, so a swapped row or column
+    // order is a failure rather than a rounding difference.
+    check(nearByte(channelAt(pic, 4, 3, 0), 203), "top-left is red");
+    check(nearByte(channelAt(pic, 12, 3, 1), 199), "top-right is green");
+    check(nearByte(channelAt(pic, 4, 9, 2), 205), "bottom-left is blue");
+    check(nearByte(channelAt(pic, 12, 9, 0), 231), "bottom-right is near white");
+
+    // A JPEG has no alpha to read, so reqComp 4 must synthesise an opaque one.
+    // A 0 here would upload a fully transparent texture - a window that is
+    // empty for a reason nobody would think to look for.
+    check(channelAt(pic, 8, 6, 3) == 255u, "and every pixel is opaque");
+
+    // Refusals are sentences, not silence.
+    jpeg::Picture bad;
+    Str badWhy;
+    const Array<UInt8, 4> notAPicture = { 0x00, 0x01, 0x02, 0x03 };
+    const Bool refused =
+        jpeg::decode(notAPicture.data(), notAPicture.size(), &bad, &badWhy);
+    check(!refused, "bytes that are not a picture are refused");
+    check(!badWhy.empty(), "with a sentence saying so");
+    check(bad.rgba.empty(), "and nothing half-decoded to draw");
+}
+
+static Void testCameraStaleness()
+{
+    std::printf("\n-- a camera frame too old to draw is not drawn --\n");
+
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCamera(wire, 1, 0, jpegBytes));
+
+    link::Session s;
+    static_cast<Void>(feed(s, wire, 1000));
+
+    check(s.cameraShot(1000).has_value(), "a fresh frame is there to draw");
+    check(!s.cameraShot(1000)->stale, "and is not marked stale");
+    check(s.cameraShot(1401).has_value(), "at 401 ms it is still drawable");
+    check(s.cameraShot(1401)->stale, "but is marked stale");
+    check(s.cameraShot(1401)->ageMs == 401, "with its age");
+
+    // Past 1500 ms there is NO PICTURE AT ALL. A photograph of a corridor is
+    // equally convincing whether it was taken now or forty seconds ago - there
+    // is nothing in the image for a person to read the age off - which is why
+    // the band above stale is absence rather than a dimmer picture.
+    check(!s.cameraShot(2501).has_value(), "past 1500 ms there is nothing to draw");
+
+    // While the session still knows one arrived, so the window can say "no
+    // camera frame for 3.2 s" instead of "not subscribed".
+    check(s.haveCamera, "while the session still knows one arrived");
+
+    check(!s.cameraShot(900).has_value(), "a clock that went backwards reads as gone");
+}
+
+static Void testCameraGaps()
+{
+    std::printf("\n-- camera gaps are counted, never smoothed --\n");
+
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCamera(wire, 90, 1000000, jpegBytes));
+    static_cast<Void>(pushCamera(wire, 95, 1400000, jpegBytes));
+
+    link::Session s;
+    static_cast<Void>(feed(s, wire, 1000));
+    check(s.missedCameraFrames == 4u, "four missing frames are counted");
+    checkStr(s.cameraGapText, "frames 91-94 missing", "and named exactly");
+    check(s.cameraFrames == 2u, "while the two that arrived are counted too");
+    check(s.camera.frameIndex == 95u, "and the newest is the one kept");
+}
+
+static Void testCameraRefusal()
+{
+    std::printf("\n-- why there is no picture, in the board's own words --\n");
+
+    link::Session s;
+    check(!s.haveCameraNote, "nothing is claimed before the board says anything");
+
+    Vec<UInt8> wire;
+    static_cast<Void>(
+        pushEvent(wire, "camera busy - the phone dashboard holds /dev/video0", 0)
+    );
+    static_cast<Void>(feed(s, wire, 1000));
+
+    check(s.haveCameraNote, "an EVENT about the camera is kept where the window can show it");
+    checkStr(
+        s.cameraNoteText,
+        "camera busy - the phone dashboard holds /dev/video0",
+        "verbatim, because the sentence is the part a person can act on"
+    );
+    check(s.notes.size() == 1, "and it is still an ordinary note as well");
+
+    // An EVENT about something else must not be dressed up as a camera
+    // refusal: an empty window blaming the wrong subsystem is worse than an
+    // empty window.
+    Vec<UInt8> other;
+    static_cast<Void>(pushEvent(other, "lidar timeout - no revolution in 200 ms", 0));
+    static_cast<Void>(feed(s, other, 1010));
+    checkStr(
+        s.cameraNoteText,
+        "camera busy - the phone dashboard holds /dev/video0",
+        "and an unrelated EVENT does not replace it"
+    );
+}
+
+static Void testSubscriptionMask()
+{
+    std::printf("\n-- the mask, which is why any of this arrives at all --\n");
+
+    // bit = tag - 0x10, settled in firmware/pilot/src/viewfeed.cxx. CAMERA is
+    // 0x20, so it is bit 16 - NOT bit 0, which is what the naive
+    // `1u << (tag & 0x1F)` gives it, and which is the same bug that puts
+    // DECIDE and SCHEMA on one bit.
+    check(link::typeBit(bibowire::Type::TYPE_SCAN) == 1u, "SCAN is bit 0");
+    check(link::typeBit(bibowire::Type::TYPE_DECIDE) == 2u, "DECIDE is bit 1");
+    check(link::typeBit(bibowire::Type::TYPE_CAMERA) == 65536u, "CAMERA is bit 16");
+    check(link::typeBit(bibowire::Type::TYPE_SCHEMA) == 0u, "SCHEMA has no bit");
+    check(
+        link::typeBit(bibowire::Type::TYPE_DECIDE) != link::typeBit(bibowire::Type::TYPE_SCHEMA),
+        "so DECIDE and SCHEMA cannot collide"
+    );
+
+    const UInt32 without = link::subscriptionMask(false);
+    const UInt32 with = link::subscriptionMask(true);
+
+    // A ZERO MASK MEANS EVERYTHING to the board, so the mask that switches the
+    // camera off must never be 0 - it would ask for MORE than it started with,
+    // and the only symptom would be a bandwidth figure nobody is watching.
+    check(without != 0u, "the no-camera mask is never zero");
+    check((without & 65536u) == 0u, "and does not claim the camera");
+    check((with & 65536u) != 0u, "while the camera mask does");
+    check(with == (without | 65536u), "and differs in exactly that one bit");
+
+    // Everything this viewer draws survives turning the camera off.
+    check((without & link::typeBit(bibowire::Type::TYPE_SCAN)) != 0u, "the scan survives");
+    check((without & link::typeBit(bibowire::Type::TYPE_EVENT)) != 0u, "so do the sentences");
+}
+
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
@@ -741,6 +1090,13 @@ int main()
     testVersionRule();
     testBackoff();
     testSilenceInput();
+    testCameraFrames();
+    testCameraByteAtATime();
+    testCameraDecodes();
+    testCameraStaleness();
+    testCameraGaps();
+    testCameraRefusal();
+    testSubscriptionMask();
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

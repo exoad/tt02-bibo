@@ -19,6 +19,11 @@ set "BUILD=%ROOT%build"
 set "OBJ=%BUILD%\obj"
 set "IMGUI=%ROOT%..\third_party\imgui"
 
+rem  stb_image, for the camera window's JPEG decode. Same arrangement as Dear
+rem  ImGui: third_party\ is gitignored and this is CLONED, never vendored - see
+rem  THIRD_PARTY.md, which records the version and the licence.
+set "STB=%ROOT%..\third_party\stb"
+
 rem  The board's source tree. bibowire.cxx is compiled INTO this exe rather than
 rem  copied or reimplemented: docs/bibowire.md section 11 requires the viewer and
 rem  the pilot to share the object file so the encoder and the decoder cannot
@@ -41,6 +46,13 @@ if not exist "%IMGUI%\imgui.cpp" (
     exit /b 1
 )
 
+if not exist "%STB%\stb_image.h" (
+    echo [error] stb_image.h not found at %STB%
+    echo         It is gitignored - see .gitignore and THIRD_PARTY.md.
+    echo         git clone --depth 1 https://github.com/nothings/stb third_party\stb
+    exit /b 1
+)
+
 rem --- MSVC x64 env. find_vs.bat puts the VS Installer directory on PATH, which
 rem  is what stops vcvarsall printing "vswhere.exe is not recognized" first.
 echo [env] Visual Studio x64
@@ -56,7 +68,7 @@ if not exist "%BUILD%" mkdir "%BUILD%"
 if not exist "%OBJ%"   mkdir "%OBJ%"
 
 set "CFLAGS=/nologo /c /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS"
-set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%PILOT%""
+set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%STB%" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%PILOT%""
 
 rem --- Dear ImGui core + the win32/dx11 backends, compiled once and cached.
 rem  imgui_demo.cpp is NOT built: nothing here shows the demo window.

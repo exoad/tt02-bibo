@@ -30,11 +30,23 @@ REM  link.hxx of its own (the Pico's carlink) and this file includes "link.hxx".
 REM  With the board's directory ahead of the viewer's, this test silently
 REM  compiled against the wrong header - it is viewer\build.bat's order, for the
 REM  same reason.
+if not exist "%HERE%..\..\third_party\stb\stb_image.h" (
+  echo [test] stb_image.h not found - it is gitignored, see THIRD_PARTY.md
+  echo        git clone --depth 1 https://github.com/nothings/stb third_party\stb
+  exit /b 1
+)
+
+REM  jpeg.cxx is compiled in because the camera's DECODE is exercised here, on
+REM  a real JPEG, with no board and no graphics device. That is the whole
+REM  reason the decoder is its own module and not part of camera.cxx, which
+REM  owns a D3D11 texture and could not be linked into a console test.
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\src" /I"%HERE%..\..\shared" ^
   /I"%HERE%..\..\firmware\pilot\src" /I"%HERE%..\..\third_party\imgui" ^
+  /I"%HERE%..\..\third_party\stb" ^
   "%HERE%test_link.cxx" ^
   "%HERE%..\src\link.cxx" ^
+  "%HERE%..\src\jpeg.cxx" ^
   "%HERE%..\..\firmware\pilot\src\bibowire.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_link.exe" ^
