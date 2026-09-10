@@ -129,7 +129,7 @@ enum class Take
 };
 ```
 
-**Resync is deterministic.** Scan forward for the pair `0x42 0x57`; reject the candidate unless `type` is a known tag, `ver` is nonzero, `len <= MAX_PAYLOAD` and `len % 4 == 0` and the CRC over the whole candidate verifies. Otherwise advance **exactly one byte** and try again. Magic plus CRC together put a false frame lock near 2⁻⁴⁸ per candidate rather than the 2⁻¹⁶ a magic alone would give.
+**Resync is deterministic.** Scan forward for the pair `0x42 0x57`; reject the candidate unless `type` is a known tag, `ver` is nonzero, `len <= MAX_PAYLOAD` and `len % 4 == 0` and the CRC over the whole candidate verifies. Otherwise advance **exactly one byte** and try again. (The known-tag condition belongs to *resync only* — scanning forward for a lock. At a frame boundary the CRC alone decides, or an unknown type could not be skipped and §7's promise would be false. See §12.1.) Magic plus CRC together put a false frame lock near 2⁻⁴⁸ per candidate rather than the 2⁻¹⁶ a magic alone would give.
 
 **Field access is by explicit `rd16`/`rd32`/`rd64` `memcpy` helpers, never by casting a struct pointer at the payload.** On LE both compile to a single load, and the helper version cannot be silently broken by a compiler's padding decision or by an aarch64 alignment fault on a field added next year.
 
@@ -1141,3 +1141,66 @@ The deadman lives in `bibowire::deadman` exactly as shown in §6, and `Refuse` i
 40. The reverse-path probe emits its `EVENT` when no `CONTROL` datagram arrives within 1000 ms of `WELCOME`.
 
 The whole pure suite is exactly that — **pure**: no socket, no clock, no device. That is the property that let `scanwire`, `proto` and `reactive` be trusted before the hardware they describe was plugged in, and it is the only reason a deadman gets tested more than once.
+
+## 12. What the implementation found
+
+Nine places where this document, read literally, could not be implemented. They are
+recorded here rather than quietly fixed in code, because the socket half and the
+viewer client still get written from this file and would otherwise rediscover each
+one — or resolve it the other way. Where the prose above and
+`firmware/pilot/src/bibowire.cxx` disagree, **the code and its 312 checks win.**
+
+**12.1 The known-tag test is a resync filter, not an acceptance test.** §3 rejects a
+candidate whose `type` is not a known tag. §5, §7 and case 11 promise that an
+unknown type is skipped by exactly `len` and is never fatal. Both cannot hold at
+one test. The known-tag condition applies only while scanning forward for a lock,
+never at a frame boundary, where the CRC alone is enough. Implemented the other
+way, case 11 cannot pass and an older viewer stops being able to drive a newer
+board — the one property §7 says the length prefix exists to buy.
+
+**12.2 `TAKE_TOO_BIG` and `TAKE_BAD_FLAG` must also require a known tag.** Found by
+a test, not by reading. Without it, four bytes of junk that happen to spell the
+magic with a nonzero `ver` close a healthy connection instead of being resynced
+past. A terminal answer now needs `atBoundary && knownType`.
+
+**12.3 `WELCOME` puts `u64 boardMonoUs` at offset 28**, which §3's "every field
+naturally aligned" forbids. The byte layout is authoritative. The problem is wider
+than one field: a payload starts at frame offset 12, so **no `u64` in any body is
+8-aligned relative to the frame**. The alignment claim is true only of a payload
+considered alone — which is exactly why the `memcpy` helpers are load-bearing
+rather than stylistic.
+
+**12.4 §4's "lower `ver` → sentinels" has no instance in v1.0.** `ver` starts at 1
+and every field exists at v1, so a lower `ver` can only be 0, which is invalid
+framing. The higher-`ver` prefix rule is implemented and tested, as are the
+sentinel semantics that do ship. The lower-`ver` branch waits for a type to reach
+v2 rather than being written blind.
+
+**12.5 Case 8's `len = 0xFFFFFFFF` never reaches the size bound** — `len % 4 == 0`
+rejects it first, so the case as written tests a different rule than it claims.
+Both mechanisms are now tested separately, with `0xFFFFFFFC` for the real
+`TOO_BIG` path.
+
+**12.6 §5 leaves the class column "—" for `CTLSTATE`, `CONTROL`, `COMMAND` and
+`SUBSCRIBE`**, while §11 fixes `Class` at three members. All four are
+`CLASS_VITAL`, the answer that cannot silently drop. Open question for the socket
+half: `CTLSTATE` mirrored onto TCP at 20 Hz as never-droppable may want
+special-casing, since a vital frame that cannot be queued closes the client.
+
+**12.7 `BYE_VERSION` collided with the `Bye` message struct.** The enum is `Reason`
+with `REASON_*` members. Wire values are unchanged.
+
+**12.8 Case 28, read literally, lets a released enable downgrade a DEAD link to
+SOFT.** The precedence is estop, then dead, then soft-by-age, then
+soft-by-refusal, with the boundary asserted explicitly.
+
+**12.9 Cases 35–40 are the socket suite and are not implemented.** They belong to
+`test_viewfeed.cxx` beside the `viewfeed` half, which does not exist yet. Cases
+1–34 are implemented and the test file's header says which.
+
+**Status.** The pure suite runs **312 checks**, against the ≥140 §11 asks for. A
+known limit, commented rather than papered over: the catalog's `static_assert`s
+prove it covers `ALL_TYPES`, that tags are unique, and that the hand-written
+`knownType` switch agrees with the table across all 256 tags — so adding a `Type`
+and forgetting *either* fails to compile. Adding one and forgetting *both* is not
+compile-detectable without reflection.
