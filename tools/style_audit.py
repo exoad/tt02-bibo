@@ -33,6 +33,12 @@ DIRS = [
     # Its entries lived here; viewer/ took their place the moment it had
     # sources, which it now does - one window, one 3D view, three panels.
     at('viewer', 'src'),
+    # The viewer's own suite, added 2026-09-10 when it first had sources. It was
+    # format-gated from the moment it existed - format.py reads untracked files
+    # now - but NOT style-audited, so its C++ was held to half the rules for as
+    # long as this line was missing. A directory that compiles and is checked by
+    # one gate and not the other is the quietest kind of gap.
+    at('viewer', 'tests'),
     at('lidar', 'bridge'),
     at('firmware', 'lib'),
     at('firmware', 'lib', 'drivers'),
