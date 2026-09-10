@@ -493,8 +493,24 @@ ROOT = os.path.join(HERE, '..')
 
 
 def sources():
-    return [f for f in subprocess.check_output(
-                ['git', 'ls-files'], cwd=ROOT).decode().split()
+    # TRACKED AND UNTRACKED BOTH. `git ls-files` on its own lists only what is
+    # already committed, so a brand-new .cxx is INVISIBLE to this gate until the
+    # very commit that adds it - and firmware\verify.bat happily prints
+    # "format 0 violations" having measured nothing at all about the one file
+    # somebody is actually writing.
+    #
+    # Found 2026-09-10: src/archive.cxx and tests/test_archive.cxx were clean by
+    # that reckoning and had 66 call-wrapping violations the moment they were
+    # named on the command line. The gate would have gone red on the commit that
+    # introduced them, which is the worst possible moment to learn it.
+    #
+    # --others adds the untracked ones; --exclude-standard keeps .gitignore's
+    # word, so build trees and vendor/ do not arrive through the back door. The
+    # two lists are disjoint by definition, so nothing is checked twice.
+    listed = subprocess.check_output(['git', 'ls-files'], cwd=ROOT).decode().split()
+    listed += subprocess.check_output(
+                  ['git', 'ls-files', '--others', '--exclude-standard'], cwd=ROOT).decode().split()
+    return [f for f in listed
             if f.endswith(('.cxx', '.hxx'))
             and not f.startswith('vendor/') and 'third_party' not in f]
 
