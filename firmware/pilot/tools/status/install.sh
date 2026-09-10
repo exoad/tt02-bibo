@@ -10,7 +10,8 @@
 #      build directory (~jack/build-pilot-app/scanfeed). The unit is installed
 #      whether or not the binary exists yet, since the checkout can be built
 #      after this runs; the script says loudly when it is missing.
-#   3. the NetworkManager dispatcher hook that starts/stops BOTH with WhoopWhoop
+#   3. both units enabled at boot, so the dashboard and the feed are up
+#      whenever the car is powered - on the hotspot, at home, anywhere
 #   4. mDNS, so the page is http://bibobox.local/ (the phone hands out a
 #      different address every outing; the name holds). Two switches, because
 #      on Ubuntu 22.04 (systemd 249) a profile's mDNS=yes can never exceed
@@ -22,8 +23,7 @@
 #      home Wi-Fi while the phone's hotspot comes up beside it. The timer asks
 #      every 20 s and switches; and the hotspot profile gets a higher
 #      autoconnect priority so a boot with both in the air picks it outright.
-#   6. starts both services now if the hotspot is already up, since the
-#      dispatcher only fires on the NEXT connect
+#   6. starts both services now
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -46,7 +46,10 @@ if [ ! -x "$SCANFEED" ]; then
     echo "      cmake --build $SERVICE_HOME/build-pilot-app -j"
 fi
 
-install -m 755 "$HERE/90-bibo-status" /etc/NetworkManager/dispatcher.d/90-bibo-status
+# The hotspot dispatcher that used to start these is gone: the board lives on
+# the car, and tying the dashboard to one network meant it was dead on the
+# bench. Remove it if an older install left it behind.
+rm -f /etc/NetworkManager/dispatcher.d/90-bibo-status
 
 # The page restarts itself when its files change on disk (a git pull), so the
 # routine after a pull is "reload the page", not "find someone with root".
@@ -59,6 +62,7 @@ sed "s|ExecStart=.*|ExecStart=/bin/sh $HERE/prefer-hotspot.sh|" \
 chmod 644 /etc/systemd/system/bibo-prefer-hotspot.service
 install -m 644 "$HERE/bibo-prefer-hotspot.timer" /etc/systemd/system/bibo-prefer-hotspot.timer
 systemctl daemon-reload
+systemctl enable bibo-status.service bibo-scanfeed.service > /dev/null 2>&1
 systemctl enable --now bibo-prefer-hotspot.timer > /dev/null 2>&1
 systemctl enable --now bibo-status.path > /dev/null 2>&1
 echo "page follows the checkout: a pull restarts it ($(systemctl is-active bibo-status.path))"
@@ -77,17 +81,19 @@ else
     echo "no WhoopWhoop profile - profile mDNS not touched; add the hotspot profile first"
 fi
 
+systemctl restart bibo-status.service
+echo "page: http://$(hostname).local/ or http://$(hostname -I | cut -d' ' -f1)/"
+if [ -x "$SCANFEED" ]; then
+    systemctl restart bibo-scanfeed.service
+    echo "scan feed: nc $(hostname).local 8011"
+else
+    echo "scan feed NOT started: build it first (see above), then systemctl start bibo-scanfeed"
+fi
+
+# mDNS on the LIVE link, only when the hotspot is the live link: resolvectl
+# sets the running state, and there is no running hotspot link to set here
+# otherwise. The profile setting above covers the next connect.
 if nmcli -t -f NAME connection show --active | grep -qx WhoopWhoop; then
     resolvectl mdns wlan0 yes
     echo "wlan0 now: $(resolvectl status wlan0 | grep -i protocols | sed 's/^ *//')"
-    systemctl restart bibo-status.service
-    echo "hotspot is up now: page started - http://$(hostname).local/ or http://$(hostname -I | cut -d' ' -f1)/"
-    if [ -x "$SCANFEED" ]; then
-        systemctl restart bibo-scanfeed.service
-        echo "scan feed started - nc $(hostname).local 8011"
-    else
-        echo "scan feed NOT started: build it first (see above), then systemctl start bibo-scanfeed"
-    fi
-else
-    echo "installed; the page and the scan feed will start when WhoopWhoop connects"
 fi

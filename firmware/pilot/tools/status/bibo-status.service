@@ -12,8 +12,10 @@ RestartSec=2
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
 
-# Deliberately NOT enabled at boot. NetworkManager's dispatcher starts it when
-# the WhoopWhoop hotspot comes up and stops it when it goes down - see
-# 90-bibo-status beside this file. `systemctl start bibo-status` by hand works
-# any time, for testing on another network. There is no [Install] section, so
-# `systemctl enable` has nothing to do - that is intended.
+# ON WHENEVER THE BOARD IS. This used to start only on the phone's hotspot, on
+# the reasoning that at home the board is reached over ssh anyway. Then the Pi
+# went ON THE CAR, and the rule's real effect was that the dashboard was dead
+# every time the hotspot happened to be off - including while wiring the car on
+# the bench, which is exactly when you want to look at it.
+[Install]
+WantedBy=multi-user.target

@@ -132,10 +132,16 @@ cannot exceed the global one, which ships off). Windows and phones resolve
 phone has data. The hub's "car's address" field accepts a hostname for the same
 reason.
 
-While the car is out, the Pi serves one plain-text page - `http://bibobox.local/`,
-CPU temperature, lidar and Pico state from the pilot, refreshed every two
-seconds - for the phone walking behind it. It comes up with the hotspot and
-goes down with it (`firmware/pilot/tools/status/`).
+The Pi serves the dashboard at `http://bibobox.local/dash` - the live scan, the
+pilot's decision, the board's own state, and the manual driving controls - to a
+phone walking behind the car or a laptop on the same network. The board serves
+data and static files; every pixel is drawn by the client
+(`firmware/pilot/tools/status/`).
+
+It runs **whenever the board is powered**, on any network. It used to start only
+on the hotspot, on the reasoning that at home the board is reached over ssh
+anyway; once the Pi moved onto the car that rule's only real effect was a dead
+dashboard on the bench, which is exactly when it is wanted.
 
 The earlier plan - the Pico 2 W running its own AP that the laptop joins
 directly - is superseded by the hotspot for the same three members; the
