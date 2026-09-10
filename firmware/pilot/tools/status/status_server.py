@@ -453,6 +453,7 @@ class Camera:
         self.frames = 0            # since this capture started; 0 is a camera that never delivered
         self.why = 'camera idle'
         self.proc = None
+        self.fails = 0             # consecutive captures that died inside a second
         threading.Thread(target=self.loop, daemon=True).start()
 
     def want(self):
@@ -536,6 +537,10 @@ class Camera:
                     self.frame = None
                     self.frames = 0
                     self.why = 'camera idle'
+                # Nobody is watching, so the next person to look starts from a
+                # clean slate rather than serving out a backoff earned by a
+                # camera that was unplugged an hour ago.
+                self.fails = 0
                 time.sleep(0.2)
                 continue
             if not os.path.exists(CAM_DEV):
@@ -551,13 +556,24 @@ class Camera:
                 continue
             with self.lock:
                 self.proc = proc
+            started = time.time()
             try:
                 self.pump(proc)
             except OSError:
                 self.note('camera read failed')
             finally:
                 self.kill(proc)
-            time.sleep(0.5)
+            # A capture that dies immediately, over and over, is a device that
+            # is not going to work this second - a camera unplugged mid-stream,
+            # or something else holding it. Retrying twice a second for as long
+            # as somebody leaves the tab open is thousands of spawns an hour
+            # against a board whose whole job is elsewhere, so a run shorter
+            # than a second earns a longer wait, to a ceiling of four.
+            if time.time() - started < 1.0:
+                self.fails = min(self.fails + 1, 8)
+            else:
+                self.fails = 0
+            time.sleep(min(0.5 * (1 + self.fails), 4.0))
 
     def pump(self, proc):
         buf = b''
@@ -588,6 +604,16 @@ class Camera:
                 self.note('camera resyncing')
 
     def kill(self, proc):
+        """Ends the capture AND REAPS IT. Both halves matter.
+
+        A child that has been killed is not gone: it stays a zombie holding a
+        slot in the process table until its parent waits on it, and this parent
+        is a long-lived service that starts a new capture every time somebody
+        looks at the page. The first version called kill() on the timeout path
+        and never waited again, which leaks one entry per stuck capture - and a
+        board that cannot spare a process table entry cannot fork anything,
+        including the child sshd needs to answer a connection. Reaping is one
+        line and the failure it prevents locks you out of the machine."""
         try:
             proc.terminate()
             proc.wait(timeout=1.0)
@@ -595,6 +621,12 @@ class Camera:
             try:
                 proc.kill()
             except OSError:
+                pass
+            try:
+                # The wait the old code was missing. SIGKILL cannot be caught,
+                # so this returns promptly or the process was already gone.
+                proc.wait(timeout=2.0)
+            except (OSError, subprocess.TimeoutExpired):
                 pass
         with self.lock:
             self.proc = None
