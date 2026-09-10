@@ -129,6 +129,7 @@
 #include "proto.hxx"
 #include "reactive.hxx"
 #include "scanwire.hxx"
+#include "viewfeed.hxx"
 
 // The car's measured numbers - see cal.hxx, and "WHAT THE CAR IS TOLD" above,
 // for why the throttle pair is used despite being out of date.
@@ -166,6 +167,18 @@ namespace
   // at reboot with the process it described. The page treats a file older than
   // three seconds as "pilot not running" - the file is a heartbeat, not a log.
   constexpr CharSeq STATUS_FILE = "/tmp/bibo-pilot.json";
+
+  // What the board calls this build when it refuses a viewer's version. The
+  // sentence is the useful part - "incompatible" alone sends a person to read
+  // source in a field, and a stamp is what turns it into an action - so this is
+  // the compiler's own date and time rather than a git hash: nothing hands one
+  // in at build time, and a hand-typed hash is wrong the first day nobody
+  // remembers to change it. Wire -DBOARD_BUILD and this becomes the commit.
+#if defined(BOARD_BUILD_STAMP)
+  constexpr CharSeq BOARD_BUILD = BOARD_BUILD_STAMP;
+#else
+  constexpr CharSeq BOARD_BUILD = __DATE__ " " __TIME__;
+#endif
 
   // The whole file at once, through a rename, so a reader never sees half of
   // it. The heartbeat and the scan file are both written this way.
@@ -578,7 +591,234 @@ namespace
       Float64 costMaxUs = 0.0;   // the longest publish + file write of any tick
       Float64 costSumUs = 0.0;
       UInt64  costTicks = 0;
+      Bool    wire = false;      // viewfeed::start succeeded
   };
+
+  // ---- the board's state, filled ONCE a tick and read TWICE --------------------
+
+  // docs/bibowire.md section 5 puts one obligation on this file by name: the
+  // dashboard's JSON and the BOARD frame must be filled from the SAME STRUCT in
+  // the SAME TICK, so the phone and the viewer can never disagree about what the
+  // car thinks. This is that struct. Everything the page prints and everything
+  // the viewer is told about the board is derived from one instance of it,
+  // filled once per tick below; a second, independently-filled source is exactly
+  // what the rule forbids, and it is the shape a disagreement would take.
+  struct Snapshot
+  {
+      Float64 ts = 0.0;            // wall clock, for the page's staleness test
+      UInt64  monoUs = 0;          // the same instant on the monotonic clock
+      UInt32  upS = 0;
+      Str     mode;                // the reactive mode word, or "blind"
+      Float32 clearanceMm = 0.0f;
+      Int32   hits = 0;
+      Float64 revPerS = 0.0;
+      UInt64  timeouts = 0;
+      UInt64  revolutions = 0;
+      Bool    lidarLost = false;
+      Int32   lidarHealth = -1;
+      Bool    lidarSpinning = false;
+      Bool    dry = false;
+      Bool    picoOpen = false;
+      Bool    picoHeard = false;
+      Int32   picoSilentMs = -1;   // carlink's own number; -1 is no link
+      UInt64  replyOk = 0;
+      UInt64  replyErr = 0;
+      Str     pico;                // the printed phrase, shared by all three readers
+  };
+
+  // -1 (the device did not answer) becomes 255, the wire's "unknown". A health
+  // nobody read must never arrive as 0, which means "good".
+  [[nodiscard]] UInt8 healthByte(Int32 health)
+  {
+      return health >= 0 && health <= 2 ? static_cast<UInt8>(health) : bibowire::HEALTH_ABSENT;
+  }
+
+  // The phrase the console prints, the page shows and the viewer is told - one
+  // string, so all three say the same thing about the car's link.
+  [[nodiscard]] Str picoPhrase(const Snapshot& s)
+  {
+      Array<Char, 48> pico{};
+      if(s.dry)
+      {
+          std::snprintf(pico.data(), pico.size(), "pico dry");
+          return Str(pico.data());
+      }
+      // -1 is no descriptor, and "silent -1 ms" would be a number standing in
+      // for a fact.
+      Array<Char, 24> silence{};
+      if(s.picoSilentMs < 0)
+      {
+          std::snprintf(silence.data(), silence.size(), "%-15s", "no link");
+      }
+      else
+      {
+          std::snprintf(silence.data(), silence.size(), "silent %5d ms", s.picoSilentMs);
+      }
+      std::snprintf(
+          pico.data(),
+          pico.size(),
+          "pico %s  ok %llu  err %llu",
+          silence.data(),
+          static_cast<unsigned long long>(s.replyOk),
+          static_cast<unsigned long long>(s.replyErr)
+      );
+      return Str(pico.data());
+  }
+
+  // The heartbeat the status page reads. Byte-for-byte the object it has always
+  // been - the page is not changing - but now derived from the snapshot rather
+  // than from the locals, which is the whole point.
+  [[nodiscard]] Str jsonFrom(const Snapshot& s)
+  {
+      Array<Char, 320> json{};
+      std::snprintf(
+          json.data(),
+          json.size(),
+          "{\"ts\":%.3f,\"mode\":\"%s\",\"clearanceMm\":%.0f,\"hits\":%d,"
+          "\"revPerS\":%.1f,\"timeouts\":%llu,\"revolutions\":%llu,"
+          "\"lidarLost\":%s,\"pico\":\"%s\"}\n",
+          s.ts,
+          s.mode.c_str(),
+          static_cast<Float64>(s.clearanceMm),
+          s.hits,
+          s.revPerS,
+          static_cast<unsigned long long>(s.timeouts),
+          static_cast<unsigned long long>(s.revolutions),
+          s.lidarLost ? "true" : "false",
+          s.pico.c_str()
+      );
+      return Str(json.data());
+  }
+
+  // The same snapshot, as the viewer is told it. The fields this program cannot
+  // measure keep their ABSENT sentinels rather than being faked by a zero: 0 mV
+  // is a real reading of a dead pack, and 0 centi-degrees is a real temperature.
+  // viewfeed fills the few fields that are its own measurement - the deadman,
+  // the epoch, the holder and its encode cost - because this file cannot know
+  // them and the page does not show them.
+  [[nodiscard]] bibowire::BoardState boardFrom(const Snapshot& s)
+  {
+      bibowire::BoardState b;
+      b.tMonoUs = s.monoUs;
+      b.upS = s.upS;
+      b.cpuCentiC = bibowire::CPU_ABSENT;
+      b.battMilliV = bibowire::BATT_ABSENT;
+      b.picoLink = s.dry || !s.picoOpen ? 0u : (s.picoHeard ? 1u : 2u);
+      b.picoArmed = 2;   // unknown: this program never asks the board its arm state
+      b.pilotMode = s.dry ? 1u : 2u;   // --dry is LOOK; otherwise the autonomy drives
+      b.lidarHealth = healthByte(s.lidarHealth);
+      b.lidarSpinning = s.lidarSpinning ? 1u : 0u;
+      b.picoSilentMs = s.picoSilentMs < 0
+          ? bibowire::PICO_SILENT_ABSENT
+          : static_cast<UInt32>(s.picoSilentMs);
+      b.revolutions = static_cast<UInt32>(s.revolutions);
+      b.timeouts = static_cast<UInt32>(s.timeouts);
+      return b;
+  }
+
+  // ---- the revolution and the decision, as bibowire carries them ---------------
+
+  // Degrees and millimetres to whole centi-degrees and whole millimetres, which
+  // is LOSSLESS with respect to the device - the C1 does not measure finer. 360
+  // degrees wraps to 0 and is never 36000, which is scanwire's rule and what the
+  // encoder refuses. This is the same loop frameLine already runs, minus the
+  // snprintf; the framing and the CRC happen on viewfeed's thread, not here.
+  [[nodiscard]] bibowire::Scan scanFrom(const Vec<reactive::Ray>& r, const Vec<UInt8>& q)
+  {
+      bibowire::Scan s;
+      const Size count = r.size() > bibowire::MAX_SCAN_POINTS ? bibowire::MAX_SCAN_POINTS : r.size();
+      s.points.reserve(count);
+      s.quality.reserve(count);
+      for(Size i = 0; i < count; ++i)
+      {
+          Float32 deg = r[i].angleDeg;
+          while(deg < 0.0f)
+          {
+              deg += 360.0f;
+          }
+          while(deg >= 360.0f)
+          {
+              deg -= 360.0f;
+          }
+          bibowire::ScanPoint p;
+          p.angleCentiDeg = static_cast<UInt16>(deg * 100.0f + 0.5f);
+          if(p.angleCentiDeg >= 36000u)
+          {
+              p.angleCentiDeg = 0;
+          }
+          const Float32 mm = r[i].distMm;
+          p.distMm = mm <= 0.0f ? 0u : static_cast<UInt16>(mm > 65535.0f ? 65535.0f : mm + 0.5f);
+          s.points.push_back(p);
+          const UInt8 qual = i < q.size() ? q[i] : static_cast<UInt8>(0);
+          s.quality.push_back(qual > 63u ? static_cast<UInt8>(63) : qual);
+      }
+      return s;
+  }
+
+  // Thousandths of -1..1, the units the wire uses everywhere and the ones that
+  // have no locale and no NaN in them.
+  [[nodiscard]] Int16 milliOf(Float32 fraction)
+  {
+      const Float32 clamped = fraction > 1.0f ? 1.0f : (fraction < -1.0f ? -1.0f : fraction);
+      return static_cast<Int16>(clamped * 1000.0f + (clamped >= 0.0f ? 0.5f : -0.5f));
+  }
+
+  [[nodiscard]] bibowire::Decide decideFrom(const reactive::Outputs& o, Int32 modeMs, UInt32 rev)
+  {
+      bibowire::Decide d;
+      // 0 is a BLIND tick with no revolution behind it, which is what the
+      // caller passes when grab() timed out.
+      d.revIndex = rev;
+      d.clearanceMm = static_cast<UInt32>(o.clearanceMm < 0.0f ? 0.0f : o.clearanceMm + 0.5f);
+      d.hits = static_cast<UInt16>(o.corridorHits < 0 ? 0 : o.corridorHits);
+      d.steerMilli = milliOf(o.steer);
+      d.throttleMilli = milliOf(o.throttle);
+      d.mode = static_cast<UInt8>(o.mode);
+      d.stop = o.stop ? 1u : 0u;
+      d.modeMs = static_cast<UInt32>(modeMs < 0 ? 0 : modeMs);
+      return d;
+  }
+
+  // The device's identity, as LIDAR_INFO carries it. The serial is 32 hex digits
+  // as the device printed them; the wire carries the 16 raw bytes and the viewer
+  // renders them back, so a serial that is not 32 hex digits arrives as zeros
+  // rather than as somebody else's device.
+  [[nodiscard]] bibowire::LidarInfo lidarInfoFrom(const lidar::Device& d)
+  {
+      bibowire::LidarInfo i;
+      i.model = static_cast<UInt16>(d.model);
+      i.fwMajor = static_cast<UInt8>(d.fwMajor);
+      i.fwMinor = static_cast<UInt8>(d.fwMinor);
+      i.hwRev = static_cast<UInt16>(d.hwRev);
+      i.baud = 460800;
+      if(d.serial.size() == 32u)
+      {
+          for(Size b = 0; b < 16u; ++b)
+          {
+              UInt32 byte = 0;
+              for(Size n = 0; n < 2u; ++n)
+              {
+                  const Char ch = d.serial[b * 2u + n];
+                  UInt32 nibble = 0;
+                  if(ch >= '0' && ch <= '9')
+                  {
+                      nibble = static_cast<UInt32>(ch - '0');
+                  }
+                  else if(ch >= 'A' && ch <= 'F')
+                  {
+                      nibble = static_cast<UInt32>(ch - 'A') + 10u;
+                  }
+                  else if(ch >= 'a' && ch <= 'f')
+                  {
+                      nibble = static_cast<UInt32>(ch - 'a') + 10u;
+                  }
+                  byte = (byte << 4u) | nibble;
+              }
+              i.serial[b] = static_cast<UInt8>(byte);
+          }
+      }
+      return i;
+  }
 
 }
 
@@ -718,6 +958,36 @@ Int32 main(Int32 argc, Char** argv)
                 static_cast<unsigned>(feed::port())
             );
         }
+
+        // And bibowire, for the Windows viewer, on 8020. A separate socket and
+        // a separate module on purpose: feed.cxx moves LINES for the phone
+        // dashboard and must keep doing exactly that, because `nc bibobox.local
+        // 8011` from a phone is the field-debugging story this binary format
+        // spends and has to pay back.
+        //
+        // Never fatal. A board that could not bind 8020 still drives, still
+        // steers and still serves the dashboard; the viewer is an audience, and
+        // the car does not wait for its audience.
+        viewfeed::Policy wire;
+        wire.boardName = "bibobox";
+        wire.boardBuild = BOARD_BUILD;
+        // Per PROCESS, not per session: a viewer that reconnects and sees a
+        // different one throws away everything it knew before drawing a point.
+        wire.bootId = static_cast<UInt32>(WallClock::now().time_since_epoch().count());
+        wire.capabilities = static_cast<UInt8>((opt.dry ? 0u : 1u) | 2u | (opt.dry ? 0u : 4u));
+        viewer.wire = viewfeed::start(bibowire::PORT, wire);
+        if(!viewer.wire)
+        {
+            std::printf("viewfeed: not serving - driving without a viewer\n");
+        }
+        else
+        {
+            // State before scan, always: the device's identity is published
+            // before the first revolution can be, so a viewer that connects
+            // during the motor's two-second spin-up already knows what it is
+            // watching.
+            viewfeed::publishLidarInfo(lidarInfoFrom(lidar::device()));
+        }
     }
 
     // ---- the loop ------------------------------------------------------------------
@@ -807,6 +1077,26 @@ Int32 main(Int32 argc, Char** argv)
             }
             feed::publish(drive);
             writeWhole(scanwire::SCAN_FILE, lastFrame + drive);
+
+            // The same revolution and the same decision to the viewer, as
+            // frames rather than lines. publish() is a push and a wake: the
+            // encode, the CRC and the send all happen on viewfeed's thread, so
+            // this tick pays a queue push whether the viewer is fast, slow or
+            // absent - and with nobody connected it pays nothing at all.
+            if(got)
+            {
+                bibowire::Scan scan = scanFrom(rays, quality);
+                scan.tMonoUs = static_cast<UInt64>(elapsedS(start) * 1000000.0);
+                scan.revIndex = static_cast<UInt32>(revolutions);
+                scan.freqMilliHz = dtMs > 0 ? static_cast<UInt16>(1000000 / dtMs) : 0;
+                scan.health = healthByte(lidar::device().health);
+                scan.motor = 1;
+                viewfeed::publishScan(std::move(scan));
+            }
+            const UInt32 rev = got ? static_cast<UInt32>(revolutions) : 0u;
+            bibowire::Decide decide = decideFrom(out, state.modeMs, rev);
+            decide.source = opt.dry ? 1u : 2u;
+            viewfeed::publishDecide(decide);
             const Float64 costUs = elapsedMs(before) * 1000.0;
             viewer.costSumUs += costUs;
             ++viewer.costTicks;
@@ -851,6 +1141,41 @@ Int32 main(Int32 argc, Char** argv)
             boardSilent = nowSilent;
         }
 
+        // ---- the board's state, filled ONCE ------------------------------------------
+        // Read twice below: by the heartbeat the phone reads and by the BOARD
+        // frame the viewer reads. See Snapshot - this is the obligation
+        // docs/bibowire.md section 5 puts on this file, honoured by there being
+        // one struct rather than two places that fill the same numbers.
+        Snapshot snap;
+        snap.ts = epochNow();
+        snap.monoUs = static_cast<UInt64>(elapsedS(start) * 1000000.0);
+        snap.upS = static_cast<UInt32>(elapsedS(start));
+        snap.mode = got ? reactive::modeName(out.mode) : "blind";
+        snap.clearanceMm = out.clearanceMm;
+        snap.hits = out.corridorHits;
+        const Float64 windowS = elapsedS(lastStatus);
+        snap.revPerS = windowS > 0.0 ? static_cast<Float64>(windowRevs) / windowS : 0.0;
+        snap.timeouts = timeouts;
+        snap.revolutions = revolutions;
+        snap.lidarLost = lidarLost;
+        snap.lidarHealth = lidar::device().health;
+        snap.lidarSpinning = lidar::isSpinning();
+        snap.dry = opt.dry;
+        snap.picoOpen = !opt.dry && !link.lost;
+        snap.picoHeard = link.heard;
+        snap.picoSilentMs = opt.dry ? -1 : carlink::silentForMs();
+        snap.replyOk = replies.ok;
+        snap.replyErr = replies.err;
+        snap.pico = picoPhrase(snap);
+        if(opt.feed)
+        {
+            // Every tick. viewfeed holds it as the state the NEXT viewer is
+            // owed before it is shown a point, and puts it on the wire at the
+            // 5 Hz section 2 asks for - the rate is the socket's business, the
+            // content is this one struct.
+            viewfeed::publishBoard(boardFrom(snap));
+        }
+
         const Str steerLine = proto::steer(out.steer);
         const Str escLine = escLineFor(status, out, boardSilent);
         if(opt.dry)
@@ -877,69 +1202,25 @@ Int32 main(Int32 argc, Char** argv)
         // ---- once a second ----------------------------------------------------------
         if(elapsedMs(lastStatus) >= STATUS_EVERY_MS)
         {
-            const Float64 windowS = elapsedS(lastStatus);
-            Array<Char, 48> pico{};
-            if(opt.dry)
-            {
-                std::snprintf(pico.data(), pico.size(), "pico dry");
-            }
-            else
-            {
-                // -1 is no descriptor, and "silent -1 ms" would be a number
-                // standing in for a fact.
-                const Int32 silent = carlink::silentForMs();
-                Array<Char, 24> silence{};
-                if(silent < 0)
-                {
-                    std::snprintf(silence.data(), silence.size(), "%-15s", "no link");
-                }
-                else
-                {
-                    std::snprintf(silence.data(), silence.size(), "silent %5d ms", silent);
-                }
-                std::snprintf(
-                    pico.data(),
-                    pico.size(),
-                    "pico %s  ok %llu  err %llu",
-                    silence.data(),
-                    static_cast<unsigned long long>(replies.ok),
-                    static_cast<unsigned long long>(replies.err)
-                );
-            }
-            const Float64 revPerS = windowS > 0.0 ? static_cast<Float64>(windowRevs) / windowS : 0.0;
             std::printf(
                 "%6.1f s  %s  steer %+.2f  thr %.2f  %5.1f rev/s  timeouts %llu  %s\n",
                 elapsedS(start),
                 describe(status, out, got).c_str(),
                 static_cast<Float64>(out.steer),
                 static_cast<Float64>(out.throttle),
-                revPerS,
-                static_cast<unsigned long long>(timeouts),
-                pico.data()
+                snap.revPerS,
+                static_cast<unsigned long long>(snap.timeouts),
+                snap.pico.c_str()
             );
             windowRevs = 0;
             lastStatus = now;
 
-            // The same second, for the phone. `pico` is the printed phrase, so
-            // the page shows exactly what the console showed.
-            Array<Char, 320> json{};
-            std::snprintf(
-                json.data(),
-                json.size(),
-                "{\"ts\":%.3f,\"mode\":\"%s\",\"clearanceMm\":%.0f,\"hits\":%d,"
-                "\"revPerS\":%.1f,\"timeouts\":%llu,\"revolutions\":%llu,"
-                "\"lidarLost\":%s,\"pico\":\"%s\"}\n",
-                epochNow(),
-                got ? reactive::modeName(out.mode) : "blind",
-                static_cast<Float64>(out.clearanceMm),
-                out.corridorHits,
-                revPerS,
-                static_cast<unsigned long long>(timeouts),
-                static_cast<unsigned long long>(revolutions),
-                lidarLost ? "true" : "false",
-                pico.data()
-            );
-            writeWhole(STATUS_FILE, json.data());
+            // The same second, for the phone - and from the SAME STRUCT the
+            // viewer's BOARD frame was filled from a few lines above, which is
+            // the whole of section 5's obligation on this file. The console,
+            // the page and the viewer cannot now disagree, because there is
+            // only one place the numbers come from.
+            writeWhole(STATUS_FILE, jsonFrom(snap));
 
             // A lost link is retried here, once a second, rather than every tick:
             // open() probes the device and a board that is being replugged does
@@ -1005,6 +1286,26 @@ Int32 main(Int32 argc, Char** argv)
         );
     }
 
+    // What bibowire cost, measured rather than asserted - the same argument the
+    // line above makes for the text feed, and section 9's claim made readable
+    // off the running system instead of believed.
+    if(viewer.wire)
+    {
+        const viewfeed::Counters wireCount = viewfeed::counters();
+        std::printf(
+            "viewfeed: %llu viewers accepted, %llu refused, %llu frames sent, %llu dropped, "
+            "%llu control datagrams (%llu stale), encode avg %u ns, max %u ns\n",
+            static_cast<unsigned long long>(wireCount.accepted),
+            static_cast<unsigned long long>(wireCount.refused),
+            static_cast<unsigned long long>(wireCount.txFrames),
+            static_cast<unsigned long long>(wireCount.txDroppedFrames),
+            static_cast<unsigned long long>(wireCount.rxControl),
+            static_cast<unsigned long long>(wireCount.rxControlStale),
+            static_cast<unsigned>(wireCount.encodeAvgNs),
+            static_cast<unsigned>(wireCount.encodeMaxNs)
+        );
+    }
+
     if(!lidar::motorOff())
     {
         std::printf("lidar motor off: %s\n", lidar::reason().c_str());
@@ -1017,6 +1318,10 @@ Int32 main(Int32 argc, Char** argv)
     // them - a revolution from a pilot that has exited is not a picture of
     // anything, and the page reads its absence as "pilot not running".
     feed::stop();
+    // BYE(SHUTDOWN) with a sentence, rather than a socket that simply stops
+    // answering: on this link silence already means four other things, and the
+    // one time the board knows why it is going is the one time it can say so.
+    viewfeed::stop();
     static_cast<Void>(std::remove(scanwire::SCAN_FILE));
 
     // A signal is a person asking, and 0 is the answer to a request that was

@@ -36,7 +36,7 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/autonomy.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx
-    src/feed.cxx src/bibowire.cxx src/archive.cxx
+    src/feed.cxx src/bibowire.cxx src/viewfeed.cxx src/archive.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -99,11 +99,12 @@ if(PILOT_RPLIDAR_SDK)
 endif()
 
 enable_testing()
-# test_feed is here and NOT in firmware/verify.bat: feed.cxx's real half is
-# Linux sockets, and on MSVC every call refuses, so a .bat could only prove
-# that start() returns false - which test_pilot already proves for the lidar
-# and the link. On the board it exercises the feed over loopback TCP.
-foreach(t proto pilot reactive scanwire feed bibowire archive)
+# test_feed and test_viewfeed are here and NOT in firmware/verify.bat: their
+# real halves are Linux sockets, and on MSVC every call refuses, so a .bat could
+# only prove that start() returns false - which test_pilot already proves for
+# the lidar and the link. On the board they exercise the feeds over loopback:
+# feed the dashboard's lines on 8011, viewfeed bibowire's frames on 8020.
+foreach(t proto pilot reactive scanwire feed bibowire viewfeed archive)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})
