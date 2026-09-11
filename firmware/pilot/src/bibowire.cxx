@@ -460,7 +460,7 @@ namespace bibowire
         Desc{ Type::TYPE_COMMAND, "COMMAND", 1, Class::CLASS_VITAL, COMMAND_LEN, false, "16",
               "u32 sessionId ; u32 cmdId ; u8 verb ; u8 arg0 ; u16 arg1 ; u16 arg2 ; u8 armEpoch ; u8 reserved0" },
         Desc{ Type::TYPE_SUBSCRIBE, "SUBSCRIBE", 1, Class::CLASS_VITAL, SUBSCRIBE_LEN, false, "12",
-              "u32 sessionId ; u32 typeMask ; u16 scanDivisor ; u16 reserved0" },
+              "u32 sessionId ; u32 typeMask ; u16 scanDivisor ; u16 camFps fps" },
         Desc{ Type::TYPE_DESCRIBE, "DESCRIBE", 1, Class::CLASS_VITAL, DESCRIBE_LEN, false, "4",
               "u8 type ; u8 reserved0 ; u16 reserved1" },
         Desc{ Type::TYPE_SCHEMA, "SCHEMA", 1, Class::CLASS_VITAL, SCHEMA_FIXED, true, "4+text",
@@ -1824,7 +1824,10 @@ namespace bibowire
       wr32(out, m.sessionId);
       wr32(out + 4u, m.typeMask);
       wr16(out + 8u, m.scanDivisor);
-      wr16(out + 10u, 0);
+      // What section 5 reserved, now spent on the camera rate. 0 keeps its old
+      // meaning exactly - "nothing asked" - so this byte pair reads the same to
+      // a board that has never heard of the field.
+      wr16(out + 10u, m.camFps);
       return SUBSCRIBE_LEN;
   }
 
@@ -1845,6 +1848,11 @@ namespace bibowire
       m.sessionId = rd32(b.bytes);
       m.typeMask = rd32(b.bytes + 4u);
       m.scanDivisor = divisor;
+      // NOT clamped here. The codec's job is to carry what was said, and a
+      // reader that quietly rewrote the number would make the board's own
+      // ceiling invisible to anything reading this frame - the log, the schema
+      // dump, a capture. viewfeed clamps it where the decision belongs.
+      m.camFps = rd16(b.bytes + 10u);
       *out = m;
       return true;
   }
@@ -2363,6 +2371,13 @@ namespace bibowire
                 Str s = "session=" + hexN(m.sessionId, 8);
                 s += " mask=" + hexN(m.typeMask, 8);
                 s += " div=" + decU(m.scanDivisor);
+                // ONLY WHEN ASKED. A viewer that did not request a rate has
+                // nothing to say about one, and printing "fps=0" would put a
+                // number on a decision nobody made.
+                if(m.camFps != 0u)
+                {
+                    s += " fps=" + decU(m.camFps);
+                }
                 return s;
             }
             case Type::TYPE_DESCRIBE:

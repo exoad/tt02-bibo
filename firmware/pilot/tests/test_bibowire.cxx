@@ -822,6 +822,25 @@ Int32 main()
             readSubscribe(w.frame.body, 1, &back) && back.scanDivisor == 3,
             "and the divisor survives"
         );
+        check(back.camFps == 0, "a viewer that named no camera rate asks for none");
+
+        // THE CAMERA RATE RIDES IN WHAT SECTION 5 CALLED reserved0. The body is
+        // still 12 bytes and the version is unchanged, which is the whole point
+        // of spending a reserved field rather than growing the frame: an older
+        // board ignores those two bytes exactly as it always did, and a newer
+        // board reading an older viewer sees 0 and keeps its own default.
+        m.camFps = 12;
+        w.bodyLen = writeSubscribe(m, w.body.data(), w.body.size());
+        check(
+            wrap(&w, Type::TYPE_SUBSCRIBE, 17) && w.bodyLen == 12,
+            "a SUBSCRIBE carrying a camera rate is STILL 12 bytes"
+        );
+        Subscribe rate;
+        check(
+            readSubscribe(w.frame.body, 1, &rate) && rate.camFps == 12,
+            "and the rate survives the round trip"
+        );
+        check(rate.scanDivisor == 3, "beside the divisor it shares the frame with");
     }
 
     // ---- 2 and 3. the edges the device itself defines -------------------------

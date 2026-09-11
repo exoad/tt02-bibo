@@ -59,6 +59,52 @@ namespace link
   constexpr Int64 FRESH_MS = 400;
   constexpr Int64 GONE_MS = 1500;
 
+  // ---- the staleness band, MEASURED rather than assumed ----------------------
+  //
+  // FRESH_MS is right for a feed arriving FASTER than it. A 10 Hz revolution is
+  // ~100 ms old when it lands and nothing about 400 is arbitrary for it. It is
+  // wrong as a constant for a feed arriving SLOWER, and the camera proved it on
+  // the board: at the pilot's 2 fps default a picture is 500 ms old the instant
+  // before its successor lands, so it read STALE for the last 100 ms of every
+  // frame and the window flickered twice a second. Measured against the real
+  // board, 57 camera frames out of 57 crossed FRESH_MS while the camera was
+  // delivering exactly what it had promised. That is two constants chosen in
+  // different files disagreeing - not a camera that was ever late.
+  //
+  // The scan had the same disease from the other end. Its mean interval on this
+  // board is 103 ms, comfortably inside 400 - but the board goes quiet for about
+  // 400 ms every five or six seconds (SCAN and BOARD stop together, and the
+  // board's OWN tMonoUs deltas show the gap, so it is the pilot pausing and not
+  // the network), which puts the threshold exactly on the feed's jitter. A
+  // threshold sitting on the noise floor is a coin toss rendered as a colour.
+  //
+  // So the band is derived from what the feed is ACTUALLY DELIVERING, measured
+  // here from arrival times. The property it holds: a feed keeping its own
+  // observed cadence, INCLUDING that cadence's jitter, is never called stale;
+  // one that has genuinely stopped still goes stale and then disappears.
+  //
+  // The two bounds are what keep it honest. The floor holds a fast feed to
+  // FRESH_MS, so measuring cannot make the scan's band SMALLER than the number
+  // section 7 fixed. The ceiling keeps every band strictly below GONE_MS, so
+  // "stale" stays a band every feed passes THROUGH on its way to vanishing and
+  // never one it can skip - which is the part of section 7 that must survive
+  // this change, because a picture with no age written on it is worse than a
+  // stale point cloud.
+  constexpr Int64 STALE_CEIL_MS = 1200;
+
+  // 1.5x the worst recent gap. A feed whose widest real gap is W is not late
+  // until meaningfully past W, and half again is the allowance.
+  constexpr Int64 STALE_SLACK_NUM = 3;
+  constexpr Int64 STALE_SLACK_DEN = 2;
+
+  // The window the band is measured over. The WORST of the recent gaps, not the
+  // mean: the mean of the scan's intervals is 103 ms and its real gap is 400, so
+  // a band built from the mean is a band that flickers on every stall. Bounded
+  // and sliding, so a stall that has stopped happening stops widening the band -
+  // an all-time worst would never narrow again and the feed could die quietly
+  // inside a band its worst moment bought it an hour ago.
+  constexpr Size CADENCE_SAMPLES = 64;
+
   // Redial when no frame OF ANY TYPE has arrived in this long. At 5 Hz BOARD and
   // 1 Hz PING, silence that long is not a quiet moment. The car stopped 2700 ms
   // before it mattered.
@@ -115,6 +161,39 @@ namespace link
   // 0 manual, 1 look, 2 drive - WHO produced a DECIDE's numbers.
   [[nodiscard]] CharSeq sourceName(UInt8 source);
 
+  // ---- what a feed is actually delivering at ----------------------------------
+
+  // Arrival times only. It never looks at the board's clock, which is what makes
+  // it answer the question the band actually asks - "how long does this viewer
+  // wait between pictures" - rather than "how old does the board think they
+  // are". Those are different numbers and only the first one flickers.
+  struct Cadence
+  {
+      Bool have = false;
+      Int64 lastAtMs = 0;
+
+      // The last CADENCE_SAMPLES gaps, oldest overwritten first. A ring rather
+      // than a running maximum, so the band NARROWS again once a stall stops
+      // happening.
+      Array<Int64, CADENCE_SAMPLES> gaps = {};
+      Size count = 0;
+      Size at = 0;
+  };
+
+  // Pure. One arrival. The FIRST one only starts the clock - there is no gap
+  // before a feed's first frame, and inventing one would be a measurement of
+  // when the viewer happened to connect.
+  Void noteArrival(Cadence& c, Int64 nowMs);
+
+  // The widest gap in the window, or 0 when nothing has been measured yet.
+  [[nodiscard]] Int64 worstGapMs(const Cadence& c);
+
+  // The age past which THIS feed is stale, from what it has been delivering.
+  // FRESH_MS until a cadence is known, so a feed is held to section 7's number
+  // until it has earned a different one, and never wider than STALE_CEIL_MS so
+  // stale always sits strictly below GONE_MS.
+  [[nodiscard]] Int64 staleBandMs(const Cadence& c);
+
   // ---- what the frame loop is allowed to draw --------------------------------
 
   struct Revolution
@@ -130,7 +209,14 @@ namespace link
       UInt8 motor = 0;
       Int64 ageMs = 0;
 
-      // Past FRESH_MS and still inside GONE_MS: drawable, but never as current.
+      // The band this feed was actually held to, and the widest recent gap it
+      // was derived from. Carried out rather than kept private: a staleness
+      // rule nobody can read off the running system is the same species of bug
+      // as a test that measures nothing.
+      Int64 staleAtMs = FRESH_MS;
+      Int64 worstGapMs = 0;
+
+      // Past the band and still inside GONE_MS: drawable, but never as current.
       Bool stale = false;
   };
 
@@ -178,6 +264,13 @@ namespace link
 
       Vec<UInt8> bytes;
       Int64 ageMs = 0;
+
+      // As Revolution above: the band this picture was judged against and the
+      // measured gap behind it. The camera window shows both, because "stale"
+      // with no number beside it is the claim that flickered.
+      Int64 staleAtMs = FRESH_MS;
+      Int64 worstGapMs = 0;
+
       Bool stale = false;
   };
 
@@ -284,6 +377,20 @@ namespace link
       Bool haveCameraNote = false;
       Str cameraNoteText;
       Int64 cameraNoteAtMs = 0;
+
+      // WHAT EACH FEED IS DELIVERING AT, one per feed and deliberately not one
+      // shared number. The camera runs at 2 fps and the scan at 10 Hz on the
+      // same connection, so a single cadence would hold each of them to the
+      // other's clock - which is the exact mistake that made a camera borrow a
+      // threshold built for a feed arriving five times faster.
+      //
+      // DECIDE has none of its own: it is tied to the revolution it describes
+      // and shares that revolution's age exactly, so it is judged by the scan's
+      // band for the same reason it borrows the scan's board clock.
+      Cadence scanRate;
+      Cadence cameraRate;
+      Cadence boardRate;
+      Cadence controlRate;
 
       // The last frame of ANY type. The silence watchdog reads this and nothing
       // else: a link that is delivering BOARD but no SCAN is a live link with a
@@ -419,6 +526,17 @@ namespace link
       // connection last asked for. An atomic rather than a lock because it is
       // one bit written once a frame and read once a poll slice.
       Atomic<Bool> cameraOn = false;
+
+      // FRAMES PER SECOND THIS VIEWER IS ASKING FOR, 0 meaning "do not ask" -
+      // in which case the board keeps its own conservative default and this
+      // viewer behaves exactly as it did before the field existed.
+      //
+      // The viewer asks because only the viewer knows what its link is
+      // carrying: the board cannot tell a LAN from a phone hotspot from the
+      // far end, and the number that is right for one is ruinous for the
+      // other. The board still decides - it clamps to bibowire::CAM_FPS_MAX -
+      // so this is a request and never a command.
+      Atomic<Int32> cameraFps = 0;
   };
 
   // Starts the worker. Returns false when one is already running.
@@ -458,6 +576,17 @@ namespace link
   Void wantCamera(Client& c, Bool on);
 
   [[nodiscard]] Bool cameraWanted(const Client& c);
+
+  // Ask the board for a camera RATE, in frames per second, or 0 to stop asking
+  // and let the board's own default stand. Clamped to bibowire::CAM_FPS_MAX on
+  // the way out, and again by the board, which is the end that owns the
+  // decision. Safe from the UI thread and before a connection exists: the
+  // worker re-sends SUBSCRIBE whenever this differs from what the current
+  // connection was told, including after a reconnect, because a new connection
+  // has asked for nothing.
+  Void wantCameraFps(Client& c, Int32 fps);
+
+  [[nodiscard]] Int32 cameraFpsWanted(const Client& c);
 
   // ---------------------------------------------------------------------------
   // SEAM: sending CONTROL and COMMAND - driving the car - goes here.

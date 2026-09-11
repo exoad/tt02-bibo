@@ -44,9 +44,20 @@ one lock, newest-wins.
   a single point.
 - **Staleness.** `Session::revolution()` and its siblings take the clock and
   return an empty `Opt` when the answer is too old — so there is no value to
-  draw rather than a flag somebody has to remember to check. Past 400 ms the
-  cloud is drawn desaturated with its age in the panel; past 1500 ms it is not
-  drawn at all.
+  draw rather than a flag somebody has to remember to check. Past the feed's
+  **stale band** the cloud is drawn desaturated with its age in the panel; past
+  1500 ms (`GONE_MS`) it is not drawn at all.
+- **The stale band is measured, not a constant.** `FRESH_MS = 400` is right for
+  a feed arriving *faster* than it and wrong for one arriving slower, which is
+  how a 2 fps camera came to read STALE on **57 frames out of 57** while
+  delivering exactly what it promised. Each feed now keeps its own `Cadence` —
+  the widest gap in a sliding window of its last 64 arrivals — and is stale past
+  1.5× that, floored at `FRESH_MS` so measuring can never *tighten* §7's number
+  and capped at `STALE_CEIL_MS = 1200` so stale stays a band every feed passes
+  **through** on its way to `GONE_MS` rather than one it can skip. The scan had
+  the same disease from the other end: its mean interval is ~103 ms, but this
+  board goes quiet for ~400 ms every few seconds, which put the old threshold
+  exactly on the feed's own jitter.
 - **Latency.** The viewer sends its own `PING` at 1 Hz and times the `PONG` by
   its echoed token, so the round trip in the Connection panel is measured from
   *this* machine. It keeps the last 16 and shows the **minimum** as well as the
@@ -89,10 +100,33 @@ dimensions change rather than every frame.
   `1u << (tag & 0x1F)` is a known bug — `DECIDE` and `SCHEMA` collide on it.
 - **An unsubscribe is never a zero mask**, because a zero mask means
   *everything* to the board. Turning the camera off names every other type.
-- **Staleness is the scan's, unchanged.** Past 400 ms the picture is drawn
+- **Staleness follows the rate the camera is actually delivering.** Past the
+  band it earned (see *The stale band is measured* above) the picture is drawn
   desaturated with its age; past 1500 ms it is **not drawn at all** and the
   window says why on an empty background. A photograph looks equally
-  convincing whether it was taken now or forty seconds ago.
+  convincing whether it was taken now or forty seconds ago. The window shows
+  the band and the cadence it came from, because "STALE" with no number beside
+  it is precisely the claim that used to flicker twice a second.
+- **The viewer asks for the frame rate.** The board's own default is 2 fps —
+  honest for a phone hotspot, a slideshow on a LAN — and only the viewer knows
+  which it is on. The **rate** slider sends frames-per-second in what §5 of
+  `docs/bibowire.md` reserved as `SUBSCRIBE.reserved0`: the body is still 12
+  bytes, an older board ignores it exactly as it always did, and 0 means "did
+  not ask" so the board's default stands. The board clamps to
+  `bibowire::CAM_FPS_MAX = 15`. Measured on the bench: **0 → 1.8 fps, 10 → 7.1,
+  15 → 12.2**.
+- **Asking for more costs the scan.** Measured against the real board, the
+  camera at 10 fps stretched the worst SCAN gap from 402 ms to ~1420 ms. CAMERA
+  is `CLASS_BULK` so pictures are *dropped* before scans, but the board-side
+  capture and encode still compete with the lidar. 10 is a reasonable default
+  on a LAN; on the hotspot, turn it down.
+- **Rotate and flip.** 0/90/180/270 and the two mirrors, for a camera bolted to
+  the car sideways. `ImGui::Image` **cannot** express a quarter turn — `uv0`/
+  `uv1` are opposite corners, which can mirror an axis but never transpose one
+  onto the other — so the picture is drawn with `AddImageQuad` and four
+  independent corners, and the fit swaps width for height at 90 and 270. The
+  corner arithmetic lives in `src/orient.cxx`, which names no ImGui or D3D type
+  precisely so `viewer/tests` can hold it to an answer.
 - **It says why there is no picture**: not connected, handshaking, not
   subscribed yet, subscribed with nothing yet arrived, or too old — and any
   `EVENT` the board sent mentioning the camera is shown **verbatim** beside

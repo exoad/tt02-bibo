@@ -129,7 +129,15 @@ WRITE_DEADLINE_S = 0.1                  # a CDC port whose board stopped reading
 # assumes for a camera, and more than a phone hotspot should carry beside the
 # scan. Capping on this side rather than with --set-parm means a device that
 # ignores the request cannot silently leave the rate unchanged.
-CAM_DEV = os.environ.get('BIBO_CAM_DEV', '/dev/video0')
+# BY ID, NOT BY MINOR NUMBER. /dev/videoN is handed out in enumeration order and
+# is not stable: this camera dropped off the bus mid-stream on 2026-09-10
+# (uvcvideo "Failed to resubmit video URB (-19)"), came back as USB device 6 and
+# took /dev/video1, so /dev/video0 stopped existing and both this server and the
+# pilot reported a dead camera that was in fact working. Three re-enumerations
+# that day. The by-id path is built from the device's own strings and survives
+# it - the same reasoning the lidar's /dev/serial/by-id path already follows.
+CAM_BY_ID = '/dev/v4l/by-id/usb-Innomaker_Innomaker-U20CAM-1080p-S1_SN0001-video-index0'
+CAM_DEV = os.environ.get('BIBO_CAM_DEV') or (CAM_BY_ID if os.path.exists(CAM_BY_ID) else '/dev/video0')
 CAM_SIZE = os.environ.get('BIBO_CAM_SIZE', '640x480')
 CAM_FPS = float(os.environ.get('BIBO_CAM_FPS', '12'))
 CAM_WANT_S = 5.0                        # how long a /cam request keeps the capture open

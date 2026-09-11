@@ -47,6 +47,7 @@ cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   "%HERE%test_link.cxx" ^
   "%HERE%..\src\link.cxx" ^
   "%HERE%..\src\jpeg.cxx" ^
+  "%HERE%..\src\orient.cxx" ^
   "%HERE%..\..\firmware\pilot\src\bibowire.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_link.exe" ^
