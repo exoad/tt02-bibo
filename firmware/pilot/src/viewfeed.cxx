@@ -374,7 +374,19 @@ namespace viewfeed
 
     struct CamCfg
     {
-        Str dev = cameraDevDefault();
+        // RESOLVED PER ATTEMPT, not once. startCamera fills `dev` in on every
+        // open, because this camera re-enumerates WHILE STREAMING and the by-id
+        // symlink exists only while the device does. A path resolved once at
+        // boot latches whatever was true then: start the board with the camera
+        // absent and the retry loop below would ask for /dev/video0 forever,
+        // never looking again when the symlink appeared. The retry was never the
+        // broken part - retrying a name that stopped existing is.
+        //
+        // `devOverride` is BIBO_CAM_DEV when somebody set it and empty
+        // otherwise. An override is never re-derived: a device path that moved
+        // behind the operator's back would be worse than the bug it replaced.
+        Str dev;
+        Str devOverride;
         UInt16 width = CAM_WIDTH_DEFAULT;
         UInt16 height = CAM_HEIGHT_DEFAULT;
         Float64 periodMs = 1000.0 / CAM_FPS_DEFAULT;   // 0 means uncapped
@@ -1780,7 +1792,10 @@ namespace viewfeed
     Void readCamCfg()
     {
         camCfg = CamCfg();
-        camCfg.dev = envOr("BIBO_CAM_DEV", camCfg.dev);
+        camCfg.devOverride = envOr("BIBO_CAM_DEV", "");
+        // Seeded so the "absent" sentence has a name to print before the first
+        // open; startCamera re-resolves it on every attempt regardless.
+        camCfg.dev = camCfg.devOverride.empty() ? cameraDevDefault() : camCfg.devOverride;
 
         const Str size = envOr("BIBO_CAM_SIZE", "640x480");
         const Size x = size.find('x');
@@ -2319,6 +2334,14 @@ namespace viewfeed
 
     Void startCamera(Vec<Client>& clients)
     {
+        // RE-RESOLVE ON EVERY ATTEMPT. See CamCfg for why: the device renames
+        // itself when it re-enumerates, so a name resolved at boot goes stale
+        // the first time the cable twitches.
+        if(camCfg.devOverride.empty())
+        {
+            camCfg.dev = cameraDevDefault();
+        }
+
         if(::access(camCfg.dev.c_str(), F_OK) != 0)
         {
             if(!cam.said)
