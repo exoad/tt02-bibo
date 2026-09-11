@@ -58,6 +58,21 @@ namespace camview
   // They live in link.hxx as FRESH_MS and GONE_MS and are used from there
   // rather than restated, so there is one pair of numbers in this program.
 
+  // What the camera window asks the board for when nobody has touched the
+  // slider. Ten is comfortably inside bibowire::CAM_FPS_MAX and is about
+  // 450 KB/s at the measured 45 KB a frame - which a LAN absorbs and a hotspot
+  // sheds through CLASS_BULK rather than by starving the scan.
+  // SIX, not ten. Ten was chosen for smoothness alone and measured against the
+  // scan it competes with: asking for ten pushed the worst SCAN gap from 402 ms
+  // to about 1420 ms, and GONE_MS is 1500 - eighty milliseconds before the point
+  // cloud stops being drawn at all rather than merely greying. CLASS_BULK drops
+  // pictures before scans on the wire, but the board still spends capture and
+  // encode on frames the ring will discard, and that cost lands on the loop that
+  // owns the lidar. Six is visibly moving rather than a slideshow, which is what
+  // was actually asked for, and it leaves the scan its margin. The slider still
+  // goes to CAM_FPS_MAX for anyone on a link that can afford it.
+  constexpr Int32 CAM_FPS_DEFAULT_ASK = 6;
+
   struct View
   {
       // The window, and therefore the subscription. Bound to ImGui::Begin's
@@ -85,6 +100,37 @@ namespace camview
       // nothing.
       UInt32 decodeFailures = 0;
       Str decodeWhy;
+
+      // ---- how the picture is oriented -----------------------------------
+      //
+      // Quarter turns CLOCKWISE: 0, 1, 2, 3 for 0, 90, 180, 270 degrees. The
+      // camera can be bolted to the car on its side, and a picture that is
+      // only readable with the operator's head tilted is a picture nobody
+      // reads in a hurry.
+      //
+      // These live on the View, which outlives the window being closed and
+      // reopened, so a sideways mount is set up once and stays set for the
+      // session rather than being re-entered every time the checkbox is
+      // ticked. They are deliberately NOT reset by releaseTexture: the
+      // orientation describes how the camera is MOUNTED, which does not change
+      // because a frame was late.
+      Int32 turns = 0;
+      Bool flipX = false;
+      Bool flipY = false;
+
+      // ---- what rate this viewer asks the board for -----------------------
+      //
+      // Frames per second, 0 meaning "do not ask" - the board then keeps its
+      // own conservative default. Held here rather than in link::Client so it
+      // survives a disconnect and is re-sent on the next connection, the same
+      // way `open` is.
+      //
+      // The default asks for a rate rather than sitting at 0: the board's
+      // default is two frames a second, which is an honest number for a phone
+      // hotspot and reads as a slideshow on a LAN. A camera window is already
+      // opt-in and already costs bandwidth, so the useful default is the one
+      // that shows moving pictures to the person who just asked for a camera.
+      Int32 fps = CAM_FPS_DEFAULT_ASK;
   };
 
   // The device the textures are created on, and the DPI multiplier the layout

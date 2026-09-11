@@ -700,11 +700,34 @@ namespace bibowire
       UInt8 armEpoch = 0;
   };
 
+  // The ceiling the board will honour on a camera request. 640x480 MJPEG is
+  // about 45 KB a frame measured, so 15 fps is ~675 KB/s - which a LAN absorbs
+  // and a phone hotspot does not. The viewer asks, the BOARD decides, and this
+  // is where "decides" is written down: a request above this is clamped to it
+  // rather than refused, because a viewer asking for too much should get the
+  // most this board will give rather than nothing at all.
+  //
+  // It is safe to OFFER a rate this high only because CAMERA is CLASS_BULK:
+  // pictures are discarded ahead of any scan or state frame, so a link that
+  // cannot carry the rate loses camera frames and never the car's view.
+  constexpr UInt16 CAM_FPS_MAX = 15;
+
   struct Subscribe
   {
       UInt32 sessionId = 0;
       UInt32 typeMask = 0;
       UInt16 scanDivisor = 1;   // 1 = every revolution, 3 = every third
+
+      // Frames per second the VIEWER is asking the camera for. 0 is "did not
+      // ask" and is what every viewer written before this field sends, so the
+      // board's own default stands and nothing changes for them.
+      //
+      // This occupies what section 5 calls `reserved0`, which is what a
+      // reserved field is for: the length is still 12, an older board ignores
+      // it exactly as it always ignored those two bytes, and a newer board
+      // reading an older viewer sees 0 and keeps its default. No version bump,
+      // and no frame changes size.
+      UInt16 camFps = 0;
   };
 
   struct Describe

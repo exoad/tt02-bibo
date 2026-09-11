@@ -229,6 +229,10 @@ namespace link
         // syncSubscription. Reset with the connection, because the board keeps
         // no subscription across a session either.
         UInt32 sentMask = 0;
+
+        // And what rate it was told, so a viewer that changes the slider
+        // re-sends rather than waiting for a mask change that never comes.
+        UInt16 sentFps = 0;
     };
 
     Void dropConn(Conn& c)
@@ -672,7 +676,7 @@ namespace link
     // carrying 2.5 KB per revolution and one carrying about a megabyte a
     // second, and between a board that opens /dev/video0 and one that leaves
     // it alone.
-    [[nodiscard]] Bool syncSubscription(Conn& c, Session& s, Bool wantCam)
+    [[nodiscard]] Bool syncSubscription(Conn& c, Session& s, Bool wantCam, Int32 wantFps)
     {
         // HELLO is the first bytes on the connection and nothing else goes out
         // until WELCOME has answered it.
@@ -682,6 +686,17 @@ namespace link
         }
 
         const UInt32 want = subscriptionMask(wantCam);
+
+        // A RATE IS ONLY MEANINGFUL ALONGSIDE A SUBSCRIPTION. With the camera
+        // off there is nothing to set a rate for, so it is sent as 0 - "did not
+        // ask" - rather than carrying the last slider position on a frame that
+        // switches the camera off.
+        UInt16 fps = 0;
+        if(wantCam && wantFps > 0)
+        {
+            const Int32 ceiling = static_cast<Int32>(bibowire::CAM_FPS_MAX);
+            fps = static_cast<UInt16>(wantFps > ceiling ? ceiling : wantFps);
+        }
 
         // NEVER ASKED, AND NOTHING WANTED: say nothing at all. The board's
         // default already sends the telemetry this viewer draws, so a
@@ -693,7 +708,7 @@ namespace link
         {
             return true;
         }
-        if(c.sentMask == want)
+        if(c.sentMask == want && c.sentFps == fps)
         {
             return true;
         }
@@ -701,6 +716,7 @@ namespace link
         bibowire::Subscribe sub;
         sub.sessionId = s.welcome.sessionId;
         sub.typeMask = want;
+        sub.camFps = fps;
         // 1 = every revolution. The camera does NOT quietly buy itself room by
         // thinning the scan: which of the two matters is the operator's
         // decision, and halving the scan the moment a window opened would be
@@ -720,6 +736,7 @@ namespace link
         }
 
         c.sentMask = want;
+        c.sentFps = fps;
         s.cameraSubscribed = wantCam;
         return true;
     }
@@ -937,7 +954,7 @@ namespace link
                 // the link drops and comes back and the new session has been
                 // told nothing. `sentMask` went with the old connection, so a
                 // window that was open before the drop is asked for again.
-                if(!syncSubscription(conn, live, c->cameraOn.load()))
+                if(!syncSubscription(conn, live, c->cameraOn.load(), c->cameraFps.load()))
                 {
                     why = "could not send SUBSCRIBE";
                     break;
@@ -1073,6 +1090,85 @@ namespace link
       s = Session();
   }
 
+  // ---- what a feed is delivering at ------------------------------------------
+
+  Void noteArrival(Cadence& c, Int64 nowMs)
+  {
+      if(!c.have)
+      {
+          // THE FIRST FRAME STARTS THE CLOCK AND NOTHING ELSE. There is no gap
+          // before a feed's first arrival, and inventing one would measure the
+          // moment this viewer happened to connect rather than anything the
+          // board is doing.
+          c.have = true;
+          c.lastAtMs = nowMs;
+          return;
+      }
+
+      const Int64 gap = nowMs - c.lastAtMs;
+      c.lastAtMs = nowMs;
+
+      // A clock that went backwards, or two frames stamped inside one
+      // millisecond. Neither is an interval this feed delivered at, and a
+      // negative one would poison the maximum in the wrong direction.
+      if(gap <= 0)
+      {
+          return;
+      }
+
+      c.gaps[c.at] = gap;
+      c.at = (c.at + 1u) % CADENCE_SAMPLES;
+      if(c.count < CADENCE_SAMPLES)
+      {
+          ++c.count;
+      }
+  }
+
+  Int64 worstGapMs(const Cadence& c)
+  {
+      Int64 worst = 0;
+      // `count` and not CADENCE_SAMPLES: the unfilled tail of a fresh ring is
+      // zeros, and while zeros cannot raise a maximum, reading them would make
+      // this loop's correctness depend on that coincidence.
+      for(Size i = 0; i < c.count; ++i)
+      {
+          if(c.gaps[i] > worst)
+          {
+              worst = c.gaps[i];
+          }
+      }
+      return worst;
+  }
+
+  Int64 staleBandMs(const Cadence& c)
+  {
+      const Int64 worst = worstGapMs(c);
+      if(worst <= 0)
+      {
+          // Nothing measured yet, so the feed is held to section 7's number
+          // until it has earned a different one.
+          return FRESH_MS;
+      }
+
+      const Int64 band = (worst * STALE_SLACK_NUM) / STALE_SLACK_DEN;
+      if(band < FRESH_MS)
+      {
+          // MEASURING CAN NEVER TIGHTEN THE BAND. A feed arriving every 20 ms
+          // is not thereby promised to be called stale at 30, because the
+          // number that matters to a person reading the screen is section 7's
+          // and this function may only ever widen it for a feed that is slower.
+          return FRESH_MS;
+      }
+      if(band > STALE_CEIL_MS)
+      {
+          // And never so wide that "stale" stops existing. Past this the feed
+          // would go straight from live to gone, and the band that warns
+          // somebody the picture is aging is the one thing between those two.
+          return STALE_CEIL_MS;
+      }
+      return band;
+  }
+
   Opt<Revolution> Session::revolution(Int64 nowMs) const
   {
       if(!haveScan)
@@ -1092,7 +1188,9 @@ namespace link
       r.health = scanHealth;
       r.motor = scanMotor;
       r.ageMs = age;
-      r.stale = age > FRESH_MS;
+      r.staleAtMs = staleBandMs(scanRate);
+      r.worstGapMs = worstGapMs(scanRate);
+      r.stale = age > r.staleAtMs;
       return r;
   }
 
@@ -1110,7 +1208,10 @@ namespace link
       Decision d;
       d.decide = decide;
       d.ageMs = age;
-      d.stale = age > FRESH_MS;
+      // The SCAN's band, because a DECIDE is tied to the revolution it
+      // describes and shares its age exactly - the same reason it borrows that
+      // revolution's board clock a few lines up in ingestFrame.
+      d.stale = age > staleBandMs(scanRate);
       return d;
   }
 
@@ -1128,7 +1229,7 @@ namespace link
       Board b;
       b.state = board;
       b.ageMs = age;
-      b.stale = age > FRESH_MS;
+      b.stale = age > staleBandMs(boardRate);
       return b;
   }
 
@@ -1146,7 +1247,7 @@ namespace link
       Control c;
       c.state = control;
       c.ageMs = age;
-      c.stale = age > FRESH_MS;
+      c.stale = age > staleBandMs(controlRate);
       return c;
   }
 
@@ -1173,7 +1274,14 @@ namespace link
       shot.codec = camera.codec;
       shot.bytes = camera.data;
       shot.ageMs = age;
-      shot.stale = age > FRESH_MS;
+      // THE WHOLE POINT OF THE BAND, and the bug it was written for: at the
+      // board's 2 fps default a picture is ~500 ms old the instant before its
+      // successor arrives, so a fixed FRESH_MS of 400 called a camera that was
+      // perfectly on time STALE for the last 100 ms of every single frame.
+      // Measured against the real board that was 57 frames out of 57.
+      shot.staleAtMs = staleBandMs(cameraRate);
+      shot.worstGapMs = worstGapMs(cameraRate);
+      shot.stale = age > shot.staleAtMs;
       return shot;
   }
 
@@ -1342,6 +1450,7 @@ namespace link
           s.scanMotor = m.motor;
           s.scanAtMs = nowMs;
           s.scanBoardUs = m.tMonoUs;
+          noteArrival(s.scanRate, nowMs);
           noteOffset(s, nowMs, m.tMonoUs);
           return;
       }
@@ -1385,6 +1494,7 @@ namespace link
           s.haveBoard = true;
           s.board = m;
           s.boardAtMs = nowMs;
+          noteArrival(s.boardRate, nowMs);
           noteOffset(s, nowMs, m.tMonoUs);
           return;
       }
@@ -1400,6 +1510,7 @@ namespace link
           s.haveControl = true;
           s.control = m;
           s.controlAtMs = nowMs;
+          noteArrival(s.controlRate, nowMs);
           noteOffset(s, nowMs, m.tMonoUs);
           return;
       }
@@ -1438,6 +1549,7 @@ namespace link
           s.haveCamera = true;
           s.cameraAtMs = nowMs;
           ++s.cameraFrames;
+          noteArrival(s.cameraRate, nowMs);
           noteOffset(s, nowMs, m.tMonoUs);
           // Moved rather than copied: the body is a whole JPEG, tens of
           // kilobytes, and this runs on the network thread several times a
@@ -1748,6 +1860,22 @@ namespace link
   Bool cameraWanted(const Client& c)
   {
       return c.cameraOn.load();
+  }
+
+  Void wantCameraFps(Client& c, Int32 fps)
+  {
+      // Clamped HERE as well as in syncSubscription and again on the board.
+      // Not redundancy for its own sake: this is the value the UI reads back to
+      // show what was asked for, and a readout that echoed 60 while the wire
+      // carried 15 would be a number describing nothing.
+      const Int32 ceiling = static_cast<Int32>(bibowire::CAM_FPS_MAX);
+      const Int32 held = fps < 0 ? 0 : (fps > ceiling ? ceiling : fps);
+      c.cameraFps.store(held);
+  }
+
+  Int32 cameraFpsWanted(const Client& c)
+  {
+      return c.cameraFps.load();
   }
 
 }

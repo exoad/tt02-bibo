@@ -217,6 +217,12 @@ namespace viewfeed
         UInt16 scanDivisor = 1;
         UInt32 revSeen = 0;
 
+        // The camera rate THIS viewer asked for, already clamped to
+        // bibowire::CAM_FPS_MAX when it was read off the wire. 0 means it did
+        // not ask, which is every viewer written before the field existed, and
+        // leaves the board's own conservative default standing.
+        UInt16 camFps = 0;
+
         // What the viewer said it understands. ADVISORY, and recorded for the
         // log rather than acted on - see typeBit(). An unknown bit here is
         // ignored, never refused: the whole point of the length prefix is that
@@ -342,7 +348,25 @@ namespace viewfeed
     // the field hotspot rather than the phone on the same board.
     struct CamCfg
     {
-        Str dev = "/dev/video0";
+        // BY ID, NOT BY MINOR NUMBER. /dev/videoN is assigned in enumeration
+        // order and is NOT stable: this camera fell off the bus mid-stream on
+        // 2026-09-10 (uvcvideo "Failed to resubmit video URB (-19)", ENODEV),
+        // came back as USB device 6, and took /dev/video1 - so /dev/video0
+        // simply ceased to exist and both this module and the phone dashboard
+        // reported a camera that was sitting right there working. It had
+        // re-enumerated THREE times that day, with twelve URB failures, so this
+        // is a recurring fact about the hardware and not a one-off.
+        //
+        // The by-id path is the same answer the lidar already uses
+        // (/dev/serial/by-id/usb-Silicon_Labs_CP2102N_...), and it survives
+        // re-enumeration because it is built from the device's own strings.
+        // Falls back to the old name so a board without the symlink - or a
+        // different camera - still works.
+        Str dev = "/dev/v4l/by-id/usb-Innomaker_Innomaker-U20CAM-1080p-S1_SN0001-video-index0";
+        if(::access(dev.c_str(), F_OK) != 0)
+        {
+            dev = "/dev/video0";
+        }
         UInt16 width = CAM_WIDTH_DEFAULT;
         UInt16 height = CAM_HEIGHT_DEFAULT;
         Float64 periodMs = 1000.0 / CAM_FPS_DEFAULT;   // 0 means uncapped
@@ -1268,6 +1292,13 @@ namespace viewfeed
             {
                 c.typeMask = m.typeMask;
                 c.scanDivisor = m.scanDivisor == 0u ? 1u : m.scanDivisor;
+                // CLAMPED, NEVER REFUSED. A viewer asking for more than this
+                // board will give gets the most it will give, because the
+                // alternative - dropping the whole SUBSCRIBE - would turn a
+                // request for a faster picture into no picture at all.
+                c.camFps = m.camFps > bibowire::CAM_FPS_MAX
+                    ? bibowire::CAM_FPS_MAX
+                    : m.camFps;
             }
             break;
         }
@@ -1865,6 +1896,53 @@ namespace viewfeed
         return false;
     }
 
+    // How often a picture is offered, from what the SUBSCRIBERS asked for.
+    //
+    // THE FASTEST REQUEST WINS AND EVERY SUBSCRIBER GETS EVERY OFFERED FRAME.
+    // That is a deliberate choice over pacing each viewer separately, and the
+    // reason is frameIndex: it is monotonic and the viewer counts its gaps as
+    // dropped pictures, so a viewer held to a slower rate than the capture
+    // would be shown "frames 91-94 missing" for frames the board decided on
+    // purpose not to send it - a made-up fault, which is worse than the thing
+    // it would be reporting.
+    //
+    // The cost is stated rather than hidden: two viewers asking for different
+    // rates both get the higher one. That is safe here and nowhere else,
+    // because CAMERA is CLASS_BULK - a link that cannot carry the rate discards
+    // pictures ahead of every scan and state frame, so the viewer that wanted
+    // less loses camera frames and never the car's view of the room.
+    //
+    // 0 is UNCAPPED and propagates as such: it is the one value that must not
+    // be treated as "slowest", since a bench cable asking for everything the
+    // device produces is a deliberate thing to be able to ask for.
+    [[nodiscard]] Float64 offeredCamPeriodMs(const Vec<Client>& clients)
+    {
+        Bool asked = false;
+        Float64 best = 0.0;
+        for(const Client& c : clients)
+        {
+            if(!wants(c, bibowire::Type::TYPE_CAMERA))
+            {
+                continue;
+            }
+            // A subscriber that named no rate is content with the board's
+            // default, so it is the default that enters the comparison for it.
+            const Float64 per = c.camFps == 0u
+                ? camCfg.periodMs
+                : 1000.0 / static_cast<Float64>(c.camFps);
+            if(!asked || per < best)
+            {
+                asked = true;
+                best = per;
+            }
+            if(per == 0.0)
+            {
+                return 0.0;
+            }
+        }
+        return asked ? best : camCfg.periodMs;
+    }
+
     // Said to THE CAMERA'S SUBSCRIBERS, which is who is looking at the blank
     // panel. An absence with a reason beats a silent nothing, and a viewer that
     // asked for a picture and got neither picture nor sentence is the exact
@@ -2028,8 +2106,13 @@ namespace viewfeed
         // the rate unchanged, and nothing in the picture would say so. Dropping
         // on this side cannot fail silently: what is not sent is not sent.
         // status_server.py caps in the same place for the same reason.
-        if(cam.everSent && camCfg.periodMs > 0.0
-           && elapsedMs(cam.lastSentAt) < camCfg.periodMs)
+        // THE RATE THE SUBSCRIBERS ASKED FOR, and this board's own default only
+        // when nobody asked. The viewer is the end that knows whether it is on
+        // a LAN or a phone hotspot; this end knows only that it has a camera
+        // and a socket, which is why the number could never be chosen well from
+        // here alone.
+        const Float64 offerMs = offeredCamPeriodMs(clients);
+        if(cam.everSent && offerMs > 0.0 && elapsedMs(cam.lastSentAt) < offerMs)
         {
             return;
         }

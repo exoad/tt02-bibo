@@ -41,6 +41,7 @@
 #include "bibowire.hxx"
 #include "link.hxx"
 #include "jpeg.hxx"
+#include "orient.hxx"
 
 #include <cmath>
 #include <cstdio>
@@ -612,7 +613,146 @@ static Void testArrivalFloor()
     const Opt<link::Revolution> rev = s.revolution(1700);
     check(rev.has_value(), "the revolution is still drawable");
     check(rev->ageMs == 600, "and its age is the board's, not the socket's");
-    check(rev->stale, "which is what makes it read as stale rather than fresh");
+
+    // THE AGE IS WHAT THIS TEST IS ABOUT AND IT HAS NOT CHANGED. Whether 600 ms
+    // READS as stale is now the measured band's business, and it deliberately
+    // answers differently: this feed has delivered exactly one interval and that
+    // interval was 600 ms, so 600 ms is the cadence it is keeping rather than
+    // evidence it has stopped. It goes stale past the band that interval earned,
+    // which is the check below - and the old assertion here, that 600 ms is
+    // stale because 600 > 400, is the very arithmetic that made the lidar dots
+    // and the camera flicker.
+    check(!rev->stale, "600 ms is not stale for a feed whose measured gap IS 600");
+    check(rev->staleAtMs == 900, "the band that one 600 ms interval earned is 900 ms");
+
+    const Opt<link::Revolution> later = s.revolution(2500);
+    check(later.has_value(), "the same revolution is still drawable at 1400 ms");
+    check(later.has_value() && later->stale, "and past the band it does read stale");
+}
+
+static Void testCadenceBand()
+{
+    std::printf("\n-- the staleness band is measured, not assumed --\n");
+
+    // Nothing measured yet: section 7's number stands until a feed has earned
+    // a different one.
+    link::Cadence fresh;
+    check(link::worstGapMs(fresh) == 0, "an unmeasured feed reports no gap");
+    check(link::staleBandMs(fresh) == link::FRESH_MS, "and is held to FRESH_MS");
+
+    // The first arrival starts the clock; it is not itself an interval.
+    link::noteArrival(fresh, 1000);
+    check(link::worstGapMs(fresh) == 0, "the first frame is not a gap");
+    check(link::staleBandMs(fresh) == link::FRESH_MS, "so the band has not moved");
+
+    // A FAST feed must not be able to tighten the band. Measuring may only ever
+    // widen it for a slow feed, never shorten section 7's number for a quick one.
+    link::Cadence quick;
+    for(Int32 i = 0; i < 20; ++i)
+    {
+        link::noteArrival(quick, 1000 + (i * 20));
+    }
+    check(link::worstGapMs(quick) == 20, "a 50 Hz feed measures a 20 ms gap");
+    check(link::staleBandMs(quick) == link::FRESH_MS, "and is STILL held to FRESH_MS, never less");
+
+    // Two frames a second - the board's own default, and the case that was
+    // measured reading STALE on 57 frames out of 57.
+    link::Cadence slow;
+    for(Int32 i = 0; i < 20; ++i)
+    {
+        link::noteArrival(slow, 1000 + (i * 500));
+    }
+    check(link::worstGapMs(slow) == 500, "a 2 fps feed measures a 500 ms gap");
+    check(link::staleBandMs(slow) == 750, "and earns a 750 ms band");
+    check(link::staleBandMs(slow) > 500, "which is wider than the interval it delivers at");
+
+    // THE CEILING, and why it exists: however dreadful the feed, stale has to
+    // stay strictly below GONE_MS or a picture would go from live to absent
+    // with no band in between to warn anybody it was aging.
+    link::Cadence awful;
+    for(Int32 i = 0; i < 8; ++i)
+    {
+        link::noteArrival(awful, 1000 + (i * 5000));
+    }
+    check(
+        link::staleBandMs(awful) == link::STALE_CEIL_MS,
+        "a dreadful feed is capped at the ceiling"
+    );
+    check(
+        link::staleBandMs(awful) < link::GONE_MS,
+        "so stale is always passed THROUGH on the way to gone"
+    );
+
+    // The window SLIDES. A stall that has stopped happening must stop widening
+    // the band, or a feed could die quietly inside room its worst moment bought
+    // it an hour ago.
+    link::Cadence passing;
+    link::noteArrival(passing, 0);
+    link::noteArrival(passing, 900);
+    check(link::worstGapMs(passing) == 900, "a stall is measured while it is recent");
+    Int64 at = 900;
+    for(Size i = 0; i < link::CADENCE_SAMPLES; ++i)
+    {
+        at += 100;
+        link::noteArrival(passing, at);
+    }
+    check(link::worstGapMs(passing) == 100, "and leaves the window once it has scrolled out");
+    check(link::staleBandMs(passing) == link::FRESH_MS, "so the band narrows again");
+}
+
+static Void testCameraKeepsItsPromise()
+{
+    std::printf("\n-- a camera delivering what it promised is never stale --\n");
+
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+    link::Session s;
+
+    // Twelve frames at the board's 2 fps default, each arriving exactly when
+    // the one before it implied. tMonoUs is 0 throughout so the age is the one
+    // measured from local arrival and this test is about the band alone.
+    Int64 at = 1000;
+    for(UInt32 i = 0; i < 12u; ++i)
+    {
+        Vec<UInt8> wire;
+        static_cast<Void>(pushCamera(wire, i + 1u, 0, jpegBytes));
+        static_cast<Void>(feed(s, wire, at));
+        at += 500;
+    }
+
+    const Int64 last = at - 500;
+    const Opt<link::CameraShot> shot = s.cameraShot(last + 499);
+    check(shot.has_value(), "the newest picture is there to draw");
+    check(shot.has_value() && !shot->stale, "and 499 ms after it arrived it is NOT stale");
+    check(shot.has_value() && shot->staleAtMs == 750, "because the band it earned is 750 ms");
+    check(shot.has_value() && shot->worstGapMs == 500, "from its measured 500 ms cadence");
+
+    // A camera that has genuinely STOPPED still goes stale, and then still goes.
+    // The band moved; what it means did not.
+    const Opt<link::CameraShot> aging = s.cameraShot(last + 800);
+    check(aging.has_value(), "a stopped camera is still drawable at 800 ms");
+    check(aging.has_value() && aging->stale, "but it IS stale past the band it earned");
+    check(!s.cameraShot(last + 1600).has_value(), "and past GONE_MS there is no picture at all");
+}
+
+static Void testCameraRate()
+{
+    std::printf("\n-- the rate this viewer asks the board for --\n");
+
+    link::Client c;
+    check(link::cameraFpsWanted(c) == 0, "a fresh client asks for no particular rate");
+
+    link::wantCameraFps(c, 10);
+    check(link::cameraFpsWanted(c) == 10, "and carries what it was given");
+
+    // The board owns the ceiling; the viewer must not be able to ask past it.
+    link::wantCameraFps(c, 900);
+    check(
+        link::cameraFpsWanted(c) == static_cast<Int32>(bibowire::CAM_FPS_MAX),
+        "a request above the board's ceiling is clamped to it"
+    );
+
+    link::wantCameraFps(c, -5);
+    check(link::cameraFpsWanted(c) == 0, "and a negative rate is no request at all");
 }
 
 static Void testPingAndProse()
@@ -1070,6 +1210,70 @@ static Void testSubscriptionMask()
     check((without & link::typeBit(bibowire::Type::TYPE_EVENT)) != 0u, "so do the sentences");
 }
 
+static Void checkUv(const orient::Uv& got, Float32 u, Float32 v, const Char* what)
+{
+    check(near(got.u, u) && near(got.v, v), what);
+}
+
+[[nodiscard]] static Bool sameCorners(const Array<orient::Uv, 4>& a, const Array<orient::Uv, 4>& b)
+{
+    for(Size i = 0; i < 4u; ++i)
+    {
+        if(!near(a[i].u, b[i].u) || !near(a[i].v, b[i].v))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static Void testOrientation()
+{
+    std::printf("\n-- rotating and flipping the camera picture --\n");
+
+    // Unturned, every corner maps to itself.
+    const Array<orient::Uv, 4> flat = orient::cornerUvs(0, false, false);
+    checkUv(flat[0], 0.0f, 0.0f, "unturned, the top-left is the source's top-left");
+    checkUv(flat[2], 1.0f, 1.0f, "and the bottom-right is the source's bottom-right");
+    check(!orient::sideways(0), "and the picture is not on its side");
+
+    // A QUARTER TURN CLOCKWISE, which is the case ImGui::Image cannot express:
+    // what was at the source's bottom-left belongs at the destination's
+    // top-left, and no pair of opposite uv corners can say that.
+    const Array<orient::Uv, 4> cw = orient::cornerUvs(1, false, false);
+    checkUv(cw[0], 0.0f, 1.0f, "turned 90, the top-left samples the source's BOTTOM-left");
+    checkUv(cw[1], 0.0f, 0.0f, "the top-right samples the source's top-left");
+    checkUv(cw[2], 1.0f, 0.0f, "the bottom-right samples the source's top-right");
+    checkUv(cw[3], 1.0f, 1.0f, "and the bottom-left samples the source's bottom-right");
+    check(orient::sideways(1), "and 90 degrees IS on its side, so the fit swaps");
+
+    // Half a turn is both axes mirrored - the one rotation a plain Image could
+    // also have drawn, so the two had better agree about it.
+    const Array<orient::Uv, 4> half = orient::cornerUvs(2, false, false);
+    checkUv(half[0], 1.0f, 1.0f, "turned 180, the top-left samples the far corner");
+    check(!orient::sideways(2), "and 180 is not on its side");
+    check(orient::sideways(3), "while 270 is");
+
+    // The flips are in SOURCE space, so they mean the same thing at any angle.
+    const Array<orient::Uv, 4> mirrored = orient::cornerUvs(0, true, false);
+    checkUv(mirrored[0], 1.0f, 0.0f, "flipped horizontally, the top-left samples the top-right");
+    const Array<orient::Uv, 4> upended = orient::cornerUvs(0, false, true);
+    checkUv(upended[0], 0.0f, 1.0f, "flipped vertically, the top-left samples the bottom-left");
+    check(
+        sameCorners(orient::cornerUvs(0, true, true), half),
+        "and flipping BOTH axes is the same picture as turning it 180"
+    );
+
+    // FOLDED, NOT REFUSED. A rotate-left button hands this a negative, and a
+    // mapping that only works for 0..3 breaks the first time one is wired up.
+    check(
+        sameCorners(orient::cornerUvs(-1, false, false), orient::cornerUvs(3, false, false)),
+        "a negative turn folds to the same corners as 3"
+    );
+    check(sameCorners(orient::cornerUvs(5, false, false), cw), "and 5 quarter turns is one");
+    check(orient::sideways(-1), "a negative turn still knows it is on its side");
+}
+
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
@@ -1083,6 +1287,10 @@ int main()
     testDecideTie();
     testStaleness();
     testArrivalFloor();
+    testCadenceBand();
+    testCameraKeepsItsPromise();
+    testCameraRate();
+    testOrientation();
     testRoundTrip();
     testPingAndProse();
     testBoardAndControl();
