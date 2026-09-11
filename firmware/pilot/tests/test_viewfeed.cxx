@@ -43,6 +43,31 @@
 //   12. PING/PONG: the board pings once a second, and a viewer that never
 //       answers is closed with BYE(TIMEOUT).
 //   13. LEAVE releases the control slot on that tick.
+//   14. THE ZERO-MASK TRAP. `typeMask = 0` means "never asked", which this
+//       board reads as EVERYTHING - and CAMERA is the one type excluded from
+//       that default, because ~45 KB a frame handed to a viewer that never
+//       mentioned it would take the bandwidth the scan needs.
+//   15. Asking for the camera is ANSWERED - a picture, or a sentence saying
+//       why there is none. Never a blank panel and silence.
+//
+// WHAT THIS SUITE DOES NOT PROVE, said out loud rather than left to be assumed.
+// /dev/video0 is SINGLE-OPENER - measured: a second streamer gets
+// "VIDIOC_REQBUFS returned -1 (Device or resource busy)" and writes zero bytes
+// - and the phone dashboard (tools/status/status_server.py) opens the same
+// device. A ctest that grabbed it would fight the dashboard on the very board
+// it runs on and would pass or fail depending on whether somebody had a tab
+// open. So BIBO_CAM_DEV is pointed at a device that does not exist for the
+// whole run, and what is checked is the BOARD's behaviour: the subscription
+// gate, and that an absence arrives with a reason. That a JPEG actually comes
+// off the sensor and reaches a viewer is NOT checked here.
+//
+// It can be, by hand, against real hardware - the setenv below does not
+// overwrite, so
+//
+//   BIBO_CAM_DEV=/dev/video0 ./test_viewfeed
+//
+// runs this same suite against the real device, where check 15 accepts either
+// the picture or the reason.
 //
 // Every socket read here has a deadline, so a feed that sends nothing fails the
 // check rather than hanging the test.
@@ -58,6 +83,7 @@
 #if defined(__linux__)
 #include <arpa/inet.h>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <netinet/in.h>
 #include <poll.h>
@@ -152,6 +178,17 @@ struct Wire
         b.len = len;
         const Size total = bibowire::put(h, b, frame.data(), frame.size());
         raw(frame.data(), total);
+    }
+
+    Void subscribe(UInt32 session, UInt32 typeMask, UInt16 divisor, UInt16 seq)
+    {
+        bibowire::Subscribe m;
+        m.sessionId = session;
+        m.typeMask = typeMask;
+        m.scanDivisor = divisor;
+        Array<UInt8, 32> body{};
+        const Size len = bibowire::writeSubscribe(m, body.data(), body.size());
+        put(bibowire::Type::TYPE_SUBSCRIBE, body.data(), len, seq);
     }
 
     Void hello(UInt16 udpPort, UInt16 wantControl, const Str& name)
@@ -521,6 +558,12 @@ static Bool clientsReach(Size want, Int32 ms)
 Int32 main()
 {
     std::printf("\nviewfeed - bibowire's socket half, over loopback\n\n");
+
+    // The camera device, pointed somewhere that does not exist for the whole
+    // run - see "WHAT THIS SUITE DOES NOT PROVE" in the header for why, and for
+    // how to point it at the real one by hand. Overwrite is 0 on purpose: an
+    // operator who sets BIBO_CAM_DEV wins, and gets the real device.
+    static_cast<Void>(::setenv("BIBO_CAM_DEV", "/dev/bibo-no-such-video", 0));
 
     // ---- 1. start, stop, and a publish with nobody there ---------------------------
     const viewfeed::Policy policy = aPolicy();
@@ -1032,6 +1075,147 @@ Int32 main()
         bibowire::classOf(bibowire::Type::TYPE_EVENT) == bibowire::Class::CLASS_VITAL,
         "and so is the sentence that says why"
     );
+
+    // ---- 14. THE ZERO-MASK TRAP -----------------------------------------------------
+    //
+    // A zero typeMask means "never asked", and this board reads that as
+    // EVERYTHING: a viewer that never subscribes is not a viewer that wants
+    // nothing. That is right for a 2.5 KB revolution and it would be a disaster
+    // for a camera - 45 KB a frame, measured, at whatever rate the device runs.
+    // EVERY viewer written before the producer existed sends a zero mask, so if
+    // CAMERA sat in that default they would all start receiving a megabyte a
+    // second they never asked for, out of the bandwidth the scan needs.
+    //
+    // So CAMERA is the one type excluded from the default, and this is the check
+    // that pins it. The mask convention is `bit = tag - 0x10`, so CAMERA (0x20)
+    // is bit 16.
+    {
+        const UInt32 cameraBit = 1u << (0x20u - 0x10u);
+        check(cameraBit == (1u << 16u), "CAMERA's subscription bit is bit 16");
+
+        Wire zero;
+        check(zero.connect(port), "a viewer that never subscribes connects");
+        check(handshake(zero, 0, 0) != 0u, "and is welcomed");
+        check(clientsReach(1, 2000), "and is counted");
+
+        // It IS served what a zero mask includes, so this is a check about the
+        // camera and not about a viewer that is being sent nothing at all.
+        viewfeed::publishScan(aScan(64, 910));
+        check(zero.nextOf(bibowire::Type::TYPE_SCAN, 2000), "a zero mask still receives SCAN");
+        bibowire::BoardState state;
+        state.upS = 21;
+        viewfeed::publishBoard(state);
+        check(zero.nextOf(bibowire::Type::TYPE_BOARD, 2000), "and still receives BOARD");
+
+        // And NOT the camera. Long enough that a capture would have been
+        // started, failed and explained several times over if the mask let it.
+        Bool sawCamera = false;
+        const TimePoint watch = monoNow();
+        while(elapsedMs(watch) < 1500.0 && !sawCamera)
+        {
+            if(!zero.next(200))
+            {
+                continue;
+            }
+            sawCamera = zero.f.head.type == bibowire::Type::TYPE_CAMERA;
+        }
+        check(!sawCamera, "but a zero mask receives NO CAMERA - it never asked for one");
+
+        zero.close();
+        check(clientsReach(0, 2000), "it leaves");
+    }
+
+    // ---- 15. asking for the camera is ANSWERED --------------------------------------
+    //
+    // A picture, or a sentence saying why there is none. Never a blank panel and
+    // silence: an absence with a reason beats a silent nothing, and this repo is
+    // named after the failure of reporting success while measuring nothing.
+    {
+        const UInt32 cameraBit = 1u << (0x20u - 0x10u);
+
+        Wire watcher;
+        check(watcher.connect(port), "a viewer that wants pictures connects");
+        watcher.hello(0, 0, "camera");
+        check(watcher.nextOf(bibowire::Type::TYPE_WELCOME, 1000), "and is welcomed");
+        bibowire::Welcome w;
+        check(
+            bibowire::readWelcome(watcher.f.body, watcher.f.head.ver, &w),
+            "the WELCOME reads whole"
+        );
+        // featureMask is "what this board WILL send", so the camera belongs in
+        // it even though it is off: it is how a viewer discovers the bit is
+        // worth setting at all, rather than having to read this source.
+        check(
+            (w.featureMask & cameraBit) != 0u,
+            "the board ADVERTISES the camera it will send on request"
+        );
+        check(w.sessionId != 0u, "with a session id");
+
+        watcher.subscribe(w.sessionId, cameraBit, 1, 1);
+
+        Bool sawCamera = false;
+        Bool sawWhy = false;
+        Str why;
+        const TimePoint asked = monoNow();
+        while(elapsedMs(asked) < 6000.0 && !sawCamera && !sawWhy)
+        {
+            if(!watcher.next(500))
+            {
+                continue;
+            }
+            if(watcher.f.head.type == bibowire::Type::TYPE_CAMERA)
+            {
+                sawCamera = true;
+                break;
+            }
+            if(watcher.f.head.type != bibowire::Type::TYPE_EVENT)
+            {
+                continue;
+            }
+            bibowire::Event e;
+            if(bibowire::readEvent(watcher.f.body, watcher.f.head.ver, &e)
+               && e.text.find("camera") != Str::npos)
+            {
+                sawWhy = true;
+                why = e.text;
+            }
+        }
+        check(
+            sawCamera || sawWhy,
+            "asking for the camera is answered - a picture, or a reason, never silence"
+        );
+        if(sawCamera)
+        {
+            bibowire::Camera shot;
+            check(
+                bibowire::readCamera(watcher.f.body, watcher.f.head.ver, &shot),
+                "the CAMERA frame reads whole"
+            );
+            check(shot.codec == 1u, "codec 1, JPEG, echoed on every frame");
+            check(shot.width != 0u && shot.height != 0u, "with a real size, never a plausible 0");
+            check(!shot.data.empty(), "and bytes in it");
+            check(shot.tMonoUs != 0u, "and a stamp from the board's own clock");
+            std::printf(
+                "        (a %ux%u frame, %u bytes, index %u)\n",
+                static_cast<unsigned>(shot.width),
+                static_cast<unsigned>(shot.height),
+                static_cast<unsigned>(shot.data.size()),
+                static_cast<unsigned>(shot.frameIndex)
+            );
+        }
+        if(sawWhy)
+        {
+            check(
+                why.find("absent") != Str::npos || why.find("busy") != Str::npos
+                    || why.find("holding") != Str::npos,
+                "and the reason says what is wrong with the device"
+            );
+            std::printf("        (\"%s\")\n", why.c_str());
+        }
+
+        watcher.close();
+        check(clientsReach(0, 2000), "the viewer leaves and the device is released");
+    }
 
     // ---- 11. a fifth viewer is refused BY NAME -------------------------------------------
     {

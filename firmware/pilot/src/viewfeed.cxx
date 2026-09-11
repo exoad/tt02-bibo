@@ -6,12 +6,15 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace viewfeed
@@ -59,12 +62,79 @@ namespace viewfeed
     // steering commands, and the board wants the newest, not the most.
     constexpr Int32 UDP_RCVBUF = 64 * 1024;
 
-    // The largest frame v1 ever builds: a 1024-point SCAN. MAX_PAYLOAD is
-    // 256 KiB and is sized for a JPEG nobody sends yet, so preallocating that
-    // would be 256 KiB held for a frame that cannot occur.
+    // The largest frame the SCAN path ever builds: a 1024-point revolution.
+    // MAX_PAYLOAD is 256 KiB and is sized for a JPEG, which this file now does
+    // send - but a camera frame is NOT built here. It gets its own buffer,
+    // allocated when the device opens and released when it closes, so a board
+    // nobody has subscribed a camera on still holds exactly these 5 KiB and not
+    // a quarter of a megabyte for a frame that is not occurring.
     constexpr Size SCAN_BODY_MAX = 24u + 5u * bibowire::MAX_SCAN_POINTS;
     constexpr Size ENCODE_BYTES = bibowire::FRAME_OVERHEAD + SCAN_BODY_MAX;
     constexpr Size BODY_CAP = ENCODE_BYTES - bibowire::FRAME_OVERHEAD;
+
+    // ---- the camera's numbers ----------------------------------------------
+
+    // JPEG start-of-image. THE ONLY FRAME BOUNDARY MJPEG GIVES: a JPEG's own
+    // end marker can occur inside its payload, so a frame is whole only once
+    // the NEXT one has begun. Costs exactly one frame of latency and is the
+    // reason a viewer is never handed half a picture. status_server.py's
+    // CAM_SOI, and its comment, unchanged.
+    constexpr Array<UInt8, 3> CAM_SOI = { 0xFFu, 0xD8u, 0xFFu };
+
+    // Bytes with no boundary in them are not a picture. Rather than grow
+    // without bound, the reader drops back to hunting for the next marker.
+    constexpr Size CAM_MAX_PARTIAL = 4u * 1024u * 1024u;
+
+    // The CAMERA body is a 24-byte fixed header, then the bytes, padded to 4.
+    // 32 is that rounded up past its padding: writeCamera REFUSES rather than
+    // overruns when the buffer is short, so this only has to have slack, and
+    // CAMERA_FIXED itself is private to bibowire.cxx and stays that way.
+    constexpr Size CAM_BODY_OVERHEAD = 32;
+
+    // A frame fits WHOLE or it is not sent. MAX_PAYLOAD is 262128 and a 640x480
+    // MJPEG frame measured ~45 KB, so this is five times the headroom actually
+    // needed - and section 5's FLAG_MORE stays unused, because v1 refuses it.
+    constexpr Size CAM_MAX_JPEG = bibowire::MAX_PAYLOAD - CAM_BODY_OVERHEAD;
+
+    // A capture that dies inside a second earns a longer wait, to a ceiling of
+    // four. status_server.py's backoff and its reason: retrying twice a second
+    // for as long as somebody leaves a subscription open is thousands of spawns
+    // an hour against a board whose whole job is elsewhere.
+    constexpr Int32 CAM_FAIL_CEILING = 8;
+    constexpr Float64 CAM_RETRY_STEP_MS = 500.0;
+    constexpr Float64 CAM_RETRY_MAX_MS = 4000.0;
+
+    // How much of v4l2-ctl's stderr is kept to explain a failure with. The
+    // sentence that matters - "VIDIOC_REQBUFS returned -1 (Device or resource
+    // busy)" - is the first thing it says.
+    constexpr Size CAM_DIAG_BYTES = 512;
+
+    // THE DEFAULT RATE, AND WHY IT IS THIS LOW.
+    //
+    // Measured on this board: 640x480 MJPG comes off /dev/video0 at 25 fps and
+    // 1121 KB/s, about 45 KB a frame. docs/bibowire.md section 10 assumes a
+    // camera costs ~200 KB/s and says plainly that even that "does not fit
+    // alongside the scan on this hotspot"; viewfeed.hxx sizes the whole design
+    // against a 220 kbit/s link, which is 27 KB/s - less than ONE frame a
+    // second.
+    //
+    // So no cap makes this fit, and that is not what the cap is for. CLASS_BULK
+    // is what decides what the link actually carries: camera frames are
+    // discarded before any scan or state frame, so whatever cannot get through
+    // is dropped at the ring rather than delaying the car's picture. The cap
+    // decides what the board OFFERS. Offering 25 fps would spend capture,
+    // encode and CRC on twenty-three frames in twenty-five that the ring throws
+    // away unread - real CPU out of the same core the control loop runs on, to
+    // produce nothing a viewer ever sees.
+    //
+    // Two frames a second is ~90 KB/s offered: a small multiple of what a good
+    // hotspot moment absorbs, so the picture updates when the link allows and
+    // degrades to a slideshow when it does not, with nothing wasted either way.
+    // BIBO_CAM_FPS raises it on a link that can take it - a bench cable will -
+    // and the number is deliberately NOT tuned for the bench.
+    constexpr Float64 CAM_FPS_DEFAULT = 2.0;
+    constexpr UInt16 CAM_WIDTH_DEFAULT = 640;
+    constexpr UInt16 CAM_HEIGHT_DEFAULT = 480;
 
     // The last 256 frame headers PER DIRECTION, dumped on any abnormal close so
     // a disconnect can be post-mortemed from a phone over ssh.
@@ -256,6 +326,53 @@ namespace viewfeed
     Size notesOutAt = 0;
 
     Array<UInt8, ENCODE_BYTES> scratch{};
+
+    // One read off the capture's pipe. At file scope rather than on the stack
+    // because a 64 KiB local zero-initialised on every read, fifty times a
+    // second, is a memset nobody asked for.
+    Array<UInt8, 65536> camChunk{};
+
+    // ---- the camera's configuration ----------------------------------------
+    //
+    // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS - THE SAME NAMES
+    // status_server.py reads, deliberately. The two programs cannot both hold
+    // the device, so they are never both capturing; letting them disagree about
+    // which device or which size would be a second way to be confused about one
+    // camera. Only the RATE differs in spirit, and only because this link is
+    // the field hotspot rather than the phone on the same board.
+    struct CamCfg
+    {
+        Str dev = "/dev/video0";
+        UInt16 width = CAM_WIDTH_DEFAULT;
+        UInt16 height = CAM_HEIGHT_DEFAULT;
+        Float64 periodMs = 1000.0 / CAM_FPS_DEFAULT;   // 0 means uncapped
+    };
+
+    CamCfg camCfg;
+
+    // The capture, owned entirely by this module's thread. Every buffer here is
+    // empty and every fd is -1 while nobody subscribes.
+    struct Cam
+    {
+        Int32 pid = -1;
+        Int32 outFd = -1;
+        Int32 errFd = -1;
+        Vec<UInt8> partial;      // bytes since the last start-of-image
+        Vec<UInt8> encode;       // one framed CAMERA: header, body, CRC
+        Str diag;                // what v4l2-ctl said on stderr, bounded
+        UInt32 frameIndex = 0;   // MONOTONIC for the life of the feed
+        TimePoint startedAt;
+        TimePoint lastSentAt;
+        Bool everSent = false;
+        Bool everFrame = false;  // this capture delivered at least one picture
+        Bool said = false;       // this failure episode has been explained once
+        Int32 fails = 0;
+        TimePoint failedAt;
+        Float64 waitMs = 0.0;
+        Bool waiting = false;
+    };
+
+    Cam cam;
 
     // ---- small helpers -----------------------------------------------------
 
@@ -452,6 +569,20 @@ namespace viewfeed
 
     // ---- encoding, framing and the drop classes ----------------------------
 
+    // The body is expected to be sitting at `buf + HEAD_BYTES` already, so
+    // put() has nothing to copy and the framing costs a header and a CRC. That
+    // matters most for the camera, where the body is 45 KB and this is called
+    // once PER CLIENT - the seq and the flags differ per client, so the header
+    // and CRC are rewritten in place over one body rather than the body being
+    // re-encoded four times.
+    [[nodiscard]] Size framedIn(UInt8* at, Size cap, const bibowire::Head& h, Size len)
+    {
+        bibowire::Body b;
+        b.bytes = at + bibowire::HEAD_BYTES;
+        b.len = len;
+        return bibowire::put(h, b, at, cap);
+    }
+
     [[nodiscard]] Size framed(bibowire::Type type, Size bodyLen, UInt16 seq, UInt16 flags)
     {
         bibowire::Head h;
@@ -459,12 +590,7 @@ namespace viewfeed
         h.ver = 1;
         h.flags = flags;
         h.seq = seq;
-        bibowire::Body b;
-        b.bytes = scratch.data() + bibowire::HEAD_BYTES;
-        b.len = bodyLen;
-        // The body was written straight into the frame buffer, so put() has
-        // nothing to copy and the framing costs a header and a CRC.
-        return bibowire::put(h, b, scratch.data(), scratch.size());
+        return framedIn(scratch.data(), scratch.size(), h, bodyLen);
     }
 
     [[nodiscard]] UInt8* bodyAt()
@@ -505,9 +631,10 @@ namespace viewfeed
         return false;
     }
 
-    // Puts the frame now sitting in `scratch` on this client's ring, under the
-    // classes of section 7.
-    Void enqueue(Client& c, bibowire::Type type, Size total)
+    // Puts a built frame on this client's ring, under the classes of section 7.
+    // `bytes` is whichever buffer it was framed in: `scratch` for everything the
+    // pilot publishes, the camera's own buffer for a JPEG too big to live there.
+    Void enqueueFrom(Client& c, bibowire::Type type, const UInt8* bytes, Size total)
     {
         if(!c.dropWhy.empty() || total == 0u)
         {
@@ -565,7 +692,7 @@ namespace viewfeed
         }
 
         Queued q;
-        q.bytes.assign(scratch.data(), scratch.data() + total);
+        q.bytes.assign(bytes, bytes + total);
         q.cls = cls;
         q.type = type;
         q.at = monoNow();
@@ -577,6 +704,12 @@ namespace viewfeed
         h.seq = c.txSeq;
         note(Dir::DIR_OUT, h, total, NOTE_OK);
         ++c.txSeq;
+    }
+
+    // The frame now sitting in `scratch`, which is every frame but a camera's.
+    Void enqueue(Client& c, bibowire::Type type, Size total)
+    {
+        enqueueFrom(c, type, scratch.data(), total);
     }
 
     // Builds one frame for one client and queues it. `write` fills the body and
@@ -626,12 +759,20 @@ namespace viewfeed
     // What this board actually sends, for WELCOME.featureMask - which section 4
     // defines as "what this board will send", and which is therefore a fact
     // about the build rather than an echo of what the viewer asked for.
+    //
+    // CAMERA is in here, and it is the one bit that is ADVERTISED BUT NOT ON.
+    // featureMask is "what this board will send", not "what this board is
+    // sending" - and a viewer has no other way to discover that asking for bit
+    // 16 would get it a picture. Leaving it out would make the camera a thing
+    // you have to read this source to find. Whether the DEVICE is there is a
+    // different question, answered by an EVENT when a subscription actually
+    // tries to open it, because that is the moment it can be answered honestly.
     [[nodiscard]] UInt32 boardFeatures()
     {
         return typeBit(bibowire::Type::TYPE_SCAN) | typeBit(bibowire::Type::TYPE_DECIDE)
              | typeBit(bibowire::Type::TYPE_BOARD) | typeBit(bibowire::Type::TYPE_LIDAR_INFO)
              | typeBit(bibowire::Type::TYPE_EVENT) | typeBit(bibowire::Type::TYPE_CTLSTATE)
-             | typeBit(bibowire::Type::TYPE_CMDACK);
+             | typeBit(bibowire::Type::TYPE_CMDACK) | typeBit(bibowire::Type::TYPE_CAMERA);
     }
 
     [[nodiscard]] Bool wants(const Client& c, bibowire::Type type)
@@ -644,6 +785,26 @@ namespace viewfeed
         if(bit == 0u)
         {
             return true;
+        }
+        // THE ONE EXCEPTION TO THE ZERO MASK, AND THE REASON IT EXISTS.
+        //
+        // Every other type follows the rule below: a viewer that never
+        // subscribed is not a viewer that wants nothing, so it gets everything.
+        // That is right for a 2.5 KB revolution and it is WRONG for a camera.
+        // A megabyte a second is not a sensible thing to hand somebody who
+        // never mentioned it - it would arrive at every viewer written before
+        // this producer existed, take the bandwidth the scan needs, and spin up
+        // a capture on a board nobody is watching a picture on.
+        //
+        // So CAMERA is sent ONLY on an explicit bit. Section 10 already says the
+        // camera "arrives switched off; a viewer that wants it asks", and this
+        // is that sentence in code. The bit is `tag - 0x10` like every other, so
+        // CAMERA (0x20) is bit 16 - nothing new to learn, just the one default
+        // that is off. test_viewfeed asserts a zero-mask subscriber gets scan
+        // and state and NOT camera.
+        if(type == bibowire::Type::TYPE_CAMERA)
+        {
+            return (c.typeMask & bit) != 0u;
         }
         // A viewer that never subscribed is not a viewer that wants nothing.
         if(c.typeMask == 0u)
@@ -1546,6 +1707,675 @@ namespace viewfeed
         }
     }
 
+    // ---- the camera --------------------------------------------------------
+    //
+    // THE FIRST AND ONLY BULK PRODUCER. v1 had none: CAMERA was a reserved tag,
+    // classOf answered CLASS_BULK, and nothing ever queued one. Everything
+    // below exists because the device and the link are each already spoken for.
+    //
+    // /dev/video0 IS SINGLE-OPENER, MEASURED. A second streamer gets
+    // "VIDIOC_REQBUFS returned -1 (Device or resource busy)" and writes zero
+    // bytes. The open() itself SUCCEEDS - the refusal arrives later, at buffer
+    // setup - which is why this cannot be answered by probing the node first.
+    // The phone dashboard (tools/status/status_server.py, class Camera) opens
+    // the same device and parks it five seconds after nobody is watching, so
+    // the two CANNOT both hold it and whichever loses has to say which one lost.
+    //
+    // NOTHING RE-ENCODES, and nothing here could: there is no ffmpeg, no cv2,
+    // no v4l2 binding, no PIL and no numpy on this board. One long-lived
+    // v4l2-ctl streams mmap'd buffers into a pipe and this module looks for
+    // frame boundaries - status_server.py's proven path, for its reasons - so
+    // the JPEGs the sensor produced are the JPEGs the viewer renders.
+    //
+    // AND IT IS CLASS_BULK, which is what makes it safe to add at all: section
+    // 7's drop machinery discards a camera frame before any scan or state
+    // frame, so on a stalling hotspot the picture degrades and the car's
+    // picture of the world does not.
+
+    [[nodiscard]] Str envOr(CharSeq name, const Str& fallback)
+    {
+        const Char* v = std::getenv(name);
+        return (v != nullptr && v[0] != '\0') ? Str(v) : fallback;
+    }
+
+    Void readCamCfg()
+    {
+        camCfg = CamCfg();
+        camCfg.dev = envOr("BIBO_CAM_DEV", camCfg.dev);
+
+        const Str size = envOr("BIBO_CAM_SIZE", "640x480");
+        const Size x = size.find('x');
+        if(x != Str::npos)
+        {
+            const long w = std::strtol(size.substr(0, x).c_str(), nullptr, 10);
+            const long h = std::strtol(size.substr(x + 1u).c_str(), nullptr, 10);
+            if(w > 0 && h > 0 && w <= 0xFFFF && h <= 0xFFFF)
+            {
+                camCfg.width = static_cast<UInt16>(w);
+                camCfg.height = static_cast<UInt16>(h);
+            }
+        }
+
+        const Str fps = envOr("BIBO_CAM_FPS", "");
+        if(!fps.empty())
+        {
+            const Float64 v = std::strtod(fps.c_str(), nullptr);
+            // 0 is UNCAPPED, and is a deliberate thing to be able to ask for on
+            // a bench cable. A negative or unreadable value is not, and falls
+            // back to the default rather than becoming a division by something
+            // absurd.
+            if(v >= 0.0 && v <= 240.0)
+            {
+                camCfg.periodMs = v > 0.0 ? 1000.0 / v : 0.0;
+            }
+        }
+    }
+
+    // The picture's OWN dimensions, off its SOF marker.
+    //
+    // v4l2-ctl NEGOTIATES the format: a device is free to answer a 640x480
+    // request with something else, and there is nothing in the bytes that would
+    // make that visible. A header repeating what was ASKED FOR would then
+    // describe a picture that is not the one attached - this repo's named
+    // failure with a resolution on it - so the size is read off the frame and
+    // the request is only the fallback for a frame with no SOF in it.
+    [[nodiscard]] Bool jpegSize(const UInt8* d, Size n, UInt16* w, UInt16* h)
+    {
+        if(d == nullptr || w == nullptr || h == nullptr || n < 4u)
+        {
+            return false;
+        }
+        if(d[0] != 0xFFu || d[1] != 0xD8u)
+        {
+            return false;
+        }
+        Size p = 2u;
+        while(p + 4u <= n)
+        {
+            if(d[p] != 0xFFu)
+            {
+                return false;
+            }
+            const UInt8 m = d[p + 1u];
+            // Fill bytes, and the markers that carry no segment at all.
+            if(m == 0xFFu)
+            {
+                ++p;
+                continue;
+            }
+            if(m == 0x01u || (m >= 0xD0u && m <= 0xD8u))
+            {
+                p += 2u;
+                continue;
+            }
+            // Start of scan, or end of image: the pixel data begins and there
+            // was no frame header before it.
+            if(m == 0xD9u || m == 0xDAu)
+            {
+                return false;
+            }
+            const Size segLen = (static_cast<Size>(d[p + 2u]) << 8u) | static_cast<Size>(d[p + 3u]);
+            if(segLen < 2u)
+            {
+                return false;
+            }
+            // Every SOFn except DHT (0xC4), JPG (0xC8) and DAC (0xCC).
+            const Bool sof = m >= 0xC0u && m <= 0xCFu && m != 0xC4u && m != 0xC8u && m != 0xCCu;
+            if(sof)
+            {
+                if(p + 9u > n)
+                {
+                    return false;
+                }
+                *h = static_cast<UInt16>((static_cast<UInt32>(d[p + 5u]) << 8u) | d[p + 6u]);
+                *w = static_cast<UInt16>((static_cast<UInt32>(d[p + 7u]) << 8u) | d[p + 8u]);
+                return *w != 0u && *h != 0u;
+            }
+            p += 2u + segLen;
+        }
+        return false;
+    }
+
+    // Where the next start-of-image begins at or after `from`, else b.size().
+    [[nodiscard]] Size findSoi(const Vec<UInt8>& b, Size from)
+    {
+        if(b.size() < CAM_SOI.size())
+        {
+            return b.size();
+        }
+        for(Size i = from; i + CAM_SOI.size() <= b.size(); ++i)
+        {
+            if(b[i] == CAM_SOI[0] && b[i + 1u] == CAM_SOI[1] && b[i + 2u] == CAM_SOI[2])
+            {
+                return i;
+            }
+        }
+        return b.size();
+    }
+
+    [[nodiscard]] Bool anyWantsCamera(const Vec<Client>& clients)
+    {
+        for(const Client& c : clients)
+        {
+            if(wants(c, bibowire::Type::TYPE_CAMERA))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Said to THE CAMERA'S SUBSCRIBERS, which is who is looking at the blank
+    // panel. An absence with a reason beats a silent nothing, and a viewer that
+    // asked for a picture and got neither picture nor sentence is the exact
+    // failure this repo is named after.
+    Void sayCamera(Vec<Client>& clients, bibowire::Severity severity, const Str& text)
+    {
+        bibowire::Event e;
+        e.tMonoUs = monoUs();
+        e.severity = severity;
+        e.text = text.size() > bibowire::MAX_EVENT_TEXT
+            ? text.substr(0, bibowire::MAX_EVENT_TEXT)
+            : text;
+        for(Client& c : clients)
+        {
+            if(!wants(c, bibowire::Type::TYPE_CAMERA))
+            {
+                continue;
+            }
+            emit(c, bibowire::Type::TYPE_EVENT, [&e](UInt8* out, Size cap) {
+                return bibowire::writeEvent(e, out, cap);
+            });
+        }
+        std::printf("viewfeed: %s\n", e.text.c_str());
+    }
+
+    // EBUSY IS SAID IN WORDS, AND IT NAMES THE LIKELY HOLDER - which is the
+    // phone dashboard, because that is the only other thing on this board that
+    // opens the device. status_server.py asks the same question in the same
+    // words when its own capture ends early.
+    [[nodiscard]] Str cameraWhy(const Str& diag, Int32 status)
+    {
+        // THE REAL EBUSY SIGNATURE, MEASURED ON THIS BOARD RATHER THAN ASSUMED.
+        //
+        // This was written expecting a losing v4l2-ctl to say "VIDIOC_REQBUFS
+        // returned -1 (Device or resource busy)" on stderr, and to key off that
+        // text. IT DOES NOT. Held against a second streamer on this board it
+        // writes ZERO bytes to stdout, ZERO to stderr, and exits 255 - so the
+        // stderr text is a bonus that usually is not there, and the EXIT STATUS
+        // is the signal that is. A capture that produced no picture and exited
+        // non-zero is the device being held by somebody else, and it is said in
+        // words rather than left as a blank panel.
+        const Bool exited = status >= 0 && WIFEXITED(status);
+        const Int32 code = exited ? static_cast<Int32>(WEXITSTATUS(status)) : -1;
+
+        if(code == 127)
+        {
+            // The child's own "exec failed" exit, from startCamera below.
+            return "cannot start v4l2-ctl - it is not installed on this board";
+        }
+        if(code > 0 || diag.find("busy") != Str::npos || diag.find("Busy") != Str::npos)
+        {
+            // status_server.py's sentence for exactly this, with the likely
+            // holder named: the phone dashboard is the only other thing on this
+            // board that opens the device, and /dev/video0 is single-opener.
+            return "camera stream ended - is something else holding " + camCfg.dev
+                 + "? the phone dashboard opens the same device and parks it 5 s after "
+                   "nobody is watching";
+        }
+        if(!diag.empty())
+        {
+            // One line of it. v4l2-ctl is chatty and EVENT carries a sentence.
+            Str said = diag;
+            const Size nl = said.find('\n');
+            if(nl != Str::npos)
+            {
+                said = said.substr(0, nl);
+            }
+            return "camera: " + said;
+        }
+        return "camera stream ended with no picture and nothing said - is something else "
+               "holding " + camCfg.dev + "?";
+    }
+
+    // A capture that dies inside a second, over and over, is a device that is
+    // not going to work this second. Retrying twice a second for as long as
+    // somebody leaves a subscription open is thousands of spawns an hour
+    // against a board whose whole job is elsewhere.
+    Void backOff()
+    {
+        cam.fails = cam.fails + 1 > CAM_FAIL_CEILING ? CAM_FAIL_CEILING : cam.fails + 1;
+        const Float64 wait = CAM_RETRY_STEP_MS * static_cast<Float64>(1 + cam.fails);
+        cam.waitMs = wait > CAM_RETRY_MAX_MS ? CAM_RETRY_MAX_MS : wait;
+        cam.failedAt = monoNow();
+        cam.waiting = true;
+    }
+
+    // Ends the capture and hands back the child's exit status, or -1.
+    //
+    // SIGKILL AND NOT SIGTERM, deliberately. v4l2-ctl has nothing to flush: the
+    // kernel releases the V4L2 buffers and the device when the process exits,
+    // however it exits. A polite signal would buy nothing and cost a wait, and
+    // the wait is the problem - this thread owes every viewer a CTLSTATE every
+    // 50 ms, so a loop spinning on a courteous exit trades the control clock for
+    // a courtesy nobody receives. SIGKILL cannot be caught, so the waitpid
+    // returns promptly.
+    //
+    // Killing a child that has ALREADY exited is harmless and does not destroy
+    // the answer: a process that has exited keeps its status until it is reaped,
+    // so the code below still reports why it stopped.
+    //
+    // AND IT IS REAPED. A killed child is not a gone child: it holds a
+    // process-table slot until its parent waits on it, and this parent is a
+    // long-lived service that starts a capture every time somebody subscribes.
+    // status_server.py's kill() carries the same one-line fix, because the
+    // failure it prevents - a board that cannot fork, including the child sshd
+    // needs to answer a connection - locks you out of the machine.
+    [[nodiscard]] Int32 killCamera()
+    {
+        if(cam.pid < 0)
+        {
+            return -1;
+        }
+        static_cast<Void>(::kill(cam.pid, SIGKILL));
+        Int32 status = -1;
+        while(::waitpid(cam.pid, &status, 0) < 0)
+        {
+            if(errno != EINTR)
+            {
+                cam.pid = -1;
+                return -1;
+            }
+        }
+        cam.pid = -1;
+        return status;
+    }
+
+    Void closeCamera(CharSeq why)
+    {
+        static_cast<Void>(killCamera());
+        if(cam.outFd >= 0)
+        {
+            ::close(cam.outFd);
+            cam.outFd = -1;
+        }
+        if(cam.errFd >= 0)
+        {
+            ::close(cam.errFd);
+            cam.errFd = -1;
+        }
+        // RELEASED, not merely cleared. An unwatched camera must cost the board
+        // nothing, and a 45 KB partial frame plus an encode buffer held against
+        // a subscription that ended is precisely the cost this gate exists to
+        // avoid. clear() would keep every byte of both.
+        Vec<UInt8>().swap(cam.partial);
+        Vec<UInt8>().swap(cam.encode);
+        cam.diag.clear();
+        cam.everFrame = false;
+        if(why != nullptr)
+        {
+            std::printf("viewfeed: camera released - %s\n", why);
+        }
+    }
+
+    // One whole JPEG, offered to whoever asked for pictures.
+    Void offerCamera(Vec<Client>& clients, const UInt8* jpeg, Size len)
+    {
+        cam.everFrame = true;
+
+        // THE CAP IS APPLIED HERE AND NOT AT THE DEVICE. A device asked for a
+        // lower rate with --set-parm may simply ignore the request and leave
+        // the rate unchanged, and nothing in the picture would say so. Dropping
+        // on this side cannot fail silently: what is not sent is not sent.
+        // status_server.py caps in the same place for the same reason.
+        if(cam.everSent && camCfg.periodMs > 0.0
+           && elapsedMs(cam.lastSentAt) < camCfg.periodMs)
+        {
+            return;
+        }
+        if(len == 0u || len > CAM_MAX_JPEG)
+        {
+            return;
+        }
+
+        const Size need = bibowire::FRAME_OVERHEAD + CAM_BODY_OVERHEAD + len;
+        if(cam.encode.size() < need)
+        {
+            cam.encode.resize(need);
+        }
+
+        UInt16 w = camCfg.width;
+        UInt16 h = camCfg.height;
+        static_cast<Void>(jpegSize(jpeg, len, &w, &h));
+
+        bibowire::Camera m;
+        m.tMonoUs = monoUs();
+        m.frameIndex = cam.frameIndex;
+        m.width = w;
+        m.height = h;
+        // Echoed on every frame so a capture is self-describing, which is
+        // section 10's rule for this type rather than an invented one.
+        m.codec = 1;
+        m.flags = 0;
+        m.data.assign(jpeg, jpeg + len);
+
+        const TimePoint before = monoNow();
+        const Size bodyLen = bibowire::writeCamera(
+            m,
+            cam.encode.data() + bibowire::HEAD_BYTES,
+            cam.encode.size() - bibowire::HEAD_BYTES
+        );
+        if(bodyLen == 0u)
+        {
+            return;
+        }
+        countEncode(elapsedMs(before) * 1000000.0);
+
+        // The BODY is built once; only the header and the CRC are rewritten per
+        // client, because seq and flags are per client and 45 KB is too much to
+        // re-encode four times for the sake of two fields.
+        Bool any = false;
+        for(Client& c : clients)
+        {
+            if(!wants(c, bibowire::Type::TYPE_CAMERA))
+            {
+                continue;
+            }
+            bibowire::Head h;
+            h.type = bibowire::Type::TYPE_CAMERA;
+            h.ver = 1;
+            h.flags = outFlags();
+            h.seq = c.txSeq;
+            const Size total = framedIn(cam.encode.data(), cam.encode.size(), h, bodyLen);
+            if(total == 0u)
+            {
+                continue;
+            }
+            enqueueFrom(c, bibowire::Type::TYPE_CAMERA, cam.encode.data(), total);
+            any = true;
+        }
+        if(any)
+        {
+            cam.lastSentAt = monoNow();
+            cam.everSent = true;
+            // MONOTONIC, and never rewound across a capture restart. A viewer
+            // that sees the number JUMP has missed frames and can say so; one
+            // that sees it go backwards is being shown pictures it already has,
+            // labelled as new. status_server.py documents the same hazard from
+            // the other side - a sequence that did not rewind while the frame
+            // behind it did.
+            ++cam.frameIndex;
+            cam.said = false;
+        }
+    }
+
+    // The capture ended. Work out why, say it once, and set the backoff.
+    Void endCamera(Vec<Client>& clients)
+    {
+        const Float64 ran = elapsedMs(cam.startedAt);
+        const Bool delivered = cam.everFrame;
+        const Str diag = cam.diag;
+        // Reaped HERE, before closeCamera, because the exit status is the thing
+        // that says WHY the capture stopped and closeCamera would discard it.
+        const Int32 status = killCamera();
+
+        // Explained ONCE per failure episode, and only when the capture
+        // produced no picture at all. A capture that ran, delivered frames and
+        // then ended is a cable moving or a device resetting, and the backoff
+        // handles it without a sentence per retry.
+        if(!delivered && !cam.said)
+        {
+            cam.said = true;
+            sayCamera(clients, bibowire::Severity::SEVERITY_WARN, cameraWhy(diag, status));
+        }
+        closeCamera(nullptr);
+        if(ran < 1000.0 || !delivered)
+        {
+            backOff();
+        }
+        else
+        {
+            cam.fails = 0;
+        }
+    }
+
+    Void pumpCamera(Vec<Client>& clients)
+    {
+        // stderr FIRST: it is where the answer lives on the run where stdout
+        // stays empty, which is exactly the run this has to explain.
+        for(;;)
+        {
+            Array<Char, 256> chunk{};
+            const ISize n = ::read(cam.errFd, chunk.data(), chunk.size());
+            if(n <= 0)
+            {
+                break;
+            }
+            if(cam.diag.size() < CAM_DIAG_BYTES)
+            {
+                cam.diag.append(chunk.data(), static_cast<Size>(n));
+            }
+        }
+
+        Bool ended = false;
+        for(;;)
+        {
+            const ISize n = ::read(cam.outFd, camChunk.data(), camChunk.size());
+            if(n > 0)
+            {
+                cam.partial.insert(cam.partial.end(), camChunk.data(), camChunk.data() + n);
+                continue;
+            }
+            if(n == 0)
+            {
+                ended = true;
+                break;
+            }
+            if(errno == EINTR)
+            {
+                continue;
+            }
+            if(errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                break;
+            }
+            ended = true;
+            break;
+        }
+
+        // A frame is whole only once the NEXT one has begun - start-of-image is
+        // the only boundary MJPEG gives, because a JPEG's own end marker can
+        // occur inside its payload. This costs exactly one frame of latency and
+        // is the reason a viewer is never handed half a picture.
+        for(;;)
+        {
+            const Size start = findSoi(cam.partial, 0);
+            if(start == cam.partial.size())
+            {
+                break;
+            }
+            const Size next = findSoi(cam.partial, start + CAM_SOI.size());
+            if(next == cam.partial.size())
+            {
+                // Anything before the first marker is not part of a picture.
+                if(start > 0u)
+                {
+                    cam.partial.erase(
+                        cam.partial.begin(),
+                        cam.partial.begin() + static_cast<ISize>(start)
+                    );
+                }
+                break;
+            }
+            offerCamera(clients, cam.partial.data() + start, next - start);
+            cam.partial.erase(cam.partial.begin(), cam.partial.begin() + static_cast<ISize>(next));
+        }
+
+        if(cam.partial.size() > CAM_MAX_PARTIAL)
+        {
+            // Not a picture. Rather than grow without bound, drop back to
+            // hunting for the next marker - the deliberate resync the scan feed
+            // already does on an impossible line.
+            cam.partial.clear();
+            std::printf("viewfeed: camera resyncing - no frame boundary in 4 MiB\n");
+        }
+
+        if(ended)
+        {
+            endCamera(clients);
+        }
+    }
+
+    Void startCamera(Vec<Client>& clients)
+    {
+        if(::access(camCfg.dev.c_str(), F_OK) != 0)
+        {
+            if(!cam.said)
+            {
+                cam.said = true;
+                sayCamera(
+                    clients,
+                    bibowire::Severity::SEVERITY_WARN,
+                    camCfg.dev + " absent - camera unplugged"
+                );
+            }
+            backOff();
+            return;
+        }
+
+        Array<Int32, 2> outPipe{ -1, -1 };
+        Array<Int32, 2> errPipe{ -1, -1 };
+        if(::pipe2(outPipe.data(), O_CLOEXEC) < 0)
+        {
+            backOff();
+            return;
+        }
+        if(::pipe2(errPipe.data(), O_CLOEXEC) < 0)
+        {
+            ::close(outPipe[0]);
+            ::close(outPipe[1]);
+            backOff();
+            return;
+        }
+
+        Array<Char, 128> fmt{};
+        std::snprintf(
+            fmt.data(),
+            fmt.size(),
+            "--set-fmt-video=width=%u,height=%u,pixelformat=MJPG",
+            static_cast<unsigned>(camCfg.width),
+            static_cast<unsigned>(camCfg.height)
+        );
+
+        // Built BEFORE the fork, because building it after would allocate, and
+        // between fork and exec this process may not allocate. Str::data() is
+        // non-const in C++20, so execvp's char*const* needs no cast.
+        Vec<Str> args;
+        args.push_back("v4l2-ctl");
+        args.push_back("-d");
+        args.push_back(camCfg.dev);
+        args.push_back(fmt.data());
+        args.push_back("--stream-mmap");
+        args.push_back("--stream-count=0");
+        args.push_back("--stream-to=-");
+        Vec<Char*> argv;
+        for(Str& a : args)
+        {
+            argv.push_back(a.data());
+        }
+        argv.push_back(nullptr);
+
+        const pid_t pid = ::fork();
+        if(pid < 0)
+        {
+            const Str why = Str("cannot start v4l2-ctl: ") + std::strerror(errno);
+            ::close(outPipe[0]);
+            ::close(outPipe[1]);
+            ::close(errPipe[0]);
+            ::close(errPipe[1]);
+            if(!cam.said)
+            {
+                cam.said = true;
+                sayCamera(clients, bibowire::Severity::SEVERITY_ERROR, why);
+            }
+            backOff();
+            return;
+        }
+        if(pid == 0)
+        {
+            // BETWEEN fork AND exec, NOTHING BUT ASYNC-SIGNAL-SAFE CALLS. This
+            // process has other threads - the pilot's control tick among them -
+            // and a lock any of them held at the instant of the fork is held
+            // forever in this child. dup2, execvp and _exit are the whole list
+            // used here, and no allocation happens on this path.
+            //
+            // Every other descriptor this process owns - both listening
+            // sockets, the UDP socket, the wake pipe and every client - was
+            // opened CLOEXEC, so execvp closes them. A capture holding a copy of
+            // the listening socket would keep port 8020 bound after the pilot
+            // exited.
+            if(::dup2(outPipe[1], STDOUT_FILENO) >= 0 && ::dup2(errPipe[1], STDERR_FILENO) >= 0)
+            {
+                ::execvp("v4l2-ctl", argv.data());
+            }
+            // Only reached when exec failed. The parent diagnoses it from the
+            // empty pipe rather than from anything written here.
+            ::_exit(127);
+        }
+
+        ::close(outPipe[1]);
+        ::close(errPipe[1]);
+        cam.pid = static_cast<Int32>(pid);
+        cam.outFd = outPipe[0];
+        cam.errFd = errPipe[0];
+        // Non-blocking on THIS end only: the child's end must stay blocking or
+        // v4l2-ctl gets EAGAIN on a full pipe and treats it as a write error.
+        static_cast<Void>(::fcntl(cam.outFd, F_SETFL, O_NONBLOCK));
+        static_cast<Void>(::fcntl(cam.errFd, F_SETFL, O_NONBLOCK));
+        cam.startedAt = monoNow();
+        cam.everFrame = false;
+        cam.diag.clear();
+        std::printf(
+            "viewfeed: camera opened - %s %ux%u MJPG\n",
+            camCfg.dev.c_str(),
+            static_cast<unsigned>(camCfg.width),
+            static_cast<unsigned>(camCfg.height)
+        );
+    }
+
+    // Opened while at least one viewer subscribes to CAMERA, released when the
+    // last one stops. The same bargain the lidar and the dashboard already
+    // keep, and the reason an unwatched camera costs the board nothing: no
+    // process, no pipes, no buffers, and the device handed straight back to
+    // whoever wants it next.
+    Void tendCamera(Vec<Client>& clients)
+    {
+        if(!anyWantsCamera(clients))
+        {
+            if(cam.pid >= 0 || cam.outFd >= 0)
+            {
+                closeCamera("the last subscriber went");
+            }
+            // A fresh slate for the next person to look, rather than serving
+            // out a backoff earned by a camera that was unplugged an hour ago.
+            cam.fails = 0;
+            cam.waiting = false;
+            cam.said = false;
+            return;
+        }
+        if(cam.outFd >= 0)
+        {
+            pumpCamera(clients);
+            return;
+        }
+        if(cam.waiting && elapsedMs(cam.failedAt) < cam.waitMs)
+        {
+            return;
+        }
+        cam.waiting = false;
+        startCamera(clients);
+    }
+
     // ---- what the owner published ------------------------------------------
 
     Void deliver(Vec<Client>& clients, const Item& item)
@@ -1866,6 +2696,16 @@ namespace viewfeed
                 fds.push_back(pollfd{ c.fd, want, 0 });
             }
 
+            // The capture's pipe, appended AFTER the clients so nothing
+            // disturbs the c.at indices just taken. Its revents are never
+            // examined: tendCamera drains this fd to EAGAIN every pass anyway,
+            // so the entry exists only to wake the loop promptly rather than
+            // leave 45 KB sitting in a pipe for the rest of the 20 ms timeout.
+            if(cam.outFd >= 0)
+            {
+                fds.push_back(pollfd{ cam.outFd, POLLIN, 0 });
+            }
+
             if(::poll(fds.data(), fds.size(), POLL_MS) < 0 && errno != EINTR)
             {
                 std::printf("viewfeed: poll failed: %s\n", std::strerror(errno));
@@ -1929,6 +2769,11 @@ namespace viewfeed
             {
                 deliver(clients, item);
             }
+
+            // AFTER the reads, so a SUBSCRIBE that arrived this pass opens the
+            // device this pass, and BEFORE the flush below, so a frame read out
+            // of the pipe this pass goes out on this pass's send().
+            tendCamera(clients);
 
             // The control slot, released by silence rather than by a close.
             if(haveHolder && everControl
@@ -2131,6 +2976,8 @@ namespace viewfeed
       notesOut = {};
       notesInAt = 0;
       notesOutAt = 0;
+      cam = Cam();
+      readCamCfg();
       running = true;
       worker = Thread(loop);
       std::printf(
@@ -2282,6 +3129,12 @@ namespace viewfeed
       }
       wakeLoop();
       worker.join();
+      // Nothing may outlive this call holding the camera open. The capture is a
+      // CHILD PROCESS, so it survives its parent unless something says
+      // otherwise, and a v4l2-ctl still on /dev/video0 is exactly why the phone
+      // dashboard would find the device busy after the pilot exited. Safe here
+      // because the thread that owns `cam` has been joined.
+      closeCamera("the feed is stopping");
       running = false;
       ::close(listenFd);
       ::close(udpFd);
