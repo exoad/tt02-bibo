@@ -1,5 +1,6 @@
 #include "shared.hxx"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <windows.h>
@@ -220,6 +221,320 @@ namespace camview
     // most likely to be silently wrong, and "it looked right on screen" is not
     // a check anybody can re-run.
 
+    // ---- alignment overlays -------------------------------------------------
+    //
+    // EVERY POINT BELOW IS AUTHORED IN THE SENSOR FRAME - 0..1 across and down
+    // the picture - and mapped to the screen through orient::displayFromImage.
+    //
+    // That is not a style choice. The picture is drawn with AddImageQuad onto
+    // four corners that are ALWAYS axis-aligned; the rotation and the flips
+    // live entirely in the uvs. So an overlay drawn straight onto the window
+    // would sit still while the picture turned underneath it, and a reversing
+    // guide that does not turn with the picture is describing a part of the
+    // room it no longer points at. The arithmetic lives in orient.cxx, which
+    // names no ImGui or D3D type, so viewer/tests can hold it to an answer at
+    // all four turns and both flips.
+    //
+    // AND NOTHING HERE IS CALIBRATED. See the View, which says it at length;
+    // the short form is that no band is ever labelled with a distance, because
+    // there is no camera calibration and no measured camera-to-car transform in
+    // this project to derive one from.
+    constexpr ImU32 OVERLAY_SHADE = IM_COL32(0, 0, 0, 165);
+    constexpr ImU32 CROSS_COL = IM_COL32(255, 255, 255, 225);
+    constexpr ImU32 BOX_COL = IM_COL32(120, 210, 255, 225);
+    constexpr ImU32 THIRDS_COL = IM_COL32(235, 235, 235, 105);
+
+    // Near, middle and far, in the colours a reversing camera uses. COLOURS
+    // ONLY: the operator dragged these bands to where they are, so they are
+    // zones placed by eye and not distances anything derived.
+    constexpr ImU32 ZONE_NEAR = IM_COL32(244, 76, 62, 235);
+    constexpr ImU32 ZONE_MID = IM_COL32(255, 196, 46, 235);
+    constexpr ImU32 ZONE_FAR = IM_COL32(96, 226, 130, 235);
+
+    // Where the picture landed on screen and how it is turned - everything an
+    // overlay needs to put a point of the sensor frame in the right pixel.
+    struct Placed
+    {
+        ImVec2 at;
+        ImVec2 size;
+        Int32 turns = 0;
+        Bool flipX = false;
+        Bool flipY = false;
+    };
+
+    // The guide trapezoid as fractions of the frame, clamped, rather than the
+    // raw percentages the sliders hold.
+    struct Rails
+    {
+        Float32 centre = 0.5f;
+        Float32 spread = 0.42f;
+        Float32 converge = 0.12f;
+        Float32 nearY = 1.0f;
+        Float32 farY = 0.45f;
+    };
+
+    // A LIGHT STROKE OVER A DARK ONE, every line. A single-colour overlay
+    // vanishes into a bright sky or a dark garage depending on which colour was
+    // picked, and what is under it is whatever the car happens to be looking at.
+    Void strokeLine(ImDrawList* dl, const ImVec2& a, const ImVec2& b, ImU32 col, Float32 w)
+    {
+        dl->AddLine(a, b, OVERLAY_SHADE, w + (2.0f * uiScale));
+        dl->AddLine(a, b, col, w);
+    }
+
+    [[nodiscard]] ImVec2 screenOf(const Placed& p, Float32 iu, Float32 iv)
+    {
+        const orient::Pt d = orient::displayFromImage(p.turns, p.flipX, p.flipY, iu, iv);
+        return ImVec2(p.at.x + (d.x * p.size.x), p.at.y + (d.y * p.size.y));
+    }
+
+    [[nodiscard]] ImVec2 stepBy(const ImVec2& from, const ImVec2& dir, Float32 k)
+    {
+        return ImVec2(from.x + (dir.x * k), from.y + (dir.y * k));
+    }
+
+    [[nodiscard]] ImVec2 unitFrom(const ImVec2& from, const ImVec2& to)
+    {
+        const Float32 dx = to.x - from.x;
+        const Float32 dy = to.y - from.y;
+        const Float32 len = std::sqrt((dx * dx) + (dy * dy));
+        if(len < 0.0001f)
+        {
+            return ImVec2(0.0f, 0.0f);
+        }
+        return ImVec2(dx / len, dy / len);
+    }
+
+    // Clamped HERE rather than trusted from the slider. Ctrl+click on an ImGui
+    // slider is a text box, and a guide built from a number outside its own
+    // range is a line drawn somewhere off the picture.
+    [[nodiscard]] Float32 pctToUnit(Int32 pct, Int32 lo, Int32 hi)
+    {
+        Int32 n = pct;
+        if(n < lo)
+        {
+            n = lo;
+        }
+        if(n > hi)
+        {
+            n = hi;
+        }
+        return static_cast<Float32>(n) * 0.01f;
+    }
+
+    [[nodiscard]] Rails railsOf(const View& v)
+    {
+        Rails r;
+        r.centre = pctToUnit(v.guideCentrePct, 10, 90);
+        r.spread = pctToUnit(v.guideSpreadPct, 5, 60);
+        r.converge = pctToUnit(v.guideConvergePct, 0, 40);
+        r.nearY = pctToUnit(v.guideNearPct, 40, 100);
+        r.farY = pctToUnit(v.guideFarPct, 5, 95);
+        return r;
+    }
+
+    // One point on one rail. `side` is -1 for the left rail and +1 for the
+    // right; `t` runs from 0 at the near end to 1 at the far end.
+    [[nodiscard]] ImVec2 railPoint(const Placed& p, const Rails& r, Float32 side, Float32 t)
+    {
+        const Float32 nearX = r.centre + (side * r.spread);
+        const Float32 farX = r.centre + (side * r.converge);
+        return screenOf(p, nearX + ((farX - nearX) * t), r.nearY + ((r.farY - r.nearY) * t));
+    }
+
+    // THE REVERSING GUIDES: two rails converging toward a far end the operator
+    // chooses, in three colour bands, each closed by a cross line.
+    Void drawGuides(ImDrawList* dl, const Placed& p, const View& v)
+    {
+        const Rails r = railsOf(v);
+        const Array<ImU32, 3> zone = { ZONE_NEAR, ZONE_MID, ZONE_FAR };
+        const Float32 w = 2.0f * uiScale;
+        for(Size i = 0; i < 3u; ++i)
+        {
+            const Float32 t0 = static_cast<Float32>(i) / 3.0f;
+            const Float32 t1 = static_cast<Float32>(i + 1u) / 3.0f;
+            const ImVec2 leftNear = railPoint(p, r, -1.0f, t0);
+            const ImVec2 leftFar = railPoint(p, r, -1.0f, t1);
+            const ImVec2 rightNear = railPoint(p, r, 1.0f, t0);
+            const ImVec2 rightFar = railPoint(p, r, 1.0f, t1);
+            strokeLine(dl, leftNear, leftFar, zone[i], w);
+            strokeLine(dl, rightNear, rightFar, zone[i], w);
+            strokeLine(dl, leftFar, rightFar, zone[i], w);
+        }
+    }
+
+    // A CENTRED FRACTION OF THE FRAME, deliberately not a square. It is a
+    // scaled copy of the picture's own outline, which is what makes it useful
+    // for centring the car on something. A square would need a different
+    // fraction on each axis of a 4:3 picture, and which fraction it was would
+    // then be a number nobody could read back off the screen.
+    Void drawBox(ImDrawList* dl, const Placed& p, const View& v)
+    {
+        const Float32 half = pctToUnit(v.boxPct, 5, 48);
+        const Float32 lo = 0.5f - half;
+        const Float32 hi = 0.5f + half;
+        const ImVec2 a = screenOf(p, lo, lo);
+        const ImVec2 b = screenOf(p, hi, lo);
+        const ImVec2 c = screenOf(p, hi, hi);
+        const ImVec2 d = screenOf(p, lo, hi);
+        const Float32 w = 1.6f * uiScale;
+        strokeLine(dl, a, b, BOX_COL, w);
+        strokeLine(dl, b, c, BOX_COL, w);
+        strokeLine(dl, c, d, BOX_COL, w);
+        strokeLine(dl, d, a, BOX_COL, w);
+    }
+
+    Void drawThirds(ImDrawList* dl, const Placed& p)
+    {
+        const Float32 w = 1.0f * uiScale;
+        for(Size i = 1u; i < 3u; ++i)
+        {
+            const Float32 f = static_cast<Float32>(i) / 3.0f;
+            strokeLine(dl, screenOf(p, f, 0.0f), screenOf(p, f, 1.0f), THIRDS_COL, w);
+            strokeLine(dl, screenOf(p, 0.0f, f), screenOf(p, 1.0f, f), THIRDS_COL, w);
+        }
+    }
+
+    // THE ARMS FOLLOW THE SENSOR'S AXES AND ARE MEASURED IN PIXELS. Built from
+    // frame fractions instead, a crosshair is a third longer across than down
+    // on a 4:3 picture, which reads as a bug; measured off the shorter side it
+    // is square on screen and still turns with the picture.
+    //
+    // The gap in the middle is the point of the whole thing: a solid cross
+    // hides the one thing being lined up.
+    Void drawCross(ImDrawList* dl, const Placed& p)
+    {
+        const ImVec2 mid = screenOf(p, 0.5f, 0.5f);
+        const ImVec2 alongU = unitFrom(mid, screenOf(p, 1.0f, 0.5f));
+        const ImVec2 alongV = unitFrom(mid, screenOf(p, 0.5f, 1.0f));
+
+        const Float32 half = (p.size.x < p.size.y ? p.size.x : p.size.y) * 0.5f;
+        const Float32 reach = half * 0.62f;
+        const Float32 gap = half * 0.10f;
+        const Float32 tick = half * 0.055f;
+        const Float32 w = 1.6f * uiScale;
+
+        Array<ImVec2, 4> arm = {};
+        arm[0] = alongU;
+        arm[1] = ImVec2(-alongU.x, -alongU.y);
+        arm[2] = alongV;
+        arm[3] = ImVec2(-alongV.x, -alongV.y);
+
+        // Two ticks along each arm. They mark NOTHING MEASURABLE - there is no
+        // calibration here - they are there so the eye can judge how far off
+        // centre something is rather than only whether it is off.
+        const Array<Float32, 2> where = { 0.45f, 0.78f };
+
+        for(Size i = 0; i < 4u; ++i)
+        {
+            const ImVec2 d = arm[i];
+            strokeLine(dl, stepBy(mid, d, gap), stepBy(mid, d, reach), CROSS_COL, w);
+
+            const ImVec2 side = ImVec2(-d.y, d.x);
+            for(Size k = 0; k < 2u; ++k)
+            {
+                const ImVec2 o = stepBy(mid, d, reach * where[k]);
+                strokeLine(dl, stepBy(o, side, -tick), stepBy(o, side, tick), CROSS_COL, w);
+            }
+        }
+    }
+
+    Void drawOverlays(const View& v, const ImVec2& at, const ImVec2& size)
+    {
+        if(!v.showCross && !v.showGuides && !v.showBox && !v.showThirds)
+        {
+            return;
+        }
+
+        Placed p;
+        p.at = at;
+        p.size = size;
+        p.turns = v.turns;
+        p.flipX = v.flipX;
+        p.flipY = v.flipY;
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+
+        // CLIPPED TO THE PICTURE. A spread dragged wide would otherwise run out
+        // over the readouts below, and a guide drawn outside the picture is
+        // marking something the camera cannot see.
+        const ImVec2 corner = ImVec2(at.x + size.x, at.y + size.y);
+        dl->PushClipRect(at, corner, true);
+
+        // Faintest first, so the crosshair is never the thing that gets buried.
+        if(v.showThirds)
+        {
+            drawThirds(dl, p);
+        }
+        if(v.showBox)
+        {
+            drawBox(dl, p, v);
+        }
+        if(v.showGuides)
+        {
+            drawGuides(dl, p, v);
+        }
+        if(v.showCross)
+        {
+            drawCross(dl, p);
+        }
+
+        dl->PopClipRect();
+    }
+
+    // The switches, behind one button. Four toggles and six numbers do not fit
+    // beside the rotate combo, and the row above the picture is what an operator
+    // reaches for when the window is empty - it stays short.
+    Void drawOverlayMenu(View& v)
+    {
+        if(ImGui::Button("overlays"))
+        {
+            ImGui::OpenPopup("overlays");
+        }
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "crosshair, reversing guides and boxes, for lining the car up.\n"
+                "NONE OF IT IS CALIBRATED: there is no camera calibration and\n"
+                "no measured camera-to-car transform in this project, so these\n"
+                "lines carry no distance and mark no real width. They are marks\n"
+                "you place by eye and then read the same way every time."
+            );
+        }
+
+        if(ImGui::BeginPopup("overlays"))
+        {
+            ImGui::TextUnformatted("uncalibrated - these lines are not measurements");
+            ImGui::Separator();
+            ImGui::Checkbox("crosshair", &v.showCross);
+            ImGui::Checkbox("reversing guides", &v.showGuides);
+            ImGui::Checkbox("centre box", &v.showBox);
+            ImGui::Checkbox("thirds", &v.showThirds);
+            ImGui::Separator();
+            ImGui::TextUnformatted("guides - drag until they match what you see");
+
+            ImGui::PushItemWidth(128.0f * uiScale);
+            ImGui::SliderInt("centre", &v.guideCentrePct, 10, 90, "%d%%");
+            ImGui::SliderInt("spread", &v.guideSpreadPct, 5, 60, "%d%%");
+            ImGui::SliderInt("converge", &v.guideConvergePct, 0, 40, "%d%%");
+            ImGui::SliderInt("near edge", &v.guideNearPct, 40, 100, "%d%%");
+            ImGui::SliderInt("far edge", &v.guideFarPct, 5, 95, "%d%%");
+            ImGui::Separator();
+            ImGui::SliderInt("box", &v.boxPct, 5, 48, "%d%%");
+            ImGui::PopItemWidth();
+
+            ImGui::EndPopup();
+        }
+
+        // So the row says whether anything is being drawn without the popup
+        // having to be opened to find out.
+        if(v.showCross || v.showGuides || v.showBox || v.showThirds)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("on");
+        }
+    }
+
     // The controls, drawn whether or not there is a picture behind them.
     //
     // Deliberately ABOVE the picture and outside every early return: the rate
@@ -246,6 +561,8 @@ namespace camview
         ImGui::Checkbox("flip H", &v.flipX);
         ImGui::SameLine();
         ImGui::Checkbox("flip V", &v.flipY);
+        ImGui::SameLine();
+        drawOverlayMenu(v);
 
         ImGui::SetNextItemWidth(-96.0f * uiScale);
         Int32 fps = v.fps;
@@ -425,6 +742,11 @@ namespace camview
               uv3,
               tint
           );
+
+          // OVER THE PICTURE, FROM THE SAME PLACEMENT. Same `at` and `size` as
+          // the quad above and the same turns and flips, so the guides move
+          // with the picture's contents rather than with the window.
+          drawOverlays(v, at, size);
 
           // The draw list does not move the cursor, so the layout is told how
           // much room the picture took. Without this the readouts below would
