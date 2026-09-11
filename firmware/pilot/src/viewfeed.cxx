@@ -346,27 +346,35 @@ namespace viewfeed
     // which device or which size would be a second way to be confused about one
     // camera. Only the RATE differs in spirit, and only because this link is
     // the field hotspot rather than the phone on the same board.
+    // BY ID, NOT BY MINOR NUMBER. /dev/videoN is assigned in enumeration order
+    // and is NOT stable: this camera fell off the bus mid-stream on 2026-09-10
+    // (uvcvideo "Failed to resubmit video URB (-19)", which is ENODEV), came
+    // back as USB device 6, and took /dev/video1 - so /dev/video0 ceased to
+    // exist and both this module and the phone dashboard reported a dead camera
+    // that was sitting right there working. It had re-enumerated THREE times in
+    // four minutes, with twelve URB failures, all while streaming: a recurring
+    // fact about the hardware rather than a one-off.
+    //
+    // The by-id path is built from the device's own strings and survives that -
+    // the same answer the lidar has always used through /dev/serial/by-id
+    // rather than ttyUSB0. Falls back to the old name so a board without the
+    // symlink, or a different camera, still works.
+    //
+    // A FUNCTION, not an initialiser with a branch in it: the first version of
+    // this put an `if` directly in CamCfg's member initialiser, which is a type
+    // definition where no statement may appear. MSVC never said so, because
+    // every line here is inside the __linux__ half it does not compile - so
+    // firmware\verify.bat passed and only g++ on the board caught it.
+    [[nodiscard]] inline Str cameraDevDefault()
+    {
+        const Str byId =
+            "/dev/v4l/by-id/usb-Innomaker_Innomaker-U20CAM-1080p-S1_SN0001-video-index0";
+        return ::access(byId.c_str(), F_OK) == 0 ? byId : Str("/dev/video0");
+    }
+
     struct CamCfg
     {
-        // BY ID, NOT BY MINOR NUMBER. /dev/videoN is assigned in enumeration
-        // order and is NOT stable: this camera fell off the bus mid-stream on
-        // 2026-09-10 (uvcvideo "Failed to resubmit video URB (-19)", ENODEV),
-        // came back as USB device 6, and took /dev/video1 - so /dev/video0
-        // simply ceased to exist and both this module and the phone dashboard
-        // reported a camera that was sitting right there working. It had
-        // re-enumerated THREE times that day, with twelve URB failures, so this
-        // is a recurring fact about the hardware and not a one-off.
-        //
-        // The by-id path is the same answer the lidar already uses
-        // (/dev/serial/by-id/usb-Silicon_Labs_CP2102N_...), and it survives
-        // re-enumeration because it is built from the device's own strings.
-        // Falls back to the old name so a board without the symlink - or a
-        // different camera - still works.
-        Str dev = "/dev/v4l/by-id/usb-Innomaker_Innomaker-U20CAM-1080p-S1_SN0001-video-index0";
-        if(::access(dev.c_str(), F_OK) != 0)
-        {
-            dev = "/dev/video0";
-        }
+        Str dev = cameraDevDefault();
         UInt16 width = CAM_WIDTH_DEFAULT;
         UInt16 height = CAM_HEIGHT_DEFAULT;
         Float64 periodMs = 1000.0 / CAM_FPS_DEFAULT;   // 0 means uncapped
