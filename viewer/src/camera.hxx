@@ -59,9 +59,8 @@ namespace camview
   // rather than restated, so there is one pair of numbers in this program.
 
   // What the camera window asks the board for when nobody has touched the
-  // slider. Ten is comfortably inside bibowire::CAM_FPS_MAX and is about
-  // 450 KB/s at the measured 45 KB a frame - which a LAN absorbs and a hotspot
-  // sheds through CLASS_BULK rather than by starving the scan.
+  // slider.
+  //
   // SIX, not ten. Ten was chosen for smoothness alone and measured against the
   // scan it competes with: asking for ten pushed the worst SCAN gap from 402 ms
   // to about 1420 ms, and GONE_MS is 1500 - eighty milliseconds before the point
@@ -117,6 +116,48 @@ namespace camview
       Int32 turns = 0;
       Bool flipX = false;
       Bool flipY = false;
+
+      // ---- alignment overlays ---------------------------------------------
+      //
+      // OFF BY DEFAULT, all four of them. An alignment aid nobody asked for,
+      // drawn over a live picture, is clutter on the one surface that is
+      // supposed to show the room.
+      //
+      // NOTHING HERE IS CALIBRATED, and the UI says so rather than leaving it
+      // to be inferred. There is no camera calibration in this project and no
+      // measured camera-to-car transform - docs/conventions.md records even the
+      // lidar-to-vehicle transform as assumed rather than measured - so these
+      // lines carry no distance and are never labelled with one. They are marks
+      // the operator places by eye and then reads the same way every time,
+      // which is a real aid; a band labelled "1 m" would be an invented number
+      // somebody judges clearance against.
+      Bool showCross = false;
+      Bool showGuides = false;
+      Bool showBox = false;
+      Bool showThirds = false;
+
+      // The guide trapezoid, in PERCENT of the frame - whole numbers on
+      // purpose. A Float32 slider would be printed by ImGui through "%.2f",
+      // whose decimal point honours the locale, and a machine set to a comma
+      // decimal writes "0,42" - the bug this project has already met three
+      // times. Percent has no decimal point in it.
+      //
+      // Live here beside `turns` and for the same reason: they describe how the
+      // camera is MOUNTED and how the operator reads it, so closing the window
+      // and reopening it must not throw the setup away.
+      //
+      // centre and spread are the near end; converge is the half-width at the
+      // far end, which is what makes it a trapezoid rather than a corridor.
+      // near and far are heights down the frame, 0 at the top.
+      Int32 guideCentrePct = 50;
+      Int32 guideSpreadPct = 42;
+      Int32 guideConvergePct = 12;
+      Int32 guideNearPct = 100;
+      Int32 guideFarPct = 45;
+
+      // Half-width of the centred box, percent of the frame. It is a scaled
+      // copy of the picture's own outline rather than a square - see drawBox.
+      Int32 boxPct = 20;
 
       // ---- what rate this viewer asks the board for -----------------------
       //

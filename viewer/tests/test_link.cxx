@@ -29,6 +29,13 @@
 //     withdrawn, or that a real camera's JPEG looks like this one.
 //   - the texture upload and the window. Those need a D3D11 device, which is
 //     why the decoder is its own module (jpeg.cxx) and the window is not.
+//   - THE ALIGNMENT OVERLAYS AS DRAWN. orient::displayFromImage is held to an
+//     answer below at every turn and both flips, and that is the arithmetic
+//     deciding where a crosshair or a reversing guide lands. What is NOT
+//     proved is the drawing: the pixels, the line weights, the clip rect and
+//     the controls live in camera.cxx behind an ImDrawList, and NO OVERLAY HAS
+//     EVER BEEN SEEN ON A REAL PICTURE - the board has been off throughout.
+//     "It looked right" was not available and would not have been evidence.
 //
 // The framing, the CRC, the resync and every message body belong to
 // firmware/pilot/src/bibowire.cxx and its 312 checks; this file uses that codec
@@ -1274,6 +1281,117 @@ static Void testOrientation()
     check(orient::sideways(-1), "a negative turn still knows it is on its side");
 }
 
+static Void checkPt(const orient::Pt& got, Float32 x, Float32 y, const Char* what)
+{
+    check(near(got.x, x) && near(got.y, y), what);
+}
+
+static Void testOverlayMapping()
+{
+    std::printf("\n-- putting an alignment overlay where the picture actually is --\n");
+
+    // Unturned, an overlay point is exactly where it was authored.
+    const orient::Pt flat = orient::displayFromImage(0, false, false, 0.25f, 0.10f);
+    checkPt(flat, 0.25f, 0.10f, "unturned, a frame point is its own display point");
+
+    // A QUARTER TURN, WHICH IS A TRANSPOSE. A point a quarter across and a
+    // tenth down the frame is nine tenths across and a quarter down the
+    // display. Hand-computed, because this is the case nobody can eyeball and
+    // the one deciding whether a reversing guide points down the road.
+    const orient::Pt cw = orient::displayFromImage(1, false, false, 0.25f, 0.10f);
+    checkPt(cw, 0.90f, 0.25f, "turned 90, a frame point transposes onto the display");
+
+    const orient::Pt half = orient::displayFromImage(2, false, false, 0.25f, 0.10f);
+    checkPt(half, 0.75f, 0.90f, "turned 180, both axes mirror");
+
+    const orient::Pt ccw = orient::displayFromImage(3, false, false, 0.25f, 0.10f);
+    checkPt(ccw, 0.10f, 0.75f, "turned 270, it transposes the other way");
+
+    // THE PROPERTY THE REVERSING GUIDES STAND ON. Their near end sits on the
+    // frame's BOTTOM edge, and at 90 degrees that edge IS the display's left
+    // one. An overlay drawn in window coordinates would still be along the
+    // bottom of the window here, marking a part of the room it does not face.
+    const orient::Pt base = orient::displayFromImage(1, false, false, 0.30f, 1.0f);
+    check(near(base.x, 0.0f), "turned 90, the frame's bottom edge is the display's left");
+    check(near(base.y, 0.30f), "and distance along that edge is carried across intact");
+
+    // The flips are in frame space here too, so they mean the same thing at
+    // every angle - and both axes at once is a half turn, exactly as it is for
+    // the corner mapping above.
+    const orient::Pt mirrored = orient::displayFromImage(0, true, false, 0.25f, 0.10f);
+    checkPt(mirrored, 0.75f, 0.10f, "flipped horizontally, the point crosses over");
+    const orient::Pt upended = orient::displayFromImage(0, false, true, 0.25f, 0.10f);
+    checkPt(upended, 0.25f, 0.90f, "flipped vertically, it crosses the other way");
+    const orient::Pt both = orient::displayFromImage(0, true, true, 0.25f, 0.10f);
+    checkPt(both, 0.75f, 0.90f, "and flipping both is the same as turning it 180");
+
+    // FOLDED, NOT REFUSED - the same promise cornerUvs makes, because the same
+    // combo box and the same eventual rotate-left button feed both.
+    const orient::Pt back = orient::displayFromImage(-1, false, false, 0.25f, 0.10f);
+    checkPt(back, 0.10f, 0.75f, "a negative turn folds to the same place as 3");
+    const orient::Pt five = orient::displayFromImage(5, false, false, 0.25f, 0.10f);
+    checkPt(five, 0.90f, 0.25f, "and five quarter turns is one");
+
+    // AGAINST THE PICTURE'S OWN CORNER MAPPING, at every turn and both flips.
+    // This is the check that matters. cornerUvs says which bit of the source
+    // each display corner samples; displayFromImage says where a bit of the
+    // source lands. Feeding one into the other must come back to the corner it
+    // started from, so neither can drift without this noticing - and a
+    // 90-degree transpose is precisely what nobody can verify by looking.
+    //
+    // The same pass checks two more properties a drawn overlay depends on: the
+    // centre of the frame is the centre of the display however it is turned,
+    // and the map is RIGID. A stretched one would put a guide line somewhere
+    // the picture is not, which is the whole failure being guarded against.
+    Bool agrees = true;
+    Bool centred = true;
+    Bool rigid = true;
+    for(Int32 turns = 0; turns < 4; ++turns)
+    {
+        for(Int32 mode = 0; mode < 4; ++mode)
+        {
+            const Bool fx = (mode & 1) != 0;
+            const Bool fy = (mode & 2) != 0;
+
+            const Array<orient::Uv, 4> uv = orient::cornerUvs(turns, fx, fy);
+            const Array<orient::Pt, 4> want = {
+                orient::Pt{ 0.0f, 0.0f },
+                orient::Pt{ 1.0f, 0.0f },
+                orient::Pt{ 1.0f, 1.0f },
+                orient::Pt{ 0.0f, 1.0f },
+            };
+            for(Size i = 0; i < 4u; ++i)
+            {
+                const Float32 su = uv[i].u;
+                const Float32 sv = uv[i].v;
+                const orient::Pt got = orient::displayFromImage(turns, fx, fy, su, sv);
+                if(!near(got.x, want[i].x) || !near(got.y, want[i].y))
+                {
+                    agrees = false;
+                }
+            }
+
+            const orient::Pt mid = orient::displayFromImage(turns, fx, fy, 0.5f, 0.5f);
+            if(!near(mid.x, 0.5f) || !near(mid.y, 0.5f))
+            {
+                centred = false;
+            }
+
+            const orient::Pt a = orient::displayFromImage(turns, fx, fy, 0.20f, 0.15f);
+            const orient::Pt b = orient::displayFromImage(turns, fx, fy, 0.70f, 0.55f);
+            const Float32 dx = b.x - a.x;
+            const Float32 dy = b.y - a.y;
+            if(!near(std::sqrt((dx * dx) + (dy * dy)), 0.6403f))
+            {
+                rigid = false;
+            }
+        }
+    }
+    check(agrees, "every corner uv maps back to the display corner that samples it");
+    check(centred, "the frame's centre is the display's centre at every turn and flip");
+    check(rigid, "and distance survives all eight, so an overlay is never stretched");
+}
+
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
@@ -1291,6 +1409,7 @@ int main()
     testCameraKeepsItsPromise();
     testCameraRate();
     testOrientation();
+    testOverlayMapping();
     testRoundTrip();
     testPingAndProse();
     testBoardAndControl();

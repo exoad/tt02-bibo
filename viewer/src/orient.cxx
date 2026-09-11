@@ -63,4 +63,31 @@ namespace orient
       return out;
   }
 
+  Pt displayFromImage(Int32 turns, Bool flipX, Bool flipY, Float32 u, Float32 v)
+  {
+      // THE FLIPS FIRST, IN THE SENSOR'S OWN SPACE - the same order and the
+      // same reason as cornerUvs above. What is drawn at u appears where 1 - u
+      // used to be, so "flip horizontally" keeps meaning "mirror the picture"
+      // at every angle instead of meaning something that depends on which way
+      // the picture is turned at the time.
+      Pt p;
+      p.x = flipX ? (1.0f - u) : u;
+      p.y = flipY ? (1.0f - v) : v;
+
+      // Then the rotation, one quarter turn at a time. On a screen whose y runs
+      // DOWN, a quarter turn clockwise sends (x, y) to (1 - y, x): the frame's
+      // top-left corner lands at the display's top-right. That is the same
+      // transpose cornerUvs states from the other end - there the destination's
+      // top-right samples the source's top-left - and the suite checks the two
+      // against each other rather than trusting both to be written correctly.
+      const Int32 steps = quarters(turns);
+      for(Int32 i = 0; i < steps; ++i)
+      {
+          const Float32 was = p.x;
+          p.x = 1.0f - p.y;
+          p.y = was;
+      }
+      return p;
+  }
+
 }
