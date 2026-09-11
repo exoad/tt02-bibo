@@ -137,7 +137,25 @@ WRITE_DEADLINE_S = 0.1                  # a CDC port whose board stopped reading
 # that day. The by-id path is built from the device's own strings and survives
 # it - the same reasoning the lidar's /dev/serial/by-id path already follows.
 CAM_BY_ID = '/dev/v4l/by-id/usb-Innomaker_Innomaker-U20CAM-1080p-S1_SN0001-video-index0'
-CAM_DEV = os.environ.get('BIBO_CAM_DEV') or (CAM_BY_ID if os.path.exists(CAM_BY_ID) else '/dev/video0')
+CAM_DEV_OVERRIDE = os.environ.get('BIBO_CAM_DEV')
+
+
+def cam_dev():
+    """The camera's path, RE-RESOLVED ON EVERY USE rather than once at import.
+
+    The first version of this was a module constant, which is a bug this camera
+    is guaranteed to find: it re-enumerates while streaming, and the by-id
+    symlink exists only while the device does. Resolving at import latches
+    whatever was true at boot - start with the camera unplugged and this server
+    asks for /dev/video0 forever, never looking again when the symlink appears.
+    The retry loop was never the broken part; retrying a name that stopped
+    existing is.
+
+    An explicit BIBO_CAM_DEV is never re-derived. A device path that moved
+    behind the operator's back would be worse than the bug it replaced."""
+    if CAM_DEV_OVERRIDE:
+        return CAM_DEV_OVERRIDE
+    return CAM_BY_ID if os.path.exists(CAM_BY_ID) else '/dev/video0'
 CAM_SIZE = os.environ.get('BIBO_CAM_SIZE', '640x480')
 CAM_FPS = float(os.environ.get('BIBO_CAM_FPS', '12'))
 CAM_WANT_S = 5.0                        # how long a /cam request keeps the capture open
@@ -299,6 +317,14 @@ class Feed:
         # viewer polling ten times a second usually asks about a revolution it
         # already has; a counter turns that into a 304 and no kilobytes.
         self.rev = 0
+        # Set by want(), waited on by the loop. The idle wait used to be a 0.2 s
+        # sleep, which is five wakeups a second forever on a board whose whole
+        # job is elsewhere - and the dashboard is meant to cost nothing when
+        # nobody is looking at it. An Event lets the idle wait be LONG and still
+        # wake the instant somebody asks, so this is not a latency trade: the
+        # first /scan after a lull starts connecting immediately, exactly as it
+        # did at 5 Hz.
+        self.poke = threading.Event()
         threading.Thread(target=self.loop, daemon=True).start()
 
     def want(self):
@@ -306,6 +332,7 @@ class Feed:
             if time.time() >= self.wanted_until:
                 self.why = 'feed connecting'   # the first ask after a lull; the thread is on it
             self.wanted_until = time.time() + FEED_WANT_S
+        self.poke.set()
 
     def wanted(self):
         with self.lock:
@@ -322,7 +349,11 @@ class Feed:
                     self.frame = None
                     self.drive = None
                     self.why = 'feed idle'
-                time.sleep(0.2)
+                # Sleeps until want() pokes it, or a minute passes. The timeout
+                # is a backstop, not the mechanism - nothing here polls for a
+                # deadline any more.
+                self.poke.wait(60.0)
+                self.poke.clear()
                 continue
             try:
                 sock = socket.create_connection(self.addr, timeout=2.0)
@@ -462,6 +493,8 @@ class Camera:
         self.why = 'camera idle'
         self.proc = None
         self.fails = 0             # consecutive captures that died inside a second
+        # See Feed.poke: the idle wait is an Event, not a 5 Hz poll.
+        self.poke = threading.Event()
         threading.Thread(target=self.loop, daemon=True).start()
 
     def want(self):
@@ -469,6 +502,7 @@ class Camera:
             if time.time() >= self.wanted_until:
                 self.why = 'camera starting'   # first ask after a lull; the thread is on it
             self.wanted_until = time.time() + CAM_WANT_S
+        self.poke.set()
 
     def wanted(self):
         with self.lock:
@@ -487,7 +521,7 @@ class Camera:
 
     def argv(self):
         width, height = self.size()
-        return ['v4l2-ctl', '-d', CAM_DEV,
+        return ['v4l2-ctl', '-d', cam_dev(),
                 '--set-fmt-video=width=%d,height=%d,pixelformat=MJPG' % (width, height),
                 '--stream-mmap', '--stream-count=0', '--stream-to=-']
 
@@ -498,7 +532,7 @@ class Camera:
                     'why': self.why,
                     'frames': self.frames,
                     'size': CAM_SIZE,
-                    'device': CAM_DEV,
+                    'device': cam_dev(),
                     'ageS': None if not self.frame_at else round(time.time() - self.frame_at, 2)}
 
     def latest(self, after, timeout):
@@ -549,10 +583,16 @@ class Camera:
                 # clean slate rather than serving out a backoff earned by a
                 # camera that was unplugged an hour ago.
                 self.fails = 0
-                time.sleep(0.2)
+                # Waits for want() rather than polling at 5 Hz. Cold start here
+                # is about 0.9 s and dominated by v4l2-ctl opening the device,
+                # so a longer idle SLEEP would have doubled it - an Event costs
+                # nothing instead, waking the moment the window is opened.
+                self.poke.wait(60.0)
+                self.poke.clear()
                 continue
-            if not os.path.exists(CAM_DEV):
-                self.note('%s absent - camera unplugged' % CAM_DEV)
+            dev = cam_dev()
+            if not os.path.exists(dev):
+                self.note('%s absent - camera unplugged' % dev)
                 time.sleep(2.0)
                 continue
             try:
@@ -588,7 +628,7 @@ class Camera:
         while self.wanted():
             chunk = proc.stdout.read(65536)
             if not chunk:
-                self.note('camera stream ended - is something else holding %s?' % CAM_DEV)
+                self.note('camera stream ended - is something else holding %s?' % cam_dev())
                 return
             buf += chunk
             # A frame is whole only once the NEXT one has begun. Start-of-image is
