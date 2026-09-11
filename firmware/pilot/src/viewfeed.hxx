@@ -198,6 +198,36 @@ namespace viewfeed
   // a viewer knows events were dropped rather than believing it saw them all.
   Void publishEvent(bibowire::Severity severity, UInt8 code, const Str& text);
 
+  // ---------------------------------------------------------------------------
+  // THE CAMERA HAS NO publish() AND THAT IS DELIBERATE
+  //
+  // Every other telemetry type above arrives here from the pilot's tick. The
+  // camera does not: this module opens /dev/video0 itself, through one
+  // long-lived v4l2-ctl streaming MJPEG into a pipe, and only while at least one
+  // viewer has explicitly subscribed to CAMERA. There is nothing for the pilot
+  // to call and nothing for it to forget to stop.
+  //
+  // IT IS OFF UNLESS ASKED FOR, BY AN EXPLICIT BIT. A zero typeMask means
+  // "never asked", which everywhere else means everything - and for a camera
+  // that would hand a megabyte a second to every viewer written before this
+  // existed. CAMERA is the one type excluded from that default: bit 16
+  // (`tag - 0x10`, tag 0x20), set by SUBSCRIBE, or no pictures.
+  //
+  // THE DEVICE IS SINGLE-OPENER, and the phone dashboard
+  // (tools/status/status_server.py) opens the same one, so the two can never
+  // both hold it. When the capture cannot start or produces nothing, the
+  // subscribers are told in an EVENT that names the likely holder rather than
+  // being left with a blank panel - an absence with a reason.
+  //
+  // CAMERA is CLASS_BULK, so it is discarded before any scan or state frame.
+  // That is what makes it safe to add to this link: what degrades is the
+  // picture, never the car's picture of the world.
+  //
+  // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS override the device, the
+  // requested format and the rate cap, read once per start(). They are the same
+  // names status_server.py reads. The default rate is deliberately low - see
+  // CAM_FPS_DEFAULT in viewfeed.cxx for the measured numbers behind it.
+
   // The newest CONTROL the holder has sent, or false when there is none. Reads
   // a seqlock: no mutex, no allocation, and it cannot return a half-written
   // command. This is the control loop's ENTIRE interaction with this module.
