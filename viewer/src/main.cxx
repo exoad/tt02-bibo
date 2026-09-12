@@ -38,6 +38,7 @@
 #include "scene.hxx"
 #include "link.hxx"
 #include "camera.hxx"
+#include "trim.hxx"
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -52,7 +53,19 @@ static constexpr Int32 DEFAULT_HEIGHT = 900;
 // AS a panel. Making the ground darker than the windows is what separates them.
 static constexpr Array<Float32, 4> CLEAR_COLOR = { 0.086f, 0.094f, 0.110f, 1.0f };
 
-static constexpr CharSeq DEFAULT_HOST = "bibobox.local";
+// A NAME, and specifically one this machine can resolve. It was "bibobox.local"
+// and that made the Connect button fail on its own default: Windows has no mDNS
+// responder here, so `bibobox.local` returns getaddrinfo 11001 and reads as a
+// broken client, while the board answers to it perfectly well on its own LAN.
+// Measured both ways on 2026-09-10 - `bibobox` and the raw address connect
+// instantly, `.local` never resolves.
+//
+// Still a name and not an address, which is the rule that matters: the field
+// network is a phone hotspot whose DHCP hands out a different address every
+// outing, so an address typed in here is wrong by the next time it is used. Both
+// spellings are names; this is the one that works from this laptop today, and
+// the field is editable for the outing where the other one is.
+static constexpr CharSeq DEFAULT_HOST = "bibobox";
 
 // From the protocol's own header rather than typed again here: the port is a
 // fact about bibowire, and a viewer carrying its own copy of it is a viewer that
@@ -357,9 +370,15 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     const Bool up = link::isOpen(lk.client);
 
     // A HOSTNAME, not an address. The field network is a phone hotspot and its
-    // DHCP hands out a different address every time; the board answers to
-    // bibobox.local over mDNS and that is the thing that stays true. The client
-    // resolves it on EVERY attempt for the same reason.
+    // DHCP hands out a different address every time, so an address typed here is
+    // wrong by the next outing; a name is the thing that stays true, and the
+    // client resolves it on EVERY attempt for the same reason.
+    //
+    // WHICH name depends on the network, which is why this is a text field and
+    // not a constant. `bibobox` is Tailscale's MagicDNS and works wherever the
+    // tailnet is up; `bibobox.local` is mDNS and works on a LAN the board shares
+    // - but not from this laptop, which has no mDNS responder and answers it
+    // with getaddrinfo 11001.
     ImGui::BeginDisabled(up);
     ImGui::SetNextItemWidth(-70.0f * uiScale);
     ImGui::InputText("host", lk.host.data(), lk.host.size());
@@ -504,7 +523,7 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     ImGui::End();
 }
 
-static Void drawViewWindow(scene::Scene& sc, camview::View& cam)
+static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View& trim)
 {
     static constexpr Array<CharSeq, 2> COLOR_NAMES = { "uniform", "by distance" };
 
@@ -533,6 +552,19 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam)
         ImGui::SetTooltip(
             "a separate window, and the board only sends\n"
             "the camera while it is open - about 1 MB/s"
+        );
+    }
+
+    // The car's limits, centre and response rates. Unlike the camera above, this
+    // one costs the board nothing while it is open - there is no subscription
+    // behind it, only COMMANDs sent when the operator finishes a slider.
+    ImGui::Checkbox("trim", &trim.open);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "steering and throttle limits, centre, and how fast\n"
+            "either may move - refused while the car is armed,\n"
+            "and lost on the Pico's next reboot"
         );
     }
 
@@ -798,6 +830,13 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     camview::View cam;
     camview::init(d3dDevice, d3dContext, uiScale);
 
+    // The trim window. Closed at startup like the camera, though for a different
+    // reason: it costs nothing to have open, but a pane of microsecond limits is
+    // not what somebody wants over a point cloud until they go looking for it.
+    // It owns no device resource, so there is no shutdown to match camview's.
+    trimview::View trim;
+    trimview::init(uiScale);
+
     // `net`, not `link`: the module is namespace `link`, and a variable of that
     // name would hide it for the rest of the function.
     Link net;
@@ -880,9 +919,10 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         scene::draw(ImGui::GetBackgroundDrawList(), where, sc);
 
         drawConnectionWindow(net, snap, nowMs);
-        drawViewWindow(sc, cam);
+        drawViewWindow(sc, cam, trim);
         drawCarWindow(snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
+        trimview::drawWindow(trim, net.client, snap, nowMs);
 
         ImGui::Render();
 

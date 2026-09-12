@@ -493,7 +493,13 @@ Sent **every 50 ms unconditionally**, changed or not, for as long as this viewer
 len = 16
 ```
 
-Verbs: `1 ARM`, `2 DISARM`, `3 ESTOP`, `4 CLEAR_ESTOP`, `5 MOTOR_ON`, `6 MOTOR_OFF`, `7 SET_MODE` (arg0 = 0 manual / 1 look / 2 drive), `8 SET_ESC_LIMITS` (arg1 = min µs, arg2 = max µs).
+Verbs: `1 ARM`, `2 DISARM`, `3 ESTOP`, `4 CLEAR_ESTOP`, `5 MOTOR_ON`, `6 MOTOR_OFF`, `7 SET_MODE` (arg0 = 0 manual / 1 look / 2 drive), `8 SET_ESC_LIMITS` (arg1 = min µs, arg2 = max µs), `9 SET_SERVO_LIMITS` (arg1 = min µs, arg2 = max µs), `10 SET_SERVO_TRIM` (arg1 = centre µs), `11 SET_SLEW` (arg0 = 0 both / 1 steer / 2 throttle, arg1 = µs per 20 ms tick).
+
+**The tuning verbs — 8, 9, 10, 11 — are refused while the car is armed**, with `result = 3` and a sentence saying so. They exist because the car's trim used to live in a hub that is gone: the steering's end stops and centre, the throttle's working range, and how fast either output is allowed to move. Re-tuning the range a live throttle is being clamped to is the only way this can hurt somebody, and the car is disarmed by default, so the rule costs an operator nothing.
+
+They are **not** `CONTROL` fields. A limit is set deliberately and once; carrying it twenty times a second in a stream whose purpose is repetition would make an accidental slider drag indistinguishable from the operator's intent, and would lose the acknowledgement that says which value the car actually took.
+
+Units are microseconds of pulse everywhere except `SET_SLEW`, whose µs-per-tick becomes µs/s at 50 ticks a second — and a lock-to-lock *time*, which is the unit an operator thinks in and the one a viewer should show beside the slider. **None of these survive a reboot**: the Pico holds them in RAM, and `firmware/lib/chassis/cal.hxx` is the file that survives a reflash. A viewer that lets somebody tune for an hour without saying that is a viewer that loses their afternoon.
 
 On TCP because these change state **once** and must not be lost. Every verb is answered by exactly one `CMDACK`. `ESTOP` exists *both* here and as a `CONTROL` button bit, so it survives either transport failing.
 
@@ -1197,6 +1203,12 @@ soft-by-refusal, with the boundary asserted explicitly.
 **12.9 Cases 35–40 are the socket suite and are not implemented.** They belong to
 `test_viewfeed.cxx` beside the `viewfeed` half, which does not exist yet. Cases
 1–34 are implemented and the test file's header says which.
+
+**12.10 "Tuning is refused while armed" was unimplementable as written, because the board could not see whether the car was armed.** The guard reads `Applied::armed`, and **nothing in the pilot ever called `viewfeed::applied()`** — so that field held 0 for the life of the process and the refusal never fired once. `BoardState::picoArmed` was no help either: it was hard-coded to 2, *"this program never asks the board its arm state"*, which is also why the viewer's Car panel could only ever print `armed --`.
+
+The fix costs nothing on the wire. The Pico answers **every** `STEER` with `printDrive()`, and the pilot sends `STEER` on every tick — so `armed=`, `esc=` and `steer_now=` were already arriving fifty times a second and being counted as `++ok` with their contents discarded. The pilot now parses that line and calls `applied()`, which makes the guard load-bearing and the `armed` readout real at the same time.
+
+Two traps found while doing it, both of which pass every gate. First, `proto::field` takes the value from directly after the key it matched, so **the `=` is part of the key**: `fieldInt(rest, "armed", v)` hands `strtol` the string `"=0"` and returns false on every call, leaving the guard dead and looking exactly like a working one. Second, `armed` has no "unknown" sentinel, so an unread value is 0 — permissive for this guard rather than dangerous, and it lasts one tick, but it is a default that means *not armed* rather than *not measured*.
 
 **Status.** The pure suite runs **312 checks**, against the ≥140 §11 asks for. A
 known limit, commented rather than papered over: the catalog's `static_assert`s

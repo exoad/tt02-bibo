@@ -1314,6 +1314,118 @@ Int32 main()
         viewfeed::stop();
     }
 
+    // ---- 16. the tuning verbs, over a real socket ------------------------------------
+    //
+    // THIS SUITE WAS GREEN ABOUT THESE WITHOUT EVER SENDING ONE. test_bibowire
+    // proves a COMMAND carrying arg0/arg1/arg2 survives the codec, which says
+    // nothing at all about whether THIS server accepts it, refuses it, or queues
+    // it - and the queue is the only place an operator's trim can be silently
+    // swallowed. Eight suites passed while onCommand's tuning branch had never
+    // executed a single time.
+    //
+    // No BOARD is published here, so haveBoard is false and picoDown() is false
+    // with it - "the pilot has not said yet" is deliberately not "there is no
+    // Pico", so these are accepted rather than refused with result 4. Nothing
+    // calls applied() either, so the car reads as disarmed.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for the tuning tests");
+        const UInt16 port = viewfeed::port();
+
+        Wire w;
+        check(w.connect(port), "a viewer connects to tune");
+        const UInt32 session = handshake(w, 0, 0);
+        check(session != 0, "and is welcomed - an OBSERVER, because tuning is not driving");
+
+        Array<UInt8, 32> body{};
+        viewfeed::Tune t;
+
+        // ---- accepted, and it reaches the tick intact ----
+        {
+            bibowire::Command m;
+            m.sessionId = session;
+            m.cmdId = 7;
+            m.verb = bibowire::Verb::VERB_SET_SLEW;
+            m.arg0 = bibowire::SLEW_AXIS_THROTTLE;
+            m.arg1 = 37;
+            const Size len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 20);
+
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a tuning COMMAND is answered");
+            bibowire::CmdAck ack;
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "and the ack decodes");
+            check(ack.cmdId == 7, "against the cmdId that was sent");
+            check(ack.result == 0, "and the value was accepted");
+            check(!ack.text.empty(), "with a sentence naming what the car took");
+
+            check(viewfeed::tune(&t), "the pilot's tick finds it queued");
+            check(t.verb == bibowire::Verb::VERB_SET_SLEW, "the verb survived");
+            check(t.arg0 == bibowire::SLEW_AXIS_THROTTLE, "the AXIS survived - 2, not 1");
+            check(t.arg1 == 37, "and the rate survived");
+            check(!viewfeed::tune(&t), "and the queue is empty once taken");
+        }
+
+        // ---- refused, AND NOT QUEUED ----
+        //
+        // The assertion that matters in this whole section. A board that answers
+        // "refused" and queues the value anyway would hand the car a number the
+        // operator was told it would not take - a lie told by the acknowledgement
+        // itself, and invisible from both ends.
+        {
+            bibowire::Command m;
+            m.sessionId = session;
+            m.cmdId = 8;
+            m.verb = bibowire::Verb::VERB_SET_SLEW;
+            m.arg0 = bibowire::SLEW_AXIS_STEER;
+            m.arg1 = 500;   // SLEW_US_MAX is 200
+            const Size len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 21);
+
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "an out-of-range slew is answered");
+            bibowire::CmdAck ack;
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "the ack decodes");
+            check(ack.result == 1, "and it is refused");
+            check(!viewfeed::tune(&t), "and NOTHING was queued for the car");
+        }
+
+        // ---- min and max the wrong way round ----
+        {
+            bibowire::Command m;
+            m.sessionId = session;
+            m.cmdId = 9;
+            m.verb = bibowire::Verb::VERB_SET_SERVO_LIMITS;
+            m.arg1 = 1600;
+            m.arg2 = 1400;
+            const Size len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 22);
+
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "reversed servo limits are answered");
+            bibowire::CmdAck ack;
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "the ack decodes");
+            check(ack.result == 1, "and refused - both ends are in range, the ORDER is not");
+            check(!viewfeed::tune(&t), "and nothing was queued");
+        }
+
+        // ---- somebody else's session ----
+        {
+            bibowire::Command m;
+            m.sessionId = session ^ 0xFFFFFFFFu;
+            m.cmdId = 10;
+            m.verb = bibowire::Verb::VERB_SET_SERVO_TRIM;
+            m.arg1 = 1487;
+            const Size len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 23);
+
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a foreign session is answered");
+            bibowire::CmdAck ack;
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "the ack decodes");
+            check(ack.result != 0, "and refused before the trim is ever looked at");
+            check(!viewfeed::tune(&t), "and nothing was queued");
+        }
+
+        viewfeed::stop();
+        check(!viewfeed::tune(&t), "a stopped feed has no trim waiting for the tick");
+    }
+
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

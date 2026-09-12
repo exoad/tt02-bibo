@@ -233,6 +233,29 @@ namespace viewfeed
   // command. This is the control loop's ENTIRE interaction with this module.
   [[nodiscard]] Bool control(bibowire::Control* out);
 
+  // One accepted tuning request, on its way to the Pico: the verb and its args
+  // exactly as COMMAND carried them. NOT translated into a Pico line here -
+  // this header is compiled into the Windows viewer too, and the viewer has no
+  // serial port to send text down.
+  struct Tune
+  {
+      bibowire::Verb verb = bibowire::Verb::VERB_NONE;
+      UInt8 arg0 = 0;
+      UInt16 arg1 = 0;
+      UInt16 arg2 = 0;
+  };
+
+  // The OLDEST tuning request not yet taken, or false when there is none. Pops
+  // it, so the tick calls this until it answers false.
+  //
+  // A MUTEX AND A QUEUE, deliberately, where control() above is a seqlock. A
+  // seqlock keeps only the newest, which is exactly right for a 20 Hz stream
+  // whose old values are worthless - and exactly wrong here: two sliders moved
+  // together are two DISCRETE acts, and the second overwriting the first would
+  // silently lose one. Each has already been answered with a CMDACK naming the
+  // value the car took, so dropping one would make that acknowledgement a lie.
+  [[nodiscard]] Bool tune(Tune* out);
+
   // What the pilot did with it, for the next CTLSTATE. See Applied.
   Void applied(const Applied& a);
 

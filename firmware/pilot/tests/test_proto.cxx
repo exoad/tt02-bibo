@@ -141,6 +141,42 @@ Int32 main()
         check(!proto::fieldInt(line, "esc=", v), "a trailing tail is refused");
     }
     {
+        // ---- the drive line the CAR actually sends -------------------------
+        //
+        // Verbatim shape from firmware/app/main.cxx printDrive(), which answers
+        // every STEER - so the pilot reads its arm state out of a line it was
+        // already being sent. This is the line that reaches readReplies.
+        //
+        // The numbers are deliberately all different. Six of these keys are
+        // prefixes of another key on the same line - esc= inside esc_t=,
+        // esc_min= and esc_max=; slew= inside slew_esc=; steer_m= inside
+        // steer_now= - so an implementation that matched a run of characters
+        // rather than a NAME returns a plausible wrong number for most of them.
+        const Str line =
+            "OK drive servo=1600 servo_t=1610 esc=1560 esc_t=1570 armed=1 "
+            "servo_on=1 servo_c=1480 steer_m=-300 steer_now=-250 slew=8 "
+            "slew_esc=12 servo_min=1230 servo_max=1660 esc_min=1541 esc_max=1600";
+
+        const proto::Reply r = proto::read(line);
+        check(r.kind == proto::Kind::KIND_OK, "the drive reply is an OK");
+        checkStr(r.topic, "drive", "with topic drive");
+
+        Int32 v = 0;
+        check(proto::fieldInt(r.rest, "armed=", v) && v == 1, "armed= reads the arm state");
+        check(proto::fieldInt(r.rest, "esc=", v) && v == 1560, "esc= is not esc_t=, esc_min= or esc_max=");
+        check(proto::fieldInt(r.rest, "steer_now=", v) && v == -250, "steer_now= is negative and is not steer_m=");
+        check(proto::fieldInt(r.rest, "slew=", v) && v == 8, "slew= is not slew_esc=");
+
+        // THE BUG THIS PINS, which shipped green once. The '=' belongs to the
+        // key: proto::field reads the value from directly after whatever it
+        // matched, so a key without it hands strtol "=1" and fails - silently,
+        // every time, leaving the caller's variable at whatever it already was.
+        // A guard fed by that reads as protection and measures nothing.
+        v = 0;
+        check(!proto::fieldInt(r.rest, "armed", v), "a key missing its = is refused, not silently empty");
+        check(v == 0, "and it leaves the out parameter alone");
+    }
+    {
         const Str line = "hz=2.50 gain=-0.125";
         Float32   f = 0.0f;
         check(proto::fieldFloat(line, "hz=", f) && f > 2.49f && f < 2.51f, "a float field");

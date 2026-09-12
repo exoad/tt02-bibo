@@ -29,6 +29,14 @@
 //     withdrawn, or that a real camera's JPEG looks like this one.
 //   - the texture upload and the window. Those need a D3D11 device, which is
 //     why the decoder is its own module (jpeg.cxx) and the window is not.
+//   - THE TRIM PANE AS DRAWN, and the board's half of COMMAND. The queue, the
+//     cmdId rule, the encoding and the slew arithmetic are all held to an answer
+//     below, and trim.hxx keeps that arithmetic inline in the header precisely
+//     so this suite can reach it without linking a file that names ImGui. What
+//     is NOT proved is any of it against a car: NO COMMAND HAS EVER BEEN PUT ON
+//     A WIRE. The board-side handler for verbs 8-11 is being written in
+//     parallel, the Pico is not connected, and so "refused while armed" is a
+//     sentence this suite can only check the SHAPE of, never the behaviour.
 //   - THE ALIGNMENT OVERLAYS AS DRAWN. orient::displayFromImage is held to an
 //     answer below at every turn and both flips, and that is the arithmetic
 //     deciding where a crosshair or a reversing guide lands. What is NOT
@@ -49,6 +57,7 @@
 #include "link.hxx"
 #include "jpeg.hxx"
 #include "orient.hxx"
+#include "trim.hxx"
 
 #include <cmath>
 #include <cstdio>
@@ -242,6 +251,16 @@ static Size pushCtlState(Vec<UInt8>& out, UInt64 tUs, UInt8 armed)
     Array<UInt8, 64> body = {};
     const Size n = bibowire::writeCtlState(m, body.data(), body.size());
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_CTLSTATE, body.data(), n);
+}
+
+// The board's answer to one COMMAND. Takes the whole struct rather than a
+// parameter per field, the way pushScan does: the interesting cases differ in
+// three or four fields at once and a list of them would wrap.
+static Size pushCmdAck(Vec<UInt8>& out, const bibowire::CmdAck& m)
+{
+    Array<UInt8, 256> body = {};
+    const Size n = bibowire::writeCmdAck(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_CMDACK, body.data(), n);
 }
 
 static Size pushBye(Vec<UInt8>& out, bibowire::Reason why, const Str& text)
@@ -1392,6 +1411,267 @@ static Void testOverlayMapping()
     check(rigid, "and distance survives all eight, so an overlay is never stretched");
 }
 
+static Void testCommandIds()
+{
+    std::printf("\n-- a cmdId is never 0, and never repeats --\n");
+
+    link::Client c;
+    check(c.pending.empty(), "a fresh client has nothing queued");
+    check(link::commandsDropped(c) == 0u, "and has dropped nothing");
+
+    link::sendCommand(c, bibowire::Verb::VERB_SET_SERVO_TRIM, 0, 1480, 0);
+    link::sendCommand(c, bibowire::Verb::VERB_SET_SLEW, bibowire::SLEW_AXIS_STEER, 8, 0);
+    link::sendCommand(c, bibowire::Verb::VERB_SET_ESC_LIMITS, 0, 1541, 1600);
+
+    check(c.pending.size() == 3, "three deliberate acts are three queued commands");
+    if(c.pending.size() != 3)
+    {
+        return;
+    }
+
+    // ZERO IS RESERVED. CTLSTATE's lastCmdId uses 0 to mean "none applied", so a
+    // command numbered 0 is one the board could never report having run.
+    check(c.pending[0].cmdId != 0u, "the first cmdId is not 0");
+    check(c.pending[1].cmdId != 0u, "nor the second");
+    check(c.pending[2].cmdId != 0u, "nor the third");
+
+    check(c.pending[0].cmdId == 1u, "the counter starts at 1");
+    check(c.pending[1].cmdId == 2u, "and the second is 2");
+    check(c.pending[2].cmdId == 3u, "and the third is 3");
+
+    // STRICTLY increasing, asserted as an ordering and not only as three
+    // constants: the constants above would still pass if the counter were reset
+    // between calls in some way that happened to produce 1, 2, 3.
+    check(c.pending[1].cmdId > c.pending[0].cmdId, "strictly increasing");
+    check(c.pending[2].cmdId > c.pending[1].cmdId, "at every step");
+
+    // They do not COLLAPSE. Two camera-on requests are one fact; two tuning
+    // commands are two acts, each of which gets its own CMDACK.
+    check(c.pending[0].verb == bibowire::Verb::VERB_SET_SERVO_TRIM, "the first verb survives");
+    check(c.pending[2].verb == bibowire::Verb::VERB_SET_ESC_LIMITS, "and so does the third");
+
+    // sessionId and armEpoch are the WORKER's to stamp, at the moment of
+    // sending - a snapshot taken here would be the session the operator typed
+    // into rather than the one the frame goes out on.
+    check(c.pending[0].sessionId == 0u, "sessionId is left for the worker to stamp");
+    check(c.pending[0].armEpoch == 0u, "and so is armEpoch");
+}
+
+static Void testCommandEncoding()
+{
+    std::printf("\n-- a queued command becomes a COMMAND frame, exactly --\n");
+
+    link::Client c;
+    link::sendCommand(c, bibowire::Verb::VERB_SET_SERVO_LIMITS, 0, 1230, 1660);
+    check(c.pending.size() == 1, "one command is queued");
+    if(c.pending.size() != 1)
+    {
+        return;
+    }
+
+    // What the worker does before it writes: stamp the connection's facts onto
+    // the act the UI thread queued.
+    bibowire::Command cmd = c.pending[0];
+    cmd.sessionId = 0x51E55101u;
+    cmd.armEpoch = 3;
+
+    Array<UInt8, 64> body = {};
+    const Size n = bibowire::writeCommand(cmd, body.data(), body.size());
+    check(n != 0, "it encodes");
+    if(n == 0)
+    {
+        return;
+    }
+
+    Vec<UInt8> wire;
+    static_cast<Void>(framed(wire, bibowire::Type::TYPE_COMMAND, body.data(), n));
+
+    bibowire::Frame f;
+    Size used = 0;
+    const bibowire::Take got = bibowire::take(wire.data(), wire.size(), &f, &used);
+    check(got == bibowire::Take::TAKE_FRAME, "and comes back off the wire as a frame");
+    check(f.head.type == bibowire::Type::TYPE_COMMAND, "tagged COMMAND, 0x41");
+    if(got != bibowire::Take::TAKE_FRAME)
+    {
+        return;
+    }
+
+    bibowire::Command back;
+    check(bibowire::readCommand(f.body, f.head.ver, &back), "and decodes");
+
+    // VALUES, NOT SUCCESS. 1230 and 1660 are different numbers on purpose, so a
+    // swap of arg1 and arg2 fails here rather than round-tripping happily - and
+    // arg1/arg2 are min/max, which is the pair a reader of the verb table is
+    // most likely to reverse.
+    check(back.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS, "verb 9 survives");
+    check(back.arg1 == 1230u, "min lands in arg1");
+    check(back.arg2 == 1660u, "max lands in arg2");
+    check(back.arg0 == 0u, "arg0 is unused by this verb and is zero");
+    check(back.cmdId == 1u, "the cmdId survives");
+    check(back.sessionId == 0x51E55101u, "and the session the worker stamped");
+    check(back.armEpoch == 3u, "and the epoch");
+
+    // SET_SLEW puts the AXIS in arg0 and the rate in arg1, which is the other
+    // place a field can be put in the wrong slot - and the failure would be a
+    // throttle rate silently applied to the steering.
+    link::Client s;
+    link::sendCommand(s, bibowire::Verb::VERB_SET_SLEW, bibowire::SLEW_AXIS_THROTTLE, 12, 0);
+    check(s.pending.size() == 1, "a slew command is queued");
+    if(s.pending.size() != 1)
+    {
+        return;
+    }
+
+    Array<UInt8, 64> slewBody = {};
+    const Size sn = bibowire::writeCommand(s.pending[0], slewBody.data(), slewBody.size());
+    check(sn != 0, "it encodes");
+    if(sn == 0)
+    {
+        return;
+    }
+
+    Vec<UInt8> slewWire;
+    static_cast<Void>(framed(slewWire, bibowire::Type::TYPE_COMMAND, slewBody.data(), sn));
+    bibowire::Frame sf;
+    Size sUsed = 0;
+    static_cast<Void>(bibowire::take(slewWire.data(), slewWire.size(), &sf, &sUsed));
+    bibowire::Command slewBack;
+    check(bibowire::readCommand(sf.body, sf.head.ver, &slewBack), "and decodes");
+    check(slewBack.verb == bibowire::Verb::VERB_SET_SLEW, "verb 11 survives");
+    check(slewBack.arg0 == bibowire::SLEW_AXIS_THROTTLE, "the AXIS is arg0");
+    check(slewBack.arg0 == 2u, "which is 2 for the throttle");
+    check(slewBack.arg1 == 12u, "and the rate is arg1");
+    check(slewBack.arg0 != slewBack.arg1, "so axis and rate cannot have been swapped");
+}
+
+static Void testSlewArithmetic()
+{
+    std::printf("\n-- us per tick, into us per second, into a TIME --\n");
+
+    // 50 ticks a second, because the Pico's tick is 20 ms. This is the whole of
+    // the first conversion and it is the one an operator never has to do again.
+    check(trimview::slewUsPerSec(8) == 400, "8 us a tick is 400 us a second");
+    check(trimview::slewUsPerSec(1) == 50, "1 is 50");
+    check(trimview::slewUsPerSec(200) == 10000, "and 200 is 10000");
+
+    // THE NUMBER cal.hxx ITSELF CLAIMS. Its comment says 8 is 400 us/s, "which
+    // walks this car's 430 us of steering travel in about a second" - 1230 to
+    // 1660 is 430, and the arithmetic here says 1.07 s. Agreeing with the
+    // firmware's own prose is the point: two files describing one car.
+    check(trimview::crossCentis(430, 8) == 107, "430 us of travel at 8 is 1.07 s lock to lock");
+
+    // The throttle's 59 us band - 1541 to 1600 - at the same rate.
+    check(trimview::crossCentis(59, 8) == 14, "the 59 us throttle band at 8 is 0.14 s");
+
+    // The slowest and fastest the protocol allows, across the steering's travel.
+    check(trimview::crossCentis(430, 1) == 860, "at 1 us a tick the same travel takes 8.60 s");
+    check(trimview::crossCentis(430, 200) == 4, "and at 200 it takes 0.04 s");
+
+    // ARGUMENT ORDER. A span and a rate are both small integers, so a swap
+    // compiles and produces a plausible-looking number; these are different
+    // answers, which is what makes the check worth writing.
+    check(
+        trimview::crossCentis(430, 8) != trimview::crossCentis(8, 430),
+        "span and rate are not interchangeable"
+    );
+
+    // NOT A QUESTION WITH AN ANSWER. A zero span would read as "instant" and a
+    // zero rate is a divide by zero; both are -1, which the pane renders as a
+    // dash rather than as 0.00 s.
+    check(trimview::crossCentis(0, 8) == -1, "no travel to cross has no time");
+    check(trimview::crossCentis(-5, 8) == -1, "nor does a crossed pair of limits");
+    check(trimview::crossCentis(430, 0) == -1, "and a rate of zero never arrives");
+
+    // The defaults this pane starts from are the committed ones, so a drift in
+    // either file is a failure here rather than a surprise on the car.
+    check(trimview::STEER_MIN_DEFAULT == 1230, "the steering minimum mirrors cal.hxx");
+    check(trimview::STEER_CENTRE_DEFAULT == 1480, "and the centre, which is not 1500");
+    check(trimview::STEER_MAX_DEFAULT == 1660, "and the maximum");
+    check(trimview::ESC_MIN_DEFAULT == 1541, "and the throttle's idle");
+    check(trimview::ESC_MAX_DEFAULT == 1600, "and its full");
+
+    // Every default must sit inside the bounds the protocol will accept, or the
+    // pane opens on a value the board would refuse.
+    check(trimview::STEER_MIN_DEFAULT >= static_cast<Int32>(bibowire::SERVO_US_HARD_MIN), "inside the servo floor");
+    check(trimview::STEER_MAX_DEFAULT <= static_cast<Int32>(bibowire::SERVO_US_HARD_MAX), "and the servo ceiling");
+    check(trimview::ESC_MIN_DEFAULT >= static_cast<Int32>(bibowire::ESC_US_HARD_MIN), "inside the ESC floor");
+    check(trimview::ESC_MAX_DEFAULT <= static_cast<Int32>(bibowire::ESC_US_HARD_MAX), "and the ESC ceiling");
+}
+
+static Void testCmdAck()
+{
+    std::printf("\n-- what the board said, which is the whole point of a refusal --\n");
+
+    link::Session s;
+    check(!s.newestAck().has_value(), "before any answer there is nothing to show");
+
+    // A REFUSAL. result 3 is "not in this state", which is what a tuning verb
+    // gets while the car is armed.
+    bibowire::CmdAck refused;
+    refused.cmdId = 7;
+    refused.verb = bibowire::Verb::VERB_SET_SERVO_LIMITS;
+    refused.result = 3;
+    refused.armEpoch = 3;
+    refused.text = "refused - disarm before changing the servo limits";
+
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCmdAck(wire, refused));
+    static_cast<Void>(feed(s, wire, 1000));
+
+    const Opt<link::Ack> got = s.newestAck();
+    check(got.has_value(), "a CMDACK is kept");
+    if(!got.has_value())
+    {
+        return;
+    }
+    check(got->ack.cmdId == 7u, "with the cmdId it answers");
+    check(got->ack.result == 3u, "and its result");
+    check(got->ack.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS, "and the verb it answers");
+    check(got->atMs == 1000, "and when it landed");
+
+    // VERBATIM. The sentence is the part a person can act on, and a viewer that
+    // kept only the result byte would leave an operator with a number.
+    checkStr(
+        got->ack.text,
+        "refused - disarm before changing the servo limits",
+        "and its sentence, exactly as the board wrote it"
+    );
+    checkStr(Str(link::ackResultName(3)), "not in this state", "result 3 has a name");
+    checkStr(Str(link::ackResultName(0)), "ok", "and so does 0");
+    checkStr(Str(link::ackResultName(2)), "unknown verb", "and 2, for a board too old for these verbs");
+
+    // The NEWEST is the one shown. An older ack sitting where the latest belongs
+    // would report the wrong command's result at the moment somebody is watching.
+    bibowire::CmdAck ok;
+    ok.cmdId = 8;
+    ok.verb = bibowire::Verb::VERB_SET_SLEW;
+    ok.result = 0;
+    ok.text = "slew steer 8";
+    Vec<UInt8> second;
+    static_cast<Void>(pushCmdAck(second, ok));
+    static_cast<Void>(feed(s, second, 1100));
+    check(s.newestAck().has_value() && s.newestAck()->ack.cmdId == 8u, "the newest answer wins");
+    check(s.acks.size() == 2, "while the one before it is still kept");
+
+    // BOUNDED. An unbounded list is a leak with a good excuse.
+    for(UInt32 i = 0; i < 20u; ++i)
+    {
+        bibowire::CmdAck more;
+        more.cmdId = 100u + i;
+        more.result = 0;
+        Vec<UInt8> bytes;
+        static_cast<Void>(pushCmdAck(bytes, more));
+        static_cast<Void>(feed(s, bytes, 1200));
+    }
+    check(s.acks.size() == link::MAX_ACKS, "the ack list is bounded");
+    check(s.newestAck()->ack.cmdId == 119u, "and keeps the newest, not the first");
+
+    // A cmdId belongs to one connection, so the answers go with the session.
+    link::clearSession(s);
+    check(s.acks.empty(), "a reconnect carries no acks across");
+    check(!s.newestAck().has_value(), "and has nothing to show");
+}
+
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
@@ -1424,6 +1704,10 @@ int main()
     testCameraGaps();
     testCameraRefusal();
     testSubscriptionMask();
+    testCommandIds();
+    testCommandEncoding();
+    testSlewArithmetic();
+    testCmdAck();
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
