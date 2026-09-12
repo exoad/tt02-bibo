@@ -103,7 +103,7 @@ enable_testing()
 # real halves are Linux sockets, and on MSVC every call refuses, so a .bat could
 # only prove that start() returns false - which test_pilot already proves for
 # the lidar and the link. On the board they exercise the feeds over loopback:
-# feed the dashboard's lines on 8011, viewfeed bibowire's frames on 8020.
+# feed the hub's lines on 8011, viewfeed bibowire's frames on 8020.
 foreach(t proto pilot reactive scanwire feed bibowire viewfeed archive)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)

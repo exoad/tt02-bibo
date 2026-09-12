@@ -1211,14 +1211,14 @@ static Void testCameraRefusal()
 
     Vec<UInt8> wire;
     static_cast<Void>(
-        pushEvent(wire, "camera busy - the phone dashboard holds /dev/video0", 0)
+        pushEvent(wire, "camera busy - another pilot holds /dev/video0", 0)
     );
     static_cast<Void>(feed(s, wire, 1000));
 
     check(s.haveCameraNote, "an EVENT about the camera is kept where the window can show it");
     checkStr(
         s.cameraNoteText,
-        "camera busy - the phone dashboard holds /dev/video0",
+        "camera busy - another pilot holds /dev/video0",
         "verbatim, because the sentence is the part a person can act on"
     );
     check(s.notes.size() == 1, "and it is still an ordinary note as well");
@@ -1231,7 +1231,7 @@ static Void testCameraRefusal()
     static_cast<Void>(feed(s, other, 1010));
     checkStr(
         s.cameraNoteText,
-        "camera busy - the phone dashboard holds /dev/video0",
+        "camera busy - another pilot holds /dev/video0",
         "and an unrelated EVENT does not replace it"
     );
 }

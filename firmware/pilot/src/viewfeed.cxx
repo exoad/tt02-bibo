@@ -77,8 +77,8 @@ namespace viewfeed
     // JPEG start-of-image. THE ONLY FRAME BOUNDARY MJPEG GIVES: a JPEG's own
     // end marker can occur inside its payload, so a frame is whole only once
     // the NEXT one has begun. Costs exactly one frame of latency and is the
-    // reason a viewer is never handed half a picture. status_server.py's
-    // CAM_SOI, and its comment, unchanged.
+    // reason a viewer is never handed half a picture. Lifted, with its
+    // comment, from the old status dashboard's capture code.
     constexpr Array<UInt8, 3> CAM_SOI = { 0xFFu, 0xD8u, 0xFFu };
 
     // Bytes with no boundary in them are not a picture. Rather than grow
@@ -97,7 +97,7 @@ namespace viewfeed
     constexpr Size CAM_MAX_JPEG = bibowire::MAX_PAYLOAD - CAM_BODY_OVERHEAD;
 
     // A capture that dies inside a second earns a longer wait, to a ceiling of
-    // four. status_server.py's backoff and its reason: retrying twice a second
+    // four. The old dashboard's backoff and its reason: retrying twice a second
     // for as long as somebody leaves a subscription open is thousands of spawns
     // an hour against a board whose whole job is elsewhere.
     constexpr Int32 CAM_FAIL_CEILING = 8;
@@ -365,18 +365,16 @@ namespace viewfeed
 
     // ---- the camera's configuration ----------------------------------------
     //
-    // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS - THE SAME NAMES
-    // status_server.py reads, deliberately. The two programs cannot both hold
-    // the device, so they are never both capturing; letting them disagree about
-    // which device or which size would be a second way to be confused about one
-    // camera. Only the RATE differs in spirit, and only because this link is
-    // the field hotspot rather than the phone on the same board.
+    // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS override the device, the
+    // requested format and the rate cap, so a board can be pointed at another
+    // camera, and a test at no camera at all, without a rebuild.
+    //
     // BY ID, NOT BY MINOR NUMBER. /dev/videoN is assigned in enumeration order
     // and is NOT stable: this camera fell off the bus mid-stream on 2026-09-10
     // (uvcvideo "Failed to resubmit video URB (-19)", which is ENODEV), came
     // back as USB device 6, and took /dev/video1 - so /dev/video0 ceased to
-    // exist and both this module and the phone dashboard reported a dead camera
-    // that was sitting right there working. It had re-enumerated THREE times in
+    // exist and this module reported a dead camera that was sitting right
+    // there working. It had re-enumerated THREE times in
     // four minutes, with twelve URB failures, all while streaming: a recurring
     // fact about the hardware rather than a one-off.
     //
@@ -1021,9 +1019,9 @@ namespace viewfeed
 
     // The pilot fills the CAR's state; these are the fields only this module
     // can know - the deadman it computes, the epoch it owns, who is holding the
-    // wheel, and what serving this viewer cost. The dashboard's JSON carries
+    // wheel, and what serving this viewer cost. The pilot's console line prints
     // none of them, so section 5's "one struct, one tick" rule is untouched:
-    // the pilot still fills what the phone and the viewer both read.
+    // the pilot still fills what the console and the viewer both read.
     [[nodiscard]] bibowire::BoardState boardFor(const Client& c)
     {
         bibowire::BoardState b = lastBoard;
@@ -2079,14 +2077,14 @@ namespace viewfeed
     // "VIDIOC_REQBUFS returned -1 (Device or resource busy)" and writes zero
     // bytes. The open() itself SUCCEEDS - the refusal arrives later, at buffer
     // setup - which is why this cannot be answered by probing the node first.
-    // The phone dashboard (tools/status/status_server.py, class Camera) opens
-    // the same device and parks it five seconds after nobody is watching, so
-    // the two CANNOT both hold it and whichever loses has to say which one lost.
+    // So a second pilot started beside this one, or a v4l2-ctl left running by
+    // a pilot that died, CANNOT hold it alongside this capture, and whichever
+    // loses has to say that it lost.
     //
     // NOTHING RE-ENCODES, and nothing here could: there is no ffmpeg, no cv2,
     // no v4l2 binding, no PIL and no numpy on this board. One long-lived
     // v4l2-ctl streams mmap'd buffers into a pipe and this module looks for
-    // frame boundaries - status_server.py's proven path, for its reasons - so
+    // frame boundaries - the path the old dashboard's capture proved first - so
     // the JPEGs the sensor produced are the JPEGs the viewer renders.
     //
     // AND IT IS CLASS_BULK, which is what makes it safe to add at all: section
@@ -2302,10 +2300,9 @@ namespace viewfeed
         std::printf("viewfeed: %s\n", e.text.c_str());
     }
 
-    // EBUSY IS SAID IN WORDS, AND IT NAMES THE LIKELY HOLDER - which is the
-    // phone dashboard, because that is the only other thing on this board that
-    // opens the device. status_server.py asks the same question in the same
-    // words when its own capture ends early.
+    // EBUSY IS SAID IN WORDS, AND IT NAMES THE LIKELY HOLDER - a second pilot,
+    // or a capture a dead one left behind, because nothing else on this board
+    // opens the device.
     [[nodiscard]] Str cameraWhy(const Str& diag, Int32 status)
     {
         // THE REAL EBUSY SIGNATURE, MEASURED ON THIS BOARD RATHER THAN ASSUMED.
@@ -2328,12 +2325,12 @@ namespace viewfeed
         }
         if(code > 0 || diag.find("busy") != Str::npos || diag.find("Busy") != Str::npos)
         {
-            // status_server.py's sentence for exactly this, with the likely
-            // holder named: the phone dashboard is the only other thing on this
-            // board that opens the device, and /dev/video0 is single-opener.
+            // The likely holders named: a second pilot, or the v4l2-ctl a
+            // killed one could not take with it (a child outlives its parent),
+            // are the only other things on this board that open the device,
+            // and /dev/video0 is single-opener.
             return "camera stream ended - is something else holding " + camCfg.dev
-                 + "? the phone dashboard opens the same device and parks it 5 s after "
-                   "nobody is watching";
+                 + "? a second pilot, or a v4l2-ctl left running by one that died";
         }
         if(!diag.empty())
         {
@@ -2380,7 +2377,7 @@ namespace viewfeed
     // AND IT IS REAPED. A killed child is not a gone child: it holds a
     // process-table slot until its parent waits on it, and this parent is a
     // long-lived service that starts a capture every time somebody subscribes.
-    // status_server.py's kill() carries the same one-line fix, because the
+    // The old dashboard's kill() carried the same one-line fix, because the
     // failure it prevents - a board that cannot fork, including the child sshd
     // needs to answer a connection - locks you out of the machine.
     [[nodiscard]] Int32 killCamera()
@@ -2439,7 +2436,6 @@ namespace viewfeed
         // lower rate with --set-parm may simply ignore the request and leave
         // the rate unchanged, and nothing in the picture would say so. Dropping
         // on this side cannot fail silently: what is not sent is not sent.
-        // status_server.py caps in the same place for the same reason.
         // THE RATE THE SUBSCRIBERS ASKED FOR, and this board's own default only
         // when nobody asked. The viewer is the end that knows whether it is on
         // a LAN or a phone hotspot; this end knows only that it has a camera
@@ -2518,9 +2514,9 @@ namespace viewfeed
             // MONOTONIC, and never rewound across a capture restart. A viewer
             // that sees the number JUMP has missed frames and can say so; one
             // that sees it go backwards is being shown pictures it already has,
-            // labelled as new. status_server.py documents the same hazard from
-            // the other side - a sequence that did not rewind while the frame
-            // behind it did.
+            // labelled as new. The old dashboard's capture met the same hazard
+            // from the other side - a sequence that did not rewind while the
+            // frame behind it did.
             ++cam.frameIndex;
             cam.said = false;
         }
@@ -2769,8 +2765,8 @@ namespace viewfeed
     }
 
     // Opened while at least one viewer subscribes to CAMERA, released when the
-    // last one stops. The same bargain the lidar and the dashboard already
-    // keep, and the reason an unwatched camera costs the board nothing: no
+    // last one stops. The same bargain scanfeed already keeps with the lidar,
+    // and the reason an unwatched camera costs the board nothing: no
     // process, no pipes, no buffers, and the device handed straight back to
     // whoever wants it next.
     Void tendCamera(Vec<Client>& clients)
@@ -2877,7 +2873,7 @@ namespace viewfeed
             haveBoard = true;
             // 5 Hz on the wire from a pilot that fills the struct every tick.
             // The RATE is this module's business; the CONTENT is one struct the
-            // pilot filled once, which is what keeps the phone and the viewer
+            // pilot filled once, which is what keeps the console and the viewer
             // from disagreeing about what the car thinks.
             if(boardSent && elapsedMs(lastBoardAt) < static_cast<Float64>(BOARD_EVERY_MS))
             {
@@ -3606,8 +3602,8 @@ namespace viewfeed
       worker.join();
       // Nothing may outlive this call holding the camera open. The capture is a
       // CHILD PROCESS, so it survives its parent unless something says
-      // otherwise, and a v4l2-ctl still on /dev/video0 is exactly why the phone
-      // dashboard would find the device busy after the pilot exited. Safe here
+      // otherwise, and a v4l2-ctl still on /dev/video0 is exactly why the next
+      // pilot would find the device busy after this one exited. Safe here
       // because the thread that owns `cam` has been joined.
       closeCamera("the feed is stopping");
       running = false;

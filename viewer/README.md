@@ -130,7 +130,7 @@ dimensions change rather than every frame.
 - **It says why there is no picture**: not connected, handshaking, not
   subscribed yet, subscribed with nothing yet arrived, or too old — and any
   `EVENT` the board sent mentioning the camera is shown **verbatim** beside
-  it, so "the phone dashboard has the camera" reaches the person instead of an
+  it, so "a second pilot has the camera" reaches the person instead of an
   empty rectangle.
 - **Gaps are counted, never smoothed** — `frameIndex` is monotonic, so the
   window reports `frames 91-94 missing` rather than showing the next picture

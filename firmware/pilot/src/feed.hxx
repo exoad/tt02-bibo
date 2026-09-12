@@ -6,8 +6,8 @@
 //
 // The half of tools/scanfeed.cxx that has nothing to do with a lidar, lifted
 // out so two programs can serve one wire. scanfeed owns the C1 for whoever
-// connects; the pilot owns it outright while it drives, and the hub and the
-// board's own dashboard want to watch the car see. Both formats lines with
+// connects; the pilot owns it outright while it drives, and the hub, or `nc`
+// from a phone, wants to watch the car see. Both formats lines with
 // scanwire.hxx and hands them here; this file moves them and never looks at
 // what they say.
 //

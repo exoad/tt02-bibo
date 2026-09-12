@@ -57,10 +57,8 @@ late tick is a servo that stops being told anything.
                        ESC (or NEUTRAL) to the car; sends anyway after 200 ms
                        without a revolution so the board's 400 ms deadman is
                        never what stops the car. Serves the scan feed while it
-                       drives, and the same lines to /tmp/bibo-scan.txt,
-                       which nothing reads now. `--dry` decides without a Pico;
-                       `--no-feed` drives without viewers. Built only with
-                       the SDK.
+                       drives. `--dry` decides without a Pico; `--no-feed`
+                       drives without viewers. Built only with the SDK.
     tools/lidar_probe  is the lidar there and what does it see. Run it first.
     tools/scanfeed     the lidar's revolutions on TCP 8011 for the hub, under
                        systemd: a lidar-owning loop on top of src/feed.hxx.
@@ -156,9 +154,8 @@ SDK (`make` in `rplidar_sdk`; the library lands in `output/Linux/Release`):
     pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N] [--no-feed]
 
 The lidar is `/dev/ttyUSB0` and the Pico `/dev/ttyACM0` unless told otherwise.
-While it runs the pilot also serves the scan feed on TCP 8011 and writes
-`/tmp/bibo-scan.txt` (which nothing reads now) - see "Seeing the lidar from the
-hub"; `--no-feed` turns both off. When 8011 is already taken (scanfeed idling
+While it runs the pilot also serves the scan feed on TCP 8011 - see "Seeing
+the lidar from the hub"; `--no-feed` turns it off. When 8011 is already taken (scanfeed idling
 under systemd) the feed moves to 8012 and the log says so; scanfeed relays
 viewers there, so nothing on the laptop changes. A feed that can bind neither
 is said once and the pilot drives without viewers rather than refusing to
@@ -219,9 +216,7 @@ state, `MOTOR 1`, and the log says "viewer asked for the motor; the pilot keeps
 it while driving" once per client. Measured on the Pi on 2026-09-07, serving
 two clients cost the tick under a millisecond and left its ~100 ms dt where it
 was; a viewer that stalls is dropped by the feed's thread, not waited for by
-the car. The same `F` and `D` text goes to `/tmp/bibo-scan.txt` each tick,
-rewritten whole through a rename, though nothing reads it now; `--no-feed`
-turns the feed and the file off together, and the file is removed at exit.
+the car. `--no-feed` turns the feed off.
 
 **One address, always answered: 8011 is scanfeed's, and it hands over.**
 Slamtec's SDK holds the serial port, so only one program can have the lidar.

@@ -12,7 +12,7 @@
 // viewer cannot disagree about a field's offset while both still compile.
 //
 // It is shaped on feed.cxx and is deliberately SEPARATE from it. feed.cxx
-// moves LINES for the phone dashboard and the hub on scanwire::PORT, and it
+// moves LINES for the hub on scanwire::PORT, and it
 // must keep doing exactly that - the text feed is the field-debugging story
 // (docs/bibowire.md section 8) and deleting it to save a socket would trade a
 // thing a person can read from a phone for one they cannot.
@@ -213,9 +213,9 @@ namespace viewfeed
   // existed. CAMERA is the one type excluded from that default: bit 16
   // (`tag - 0x10`, tag 0x20), set by SUBSCRIBE, or no pictures.
   //
-  // THE DEVICE IS SINGLE-OPENER, and the phone dashboard
-  // (tools/status/status_server.py) opens the same one, so the two can never
-  // both hold it. When the capture cannot start or produces nothing, the
+  // THE DEVICE IS SINGLE-OPENER, so a second pilot, or a v4l2-ctl left running
+  // by one that died, can never hold it alongside this one. When the capture
+  // cannot start or produces nothing, the
   // subscribers are told in an EVENT that names the likely holder rather than
   // being left with a blank panel - an absence with a reason.
   //
@@ -224,8 +224,8 @@ namespace viewfeed
   // picture, never the car's picture of the world.
   //
   // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS override the device, the
-  // requested format and the rate cap, read once per start(). They are the same
-  // names status_server.py reads. The default rate is deliberately low - see
+  // requested format and the rate cap, read once per start(). The default rate
+  // is deliberately low - see
   // CAM_FPS_DEFAULT in viewfeed.cxx for the measured numbers behind it.
 
   // The newest CONTROL the holder has sent, or false when there is none. Reads

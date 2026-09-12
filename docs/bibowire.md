@@ -14,8 +14,8 @@ Where the judges disagreed, one sentence each:
 
 | Disagreement | Decision | Why |
 |---|---|---|
-| Text (J2) vs binary (J1, J3) | **Binary** | The pilot must keep formatting the `F` text line every tick for the dashboard regardless (`app/main.cxx:804-809`), so the human-readable path survives on 8011 for free — which was the only thing a text viewer wire was buying. |
-| UDP-only (J1) vs TCP+UDP (J3) | **Both, control on UDP** | J1's real complaint — a stall's backlog of stale steering delivered in order — is a property of the *control* channel only, and `feed.cxx` cannot be deleted anyway (the dashboard is a feed client and `scanfeed.cxx:236` relays through the pilot's own feed port). |
+| Text (J2) vs binary (J1, J3) | **Binary** | The pilot must keep formatting the `F` text line every tick for the dashboard regardless (`app/main.cxx:804-809`), so the human-readable path survives on 8011 for free — which was the only thing a text viewer wire was buying. (The dashboard has since been removed; the `F` line is still formatted every tick for the text feed.) |
+| UDP-only (J1) vs TCP+UDP (J3) | **Both, control on UDP** | J1's real complaint — a stall's backlog of stale steering delivered in order — is a property of the *control* channel only, and `feed.cxx` cannot be deleted anyway (the dashboard is a feed client and `scanfeed.cxx:236` relays through the pilot's own feed port; the dashboard has since been removed, the hub and the relay remain). |
 | `CONTROL_DEAD_MS` = 400 (D2) vs 300 (D4) | **300** | J2 is right that this repo's rule is that the Pi's stop *comfortably beats* the Pico's, the way `REV_WAIT_MS = 200` is deliberately half of `DEADMAN_MS 400u`; two 400s racing means the winner is the one that reports nothing to anybody. |
 | Camera on this link (D2/D3) vs relocated to HTTP (D1) | **On this link, as `CLASS_BULK`** | Relocating it means the system's largest stream gets no version handshake, no session id and no shared module — the one rule this protocol exists to keep. |
 | CRC32C exempted for large payloads (D2's own weakness) | **No exemption, ever** | 40 KB at 30 fps is 1.2 MB/s, which at the ARMv8 CRC32C instruction's ~8 B/cycle is ~150 K cycles/s — 0.006 % of one core, so the special case D2 feared is not worth its own branch. |
@@ -366,7 +366,7 @@ len <= 104, frame <= 120 bytes
 
 `encodeAvgNs`/`encodeMaxNs` and `loopWorstUs`/`loopLateCount` are the cost claim of §9 made readable off the running system. A performance claim nobody can read off the running system is the same species of bug as a test that measures nothing.
 
-**One obligation on the pilot:** the dashboard's JSON (`/tmp/bibo-pilot.json`, `app/main.cxx:942`) and the `BOARD` frame must be filled from the **same struct in the same tick**, so the phone and the viewer can never disagree about what the car thinks.
+**One obligation on the pilot:** the dashboard's JSON (`/tmp/bibo-pilot.json`, `app/main.cxx:942`) and the `BOARD` frame must be filled from the **same struct in the same tick**, so the phone and the viewer can never disagree about what the car thinks. (The dashboard and its JSON have since been removed; the same rule now binds the pilot's once-a-second console line and the `BOARD` frame, both read from `Snapshot` in `app/main.cxx`.)
 
 ### `LIDAR_INFO` — 0x13, board→viewer, TCP, on connect and on change
 
@@ -687,7 +687,7 @@ No clock inside it, no socket, no Pico — the shape `reactive::step` already us
 
 ### Downstream of the board
 
-Control becomes the existing text over `carlink`: `proto::steer(fraction)` (never `snprintf("%f")`) and `proto::escUs(us)` or `proto::stop()`. bibowire does not reinvent the Pico's protocol and **never lets a viewer address the Pico directly** — the board is the only owner of that port, which is what keeps the pilot and a manual driver from both holding the stick, and it is why `status_server.py`'s manual control already refuses to open the port while the pilot is running.
+Control becomes the existing text over `carlink`: `proto::steer(fraction)` (never `snprintf("%f")`) and `proto::escUs(us)` or `proto::stop()`. bibowire does not reinvent the Pico's protocol and **never lets a viewer address the Pico directly** — the board is the only owner of that port, which is what keeps the pilot and a manual driver from both holding the stick, and it is why `status_server.py`'s manual control (since removed) already refused to open the port while the pilot was running.
 
 ### A known hole this protocol does not fix
 
@@ -731,7 +731,7 @@ Covered three times over, none of them relying on TCP noticing: `SO_KEEPALIVE` a
 
 ### Reconnect
 
-Viewer backoff **250 ms, 500 ms, 1 s, 2 s, 4 s, then 4 s forever, each with ±20 % jitter**, never giving up. Jitter because the viewer and the phone dashboard come back at the same instant when the hotspot returns, and two clients synchronised on the same schedule hammer the board in lockstep. Never giving up because outdoors the link comes back when the phone stops moving, and a viewer that stopped trying makes that recovery a manual step in a field.
+Viewer backoff **250 ms, 500 ms, 1 s, 2 s, 4 s, then 4 s forever, each with ±20 % jitter**, never giving up. Jitter because every client on the hotspot (then the viewer and the phone dashboard, since removed) comes back at the same instant when it returns, and two clients synchronised on the same schedule hammer the board in lockstep. Never giving up because outdoors the link comes back when the phone stops moving, and a viewer that stopped trying makes that recovery a manual step in a field.
 
 On reconnect the **full handshake runs again** and a **new `sessionId`** is issued. Nothing is resumed; there is no session-resumption path in this protocol at all, and that is the point — the only state worth resuming is the live picture, which is worthless by the time the link is back. Stale datagrams from the previous session are rejected by `sessionId` and counted.
 
@@ -896,7 +896,7 @@ At 221 kbit/s the link is not the constraint; the seconds-long stalls are, and n
 
 ### CPU on the Pi
 
-The budget to beat is stated: the HTTP dashboard costs about **1.4 %** of one core with one viewer, and the control loop must not miss its 20 ms deadline.
+The budget to beat is stated: the HTTP dashboard (since removed) cost about **1.4 %** of one core with one viewer, and the control loop must not miss its 20 ms deadline.
 
 **Per revolution:**
 
@@ -911,7 +911,7 @@ The budget to beat is stated: the HTTP dashboard costs about **1.4 %** of one co
 
 **Total: well under 0.1 % of one core, and the dominant term is the kernel's socket path rather than anything this protocol does.** Roughly a fifteenth of the dashboard's cost.
 
-**The honest correction to the usual binary argument.** It is *not* true that binary framing deletes 15,000 integer-to-ASCII conversions per second from this board. `app/main.cxx:804-809` formats the `F` line and writes it to `SCAN_FILE` every tick for the phone dashboard, which is out of scope and not changing, so **those conversions are a sunk cost that stays**. (The dashboard has since been removed; the pilot still writes the file.) bibowire's encode is **additive**: about 35 µs/s on top. It is worth paying because it halves the bytes in flight during a stall, it moves the *parse* to the laptop, and it makes the frame structure something a bounded decoder can reject in four rules — not because it deletes work the board was doing.
+**The honest correction to the usual binary argument.** It is *not* true that binary framing deletes 15,000 integer-to-ASCII conversions per second from this board. `app/main.cxx:804-809` formats the `F` line and writes it to `SCAN_FILE` every tick for the phone dashboard, which is out of scope and not changing, so **those conversions are a sunk cost that stays**. (The dashboard and `SCAN_FILE` have since been removed; the pilot still formats the `F` line every tick for the text feed on 8011, so the conversions still stay.) bibowire's encode is **additive**: about 35 µs/s on top. It is worth paying because it halves the bytes in flight during a stall, it moves the *parse* to the laptop, and it makes the frame structure something a bounded decoder can reject in four rules — not because it deletes work the board was doing.
 
 **And the cost is measured, not asserted.** `BOARD.loopWorstUs` and `loopLateCount` carry the worst control-tick duration and the running count of missed deadlines; `BOARD.encodeAvgNs`/`encodeMaxNs` carry what serving this viewer cost per frame; the pilot's existing exit summary (`viewer cost per tick avg %.0f us, max %.0f us`, `app/main.cxx:1000`) is extended to cover bibowire; and `biboctl bench` encodes and decodes 10,000 synthetic revolutions on the board itself and prints nanoseconds per frame, so a codec regression is a number someone can produce in the field.
 
@@ -957,7 +957,7 @@ Concretely:
 | file | what |
 |---|---|
 | `firmware/pilot/src/bibowire.hxx` / `.cxx` | **the shared module.** Pure: no sockets, no clock, no device. Added to `pilotlib`'s source list. Compiled into the pilot **and** the viewer, so the two cannot drift — the rule `scanwire.cxx` and `reactive.cxx` already follow. |
-| `firmware/pilot/src/viewfeed.hxx` / `.cxx` | the board's socket half: TCP server, UDP socket, per-client rings, drop classes, frame-header ring. New code, ~700 lines, shaped on `feed.cxx` but separate from it — `feed.cxx` moves **lines** for the dashboard and must keep doing exactly that. |
+| `firmware/pilot/src/viewfeed.hxx` / `.cxx` | the board's socket half: TCP server, UDP socket, per-client rings, drop classes, frame-header ring. New code, ~700 lines, shaped on `feed.cxx` but separate from it — `feed.cxx` moves **lines** for the dashboard and must keep doing exactly that (the dashboard has since been removed; the hub and `nc` still read those lines). |
 | `firmware/pilot/tools/biboctl.cxx` | the field tool (§8). Links `pilotlib`. |
 | `firmware/pilot/tests/test_bibowire.cxx` | the pure suite. **In `verify.bat`.** |
 | `firmware/pilot/tests/build_bibowire_test.bat` | copied from `build_scanwire_test.bat`, one source path changed. |

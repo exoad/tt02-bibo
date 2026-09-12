@@ -717,7 +717,7 @@ namespace camview
           ImGui::TextWrapped("%s", whyNothing(lk, snap, nowMs).c_str());
 
           // The board's own sentence, verbatim. It is the difference between
-          // an empty rectangle and "the phone dashboard has the camera".
+          // an empty rectangle and "a second pilot has the camera".
           if(snap.state.haveCameraNote)
           {
               ImGui::Separator();
