@@ -422,6 +422,13 @@ namespace
       Int32 armed = -1;
       Int32 escUs = -1;
       Int32 steerNowMilli = 0;
+
+      // Whether the steering pin is being DRIVEN at all (servo_on=) and the
+      // pulse actually on it (servo=). The console line says both, because a
+      // released servo answers every STEER with OK and moves nothing - which is
+      // exactly how this program steered nothing for its whole life.
+      Int32 servoOn = -1;
+      Int32 servoUs = -1;
   };
 
   // What this program knows about the link that the transport does not.
@@ -486,6 +493,16 @@ namespace
                   if(proto::fieldInt(reply.rest, "steer_now=", v))
                   {
                       tally.steerNowMilli = v;
+                  }
+                  // "servo=" occurs once in printDrive's line: servo_t=,
+                  // servo_on=, servo_c=, servo_min= and servo_max= do not contain it.
+                  if(proto::fieldInt(reply.rest, "servo_on=", v))
+                  {
+                      tally.servoOn = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "servo=", v))
+                  {
+                      tally.servoUs = v;
                   }
               }
               break;
@@ -1350,6 +1367,16 @@ Int32 main(Int32 argc, Char** argv)
         Str steerLine;
         Str escLine;
 
+        // SERVO ON or SERVO OFF, on an arm edge only, and sent BEFORE the STEER.
+        // The Pico boots with the steering RELEASED - no pulse at all, chassis.hxx
+        // rule 1 - and its STEER only moves a target: "has no effect on a
+        // released steering pin; call engage(true) first". Nothing in this
+        // program ever engaged it, so every STEER it ever sent was answered OK
+        // and moved nothing. Found 2026-09-12 with a viewer arming, the pilot
+        // logging "manual live armed steer +1.00 err 0", and the servo not
+        // moving at all.
+        Str servoLine;
+
         // WHAT WAS ACTUALLY COMMANDED, for the once-a-second line below.
         //
         // That line printed out.steer and out.throttle whatever the mode, and in
@@ -1396,6 +1423,18 @@ Int32 main(Int32 argc, Char** argv)
             // broken throttle to anybody watching the car instead of the wire.
             modeWord += replies.armed > 0 ? " armed" : " disarmed";
 
+            // And whether the steering is live, from the same reply. "armed"
+            // alone read as a car that could steer, and for as long as nothing
+            // sent SERVO ON it was a car that could not.
+            if(replies.servoOn > 0)
+            {
+                modeWord += " steering on " + std::to_string(replies.servoUs) + "us";
+            }
+            else
+            {
+                modeWord += " steering off";
+            }
+
             if(dm.estopLatched || dm.deadman >= 2u)
             {
                 // ESTOP or DEAD. Section 6's stop - neutral, disarm, release -
@@ -1432,6 +1471,11 @@ Int32 main(Int32 argc, Char** argv)
                 heldSteerMilli = 0;
                 steerLine = proto::steer(0.0f);
                 escLine = armSent ? proto::command("ESC", "DISARM") : proto::command("ESC", "NEUTRAL");
+                if(armSent)
+                {
+                    // And the steering goes limp with the arm, as STOP would do.
+                    servoLine = proto::command("SERVO", "OFF");
+                }
                 armSent = false;
                 sentSteerMilli = 0;
                 sentThrottleMilli = 0;
@@ -1463,6 +1507,13 @@ Int32 main(Int32 argc, Char** argv)
                     // tick, 20 ms later. mayPush is false on an edge tick either
                     // way, because it was computed from armSent's old value.
                     escLine = proto::command("ESC", dm.armed ? "ARM" : "DISARM");
+                    // THE STEERING IS ENGAGED BY THE SAME ACT that arms the
+                    // throttle, and released with it. A viewer's ARM is the one
+                    // deliberate "I am driving now" this protocol has, and a
+                    // servo that holds torque for somebody who has not said that
+                    // is what rule 1 exists to prevent. Engaging writes the car's
+                    // measured centre first, so the wheels do not jump.
+                    servoLine = proto::command("SERVO", dm.armed ? "ON" : "OFF");
                     armSent = dm.armed;
                 }
                 else
@@ -1499,6 +1550,11 @@ Int32 main(Int32 argc, Char** argv)
             // was just released. An empty line written to the port would be a
             // bare newline the Pico's parser has to classify, so it is skipped
             // rather than sent.
+            // SERVO first: a STEER sent before the pin is engaged moves nothing.
+            if(!servoLine.empty())
+            {
+                sendLine(servoLine, link);
+            }
             if(!steerLine.empty())
             {
                 sendLine(steerLine, link);
