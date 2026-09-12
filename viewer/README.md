@@ -150,7 +150,8 @@ WASD goes out as `CONTROL` at 20 Hz and the deliberate acts - **ARM**,
 `CMDACK` whose sentence is shown.
 
 - **Connecting never arms the car.** Let the stream run for half a second, then
-  press **ARM**. The board refuses it, and says which reason, while the estop is
+  press **ARM**. ARM also engages the steering servo: until then A and D move
+  nothing, because the Pico boots with the steering released. The board refuses it, and says which reason, while the estop is
   latched, while the Pico is not answering, when the pilot is not in manual, or
   when the ARM carries a stale arm epoch.
 - **Anything that moves the arm epoch disarms**: an estop, the deadman tripping

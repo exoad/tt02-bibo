@@ -309,7 +309,9 @@ namespace driveview
             ImGui::SetTooltip(
                 "refused unless the estop is clear, the Pico is answering,\n"
                 "and a CONTROL stream from this viewer has been live for\n"
-                "500 ms - so hold the slot and let the stream run first"
+                "500 ms - so hold the slot and let the stream run first\n\n"
+                "ARM also engages the steering servo. Until it is pressed,\n"
+                "A and D move nothing; DISARM lets the steering go limp."
             );
         }
 
@@ -646,6 +648,9 @@ namespace driveview
 
       // ---- the mode this viewer ASSERTS -------------------------------------
 
+      // Measured BEFORE the combo, while the cursor is still at the start of
+      // the row - see the button below for what it decides.
+      const Float32 rowWidth = ImGui::GetContentRegionAvail().x;
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       const Int32 modeCount = static_cast<Int32>(MODE_NAMES.size());
       ImGui::Combo("I am driving in", &v.assumedMode, MODE_NAMES.data(), modeCount);
@@ -661,7 +666,17 @@ namespace driveview
           );
       }
 
-      ImGui::SameLine();
+      // BESIDE THE COMBO ONLY WHEN IT FITS. A plain SameLine put the button
+      // after the combo's label, "I am driving in", and at the window's default
+      // width that ran past the right edge and cut the button off - a control
+      // you cannot read is a control that is not there. The combo's item rect
+      // includes its label, so the arithmetic is the whole row as drawn.
+      const ImGuiStyle& style = ImGui::GetStyle();
+      const Float32 askWidth = ImGui::CalcTextSize("ask the board").x + (style.FramePadding.x * 2.0f);
+      if(ImGui::GetItemRectSize().x + style.ItemSpacing.x + askWidth <= rowWidth)
+      {
+          ImGui::SameLine();
+      }
       if(ImGui::Button("ask the board"))
       {
           // SET_MODE is a COMMAND, answered by a CMDACK, and it is refused while
