@@ -10,6 +10,7 @@
 #include "imgui.h"
 
 #include "trim.hxx"
+#include "vlog.hxx"
 
 namespace trimview
 {
@@ -138,45 +139,28 @@ namespace trimview
         ++v.sent;
     }
 
-    // ---- clamping -----------------------------------------------------------
-    //
-    // Ctrl+click on an ImGui slider is a TEXT BOX, so the slider's own range is
-    // not a guarantee about the value behind it. Everything is re-clamped here
-    // before it can be sent, which also keeps min below max - a pair the widgets
-    // cannot enforce between them because each only knows its own number.
-
-    [[nodiscard]] Int32 clampTo(Int32 value, Int32 lo, Int32 hi)
+    // THE WHOLE SET, in the order the board needs it: limits before the centre
+    // that must sit inside them. Settled first, so what goes out is exactly what
+    // the sliders show and what settings.cxx saves. clampTo, settleSteer and
+    // settleEsc live in trim.hxx now - see the note there.
+    Void sendAll(View& v, link::Client& lk)
     {
-        if(value < lo)
-        {
-            return lo;
-        }
-        if(value > hi)
-        {
-            return hi;
-        }
-        return value;
-    }
-
-    Void settleSteer(View& v)
-    {
-        const Int32 hardLo = static_cast<Int32>(bibowire::SERVO_US_HARD_MIN);
-        const Int32 hardHi = static_cast<Int32>(bibowire::SERVO_US_HARD_MAX);
-        v.steerMinUs = clampTo(v.steerMinUs, hardLo, hardHi - 1);
-        v.steerMaxUs = clampTo(v.steerMaxUs, v.steerMinUs + 1, hardHi);
-        // THE CENTRE IS BOUNDED BY THE ENDS, not by the servo's range. A trim
-        // outside the limits is a neutral the car can never reach, and cal.hxx is
-        // explicit that 1500 has nothing to say about where a TT-02's wheels
-        // point straight - so the ends are the only meaningful bound here.
-        v.steerTrimUs = clampTo(v.steerTrimUs, v.steerMinUs, v.steerMaxUs);
-    }
-
-    Void settleEsc(View& v)
-    {
-        const Int32 hardLo = static_cast<Int32>(bibowire::ESC_US_HARD_MIN);
-        const Int32 hardHi = static_cast<Int32>(bibowire::ESC_US_HARD_MAX);
-        v.escMinUs = clampTo(v.escMinUs, hardLo, hardHi - 1);
-        v.escMaxUs = clampTo(v.escMaxUs, v.escMinUs + 1, hardHi);
+        settleAll(v);
+        vlog::line(
+            "trim: send all to the car - servo %d..%d centre %d, esc %d..%d, slew %d/%d",
+            v.steerMinUs,
+            v.steerMaxUs,
+            v.steerTrimUs,
+            v.escMinUs,
+            v.escMaxUs,
+            v.steerSlewUs,
+            v.throttleSlewUs
+        );
+        sendServoLimits(v, lk);
+        sendServoTrim(v, lk);
+        sendEscLimits(v, lk);
+        sendSlew(v, lk, bibowire::SLEW_AXIS_STEER, v.steerSlewUs);
+        sendSlew(v, lk, bibowire::SLEW_AXIS_THROTTLE, v.throttleSlewUs);
     }
 
     // ---- the derived line, which is the point of the window -----------------
@@ -200,14 +184,7 @@ namespace trimview
         else
         {
             const Str time = centisText(centis);
-            std::snprintf(
-                line.data(),
-                line.size(),
-                "%d us/s - %s %s",
-                perSec,
-                what,
-                time.c_str()
-            );
+            std::snprintf(line.data(), line.size(), "%d us/s - %s %s", perSec, what, time.c_str());
         }
 
         // Indented under the slider it belongs to, so two of these in a column
@@ -290,15 +267,14 @@ namespace trimview
           return;
       }
 
-      // SAID FIRST, BEFORE ANY CONTROL. These values live in the Pico's RAM and
-      // are gone on a reboot or a reflash; cal.hxx is the file that survives. An
-      // operator who tunes for an hour and then power-cycles the car has lost the
-      // afternoon, and finding that out afterwards is far worse than reading one
-      // line now.
+      // SAID FIRST, BEFORE ANY CONTROL: where these values are kept. It used to
+      // say they were lost on the Pico's next reboot, which was true until the
+      // board started saving them - and a warning that has stopped being true
+      // teaches an operator to ignore the line it sits on.
       ImGui::TextWrapped(
-          "These are set in the Pico's RAM and are LOST on reboot or reflash. "
-          "firmware/lib/chassis/cal.hxx is the file that survives - copy anything "
-          "worth keeping into it."
+          "The board saves every change it accepts on the Pi and re-sends it to "
+          "the Pico whenever the Pico connects. This laptop saves these sliders "
+          "too - \"send all to the car\" pushes them when the two disagree."
       );
 
       ImGui::Separator();
@@ -468,6 +444,32 @@ namespace trimview
           ImGui::SetTooltip("Response - how fast the ESC may move");
       }
       slewReadout(v.throttleSlewUs, v.escMaxUs - v.escMinUs, "idle to full");
+
+      ImGui::Spacing();
+
+      // INSIDE THE DISABLED BLOCK, like every slider above. Five tuning verbs at
+      // once are five chances to re-tune a live throttle's range, so this obeys
+      // the armed rule exactly as each of them does one at a time.
+      // BLUE-GREY, the Drive window's colour for housekeeping, so a glance
+      // tells it apart from the sliders' grey and from any act that moves the car.
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.36f, 0.54f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.31f, 0.45f, 0.65f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.19f, 0.29f, 0.44f, 1.0f));
+      const Bool sendPressed = ImGui::Button("send all to the car");
+      ImGui::PopStyleColor(3);
+      if(sendPressed)
+      {
+          sendAll(v, lk);
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip(
+              "sends every value above: servo limits, centre, ESC limits,\n"
+              "and both slews - five commands, each answered on its own.\n"
+              "For when this laptop's copy and the car's have drifted,\n"
+              "such as after a change made from another viewer."
+          );
+      }
 
       ImGui::EndDisabled();
 

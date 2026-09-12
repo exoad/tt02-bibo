@@ -38,14 +38,26 @@
 //    disabled rather than accepting keys that go nowhere.
 //
 // ---------------------------------------------------------------------------
-// STEERING IS BANG-BANG, AND THE SMOOTHING IS SOMEBODY ELSE'S JOB
+// STEERING IS HELD, NOT SPRUNG
 //
-// A is -1000, D is +1000, neither or both is 0. There is no ramp here and no
-// proportional feel, because the Pico already has one: `SLEW` limits how fast
-// the servo may move, the Trim pane is where it is tuned, and a second ramp in
-// the viewer would be two filters in series that nobody could tell apart when
-// the steering felt wrong. A key has no travel; pretending it does is inventing
-// data at the one end of this link that has none.
+// It was bang-bang: A was -1000 while it was down and the wheels went back to
+// centre the instant it came up, the way a game steers. Driven for real, that
+// was the complaint - a car taking a long corner needs the wheel to STAY where
+// it was turned, and a sprung key made the operator hold a finger down for the
+// whole arc. So the pane keeps a held steering value: A moves it toward full
+// left, D toward full right, at `steerRateMilliPerS`; releasing both leaves it
+// where it is; C puts it back to centre.
+//
+// TWO RATES IN SERIES, AND THEY ARE SHOWN SIDE BY SIDE. The Pico's `SLEW` still
+// limits how fast the servo may follow, so a steering that feels slow is one of
+// the two. The Drive window prints this pane's held value beside CTLSTATE's
+// steerNowMilli, which is the pair that tells them apart.
+//
+// HELD IS NOT STICKY ACROSS A STOP. Every way this pane stops driving - blocked,
+// enable off, window closed or collapsed, ESTOP - puts the held value back to
+// 0, so the next enable starts straight rather than at whatever angle the last
+// session ended on. Losing keyboard focus is deliberately NOT one of them: the
+// keys read as up, so the value simply stops moving and holds.
 #pragma once
 
 #include "shared.hxx"
@@ -78,7 +90,25 @@ namespace driveview
   constexpr Int32 THROTTLE_CAP_MAX = 1000;
   constexpr Int16 STEER_FULL = 1000;
 
-  // What the keyboard said this frame. A struct rather than five arguments so
+  // ---------------------------------------------------------------------------
+  // HOW FAST A AND D MOVE THE HELD STEERING, in milli of full scale per second
+  //
+  // 1500 is centre to full lock in 667 ms: quick enough that a key tap is a
+  // correction and not a wait, slow enough that a tap is not a swerve. The
+  // slider's ends are these two numbers, and settings.cxx clamps a saved value
+  // to the same pair.
+  constexpr Int32 STEER_RATE_DEFAULT = 1500;
+  constexpr Int32 STEER_RATE_MIN = 250;
+  constexpr Int32 STEER_RATE_MAX = 5000;
+
+  // THE LONGEST FRAME THE RAMP BELIEVES. A window drag, a breakpoint or a
+  // swap-chain resize can stall one frame for seconds, and a ramp that trusted
+  // that dt would jump to full lock on a single frame with a key held. 100 ms is
+  // six ordinary frames: long enough never to matter at 60 Hz, short enough that
+  // a hitch costs at most a tenth of a second of travel.
+  constexpr Int32 STEER_FRAME_MS_MAX = 100;
+
+  // What the keyboard said this frame. A struct rather than six arguments so
   // the pure functions below take one thing and the suite builds cases by name.
   struct Keys
   {
@@ -87,6 +117,7 @@ namespace driveview
       Bool forward = false;   // W
       Bool brake = false;     // S
       Bool estop = false;     // Space
+      Bool centre = false;    // C
   };
 
   // ---- the mapping, pure and inline so the suite can reach it ----------------
@@ -96,9 +127,24 @@ namespace driveview
   // that has to be held to an answer. Defined here, viewer/tests reaches it
   // without linking this module at all.
 
-  // BANG-BANG. Both keys down is 0 and not "the last one wins": a hand resting
-  // on A while reaching for D is the case this is for, and a car that picked
-  // one of them would turn while its operator believed it was straight.
+  [[nodiscard]] inline Int32 clampMilli(Int32 value, Int32 lo, Int32 hi)
+  {
+      if(value < lo)
+      {
+          return lo;
+      }
+      if(value > hi)
+      {
+          return hi;
+      }
+      return value;
+  }
+
+  // WHICH WAY THE KEYS PUSH: full left, full right, or 0 for no push. It is no
+  // longer the steering itself - steerHeldStep moves toward this - but the rule
+  // is unchanged. Both keys down is 0 and not "the last one wins": a hand
+  // resting on A while reaching for D is the case this is for, and a wheel that
+  // picked one of them would turn while its operator believed it was holding.
   [[nodiscard]] inline Int16 steerFrom(const Keys& k)
   {
       if(k.left == k.right)
@@ -106,6 +152,54 @@ namespace driveview
           return 0;
       }
       return k.left ? static_cast<Int16>(-STEER_FULL) : static_cast<Int16>(STEER_FULL);
+  }
+
+  // ONE FRAME OF THE HELD STEERING. `held` is last frame's value, `dtMs` this
+  // frame's length. Pure, so the suite holds every rule below to an answer.
+  //
+  // C BEATS A AND D. Centre is the one key whose answer does not depend on the
+  // others, for S-beats-W's reason: it is pressed while a steering key is still
+  // down, so "both" is exactly the moment it is for.
+  //
+  // NO PUSH HOLDS. Neither key or both keys returns `held` unchanged - that is
+  // the whole feature.
+  //
+  // AT LEAST ONE MILLI while a key is down and time has passed. Integer steps
+  // at a slow rate on a fast frame round to zero (250 /s over 1 ms is 0.25),
+  // and a held key that never moves the wheel is a key that looks broken.
+  [[nodiscard]] inline Int16 steerHeldStep(Int16 held, const Keys& k, Int32 rateMilliPerS, Int32 dtMs)
+  {
+      if(k.centre)
+      {
+          return 0;
+      }
+      const Int32 from = clampMilli(held, -STEER_FULL, STEER_FULL);
+      const Int16 push = steerFrom(k);
+      if(push == 0)
+      {
+          return static_cast<Int16>(from);
+      }
+      const Int32 dt = clampMilli(dtMs, 0, STEER_FRAME_MS_MAX);
+      const Int32 rate = clampMilli(rateMilliPerS, STEER_RATE_MIN, STEER_RATE_MAX);
+      Int32 step = (rate * dt) / 1000;
+      if(step < 1 && dt > 0)
+      {
+          step = 1;
+      }
+      const Int32 to = push > 0 ? from + step : from - step;
+      return static_cast<Int16>(clampMilli(to, -STEER_FULL, STEER_FULL));
+  }
+
+  // Milliseconds from centre to full lock at `rateMilliPerS`, for the readout
+  // under the slider - the number an operator can picture. -1 for a rate that
+  // never arrives.
+  [[nodiscard]] inline Int32 steerLockMs(Int32 rateMilliPerS)
+  {
+      if(rateMilliPerS <= 0)
+      {
+          return -1;
+      }
+      return (static_cast<Int32>(STEER_FULL) * 1000) / rateMilliPerS;
   }
 
   // S BEATS W, ALWAYS. A brake that W can override is not a brake - and W is
@@ -199,13 +293,40 @@ namespace driveview
       // says when they disagree; it never reconciles them.
       Int32 assumedMode = 0;
 
+      // How fast A and D move the held steering. A setting like the cap above,
+      // and saved with it.
+      Int32 steerRateMilliPerS = STEER_RATE_DEFAULT;
+
+      // WHERE THE OPERATOR HAS LEFT THE WHEEL, -1000..+1000. State, not a
+      // setting, and NEVER SAVED: a steering angle remembered across a restart
+      // would be a car that turns the moment somebody ticks enable. drawWindow
+      // zeroes it on every way the pane stops driving.
+      Int16 steerHeldMilli = 0;
+
       // COMMANDs this pane has sent, counted and shown. A verb the board never
       // answered is a fact worth seeing.
       UInt32 sent = 0;
   };
 
+  // The settings fields, clamped to the ranges their widgets use. For
+  // settings.cxx, which loads numbers somebody may have edited by hand.
+  //
+  // THE MODE IS FOLDED, NOT CLAMPED. modeOf's rule: a 9 clamped to the top of
+  // the range would be a saved file asserting DRIVE, and garbage must become
+  // the mode whose sticks the board reads, which is MANUAL.
+  inline Void settle(View& v)
+  {
+      v.throttleCapMilli = clampMilli(v.throttleCapMilli, 0, THROTTLE_CAP_MAX);
+      v.steerRateMilliPerS = clampMilli(v.steerRateMilliPerS, STEER_RATE_MIN, STEER_RATE_MAX);
+      v.assumedMode = static_cast<Int32>(modeOf(v.assumedMode));
+  }
+
   // What the keys and the pane's own settings add up to. Pure, so the suite
   // holds it to an answer without a window or a socket.
+  //
+  // STEERING COMES FROM THE HELD VALUE, NOT FROM THE KEYS. `k` still decides
+  // throttle and ESTOP; the steering was already moved by steerHeldStep before
+  // this is called, so a key that is down this frame is not counted twice.
   [[nodiscard]] inline link::Intent intentFrom(const Keys& k, const View& v)
   {
       link::Intent in;
@@ -214,7 +335,8 @@ namespace driveview
       // again at the wire; it is here as well so that what this pane DISPLAYS
       // and what it sends are the same object rather than two descriptions of
       // one intention.
-      in.steerMilli = v.enabled ? steerFrom(k) : static_cast<Int16>(0);
+      const Int32 held = clampMilli(v.steerHeldMilli, -STEER_FULL, STEER_FULL);
+      in.steerMilli = v.enabled ? static_cast<Int16>(held) : static_cast<Int16>(0);
       in.throttleMilli = v.enabled ? throttleFrom(k, v.throttleCapMilli) : static_cast<Int16>(0);
       // ESTOP IS NOT GATED BY THE ENABLE. The one thing that must work in every
       // state this window can be in is the stop.
