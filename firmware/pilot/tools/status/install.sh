@@ -24,7 +24,12 @@
 #      home Wi-Fi while the phone's hotspot comes up beside it. The timer asks
 #      every 20 s and switches; and the hotspot profile gets a higher
 #      autoconnect priority so a boot with both in the air picks it outright.
-#   6. starts both services now
+#   6. the pilot's unit, enabled at boot: --manual and NOT --arm, so the car
+#      comes up held still and is armed only by a viewer's COMMAND ARM. Before
+#      this the pilot was started by hand and a reboot silently took it away -
+#      and with it WASD, which reads as a broken viewer rather than a board
+#      with nothing listening on 8020
+#   7. starts the services now
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -33,6 +38,27 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SERVICE_USER=jack
 SERVICE_HOME=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
 SCANFEED="$SERVICE_HOME/build-pilot-app/scanfeed"
+PILOT="$SERVICE_HOME/build-pilot-app/pilot"
+
+# THE LIDAR AND THE PICO BY IDENTITY, found here rather than written into the
+# unit: /dev/ttyUSB0 and /dev/ttyACM0 are enumeration order, and the serial
+# numbers in the by-id names belong to this car, not to a public repository.
+# Falls back to the enumeration names, and says so, when a device is unplugged
+# at install time - run this again once it is back.
+LIDAR_DEV=$(ls /dev/serial/by-id/*CP2102N*-port0 2>/dev/null | head -n 1 || true)
+PICO_DEV=$(ls /dev/serial/by-id/*Raspberry_Pi_Pico*-if00 2>/dev/null | head -n 1 || true)
+if [ -z "$LIDAR_DEV" ]; then
+    LIDAR_DEV=/dev/ttyUSB0
+    echo "NOTE: no CP2102N under /dev/serial/by-id - the pilot unit uses $LIDAR_DEV"
+fi
+if [ -z "$PICO_DEV" ]; then
+    PICO_DEV=/dev/ttyACM0
+    echo "NOTE: no Pico under /dev/serial/by-id - the pilot unit uses $PICO_DEV"
+fi
+
+sed "s|ExecStart=.*|ExecStart=$PILOT --manual --lidar $LIDAR_DEV --pico $PICO_DEV|" \
+    "$HERE/bibo-pilot.service" > /etc/systemd/system/bibo-pilot.service
+chmod 644 /etc/systemd/system/bibo-pilot.service
 
 sed "s|ExecStart=.*|ExecStart=$SCANFEED /dev/ttyUSB0|" \
     "$HERE/bibo-scanfeed.service" > /etc/systemd/system/bibo-scanfeed.service
@@ -60,7 +86,7 @@ sed "s|ExecStart=.*|ExecStart=/bin/sh $HERE/prefer-hotspot.sh|" \
 chmod 644 /etc/systemd/system/bibo-prefer-hotspot.service
 install -m 644 "$HERE/bibo-prefer-hotspot.timer" /etc/systemd/system/bibo-prefer-hotspot.timer
 systemctl daemon-reload
-systemctl enable bibo-scanfeed.service > /dev/null 2>&1
+systemctl enable bibo-scanfeed.service bibo-pilot.service > /dev/null 2>&1
 systemctl enable --now bibo-prefer-hotspot.timer > /dev/null 2>&1
 echo "hotspot preference: checking every 20 s ($(systemctl is-active bibo-prefer-hotspot.timer))"
 
@@ -101,6 +127,24 @@ if [ -x "$SCANFEED" ]; then
     echo "scan feed: nc $(hostname).local 8011"
 else
     echo "scan feed NOT started: build it first (see above), then systemctl start bibo-scanfeed"
+fi
+
+# THE PILOT IS RESTARTED, not merely started, so a pull and a rebuild take
+# effect - which means running this while somebody is driving stops the car for
+# the seconds a restart takes. Its shutdown sends STOP to the Pico first.
+#
+# NOT STARTED over a pilot somebody launched by hand. Both want the lidar and the
+# Pico, the unit's copy would lose, and Restart= would retry it every five
+# seconds for as long as the other one ran. That one may be driving the car, so
+# it is named and left alone rather than killed by an installer.
+if [ ! -x "$PILOT" ]; then
+    echo "pilot NOT started: build it first (see above), then systemctl start bibo-pilot"
+elif pgrep -x pilot > /dev/null && ! systemctl is-active --quiet bibo-pilot.service; then
+    echo "pilot NOT started: a pilot launched by hand is running (pid $(pgrep -x pilot | tr '\n' ' '))"
+    echo "  stop it, then: systemctl start bibo-pilot"
+else
+    systemctl restart bibo-pilot.service
+    echo "pilot: $(systemctl is-active bibo-pilot.service) - manual, armed only by a viewer's ARM"
 fi
 
 # mDNS on the LIVE link, only when the hotspot is the live link: resolvectl
