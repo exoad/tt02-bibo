@@ -2062,9 +2062,12 @@ Int32 main()
             check(readCommand(w.frame.body, 1, &back), "and reads back");
             check(back.arg1 == ESC_US_HARD_MIN, "the throttle's min us survives in arg1");
             check(back.arg2 == ESC_US_HARD_MAX, "and its max us in arg2");
+            // Widened to the whole RC range on 2026-09-12. Forward-only moved out
+            // of this bound and into the pilot's W mapping, which never goes
+            // below neutral - so this pins the range, and says where the floor is.
             check(
-                ESC_US_HARD_MIN == 1500,
-                "and the forward-only floor is still 1500 - reverse is not reached from a slider"
+                ESC_US_HARD_MIN == 1000 && ESC_US_HARD_MAX == 2000,
+                "and the ESC range is the whole RC pulse range - W's neutral floor is the pilot's"
             );
         }
         {

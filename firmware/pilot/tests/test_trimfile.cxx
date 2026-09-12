@@ -64,11 +64,12 @@ static Void testRemember()
 
     std::printf("\n-- which lines are refused --\n");
     trimfile::Store r;
-    check(!trimfile::remember(r, "SERVOTRIM 900"), "a centre below the servo's hard range");
+    check(!trimfile::remember(r, "SERVOTRIM 400"), "a centre below the servo's hard range");
     check(!trimfile::remember(r, "SERVOTRIM 1480x"), "a number with a tail on it");
     check(!trimfile::remember(r, "SERVOLIMITS 1660 1230"), "servo limits in the wrong order");
-    check(!trimfile::remember(r, "ESCLIMITS 1500 1800"), "an ESC limit past the hard maximum");
-    check(!trimfile::remember(r, "ESCLIMITS 1450 1600"), "and one into reverse");
+    check(!trimfile::remember(r, "ESCLIMITS 1500 2100"), "an ESC limit past the hard maximum");
+    check(!trimfile::remember(r, "ESCLIMITS 900 1600"), "and one below the hard minimum");
+    check(!trimfile::remember(r, "SERVOLIMITS 400 1600"), "and a servo limit below its hard minimum");
     check(!trimfile::remember(r, "SLEW 0"), "a slew of zero");
     check(!trimfile::remember(r, "SLEW SIDEWAYS 10"), "a slew for no axis the Pico has");
     check(!trimfile::remember(r, "STEER 0.500"), "a motion command, which is not trim");
