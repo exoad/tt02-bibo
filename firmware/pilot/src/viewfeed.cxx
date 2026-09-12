@@ -13,6 +13,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -249,6 +250,22 @@ namespace viewfeed
         UInt64 camHeld = 0;
         Bool camHoldSaid = false;
 
+        // ---- the link log's window, reset every line - see logLink ----
+        TimePoint linkLogAt;
+        TimePoint lastRxAt;
+        Float64 winRxGapMs = 0.0;     // longest wait between two reads that got bytes
+        UInt64 winRxBytes = 0;
+        UInt64 winTxBytes = 0;        // what send() TOOK, not what was queued
+        UInt32 winSends = 0;
+        UInt32 winEagain = 0;
+        UInt32 winPing = 0;
+        UInt32 winPong = 0;
+        UInt32 winPongMatched = 0;    // answered the PING outstanding; the rest were stale
+        UInt32 winControl = 0;        // every CONTROL, either transport
+        UInt32 winControlTcp = 0;
+        UInt32 winCommand = 0;
+        Int64 lastRttMs = -1;
+
         TimePoint lastCtlAt;
 
         Str dropWhy;
@@ -340,6 +357,14 @@ namespace viewfeed
     Bool running = false;
     Thread worker;
     TimePoint startedAt;
+
+    // The link log - see logLink. On unless BIBO_LINK_LOG=0, and the loop's
+    // longest pass is kept per one-second window so a stall on THIS side shows
+    // up in the same line as a stall on the path.
+    Bool linkLog = true;
+    TimePoint loopWindowAt;
+    Float64 loopWorstMs = 0.0;
+    Float64 loopWorstShown = 0.0;
 
     // The board's own state, owned by this thread.
     UInt32 armEpoch = 0;
@@ -939,6 +964,8 @@ namespace viewfeed
             if(n > 0)
             {
                 c.sentOfHead += static_cast<Size>(n);
+                c.winTxBytes += static_cast<UInt64>(n);
+                ++c.winSends;
                 if(c.sentOfHead >= q.bytes.size())
                 {
                     // Cleared only now, because only now has the viewer been
@@ -959,6 +986,7 @@ namespace viewfeed
             }
             if(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
             {
+                ++c.winEagain;
                 break;
             }
             c.dropWhy = n == 0 ? Str("closed") : Str(std::strerror(errno));
@@ -1650,6 +1678,24 @@ namespace viewfeed
             ack.text = "this board does not act on that verb yet";
         }
         ack.armEpoch = static_cast<UInt8>(armEpoch);
+        if(linkLog)
+        {
+            // EVERY COMMAND AND ITS ANSWER. A refusal the operator only saw as a
+            // coloured line in a window is otherwise gone the moment they close it.
+            std::printf(
+                "viewfeed: cmd %s id=%u verb=%u args=%u,%u,%u epoch=%u -> result=%u epoch=%u \"%s\"\n",
+                c.peer.c_str(),
+                static_cast<unsigned>(cmd.cmdId),
+                static_cast<unsigned>(cmd.verb),
+                static_cast<unsigned>(cmd.arg0),
+                static_cast<unsigned>(cmd.arg1),
+                static_cast<unsigned>(cmd.arg2),
+                static_cast<unsigned>(cmd.armEpoch),
+                static_cast<unsigned>(ack.result),
+                static_cast<unsigned>(ack.armEpoch),
+                ack.text.c_str()
+            );
+        }
         emit(c, bibowire::Type::TYPE_CMDACK, [&ack](UInt8* out, Size cap) {
             return bibowire::writeCmdAck(ack, out, cap);
         });
@@ -1658,6 +1704,23 @@ namespace viewfeed
     Void onFrame(Client& c, const bibowire::Frame& f, Vec<Client>& clients)
     {
         note(Dir::DIR_IN, f.head, f.body.len, NOTE_OK);
+        switch(f.head.type)
+        {
+        case bibowire::Type::TYPE_PING:
+            ++c.winPing;
+            break;
+        case bibowire::Type::TYPE_PONG:
+            ++c.winPong;
+            break;
+        case bibowire::Type::TYPE_CONTROL:
+            ++c.winControlTcp;
+            break;
+        case bibowire::Type::TYPE_COMMAND:
+            ++c.winCommand;
+            break;
+        default:
+            break;
+        }
 
         // Nothing but HELLO is read from a socket that has not been welcomed.
         if(c.stage == Stage::STAGE_WAIT_HELLO && f.head.type != bibowire::Type::TYPE_HELLO)
@@ -1720,6 +1783,8 @@ namespace viewfeed
             {
                 // This is also what lets a held camera resume - see the camera
                 // send loop's CAM_HOLD_PONG_MS.
+                c.lastRttMs = static_cast<Int64>(elapsedMs(c.pingSentAt));
+                ++c.winPongMatched;
                 c.pingOut = false;
             }
             break;
@@ -1937,6 +2002,15 @@ namespace viewfeed
             return;
         }
         c.inLen += static_cast<Size>(n);
+        c.winRxBytes += static_cast<UInt64>(n);
+        // The first read has nothing to be a gap FROM - an unset TimePoint is
+        // the clock's epoch, and the line would report a wait of days.
+        const Float64 gap = c.lastRxAt == TimePoint() ? 0.0 : elapsedMs(c.lastRxAt);
+        if(gap > c.winRxGapMs)
+        {
+            c.winRxGapMs = gap;
+        }
+        c.lastRxAt = monoNow();
         consume(c, clients);
     }
 
@@ -1949,6 +2023,7 @@ namespace viewfeed
             ++sh.tally.rxControl;
         }
         ++c.datagrams;
+        ++c.winControl;
 
         bibowire::control::Gate g;
         g.sessionId = c.sessionId;
@@ -3322,6 +3397,105 @@ namespace viewfeed
         std::printf("viewfeed: %s\n", text.data());
     }
 
+    // ---- the link log ------------------------------------------------------
+    //
+    // ONE LINE A SECOND PER VIEWER, on unless BIBO_LINK_LOG=0.
+    //
+    // Written because "dropped: no PONG" was the only sentence this board had
+    // about a link that failed a dozen times an hour, and the frame ring dumped
+    // after it records what was QUEUED - not what the socket took, not what is
+    // still waiting, not how late the keepalive was when things started to go.
+    // Every number here is one of those. Read left to right it is the round
+    // trip: what came in, what went out and what is stuck on this side, the
+    // keepalive, and what the deadman made of it.
+    //
+    //   rx        bytes read this second, frames by type, and quiet = the longest
+    //             wait between two reads that returned bytes
+    //   tx        bytes send() actually TOOK, calls, and calls that would block
+    //   queued    this process's ring for the client, and its oldest frame's age
+    //   kernel    TIOCOUTQ - bytes the kernel holds unacknowledged. Behind a
+    //             userspace proxy this stays near 0 however stuck the path is,
+    //             which is itself the diagnosis
+    //   ping-out  how long the board's PING has been unanswered (-1: none out)
+    //   rtt       the last PING's round trip
+    //   loop      the longest pass of this thread in the previous second
+    //
+    // The viewer writes the other half with UTC timestamps, and journalctl's
+    // are UTC as well, so the two logs line up by time.
+    [[nodiscard]] Bool logLink(Client& c)
+    {
+        if(!linkLog || c.stage != Stage::STAGE_LIVE || !c.dropWhy.empty())
+        {
+            return false;
+        }
+        if(elapsedMs(c.linkLogAt) < 1000.0)
+        {
+            return false;
+        }
+        c.linkLogAt = monoNow();
+
+        Int32 kernel = -1;
+        if(::ioctl(c.fd, TIOCOUTQ, &kernel) != 0)
+        {
+            kernel = -1;
+        }
+        const Int64 oldestMs = c.out.empty() ? 0 : static_cast<Int64>(elapsedMs(c.out.front().at));
+        const Int64 pingOutMs = c.pingOut ? static_cast<Int64>(elapsedMs(c.pingSentAt)) : -1;
+        const bibowire::deadman::Output d = deadmanNow();
+
+        // quiet only closes when bytes ARRIVE, so a second in which nothing did
+        // would not show in it until the next read. lastrx is measured now.
+        const Int64 lastRxMs = c.lastRxAt == TimePoint() ? -1 : static_cast<Int64>(elapsedMs(c.lastRxAt));
+
+        std::printf(
+            "viewfeed: link %s s=%08x %s rx=%lluB lastrx=%lldms ping=%u pong=%u/%u ctl=%u(tcp %u) cmd=%u quiet=%lldms"
+            " | tx=%lluB sends=%u eagain=%u queued=%lluB/%lluf oldest=%lldms kernel=%dB"
+            " | ping-out=%lldms rtt=%lldms | deadman=%s refuse=%s epoch=%u armed=%d estop=%d"
+            " camheld=%llu loop=%lldms\n",
+            c.peer.c_str(),
+            static_cast<unsigned>(c.sessionId),
+            c.holder ? "driver" : "observer",
+            static_cast<unsigned long long>(c.winRxBytes),
+            static_cast<long long>(lastRxMs),
+            static_cast<unsigned>(c.winPing),
+            static_cast<unsigned>(c.winPongMatched),
+            static_cast<unsigned>(c.winPong),
+            static_cast<unsigned>(c.winControl),
+            static_cast<unsigned>(c.winControlTcp),
+            static_cast<unsigned>(c.winCommand),
+            static_cast<long long>(c.winRxGapMs),
+            static_cast<unsigned long long>(c.winTxBytes),
+            static_cast<unsigned>(c.winSends),
+            static_cast<unsigned>(c.winEagain),
+            static_cast<unsigned long long>(c.outBytes),
+            static_cast<unsigned long long>(c.out.size()),
+            static_cast<long long>(oldestMs),
+            static_cast<int>(kernel),
+            static_cast<long long>(pingOutMs),
+            static_cast<long long>(c.lastRttMs),
+            bibowire::deadman::stateName(d.state),
+            bibowire::refuseName(d.refuse),
+            static_cast<unsigned>(armEpoch),
+            sh.operatorArmed.load(std::memory_order_acquire) ? 1 : 0,
+            estopLatched ? 1 : 0,
+            static_cast<unsigned long long>(c.camHeld),
+            static_cast<long long>(loopWorstShown)
+        );
+
+        c.winRxGapMs = 0.0;
+        c.winRxBytes = 0;
+        c.winTxBytes = 0;
+        c.winSends = 0;
+        c.winEagain = 0;
+        c.winPing = 0;
+        c.winPong = 0;
+        c.winPongMatched = 0;
+        c.winControl = 0;
+        c.winControlTcp = 0;
+        c.winCommand = 0;
+        return true;
+    }
+
     // ---- the thread --------------------------------------------------------
 
     Void loop()
@@ -3356,6 +3530,16 @@ namespace viewfeed
             {
                 std::printf("viewfeed: poll failed: %s\n", std::strerror(errno));
                 break;
+            }
+
+            // The pass's WORK, timed from after poll() so the 20 ms sleep is not
+            // counted as a stall. Rolled into a one-second window for logLink.
+            const TimePoint workStart = monoNow();
+            if(elapsedMs(loopWindowAt) >= 1000.0)
+            {
+                loopWorstShown = loopWorstMs;
+                loopWorstMs = 0.0;
+                loopWindowAt = workStart;
             }
 
             const Size before = clients.size();
@@ -3448,6 +3632,12 @@ namespace viewfeed
                 }
                 keepLive(c);
                 probeReversePath(c);
+                const Float64 worked = elapsedMs(workStart);
+                if(worked > loopWorstMs)
+                {
+                    loopWorstMs = worked;
+                }
+                static_cast<Void>(logLink(c));
                 if(c.stage == Stage::STAGE_LIVE
                    && elapsedMs(c.lastCtlAt) >= static_cast<Float64>(CTLSTATE_EVERY_MS))
                 {
@@ -3631,6 +3821,7 @@ namespace viewfeed
       // from the previous run standing across it would be exactly the stale
       // consent the epoch exists to prevent.
       sh.operatorArmed.store(false, std::memory_order_release);
+      linkLog = envOr("BIBO_LINK_LOG", "1") != "0";
       holderSession = 0;
       everControl = false;
       appliedSeq = 0;
