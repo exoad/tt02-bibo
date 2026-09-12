@@ -230,8 +230,46 @@ namespace viewfeed
 
   // The newest CONTROL the holder has sent, or false when there is none. Reads
   // a seqlock: no mutex, no allocation, and it cannot return a half-written
-  // command. This is the control loop's ENTIRE interaction with this module.
+  // command.
+  //
+  // STEER AND THROTTLE ARE ALREADY GATED. What comes back is what
+  // control::apply allowed, not what the datagram carried: on an epoch or mode
+  // disagreement the throttle is 0 here and the steering is untouched. A caller
+  // cannot reach the refused value, which is deliberate - the alternative is a
+  // pilot driving on a throttle its own CTLSTATE is simultaneously reporting as
+  // refused.
   [[nodiscard]] Bool control(bibowire::Control* out);
+
+  // Whether anyone is holding the wheel, and what the deadman makes of them.
+  //
+  // control() alone is not enough to drive from and must not be treated as if
+  // it were: it answers "here is the newest command" and says nothing about
+  // whether that command may be obeyed. The deadman lives on this side - it
+  // needs haveHolder, the estop latch and the age of the last APPLIED datagram,
+  // none of which the pilot can see - so the verdict is computed here, by the
+  // same pure function that fills CTLSTATE, and handed over whole.
+  //
+  // There is always an answer, so this returns by value rather than the
+  // out-parameter-and-bool that control() needs for "nothing yet".
+  struct Drive
+  {
+      Bool haveHolder = false;
+      Bool estopLatched = false;
+
+      // 0 live, 1 soft, 2 dead, 3 estop latched - the same byte CTLSTATE
+      // carries, from the same mapping, so the pilot and the viewer cannot
+      // disagree about what a 2 means.
+      UInt8 deadman = 0;
+      bibowire::Refuse refuse = bibowire::Refuse::REFUSE_NONE;
+
+      // The deadman's own countdown, from the function that will do the
+      // tripping. Section 6: the number a viewer renders and the number that
+      // trips must not be able to disagree.
+      Int32 neutralInMs = 0;
+      Int32 disarmInMs = 0;
+  };
+
+  [[nodiscard]] Drive drive();
 
   // One accepted tuning request, on its way to the Pico: the verb and its args
   // exactly as COMMAND carried them. NOT translated into a Pico line here -

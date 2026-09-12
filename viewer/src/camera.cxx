@@ -305,22 +305,9 @@ namespace camview
         return ImVec2(dx / len, dy / len);
     }
 
-    // Clamped HERE rather than trusted from the slider. Ctrl+click on an ImGui
-    // slider is a text box, and a guide built from a number outside its own
-    // range is a line drawn somewhere off the picture.
-    [[nodiscard]] Float32 pctToUnit(Int32 pct, Int32 lo, Int32 hi)
-    {
-        Int32 n = pct;
-        if(n < lo)
-        {
-            n = lo;
-        }
-        if(n > hi)
-        {
-            n = hi;
-        }
-        return static_cast<Float32>(n) * 0.01f;
-    }
+    // pctToUnit and bendAt moved to camera.hxx, at namespace scope, so
+    // test_link.cxx can assert the bend's SIGN without linking a translation
+    // unit that names ImGui. Every call below resolves to them unchanged.
 
     [[nodiscard]] Rails railsOf(const View& v)
     {
@@ -335,28 +322,48 @@ namespace camview
 
     // One point on one rail. `side` is -1 for the left rail and +1 for the
     // right; `t` runs from 0 at the near end to 1 at the far end.
-    [[nodiscard]] ImVec2 railPoint(const Placed& p, const Rails& r, Float32 side, Float32 t)
+    [[nodiscard]] ImVec2 railPoint(const Placed& p, const Rails& r, Float32 side, Float32 t, Float32 steer, Int32 bendPct)
     {
         const Float32 nearX = r.centre + (side * r.spread);
         const Float32 farX = r.centre + (side * r.converge);
-        return screenOf(p, nearX + ((farX - nearX) * t), r.nearY + ((r.farY - r.nearY) * t));
+        const Float32 bend = bendAt(steer, bendPct, t);
+
+        // THE SWING GOES HERE, not in drawGuides, and that is the whole point:
+        // this is the one place a guide point becomes an image coordinate, so a
+        // bend applied here rides orient::displayFromImage with everything else
+        // and a rotated or flipped picture carries its guides correctly. Bending
+        // the drawn screen points instead would put the curve in window space,
+        // where it would sit still while the picture turned underneath it.
+        //
+        // BOTH RAILS BY THE SAME AMOUNT, so the corridor swings rather than
+        // deforming - the car's path does not get wider because it is turning.
+        //
+        // t*t, not t: a reversing camera's guides barely move at the bumper and
+        // sweep hardest at the far end, because that is where a given steering
+        // angle has had the most distance to act.
+        return screenOf(p, nearX + ((farX - nearX) * t) + (bend * t * t), r.nearY + ((r.farY - r.nearY) * t));
     }
 
     // THE REVERSING GUIDES: two rails converging toward a far end the operator
     // chooses, in three colour bands, each closed by a cross line.
-    Void drawGuides(ImDrawList* dl, const Placed& p, const View& v)
+    Void drawGuides(ImDrawList* dl, const Placed& p, const View& v, Float32 steer)
     {
         const Rails r = railsOf(v);
         const Array<ImU32, 3> zone = { ZONE_NEAR, ZONE_MID, ZONE_FAR };
         const Float32 w = 2.0f * uiScale;
+
+        // The geometry - and its sign - is in camera.hxx where the suite can
+        // assert it. This is only whether the operator asked for it.
+        const Float32 swing = v.guideBend ? steer : 0.0f;
+
         for(Size i = 0; i < 3u; ++i)
         {
             const Float32 t0 = static_cast<Float32>(i) / 3.0f;
             const Float32 t1 = static_cast<Float32>(i + 1u) / 3.0f;
-            const ImVec2 leftNear = railPoint(p, r, -1.0f, t0);
-            const ImVec2 leftFar = railPoint(p, r, -1.0f, t1);
-            const ImVec2 rightNear = railPoint(p, r, 1.0f, t0);
-            const ImVec2 rightFar = railPoint(p, r, 1.0f, t1);
+            const ImVec2 leftNear = railPoint(p, r, -1.0f, t0, swing, v.guideBendPct);
+            const ImVec2 leftFar = railPoint(p, r, -1.0f, t1, swing, v.guideBendPct);
+            const ImVec2 rightNear = railPoint(p, r, 1.0f, t0, swing, v.guideBendPct);
+            const ImVec2 rightFar = railPoint(p, r, 1.0f, t1, swing, v.guideBendPct);
             strokeLine(dl, leftNear, leftFar, zone[i], w);
             strokeLine(dl, rightNear, rightFar, zone[i], w);
             strokeLine(dl, leftFar, rightFar, zone[i], w);
@@ -439,7 +446,7 @@ namespace camview
         }
     }
 
-    Void drawOverlays(const View& v, const ImVec2& at, const ImVec2& size)
+    Void drawOverlays(const View& v, const ImVec2& at, const ImVec2& size, Float32 steer)
     {
         if(!v.showCross && !v.showGuides && !v.showBox && !v.showThirds)
         {
@@ -472,7 +479,7 @@ namespace camview
         }
         if(v.showGuides)
         {
-            drawGuides(dl, p, v);
+            drawGuides(dl, p, v, steer);
         }
         if(v.showCross)
         {
@@ -519,6 +526,23 @@ namespace camview
             ImGui::SliderInt("converge", &v.guideConvergePct, 0, 40, "%d%%");
             ImGui::SliderInt("near edge", &v.guideNearPct, 40, 100, "%d%%");
             ImGui::SliderInt("far edge", &v.guideFarPct, 5, 95, "%d%%");
+
+            ImGui::Checkbox("bend with the wheels", &v.guideBend);
+            if(ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(
+                    "The guides sweep with the steering, the way a reversing\n"
+                    "camera's do.\n\n"
+                    "The sweep is NOT calculated from the car. There is no\n"
+                    "wheelbase, no steering-angle map and no lens calibration\n"
+                    "in this project, so this is a shape you tune until it\n"
+                    "matches what the car actually does - and it still carries\n"
+                    "no distance and marks no real width.\n\n"
+                    "It follows where the wheels ARE, not what was asked for."
+                );
+            }
+            ImGui::SliderInt("bend", &v.guideBendPct, 0, 100, "%d%%");
+
             ImGui::Separator();
             ImGui::SliderInt("box", &v.boxPct, 5, 48, "%d%%");
             ImGui::PopItemWidth();
@@ -746,7 +770,22 @@ namespace camview
           // OVER THE PICTURE, FROM THE SAME PLACEMENT. Same `at` and `size` as
           // the quad above and the same turns and flips, so the guides move
           // with the picture's contents rather than with the window.
-          drawOverlays(v, at, size);
+          // WHERE THE WHEELS ARE, for guides that bend with them - and zero when
+          // the board has not said, so they sit straight rather than sweeping to
+          // an angle nobody reported. steerNowMilli and not the commanded value:
+          // the slew limiter means a request takes about a second to become an
+          // angle, and guides drawn from the request would show a turn the car
+          // has not made.
+          Float32 guideSteer = 0.0f;
+          if(v.guideBend)
+          {
+              const Opt<link::Control> wheels = snap.state.controlState(nowMs);
+              if(wheels.has_value())
+              {
+                  guideSteer = static_cast<Float32>(wheels->state.steerNowMilli) / 1000.0f;
+              }
+          }
+          drawOverlays(v, at, size, guideSteer);
 
           // The draw list does not move the cursor, so the layout is told how
           // much room the picture took. Without this the readouts below would

@@ -72,6 +72,54 @@ namespace camview
   // goes to CAM_FPS_MAX for anyone on a link that can afford it.
   constexpr Int32 CAM_FPS_DEFAULT_ASK = 6;
 
+  // ---------------------------------------------------------------------------
+  // GUIDE GEOMETRY, inline so the suite can reach it
+  //
+  // trim.hxx's reason arrived at from a third side, and orient.cxx's before
+  // that: a quarter turn is a transpose and nobody can eyeball a transpose -
+  // and nobody can eyeball a SIGN either. Which way the guides sweep when the
+  // wheels turn right rests on two facts written down elsewhere, neither of
+  // them inferred: chassis.hxx's steerToUs sends a positive fraction toward
+  // servoMax, which cal.hxx names STEER_CAL_RIGHT, so positive steer is RIGHT;
+  // and link.cxx states the frame where it builds the cloud, so image u grows
+  // to the right. Invert either and this compiles perfectly, looks entirely
+  // plausible, and is discovered while driving.
+  //
+  // So it lives here rather than in camera.cxx's anonymous namespace, where the
+  // suite cannot reach it - camera.hxx names no ImGui and no D3D type, only
+  // forward declarations, which is what makes that possible.
+
+  // Clamped HERE rather than trusted from the slider. Ctrl+click on an ImGui
+  // slider is a text box, and a guide built from a number outside its own range
+  // is a line drawn somewhere off the picture.
+  [[nodiscard]] inline Float32 pctToUnit(Int32 pct, Int32 lo, Int32 hi)
+  {
+      Int32 n = pct;
+      if(n < lo)
+      {
+          n = lo;
+      }
+      if(n > hi)
+      {
+          n = hi;
+      }
+      return static_cast<Float32>(n) * 0.01f;
+  }
+
+  // Fraction of the frame's width the far end may swing at full lock and full
+  // bend. Capped well under half for a reason: guides that leave the picture
+  // are marking something the camera cannot see.
+  constexpr Float32 GUIDE_BEND_SPAN = 0.45f;
+
+  // How far the guide at `t` - 0 at the bumper, 1 at the far end - is pushed
+  // sideways in IMAGE space. t*t and not t: a steering angle has had more
+  // distance to act at the far end, so the guides barely move at the bumper and
+  // sweep hardest where they matter.
+  [[nodiscard]] inline Float32 bendAt(Float32 steer, Int32 bendPct, Float32 t)
+  {
+      return steer * pctToUnit(bendPct, 0, 100) * GUIDE_BEND_SPAN * t * t;
+  }
+
   struct View
   {
       // The window, and therefore the subscription. Bound to ImGui::Begin's
@@ -154,6 +202,27 @@ namespace camview
       Int32 guideConvergePct = 12;
       Int32 guideNearPct = 100;
       Int32 guideFarPct = 45;
+
+      // ---- guides that follow the steering --------------------------------
+      //
+      // A reversing camera's guides bend with the wheels, and that is what makes
+      // them readable while turning rather than only while straight. Off by
+      // default like every other overlay here.
+      //
+      // THE BEND IS A FEEL NUMBER, NOT A GEOMETRY. A real backup camera derives
+      // its curve from a measured wheelbase, a steering-angle map and a lens
+      // calibration. This project has none of the three - conventions.md records
+      // even the lidar-to-vehicle transform as assumed - so this is a sweep the
+      // operator tunes until it matches what the car does, exactly like the
+      // spread and converge sliders above it. It carries no radius and is never
+      // labelled with one.
+      //
+      // It follows where the wheels ARE (CTLSTATE's steerNowMilli), not what was
+      // asked for: the slew limiter means a command takes about a second to
+      // become an angle, so bending on the request would show a turn the car has
+      // not made yet.
+      Bool guideBend = false;
+      Int32 guideBendPct = 45;
 
       // Half-width of the centred box, percent of the frame. It is a scaled
       // copy of the picture's own outline rather than a square - see drawBox.

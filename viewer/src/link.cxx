@@ -224,6 +224,29 @@ namespace link
         Vec<UInt8> rx;
         Size rxUsed = 0;
 
+        // ---- CONTROL, which belongs to ONE connection ---------------------
+        //
+        // The seq is per SESSION and starts again at 1 on every reconnect,
+        // which is not an oversight: section 6 says the board's high-water
+        // mark is reset by the handshake, and comparison is on the signed
+        // difference precisely so a viewer that begins again at 1 is accepted
+        // rather than frozen out by a huge stale number.
+        UInt32 ctlSeq = 0;
+
+        // The frame header's own counter for the UDP stream, kept apart from
+        // txSeq. The frame-header ring reads seqs per STREAM, and pushing two
+        // streams through one counter would make the TCP side look like it was
+        // losing every frame the UDP side sent.
+        UInt16 udpTxSeq = 0;
+
+        // Where the board is, learned from the TCP peer - the only address
+        // this end can be sure belongs to the board. Kept even when connect()
+        // on the UDP socket did not take, so a datagram can still be addressed
+        // explicitly rather than not sent at all.
+        sockaddr_storage boardAddr = {};
+        Int32 boardAddrLen = 0;
+        Bool haveBoardAddr = false;
+
         // What THIS connection has told the board it wants. 0 means "never
         // asked", which is not the same fact as "asked for nothing" - see
         // syncSubscription. Reset with the connection, because the board keeps
@@ -252,6 +275,10 @@ namespace link
         c.udpPort = 0;
         c.udpFiltered = false;
         c.sentMask = 0;
+        c.ctlSeq = 0;
+        c.udpTxSeq = 0;
+        c.boardAddrLen = 0;
+        c.haveBoardAddr = false;
     }
 
     Void setNonBlocking(SOCKET fd)
@@ -509,6 +536,14 @@ namespace link
         if(peer.ss_family == AF_INET)
         {
             reinterpret_cast<sockaddr_in*>(&peer)->sin_port = ::htons(boardPort);
+            // KEPT, and only for AF_INET: this socket is created AF_INET, so an
+            // IPv6 board is an address it cannot send to at all. Recording one
+            // would leave sendto failing forever on every datagram instead of
+            // the fallback noticing there is no reverse path and moving CONTROL
+            // onto TCP, where the board accepts it always.
+            c.boardAddr = peer;
+            c.boardAddrLen = len;
+            c.haveBoardAddr = true;
         }
         else if(peer.ss_family == AF_INET6)
         {
@@ -639,7 +674,7 @@ namespace link
         return sendFrame(c, bibowire::Type::TYPE_PING, body.data(), n);
     }
 
-    [[nodiscard]] Bool sendHello(Conn& c, const Str& name)
+    [[nodiscard]] Bool sendHello(Conn& c, const Str& name, Bool wantSlot)
     {
         bibowire::Hello hello;
         hello.protoMajor = bibowire::PROTO_MAJOR;
@@ -653,11 +688,21 @@ namespace link
         hello.featureMask = 0xFFFFFFFFu;
         hello.viewerBuild = 0;
         hello.viewerUdpPort = c.udpPort;
-        // OBSERVER. This viewer cannot drive - see the SEAM in link.hxx - and a
-        // program that asks for the control slot it cannot use would take the
-        // wheel away from a viewer that can.
-        hello.wantControl = 0;
-        hello.controlHz = 0;
+        // OBSERVER UNLESS THE OPERATOR ASKED, and this is the ONLY place the
+        // question is ever put: viewfeed.cxx grants the slot in onHello and
+        // nowhere else, so a viewer that did not ask here is an observer for
+        // the whole life of this connection however many buttons it grows.
+        //
+        // Default off, because taking the slot arms a deadman over whatever the
+        // car is doing - including an autonomous run somebody else started.
+        hello.wantControl = wantSlot ? 1u : 0u;
+        // Informational, and only when there is a stream to describe. 20 Hz is
+        // CONTROL_PERIOD_MS turned into a rate, from the protocol's own header
+        // rather than typed again: what this viewer INTENDS before WELCOME has
+        // told it the board's period.
+        hello.controlHz = wantSlot
+            ? static_cast<UInt16>(1000 / bibowire::CONTROL_PERIOD_MS)
+            : 0u;
         hello.name = name;
 
         Array<UInt8, 128> body = {};
@@ -826,6 +871,136 @@ namespace link
         return true;
     }
 
+    // ---- what the UI thread is told, in ONE go ------------------------------
+    //
+    // The panel's sentence and the control tally beside it are published
+    // together, so they can never be read from two different passes: "live -
+    // bibobox, rev 41" above "sent 0" would be two true statements that are
+    // false as a pair, which is the shape of bug this repo keeps naming.
+    struct Report
+    {
+        Phase phase = Phase::PHASE_IDLE;
+        Str status;
+        Int32 retryInMs = 0;
+        Bool controlOnTcp = false;
+        UInt32 controlSent = 0;
+        UInt32 controlFailed = 0;
+        UInt32 controlSeq = 0;
+    };
+
+    // ---- CONTROL ------------------------------------------------------------
+
+    // One datagram onto the wire. `send` when the socket was connected to the
+    // board (the filter that keeps strangers out), `sendto` when it could not
+    // be - an address is better than not sending at all.
+    [[nodiscard]] Bool sendControlUdp(Conn& c, const UInt8* frame, Size len)
+    {
+        if(c.udp == INVALID_SOCKET)
+        {
+            return false;
+        }
+        const Char* at = reinterpret_cast<const Char*>(frame);
+        const Int32 want = static_cast<Int32>(len);
+        if(c.udpFiltered)
+        {
+            return ::send(c.udp, at, want, 0) == want;
+        }
+        if(!c.haveBoardAddr)
+        {
+            return false;
+        }
+        const sockaddr* to = reinterpret_cast<const sockaddr*>(&c.boardAddr);
+        return ::sendto(c.udp, at, want, 0, to, c.boardAddrLen) == want;
+    }
+
+    // EVERY PERIOD, CHANGED OR NOT, for as long as this viewer holds the slot.
+    // Section 5 says "sent every 50 ms unconditionally" and section 6 says why:
+    // the constant stream is what makes silence mean something, and there is no
+    // separate heartbeat because a separate heartbeat is a thing that can keep
+    // beating while the control path is dead.
+    [[nodiscard]] Bool sendControl(Conn& c, Client& owner, const Session& s, Report& say)
+    {
+        // An OBSERVER sends nothing, and that is not a failure. Its datagrams
+        // would be counted in the board's rxControlStale and discarded, and -
+        // worse - a viewer streaming into a slot it does not hold is a viewer
+        // whose own panel would look like it was driving.
+        if(!s.haveWelcome || !holdsSlot(s))
+        {
+            return true;
+        }
+
+        ControlStamp at;
+        at.sessionId = s.welcome.sessionId;
+        at.seq = nextControlSeq(c.ctlSeq);
+        at.armEpoch = currentEpoch(s);
+        // The VIEWER's clock, which the board only ever compares with itself.
+        at.tMonoUs = static_cast<UInt64>(monoMs()) * 1000u;
+
+        const bibowire::Control m = buildControl(controlIntent(owner), at);
+        Array<UInt8, 64> body = {};
+        const Size n = bibowire::writeControl(m, body.data(), body.size());
+        if(n == 0)
+        {
+            // The codec refused to encode it - a steer or throttle outside
+            // +-1000 - which is a bug at THIS end rather than a link fault. The
+            // connection is left alone and the refusal is counted, because a
+            // stream that silently stopped encoding is the failure this repo
+            // names as an absence.
+            ++say.controlFailed;
+            return true;
+        }
+
+        c.ctlSeq = at.seq;
+        say.controlSeq = at.seq;
+
+        if(say.controlOnTcp)
+        {
+            // The same frame on a different socket. The board accepts CONTROL
+            // on TCP always, with identical rules, identical deadman and
+            // identical session and seq checks, so there is nothing to
+            // negotiate and no second code path. A TCP send that fails IS the
+            // connection failing - unlike the datagram below.
+            if(!sendFrame(c, bibowire::Type::TYPE_CONTROL, body.data(), n))
+            {
+                ++say.controlFailed;
+                return false;
+            }
+            ++say.controlSent;
+            return true;
+        }
+
+        bibowire::Head head;
+        head.type = bibowire::Type::TYPE_CONTROL;
+        head.ver = 1;
+        head.seq = c.udpTxSeq;
+
+        Array<UInt8, 96> frame = {};
+        const bibowire::Body payload = { body.data(), n };
+        const Size total = bibowire::put(head, payload, frame.data(), frame.size());
+        if(total == 0)
+        {
+            ++say.controlFailed;
+            return true;
+        }
+        ++c.udpTxSeq;
+
+        // A DATAGRAM THAT DID NOT LEAVE IS NOT A DEAD CONNECTION, and this is
+        // the one send in this file that may not tear the session down. Section
+        // 7 is explicit that the viewer infers nothing from send() returning: a
+        // board whose UDP socket is not up answers with ICMP port-unreachable,
+        // which Windows reports on the NEXT send, and a viewer that redialled
+        // over it would throw away a perfectly good telemetry stream. It is
+        // counted, the fallback notices a reverse path that never worked, and
+        // the deadman is what notices for real.
+        if(!sendControlUdp(c, frame.data(), total))
+        {
+            ++say.controlFailed;
+            return true;
+        }
+        ++say.controlSent;
+        return true;
+    }
+
     Void sendLeave(Conn& c, const Session& s)
     {
         if(c.tcp == INVALID_SOCKET || !s.haveWelcome)
@@ -901,12 +1076,16 @@ namespace link
         return out;
     }
 
-    Void publish(Client& c, Phase phase, const Str& status, Int32 retryInMs, const Session& s)
+    Void publish(Client& c, const Report& say, const Session& s)
     {
         LockGuard<Mutex> held(c.lock);
-        c.shared.phase = phase;
-        c.shared.status = status;
-        c.shared.retryInMs = retryInMs;
+        c.shared.phase = say.phase;
+        c.shared.status = say.status;
+        c.shared.retryInMs = say.retryInMs;
+        c.shared.controlOnTcp = say.controlOnTcp;
+        c.shared.controlSent = say.controlSent;
+        c.shared.controlFailed = say.controlFailed;
+        c.shared.controlSeq = say.controlSeq;
         c.shared.state = s;
     }
 
@@ -923,8 +1102,16 @@ namespace link
             {
                 return;
             }
-            const Str text = "retrying in " + numberText(left) + " ms - " + why;
-            publish(c, Phase::PHASE_RETRYING, text, static_cast<Int32>(left), s);
+            Report say;
+            say.phase = Phase::PHASE_RETRYING;
+            say.status = "retrying in " + numberText(left) + " ms - " + why;
+            say.retryInMs = static_cast<Int32>(left);
+            // The control tally is left at ZERO rather than carried across, and
+            // that is the honest reading rather than a lost field: there is no
+            // stream while there is no connection, and "sent 412" frozen on a
+            // panel during a four-second retry is a count of a thing that
+            // stopped four seconds ago.
+            publish(c, say, s);
             ::Sleep(static_cast<DWORD>(left < POLL_MS ? left : POLL_MS));
         }
     }
@@ -945,7 +1132,14 @@ namespace link
             // path in this protocol at all: the only state worth resuming is the
             // live picture, which is worthless by the time the link is back.
             clearSession(live);
-            publish(*c, Phase::PHASE_RESOLVING, "resolving " + c->host, 0, live);
+
+            // One connection's worth of what the UI is told, INCLUDING the
+            // control tally - which starts at zero here for the same reason the
+            // session does: a stream belongs to a connection.
+            Report say;
+            say.phase = Phase::PHASE_RESOLVING;
+            say.status = "resolving " + c->host;
+            publish(*c, say, live);
 
             Str why;
             if(!dialTcp(conn, c->host, c->port, &why))
@@ -968,12 +1162,23 @@ namespace link
                 note.text = "no UDP socket - CTLSTATE cannot arrive";
                 note.atMs = monoMs();
                 live.notes.push_back(note);
+
+                // AND CONTROL GOES STRAIGHT TO TCP. The fallback below measures
+                // a reverse path for 1000 ms before deciding; here there is no
+                // socket for a datagram to leave by at all, so the measurement
+                // has nothing to measure and the answer is already known.
+                say.controlOnTcp = true;
             }
-            publish(*c, Phase::PHASE_CONNECTING, "connected to " + c->host, 0, live);
+            say.phase = Phase::PHASE_CONNECTING;
+            say.status = "connected to " + c->host;
+            publish(*c, say, live);
 
             // HELLO IS THE FIRST BYTES ON THE CONNECTION, and nothing else is
             // sent until WELCOME arrives.
-            if(!sendHello(conn, "bibo viewer"))
+            // AND THE CONTROL SLOT IS ASKED FOR HERE OR NOT AT ALL. The board
+            // grants it in its HELLO handler and in no other place, so this one
+            // byte decides whether this whole connection can drive.
+            if(!sendHello(conn, "bibo viewer", c->wantSlot.load()))
             {
                 dropConn(conn);
                 ++attempt;
@@ -989,6 +1194,18 @@ namespace link
 
             live.lastFrameMs = monoMs();
             Int64 nextPingMs = live.lastFrameMs + PING_PERIOD_MS;
+
+            // THE CONTROL DEADLINE, IN nextPingMs's SHAPE AND NOT A THREAD. One
+            // select() loop honours both, which is what keeps the cadence
+            // answerable to the same POLL_MS slice everything else here is: a
+            // second thread ticking at 50 ms would be a second thing that can
+            // still look alive while this one is wedged, and the whole point of
+            // the stream is that its silence means something.
+            //
+            // Zero until WELCOME, which is also what arms it: there is no
+            // session to stamp on a datagram before then, and no slot either.
+            Int64 nextControlMs = 0;
+            Int64 welcomeAtMs = 0;
             why = "the board closed the connection";
 
             while(!c->quit.load())
@@ -1032,6 +1249,15 @@ namespace link
                     // outage.
                     attempt = 0;
                     filterUdpToBoard(conn, live.welcome.controlUdpPort);
+
+                    // WELCOME starts both control clocks: section 4's
+                    // reverse-path window, and the stream's own cadence - which
+                    // is the BOARD's controlPeriodMs and not a number compiled
+                    // into this viewer months earlier. The first datagram goes
+                    // on this pass rather than a period later, because the
+                    // board's probe wants five of them inside 1000 ms.
+                    welcomeAtMs = monoMs();
+                    nextControlMs = welcomeAtMs;
                 }
 
                 // Re-asserted every pass, because the answer can change at any
@@ -1082,8 +1308,50 @@ namespace link
                     }
                 }
 
-                const Phase phase = live.haveWelcome ? Phase::PHASE_LIVE : Phase::PHASE_HANDSHAKING;
-                publish(*c, phase, liveStatus(live, c->host, now), 0, live);
+                // SECTION 4'S TCP FALLBACK, MEASURED AND THEN LATCHED. CTLSTATE
+                // is the only thing that rides UDP toward this viewer, so a
+                // silent 1000 ms after WELCOME is a measurement that UDP is not
+                // working in at least one direction rather than a guess - this
+                // repo's rule about reverse paths, applied to the link itself.
+                //
+                // It latches for the life of the connection, and that is the
+                // part worth naming: while the fallback is active the board
+                // MIRRORS CTLSTATE onto TCP, so a test that kept asking "has a
+                // CTLSTATE arrived lately" would flip straight back to UDP the
+                // moment the mirror answered, and then flap once a second
+                // between two transports while the car was being driven.
+                const Int64 probeMs = static_cast<Int64>(bibowire::REVERSE_PROBE_MS);
+                if(!say.controlOnTcp && welcomeAtMs > 0 && !live.haveControl
+                   && now - welcomeAtMs > probeMs)
+                {
+                    say.controlOnTcp = true;
+                    Note note;
+                    note.severity = bibowire::Severity::SEVERITY_WARN;
+                    note.text = "no CTLSTATE for " + numberText(now - welcomeAtMs)
+                                + " ms - degraded control (TCP)";
+                    note.atMs = now;
+                    live.notes.push_back(note);
+                }
+
+                // EVERY PERIOD, CHANGED OR NOT, and a period that is the
+                // BOARD's. sendControl decides there is nothing to send when
+                // this viewer is an observer; the deadline rolls either way, so
+                // a slot taken on a later connection starts its stream on the
+                // same schedule rather than whenever a key was first pressed.
+                if(live.haveWelcome && now >= nextControlMs)
+                {
+                    nextControlMs = now + controlPeriodMs(live);
+                    if(!sendControl(conn, *c, live, say))
+                    {
+                        why = "could not send a CONTROL";
+                        break;
+                    }
+                }
+
+                say.phase = live.haveWelcome ? Phase::PHASE_LIVE : Phase::PHASE_HANDSHAKING;
+                say.status = liveStatus(live, c->host, now);
+                say.retryInMs = 0;
+                publish(*c, say, live);
             }
 
             if(c->quit.load())
@@ -2065,6 +2333,114 @@ namespace link
           return {};
       }
       return acks[acks.size() - 1u];
+  }
+
+  // ---- CONTROL ---------------------------------------------------------------
+
+  bibowire::Control buildControl(const Intent& in, const ControlStamp& at)
+  {
+      bibowire::Control m;
+      m.sessionId = at.sessionId;
+      m.seq = at.seq;
+      m.tMonoUs = at.tMonoUs;
+
+      // NEUTRAL WHEN THE OPERATOR IS NOT DRIVING, and it is written HERE as
+      // well as in the pane on purpose. Steering is applied by the board even
+      // while throttle is refused - section 6, and it is right to, because a
+      // car that snaps to centre mid-corner changes its line at the moment it
+      // stopped being commanded - so a viewer that kept sending a steer angle
+      // after its operator switched driving off would still be steering the
+      // car. This is the last place before the wire, which makes it the one
+      // place the rule cannot be bypassed by a caller that forgot.
+      // Cast written out rather than left to the assignment. Both arms are in
+      // range - an Int16 or a literal 0 - so nothing is lost either way, but a
+      // ternary mixing Int16 with an int literal promotes to int and narrows
+      // back implementation-defined on the way in. These are the two fields that
+      // carry steering and throttle; they are the last two in this program worth
+      // leaving to a conversion nobody wrote down.
+      m.steerMilli = static_cast<Int16>(in.driving ? in.steerMilli : 0);
+      m.throttleMilli = static_cast<Int16>(in.driving ? in.throttleMilli : 0);
+
+      // ESTOP SURVIVES THE ENABLE BEING OFF; ENABLE CANNOT SURVIVE IT. The
+      // stop is the one thing that must work in every state this viewer can be
+      // in, and the consent is the one thing that must never be asserted by
+      // accident - so they are masked in opposite directions.
+      m.buttons = in.driving
+          ? in.buttons
+          : static_cast<UInt16>(in.buttons & bibowire::BUTTON_ESTOP);
+
+      m.armEpoch = at.armEpoch;
+      m.assumedMode = in.assumedMode;
+      return m;
+  }
+
+  UInt32 nextControlSeq(UInt32 previous)
+  {
+      const UInt32 next = previous + 1u;
+      // 0 IS NOT A SEQ. The board's newest-wins test is a signed difference, so
+      // 0 is a perfectly ordinary number to it - but section 5 starts the
+      // stream at 1, and CTLSTATE's ackSeq uses 0 for "none applied yet", so a
+      // datagram numbered 0 is one the board could never report having run.
+      return next == 0u ? 1u : next;
+  }
+
+  Bool holdsSlot(const Session& s)
+  {
+      // 1 is "control is yours", 2 is "observing" - and a WELCOME that refused
+      // the connection outright (0) is neither. Asked of the BOARD's answer and
+      // never of what this end wanted, because those are different facts and
+      // the difference is a car.
+      return s.haveWelcome && s.welcome.accepted == 1u;
+  }
+
+  Int64 controlPeriodMs(const Session& s)
+  {
+      const Int64 fallback = static_cast<Int64>(bibowire::CONTROL_PERIOD_MS);
+      if(!s.haveWelcome || s.welcome.controlPeriodMs == 0u)
+      {
+          // A board that sends 0 does not get to make this viewer spin: a
+          // period of zero is not a faster stream, it is a busy loop that would
+          // saturate the link the stream is trying to survive on.
+          return fallback;
+      }
+      return static_cast<Int64>(s.welcome.controlPeriodMs);
+  }
+
+  Void setControl(Client& c, const Intent& in)
+  {
+      LockGuard<Mutex> held(c.ctlLock);
+      c.intent = in;
+  }
+
+  Intent controlIntent(Client& c)
+  {
+      LockGuard<Mutex> held(c.ctlLock);
+      return c.intent;
+  }
+
+  Void wantControlSlot(Client& c, Bool on)
+  {
+      c.wantSlot.store(on);
+  }
+
+  Bool controlSlotWanted(const Client& c)
+  {
+      return c.wantSlot.load();
+  }
+
+  Bool reconnect(Client& c)
+  {
+      if(!c.running.load())
+      {
+          return false;
+      }
+      // Copied BEFORE the close, because open() takes them as arguments and
+      // this is the one call site where the source and the destination are the
+      // same object.
+      const Str host = c.host;
+      const UInt16 port = c.port;
+      close(c);
+      return open(c, host.c_str(), port);
   }
 
 }

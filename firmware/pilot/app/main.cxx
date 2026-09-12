@@ -220,6 +220,15 @@ namespace
       Str     picoPort = "/dev/ttyACM0";
       Bool    dry = false;
       Bool    arm = false;
+
+      // MANUAL: a viewer's CONTROL writes steer and throttle instead of the
+      // autonomy. A startup flag and not something a held key can cause,
+      // because section 6 is explicit that the mode changes only through
+      // COMMAND SET_MODE - and until that verb is honoured, slipping into
+      // MANUAL because somebody took the control slot would be this program
+      // inventing a mode change nobody asked for.
+      Bool    manual = false;
+
       Float32 forwardDeg = 0.0f;
       Float64 seconds = -1.0;   // negative: until a signal
       Bool    feed = true;      // serve the scan feed on scanwire::PORT
@@ -228,10 +237,11 @@ namespace
   Void usage()
   {
       std::printf(
-          "pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N] [--no-feed]\n"
+          "pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm] [--forward DEG] [--seconds N] [--no-feed]\n"
           "  --lidar PORT   the C1's serial device        (default /dev/ttyUSB0)\n"
           "  --pico PORT    the car's serial device       (default /dev/ttyACM0)\n"
           "  --dry          never open the Pico; print each decision instead\n"
+          "  --manual       a viewer's CONTROL drives, not the autonomy\n"
           "  --arm          send ESC ARM once the link is up, so throttle is obeyed\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
           "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n"
@@ -240,6 +250,26 @@ namespace
           static_cast<unsigned>(scanwire::PILOT_PORT),
           scanwire::SCAN_FILE
       );
+  }
+
+  // WHO WRITES steer and throttle, in one place.
+  //
+  // This was `opt.dry ? 1u : 2u` written out at three separate sites - the BOARD
+  // frame, DECIDE's source, and CTLSTATE's Applied - and a fourth mode arriving
+  // would have had to be remembered at all three. Two of them agreeing and one
+  // not is the shape of bug this repo keeps finding, and it would show up as a
+  // viewer being refused for a mode disagreement the board reported as agreeing.
+  [[nodiscard]] UInt8 pilotModeOf(const Options& o)
+  {
+      if(o.dry)
+      {
+          return static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_LOOK);
+      }
+      if(o.manual)
+      {
+          return static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+      }
+      return static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
   }
 
   // The flag's value, or a refusal naming the flag. Advances `i` past it.
@@ -282,6 +312,10 @@ namespace
           {
               o.arm = true;
           }
+          else if(flag == "--manual")
+          {
+              o.manual = true;
+          }
           else if(flag == "--no-feed")
           {
               o.feed = false;
@@ -323,6 +357,17 @@ namespace
               std::printf("unknown argument '%s'\n\n", flag.c_str());
               return false;
           }
+      }
+
+      // INCOHERENT, not merely redundant. --dry never opens the Pico at all;
+      // MANUAL means a viewer's CONTROL is what writes to it. Accepting both
+      // would start a run that reports pilotMode MANUAL on the wire, invites a
+      // viewer to take the control slot and hold a key, and then sends the car
+      // nothing whatsoever - with every layer truthfully reporting success.
+      if(o.dry && o.manual)
+      {
+          std::printf("--dry and --manual contradict: a dry run never opens the Pico for CONTROL to drive\n");
+          return false;
       }
       return true;
   }
@@ -678,6 +723,7 @@ namespace
       Int32   lidarHealth = -1;
       Bool    lidarSpinning = false;
       Bool    dry = false;
+      UInt8   pilotMode = 2;       // who writes steer and throttle; see pilotModeOf
       Bool    picoOpen = false;
       Bool    picoHeard = false;
       Int32   picoSilentMs = -1;   // carlink's own number; -1 is no link
@@ -770,7 +816,7 @@ namespace
       // yet - one tick at startup, and the whole of a dry run, where there is no
       // port to ask down.
       b.picoArmed = s.picoArmed < 0 ? 2u : (s.picoArmed != 0 ? 1u : 0u);
-      b.pilotMode = s.dry ? 1u : 2u;   // --dry is LOOK; otherwise the autonomy drives
+      b.pilotMode = s.pilotMode;   // decided once per tick by pilotModeOf, not here
       b.lidarHealth = healthByte(s.lidarHealth);
       b.lidarSpinning = s.lidarSpinning ? 1u : 0u;
       b.picoSilentMs = s.picoSilentMs < 0
@@ -1118,6 +1164,13 @@ Int32 main(Int32 argc, Char** argv)
     Vec<UInt8>         quality;
     Vec<Str>           lines;
     Replies            replies;
+
+    // The last steering the operator actually commanded, in milli, kept ACROSS
+    // ticks because section 6's SOFT state holds it rather than centring it: a
+    // car that snaps straight mid-corner changes its line at the instant it
+    // stopped being commanded, which is the worst moment to change it. Only
+    // updated while the deadman is LIVE, so a stale link cannot keep writing it.
+    Int16 heldSteerMilli = 0;
     Str                lastFrame;   // the latest F line, for the scan file
 
     UInt64 revolutions = 0;
@@ -1215,7 +1268,7 @@ Int32 main(Int32 argc, Char** argv)
             }
             const UInt32 rev = got ? static_cast<UInt32>(revolutions) : 0u;
             bibowire::Decide decide = decideFrom(out, state.modeMs, rev);
-            decide.source = opt.dry ? 1u : 2u;
+            decide.source = pilotModeOf(opt);
             viewfeed::publishDecide(decide);
             const Float64 costUs = elapsedMs(before) * 1000.0;
             viewer.costSumUs += costUs;
@@ -1281,6 +1334,7 @@ Int32 main(Int32 argc, Char** argv)
         snap.lidarHealth = lidar::device().health;
         snap.lidarSpinning = lidar::isSpinning();
         snap.dry = opt.dry;
+        snap.pilotMode = pilotModeOf(opt);
         snap.picoOpen = !opt.dry && !link.lost;
         snap.picoHeard = link.heard;
         snap.picoSilentMs = opt.dry ? -1 : carlink::silentForMs();
@@ -1319,15 +1373,110 @@ Int32 main(Int32 argc, Char** argv)
             // it lasts forever - refuses tuning on "no Pico" long before this
             // is consulted.
             ap.armed = replies.armed > 0 ? 1u : 0u;
-            ap.pilotMode = opt.dry ? 1u : 2u;
+            ap.pilotMode = pilotModeOf(opt);
             ap.picoSilentMs = snap.picoSilentMs < 0
                 ? bibowire::PICO_SILENT_ABSENT
                 : static_cast<UInt32>(snap.picoSilentMs);
             viewfeed::applied(ap);
         }
 
-        const Str steerLine = proto::steer(out.steer);
-        const Str escLine = escLineFor(status, out, boardSilent, opt.arm);
+        // ---- who writes steer and throttle this tick --------------------------
+        //
+        // In MANUAL a viewer's CONTROL writes them and the autonomy does not.
+        // Section 6's chain, in its order:
+        //
+        //   ESTOP / DEAD  STOP to the Pico - neutral, disarm, release - and it
+        //                 does NOT recover on its own, because a link that came
+        //                 back is not the same fact as an operator who is ready.
+        //   SOFT          throttle forced to 0, steering HELD at the last
+        //                 commanded value rather than centred.
+        //   LIVE          obeyed. What control() returns is already gated: on an
+        //                 epoch or mode disagreement its throttle is 0 before it
+        //                 ever reaches this loop.
+        //
+        // SOMETHING IS SENT EVERY TICK IN EVERY STATE, which section 6 calls
+        // load-bearing and means literally: the Pico's own 400 ms deadman must
+        // fire only when this program has stopped running, never routinely, or
+        // it becomes a last resort nobody notices has gone off.
+        //
+        // No holder and no command are treated as the dead case, not as an idle
+        // one - in MANUAL the autonomy is not driving, so if the operator is not
+        // either then nobody is.
+        Str steerLine;
+        Str escLine;
+
+        // WHAT WAS ACTUALLY COMMANDED, for the once-a-second line below.
+        //
+        // That line printed out.steer and out.throttle whatever the mode, and in
+        // MANUAL the autonomy's numbers go nowhere at all - so a manual run with
+        // no viewer connected reported "steer +0.37 thr 0.24" while the only
+        // thing on the wire was STOP. A console that disagrees with the car is
+        // the same failure as a panel that does, and this one was mine.
+        //
+        // `modeWord` empty means "use describe()", which is right for the
+        // autonomy's modes and wrong for MANUAL: cruise / slow / blind describe
+        // a decision nobody is acting on, where the deadman's state is the thing
+        // an operator holding a key needs to see.
+        Int32 sentSteerMilli = static_cast<Int32>(out.steer * 1000.0f);
+        Int32 sentThrottleMilli = static_cast<Int32>(out.throttle * 1000.0f);
+        Str modeWord;
+
+        if(pilotModeOf(opt) == static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL))
+        {
+            const viewfeed::Drive dm = viewfeed::drive();
+            bibowire::Control cmd;
+            const Bool haveCmd = viewfeed::control(&cmd);
+
+            // Named by the protocol module rather than spelled again here, so
+            // the console, the viewer's panel and the board's CTLSTATE cannot
+            // come to disagree about what a 2 means. The range guard is for a
+            // byte that arrived wrong rather than for one this build can
+            // produce, and the safe reading of a wrong one is "stopped".
+            const bibowire::deadman::State ds = dm.deadman <= 3u
+                ? static_cast<bibowire::deadman::State>(dm.deadman)
+                : bibowire::deadman::State::STATE_DEAD;
+            modeWord = Str("manual ") + bibowire::deadman::stateName(ds);
+            if(!dm.haveHolder)
+            {
+                // Not a deadman state at all: with nobody holding the wheel the
+                // timer does not apply (section 6), and printing "live" here
+                // would read as a healthy link to a car nobody is driving.
+                modeWord = "manual  nobody holding";
+            }
+
+            if(dm.estopLatched || dm.deadman >= 2u || !dm.haveHolder || !haveCmd)
+            {
+                heldSteerMilli = 0;
+                escLine = proto::stop();
+                sentSteerMilli = 0;
+                sentThrottleMilli = 0;
+            }
+            else
+            {
+                if(dm.deadman == 0u)
+                {
+                    heldSteerMilli = cmd.steerMilli;
+                }
+                steerLine = proto::steer(static_cast<Float32>(heldSteerMilli) / 1000.0f);
+
+                // Throttle only while LIVE, only while this run is allowed to
+                // move the car, and only while the board is answering. The last
+                // of those is L3 and it stays: a cable this program cannot hear
+                // is not one to push throttle down.
+                const Bool mayPush = dm.deadman == 0u && opt.arm && !boardSilent;
+                escLine = mayPush && cmd.throttleMilli > 0
+                    ? proto::escUs(escPulseFor(static_cast<Float32>(cmd.throttleMilli) / 1000.0f))
+                    : proto::command("ESC", "NEUTRAL");
+
+                sentSteerMilli = heldSteerMilli;
+                sentThrottleMilli = mayPush ? cmd.throttleMilli : 0;
+            }
+        }
+        else
+        {
+            steerLine = proto::steer(out.steer);
+            escLine = escLineFor(status, out, boardSilent, opt.arm);
+        }
         if(opt.dry)
         {
             std::printf(
@@ -1340,8 +1489,20 @@ Int32 main(Int32 argc, Char** argv)
         }
         else
         {
-            sendLine(steerLine, link);
-            sendLine(escLine, link);
+            // Empty means "there is no such line this tick", which happens in
+            // MANUAL's stopped states: STOP already neutralises, disarms and
+            // releases, so a STEER beside it would be commanding a servo that
+            // was just released. An empty line written to the port would be a
+            // bare newline the Pico's parser has to classify, so it is skipped
+            // rather than sent.
+            if(!steerLine.empty())
+            {
+                sendLine(steerLine, link);
+            }
+            if(!escLine.empty())
+            {
+                sendLine(escLine, link);
+            }
 
             // The operator's trim, after the car's motion and before the
             // replies are read - so the OK or ERR the Pico answers each of
@@ -1378,12 +1539,13 @@ Int32 main(Int32 argc, Char** argv)
         // ---- once a second ----------------------------------------------------------
         if(elapsedMs(lastStatus) >= STATUS_EVERY_MS)
         {
+            const Str what = modeWord.empty() ? describe(status, out, got) : modeWord;
             std::printf(
                 "%6.1f s  %s  steer %+.2f  thr %.2f  %5.1f rev/s  timeouts %llu  %s\n",
                 elapsedS(start),
-                describe(status, out, got).c_str(),
-                static_cast<Float64>(out.steer),
-                static_cast<Float64>(out.throttle),
+                what.c_str(),
+                static_cast<Float64>(sentSteerMilli) / 1000.0,
+                static_cast<Float64>(sentThrottleMilli) / 1000.0,
                 snap.revPerS,
                 static_cast<unsigned long long>(snap.timeouts),
                 snap.pico.c_str()
