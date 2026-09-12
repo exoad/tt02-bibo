@@ -492,11 +492,23 @@ namespace camview
     // The switches, behind one button. Four toggles and six numbers do not fit
     // beside the rotate combo, and the row above the picture is what an operator
     // reaches for when the window is empty - it stays short.
-    Void drawOverlayMenu(View& v)
+    //
+    // THE BUTTON OPENS A PANEL, NOT A POPUP, and the popup was a bug. Clicking
+    // outside a Dear ImGui popup only closes it: the click is spent on the
+    // dismissal and never reaches the widget under the pointer. The guides are
+    // switched on in here, so the very next thing an operator does is reach
+    // for flip H or flip V with the popup still open - and that click did
+    // nothing, while the picture and the guides stayed exactly where they were.
+    // Measured by driving the real drawWindow headlessly and clicking the real
+    // checkbox: with the popup open flipY stayed 0, without it it went to 1.
+    // A panel drawn inline has no dismissal to eat the click.
+    Void drawOverlayToggle(View& v)
     {
-        if(ImGui::Button("overlays"))
+        // "###" keeps one id while the label changes, so this is the same item
+        // whichever way it currently points.
+        if(ImGui::Button(v.overlayPanel ? "overlays -###overlays" : "overlays +###overlays"))
         {
-            ImGui::OpenPopup("overlays");
+            v.overlayPanel = !v.overlayPanel;
         }
         if(ImGui::IsItemHovered())
         {
@@ -509,54 +521,57 @@ namespace camview
             );
         }
 
-        if(ImGui::BeginPopup("overlays"))
-        {
-            ImGui::TextUnformatted("uncalibrated - these lines are not measurements");
-            ImGui::Separator();
-            ImGui::Checkbox("crosshair", &v.showCross);
-            ImGui::Checkbox("reversing guides", &v.showGuides);
-            ImGui::Checkbox("centre box", &v.showBox);
-            ImGui::Checkbox("thirds", &v.showThirds);
-            ImGui::Separator();
-            ImGui::TextUnformatted("guides - drag until they match what you see");
-
-            ImGui::PushItemWidth(128.0f * uiScale);
-            ImGui::SliderInt("centre", &v.guideCentrePct, 10, 90, "%d%%");
-            ImGui::SliderInt("spread", &v.guideSpreadPct, 5, 60, "%d%%");
-            ImGui::SliderInt("converge", &v.guideConvergePct, 0, 40, "%d%%");
-            ImGui::SliderInt("near edge", &v.guideNearPct, 40, 100, "%d%%");
-            ImGui::SliderInt("far edge", &v.guideFarPct, 5, 95, "%d%%");
-
-            ImGui::Checkbox("bend with the wheels", &v.guideBend);
-            if(ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip(
-                    "The guides sweep with the steering, the way a reversing\n"
-                    "camera's do.\n\n"
-                    "The sweep is NOT calculated from the car. There is no\n"
-                    "wheelbase, no steering-angle map and no lens calibration\n"
-                    "in this project, so this is a shape you tune until it\n"
-                    "matches what the car actually does - and it still carries\n"
-                    "no distance and marks no real width.\n\n"
-                    "It follows where the wheels ARE, not what was asked for."
-                );
-            }
-            ImGui::SliderInt("bend", &v.guideBendPct, 0, 100, "%d%%");
-
-            ImGui::Separator();
-            ImGui::SliderInt("box", &v.boxPct, 5, 48, "%d%%");
-            ImGui::PopItemWidth();
-
-            ImGui::EndPopup();
-        }
-
-        // So the row says whether anything is being drawn without the popup
+        // So the row says whether anything is being drawn without the panel
         // having to be opened to find out.
         if(v.showCross || v.showGuides || v.showBox || v.showThirds)
         {
             ImGui::SameLine();
             ImGui::TextDisabled("on");
         }
+    }
+
+    Void drawOverlayPanel(View& v)
+    {
+        if(!v.overlayPanel)
+        {
+            return;
+        }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("uncalibrated - these lines are not measurements");
+        ImGui::Checkbox("crosshair", &v.showCross);
+        ImGui::Checkbox("reversing guides", &v.showGuides);
+        ImGui::Checkbox("centre box", &v.showBox);
+        ImGui::Checkbox("thirds", &v.showThirds);
+        ImGui::Separator();
+        ImGui::TextUnformatted("guides - drag until they match what you see");
+
+        ImGui::PushItemWidth(128.0f * uiScale);
+        ImGui::SliderInt("centre", &v.guideCentrePct, 10, 90, "%d%%");
+        ImGui::SliderInt("spread", &v.guideSpreadPct, 5, 60, "%d%%");
+        ImGui::SliderInt("converge", &v.guideConvergePct, 0, 40, "%d%%");
+        ImGui::SliderInt("near edge", &v.guideNearPct, 40, 100, "%d%%");
+        ImGui::SliderInt("far edge", &v.guideFarPct, 5, 95, "%d%%");
+
+        ImGui::Checkbox("bend with the wheels", &v.guideBend);
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "The guides sweep with the steering, the way a reversing\n"
+                "camera's do.\n\n"
+                "The sweep is NOT calculated from the car. There is no\n"
+                "wheelbase, no steering-angle map and no lens calibration\n"
+                "in this project, so this is a shape you tune until it\n"
+                "matches what the car actually does - and it still carries\n"
+                "no distance and marks no real width.\n\n"
+                "It follows where the wheels ARE, not what was asked for."
+            );
+        }
+        ImGui::SliderInt("bend", &v.guideBendPct, 0, 100, "%d%%");
+
+        ImGui::Separator();
+        ImGui::SliderInt("box", &v.boxPct, 5, 48, "%d%%");
+        ImGui::PopItemWidth();
     }
 
     // The controls, drawn whether or not there is a picture behind them.
@@ -586,7 +601,7 @@ namespace camview
         ImGui::SameLine();
         ImGui::Checkbox("flip V", &v.flipY);
         ImGui::SameLine();
-        drawOverlayMenu(v);
+        drawOverlayToggle(v);
 
         ImGui::SetNextItemWidth(-96.0f * uiScale);
         Int32 fps = v.fps;
@@ -606,6 +621,10 @@ namespace camview
                 "and never the car's view of the room."
             );
         }
+
+        // Under the rate slider rather than on the row above it, so opening it
+        // never pushes flip H and flip V somewhere the hand was not reaching.
+        drawOverlayPanel(v);
     }
 
     // The sentence for a window with no picture in it. Which of these is true
