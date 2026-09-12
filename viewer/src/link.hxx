@@ -283,6 +283,13 @@ namespace link
       Int64 staleAtMs = FRESH_MS;
       Int64 worstGapMs = 0;
 
+      // The widest gap between two CAPTURES, by the board's own clock - against
+      // worstGapMs above, which is the widest gap between two ARRIVALS by this
+      // viewer's. When they agree the link is carrying what the board makes;
+      // when arrivals are gappy and captures are not, the frames existed and
+      // something between here and there ate them.
+      Int64 worstCaptureMs = 0;
+
       Bool stale = false;
   };
 
@@ -384,6 +391,23 @@ namespace link
       UInt32 cameraFrames = 0;
       UInt32 missedCameraFrames = 0;
       Str cameraGapText;
+
+      // ---- the board's OWN capture clock ---------------------------------
+      //
+      // NOT a Cadence, and deliberately so: that type's whole contract is
+      // "arrival times only, it never looks at the board's clock", because the
+      // band it feeds answers "how long does this viewer wait between
+      // pictures". This answers a different question, and it is the one that
+      // makes a dropout diagnosable - "did the board STOP PRODUCING, or were
+      // frames produced and lost on the way here".
+      //
+      // Read together with missedCameraFrames the two classify every dropout:
+      //   frames missing, capture steady  -> lost in transit or at the ring
+      //   no frames missing, capture gap  -> the camera or pumpCamera stalled
+      // Neither number alone can tell those apart, which is why a log tailed on
+      // somebody else's machine was the wrong answer to this question.
+      UInt64 cameraBoardUs = 0;
+      Int64 cameraWorstCaptureMs = 0;
 
       // WHAT THIS VIEWER HAS SENT, not what the board has confirmed. There is
       // no acknowledgement for SUBSCRIBE in the protocol, so this is the
