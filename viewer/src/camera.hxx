@@ -184,6 +184,11 @@ namespace camview
       Bool showBox = false;
       Bool showThirds = false;
 
+      // Whether the overlay settings are showing under the controls row. A
+      // panel and NOT a popup - camera.cxx's drawOverlayToggle says why, and
+      // the short form is that a popup ate the first click on the flips.
+      Bool overlayPanel = false;
+
       // The guide trapezoid, in PERCENT of the frame - whole numbers on
       // purpose. A Float32 slider would be printed by ImGui through "%.2f",
       // whose decimal point honours the locale, and a machine set to a comma
