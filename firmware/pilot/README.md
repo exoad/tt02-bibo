@@ -172,14 +172,16 @@ A timed run that saw no revolution at all exits 1.
 
 ### Reaching the board
 
-Outdoors the board joins the phone's hotspot (`WhoopWhoop`, hidden) by itself
+Outdoors the board joins the phone's hotspot (hidden; the SSID is not recorded
+in this public repository) by itself
 at boot, and switches to it within 20 s whenever it appears while the board is
 on some other network (the `bibo-prefer-hotspot` timer; NetworkManager would
 otherwise stay put); join the laptop to the same hotspot and the two are on one
 LAN with nothing in between. The hotspot hands out addresses, so use the name: `ssh
-jack@bibobox.local` once mDNS is enabled on the board, or the tailnet address
-`jack@bibobox` (100.125.100.51) whenever the phone has data. docs/conventions.md
-"Link" has the whole picture.
+jack@bibobox.local` once mDNS is enabled on the board, or `jack@bibobox` over the
+tailnet whenever the phone has data. The literal address is not recorded here:
+this repository is public, and the name is what should be dialled regardless.
+docs/conventions.md "Link" has the whole picture.
 
 ### The status page
 
@@ -318,7 +320,7 @@ shell shows as "running elsewhere", which Stop on the page cannot stop. `BIBO_SC
     sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
 
 installs a systemd unit and a NetworkManager dispatcher hook, so the page
-starts when the board joins `WhoopWhoop` and stops when it leaves, and turns
+starts when the board joins the field hotspot and stops when it leaves, and turns
 mDNS on - both systemd-resolved's global switch and the profile's, since on
 this Ubuntu the second cannot exceed the first. Run it again after a pull; it
 is idempotent. `BIBO_STATUS_PORT=8080 python3 status_server.py` runs the page
@@ -394,7 +396,7 @@ behind) is dropped by either program rather than allowed to stall the others.
 Built only with the SDK, next to `pilot` and `lidar_probe`. On the board it
 runs as the systemd unit `bibo-scanfeed`, installed by the same
 `tools/status/install.sh` as the status page and started and stopped with the
-`WhoopWhoop` hotspot by the same dispatcher hook; `systemctl start
+field hotspot by the same dispatcher hook; `systemctl start
 bibo-scanfeed` runs it on any network. The unit points at
 `~jack/build-pilot-app/scanfeed` and the installer says so if that has not
 been built yet. By hand: `build-pilot/scanfeed [/dev/ttyUSB0]`, one log line

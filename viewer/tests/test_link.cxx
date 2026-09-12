@@ -214,7 +214,7 @@ static Size pushBoard(Vec<UInt8>& out, UInt64 tUs)
     m.armEpoch = 3;
     m.picoSilentMs = bibowire::PICO_SILENT_ABSENT;
     m.revolutions = 4412;
-    m.wifiName = "WhoopWhoop";
+    m.wifiName = "FieldPhone";
     Array<UInt8, 256> body = {};
     const Size n = bibowire::writeBoard(m, body.data(), body.size());
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_BOARD, body.data(), n);

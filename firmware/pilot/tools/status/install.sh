@@ -73,12 +73,31 @@ printf '[Resolve]\n# The car answers as %s.local on the field network; see insta
     "$(hostname)" > /etc/systemd/resolved.conf.d/10-bibo-mdns.conf
 systemctl restart systemd-resolved
 
-if nmcli -t -f NAME connection show | grep -qx WhoopWhoop; then
-    nmcli connection modify WhoopWhoop connection.mdns yes
-    nmcli connection modify WhoopWhoop connection.autoconnect-priority 10
-    echo "mDNS on for WhoopWhoop: the board answers as $(hostname).local there"
+# THE SSID IS NOT WRITTEN DOWN HERE. This repository is public, and the name of
+# a HIDDEN network is the half that makes it findable - so the profile name comes
+# from the environment, and the fallback is the board's own idea of which Wi-Fi
+# connection is active rather than a name baked into a file anybody can read.
+#
+# BIBO_HOTSPOT=<profile> ./install.sh   to name it explicitly.
+# NOT "whichever wireless network is active" - that is the home network when
+# this is run at home, and it would then get mDNS and autoconnect-priority 10,
+# raising the house to the hotspot's priority and quietly changing which network
+# the board prefers in a field. prefer-hotspot.sh picks by priority; so does
+# this, or the two disagree about what "the field network" means.
+#
+# On a fresh board nothing has a raised priority yet, so this resolves to
+# nothing and the else branch asks for BIBO_HOTSPOT. That is the correct
+# failure: refusing to guess beats guessing the wrong network.
+HOTSPOT="${BIBO_HOTSPOT:-$(nmcli -t -f NAME,TYPE,AUTOCONNECT-PRIORITY connection show 2>/dev/null \
+    | awk -F: '$2 == "802-11-wireless" && $3 > 0 { print $1; exit }')}"
+
+if [ -n "$HOTSPOT" ] && nmcli -t -f NAME connection show | grep -qxF "$HOTSPOT"; then
+    nmcli connection modify "$HOTSPOT" connection.mdns yes
+    nmcli connection modify "$HOTSPOT" connection.autoconnect-priority 10
+    echo "mDNS on for $HOTSPOT: the board answers as $(hostname).local there"
 else
-    echo "no WhoopWhoop profile - profile mDNS not touched; add the hotspot profile first"
+    echo "no wireless profile found - profile mDNS not touched."
+    echo "  join the hotspot first, or re-run as: BIBO_HOTSPOT=<profile> $0"
 fi
 
 systemctl restart bibo-status.service
@@ -93,7 +112,10 @@ fi
 # mDNS on the LIVE link, only when the hotspot is the live link: resolvectl
 # sets the running state, and there is no running hotspot link to set here
 # otherwise. The profile setting above covers the next connect.
-if nmcli -t -f NAME connection show --active | grep -qx WhoopWhoop; then
+# The same $HOTSPOT resolved above, not a second copy of the name: two blocks
+# with their own idea of which network this is would eventually disagree, and
+# the one that is wrong fails silently.
+if [ -n "$HOTSPOT" ] && nmcli -t -f NAME connection show --active | grep -qxF "$HOTSPOT"; then
     resolvectl mdns wlan0 yes
     echo "wlan0 now: $(resolvectl status wlan0 | grep -i protocols | sed 's/^ *//')"
 fi

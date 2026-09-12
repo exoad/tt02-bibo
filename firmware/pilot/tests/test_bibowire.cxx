@@ -233,7 +233,7 @@ struct Rng
         m.encodeAvgNs = 3100;
         m.encodeMaxNs = 9400;
         m.clients = 1;
-        m.wifiName = "WhoopWhoop";
+        m.wifiName = "FieldPhone";
         w.bodyLen = writeBoard(m, w.body.data(), w.body.size());
         push(&out, &w, Type::TYPE_BOARD, 9);
     }
@@ -629,14 +629,14 @@ Int32 main()
         check(back.picoSilentMs == PICO_SILENT_ABSENT, "picoSilentMs comes back 0xFFFFFFFF");
         check(back.lidarHealth == HEALTH_ABSENT, "lidarHealth comes back 255");
 
-        m.wifiName = "WhoopWhoop";
+        m.wifiName = "FieldPhone";
         m.battMilliV = 7412;
         m.cpuCentiC = -55;
         w.bodyLen = writeBoard(m, w.body.data(), w.body.size());
         check(w.bodyLen == 72 + 12, "with a 10-character wifi name it is 72 + pad(10)");
         check(wrap(&w, Type::TYPE_BOARD, 6), "and frames");
         check(readBoard(w.frame.body, 1, &back), "and reads back");
-        checkStr(back.wifiName, "WhoopWhoop", "the connection name survives");
+        checkStr(back.wifiName, "FieldPhone", "the connection name survives");
         check(back.battMilliV == 7412, "a real battery reading survives");
         check(back.cpuCentiC == -55, "and a negative temperature survives its sign");
 
@@ -928,7 +928,7 @@ Int32 main()
         );
         checkStr(
             rendered[i++],
-            "BOARD v1 seq=9 len=84 : mono=9 up=812 cpu=54.20 batt=n/a pico=up armed=1 mode=drive deadman=live health=good spin=1 epoch=3 holder=you loopWorst=1800 loopLate=0 picoSilent=41 revs=8123 timeouts=2 txDropped=0 rxCtl=16240 rxStale=3 ip=0xc0a82b07 encAvg=3100 encMax=9400 clients=1 wifi=\"WhoopWhoop\"",
+            "BOARD v1 seq=9 len=84 : mono=9 up=812 cpu=54.20 batt=n/a pico=up armed=1 mode=drive deadman=live health=good spin=1 epoch=3 holder=you loopWorst=1800 loopLate=0 picoSilent=41 revs=8123 timeouts=2 txDropped=0 rxCtl=16240 rxStale=3 ip=0xc0a82b07 encAvg=3100 encMax=9400 clients=1 wifi=\"FieldPhone\"",
             "describe: BOARD"
         );
         checkStr(

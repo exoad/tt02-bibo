@@ -11,7 +11,20 @@
 #
 # A rescan interrupts wlan0 for a moment, so it happens only while NOT on the
 # field network; on the hotspot this script costs one nmcli call and exits.
-FIELD=WhoopWhoop
+# THE SSID IS NOT WRITTEN DOWN HERE. This repository is public, and the name of
+# a HIDDEN network is exactly the half that makes it findable.
+#
+# BIBO_FIELD names it explicitly. Failing that, the field network is whichever
+# Wi-Fi profile install.sh gave the raised autoconnect-priority to - so a board
+# set up by that script keeps working with the name recorded nowhere but in
+# NetworkManager's own root-only store, beside the passphrase.
+#
+# IF THIS RESOLVES TO NOTHING THE SCRIPT DOES NOTHING, which is the right
+# failure: the alternative is guessing at a network and switching the board off
+# the one it is on. A silent no-op outdoors is survivable; a wrong switch is not.
+FIELD="${BIBO_FIELD:-$(nmcli -t -f NAME,TYPE,AUTOCONNECT-PRIORITY connection show 2>/dev/null \
+    | awk -F: '$2 == "802-11-wireless" && $3 > 0 { print $1; exit }')}"
+[ -z "$FIELD" ] && exit 0
 
 active=$(nmcli -t -f NAME,DEVICE connection show --active | grep ':wlan0$' | cut -d: -f1)
 [ "$active" = "$FIELD" ] && exit 0

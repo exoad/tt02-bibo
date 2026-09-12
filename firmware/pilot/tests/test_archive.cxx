@@ -204,7 +204,7 @@ struct Made
         m.picoLink = 1;
         m.pilotMode = 2;
         m.revolutions = 4412;
-        m.wifiName = "WhoopWhoop";
+        m.wifiName = "FieldPhone";
         n = writeBoard(m, b.data(), b.size());
         out.push_back(makeFrame(Type::TYPE_BOARD, 9, b.data(), n));
     }
@@ -682,7 +682,7 @@ Int32 main()
         check(bs.cpuCentiC == 5420, "BOARD cpuCentiC exact");
         checkStr(
             bs.wifiName,
-            "WhoopWhoop",
+            "FieldPhone",
             "BOARD wifi NAME survives - and no passphrase exists to"
         );
 

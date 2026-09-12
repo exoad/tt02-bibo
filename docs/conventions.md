@@ -107,16 +107,20 @@ loop.**
 ## Link
 
 **The field network is a phone hotspot.** Outdoors there is no router, so the
-phone makes one: SSID `WhoopWhoop`, hidden, WPA2-PSK. Everything on the local
-stack joins it - the laptop running the hub, the Orange Pi running the pilot,
-and the Pico 2 W once it has Wi-Fi - and they talk to each other across it.
+phone makes one: hidden, WPA2-PSK. The SSID is deliberately not written down
+here - this repository is public, and the name of a HIDDEN network is precisely
+the half that makes it findable; the passphrase was never here either, for the
+reason given below. Everything on the local stack joins it - the laptop running
+the hub, the Orange Pi running the pilot, and the Pico 2 W once it has Wi-Fi -
+and they talk to each other across it.
 Nothing in the control loop leaves the hotspot; the phone's data uplink is
 incidental (Tailscale rides on it when it is there, and `ssh jack@bibobox` keeps
 working through the tailnet), and nothing depends on it.
 
 The Orange Pi is configured (NetworkManager, 2026-09-07) to join the hotspot on
-its own at boot: connection `WhoopWhoop` on `wlan0`, `wifi.hidden yes`,
-`autoconnect yes`, priority above the home network. NetworkManager never leaves
+its own at boot: a NetworkManager connection named after the SSID on `wlan0`,
+with `wifi.hidden yes`, `autoconnect yes`, and priority above the home network.
+NetworkManager never leaves
 a working connection for another, so a root timer (`bibo-prefer-hotspot`, every
 20 s) switches to the hotspot whenever it is in the air while something else is
 active; when it goes away NM falls back on its own. The passphrase lives root-only
@@ -128,9 +132,12 @@ not numbered: the Pi is `bibobox` and answers as `bibobox.local` over mDNS
 (systemd-resolved's responder; `firmware/pilot/tools/status/install.sh` turns it
 on, globally AND per profile, because on Ubuntu 22.04 the profile setting alone
 cannot exceed the global one, which ships off). Windows and phones resolve
-`.local` natively. The tailnet address `100.125.100.51` also works whenever the
-phone has data. The hub's "car's address" field accepts a hostname for the same
-reason.
+`.local` natively. The board's tailnet name works whenever the phone has data;
+the address itself is deliberately not written down here, because this repository
+is public and because dialling by NAME is what the rest of this section argues
+for anyway - the hotspot hands out a different address every outing, so an
+address recorded in a document is wrong by the next time anyone reads it. The
+hub's "car's address" field accepts a hostname for the same reason.
 
 The Pi serves the dashboard at `http://bibobox.local/dash` - the live scan, the
 pilot's decision, the board's own state, and the manual driving controls - to a
