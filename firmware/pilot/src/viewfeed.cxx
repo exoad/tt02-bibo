@@ -47,6 +47,14 @@ namespace viewfeed
     constexpr Int64 PING_EVERY_MS = 1000;
     constexpr Int64 PONG_WAIT_MS = 4000;
 
+    // A camera frame is NOT QUEUED for a client whose PING has gone unanswered
+    // this long. See the camera send loop for why the keepalive has to be the
+    // clock: against a proxy the ring never fills, so nothing else can tell the
+    // path is backed up. 300 ms is far past a LAN's 2 ms and a hotspot's worst
+    // measured round trip, and far short of PONG_WAIT_MS, so it trips only on a
+    // path that is genuinely queueing and long before that path is dropped.
+    constexpr Int64 CAM_HOLD_PONG_MS = 300;
+
     constexpr Int64 CTLSTATE_EVERY_MS = 50;
     constexpr Int64 BOARD_EVERY_MS = 200;
 
@@ -234,6 +242,12 @@ namespace viewfeed
         TimePoint pingSentAt;
         UInt64 pingToken = 0;
         Bool pingOut = false;
+
+        // Camera frames not queued for this client because its PING was late -
+        // counted, and said once, because a picture that thins out for a
+        // reason nobody can see reads as a broken camera.
+        UInt64 camHeld = 0;
+        Bool camHoldSaid = false;
 
         TimePoint lastCtlAt;
 
@@ -1704,6 +1718,8 @@ namespace viewfeed
             bibowire::Ping m;
             if(bibowire::readPing(f.body, f.head.ver, &m) && m.token == c.pingToken)
             {
+                // This is also what lets a held camera resume - see the camera
+                // send loop's CAM_HOLD_PONG_MS.
                 c.pingOut = false;
             }
             break;
@@ -2652,6 +2668,40 @@ namespace viewfeed
             {
                 continue;
             }
+
+            // PACED BY THE KEEPALIVE, because nothing else on this board can see
+            // the path. CLASS_BULK only drops a picture when THIS client's ring
+            // is full, and the ring only fills when the socket stops taking
+            // bytes. Behind Tailscale in userspace-networking mode - the only
+            // mode this board's kernel allows, it has no TUN - the socket is
+            // loopback to tailscaled and never stops taking bytes: the pictures
+            // queue inside the proxy instead, the PING queues behind them, and
+            // the viewer was dropped "no PONG" every 8 to 21 seconds, releasing
+            // the control slot each time. Measured on 2026-09-12, and it is what
+            // "I cannot drive" was.
+            //
+            // A late PONG is the one signal that survives any proxy, so it is
+            // the clock: while this client's PING is overdue it gets no new
+            // pictures, the backlog drains, the PONG lands and the camera
+            // resumes. The picture thins out on a slow path - and the viewer
+            // counts the gap honestly as missed frames - rather than the
+            // connection, and the car with it, being lost.
+            if(c.pingOut && elapsedMs(c.pingSentAt) > static_cast<Float64>(CAM_HOLD_PONG_MS))
+            {
+                ++c.camHeld;
+                if(!c.camHoldSaid)
+                {
+                    c.camHoldSaid = true;
+                    std::printf(
+                        "viewfeed: camera to %s held while its PING is over %lld ms late - "
+                        "the path is slower than the picture; it resumes when the PONG lands\n",
+                        c.peer.c_str(),
+                        static_cast<long long>(CAM_HOLD_PONG_MS)
+                    );
+                }
+                continue;
+            }
+
             bibowire::Head h;
             h.type = bibowire::Type::TYPE_CAMERA;
             h.ver = 1;
@@ -3124,6 +3174,14 @@ namespace viewfeed
                 dumpNotes(c);
             }
             std::printf("viewfeed: %s dropped: %s\n", c.peer.c_str(), c.dropWhy.c_str());
+            if(c.camHeld > 0u)
+            {
+                std::printf(
+                    "viewfeed: %s had %llu camera frames held for a late PONG\n",
+                    c.peer.c_str(),
+                    static_cast<unsigned long long>(c.camHeld)
+                );
+            }
             ::close(c.fd);
         }
         clients.resize(kept);
