@@ -211,6 +211,16 @@ with nothing listening on 8020. The installer RESTARTS it so a rebuild takes
 effect, which stops a car that is being driven, and refuses to start it over a
 pilot somebody launched by hand: stop that one first.
 
+**The car's trim is kept on the board.** The Pico holds its servo limits,
+centre, ESC limits and slew rates in RAM and forgets them on every power cycle.
+Each value the viewer's Trim pane sets is saved to `~/.config/bibo/trim.txt`
+(`BIBO_TRIM_FILE` overrides) as the Pico's own command - `SERVOTRIM 1480` - and
+the pilot re-sends the whole file every time it opens the Pico, before any arm.
+It is safe to edit by hand; a line outside bibowire's hard limits is ignored.
+Delete it to go back to `cal.hxx`'s compiled numbers. In MANUAL, W is mapped
+onto the ESC limits the Pico reports, so widening them in the pane is what
+gives W more to work with.
+
 ### Seeing the lidar from the hub
 
 `tools/scanfeed` is the board's end of `src/scanwire.hxx`: a TCP server on

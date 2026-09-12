@@ -36,7 +36,7 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/autonomy.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx
-    src/feed.cxx src/bibowire.cxx src/viewfeed.cxx src/archive.cxx
+    src/feed.cxx src/bibowire.cxx src/viewfeed.cxx src/archive.cxx src/trimfile.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -104,7 +104,7 @@ enable_testing()
 # only prove that start() returns false - which test_pilot already proves for
 # the lidar and the link. On the board they exercise the feeds over loopback:
 # feed the hub's lines on 8011, viewfeed bibowire's frames on 8020.
-foreach(t proto pilot reactive scanwire feed bibowire viewfeed archive)
+foreach(t proto pilot reactive scanwire feed bibowire viewfeed archive trimfile)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})
