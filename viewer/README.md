@@ -127,6 +127,12 @@ dimensions change rather than every frame.
   independent corners, and the fit swaps width for height at 90 and 270. The
   corner arithmetic lives in `src/orient.cxx`, which names no ImGui or D3D type
   precisely so `viewer/tests` can hold it to an answer.
+- **The overlays do not follow rotate and flip.** Crosshair, reversing guides,
+  centre box and thirds are placed against the picture rectangle as drawn:
+  right is right on the screen and the bottom edge is the guides' near end,
+  whichever way the camera is mounted. They used to turn and mirror with the
+  picture's contents, which was correct arithmetic and meant re-placing every
+  guide each time a mount was corrected.
 - **It says why there is no picture**: not connected, handshaking, not
   subscribed yet, subscribed with nothing yet arrived, or too old — and any
   `EVENT` the board sent mentioning the camera is shown **verbatim** beside
