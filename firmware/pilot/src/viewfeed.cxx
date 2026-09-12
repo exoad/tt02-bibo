@@ -1947,6 +1947,27 @@ namespace viewfeed
                 return;
             }
 
+            // HANDLED FIRST, COMPACTED SECOND - and the order is the whole fix.
+            //
+            // f.body points INTO c.in. This used to memmove the rest of the ring
+            // down over the frame and only then call onFrame, so whenever a
+            // second frame had arrived in the same read, the first frame's body
+            // had already been overwritten by the second's by the time it was
+            // read. The CRC had passed, so nothing looked wrong: the handler
+            // simply read the wrong bytes. The comment here said the body was
+            // read "before anything refills the ring", and the memmove on the
+            // line above it was the refill.
+            //
+            // Found from the round-trip logs on 2026-09-12. A viewer that sent a
+            // PONG and its own PING back to back had the PONG read with the
+            // PING's token, so it never matched, the board's PING stayed
+            // outstanding, and the driver was dropped "no PONG" about six seconds
+            // into every session - with COMMANDs and TCP CONTROL exposed to the
+            // same corruption whenever anything followed them in one read.
+            if(t == bibowire::Take::TAKE_FRAME)
+            {
+                onFrame(c, f, clients);
+            }
             if(used > 0u && used <= c.inLen)
             {
                 if(t == bibowire::Take::TAKE_RESYNC)
@@ -1960,12 +1981,6 @@ namespace viewfeed
                 }
                 std::memmove(c.in.data(), c.in.data() + used, c.inLen - used);
                 c.inLen -= used;
-            }
-            if(t == bibowire::Take::TAKE_FRAME)
-            {
-                // The body points INTO c.in, and onFrame reads it before
-                // anything refills the ring.
-                onFrame(c, f, clients);
             }
         }
     }
