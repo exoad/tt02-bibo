@@ -192,8 +192,9 @@ using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
 
 // The exception: a TIMESTAMP that another process or machine will compare
-// with its own clock - the pilot's heartbeat file, read by the status page.
-// Never for an interval; see above.
+// with its own clock, or that must differ between two runs of one program - the
+// pilot's bootId, which a viewer compares across reconnects to notice that the
+// process behind the port is a new one. Never for an interval; see above.
 using WallClock = std::chrono::system_clock;
 using Millis = std::chrono::milliseconds;
 using Nanos = std::chrono::nanoseconds;

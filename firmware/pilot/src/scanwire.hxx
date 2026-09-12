@@ -73,14 +73,6 @@ namespace scanwire
   // second arbitrary number, so a person who knows one knows the other.
   constexpr UInt16 PILOT_PORT = PORT + 1;
 
-  // Where the PILOT leaves its latest revolution and decision for the board's
-  // own dashboard (tools/status/status_server.py serves it to the phone): the
-  // F line then the D line, rewritten whole through a rename each tick. A
-  // browser cannot open a TCP socket, and reading the feed as a client would
-  // make a standalone scanfeed spin the lidar for a page nobody is looking at;
-  // a file on tmpfs costs the pilot one write per revolution and nothing else.
-  constexpr CharSeq SCAN_FILE = "/tmp/bibo-scan.txt";
-
   // One measurement as the hub draws it: hub/src/lidar_source.hxx's LidarPoint,
   // spelled here so the pilot tree does not include the hub's.
   struct Sample
@@ -107,7 +99,7 @@ namespace scanwire
 
   // What the pilot decided about the revolution it just sent. Fractions here,
   // thousandths on the wire; the hub draws the corridor and the heading from
-  // it, the dashboard prints it.
+  // it.
   struct Drive
   {
       Str     mode;   // cruise slow stop reverse blind

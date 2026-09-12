@@ -116,9 +116,9 @@ namespace link
   constexpr Int64 CONNECT_MS = 3000;
 
   // 250, 500, 1000, 2000, 4000, then 4000 forever - each with +-20 % jitter,
-  // never giving up. Jitter because the viewer and the phone dashboard come back
-  // at the same instant when the hotspot returns, and two clients synchronised
-  // on one schedule hammer the board in lockstep.
+  // never giving up. Jitter because every viewer on the hotspot comes back at
+  // the same instant when it returns, and two clients synchronised on one
+  // schedule hammer the board in lockstep.
   constexpr Int32 BACKOFF_STEPS = 5;
   constexpr Int32 JITTER_PERCENT = 20;
 
@@ -420,7 +420,7 @@ namespace link
 
       // The board's last sentence ABOUT THE CAMERA, kept apart from the
       // general note list so the camera window can show it beside the empty
-      // rectangle it explains - "the phone dashboard has /dev/video0" is the
+      // rectangle it explains - "is something else holding /dev/video0?" is the
       // one thing that turns a blank window into an answer.
       //
       // Matched on the TEXT, which is a heuristic and is written down as one.

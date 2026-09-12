@@ -84,8 +84,8 @@
 // THE FEED RIDES ALONG
 //
 // While it drives, the pilot serves the same wire tools/scanfeed.cxx does -
-// src/feed.hxx on scanwire::PORT - so the hub and the board's own dashboard
-// can watch the car see. Each revolution goes out as the F line it was and is
+// src/feed.hxx on scanwire::PORT - so the hub, or `nc` from a phone in a
+// field, can watch the car see. Each revolution goes out as the F line it was and is
 // followed by a D line saying what was decided about it; a blind tick sends
 // only the D, so a viewer's mode and clearance stay live through the spin-up
 // and through a lost lidar rather than freezing on the last good picture.
@@ -98,18 +98,16 @@
 // The tick pays for none of it. publish() takes a mutex for a push and wakes
 // the feed thread, which does the sends; a viewer that stalls is dropped by
 // that thread, and a tick with no viewer connected pays for nothing at all.
-// The same F and D text goes to scanwire::SCAN_FILE on tmpfs for the status
-// page, a write and a rename. The exit summary prints what the two cost.
+// The exit summary prints what the publishes cost.
 //
-// The feed is on by default and --no-feed turns it off, the scan file with
-// it: the flag means "no viewers", not "no sockets". scanwire::PORT is the
+// The feed is on by default and --no-feed turns it off: the flag means "no
+// viewers", not "no sockets". scanwire::PORT is the
 // address, and when it is already taken - scanfeed idling under systemd,
 // which is the field case and one nobody on the board has root to stop -
 // the feed falls back to scanwire::PILOT_PORT and says so. scanfeed, finding
 // the lidar held, relays every viewer there, so the hub keeps dialing 8011
 // and sees the car drive. A feed that could not bind either is said once
-// and driven without, the file still written: the car does not wait for its
-// audience.
+// and driven without: the car does not wait for its audience.
 //
 // ---------------------------------------------------------------------------
 // WHAT IS COUNTED
@@ -161,13 +159,6 @@ namespace
   constexpr Int32 ESC_MAX_US = THROTTLE_CAL_MAX;
   static_assert(ESC_MAX_US > ESC_MIN_US, "cal.hxx throttle band is empty or inverted");
 
-  // Where the status page (tools/status/status_server.py) reads the pilot's
-  // last second from. One JSON object per write, rewritten whole once a second
-  // through a rename so a reader never sees half a line; tmpfs, so it is gone
-  // at reboot with the process it described. The page treats a file older than
-  // three seconds as "pilot not running" - the file is a heartbeat, not a log.
-  constexpr CharSeq STATUS_FILE = "/tmp/bibo-pilot.json";
-
   // What the board calls this build when it refuses a viewer's version. The
   // sentence is the useful part - "incompatible" alone sends a person to read
   // source in a field, and a stamp is what turns it into an action - so this is
@@ -179,28 +170,6 @@ namespace
 #else
   constexpr CharSeq BOARD_BUILD = __DATE__ " " __TIME__;
 #endif
-
-  // The whole file at once, through a rename, so a reader never sees half of
-  // it. The heartbeat and the scan file are both written this way.
-  Void writeWhole(CharSeq path, const Str& text)
-  {
-      const Str tmp = Str(path) + ".tmp";
-      std::FILE* f = std::fopen(tmp.c_str(), "w");
-      if(f == nullptr)
-      {
-          return;    // no /tmp here (a laptop): the page is a Linux thing
-      }
-      std::fputs(text.c_str(), f);
-      std::fclose(f);
-      static_cast<Void>(std::rename(tmp.c_str(), path));
-  }
-
-  [[nodiscard]] Float64 epochNow()
-  {
-      // Wall time, not the monotonic Clock everything else here uses: the page
-      // compares it with its own time.time() to say how old the heartbeat is.
-      return Duration<Float64>(WallClock::now().time_since_epoch()).count();
-  }
 
   // Written from the signal handler, read from the loop. volatile sig_atomic_t
   // is the one type the standard promises is safe to touch in a handler; the
@@ -245,10 +214,9 @@ namespace
           "  --arm          send ESC ARM once the link is up, so throttle is obeyed\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
           "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n"
-          "  --no-feed      no viewers: neither the scan feed on TCP %u (or %u) nor %s\n",
+          "  --no-feed      no viewers: no scan feed on TCP %u (or %u)\n",
           static_cast<unsigned>(scanwire::PORT),
-          static_cast<unsigned>(scanwire::PILOT_PORT),
-          scanwire::SCAN_FILE
+          static_cast<unsigned>(scanwire::PILOT_PORT)
       );
   }
 
@@ -693,7 +661,7 @@ namespace
   {
       Bool    serving = false;   // feed::start succeeded
       UInt64  frames = 0;        // F lines published
-      Float64 costMaxUs = 0.0;   // the longest publish + file write of any tick
+      Float64 costMaxUs = 0.0;   // the longest publish of any tick
       Float64 costSumUs = 0.0;
       UInt64  costTicks = 0;
       Bool    wire = false;      // viewfeed::start succeeded
@@ -701,25 +669,22 @@ namespace
 
   // ---- the board's state, filled ONCE a tick and read TWICE --------------------
 
-  // docs/bibowire.md section 5 puts one obligation on this file by name: the
-  // dashboard's JSON and the BOARD frame must be filled from the SAME STRUCT in
-  // the SAME TICK, so the phone and the viewer can never disagree about what the
-  // car thinks. This is that struct. Everything the page prints and everything
-  // the viewer is told about the board is derived from one instance of it,
-  // filled once per tick below; a second, independently-filled source is exactly
-  // what the rule forbids, and it is the shape a disagreement would take.
+  // docs/bibowire.md section 5 puts one obligation on this file by name: what
+  // the board says about itself must be filled from the SAME STRUCT in the SAME
+  // TICK, so no two readers can disagree about what the car thinks. The two
+  // readers are the console's once-a-second line and the BOARD frame, and this
+  // is that struct. Everything the console prints about the lidar and the link
+  // and everything the viewer is told about the board is derived from one
+  // instance of it, filled once per tick below; a second, independently-filled
+  // source is exactly what the rule forbids, and it is the shape a disagreement
+  // would take.
   struct Snapshot
   {
-      Float64 ts = 0.0;            // wall clock, for the page's staleness test
-      UInt64  monoUs = 0;          // the same instant on the monotonic clock
+      UInt64  monoUs = 0;          // the tick's instant on the monotonic clock
       UInt32  upS = 0;
-      Str     mode;                // the reactive mode word, or "blind"
-      Float32 clearanceMm = 0.0f;
-      Int32   hits = 0;
       Float64 revPerS = 0.0;
       UInt64  timeouts = 0;
       UInt64  revolutions = 0;
-      Bool    lidarLost = false;
       Int32   lidarHealth = -1;
       Bool    lidarSpinning = false;
       Bool    dry = false;
@@ -730,7 +695,7 @@ namespace
       Int32   picoArmed = -1;      // the car's own armed=; -1 is "it has not said"
       UInt64  replyOk = 0;
       UInt64  replyErr = 0;
-      Str     pico;                // the printed phrase, shared by all three readers
+      Str     pico;                // the printed phrase, built from the fields above
   };
 
   // -1 (the device did not answer) becomes 255, the wire's "unknown". A health
@@ -740,8 +705,9 @@ namespace
       return health >= 0 && health <= 2 ? static_cast<UInt8>(health) : bibowire::HEALTH_ABSENT;
   }
 
-  // The phrase the console prints, the page shows and the viewer is told - one
-  // string, so all three say the same thing about the car's link.
+  // The phrase the console prints about the car's link, built from the same
+  // snapshot fields the BOARD frame is, so the log cannot say something about
+  // the link that the viewer is not also told.
   [[nodiscard]] Str picoPhrase(const Snapshot& s)
   {
       Array<Char, 48> pico{};
@@ -772,37 +738,12 @@ namespace
       return Str(pico.data());
   }
 
-  // The heartbeat the status page reads. Byte-for-byte the object it has always
-  // been - the page is not changing - but now derived from the snapshot rather
-  // than from the locals, which is the whole point.
-  [[nodiscard]] Str jsonFrom(const Snapshot& s)
-  {
-      Array<Char, 320> json{};
-      std::snprintf(
-          json.data(),
-          json.size(),
-          "{\"ts\":%.3f,\"mode\":\"%s\",\"clearanceMm\":%.0f,\"hits\":%d,"
-          "\"revPerS\":%.1f,\"timeouts\":%llu,\"revolutions\":%llu,"
-          "\"lidarLost\":%s,\"pico\":\"%s\"}\n",
-          s.ts,
-          s.mode.c_str(),
-          static_cast<Float64>(s.clearanceMm),
-          s.hits,
-          s.revPerS,
-          static_cast<unsigned long long>(s.timeouts),
-          static_cast<unsigned long long>(s.revolutions),
-          s.lidarLost ? "true" : "false",
-          s.pico.c_str()
-      );
-      return Str(json.data());
-  }
-
-  // The same snapshot, as the viewer is told it. The fields this program cannot
+  // The snapshot, as the viewer is told it. The fields this program cannot
   // measure keep their ABSENT sentinels rather than being faked by a zero: 0 mV
   // is a real reading of a dead pack, and 0 centi-degrees is a real temperature.
   // viewfeed fills the few fields that are its own measurement - the deadman,
   // the epoch, the holder and its encode cost - because this file cannot know
-  // them and the page does not show them.
+  // them.
   [[nodiscard]] bibowire::BoardState boardFrom(const Snapshot& s)
   {
       bibowire::BoardState b;
@@ -1126,13 +1067,13 @@ Int32 main(Int32 argc, Char** argv)
         }
 
         // And bibowire, for the Windows viewer, on 8020. A separate socket and
-        // a separate module on purpose: feed.cxx moves LINES for the phone
-        // dashboard and must keep doing exactly that, because `nc bibobox.local
-        // 8011` from a phone is the field-debugging story this binary format
-        // spends and has to pay back.
+        // a separate module on purpose: feed.cxx moves LINES for the hub and
+        // must keep doing exactly that, because `nc bibobox.local 8011` from a
+        // phone is the field-debugging story this binary format spends and has
+        // to pay back.
         //
         // Never fatal. A board that could not bind 8020 still drives, still
-        // steers and still serves the dashboard; the viewer is an audience, and
+        // steers and still serves the text feed; the viewer is an audience, and
         // the car does not wait for its audience.
         viewfeed::Policy wire;
         wire.boardName = "bibobox";
@@ -1171,7 +1112,6 @@ Int32 main(Int32 argc, Char** argv)
     // stopped being commanded, which is the worst moment to change it. Only
     // updated while the deadman is LIVE, so a stale link cannot keep writing it.
     Int16 heldSteerMilli = 0;
-    Str                lastFrame;   // the latest F line, for the scan file
 
     UInt64 revolutions = 0;
     UInt64 timeouts = 0;
@@ -1235,21 +1175,16 @@ Int32 main(Int32 argc, Char** argv)
 
         // The viewers, before the car is told: the car's lines go to a serial
         // port that may stall for WRITE_WAIT_MS, and the feed's go to a queue
-        // that cannot. Timed, so the summary can say what they cost. The scan
-        // file carries the last revolution under this tick's decision, so the
-        // dashboard's mode goes blind when the feed's does.
+        // that cannot. Timed, so the summary can say what they cost.
         if(opt.feed)
         {
             const TimePoint before = monoNow();
-            const Str drive = driveLine(out, got);
             if(got)
             {
-                lastFrame = frameLine(rays, quality, dtMs);
                 ++viewer.frames;
-                feed::publish(lastFrame);
+                feed::publish(frameLine(rays, quality, dtMs));
             }
-            feed::publish(drive);
-            writeWhole(scanwire::SCAN_FILE, lastFrame + drive);
+            feed::publish(driveLine(out, got));
 
             // The same revolution and the same decision to the viewer, as
             // frames rather than lines. publish() is a push and a wake: the
@@ -1315,22 +1250,17 @@ Int32 main(Int32 argc, Char** argv)
         }
 
         // ---- the board's state, filled ONCE ------------------------------------------
-        // Read twice below: by the heartbeat the phone reads and by the BOARD
-        // frame the viewer reads. See Snapshot - this is the obligation
+        // Read twice below: by the BOARD frame the viewer reads and by the
+        // console's once-a-second line. See Snapshot - this is the obligation
         // docs/bibowire.md section 5 puts on this file, honoured by there being
         // one struct rather than two places that fill the same numbers.
         Snapshot snap;
-        snap.ts = epochNow();
         snap.monoUs = static_cast<UInt64>(elapsedS(start) * 1000000.0);
         snap.upS = static_cast<UInt32>(elapsedS(start));
-        snap.mode = got ? reactive::modeName(out.mode) : "blind";
-        snap.clearanceMm = out.clearanceMm;
-        snap.hits = out.corridorHits;
         const Float64 windowS = elapsedS(lastStatus);
         snap.revPerS = windowS > 0.0 ? static_cast<Float64>(windowRevs) / windowS : 0.0;
         snap.timeouts = timeouts;
         snap.revolutions = revolutions;
-        snap.lidarLost = lidarLost;
         snap.lidarHealth = lidar::device().health;
         snap.lidarSpinning = lidar::isSpinning();
         snap.dry = opt.dry;
@@ -1573,6 +1503,11 @@ Int32 main(Int32 argc, Char** argv)
         // ---- once a second ----------------------------------------------------------
         if(elapsedMs(lastStatus) >= STATUS_EVERY_MS)
         {
+            // The rate, the timeouts and the link phrase come from the SAME
+            // STRUCT the viewer's BOARD frame was filled from a few lines above,
+            // which is the whole of section 5's obligation on this file. The
+            // console and the viewer cannot disagree about them, because there
+            // is only one place the numbers come from.
             const Str what = modeWord.empty() ? describe(status, out, got) : modeWord;
             std::printf(
                 "%6.1f s  %s  steer %+.2f  thr %.2f  %5.1f rev/s  timeouts %llu  %s\n",
@@ -1586,13 +1521,6 @@ Int32 main(Int32 argc, Char** argv)
             );
             windowRevs = 0;
             lastStatus = now;
-
-            // The same second, for the phone - and from the SAME STRUCT the
-            // viewer's BOARD frame was filled from a few lines above, which is
-            // the whole of section 5's obligation on this file. The console,
-            // the page and the viewer cannot now disagree, because there is
-            // only one place the numbers come from.
-            writeWhole(STATUS_FILE, jsonFrom(snap));
 
             // A lost link is retried here, once a second, rather than every tick:
             // open() probes the device and a board that is being replugged does
@@ -1652,7 +1580,7 @@ Int32 main(Int32 argc, Char** argv)
         std::printf(
             "feed: %llu frames published to %s, viewer cost per tick avg %.0f us, max %.0f us\n",
             static_cast<unsigned long long>(viewer.frames),
-            viewer.serving ? "the feed and the scan file" : "the scan file only",
+            viewer.serving ? "the feed" : "nobody (the feed never bound)",
             viewer.costSumUs / static_cast<Float64>(viewer.costTicks),
             viewer.costMaxUs
         );
@@ -1686,15 +1614,12 @@ Int32 main(Int32 argc, Char** argv)
     carlink::close();
 
     // The viewers last: they were watching a car that has now stopped, and
-    // their sockets closing is how they learn it. The scan file goes with
-    // them - a revolution from a pilot that has exited is not a picture of
-    // anything, and the page reads its absence as "pilot not running".
+    // their sockets closing is how they learn it.
     feed::stop();
     // BYE(SHUTDOWN) with a sentence, rather than a socket that simply stops
     // answering: on this link silence already means four other things, and the
     // one time the board knows why it is going is the one time it can say so.
     viewfeed::stop();
-    static_cast<Void>(std::remove(scanwire::SCAN_FILE));
 
     // A signal is a person asking, and 0 is the answer to a request that was
     // carried out. A timed run that saw no revolution at all is the other case:

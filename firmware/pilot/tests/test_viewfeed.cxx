@@ -53,10 +53,10 @@
 // WHAT THIS SUITE DOES NOT PROVE, said out loud rather than left to be assumed.
 // /dev/video0 is SINGLE-OPENER - measured: a second streamer gets
 // "VIDIOC_REQBUFS returned -1 (Device or resource busy)" and writes zero bytes
-// - and the phone dashboard (tools/status/status_server.py) opens the same
-// device. A ctest that grabbed it would fight the dashboard on the very board
-// it runs on and would pass or fail depending on whether somebody had a tab
-// open. So BIBO_CAM_DEV is pointed at a device that does not exist for the
+// - and the pilot already running on the board holds it whenever a viewer is
+// watching. A ctest that grabbed it would fight that pilot on the very board
+// it runs on and would pass or fail depending on whether somebody was
+// streaming. So BIBO_CAM_DEV is pointed at a device that does not exist for the
 // whole run, and what is checked is the BOARD's behaviour: the subscription
 // gate, and that an absence arrives with a reason. That a JPEG actually comes
 // off the sensor and reaches a viewer is NOT checked here.
