@@ -3121,6 +3121,20 @@ namespace link
           note.severity = m.severity;
           note.text = m.text;
           note.atMs = nowMs;
+
+          // THE BOARD'S SAVED TRIM is state, not news: kept where the Trim pane
+          // takes it from, and still listed as a note in words, so the list
+          // shows when the car's trim was saved.
+          if(m.code == bibowire::EVENT_CODE_TRIM)
+          {
+              s.haveBoardTrim = true;
+              s.boardTrimText = m.text;
+              s.boardTrimAtMs = nowMs;
+              ++s.boardTrimCount;
+              note.text = m.text.empty()
+                  ? Str("the board has no saved trim - the Pico is on its compiled values")
+                  : "trim saved on the board: " + m.text;
+          }
           if(m.droppedSince > 0u)
           {
               note.text += " (+" + numberText(m.droppedSince) + " suppressed)";

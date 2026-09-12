@@ -281,6 +281,7 @@ namespace viewfeed
         WHAT_BOARD,
         WHAT_LIDAR,
         WHAT_EVENT,
+        WHAT_TRIM,
     };
 
     struct Item
@@ -383,6 +384,12 @@ namespace viewfeed
     Bool haveBoard = false;
     bibowire::LidarInfo lastLidar;
     Bool haveLidar = false;
+
+    // The trim the board has saved, as trimfile::report writes it. Remembered
+    // for the board state's reason: a viewer welcomed a moment from now is owed
+    // it at once, not at the next save, which may never come.
+    Str lastTrim;
+    Bool haveTrim = false;
     TimePoint lastBoardAt;
     Bool boardSent = false;
 
@@ -1091,6 +1098,22 @@ namespace viewfeed
         return b;
     }
 
+    // THE SAVED TRIM, as an EVENT under bibowire::EVENT_CODE_TRIM. Never through
+    // the event rate limiter: it is state rather than news, it goes out only on
+    // a welcome and on a save, and a report the limiter swallowed would leave a
+    // Trim pane showing its laptop's numbers as though they were the car's.
+    Void emitTrim(Client& c)
+    {
+        bibowire::Event e;
+        e.tMonoUs = monoUs();
+        e.severity = bibowire::Severity::SEVERITY_INFO;
+        e.code = bibowire::EVENT_CODE_TRIM;
+        e.text = lastTrim;
+        emit(c, bibowire::Type::TYPE_EVENT, [&e](UInt8* out, Size cap) {
+            return bibowire::writeEvent(e, out, cap);
+        });
+    }
+
     Void sendState(Client& c)
     {
         // LIDAR_INFO then BOARD, then the next SCAN. State before scan, always,
@@ -1108,6 +1131,10 @@ namespace viewfeed
             emit(c, bibowire::Type::TYPE_BOARD, [&b](UInt8* out, Size cap) {
                 return bibowire::writeBoard(b, out, cap);
             });
+        }
+        if(haveTrim)
+        {
+            emitTrim(c);
         }
     }
 
@@ -3238,6 +3265,17 @@ namespace viewfeed
             }
             break;
         }
+        case What::WHAT_TRIM:
+            lastTrim = item.event.text;
+            haveTrim = true;
+            for(Client& c : clients)
+            {
+                if(wants(c, bibowire::Type::TYPE_EVENT))
+                {
+                    emitTrim(c);
+                }
+            }
+            break;
         }
     }
 
@@ -3843,6 +3881,8 @@ namespace viewfeed
       holderGone = false;
       haveBoard = false;
       haveLidar = false;
+      haveTrim = false;
+      lastTrim.clear();
       boardSent = false;
       haveScan = false;
       eventWindowOpen = false;
@@ -3928,6 +3968,29 @@ namespace viewfeed
       Item item;
       item.what = What::WHAT_LIDAR;
       item.lidar = i;
+      item.at = monoNow();
+      post(std::move(item));
+  }
+
+  Void publishTrim(const Str& report)
+  {
+      if(!running)
+      {
+          return;
+      }
+      // WHOLE LINES OR NOTHING. A report cut at the EVENT's text limit could end
+      // "SLEW THROTTLE 2" where the setting is 200, and the viewer would take
+      // that as a number. The five settings are about 100 characters, so this
+      // never runs - and if it ever does, it drops lines rather than digits.
+      Str text = report;
+      while(text.size() > bibowire::MAX_EVENT_TEXT)
+      {
+          const Size cut = text.rfind("; ");
+          text = cut == Str::npos ? Str() : text.substr(0, cut);
+      }
+      Item item;
+      item.what = What::WHAT_TRIM;
+      item.event.text = text;
       item.at = monoNow();
       post(std::move(item));
   }
@@ -4112,6 +4175,11 @@ namespace viewfeed
   Void publishLidarInfo(const bibowire::LidarInfo& i)
   {
       static_cast<Void>(i);
+  }
+
+  Void publishTrim(const Str& report)
+  {
+      static_cast<Void>(report);
   }
 
   Void publishEvent(bibowire::Severity severity, UInt8 code, const Str& text)

@@ -582,6 +582,27 @@ static Bool clientsReach(Size want, Int32 ms)
     return m.sessionId;
 }
 
+// The next EVENT carrying the board's saved trim, skipping any other EVENT, or
+// false when none arrives. A trim report is an EVENT by design, so a check that
+// took the first EVENT of any kind could be reading some other sentence.
+[[nodiscard]] static Bool nextTrim(Wire& w, Str& text)
+{
+    for(Int32 tries = 0; tries < 8; ++tries)
+    {
+        if(!w.nextOf(bibowire::Type::TYPE_EVENT, 1000))
+        {
+            return false;
+        }
+        bibowire::Event e;
+        if(bibowire::readEvent(w.f.body, w.f.head.ver, &e) && e.code == bibowire::EVENT_CODE_TRIM)
+        {
+            text = e.text;
+            return true;
+        }
+    }
+    return false;
+}
+
 Int32 main()
 {
     std::printf("\nviewfeed - bibowire's socket half, over loopback\n\n");
@@ -1797,6 +1818,49 @@ Int32 main()
         check(echoed.size() == 2u && echoed[1] == tokens[1], "and the second with its own");
 
         w.close();
+        viewfeed::stop();
+    }
+
+    // ---- 20. the saved trim, told on WELCOME and again on every save ----------------
+    //
+    // The Trim pane can only show the car's numbers if the board says them, and a
+    // report that reached only the viewers connected at the moment of a save
+    // would leave every viewer that connects later showing its own laptop's copy
+    // as though it were the car's - the drift this exists to end. So the second
+    // viewer below connects AFTER the first has already been told, which means
+    // the publish has been taken by the server thread and WELCOME is the only
+    // path left that can reach it.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for the trim report");
+        const UInt16 port = viewfeed::port();
+        viewfeed::publishTrim("SERVOTRIM 1485");
+
+        Wire first;
+        check(first.connect(port), "a viewer connects");
+        check(handshake(first, 0, 0) != 0u, "and is welcomed");
+        Str text;
+        check(nextTrim(first, text), "it is told the trim the board has saved");
+        checkStr(text, "SERVOTRIM 1485", "as the Pico's own line");
+
+        Wire later;
+        check(later.connect(port), "a second viewer connects after that");
+        check(handshake(later, 0, 0) != 0u, "and is welcomed");
+        text.clear();
+        check(nextTrim(later, text), "and is told it too, on WELCOME - not left waiting for the next save");
+        checkStr(text, "SERVOTRIM 1485", "the same report");
+
+        viewfeed::publishTrim("SERVOLIMITS 1230 1660; SERVOTRIM 1490");
+        check(nextTrim(first, text), "a save is told to a viewer already connected");
+        checkStr(text, "SERVOLIMITS 1230 1660; SERVOTRIM 1490", "with the whole saved set");
+        check(nextTrim(later, text), "and to every other viewer");
+        checkStr(text, "SERVOLIMITS 1230 1660; SERVOTRIM 1490", "the same set");
+
+        viewfeed::publishTrim("");
+        check(nextTrim(first, text), "a board with nothing saved still says so");
+        check(text.empty(), "as an empty report, which is an answer");
+
+        first.close();
+        later.close();
         viewfeed::stop();
     }
 

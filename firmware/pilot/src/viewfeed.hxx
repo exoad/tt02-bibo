@@ -192,6 +192,15 @@ namespace viewfeed
   // change. State before scan, always.
   Void publishLidarInfo(const bibowire::LidarInfo& i);
 
+  // The trim the board has saved, as trimfile::report writes it - empty when
+  // nothing is saved. Remembered like the board state and the device: every
+  // viewer is told it straight after WELCOME, and every viewer is told again on
+  // each call, as an EVENT under bibowire::EVENT_CODE_TRIM that bypasses the
+  // event rate limiter. A report that reached only the viewers connected at the
+  // moment of a save would leave every later one showing its own laptop's copy
+  // as though it were the car's.
+  Void publishTrim(const Str& report);
+
   // The prose channel: every lidar::reason(), every carlink::detail(), every
   // refusal sentence the board already writes for a person, verbatim.
   // Rate-limited to 10/s, with the suppressed count carried in the next one so

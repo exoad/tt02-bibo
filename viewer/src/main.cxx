@@ -893,13 +893,29 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     // slider. Into the panes ONLY: nothing is sent to the car here, because the
     // board keeps its own saved copy and re-sends it to the Pico itself. Pushing
     // this laptop's copy is the Trim pane's "send all to the car", taken on
-    // purpose - see settings.hxx.
+    // purpose - see settings.hxx. And once connected, the board's own saved trim
+    // replaces these in the sliders (trimview::follow): the car's copy wins.
     const Str settingsPath = settings::defaultPath();
     {
         settings::Values loaded = settings::capture(trim, drive);
         if(settings::load(settingsPath, loaded).has_value())
         {
             settings::apply(loaded, trim, drive);
+        }
+        else
+        {
+            // THE OLD HOME, read once. Until 2026-09-12 the file lived beside
+            // bibo.exe in viewer\build, where build.bat clean deletes it. A
+            // laptop that still has one there keeps its numbers, and they are
+            // written to the new home at once so this branch does not run again.
+            // The old file is left alone - nothing reads it once the new one
+            // exists, and deleting a person's file is not this program's call.
+            const Str oldPath = settings::legacyPath();
+            if(!oldPath.empty() && oldPath != settingsPath && settings::load(oldPath, loaded).has_value())
+            {
+                settings::apply(loaded, trim, drive);
+                settings::save(settingsPath, settings::capture(trim, drive));
+            }
         }
     }
 
@@ -1006,6 +1022,11 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         drawViewWindow(sc, cam, trim, drive);
         drawCarWindow(snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
+
+        // THE BOARD'S SAVED TRIM INTO THE SLIDERS, before they are drawn and
+        // before the settings check below - so the laptop's file follows the
+        // car - and on every frame whether or not the Trim window is open.
+        trimview::follow(trim, snap);
         trimview::drawWindow(trim, net.client, snap, nowMs);
 
         // LAST, and every frame whether or not its window is open: this call is

@@ -224,12 +224,12 @@ static Size pushBoard(Vec<UInt8>& out, UInt64 tUs)
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_BOARD, body.data(), n);
 }
 
-static Size pushEvent(Vec<UInt8>& out, const Str& text, UInt16 dropped)
+static Size pushEvent(Vec<UInt8>& out, const Str& text, UInt16 dropped, UInt8 code = 7)
 {
     bibowire::Event m;
     m.tMonoUs = 900000;
     m.severity = bibowire::Severity::SEVERITY_WARN;
-    m.code = 7;
+    m.code = code;
     m.droppedSince = dropped;
     m.text = text;
     Array<UInt8, 256> body = {};
@@ -1240,6 +1240,83 @@ static Void testCameraRefusal()
     );
 }
 
+static Void testBoardTrim()
+{
+    std::printf("\n-- the trim the board has saved, taken into the pane --\n");
+
+    const Char* FULL = "SERVOLIMITS 1200 1700; ESCLIMITS 1564 1700; SERVOTRIM 1470; SLEW STEER 22; SLEW THROTTLE 14";
+
+    link::Session s;
+    check(!s.haveBoardTrim, "nothing is claimed before the board says anything");
+
+    Vec<UInt8> wire;
+    static_cast<Void>(pushEvent(wire, FULL, 0, bibowire::EVENT_CODE_TRIM));
+    static_cast<Void>(feed(s, wire, 1000));
+    check(s.haveBoardTrim, "an EVENT under EVENT_CODE_TRIM is kept as the board's saved trim");
+    checkStr(s.boardTrimText, FULL, "verbatim");
+    check(s.boardTrimCount == 1u && s.boardTrimAtMs == 1000, "counted and stamped, so the pane takes it once");
+    check(
+        s.notes.size() == 1 && s.notes[0].text.rfind("trim saved on the board: ", 0) == 0,
+        "and listed in words as a note"
+    );
+
+    // THE CODE DECIDES, NOT THE TEXT. A sentence that happens to contain a trim
+    // line is not the board's saved trim.
+    Vec<UInt8> other;
+    static_cast<Void>(pushEvent(other, "SERVOTRIM 1500", 0));
+    static_cast<Void>(feed(s, other, 1010));
+    checkStr(s.boardTrimText, FULL, "an EVENT under another code is not taken as trim, whatever its text");
+    check(s.boardTrimCount == 1u, "and is not counted as a report");
+
+    Vec<UInt8> none;
+    static_cast<Void>(pushEvent(none, "", 0, bibowire::EVENT_CODE_TRIM));
+    static_cast<Void>(feed(s, none, 1020));
+    check(s.haveBoardTrim && s.boardTrimText.empty(), "an empty report says the board has nothing saved");
+    check(s.boardTrimCount == 2u, "and is a report of its own");
+
+    // ---- into the sliders ----
+    trimview::View v;
+    check(trimview::adoptReport(v, FULL) == 5, "all five settings are taken");
+    check(v.steerMinUs == 1200 && v.steerMaxUs == 1700 && v.steerTrimUs == 1470, "the steering limits and centre");
+    check(v.escMinUs == 1564 && v.escMaxUs == 1700, "the throttle limits");
+    check(v.steerSlewUs == 22 && v.throttleSlewUs == 14, "and both rates, each on its own axis");
+
+    trimview::View part;
+    check(trimview::adoptReport(part, "SERVOTRIM 1490") == 1, "a board that saved only a centre gives one setting");
+    check(
+        part.steerTrimUs == 1490
+            && part.steerMinUs == trimview::STEER_MIN_DEFAULT
+            && part.escMaxUs == trimview::ESC_MAX_DEFAULT
+            && part.throttleSlewUs == trimview::THROTTLE_SLEW_DEFAULT,
+        "which moves the centre and leaves every other slider where it was"
+    );
+
+    trimview::View junk;
+    const Int32 junkTaken = trimview::adoptReport(
+        junk,
+        "SERVOTRIM 1490x; ESCLIMITS 1564; SLEW SIDEWAYS 9; ESC ARM; SERVOLIMITS 1200 1700 1800; SERVOTRIM -5"
+    );
+    check(junkTaken == 0, "a malformed line is skipped whole, never half-read");
+    check(
+        junk.steerTrimUs == trimview::STEER_CENTRE_DEFAULT
+            && junk.escMinUs == trimview::ESC_MIN_DEFAULT
+            && junk.steerSlewUs == trimview::STEER_SLEW_DEFAULT,
+        "so nothing moved"
+    );
+
+    trimview::View wild;
+    check(trimview::adoptReport(wild, "ESCLIMITS 900 3000") == 1, "limits past the hard range are taken");
+    check(
+        wild.escMinUs == static_cast<Int32>(bibowire::ESC_US_HARD_MIN)
+            && wild.escMaxUs == static_cast<Int32>(bibowire::ESC_US_HARD_MAX),
+        "and settled to the sliders' own range"
+    );
+
+    trimview::View blank;
+    check(trimview::adoptReport(blank, "") == 0, "an empty report takes nothing");
+    check(blank.steerTrimUs == trimview::STEER_CENTRE_DEFAULT, "and leaves the laptop's copy standing");
+}
+
 static Void testSubscriptionMask()
 {
     std::printf("\n-- the mask, which is why any of this arrives at all --\n");
@@ -1965,6 +2042,18 @@ static Void testSettingsText()
     );
     check(!none.has_value(), "a missing file loads nothing");
     check(untouched == tuned, "and changes nothing");
+
+    // WHERE IT LIVES. Beside bibo.exe is inside viewer\build, which build.bat
+    // clean deletes - the file moved to a folder of its own so a rebuild cannot
+    // throw an operator's tuning away. Nothing is written here; only the paths.
+    const Str home = settings::defaultPath();
+    const Str old = settings::legacyPath();
+    const StrView tail = "\\bibo\\bibo-viewer-settings.ini";
+    check(
+        home.size() > tail.size() && StrView(home).substr(home.size() - tail.size()) == tail,
+        "the settings live in a bibo folder of their own"
+    );
+    check(!old.empty() && home != old, "which is not the old place beside bibo.exe");
 }
 
 static Void testEnableOnEveryDatagram()
@@ -2395,6 +2484,7 @@ int main()
     testCameraStaleness();
     testCameraGaps();
     testCameraRefusal();
+    testBoardTrim();
     testSubscriptionMask();
     testCommandIds();
     testCommandEncoding();

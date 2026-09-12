@@ -270,6 +270,28 @@ namespace settings
 
   Str defaultPath()
   {
+      // A folder of its own under the roaming profile - settings.hxx says why
+      // not beside the exe any more.
+      constexpr const wchar_t* DIR_NAME = L"bibo";
+      WidePath appData = {};
+      const DWORD cap = static_cast<DWORD>(appData.size());
+      const DWORD n = ::GetEnvironmentVariableW(L"APPDATA", appData.data(), cap);
+      // n >= cap is the buffer being too small, answered with the size needed.
+      if(n == 0 || n >= cap)
+      {
+          vlog::line("settings: APPDATA is not set - the settings stay beside bibo.exe");
+          return legacyPath();
+      }
+      WidePath full = {};
+      if(std::swprintf(full.data(), full.size(), L"%ls\\%ls\\%ls", appData.data(), DIR_NAME, FILE_NAME) < 0)
+      {
+          return legacyPath();
+      }
+      return utf8Of(full);
+  }
+
+  Str legacyPath()
+  {
       WidePath exe = {};
       const DWORD cap = static_cast<DWORD>(exe.size());
       const DWORD n = ::GetModuleFileNameW(nullptr, exe.data(), cap);
@@ -378,6 +400,22 @@ namespace settings
       {
           vlog::line("settings: NOT saved - the path is too long for its .tmp beside it");
           return false;
+      }
+
+      // THE FOLDER FIRST. The bibo folder under APPDATA does not exist until
+      // this viewer has saved once, and CreateFileW will not make a directory.
+      // One level, which is all defaultPath() adds. ERROR_ALREADY_EXISTS is the
+      // usual answer; anything else is reported by the CreateFileW below, with
+      // the file's name on it.
+      WidePath folder = wide;
+      for(Size i = std::wcslen(folder.data()); i > 0; --i)
+      {
+          if(folder[i - 1] == L'\\' || folder[i - 1] == L'/')
+          {
+              folder[i - 1] = L'\0';
+              static_cast<Void>(::CreateDirectoryW(folder.data(), nullptr));
+              break;
+          }
       }
 
       const Str text = toText(settle(v));

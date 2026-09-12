@@ -203,6 +203,20 @@ namespace trimfile
       return out;
   }
 
+  Str report(const Store& s)
+  {
+      Str out;
+      for(const Str& line : lines(s))
+      {
+          if(!out.empty())
+          {
+              out += "; ";
+          }
+          out += line;
+      }
+      return out;
+  }
+
   Store parse(const Str& text)
   {
       Store s;

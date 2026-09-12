@@ -433,6 +433,17 @@ namespace link
       Str cameraNoteText;
       Int64 cameraNoteAtMs = 0;
 
+      // THE TRIM THE BOARD HAS SAVED, as it last said: the Pico's own lines
+      // joined by "; ", EMPTY when nothing is saved. See bibowire's
+      // EVENT_CODE_TRIM - matched on the code, the structured match the camera
+      // note above is still waiting for. boardTrimAtMs and boardTrimCount
+      // together name one report, so the Trim pane takes each report exactly
+      // once, including a second one whose text is the same as the first.
+      Bool haveBoardTrim = false;
+      Str boardTrimText;
+      Int64 boardTrimAtMs = 0;
+      UInt32 boardTrimCount = 0;
+
       // WHAT EACH FEED IS DELIVERING AT, one per feed and deliberately not one
       // shared number. The camera runs at 2 fps and the scan at 10 Hz on the
       // same connection, so a single cadence would hold each of them to the

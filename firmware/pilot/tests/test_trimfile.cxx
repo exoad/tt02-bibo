@@ -103,6 +103,13 @@ static Void testOrderAndText()
     const trimfile::Store back = trimfile::parse(trimfile::render(s));
     check(trimfile::lines(back) == order, "rendered and parsed, the store is unchanged");
 
+    checkStr(
+        trimfile::report(s),
+        "SERVOLIMITS 1230 1660; ESCLIMITS 1564 1700; SERVOTRIM 1480; SLEW STEER 22; SLEW THROTTLE 14",
+        "the report a viewer is told is the same lines in the same order, on one line"
+    );
+    check(trimfile::report(trimfile::Store()).empty(), "and a car nobody has tuned reports nothing");
+
     const Str edited =
         "# a comment\n"
         "SERVOTRIM 1470\r\n"

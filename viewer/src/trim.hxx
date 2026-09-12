@@ -15,10 +15,18 @@
 // The Pico holds these in RAM and forgets them on a reboot, so the Pico is not
 // where they are kept. THE BOARD saves every tuning change it accepts to a file
 // on the Pi and re-sends the whole set whenever the Pico connects, and THIS
-// LAPTOP saves the pane's values too (settings.hxx, beside bibo.exe). Two copies
-// can drift apart - a change made from another viewer, or one the board refused
-// - which is why the window has a "send all to the car" button, and why it says
-// in one line where the values live rather than leaving that to this comment.
+// LAPTOP saves the pane's values too (settings.hxx, in a bibo folder under
+// APPDATA).
+//
+// THE BOARD'S COPY WINS. Two copies drift - a change made from another viewer, a
+// laptop that was off, a file edited by hand on the Pi - and a pane that showed
+// its own copy as though it were the car's is how an operator came to believe
+// in a trim the car never had. So the board tells every viewer what it has
+// saved, on WELCOME and after it saves (bibowire's EVENT_CODE_TRIM), follow()
+// takes each report into the sliders, and the laptop's file follows the
+// sliders. A board with NOTHING saved says so, the sliders keep the laptop's
+// copy, and "send all to the car" is how that copy gets saved on the board.
+// The window says in one line which of these it is showing.
 //
 // The tuning verbs are also REFUSED WHILE THE CAR IS ARMED, with result = 3.
 // Re-tuning the range a live throttle is being clamped to is the one way this
@@ -60,10 +68,9 @@ namespace trimview
   // broken as a pair. IF cal.hxx MOVES, THESE MOVE WITH IT.
   //
   // They are only the pane's STARTING POSITION, and only on a laptop with no
-  // saved settings file. Nothing here is read back from the car - the protocol
-  // has no "tell me your current limits" message - so these say "what the car
-  // was last calibrated to", never "what the Pico is using right now". The
-  // window says that too.
+  // saved settings file talking to a board that has saved nothing - so these
+  // say "what the car was last calibrated to", never "what the Pico is using
+  // right now".
   constexpr Int32 STEER_MIN_DEFAULT = 1230;    // cal.hxx STEER_CAL_LEFT
   constexpr Int32 STEER_CENTRE_DEFAULT = 1480; // cal.hxx STEER_CAL_CENTER
   constexpr Int32 STEER_MAX_DEFAULT = 1660;    // cal.hxx STEER_CAL_RIGHT
@@ -132,9 +139,10 @@ namespace trimview
       // reopened, for camera.hxx's reason: they describe a SETUP, and closing a
       // window is not a decision to re-enter it.
       //
-      // They are what the OPERATOR HAS ASKED FOR, never what the car has. The
-      // board sends no reading of its own limits, so the difference matters and
-      // the pane says which one it is showing.
+      // Once the board has reported, they are the board's SAVED trim (follow()
+      // below); before that, or when it has saved nothing, they are this
+      // laptop's copy. Neither is a reading taken from the Pico itself - there
+      // is no such message - and the pane says which of the two it is showing.
       Int32 steerMinUs = STEER_MIN_DEFAULT;
       Int32 steerMaxUs = STEER_MAX_DEFAULT;
       Int32 steerTrimUs = STEER_CENTRE_DEFAULT;
@@ -150,6 +158,13 @@ namespace trimview
       // Counted and shown. A command this pane sent that the board never
       // answered is a fact worth seeing.
       UInt32 sent = 0;
+
+      // WHICH BOARD REPORT THE SLIDERS LAST TOOK - Session's boardTrimAtMs and
+      // boardTrimCount - so each report is taken exactly once. Taken every
+      // frame instead, a report would pin the sliders where no drag could move
+      // them; taken only the first time, a later save would never show.
+      Int64 adoptedAtMs = 0;
+      UInt32 adoptedCount = 0;
   };
 
   // ---- clamping -------------------------------------------------------------
@@ -214,6 +229,113 @@ namespace trimview
       settleSlew(v);
   }
 
+  // ---- the board's saved trim, taken into the pane --------------------------
+  //
+  // `report` is what the board sends under bibowire::EVENT_CODE_TRIM: the Pico's
+  // own trim lines joined by "; ", as trimfile::report writes them. EVERY SETTING
+  // IT NAMES REPLACES THE PANE'S, and a setting it does not name keeps the pane's
+  // value - a board that has only ever saved a centre leaves the limits alone. A
+  // line that is not exactly one of the five settings, with plain digits for its
+  // numbers, is skipped whole and never half-read. The result is settled to the
+  // sliders' own ranges. Returns how many settings were taken.
+  //
+  // IN THE HEADER for the slew arithmetic's reason: viewer/tests holds it to
+  // answers, and trim.cxx names ImGui.
+
+  // One to five digits and nothing else. No sign, because no setting here is
+  // negative, and no locale-aware call, for this file's reason.
+  [[nodiscard]] inline Opt<Int32> reportNumber(StrView word)
+  {
+      if(word.empty() || word.size() > 5)
+      {
+          return {};
+      }
+      Int32 value = 0;
+      for(const Char c : word)
+      {
+          if(c < '0' || c > '9')
+          {
+              return {};
+          }
+          value = (value * 10) + static_cast<Int32>(c - '0');
+      }
+      return value;
+  }
+
+  [[nodiscard]] inline Int32 adoptReport(View& v, StrView report)
+  {
+      // The longest setting is three words; a fourth makes a line unknown.
+      constexpr Size WORDS_MAX = 3;
+      Int32 taken = 0;
+      while(!report.empty())
+      {
+          const Size cut = report.find(';');
+          StrView line = report.substr(0, cut);
+          report = cut == StrView::npos ? StrView() : report.substr(cut + 1);
+
+          Array<StrView, WORDS_MAX + 1> w = {};
+          Size count = 0;
+          while(!line.empty() && count <= WORDS_MAX)
+          {
+              if(line.front() == ' ')
+              {
+                  line.remove_prefix(1);
+                  continue;
+              }
+              const Size gap = line.find(' ');
+              w[count] = line.substr(0, gap);
+              ++count;
+              line = gap == StrView::npos ? StrView() : line.substr(gap);
+          }
+
+          if(count == 3 && (w[0] == "SERVOLIMITS" || w[0] == "ESCLIMITS"))
+          {
+              const Opt<Int32> lo = reportNumber(w[1]);
+              const Opt<Int32> hi = reportNumber(w[2]);
+              if(!lo.has_value() || !hi.has_value())
+              {
+                  continue;
+              }
+              if(w[0] == "SERVOLIMITS")
+              {
+                  v.steerMinUs = *lo;
+                  v.steerMaxUs = *hi;
+              }
+              else
+              {
+                  v.escMinUs = *lo;
+                  v.escMaxUs = *hi;
+              }
+              ++taken;
+          }
+          else if(count == 2 && w[0] == "SERVOTRIM")
+          {
+              const Opt<Int32> centre = reportNumber(w[1]);
+              if(centre.has_value())
+              {
+                  v.steerTrimUs = *centre;
+                  ++taken;
+              }
+          }
+          else if(count == 3 && w[0] == "SLEW")
+          {
+              const Opt<Int32> rate = reportNumber(w[2]);
+              if(rate.has_value() && w[1] == "STEER")
+              {
+                  v.steerSlewUs = *rate;
+                  ++taken;
+              }
+              else if(rate.has_value() && w[1] == "THROTTLE")
+              {
+                  v.throttleSlewUs = *rate;
+                  ++taken;
+              }
+          }
+      }
+      settleAll(v);
+      return taken;
+  }
+
   // The DPI multiplier the layout uses. Called once, after ImGui exists. There is
   // no graphics device here - this window owns no texture - which is why there is
   // no shutdown to match it.
@@ -222,5 +344,11 @@ namespace trimview
   // One frame. Draws the window when it is open and sends a COMMAND for whatever
   // the operator just finished changing.
   Void drawWindow(View& v, link::Client& lk, const link::Snapshot& snap, Int64 nowMs);
+
+  // The board's newest saved-trim report taken into `v`, once per report - see
+  // View::adoptedAtMs - and logged. Called on EVERY frame, window open or not:
+  // a closed Trim window must not leave the laptop's file holding numbers the
+  // car has already replaced.
+  Void follow(View& v, const link::Snapshot& snap);
 
 }

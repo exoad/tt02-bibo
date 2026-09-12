@@ -50,6 +50,11 @@ namespace trimfile
   [[nodiscard]] Str render(const Store& s);
   [[nodiscard]] Store parse(const Str& text);
 
+  // Every stored line in replay order on ONE line, joined by "; " - what the
+  // board tells a viewer under bibowire::EVENT_CODE_TRIM. Empty for a car
+  // nobody has tuned.
+  [[nodiscard]] Str report(const Store& s);
+
   // BIBO_TRIM_FILE when set, else $HOME/.config/bibo/trim.txt, else
   // bibo-trim.txt in the working directory.
   [[nodiscard]] Str defaultPath();

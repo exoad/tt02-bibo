@@ -5,11 +5,15 @@
 // ---------------------------------------------------------------------------
 // WHERE IT GOES
 //
-//   <directory of bibo.exe>\bibo-viewer-settings.ini
+//   %APPDATA%\bibo\bibo-viewer-settings.ini
 //
-// vlog.hxx's reason for beside the exe: viewer\build\ is gitignored, so this
-// file can never be committed by a careless `git add`, and one laptop's tuning
-// never lands in a diff that somebody else's viewer then loads.
+// OUT OF THE REPO AND OUT OF THE BUILD. It used to sit beside bibo.exe in
+// viewer\build, which kept it out of git - and inside the one directory
+// build.bat clean deletes, so a clean rebuild quietly threw an operator's
+// tuning away. A per-user folder keeps both properties that mattered: no
+// careless `git add` can commit it, and no build step can remove it. A file
+// still at the old place is read once and copied here (main.cxx), and the old
+// place is used outright when APPDATA itself is unset.
 //
 // ---------------------------------------------------------------------------
 // THE FILE
@@ -93,9 +97,13 @@ namespace settings
   // distinct known keys carried a valid integer.
   [[nodiscard]] Size fromText(StrView text, Values& into);
 
-  // <directory of bibo.exe>\bibo-viewer-settings.ini as UTF-8, or empty when the
-  // exe's own path could not be read.
+  // %APPDATA%\bibo\bibo-viewer-settings.ini as UTF-8, or legacyPath() when
+  // APPDATA is unset. The folder need not exist yet - save() makes it.
   [[nodiscard]] Str defaultPath();
+
+  // Where the file used to live, <directory of bibo.exe>\bibo-viewer-settings.ini,
+  // or empty when the exe's own path could not be read.
+  [[nodiscard]] Str legacyPath();
 
   // The file at `path` read into `into`, settled. The number of values it
   // carried, or nothing when there is no file - a first run - or it could not

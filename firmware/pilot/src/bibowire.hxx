@@ -342,6 +342,18 @@ namespace bibowire
   constexpr UInt8 SLEW_AXIS_THROTTLE = 2;
 
   // ---------------------------------------------------------------------------
+  // THE BOARD'S SAVED TRIM, TOLD TO EVERY VIEWER
+  //
+  // An EVENT under this code is state, not news: the trim the board has saved
+  // and replays to the Pico, as the Pico's own lines joined by "; " -
+  // "SERVOLIMITS 1230 1660; SERVOTRIM 1480" - or an EMPTY text when nothing is
+  // saved, which is an answer too. The board sends it straight after WELCOME
+  // and again once a tuning burst it saved has drained, never through the event
+  // rate limiter, so a Trim pane can show the car's numbers rather than only
+  // its own laptop's. Both halves read the code from this line.
+  constexpr UInt8 EVENT_CODE_TRIM = 84;   // 'T'
+
+  // ---------------------------------------------------------------------------
   // THE TUNING BOUNDS ARE MIRRORED HERE, AND THEY MUST AGREE WITH THE PICO
   //
   // The authority is firmware/lib/chassis/chassis.hxx - SLEW_MIN_STEP,

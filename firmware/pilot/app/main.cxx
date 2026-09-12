@@ -1084,6 +1084,10 @@ Int32 main(Int32 argc, Char** argv)
     // because refusing to drive over a trim file would be a strange priority.
     const Str trimPath = trimfile::defaultPath();
     trimfile::Store trim;
+
+    // A save the viewers have not been told about yet - see the tuning drain
+    // for why they are told once a burst has drained rather than per line.
+    Bool trimUnreported = false;
     {
         Str why;
         if(!trimfile::load(trimPath, trim, why))
@@ -1200,6 +1204,11 @@ Int32 main(Int32 argc, Char** argv)
             // during the motor's two-second spin-up already knows what it is
             // watching.
             viewfeed::publishLidarInfo(lidarInfoFrom(lidar::device()));
+
+            // And the trim this board has saved, so a viewer's Trim pane shows
+            // the car's numbers from the moment it is welcomed rather than its
+            // own laptop's copy - see bibowire's EVENT_CODE_TRIM.
+            viewfeed::publishTrim(trimfile::report(trim));
         }
     }
 
@@ -1657,11 +1666,13 @@ Int32 main(Int32 argc, Char** argv)
             // that case anyway, because the BOARD frame a dry run publishes
             // says picoLink is down - so the queue should be empty here, and
             // this is the second of the two places that has to be true.
+            Bool tuneDrained = false;
             for(Int32 sent = 0; sent < TUNE_PER_TICK; ++sent)
             {
                 viewfeed::Tune t;
                 if(!viewfeed::tune(&t))
                 {
+                    tuneDrained = true;
                     break;
                 }
                 const Str line = tuneLine(t);
@@ -1680,12 +1691,26 @@ Int32 main(Int32 argc, Char** argv)
                     if(trimfile::save(trimPath, trim, why))
                     {
                         std::printf("trim: saved \"%s\" to %s\n", line.c_str(), trimPath.c_str());
+                        trimUnreported = true;
                     }
                     else
                     {
                         std::printf("trim: NOT saved \"%s\" to %s: %s\n", line.c_str(), trimPath.c_str(), why.c_str());
                     }
                 }
+            }
+
+            // THE VIEWERS ARE TOLD ONCE THE QUEUE IS EMPTY, not once per line.
+            // "send all to the car" is five lines and this takes TUNE_PER_TICK a
+            // tick, so a report per save would hand every viewer partial sets in
+            // a row - and walk its sliders back through values nobody chose
+            // before they landed on the right ones.
+            if(trimUnreported && tuneDrained)
+            {
+                const Str report = trimfile::report(trim);
+                viewfeed::publishTrim(report);
+                std::printf("trim: told the viewers the board now has \"%s\"\n", report.c_str());
+                trimUnreported = false;
             }
             if(!readReplies(lines, replies, link) && !link.lost)
             {

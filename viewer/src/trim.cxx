@@ -244,11 +244,93 @@ namespace trimview
         }
     }
 
+    // WHOSE NUMBERS THE SLIDERS ARE SHOWING, in words, because the answer
+    // changes what "send all to the car" means: over the car's own saved trim it
+    // re-sends what the board already has, and over a board with nothing saved
+    // it is the only way this laptop's copy ever gets kept on the car.
+    Void drawSaved(link::Client& lk, const link::Snapshot& snap)
+    {
+        const link::Session& s = snap.state;
+        if(!link::isOpen(lk) || !s.haveWelcome)
+        {
+            ImGui::TextDisabled("not connected - the sliders show this laptop's saved copy");
+            return;
+        }
+        if(!s.haveBoardTrim)
+        {
+            ImGui::TextWrapped(
+                "the board has not said what it has saved - a pilot older than this "
+                "viewer never does - so the sliders show this laptop's copy"
+            );
+            return;
+        }
+        if(s.boardTrimText.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.30f, 1.0f));
+            ImGui::TextWrapped(
+                "the car has NO saved trim - the Pico is on its compiled values. The "
+                "sliders show this laptop's copy: disarm and press \"send all to the "
+                "car\" to save it on the Pi."
+            );
+            ImGui::PopStyleColor();
+            return;
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.85f, 0.50f, 1.0f));
+        ImGui::TextWrapped("saved on the car: %s", s.boardTrimText.c_str());
+        ImGui::PopStyleColor();
+        ImGui::TextDisabled("the sliders took these values from the board");
+    }
+
   }
 
   Void init(Float32 scale)
   {
       uiScale = scale > 0.0f ? scale : 1.0f;
+  }
+
+  Void follow(View& v, const link::Snapshot& snap)
+  {
+      const link::Session& s = snap.state;
+      if(!s.haveBoardTrim)
+      {
+          return;
+      }
+      if(s.boardTrimAtMs == v.adoptedAtMs && s.boardTrimCount == v.adoptedCount)
+      {
+          return;
+      }
+      v.adoptedAtMs = s.boardTrimAtMs;
+      v.adoptedCount = s.boardTrimCount;
+
+      if(s.boardTrimText.empty())
+      {
+          vlog::line(
+              "trim: the board has NO saved trim - the sliders keep this laptop's copy "
+              "(servo %d..%d centre %d, esc %d..%d, slew %d/%d) until \"send all to the car\"",
+              v.steerMinUs,
+              v.steerMaxUs,
+              v.steerTrimUs,
+              v.escMinUs,
+              v.escMaxUs,
+              v.steerSlewUs,
+              v.throttleSlewUs
+          );
+          return;
+      }
+      const Int32 taken = adoptReport(v, s.boardTrimText);
+      vlog::line(
+          "trim: took %d setting(s) the board has saved (%s) - the sliders are now "
+          "servo %d..%d centre %d, esc %d..%d, slew %d/%d",
+          taken,
+          s.boardTrimText.c_str(),
+          v.steerMinUs,
+          v.steerMaxUs,
+          v.steerTrimUs,
+          v.escMinUs,
+          v.escMaxUs,
+          v.steerSlewUs,
+          v.throttleSlewUs
+      );
   }
 
   Void drawWindow(View& v, link::Client& lk, const link::Snapshot& snap, Int64 nowMs)
@@ -272,17 +354,16 @@ namespace trimview
       // board started saving them - and a warning that has stopped being true
       // teaches an operator to ignore the line it sits on.
       ImGui::TextWrapped(
-          "The board saves every change it accepts on the Pi and re-sends it to "
-          "the Pico whenever the Pico connects. This laptop saves these sliders "
-          "too - \"send all to the car\" pushes them when the two disagree."
+          "The board saves every change it accepts on the Pi, re-sends it to the "
+          "Pico whenever the Pico connects, and tells this window what it has "
+          "saved - so while connected, these sliders show the car's saved values. "
+          "This laptop keeps a copy too, for when the car is off."
       );
 
       ImGui::Separator();
 
-      // What the sliders are, and are not. There is no "read my limits" message
-      // in bibowire, so this pane cannot show the car's current values and must
-      // not look as though it does.
-      ImGui::TextDisabled("what this window asks for - the car never reports its own limits back");
+      // Whose numbers the sliders are showing: the car's, or this laptop's.
+      drawSaved(lk, snap);
 
       const Str why = whyDisabled(lk, snap, nowMs);
       const Bool blocked = !why.empty();
