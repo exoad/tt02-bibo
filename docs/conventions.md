@@ -139,17 +139,6 @@ for anyway - the hotspot hands out a different address every outing, so an
 address recorded in a document is wrong by the next time anyone reads it. The
 hub's "car's address" field accepts a hostname for the same reason.
 
-The Pi serves the dashboard at `http://bibobox.local/dash` - the live scan, the
-pilot's decision, the board's own state, and the manual driving controls - to a
-phone walking behind the car or a laptop on the same network. The board serves
-data and static files; every pixel is drawn by the client
-(`firmware/pilot/tools/status/`).
-
-It runs **whenever the board is powered**, on any network. It used to start only
-on the hotspot, on the reasoning that at home the board is reached over ssh
-anyway; once the Pi moved onto the car that rule's only real effect was a dead
-dashboard on the bench, which is exactly when it is wanted.
-
 The earlier plan - the Pico 2 W running its own AP that the laptop joins
 directly - is superseded by the hotspot for the same three members; the
 protocol below is unchanged.

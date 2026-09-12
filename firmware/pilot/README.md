@@ -57,8 +57,8 @@ late tick is a servo that stops being told anything.
                        ESC (or NEUTRAL) to the car; sends anyway after 200 ms
                        without a revolution so the board's 400 ms deadman is
                        never what stops the car. Serves the scan feed while it
-                       drives, and the same lines to /tmp/bibo-scan.txt for
-                       the status page. `--dry` decides without a Pico;
+                       drives, and the same lines to /tmp/bibo-scan.txt,
+                       which nothing reads now. `--dry` decides without a Pico;
                        `--no-feed` drives without viewers. Built only with
                        the SDK.
     tools/lidar_probe  is the lidar there and what does it see. Run it first.
@@ -157,7 +157,7 @@ SDK (`make` in `rplidar_sdk`; the library lands in `output/Linux/Release`):
 
 The lidar is `/dev/ttyUSB0` and the Pico `/dev/ttyACM0` unless told otherwise.
 While it runs the pilot also serves the scan feed on TCP 8011 and writes
-`/tmp/bibo-scan.txt` for the status page - see "Seeing the lidar from the
+`/tmp/bibo-scan.txt` (which nothing reads now) - see "Seeing the lidar from the
 hub"; `--no-feed` turns both off. When 8011 is already taken (scanfeed idling
 under systemd) the feed moves to 8012 and the log says so; scanfeed relays
 viewers there, so nothing on the laptop changes. A feed that can bind neither
@@ -183,148 +183,16 @@ tailnet whenever the phone has data. The literal address is not recorded here:
 this repository is public, and the name is what should be dialled regardless.
 docs/conventions.md "Link" has the whole picture.
 
-### The status page
-
-`tools/status/` is the car's one URL: `http://bibobox.local/` on the phone,
-walking behind the car. Plain text, refreshed every two seconds: CPU
-temperature, the pilot's last second (lidar rev/s, mode, clearance; whether the
-Pico has been heard), and honest absences for what nothing measures yet
-(battery, localization). The pilot writes `/tmp/bibo-pilot.json` once a second
-and the page reads it, because the pilot holds the lidar's port and nothing
-else may open it; a file older than three seconds reads as "pilot not running".
-
-`/dash` on the same port is the page for when the car drives itself, made for
-the hand that holds it: outside, walking behind the car, glanced at in
-sunlight, worked with a thumb - and for the laptop beside the track. It is a
-client-side app in `tools/status/dash/` - `index.html`, `dash.css` and eight
-ES modules, vanilla, nothing fetched from anywhere but the board: the icons
-are Material Symbols paths inlined in `icons.js`, the type is the phone's own
-Roboto - and `status_server.py` serves those files and data, nothing else:
-`/scan` is the feed's F line and, while a pilot is deciding, its D line
-(`src/scanwire.hxx`, served as-is so there is one wire format), a 404 with the
-reason when there is no revolution younger than three seconds; `/json` is the
-text page's numbers plus the heartbeat and the page's own pilot process. The
-page polls `/scan` every 100 ms and `/json` every second, one request of each
-in flight, and draws only on new data. The `/scan` poll is conditional: the
-last ETag goes back as `If-None-Match`, and most polls answer 304 - no body
-off the board, no parse and no redraw on the phone. Measured on the bench,
-95 of 130 polls in thirteen seconds were 304s, 260 kB where the
-unconditional poll would have moved 860. A server that sends no ETag is not
-an error; the poll falls back to comparing the text it got.
-
-The design is Material 3, dark, to the spec: the **baseline blue** dark
-scheme (source `#0B57D0`, primary `#A8C7FA`) as CSS custom properties
-(`--md-sys-color-*`) plus two custom colours for the car's states, success
-(green) and warning (gold), with the scheme's own error for red - and nothing
-on the page, DOM or canvas, is any colour but a token: `theme.js` reads them
-from the computed style once per resize for the two canvases. The two custom
-colours are harmonized to *this* scheme and not by eye: a tonal ladder at a
-fixed hue with L\* set to the tone (M3's HCT tone is L\*), the hue rotated the
-15 degrees toward the source that `Blend.harmonize` caps at, which puts the
-green at hue 160 and the gold at 95. Cruise and slow are success, stop is
-error, reverse and blind are warning, the lidar alone is on-surface-variant,
-the reasons there is no scan are error. Those tone classes are utilities, so
-every component's own `color` is written `:where(.li-sup)` at zero
-specificity - written plainly the component rule wins on source order, which
-is how every state colour on the System and Sensors rows was silently grey
-for a while.
-
-The type is the M3 scale at its named steps and never between them: the mode
-word is the one hero (display-small on a phone, headline-large from 840 px,
-where the scan has the room), the clearance is headline-small, a readout
-value is title-large with tabular numerals, a label is label-medium, a list
-item is body-large over body-medium, and the only monospace on the page is
-the log. The M3 shape scale (cards 12, the log well and the segmented ends 8,
-buttons and the segmented button pill, the stage 16), tonal surface
-containers for elevation with no shadows and no borders - the page and its
-bars are `surface`, the navigation bar and every card `surface-container`,
-and a data well (the scan stage, the log) is `surface-container-lowest` - an
-8 / 10 / 10 % state layer on every interactive element, a 48 px touch target
-under every 40 px control, a 3 px focus ring for the keyboard,
-`prefers-reduced-motion` honoured. Every scrolling region is themed down to
-its scrollbar: `scrollbar-color` and `scrollbar-width` for Firefox and
-`::-webkit-scrollbar` for Chromium (which ignores the first once the second
-exists), a 6 px outline-variant thumb at the full corner in a 10 px lane, no
-track, no buttons, no corner, with `overscroll-behavior: contain` so the
-wheel stops at the pane's edge and `scrollbar-gutter: stable` so a bar
-appearing shifts nothing.
-
-It is an instrument, not a consumer app, so it takes M3's dense conventions
-and cuts ornament: no card holds a single value where a list row will do, and
-nothing says the same thing twice. The six stat cards are now six one-line
-56 dp rows of one Decision card, and the four state chips are gone - they
-repeated the System card's five rows word for word - as have the Pilot card's
-steer, throttle, hits and rate, which the readout already says.
-
-The layout is one CSS grid over the whole viewport, fluid in both axes, by
-M3's window size classes. A small top app bar, 64 px, the title in
-title-large; one navigation element with three destinations - Scan, Details,
-Log - that is an 80 px navigation bar at the bottom under 600 px and a
-navigation rail on the left from 600 px, its active indicator the M3
-geometry (64x32 in the bar, 56x32 in the rail); and two panes. The DASH is
-the scan's pane and takes all the room there is: a 2D | 3D segmented button
-(the choice remembered on the phone; `?tab=3d` picks one for a link), the
-stage - the radar or the cloud, drawn to the stage's actual box by a
-ResizeObserver, the circle centred with its radius half the shorter side -
-with the mode word and the clearance over its top left, the Decision readout
-(steer, throttle, hits, nearest, lidar rate, sent: label at the leading edge,
-value trailing in the state's colour, unit beside), and Look and Stop as
-filled buttons, primary and error, a full-width pair on a phone. The readout
-reflows to the room it has: one column in a narrow pane, two from 320 px,
-three from 560, and all six on one line from 900, with the M3 divider between
-rows and between columns. It docks BESIDE the stage only when the dash's box
-is too short to stack it (under 560 px) and wide enough to split - a phone on
-its side, a small landscape panel - because aspect ratio alone put a
-1920x1080 window in that branch and left a hole beside the scan.
-
-The SUPPORT pane is the details: cards of list items with a leading icon,
-headline, supporting text and trailing value, one-line at 56 and two-line at
-72, divided by an inset outline-variant rule - System (Pico link, Board with
-uptime, network and temperature, Lidar, Pilot, Feed, and the process in a
-sentence under them), Sensors (the RPLIDAR C1 and the not-wired ones as the
-hub lists them, at M3's 38 % disabled), Pilot (the mode over where the word
-came from, then clearance, sent, revolutions, timeouts - only what the
-readout does not already say) and the Log - what the page saw happen,
-timestamped, newest at the bottom. Under 840 px one pane shows at a time and the
-destinations switch them (Log gives the log the whole pane); from 840 px,
-given 480 px of height, the support pane is always beside the dash at 360 to
-412 px and Details and Log scroll it to their card. `?view=details` and
-`?view=log` open one directly. The replies to Look and Stop are a snackbar,
-four seconds.
-
-What the scan draws: the rings a metre apart, the compass ring and the
-bearing numbers in the outline tokens; the returns on-surface and three
-pixels; the nearest return ringed in error with its distance in label-large,
-set on the side away from the car; the heading arrow in primary and the car -
-a rounded box to the TT-02's plan, never smaller than a fingertip; with a D
-line the pilot's corridor to its horizon at primary 12 %, the clearance bar in
-primary and the steer arrow at full lock 30 deg in the mode's colour, and
-nothing for blind. In the corners, label-medium in on-surface-variant: the
-feed word and the host, points a revolution and a second and the rate top
-right, a scale bar bottom left, "fit N m across" bottom right. The range fits
-the farthest return, grows at once and shrinks after two seconds, and is
-never tighter than three metres. The honesty rules are the hub's: no scan
-means only the car and the heading are drawn and the reason is the mode word;
-a decision older than a second is not drawn; nothing is ever the last thing
-we knew; the caption under the number says whether it is the pilot's "clear"
-or the lidar's "nearest".
-
-Look starts the pilot in dry mode as this service's child and Stop stops it;
-each answers one line in the snackbar. The labels are sentence case because
-M3's are - all-caps buttons are Material 1's - and they are the same two
-controls they always were. There is deliberately no control that moves the
-car: the keys follow `/json`'s word on the process, and a pilot started at a
-shell shows as "running elsewhere", which Stop on the page cannot stop. `BIBO_SCAN_FILE`, `BIBO_STATUS_FILE`, `BIBO_FEED` and
-`BIBO_PILOT` point everything at fakes on a laptop.
+### Installing the board services
 
     sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
 
-installs a systemd unit and a NetworkManager dispatcher hook, so the page
-starts when the board joins the field hotspot and stops when it leaves, and turns
-mDNS on - both systemd-resolved's global switch and the profile's, since on
-this Ubuntu the second cannot exceed the first. Run it again after a pull; it
-is idempotent. `BIBO_STATUS_PORT=8080 python3 status_server.py` runs the page
-by hand, on any network, without root.
+installs the `bibo-scanfeed` unit and the `bibo-prefer-hotspot` timer, both
+enabled at boot, and turns mDNS on - both systemd-resolved's global switch and
+the hotspot profile's, since on this Ubuntu the second cannot exceed the first.
+The profile half needs the hotspot joined first, or `BIBO_HOTSPOT=<profile>`.
+Run it again after a pull; it is idempotent. A board that still carries the
+old status page's units (`bibo-status.*`) has them disabled and deleted.
 
 ### Seeing the lidar from the hub
 
@@ -352,8 +220,8 @@ it while driving" once per client. Measured on the Pi on 2026-09-07, serving
 two clients cost the tick under a millisecond and left its ~100 ms dt where it
 was; a viewer that stalls is dropped by the feed's thread, not waited for by
 the car. The same `F` and `D` text goes to `/tmp/bibo-scan.txt` each tick,
-rewritten whole through a rename, for the status page; `--no-feed` turns the
-feed and the file off together, and the file is removed at exit.
+rewritten whole through a rename, though nothing reads it now; `--no-feed`
+turns the feed and the file off together, and the file is removed at exit.
 
 **One address, always answered: 8011 is scanfeed's, and it hands over.**
 Slamtec's SDK holds the serial port, so only one program can have the lidar.
@@ -394,10 +262,9 @@ up) serves 8011 directly. A client too slow to take a frame (half a second
 behind) is dropped by either program rather than allowed to stall the others.
 
 Built only with the SDK, next to `pilot` and `lidar_probe`. On the board it
-runs as the systemd unit `bibo-scanfeed`, installed by the same
-`tools/status/install.sh` as the status page and started and stopped with the
-field hotspot by the same dispatcher hook; `systemctl start
-bibo-scanfeed` runs it on any network. The unit points at
+runs as the systemd unit `bibo-scanfeed`, installed by
+`tools/status/install.sh` (see "Installing the board services") and up
+whenever the board is powered, on any network. The unit points at
 `~jack/build-pilot-app/scanfeed` and the installer says so if that has not
 been built yet. By hand: `build-pilot/scanfeed [/dev/ttyUSB0]`, one log line
 per event on stdout; SIGINT or SIGTERM parks the device and exits 0.

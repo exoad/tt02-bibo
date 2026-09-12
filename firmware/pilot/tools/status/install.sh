@@ -1,18 +1,19 @@
 #!/bin/sh
-# Installs the status page and the scan feed on the Orange Pi. Run ON THE
-# BOARD, as root:
+# Installs the scan feed, mDNS and the hotspot preference on the Orange Pi.
+# Run ON THE BOARD, as root:
 #
 #     sudo sh ~/tt02-bibo/firmware/pilot/tools/status/install.sh
 #
 # Idempotent - run it again after pulling. What it does, and nothing else:
-#   1. the status page's systemd unit, with ExecStart pointed at THIS checkout
+#   1. removes what an older install left behind: the status page's units
+#      (bibo-status.*; the page is gone) and the hotspot dispatcher hook
 #   2. the scan feed's systemd unit, with ExecStart pointed at the canonical
 #      build directory (~jack/build-pilot-app/scanfeed). The unit is installed
 #      whether or not the binary exists yet, since the checkout can be built
 #      after this runs; the script says loudly when it is missing.
-#   3. both units enabled at boot, so the dashboard and the feed are up
-#      whenever the car is powered - on the hotspot, at home, anywhere
-#   4. mDNS, so the page is http://bibobox.local/ (the phone hands out a
+#   3. the feed enabled at boot, so it is up whenever the car is powered -
+#      on the hotspot, at home, anywhere
+#   4. mDNS, so the board is bibobox.local (the phone hands out a
 #      different address every outing; the name holds). Two switches, because
 #      on Ubuntu 22.04 (systemd 249) a profile's mDNS=yes can never exceed
 #      systemd-resolved's GLOBAL setting, which ships off: the drop-in turns
@@ -33,10 +34,6 @@ SERVICE_USER=jack
 SERVICE_HOME=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
 SCANFEED="$SERVICE_HOME/build-pilot-app/scanfeed"
 
-sed "s|ExecStart=.*|ExecStart=/usr/bin/python3 $HERE/status_server.py|" \
-    "$HERE/bibo-status.service" > /etc/systemd/system/bibo-status.service
-chmod 644 /etc/systemd/system/bibo-status.service
-
 sed "s|ExecStart=.*|ExecStart=$SCANFEED /dev/ttyUSB0|" \
     "$HERE/bibo-scanfeed.service" > /etc/systemd/system/bibo-scanfeed.service
 chmod 644 /etc/systemd/system/bibo-scanfeed.service
@@ -47,25 +44,24 @@ if [ ! -x "$SCANFEED" ]; then
 fi
 
 # The hotspot dispatcher that used to start these is gone: the board lives on
-# the car, and tying the dashboard to one network meant it was dead on the
+# the car, and tying the feed to one network meant it was dead on the
 # bench. Remove it if an older install left it behind.
 rm -f /etc/NetworkManager/dispatcher.d/90-bibo-status
 
-# The page restarts itself when its files change on disk (a git pull), so the
-# routine after a pull is "reload the page", not "find someone with root".
-sed "s|^PathModified=.*status_server.py|PathModified=$HERE/status_server.py|; s|^PathModified=.*/dash$|PathModified=$HERE/dash|" "$HERE/bibo-status.path" > /etc/systemd/system/bibo-status.path
-install -m 644 "$HERE/bibo-status-restart.service" /etc/systemd/system/bibo-status-restart.service
-chmod 644 /etc/systemd/system/bibo-status.path
+# The status page (bibo-status.service, and the path unit that restarted it on
+# every pull) is gone from this checkout. A board that still has its units would
+# keep starting a server whose files no longer exist, so take them off it too.
+systemctl disable --now bibo-status.path bibo-status.service 2>/dev/null || true
+rm -f /etc/systemd/system/bibo-status.service /etc/systemd/system/bibo-status.path \
+    /etc/systemd/system/bibo-status-restart.service
 
 sed "s|ExecStart=.*|ExecStart=/bin/sh $HERE/prefer-hotspot.sh|" \
     "$HERE/bibo-prefer-hotspot.service" > /etc/systemd/system/bibo-prefer-hotspot.service
 chmod 644 /etc/systemd/system/bibo-prefer-hotspot.service
 install -m 644 "$HERE/bibo-prefer-hotspot.timer" /etc/systemd/system/bibo-prefer-hotspot.timer
 systemctl daemon-reload
-systemctl enable bibo-status.service bibo-scanfeed.service > /dev/null 2>&1
+systemctl enable bibo-scanfeed.service > /dev/null 2>&1
 systemctl enable --now bibo-prefer-hotspot.timer > /dev/null 2>&1
-systemctl enable --now bibo-status.path > /dev/null 2>&1
-echo "page follows the checkout: a pull restarts it ($(systemctl is-active bibo-status.path))"
 echo "hotspot preference: checking every 20 s ($(systemctl is-active bibo-prefer-hotspot.timer))"
 
 mkdir -p /etc/systemd/resolved.conf.d
@@ -100,8 +96,6 @@ else
     echo "  join the hotspot first, or re-run as: BIBO_HOTSPOT=<profile> $0"
 fi
 
-systemctl restart bibo-status.service
-echo "page: http://$(hostname).local/ or http://$(hostname -I | cut -d' ' -f1)/"
 if [ -x "$SCANFEED" ]; then
     systemctl restart bibo-scanfeed.service
     echo "scan feed: nc $(hostname).local 8011"

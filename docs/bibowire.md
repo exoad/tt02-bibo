@@ -1,7 +1,7 @@
 # bibowire v1 — the viewer ↔ Orange Pi protocol
 
 **Status:** specification, implementable as written.
-**Replaces:** `scanwire` **for the viewer only**. `scanwire` on TCP 8011/8012, `feed.cxx`, `scanfeed`, `/tmp/bibo-scan.txt` and the phone dashboard are **untouched and stay running**.
+**Replaces:** `scanwire` **for the viewer only**. `scanwire` on TCP 8011/8012, `feed.cxx`, `scanfeed`, `/tmp/bibo-scan.txt` and the phone dashboard are **untouched and stay running**. (The phone dashboard has since been removed; the rest still runs.)
 **Shared module:** `firmware/pilot/src/bibowire.hxx` / `.cxx`, on `pilotlib`, compiled into both the board's program and the viewer.
 
 ---
@@ -822,7 +822,7 @@ The board keeps the last **256 frame headers per direction** — type, len, seq,
 
 Binary takes `nc bibobox.local 8011 | head` away from the viewer path, and `scanwire.hxx` names that property as a reason it is text. Here is what pays for it, in things that ship rather than intentions.
 
-**1. The text feed stays, untouched. This is the real answer.** `scanfeed` on TCP 8011, `feed.cxx`, `scanwire`'s 79 checks, `/tmp/bibo-scan.txt` and the relay chain are all unchanged, because the phone dashboard is a client of them and is explicitly out of scope. So from a phone with Termux or JuiceSSH over the hotspot:
+**1. The text feed stays, untouched. This is the real answer.** `scanfeed` on TCP 8011, `feed.cxx`, `scanwire`'s 79 checks, `/tmp/bibo-scan.txt` and the relay chain are all unchanged, because the phone dashboard is a client of them and is explicitly out of scope (the dashboard has since been removed). So from a phone with Termux or JuiceSSH over the hotspot:
 
 ```
 nc bibobox.local 8011
@@ -830,9 +830,9 @@ nc bibobox.local 8011
 
 still prints `INFO`, `HEALTH`, `MOTOR`, and then `F` and `D` lines, ten a second, in units a human holds — 9000 is 90 degrees, 1240 is 1.24 metres, `-457` is a bit less than half left. **The board ends up with a machine path and a human path, and that is a defensible division rather than a regression; the mistake would be deleting the human one.**
 
-**2. `http://bibobox.local/dash` is unchanged** and shows the live scan, the pilot's decision, the board's state and the manual driving controls, to a phone walking behind the car.
+**2. `http://bibobox.local/dash` has since been removed.** It showed the live scan, the pilot's decision, the board's state and the manual driving controls to a phone walking behind the car; from a phone, 1 and 3 are what remain.
 
-**3. `biboctl`** — one static aarch64 binary at `/usr/local/bin/biboctl`, installed by `firmware/pilot/tools/status/install.sh` alongside the dashboard, and **built from `bibowire.cxx`, the same object file the pilot links**. It cannot describe a layout the board does not use.
+**3. `biboctl`** — one static aarch64 binary at `/usr/local/bin/biboctl`, installed by `firmware/pilot/tools/status/install.sh` alongside the scan feed, and **built from `bibowire.cxx`, the same object file the pilot links**. It cannot describe a layout the board does not use.
 
 ```
 biboctl watch          connect to 127.0.0.1:8020 as a real viewer, print ONE LINE PER
@@ -911,7 +911,7 @@ The budget to beat is stated: the HTTP dashboard costs about **1.4 %** of one co
 
 **Total: well under 0.1 % of one core, and the dominant term is the kernel's socket path rather than anything this protocol does.** Roughly a fifteenth of the dashboard's cost.
 
-**The honest correction to the usual binary argument.** It is *not* true that binary framing deletes 15,000 integer-to-ASCII conversions per second from this board. `app/main.cxx:804-809` formats the `F` line and writes it to `SCAN_FILE` every tick for the phone dashboard, which is out of scope and not changing, so **those conversions are a sunk cost that stays**. bibowire's encode is **additive**: about 35 µs/s on top. It is worth paying because it halves the bytes in flight during a stall, it moves the *parse* to the laptop, and it makes the frame structure something a bounded decoder can reject in four rules — not because it deletes work the board was doing.
+**The honest correction to the usual binary argument.** It is *not* true that binary framing deletes 15,000 integer-to-ASCII conversions per second from this board. `app/main.cxx:804-809` formats the `F` line and writes it to `SCAN_FILE` every tick for the phone dashboard, which is out of scope and not changing, so **those conversions are a sunk cost that stays**. (The dashboard has since been removed; the pilot still writes the file.) bibowire's encode is **additive**: about 35 µs/s on top. It is worth paying because it halves the bytes in flight during a stall, it moves the *parse* to the laptop, and it makes the frame structure something a bounded decoder can reject in four rules — not because it deletes work the board was doing.
 
 **And the cost is measured, not asserted.** `BOARD.loopWorstUs` and `loopLateCount` carry the worst control-tick duration and the running count of missed deadlines; `BOARD.encodeAvgNs`/`encodeMaxNs` carry what serving this viewer cost per frame; the pilot's existing exit summary (`viewer cost per tick avg %.0f us, max %.0f us`, `app/main.cxx:1000`) is extended to cover bibowire; and `biboctl bench` encodes and decodes 10,000 synthetic revolutions on the board itself and prints nanoseconds per frame, so a codec regression is a number someone can produce in the field.
 
