@@ -51,42 +51,4 @@ namespace orient
   // breaks the first time somebody wires a "rotate left" button to it.
   [[nodiscard]] Array<Uv, 4> cornerUvs(Int32 turns, Bool flipX, Bool flipY);
 
-  // One point on the DISPLAYED rectangle, normalised: 0,0 is its top-left
-  // corner and 1,1 its bottom-right, x to the right and y DOWN. Multiply by the
-  // rectangle's size on screen to get pixels.
-  //
-  // A separate type from Uv on purpose. They are both a pair of floats and they
-  // mean opposite things - a Uv is a place in the SOURCE picture, a Pt is a
-  // place on the SCREEN - and the one mistake this file is here to catch is
-  // using one where the other belongs.
-  struct Pt
-  {
-      Float32 x = 0.0f;
-      Float32 y = 0.0f;
-  };
-
-  // Where a point of the SENSOR FRAME ends up on the displayed rectangle, under
-  // the same turns and flips cornerUvs() applies to the picture itself.
-  //
-  // ---------------------------------------------------------------------------
-  // WHY AN OVERLAY CANNOT BE DRAWN IN SCREEN SPACE
-  //
-  // camera.cxx draws the picture with AddImageQuad onto four corners that are
-  // ALWAYS axis-aligned - the rotation lives entirely in the uvs. So a guide
-  // line drawn straight onto the window would sit still while the picture
-  // turned underneath it, and at 90 degrees it would be describing a part of
-  // the room it does not point at.
-  //
-  // Reversing guides are a claim about where the CAR will go, so they have to
-  // turn with the picture's contents. Authoring them here - in the frame, 0..1
-  // across and down - and mapping them through the same transform is what makes
-  // that true at every angle rather than at the one the author happened to test.
-  //
-  // This is cornerUvs read in the other direction, and the suite holds the two
-  // to each other: feeding a corner uv in here must give back the display
-  // corner that samples it. Neither can drift without the other noticing.
-  //
-  // Out-of-range and negative turns fold, exactly as they do above.
-  [[nodiscard]] Pt displayFromImage(Int32 turns, Bool flipX, Bool flipY, Float32 u, Float32 v);
-
 }

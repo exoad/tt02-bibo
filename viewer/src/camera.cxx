@@ -223,17 +223,19 @@ namespace camview
 
     // ---- alignment overlays -------------------------------------------------
     //
-    // EVERY POINT BELOW IS AUTHORED IN THE SENSOR FRAME - 0..1 across and down
-    // the picture - and mapped to the screen through orient::displayFromImage.
+    // EVERY POINT BELOW IS IN THE WINDOW'S FRAME - 0..1 across and down the
+    // picture AS IT IS DRAWN - and the rotate and flip controls do not touch
+    // them. Right is right on the screen, and the bottom of the rectangle is the
+    // near end of the guides, whichever way the camera happens to be mounted.
     //
-    // That is not a style choice. The picture is drawn with AddImageQuad onto
-    // four corners that are ALWAYS axis-aligned; the rotation and the flips
-    // live entirely in the uvs. So an overlay drawn straight onto the window
-    // would sit still while the picture turned underneath it, and a reversing
-    // guide that does not turn with the picture is describing a part of the
-    // room it no longer points at. The arithmetic lives in orient.cxx, which
-    // names no ImGui or D3D type, so viewer/tests can hold it to an answer at
-    // all four turns and both flips.
+    // This used to be the other way round: every point was authored in the
+    // sensor's frame and carried through an image-to-display transform, so the
+    // guides turned and mirrored with the picture's contents. Correct
+    // arithmetic, wrong tool. The guides are marks an operator drags into place
+    // against the picture they are LOOKING AT, and marks that jump to the top of
+    // the window when a mount is corrected have to be placed all over again -
+    // which, from the chair, is an overlay that does not work. Decided
+    // 2026-09-12: the overlays follow the GUI, never the camera.
     //
     // AND NOTHING HERE IS CALIBRATED. See the View, which says it at length;
     // the short form is that no band is ever labelled with a distance, because
@@ -251,15 +253,12 @@ namespace camview
     constexpr ImU32 ZONE_MID = IM_COL32(255, 196, 46, 235);
     constexpr ImU32 ZONE_FAR = IM_COL32(96, 226, 130, 235);
 
-    // Where the picture landed on screen and how it is turned - everything an
-    // overlay needs to put a point of the sensor frame in the right pixel.
+    // Where the picture landed on screen - everything an overlay needs, because
+    // an overlay is placed against that rectangle and nothing else.
     struct Placed
     {
         ImVec2 at;
         ImVec2 size;
-        Int32 turns = 0;
-        Bool flipX = false;
-        Bool flipY = false;
     };
 
     // The guide trapezoid as fractions of the frame, clamped, rather than the
@@ -282,10 +281,11 @@ namespace camview
         dl->AddLine(a, b, col, w);
     }
 
-    [[nodiscard]] ImVec2 screenOf(const Placed& p, Float32 iu, Float32 iv)
+    // A fraction of the drawn rectangle to a pixel. No rotation and no mirror,
+    // on purpose - see the note at the top of this section.
+    [[nodiscard]] ImVec2 screenOf(const Placed& p, Float32 x, Float32 y)
     {
-        const orient::Pt d = orient::displayFromImage(p.turns, p.flipX, p.flipY, iu, iv);
-        return ImVec2(p.at.x + (d.x * p.size.x), p.at.y + (d.y * p.size.y));
+        return ImVec2(p.at.x + (x * p.size.x), p.at.y + (y * p.size.y));
     }
 
     [[nodiscard]] ImVec2 stepBy(const ImVec2& from, const ImVec2& dir, Float32 k)
@@ -328,12 +328,10 @@ namespace camview
         const Float32 farX = r.centre + (side * r.converge);
         const Float32 bend = bendAt(steer, bendPct, t);
 
-        // THE SWING GOES HERE, not in drawGuides, and that is the whole point:
-        // this is the one place a guide point becomes an image coordinate, so a
-        // bend applied here rides orient::displayFromImage with everything else
-        // and a rotated or flipped picture carries its guides correctly. Bending
-        // the drawn screen points instead would put the curve in window space,
-        // where it would sit still while the picture turned underneath it.
+        // THE SWING GOES HERE, not in drawGuides: this is the one place a guide
+        // point is made, so the bend and the trapezoid cannot disagree about
+        // where a point is. Positive steer is RIGHT (camera.hxx says why) and
+        // right is +x on the screen, whatever the rotate and flip controls say.
         //
         // BOTH RAILS BY THE SAME AMOUNT, so the corridor swings rather than
         // deforming - the car's path does not get wider because it is turning.
@@ -402,10 +400,9 @@ namespace camview
         }
     }
 
-    // THE ARMS FOLLOW THE SENSOR'S AXES AND ARE MEASURED IN PIXELS. Built from
-    // frame fractions instead, a crosshair is a third longer across than down
-    // on a 4:3 picture, which reads as a bug; measured off the shorter side it
-    // is square on screen and still turns with the picture.
+    // THE ARMS ARE MEASURED IN PIXELS. Built from frame fractions instead, a
+    // crosshair is a third longer across than down on a 4:3 picture, which
+    // reads as a bug; measured off the shorter side it is square on screen.
     //
     // The gap in the middle is the point of the whole thing: a solid cross
     // hides the one thing being lined up.
@@ -456,9 +453,6 @@ namespace camview
         Placed p;
         p.at = at;
         p.size = size;
-        p.turns = v.turns;
-        p.flipX = v.flipX;
-        p.flipY = v.flipY;
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
@@ -786,9 +780,9 @@ namespace camview
               tint
           );
 
-          // OVER THE PICTURE, FROM THE SAME PLACEMENT. Same `at` and `size` as
-          // the quad above and the same turns and flips, so the guides move
-          // with the picture's contents rather than with the window.
+          // OVER THE PICTURE, ON THE SAME RECTANGLE. Same `at` and `size` as the
+          // quad above, and deliberately NOT its turns and flips: the overlays
+          // follow the window, never the camera.
           // WHERE THE WHEELS ARE, for guides that bend with them - and zero when
           // the board has not said, so they sit straight rather than sweeping to
           // an angle nobody reported. steerNowMilli and not the commanded value:

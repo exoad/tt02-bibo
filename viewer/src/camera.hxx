@@ -81,8 +81,8 @@ namespace camview
   // wheels turn right rests on two facts written down elsewhere, neither of
   // them inferred: chassis.hxx's steerToUs sends a positive fraction toward
   // servoMax, which cal.hxx names STEER_CAL_RIGHT, so positive steer is RIGHT;
-  // and link.cxx states the frame where it builds the cloud, so image u grows
-  // to the right. Invert either and this compiles perfectly, looks entirely
+  // and the overlays are drawn in the window's own frame, where x grows to the
+  // right whatever the camera's rotate and flip say. Invert either and this compiles perfectly, looks entirely
   // plausible, and is discovered while driving.
   //
   // So it lives here rather than in camera.cxx's anonymous namespace, where the
@@ -112,7 +112,7 @@ namespace camview
   constexpr Float32 GUIDE_BEND_SPAN = 0.45f;
 
   // How far the guide at `t` - 0 at the bumper, 1 at the far end - is pushed
-  // sideways in IMAGE space. t*t and not t: a steering angle has had more
+  // sideways, as a fraction of the drawn picture's width. t*t and not t: a steering angle has had more
   // distance to act at the far end, so the guides barely move at the bumper and
   // sweep hardest where they matter.
   [[nodiscard]] inline Float32 bendAt(Float32 steer, Int32 bendPct, Float32 t)
