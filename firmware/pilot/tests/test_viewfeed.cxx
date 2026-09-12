@@ -374,19 +374,46 @@ struct Datagram
         return true;
     }
 
+    // A CONTROL that states what mode the viewer BELIEVES is running, and asks
+    // for throttle. A sibling of control() rather than more parameters on it:
+    // six call sites use that one, and widening a shared helper to serve one
+    // test is how the other five acquire arguments nobody reads.
+    //
+    // control() leaves assumedMode at Control's default of 0 - MANUAL - which
+    // is precisely why nothing in this suite ever exercised the mode gate.
+    Void controlAs(UInt16 to, UInt32 session, UInt32 seq, UInt16 buttons, UInt8 mode, Int16 throttle, UInt8 epoch)
+    {
+        bibowire::Control m;
+        m.sessionId = session;
+        m.seq = seq;
+        m.buttons = buttons;
+        m.assumedMode = mode;
+        m.throttleMilli = throttle;
+        m.armEpoch = epoch;
+        send(to, m);
+    }
+
     Void control(UInt16 to, UInt32 session, UInt32 seq, UInt16 buttons)
     {
         bibowire::Control m;
         m.sessionId = session;
         m.seq = seq;
         m.buttons = buttons;
+        send(to, m);
+    }
+
+    Void send(UInt16 to, const bibowire::Control& m)
+    {
         Array<UInt8, 64> body{};
         const Size len = bibowire::writeControl(m, body.data(), body.size());
         Array<UInt8, 128> frame{};
         bibowire::Head h;
         h.type = bibowire::Type::TYPE_CONTROL;
         h.ver = 1;
-        h.seq = static_cast<UInt16>(seq);
+        // m.seq, not a `seq` parameter - this body was lifted out of control()
+        // when controlAs() was added, and the frame header's sequence comes from
+        // the message now rather than from an argument that no longer exists.
+        h.seq = static_cast<UInt16>(m.seq);
         bibowire::Body b;
         b.bytes = body.data();
         b.len = len;
@@ -1424,6 +1451,104 @@ Int32 main()
 
         viewfeed::stop();
         check(!viewfeed::tune(&t), "a stopped feed has no trim waiting for the tick");
+    }
+
+    // ---- 17. the mode gate, which could never fire ----------------------------------
+    //
+    // control::apply contains a correct test - `c.assumedMode != g.pilotMode`
+    // forces throttle to 0 and refuses with REFUSE_MODE - and test_bibowire
+    // asserts it directly and passes. It could never run. onControlFrame filled
+    // `g.pilotMode` from `m.assumedMode`, so BOTH SIDES of that comparison came
+    // out of the same datagram and the branch was unreachable. deadmanNow() had
+    // the other half of it: `in.modeAgrees = true`, hard-coded.
+    //
+    // A codec suite cannot catch this. It calls apply() with two values it chose
+    // itself, which is exactly the thing the caller was failing to do. Only a
+    // socket-level test, where the board supplies its own mode, can tell the
+    // difference - which is why this section exists and why the 211 checks above
+    // it were green about a gate that had never once fired.
+    //
+    // The case it guards: a viewer holding W, believing it is in MANUAL, while
+    // the pilot is actually in DRIVE running the autonomy. Its throttle must be
+    // ignored.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for the mode gate");
+        const UInt16 port = viewfeed::port();
+
+        // The board's own mode, which it learns from the pilot's BOARD frame and
+        // never from the viewer. DRIVE: the autonomy is driving.
+        bibowire::BoardState board;
+        board.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+
+        Datagram udp;
+        check(udp.open(), "a viewer binds its control socket");
+        Wire w;
+        check(w.connect(port), "and connects");
+        const UInt32 session = handshake(w, udp.port, 1);
+        check(session != 0u, "and takes the control slot");
+
+        // THE EPOCH IS READ, NOT ASSUMED. The board bumps it on every holder
+        // change, so it is not 0 by now - and deadman::step tests enable, then
+        // epoch, then mode, in that order. A guessed epoch would be refused with
+        // REFUSE_EPOCH and this section would pass on the wrong refusal.
+        bibowire::CtlState st;
+        check(udp.state(2000, &st), "CTLSTATE arrives, carrying the board's epoch");
+        const UInt8 epoch = st.armEpoch;
+
+        // KEEP THE STREAM RUNNING WHILE WAITING, and this is not tidiness.
+        //
+        // The slot is released after CONTROL_SLOT_MS of silence and releasing it
+        // BUMPS THE EPOCH. A test that sends one datagram and then waits three
+        // seconds loses the control slot half way through its own assertion: the
+        // next datagram comes from a viewer that is no longer the holder, is
+        // discarded as NOT_HOLDER, and ackSeq never advances - so the check
+        // fails for a reason that has nothing to do with modes.
+        //
+        // That is exactly what happened the first time this section was run
+        // against the restored bug: all three checks went red, and only one of
+        // them was about the gate. A real viewer sends at 20 Hz so this cannot
+        // arise; so does this.
+        const auto pump = [&](UInt8 mode, UInt32 first, bibowire::Refuse want) {
+            for(Int32 i = 0; i < 40; ++i)
+            {
+                const UInt32 seq = first + static_cast<UInt32>(i);
+                udp.controlAs(port, session, seq, bibowire::BUTTON_ENABLE, mode, 400, epoch);
+                sleepMs(50);
+                if(udp.newest(&st) && st.ackSeq >= first && st.refuse == want)
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // ENABLE is set on every one, or the refusal is REFUSE_NOT_ARMED and the
+        // mode branch is never reached either.
+        const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+        const Bool refused = pump(manual, 1u, bibowire::Refuse::REFUSE_MODE);
+        check(refused, "a viewer that believes MANUAL while the pilot DRIVES is REFUSE_MODE");
+        check(
+            st.deadman != static_cast<UInt8>(bibowire::deadman::State::STATE_LIVE),
+            "and the deadman is not LIVE, so no throttle is consented to"
+        );
+
+        // THE POSITIVE CASE, so this section cannot pass by being permanently
+        // red. The same viewer, believing the mode the pilot is actually in.
+        const UInt8 drive = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
+        const Bool agreed = pump(drive, 100u, bibowire::Refuse::REFUSE_NONE);
+        check(agreed, "and agreeing about the mode is refused for no reason at all");
+
+        w.close();
+        udp.close();
+        viewfeed::stop();
+
+        // lastBoard OUTLIVES stop() - start() does not clear it - so a mode left
+        // at DRIVE here would be inherited by whatever section is added next,
+        // and its CONTROL datagrams (which all say MANUAL) would start being
+        // refused for a reason nobody wrote. Put it back.
+        viewfeed::publishBoard(bibowire::BoardState());
     }
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);

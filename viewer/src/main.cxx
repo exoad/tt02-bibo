@@ -39,6 +39,7 @@
 #include "link.hxx"
 #include "camera.hxx"
 #include "trim.hxx"
+#include "drive.hxx"
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -523,7 +524,7 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     ImGui::End();
 }
 
-static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View& trim)
+static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View& trim, driveview::View& drive)
 {
     static constexpr Array<CharSeq, 2> COLOR_NAMES = { "uniform", "by distance" };
 
@@ -539,6 +540,18 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     ImGui::Checkbox("points", &sc.opt.points);
     ImGui::Checkbox("car", &sc.opt.car);
     ImGui::Checkbox("axes", &sc.opt.axes);
+    ImGui::Checkbox("heading", &sc.opt.heading);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Which way the wheels are pointed: solid where they ARE,\n"
+            "ghost where they were ASKED to be. The two separate while\n"
+            "the Pico's slew limiter works through a command.\n\n"
+            "A heading, not a predicted path - the angle drawn is a\n"
+            "display convention, because this car has no measured\n"
+            "wheelbase or steering-angle map to derive a real one."
+        );
+    }
 
     ImGui::Separator();
 
@@ -565,6 +578,22 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
             "steering and throttle limits, centre, and how fast\n"
             "either may move - refused while the car is armed,\n"
             "and lost on the Pico's next reboot"
+        );
+    }
+
+    // DRIVING. Opening this window costs the board nothing and changes nothing
+    // on its own: the control slot is asked for in HELLO, the enable inside the
+    // window is off, and a viewer that has not asked for the slot is an
+    // observer whose datagrams the board would discard. Three gates, and this
+    // checkbox is not one of them - it only puts the pane on screen.
+    ImGui::Checkbox("drive", &drive.open);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "WASD over bibowire CONTROL. Taking the control slot needs\n"
+            "a reconnect - the handshake is the only place it is asked\n"
+            "for - and holding it arms the board's deadman, so losing\n"
+            "this viewer then stops the car"
         );
     }
 
@@ -837,6 +866,13 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     trimview::View trim;
     trimview::init(uiScale);
 
+    // The drive window. Closed at startup for the trim window's reason and one
+    // of its own: it is the only pane in this program that can make the car
+    // move, and nothing about starting a viewer should be a step toward that.
+    // It owns no device resource either.
+    driveview::View drive;
+    driveview::init(uiScale);
+
     // `net`, not `link`: the module is namespace `link`, and a variable of that
     // name would hide it for the rest of the function.
     Link net;
@@ -909,6 +945,21 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
             sc.cloudStale = false;
         }
 
+        // WHERE THE WHEELS ARE, AND WHERE THEY WERE ASKED TO BE - from the two
+        // accessors that already carry their own staleness test, so an old angle
+        // stops being drawn rather than being drawn old. Absent stays absent:
+        // neither arrow has a value to fall back to, and centre is not one.
+        const Opt<link::Control> steerCtl = snap.state.controlState(nowMs);
+        const Opt<link::Decision> steerDec = snap.state.decision(nowMs);
+        sc.haveSteerNow = steerCtl.has_value();
+        sc.haveSteerWant = steerDec.has_value();
+        sc.steerNow = steerCtl.has_value()
+            ? static_cast<Float32>(steerCtl->state.steerNowMilli) / 1000.0f
+            : 0.0f;
+        sc.steerWant = steerDec.has_value()
+            ? static_cast<Float32>(steerDec->decide.steerMilli) / 1000.0f
+            : 0.0f;
+
         handleCameraInput(sc.cam);
 
         // The view fills the window and the panels float over it, so it draws
@@ -919,10 +970,16 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         scene::draw(ImGui::GetBackgroundDrawList(), where, sc);
 
         drawConnectionWindow(net, snap, nowMs);
-        drawViewWindow(sc, cam, trim);
+        drawViewWindow(sc, cam, trim, drive);
         drawCarWindow(snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
         trimview::drawWindow(trim, net.client, snap, nowMs);
+
+        // LAST, and every frame whether or not its window is open: this call is
+        // what publishes the control intent, and a frame that skipped it would
+        // leave the worker sending whatever the last frame asked for - which is
+        // a key that is still held down as far as the car is concerned.
+        driveview::drawWindow(drive, net.client, snap, nowMs);
 
         ImGui::Render();
 

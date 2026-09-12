@@ -251,6 +251,68 @@ namespace scene
       segment(dl, b, o, Vec3{ 0.0f, 0.0f, AXIS_LEN }, IM_COL32(108, 154, 240, 255));
   }
 
+  // ---- where the car is pointed ---------------------------------------------
+  //
+  // A ROTATED ARROW, NOT A PREDICTED PATH, and the distinction is the whole
+  // design. A real curved trajectory needs a wheelbase, a steering-angle map and
+  // the geometry to turn a servo fraction into a radius; this project has
+  // measured none of them - docs/conventions.md records even the
+  // lidar-to-vehicle transform as assumed. An arc drawn over a real point cloud
+  // would read as a claim about where the car ENDS UP, next to lidar returns
+  // that are actual measurements, and somebody would judge a gap by it.
+  //
+  // So this says one honest thing: which way the wheels are pointed. Full lock
+  // maps to ARROW_MAX_RAD on screen, which is a display convention and not the
+  // car's real steering angle.
+  // The angle itself lives in scene.hxx as headingDir, inline, so test_link.cxx
+  // can hold its sign to an answer. These are only the drawn proportions.
+  constexpr Float32 ARROW_LEN = 0.70f;        // metres, about 1.6 car lengths
+  constexpr Float32 ARROW_BARB = 0.12f;
+  constexpr Float32 ARROW_BARB_RAD = 0.45f;
+
+  // +X is the car's RIGHT and +Y is forward (link.cxx states the frame where it
+  // builds the cloud), and positive steer is right - chassis.hxx's steerToUs
+  // sends a positive fraction toward servoMax, which cal.hxx calls
+  // STEER_CAL_RIGHT. So a positive angle swings toward +X, and both of those
+  // facts are written down rather than inferred from handedness.
+  static Void drawArrow(ImDrawList* dl, const Basis& b, Float32 steer, ImU32 col)
+  {
+      const Vec3 d = headingDir(steer);
+
+      const Vec3 from = { 0.0f, CAR_HALF_LENGTH, CAR_FLOOR };
+      const Vec3 tip = { from.x + (ARROW_LEN * d.x), from.y + (ARROW_LEN * d.y), CAR_FLOOR };
+      segment(dl, b, from, tip, col);
+
+      // Two barbs swept back from the tip, in the same ground plane, so the head
+      // still reads as a head from directly above. Rotating the direction vector
+      // rather than re-deriving an angle: one source for which way this points,
+      // and the barbs cannot end up disagreeing with the shaft.
+      const Float32 cs = std::cos(ARROW_BARB_RAD);
+      const Float32 sn = std::sin(ARROW_BARB_RAD);
+      const Vec3 left = { (d.x * cs) - (d.y * sn), (d.x * sn) + (d.y * cs), 0.0f };
+      const Vec3 right = { (d.x * cs) + (d.y * sn), (d.y * cs) - (d.x * sn), 0.0f };
+      const Vec3 barbL = { tip.x - (ARROW_BARB * left.x), tip.y - (ARROW_BARB * left.y), CAR_FLOOR };
+      const Vec3 barbR = { tip.x - (ARROW_BARB * right.x), tip.y - (ARROW_BARB * right.y), CAR_FLOOR };
+      segment(dl, b, tip, barbL, col);
+      segment(dl, b, tip, barbR, col);
+  }
+
+  // Solid for the wheels, ghost for the ask. Drawn ask-first so the solid one is
+  // on top where they overlap, which is most of the time - they separate only
+  // while the slew limiter is still working through a command, and THAT is the
+  // moment the pair is worth seeing.
+  static Void drawHeading(ImDrawList* dl, const Basis& b, const Scene& sc)
+  {
+      if(sc.haveSteerWant)
+      {
+          drawArrow(dl, b, sc.steerWant, IM_COL32(120, 150, 190, 150));
+      }
+      if(sc.haveSteerNow)
+      {
+          drawArrow(dl, b, sc.steerNow, IM_COL32(120, 210, 255, 255));
+      }
+  }
+
   static Void drawCar(ImDrawList* dl, const Basis& b)
   {
       const Float32 hw = CAR_HALF_WIDTH;
@@ -363,6 +425,10 @@ namespace scene
       if(sc.opt.car)
       {
           drawCar(dl, b);
+      }
+      if(sc.opt.heading)
+      {
+          drawHeading(dl, b, sc);
       }
       if(sc.opt.points)
       {

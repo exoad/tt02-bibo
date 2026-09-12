@@ -569,6 +569,19 @@ namespace viewfeed
 
     // ---- the deadman, and who is holding the wheel -------------------------
 
+    // Does the mode this viewer BELIEVES is running match the one that actually
+    // is? The pilot's mode arrives every tick on the BOARD frame; this module
+    // never had to ask for it, and never did.
+    //
+    // POSITIVE EVIDENCE ONLY, exactly like picoDown(). Before the first BOARD
+    // frame nothing is known about the mode, and "has not said yet" must not be
+    // refused on - so an unknown mode agrees. Touched on this thread alone, like
+    // lastBoard itself, so there is no lock here for the same reason.
+    [[nodiscard]] Bool modeAgreesWith(UInt8 assumed)
+    {
+        return !haveBoard || assumed == lastBoard.pilotMode;
+    }
+
     [[nodiscard]] bibowire::deadman::Output deadmanNow()
     {
         bibowire::deadman::Inputs in;
@@ -591,7 +604,11 @@ namespace viewfeed
             const bibowire::Control& c = sh.ctlSlot[seq & 1u];
             in.enable = (c.buttons & bibowire::BUTTON_ENABLE) != 0u;
             in.epochMatches = c.armEpoch == static_cast<UInt8>(armEpoch);
-            in.modeAgrees = true;
+            // WAS HARD-CODED true, which made deadman::step's mode branch
+            // unreachable - REFUSE_MODE could not fire however wrong the
+            // viewer's belief was. The pure function was right and tested all
+            // along; this caller was the part measuring nothing.
+            in.modeAgrees = modeAgreesWith(c.assumedMode);
         }
         return bibowire::deadman::step(in);
     }
@@ -1789,7 +1806,16 @@ namespace viewfeed
         g.haveHolder = haveHolder;
         g.fromHolder = c.holder && c.sessionId == holderSession;
         g.armEpoch = static_cast<UInt8>(armEpoch);
-        g.pilotMode = m.assumedMode;
+        // THE BOARD'S MODE, not the datagram's. This read `m.assumedMode`, and
+        // control::apply then tested `c.assumedMode != g.pilotMode` - both sides
+        // of that comparison came from the SAME datagram, so it could never be
+        // false and REFUSE_MODE never fired once. The case it exists to catch is
+        // a viewer holding W believing it is in MANUAL while the pilot is
+        // actually in DRIVE: its throttle must be ignored, and was not.
+        //
+        // Unknown agrees, for picoDown()'s reason: before the first BOARD frame
+        // this module has no mode to compare against and must not invent one.
+        g.pilotMode = haveBoard ? lastBoard.pilotMode : m.assumedMode;
 
         const bibowire::control::Outcome o = bibowire::control::apply(g, m);
         if(o.verdict != bibowire::control::Verdict::VERDICT_APPLIED)
@@ -1815,11 +1841,27 @@ namespace viewfeed
         everControl = true;
         holderGone = false;
 
+        // WHAT IS STORED IS WHAT THE GATE ALLOWED, not what arrived.
+        //
+        // control::apply has already decided this datagram's fate: on an epoch
+        // or a mode disagreement it zeroes the throttle and keeps the steering,
+        // because a refusal is about who may add energy and not about where the
+        // wheels point. Until now only the RAW message was stored and the
+        // Outcome was dropped on the floor - so the first caller of control()
+        // would have read a throttle the board had already refused, and driven
+        // on it, with CTLSTATE truthfully reporting REFUSE_EPOCH beside it.
+        //
+        // The opportunity is removed rather than documented: the ungated
+        // throttle is not reachable from this module at all.
+        bibowire::Control gated = m;
+        gated.steerMilli = o.steerMilli;
+        gated.throttleMilli = o.throttleMilli;
+
         // The seqlock: the slot is written FIRST and the seq stored with
         // release, so the tick either sees the old command whole or the new one
         // whole and never a mixture of the two.
         const UInt32 slot = o.highestSeq & 1u;
-        sh.ctlSlot[slot] = m;
+        sh.ctlSlot[slot] = gated;
         sh.ctlSeq.store(o.highestSeq, std::memory_order_release);
     }
 
@@ -3494,6 +3536,27 @@ namespace viewfeed
       return false;
   }
 
+  Drive drive()
+  {
+      Drive d;
+      if(!running)
+      {
+          // Not started is not "live with nobody holding": it is a module that
+          // cannot see anything at all, and the caller must not read the
+          // defaults as a verdict. haveHolder false is what makes the pilot run
+          // under its own blind and silence rules, which is correct here.
+          return d;
+      }
+      const bibowire::deadman::Output o = deadmanNow();
+      d.haveHolder = haveHolder;
+      d.estopLatched = estopLatched;
+      d.deadman = deadmanByte();
+      d.refuse = o.refuse;
+      d.neutralInMs = o.neutralInMs;
+      d.disarmInMs = o.disarmInMs;
+      return d;
+  }
+
   Bool tune(Tune* out)
   {
       if(out == nullptr || !running)
@@ -3627,6 +3690,16 @@ namespace viewfeed
   {
       static_cast<Void>(out);
       return false;
+  }
+
+  // Defaults, which say haveHolder = false - and that is the honest answer on a
+  // platform with no sockets, not a convenient one. With no holder the deadman
+  // does not apply at all (section 6) and the pilot runs under its own blind and
+  // silence rules, which is exactly what a board that cannot accept a viewer
+  // should do.
+  Drive drive()
+  {
+      return Drive();
   }
 
   Void applied(const Applied& a)

@@ -17,9 +17,21 @@
 //     keepalive, the UDP bind and its peer filter, the select loop, and the
 //     reconnect loop's use of the backoff numbers below. Those need a socket
 //     and a peer, and one end of the pair does not exist yet.
-//   - anything about CONTROL. This viewer does not send it; the Pico is not
-//     connected to the board, so that path could not be exercised even with a
-//     pilot running.
+//   - CONTROL'S SOCKET HALF. This viewer DOES send CONTROL now - the seq rule,
+//     the encoding, the key mapping and the enable bit are all held to an
+//     answer below - but nothing here puts a datagram on a wire. sendControl,
+//     the UDP sendto, the TCP fallback and its latch, and the reverse-path
+//     probe are compiled and reasoned about only. NO CONTROL DATAGRAM HAS EVER
+//     REACHED A BOARD, no wheel has moved, and the deadman, the arm sequence
+//     and REFUSE_MODE are shapes matched to docs/bibowire.md section 6 rather
+//     than behaviours anyone has observed.
+//   - THE HEADING ARROW AND THE BENDING GUIDES AS DRAWN. Their SIGNS are held
+//     to an answer below, which is the part that cannot be eyeballed: positive
+//     steer is right (chassis.hxx's steerToUs toward servoMax, which cal.hxx
+//     names STEER_CAL_RIGHT) and +X is right (scene.hxx's frame note), so an
+//     inversion of either draws a confident arrow the wrong way and compiles
+//     perfectly. What is NOT proved is any pixel of either: the drawing lives
+//     behind an ImDrawList and NEITHER HAS EVER BEEN SEEN ON SCREEN.
 //   - THE CAMERA'S SOCKET HALF. The decode path below is driven with
 //     hand-built CAMERA frames and a real JPEG, but no SUBSCRIBE has ever been
 //     put on a wire: the board-side producer is being written in parallel and
@@ -58,6 +70,14 @@
 #include "jpeg.hxx"
 #include "orient.hxx"
 #include "trim.hxx"
+#include "drive.hxx"
+
+// For bendAt and pctToUnit, which live at namespace scope in the header rather
+// than in camera.cxx's anonymous namespace precisely so this file can reach
+// them. camera.hxx names no ImGui type and no D3D type - only forward
+// declarations - so including it here links nothing graphical.
+#include "camera.hxx"
+#include "scene.hxx"
 
 #include <cmath>
 #include <cstdio>
@@ -251,6 +271,16 @@ static Size pushCtlState(Vec<UInt8>& out, UInt64 tUs, UInt8 armed)
     Array<UInt8, 64> body = {};
     const Size n = bibowire::writeCtlState(m, body.data(), body.size());
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_CTLSTATE, body.data(), n);
+}
+
+// A WELCOME whose every field the caller chose. pushWelcome above fixes
+// `accepted` at 2, which is exactly the field the control tests are about, so
+// this one takes the struct - pushCmdAck's shape, for pushCmdAck's reason.
+static Size pushWelcomeAs(Vec<UInt8>& out, const bibowire::Welcome& m)
+{
+    Array<UInt8, 256> body = {};
+    const Size n = bibowire::writeWelcome(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_WELCOME, body.data(), n);
 }
 
 // The board's answer to one COMMAND. Takes the whole struct rather than a
@@ -1672,6 +1702,475 @@ static Void testCmdAck()
     check(!s.newestAck().has_value(), "and has nothing to show");
 }
 
+static Void testControlSeq()
+{
+    std::printf("\n-- a CONTROL seq starts at 1, never repeats and is never 0 --\n");
+
+    check(link::nextControlSeq(0u) == 1u, "the first seq of a session is 1, not 0");
+    check(link::nextControlSeq(1u) == 2u, "then 2");
+    check(link::nextControlSeq(41u) == 42u, "and it counts by one");
+
+    // STRICTLY INCREASING, asserted as an ordering over a run rather than as
+    // three constants: the three above would still pass if the counter reset in
+    // some way that happened to produce 1, 2, 42.
+    UInt32 seq = 0;
+    Bool rising = true;
+    Bool everZero = false;
+    for(Int32 i = 0; i < 4000; ++i)
+    {
+        const UInt32 next = link::nextControlSeq(seq);
+        if(next <= seq)
+        {
+            rising = false;
+        }
+        if(next == 0u)
+        {
+            everZero = true;
+        }
+        seq = next;
+    }
+    check(rising, "strictly increasing across four thousand datagrams");
+    check(!everZero, "and never 0 - CTLSTATE's ackSeq uses 0 for none applied");
+    check(seq == 4000u, "four thousand sends is seq 4000, so none were skipped");
+
+    // 6.8 years away at 20 Hz, and written anyway: a rule held by an arithmetic
+    // coincidence is a rule nobody can point at.
+    check(link::nextControlSeq(0xFFFFFFFFu) == 1u, "the wrap skips 0 and begins again at 1");
+}
+
+static Void testControlRoundTrip()
+{
+    std::printf("\n-- a CONTROL this viewer built, field by field --\n");
+
+    link::Intent in;
+    in.driving = true;
+    in.steerMilli = -437;
+    in.throttleMilli = 268;
+    in.buttons = static_cast<UInt16>(bibowire::BUTTON_ENABLE | bibowire::BUTTON_MOTOR_WANTED);
+    in.assumedMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_LOOK);
+
+    link::ControlStamp at;
+    at.sessionId = 0x51E55101u;
+    at.seq = 4242u;
+    at.armEpoch = 7u;
+    at.tMonoUs = 1234567890ull;
+
+    const bibowire::Control m = link::buildControl(in, at);
+    Array<UInt8, 64> body = {};
+    const Size n = bibowire::writeControl(m, body.data(), body.size());
+    check(n != 0, "it encodes");
+    if(n == 0)
+    {
+        return;
+    }
+
+    Vec<UInt8> wire;
+    static_cast<Void>(framed(wire, bibowire::Type::TYPE_CONTROL, body.data(), n));
+
+    bibowire::Frame f;
+    Size used = 0;
+    const bibowire::Take got = bibowire::take(wire.data(), wire.size(), &f, &used);
+    check(got == bibowire::Take::TAKE_FRAME, "and comes back off the wire as a frame");
+    check(f.head.type == bibowire::Type::TYPE_CONTROL, "tagged CONTROL, 0x40");
+    if(got != bibowire::Take::TAKE_FRAME)
+    {
+        return;
+    }
+
+    bibowire::Control back;
+    check(bibowire::readControl(f.body, f.head.ver, &back), "and decodes");
+
+    // VALUES, NOT SUCCESS, and EVERY FIELD A DIFFERENT VALUE - so a swap of any
+    // pair fails here instead of round-tripping happily. The two Int16s and the
+    // two trailing UInt8s are the pairs a reader of the byte table is most
+    // likely to reverse, and they are asserted against each other as well.
+    check(back.sessionId == 0x51E55101u, "the session survives");
+    check(back.seq == 4242u, "and the seq");
+    check(back.tMonoUs == 1234567890ull, "and the viewer's own clock");
+    check(back.steerMilli == -437, "steer lands in steerMilli, negative for left");
+    check(back.throttleMilli == 268, "and throttle in throttleMilli");
+    check(back.steerMilli != back.throttleMilli, "so the two i16 fields cannot have been swapped");
+    check(back.buttons == 6u, "ENABLE and MOTOR_WANTED are bits 1 and 2");
+    check(back.armEpoch == 7u, "the epoch the viewer believes");
+    check(back.assumedMode == 1u, "and the mode it asserts");
+    check(back.armEpoch != back.assumedMode, "so the two trailing u8s cannot have been swapped");
+    check(back.sessionId != back.seq, "nor the two u32s");
+}
+
+static Void testDriveKeys()
+{
+    std::printf("\n-- what a key means, which is the whole of the driving --\n");
+
+    const driveview::Keys none;
+
+    driveview::Keys a;
+    a.left = true;
+    driveview::Keys d;
+    d.right = true;
+    driveview::Keys both;
+    both.left = true;
+    both.right = true;
+
+    // BANG-BANG. The Pico's own SLEW does the smoothing and the trim pane tunes
+    // it; a second ramp here would be two filters in series that nobody could
+    // tell apart when the steering felt wrong.
+    check(driveview::steerFrom(none) == 0, "no key is straight ahead");
+    check(driveview::steerFrom(a) == -1000, "A is full left");
+    check(driveview::steerFrom(d) == 1000, "D is full right");
+    check(driveview::steerFrom(a) != driveview::steerFrom(d), "and left is not right");
+
+    // BOTH CANCELS, and it is not "the last one wins": a hand resting on A while
+    // reaching for D is the case, and a car that picked one would turn while its
+    // operator believed it was straight.
+    check(driveview::steerFrom(both) == 0, "A and D together cancel to straight");
+    check(driveview::steerFrom(both) != driveview::steerFrom(a), "not the left one");
+    check(driveview::steerFrom(both) != driveview::steerFrom(d), "and not the right one");
+
+    driveview::Keys w;
+    w.forward = true;
+    driveview::Keys s;
+    s.brake = true;
+    driveview::Keys ws;
+    ws.forward = true;
+    ws.brake = true;
+
+    check(driveview::throttleFrom(none, 300) == 0, "no key is no throttle");
+    check(driveview::throttleFrom(w, 100) == 100, "W is the cap the operator set");
+    check(driveview::throttleFrom(w, 300) == 300, "whatever that cap is");
+    check(driveview::throttleFrom(w, 5000) == 1000, "and it is clamped to full scale");
+    check(driveview::throttleFrom(w, 0) == 0, "a cap of zero is a key that does nothing");
+    check(driveview::throttleFrom(w, -5) == 0, "and a negative cap is not reverse");
+
+    // S BEATS W. A brake W can override is not a brake - and W is already held
+    // when somebody reaches for S, so "both down" is precisely the moment the
+    // rule exists for. Inverted, the assertion below would read 300.
+    check(driveview::throttleFrom(s, 300) == 0, "S alone is zero throttle");
+    check(driveview::throttleFrom(ws, 300) == 0, "and S BEATS W when both are down");
+    check(
+        driveview::throttleFrom(ws, 300) != driveview::throttleFrom(w, 300),
+        "which is a different answer from W alone, so the precedence is real"
+    );
+
+    // Zero and not negative: the band this project commands is forward-only, so
+    // there is no reverse to ask for.
+    check(driveview::throttleFrom(ws, 300) >= 0, "a brake is never negative throttle");
+}
+
+static Void testEnableOnEveryDatagram()
+{
+    std::printf("\n-- ENABLE on every datagram, or the keys look dead --\n");
+
+    driveview::View v;
+    v.enabled = true;
+    v.throttleCapMilli = 200;
+
+    link::ControlStamp at;
+    at.sessionId = 0x51E55101u;
+    at.armEpoch = 3u;
+
+    // EVERY COMBINATION OF THE FIVE KEYS, twice over - once driving and once
+    // not. deadman::step reaches STATE_LIVE only while `enable` is set, so a
+    // combination that dropped the bit would be a car sitting at
+    // REFUSE_NOT_ARMED with somebody leaning on W.
+    Bool alwaysEnabled = true;
+    Bool seqRising = true;
+    UInt32 seq = 0;
+    for(Int32 mask = 0; mask < 32; ++mask)
+    {
+        driveview::Keys k;
+        k.left = (mask & 1) != 0;
+        k.right = (mask & 2) != 0;
+        k.forward = (mask & 4) != 0;
+        k.brake = (mask & 8) != 0;
+        k.estop = (mask & 16) != 0;
+
+        const UInt32 next = link::nextControlSeq(seq);
+        if(next <= seq)
+        {
+            seqRising = false;
+        }
+        seq = next;
+        at.seq = next;
+
+        const bibowire::Control m = link::buildControl(driveview::intentFrom(k, v), at);
+        if((m.buttons & bibowire::BUTTON_ENABLE) == 0u)
+        {
+            alwaysEnabled = false;
+        }
+    }
+    check(alwaysEnabled, "ENABLE is set on all 32 key combinations while driving");
+    check(seqRising, "and the seq rose on every one of them");
+
+    // AND IT CANNOT BE SET WHILE THE OPERATOR IS NOT DRIVING, whatever the keys
+    // say - the enable is consent, and consent is not something a key press
+    // supplies on the operator's behalf.
+    v.enabled = false;
+    Bool everEnabled = false;
+    Bool everMoved = false;
+    Bool estopSurvived = true;
+    for(Int32 mask = 0; mask < 32; ++mask)
+    {
+        driveview::Keys k;
+        k.left = (mask & 1) != 0;
+        k.right = (mask & 2) != 0;
+        k.forward = (mask & 4) != 0;
+        k.brake = (mask & 8) != 0;
+        k.estop = (mask & 16) != 0;
+
+        const bibowire::Control m = link::buildControl(driveview::intentFrom(k, v), at);
+        if((m.buttons & bibowire::BUTTON_ENABLE) != 0u)
+        {
+            everEnabled = true;
+        }
+        if(m.steerMilli != 0 || m.throttleMilli != 0)
+        {
+            everMoved = true;
+        }
+        const Bool wantStop = k.estop;
+        const Bool sentStop = (m.buttons & bibowire::BUTTON_ESTOP) != 0u;
+        if(wantStop != sentStop)
+        {
+            estopSurvived = false;
+        }
+    }
+    check(!everEnabled, "ENABLE is never set while the operator is not driving");
+    check(!everMoved, "and neither axis moves - steering is applied even when throttle is not");
+    check(estopSurvived, "while ESTOP still rides every datagram, which is the point of it");
+}
+
+static Void testAssumedModeIsTheOperatorsOwn()
+{
+    std::printf("\n-- assumedMode is the OPERATOR's belief, never the board's answer --\n");
+
+    // A board that says it is in DRIVE, twenty times a second.
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCtlState(wire, 1000000, 1));
+    link::Session s;
+    static_cast<Void>(feed(s, wire, 1000));
+    check(s.control.pilotMode == 2u, "the board reports it is driving");
+
+    driveview::View v;
+    v.enabled = true;
+    v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+
+    const driveview::Keys none;
+    const link::Intent manual = driveview::intentFrom(none, v);
+
+    // THE WHOLE CHECK. If this ever followed CTLSTATE, the board's own
+    // comparison - assumedMode against its real mode - would be true by
+    // construction and REFUSE_MODE could never fire, which is the bug that was
+    // just found and fixed on the BOARD side of the same comparison.
+    check(manual.assumedMode == 0u, "the datagram asserts what the UI selected");
+    check(
+        manual.assumedMode != static_cast<UInt8>(s.control.pilotMode),
+        "and it DISAGREES with the board, which is how REFUSE_MODE can ever fire"
+    );
+
+    v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_LOOK);
+    check(driveview::intentFrom(none, v).assumedMode == 1u, "LOOK selected is LOOK sent");
+    v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_DRIVE);
+    check(driveview::intentFrom(none, v).assumedMode == 2u, "DRIVE selected is DRIVE sent");
+
+    // An impossible selection folds to MANUAL - the mode whose stick values the
+    // board actually reads - rather than becoming a belief about a mode nobody
+    // is in.
+    v.assumedMode = 9;
+    check(driveview::intentFrom(none, v).assumedMode == 0u, "an out-of-range mode folds to manual");
+    v.assumedMode = -3;
+    check(driveview::intentFrom(none, v).assumedMode == 0u, "and so does a negative one");
+
+    // And it survives the trip to the wire, where the board reads it.
+    link::ControlStamp at;
+    at.sessionId = 1u;
+    at.seq = 1u;
+    v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+    const bibowire::Control m = link::buildControl(driveview::intentFrom(none, v), at);
+    check(m.assumedMode == 0u, "the built CONTROL carries the operator's mode");
+    check(m.assumedMode != s.control.pilotMode, "not the one CTLSTATE reported");
+}
+
+static Void testControlSlotAndCadence()
+{
+    std::printf("\n-- who holds the slot, and whose clock the stream keeps --\n");
+
+    link::Session fresh;
+    check(!link::holdsSlot(fresh), "before WELCOME this viewer holds nothing");
+    check(
+        link::controlPeriodMs(fresh) == static_cast<Int64>(bibowire::CONTROL_PERIOD_MS),
+        "and would send at the protocol's own period"
+    );
+
+    // accepted = 1 is "control is yours". Through the codec, because this is the
+    // field the whole feature turns on.
+    bibowire::Welcome driver;
+    driver.sessionId = 0x51E55101u;
+    driver.bootId = 77u;
+    driver.accepted = 1;
+    driver.armEpoch = 4;
+    driver.capabilities = 0x0Fu;
+    driver.controlPeriodMs = 80;
+    driver.boardName = "bibobox";
+    driver.text = "control is yours";
+
+    Vec<UInt8> wire;
+    static_cast<Void>(pushWelcomeAs(wire, driver));
+    link::Session held;
+    static_cast<Void>(feed(held, wire, 1000));
+    check(held.haveWelcome, "the WELCOME arrives");
+    check(link::holdsSlot(held), "accepted = 1 is the control slot");
+
+    // THE BOARD'S NUMBER, not a constant compiled into this viewer months
+    // earlier. Section 4 puts controlPeriodMs in WELCOME for exactly this.
+    check(link::controlPeriodMs(held) == 80, "and the cadence is the board's 80 ms, not 50");
+
+    bibowire::Welcome observer = driver;
+    observer.accepted = 2;
+    observer.refusal = 2;
+    Vec<UInt8> watching;
+    static_cast<Void>(pushWelcomeAs(watching, observer));
+    link::Session obs;
+    static_cast<Void>(feed(obs, watching, 1000));
+    check(obs.haveWelcome, "an observer is welcomed too");
+    check(!link::holdsSlot(obs), "but accepted = 2 holds no slot, so it sends no CONTROL");
+
+    bibowire::Welcome refused = driver;
+    refused.accepted = 0;
+    Vec<UInt8> denied;
+    static_cast<Void>(pushWelcomeAs(denied, refused));
+    link::Session no;
+    static_cast<Void>(feed(no, denied, 1000));
+    check(!link::holdsSlot(no), "and a refused connection holds nothing at all");
+
+    // A board that sends 0 does not get to make this viewer spin: a period of
+    // zero is not a faster stream, it is a busy loop on the link the stream is
+    // trying to survive on. Built directly rather than through the wire, so the
+    // case is the viewer's rule and not the encoder's opinion of it.
+    link::Session zero;
+    zero.haveWelcome = true;
+    zero.welcome.controlPeriodMs = 0;
+    check(
+        link::controlPeriodMs(zero) == static_cast<Int64>(bibowire::CONTROL_PERIOD_MS),
+        "a controlPeriodMs of 0 falls back to the protocol's 50 ms"
+    );
+}
+
+// THE TWO SIGNS NOBODY CAN EYEBALL.
+//
+// Both rest on facts written down elsewhere rather than inferred: positive
+// steer is RIGHT, because chassis.hxx's steerToUs sends a positive fraction
+// toward servoMax and cal.hxx names that STEER_CAL_RIGHT; and +X is the car's
+// RIGHT, because scene.hxx states the frame and link.cxx repeats it where it
+// turns a bearing into a cloud point. Invert either and the code compiles, the
+// picture looks entirely reasonable, and the error is found while driving.
+//
+// This is orient.cxx's argument - a quarter turn is a transpose and nobody can
+// eyeball a transpose - applied to a sign.
+static Void testSteerSigns()
+{
+    std::printf("\n  the signs of the heading arrow and the bending guides\n");
+
+    constexpr Float32 EPS = 0.0005f;
+
+    // ---- the camera's guides, in image space -------------------------------
+    check(camview::bendAt(0.0f, 45, 1.0f) == 0.0f, "no steering is no bend");
+    check(camview::bendAt(1.0f, 45, 0.0f) == 0.0f, "and no bend at the bumper, whatever the wheels do");
+    check(camview::bendAt(1.0f, 45, 1.0f) > 0.0f, "a RIGHT turn sweeps the guides toward larger image u");
+    check(camview::bendAt(-1.0f, 45, 1.0f) < 0.0f, "and a left turn sweeps them the other way");
+    check(
+        std::fabs(camview::bendAt(1.0f, 45, 1.0f) + camview::bendAt(-1.0f, 45, 1.0f)) < EPS,
+        "the two are exact opposites, so the guides are not biased to one side"
+    );
+    check(camview::bendAt(1.0f, 0, 1.0f) == 0.0f, "a bend slider at zero turns the sweep off");
+
+    // t*t and not t - four times the swing at twice the distance. A linear
+    // sweep would move the guides at the bumper, where a real one barely does.
+    const Float32 half = camview::bendAt(1.0f, 45, 0.5f);
+    const Float32 full = camview::bendAt(1.0f, 45, 1.0f);
+    check(std::fabs(full - (4.0f * half)) < EPS, "the swing grows with t squared, not with t");
+
+    check(
+        camview::pctToUnit(150, 0, 100) == camview::pctToUnit(100, 0, 100),
+        "a percent past its range clamps rather than drawing off the picture"
+    );
+
+    // ---- the 3D arrow, in the world frame ----------------------------------
+    const scene::Vec3 straight = scene::headingDir(0.0f);
+    check(std::fabs(straight.x) < EPS, "straight wheels point along no sideways axis at all");
+    check(std::fabs(straight.y - 1.0f) < EPS, "and straight ahead is +Y, which is where the car faces");
+
+    const scene::Vec3 right = scene::headingDir(1.0f);
+    const scene::Vec3 left = scene::headingDir(-1.0f);
+    check(right.x > 0.0f, "a RIGHT turn points the arrow toward +X, which the frame calls right");
+    check(left.x < 0.0f, "and a left turn toward -X");
+    check(std::fabs(right.x + left.x) < EPS, "the two are mirrored, not offset");
+    check(right.y > 0.0f && left.y > 0.0f, "and both still point forwards - this is a heading, not a turn in place");
+
+    const Float32 len = (right.x * right.x) + (right.y * right.y);
+    check(std::fabs(len - 1.0f) < EPS, "the direction is a unit vector, so ARROW_LEN alone sets its length");
+
+    // ---- AND THE PAIR AGREES ----------------------------------------------
+    //
+    // The check that matters most, and the one neither file can make alone.
+    // bendAt is in camera.hxx and headingDir is in scene.hxx; each is correct
+    // on its own terms whichever sign it carries. If one is ever flipped, the
+    // car draws guides sweeping right while the arrow points left, both look
+    // reasonable in isolation, and only the two together are wrong - which is
+    // this repo's named failure with a steering wheel attached.
+    check(
+        (camview::bendAt(1.0f, 45, 1.0f) > 0.0f) == (scene::headingDir(1.0f).x > 0.0f),
+        "the guides and the arrow agree about which way is right"
+    );
+    check(
+        (camview::bendAt(-1.0f, 45, 1.0f) < 0.0f) == (scene::headingDir(-1.0f).x < 0.0f),
+        "and about which way is left"
+    );
+}
+
+static Void testControlIsOptIn()
+{
+    std::printf("\n-- control is opt-in, and a fresh viewer asks for nothing --\n");
+
+    link::Client c;
+
+    // THE SAFETY PROPERTY, pinned. Section 6: the moment a viewer takes the
+    // slot its cadence becomes the consent the deadman watches, and losing it
+    // stops the car - so merely opening this program must not arm a deadman
+    // over somebody else's autonomous run.
+    check(!link::controlSlotWanted(c), "a fresh client does NOT ask for the control slot");
+
+    const link::Intent idle = link::controlIntent(c);
+    check(!idle.driving, "and is not driving");
+    check(idle.steerMilli == 0 && idle.throttleMilli == 0, "with both axes neutral");
+    check(idle.buttons == 0u, "and no buttons - no ENABLE, no ESTOP");
+
+    // A default View is the same answer from the other end of the pane.
+    const driveview::View pane;
+    check(!pane.open, "the drive window starts closed");
+    check(!pane.enabled, "with the enable off");
+    check(pane.throttleCapMilli == driveview::THROTTLE_CAP_DEFAULT, "and a conservative cap");
+    check(pane.throttleCapMilli < driveview::THROTTLE_CAP_MAX, "which is far below full throttle");
+
+    link::Intent want;
+    want.driving = true;
+    want.steerMilli = -1000;
+    want.throttleMilli = 250;
+    want.buttons = bibowire::BUTTON_ENABLE;
+    want.assumedMode = 2;
+    link::setControl(c, want);
+
+    const link::Intent got = link::controlIntent(c);
+    check(got.driving, "what the pane published is what the worker reads");
+    check(got.steerMilli == -1000, "steer included");
+    check(got.throttleMilli == 250, "throttle included");
+    check(got.buttons == bibowire::BUTTON_ENABLE, "buttons included");
+    check(got.assumedMode == 2u, "and the asserted mode");
+
+    link::wantControlSlot(c, true);
+    check(link::controlSlotWanted(c), "asking for the slot is remembered for the next HELLO");
+    link::wantControlSlot(c, false);
+    check(!link::controlSlotWanted(c), "and withdrawing it is too");
+}
+
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
@@ -1708,6 +2207,14 @@ int main()
     testCommandEncoding();
     testSlewArithmetic();
     testCmdAck();
+    testControlSeq();
+    testControlRoundTrip();
+    testDriveKeys();
+    testEnableOnEveryDatagram();
+    testAssumedModeIsTheOperatorsOwn();
+    testControlSlotAndCadence();
+    testControlIsOptIn();
+    testSteerSigns();
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

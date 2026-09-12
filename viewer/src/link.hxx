@@ -530,6 +530,86 @@ namespace link
   // never skipped in silence.
   [[nodiscard]] Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 nowMs);
 
+  // ---- CONTROL, the pure half ------------------------------------------------
+  //
+  // THE CADENCE IS THE CONSENT, NOT THE CONTENT. docs/bibowire.md section 6: a
+  // CONTROL goes out every CONTROL_PERIOD_MS for as long as this viewer holds
+  // the slot, changed or not. A protocol that sent control on change would make
+  // "nothing changed" and "the link died" the same event on the wire, which is
+  // this repo's recurring bug class pointed at the one mechanism that stops a
+  // car. So what the UI thread publishes is a LEVEL that the worker samples on
+  // its own schedule, never a queue of edges: a key that is held down is held
+  // down twenty times a second, and a key that is not is silence with a value
+  // in it.
+
+  struct Intent
+  {
+      // THE OPERATOR'S INTENT TO DRIVE, and BUTTON_ENABLE follows it exactly.
+      // bibowire::deadman::step only reaches STATE_LIVE when `enable` is set,
+      // so a stream without it leaves the car at REFUSE_NOT_ARMED with the keys
+      // looking dead. Clearing it is a SOFT stop - throttle to zero, steering
+      // held, the slot kept - which is why the stream CONTINUES while this is
+      // false rather than stopping: stopping is what the deadman is for.
+      Bool driving = false;
+
+      Int16 steerMilli = 0;
+      Int16 throttleMilli = 0;
+
+      // b0 ESTOP, b1 ENABLE, b2 MOTOR_WANTED. Built by drive.hxx from the keys
+      // and carried verbatim, so this module never decides what a key means.
+      UInt16 buttons = 0;
+
+      // WHAT THE OPERATOR BELIEVES IS ACTIVE - from this viewer's OWN mode
+      // selection, and NEVER echoed from CTLSTATE's pilotMode. The board
+      // compares the two to catch somebody driving under a false belief (its
+      // `REFUSE_MODE`), and a viewer that reflected the board's answer back
+      // would make that comparison always true and delete the check. That exact
+      // bug was found and fixed on the BOARD side of this comparison
+      // (viewfeed.cxx, onControlFrame); this is the other end of it, and the
+      // suite pins it.
+      UInt8 assumedMode = 0;
+  };
+
+  // The three facts only the CONNECTION knows, stamped by the worker at the
+  // moment of sending rather than carried on the Intent - sendCommand's rule and
+  // the same reason: a snapshot taken on the UI thread is the session the
+  // operator typed into, which may not be the one the frame goes out on.
+  struct ControlStamp
+  {
+      UInt32 sessionId = 0;
+      UInt32 seq = 0;
+      UInt8 armEpoch = 0;
+      UInt64 tMonoUs = 0;
+  };
+
+  // Pure. What this viewer would put on the wire right now.
+  [[nodiscard]] bibowire::Control buildControl(const Intent& in, const ControlStamp& at);
+
+  // Pure. STRICTLY INCREASING FROM 1, and never 0 - section 5 starts the stream
+  // at 1 and the board's newest-wins comparison is on the difference, so a 0
+  // would be a datagram the board could not tell from "no seq at all". At 20 Hz
+  // the wrap is 6.8 years away and is written anyway, because a rule held by an
+  // arithmetic coincidence is a rule nobody can point at.
+  [[nodiscard]] UInt32 nextControlSeq(UInt32 previous);
+
+  // Whether the BOARD said this viewer has the control slot. WELCOME's
+  // `accepted` is the authority: 1 is "control is yours", 2 is observer.
+  //
+  // NOT a question this end can answer on its own, which is the whole point.
+  // The slot is asked for in HELLO and granted (or not) in the answer, so a
+  // viewer that decided locally that it was driving would send a stream the
+  // board counts in rxControlStale and discards, while its own UI showed a car
+  // it was not connected to. CTLSTATE's `holder` is the live confirmation and
+  // the pane shows that too.
+  [[nodiscard]] Bool holdsSlot(const Session& s);
+
+  // THE BOARD'S OWN CADENCE, not a constant compiled into this viewer months
+  // earlier - section 4 says WELCOME carries controlPeriodMs, staleMs and deadMs
+  // for exactly this reason. bibowire::CONTROL_PERIOD_MS is the fallback for
+  // "no WELCOME yet", and a board that sends 0 does not get to make this viewer
+  // spin: a period of zero is not a faster stream, it is a busy loop.
+  [[nodiscard]] Int64 controlPeriodMs(const Session& s);
+
   // ---- the reconnect schedule, as three pure functions -----------------------
 
   [[nodiscard]] UInt32 stir(UInt32 seed);
@@ -548,6 +628,29 @@ namespace link
       Str status = "not connected";
       Int32 retryInMs = 0;
       Session state;
+
+      // ---- how CONTROL is actually leaving this machine --------------------
+      //
+      // Section 4's TCP fallback, made visible. When no CTLSTATE datagram has
+      // arrived within REVERSE_PROBE_MS of WELCOME, UDP is not getting through
+      // and CONTROL moves onto the TCP connection at the same rate - the board
+      // accepts it there always, with identical rules and identical deadman.
+      // The banner is part of the contract and not a nicety: driving degraded
+      // is still driving, and an operator who cannot tell is an operator who
+      // will not know why the wheel feels late behind a 2.5 KB SCAN.
+      Bool controlOnTcp = false;
+
+      // COUNTED, NEVER SMOOTHED, and published so a pane can show them. A
+      // control stream nobody can measure is the exact failure this repo keeps
+      // finding, and here it would be measured in metres of car.
+      UInt32 controlSent = 0;
+      UInt32 controlFailed = 0;
+
+      // The seq this viewer last put on the wire, so the pane can hold it up
+      // against CTLSTATE's ackSeq - "sent 412, applied 411" is a link working,
+      // and "sent 412, applied 96" is one that stopped three hundred datagrams
+      // ago while every socket still looks perfect.
+      UInt32 controlSeq = 0;
   };
 
   struct Client
@@ -608,6 +711,33 @@ namespace link
       // never left. Atomic because the UI thread reads it while the worker
       // writes it.
       Atomic<UInt32> commandsDropped = 0;
+
+      // ---- what the operator is asking the car to do -----------------------
+      //
+      // A MUTEX AND A STRUCT, not five atomics, and the difference matters. The
+      // five fields are ONE act - "left, no throttle, enabled, in manual" - and
+      // five independent atomics would let the worker read a steer from this
+      // frame beside a throttle from the last one. Two halves each locally
+      // correct and broken as a pair is a failure this repo has a name for, and
+      // this is the one place in the viewer where it would be measured in
+      // metres of car. The lock is held for a struct copy, once a UI frame and
+      // once a poll slice.
+      Mutex ctlLock;
+      Intent intent;
+
+      // ASKED FOR IN HELLO AND NOWHERE ELSE. bibowire v1 has no message that
+      // takes the control slot mid-session: viewfeed.cxx grants it in onHello
+      // and in no other place (`c.holder = true` appears exactly once), so this
+      // is read when the connection is DIALLED and changing it later changes
+      // nothing until the next one. The pane says that in words rather than
+      // leaving a checkbox that appears to do nothing.
+      //
+      // DEFAULT FALSE, and that is a safety property rather than a default.
+      // Section 6: the moment a viewer takes the slot, in ANY mode including
+      // drive, its cadence becomes the consent the deadman watches and losing
+      // it stops the car. Merely opening this viewer must not arm a deadman
+      // over somebody else's autonomous run.
+      Atomic<Bool> wantSlot = false;
   };
 
   // Starts the worker. Returns false when one is already running.
@@ -691,28 +821,57 @@ namespace link
   // put them on. Shown, not just counted.
   [[nodiscard]] UInt32 commandsDropped(const Client& c);
 
-  // ---------------------------------------------------------------------------
-  // SEAM: sending CONTROL - DRIVING the car - goes here.
+  // ---- CONTROL, the socket half ----------------------------------------------
   //
-  // Deliberately absent, not forgotten, and COMMAND landing above does not
-  // change the reasoning by which this is still missing. The Pico is not
-  // connected to the board, so nothing on the driving path can be exercised end
-  // to end today, and a control path that has never moved a wheel is a safety
-  // mechanism nobody has tested. What lands here when it can be tested: CONTROL
-  // at 20 Hz on the UDP socket this client already binds (it carries
-  // `sessionId` from WELCOME, a strictly increasing `seq` and the `armEpoch` the
-  // viewer believes), and the viewer's own copy of bibowire::deadman::step so
-  // the operator watches the same arithmetic that will do the tripping.
+  // WHAT NOW EXISTS, AND WHAT STILL DOES NOT. This block replaced a SEAM
+  // comment that said driving was deliberately absent, and the honest version
+  // of that paragraph is worth keeping rather than deleting:
   //
-  // The two are separable, which is why one of them is here and the other is
-  // not. A COMMAND is a single act that is acknowledged; a CONTROL is a stream
-  // whose CADENCE is the safety property, and the tuning verbs are refused
-  // while the car is armed - so nothing above can move a wheel, and this
-  // viewer is still an OBSERVER. HELLO carries wantControl = 0, which is the
-  // honest description of a program that cannot drive, and it means bibowire's
-  // deadman is not armed on our account: with no control holder the pilot runs
-  // under its own rules exactly as it does with nobody watching
-  // (docs/bibowire.md section 6).
-  // ---------------------------------------------------------------------------
+  //   - EXISTS: CONTROL is built, framed and sent every controlPeriodMs while
+  //     this viewer holds the slot, on the UDP socket the client already binds,
+  //     and on TCP instead when section 4's CTLSTATE probe says UDP is not
+  //     getting through. seq is strictly increasing from 1, sessionId comes
+  //     from WELCOME and armEpoch from the freshest thing the board has said.
+  //   - EXISTS: the slot is ASKED FOR, opt-in and default off, in HELLO.
+  //   - DOES NOT EXIST: taking the slot without reconnecting. bibowire v1 has
+  //     no message for it and the board grants it in onHello alone.
+  //   - DOES NOT EXIST: a viewer-side copy of bibowire::deadman::step. The
+  //     countdowns an operator reads come from CTLSTATE's neutralInMs and
+  //     disarmInMs, which the BOARD computes with the same pure function that
+  //     does the tripping - so there is one arithmetic rather than two that can
+  //     disagree, and nothing here can render a margin the car does not have.
+  //   - NOT TESTED ANYWHERE: any of this against a car. The Pico has never been
+  //     connected to the board, no CONTROL datagram has ever moved a wheel, and
+  //     a safety mechanism that has run only in a suite is a safety mechanism
+  //     nobody has watched fail. viewer/tests/test_link.cxx pins the shapes -
+  //     the seq rule, the round trip, the key mapping, the ENABLE bit - and
+  //     names in its own header what it cannot reach.
+
+  // The level the worker samples. Safe from the UI thread, safe before a
+  // connection exists, and called EVERY FRAME from the pane rather than on
+  // change: this is a level and not an edge, and a "send it when it changes"
+  // path here would be the one bug section 6 is written to prevent.
+  Void setControl(Client& c, const Intent& in);
+
+  [[nodiscard]] Intent controlIntent(Client& c);
+
+  // Ask for the control slot on the NEXT connection - HELLO carries it and
+  // nothing else can. Default false; see Client::wantSlot for why that is a
+  // safety property and not a preference.
+  Void wantControlSlot(Client& c, Bool on);
+
+  [[nodiscard]] Bool controlSlotWanted(const Client& c);
+
+  // Drop this connection and dial the same host again, because asking for the
+  // slot is a HELLO-time decision and a HELLO belongs to a connection. Returns
+  // false when there was nothing running to restart.
+  //
+  // It is a close and an open, in that order, and it is deliberately not
+  // dressed up as anything smaller: the session is gone, the sessionId is new,
+  // the board issues a fresh epoch, and the car - which stopped at DEAD when
+  // the old stream stopped - stays stopped until somebody arms it again. That
+  // is section 7's reconnect paragraph, and a "reconnect" that hid any of it
+  // would be hiding the part an operator has to know.
+  Bool reconnect(Client& c);
 
 }

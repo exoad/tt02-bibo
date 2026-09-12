@@ -179,6 +179,26 @@ namespace bibowire
   // stall.
   constexpr Int32 CONTROL_SLOT_MS = 1000;
 
+  // ---------------------------------------------------------------------------
+  // WHO WRITES steer and throttle - section 6's three modes.
+  //
+  // They existed only as bare literals until now: `opt.dry ? 1u : 2u` in the
+  // pilot, `0/1/2` in the spec, and nothing anywhere that spelled MANUAL. So no
+  // pilot could report mode 0 and a viewer had no legitimate mode to drive in.
+  //
+  // THIS IS NOT Decide::mode. That one is the autonomy's cruise / slow / stop /
+  // reverse / blind, and both are small integers called "mode" in the same
+  // program. Render one through the other's names and MANUAL prints as "cruise"
+  // and DRIVE as "stop" - wrong in the most plausible-looking way, on the panel
+  // somebody reads before pressing a key. The viewer's sourceName() is THIS
+  // vocabulary; its modeName() is the other one.
+  enum class PilotMode : UInt8
+  {
+      PILOT_MODE_MANUAL = 0,   // CONTROL's stick values go to the Pico
+      PILOT_MODE_LOOK = 1,     // the autonomy runs, throttle forced to 0 - this is --dry
+      PILOT_MODE_DRIVE = 2,    // the autonomy drives; CONTROL is consent, not input
+  };
+
   // Within this long of WELCOME the board must have seen at least
   // REVERSE_PROBE_MIN datagrams from a viewer that asked for control, or it
   // says so in words. Measuring the reverse path rather than assuming it
