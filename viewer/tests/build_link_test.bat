@@ -43,6 +43,10 @@ REM  owns a D3D11 texture and could not be linked into a console test.
 REM
 REM  vlog.cxx is compiled in because link.cxx writes its round-trip log through
 REM  it. Nothing here calls vlog::open, so every line it would write is a no-op.
+REM
+REM  settings.cxx is compiled in for its text half - the integer parser, the
+REM  clamping and the key list. The suite reads one path that does not exist and
+REM  never writes a settings file.
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\src" /I"%HERE%..\..\shared" ^
   /I"%HERE%..\..\firmware\pilot\src" /I"%HERE%..\..\third_party\imgui" ^
@@ -52,6 +56,7 @@ cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   "%HERE%..\src\vlog.cxx" ^
   "%HERE%..\src\jpeg.cxx" ^
   "%HERE%..\src\orient.cxx" ^
+  "%HERE%..\src\settings.cxx" ^
   "%HERE%..\..\firmware\pilot\src\bibowire.cxx" ^
   /Fo"%HERE%build\\" ^
   /Fe"%HERE%build\test_link.exe" ^

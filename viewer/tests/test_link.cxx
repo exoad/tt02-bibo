@@ -57,6 +57,11 @@
 //     user's decision - so there is no mapping left here to hold to an answer.
 //     The drawing itself lives in camera.cxx behind an ImDrawList; it was
 //     checked by driving camview::drawWindow headlessly, not by this suite.
+//   - THE SETTINGS FILE ON DISK. settings.cxx's text half - the integer
+//     parser, the key list and the clamping - is held to an answer below, and
+//     one path that does not exist is read. The atomic save itself (the .tmp,
+//     the flush, MoveFileExW) is never exercised here: a suite that writes
+//     files beside itself is one that can leave them behind.
 //
 // The framing, the CRC, the resync and every message body belong to
 // firmware/pilot/src/bibowire.cxx and its 312 checks; this file uses that codec
@@ -72,6 +77,7 @@
 #include "orient.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
+#include "settings.hxx"
 
 // For bendAt and pctToUnit, which live at namespace scope in the header rather
 // than in camera.cxx's anonymous namespace precisely so this file can reach
@@ -1512,10 +1518,22 @@ static Void testSlewArithmetic()
 
     // Every default must sit inside the bounds the protocol will accept, or the
     // pane opens on a value the board would refuse.
-    check(trimview::STEER_MIN_DEFAULT >= static_cast<Int32>(bibowire::SERVO_US_HARD_MIN), "inside the servo floor");
-    check(trimview::STEER_MAX_DEFAULT <= static_cast<Int32>(bibowire::SERVO_US_HARD_MAX), "and the servo ceiling");
-    check(trimview::ESC_MIN_DEFAULT >= static_cast<Int32>(bibowire::ESC_US_HARD_MIN), "inside the ESC floor");
-    check(trimview::ESC_MAX_DEFAULT <= static_cast<Int32>(bibowire::ESC_US_HARD_MAX), "and the ESC ceiling");
+    check(
+        trimview::STEER_MIN_DEFAULT >= static_cast<Int32>(bibowire::SERVO_US_HARD_MIN),
+        "inside the servo floor"
+    );
+    check(
+        trimview::STEER_MAX_DEFAULT <= static_cast<Int32>(bibowire::SERVO_US_HARD_MAX),
+        "and the servo ceiling"
+    );
+    check(
+        trimview::ESC_MIN_DEFAULT >= static_cast<Int32>(bibowire::ESC_US_HARD_MIN),
+        "inside the ESC floor"
+    );
+    check(
+        trimview::ESC_MAX_DEFAULT <= static_cast<Int32>(bibowire::ESC_US_HARD_MAX),
+        "and the ESC ceiling"
+    );
 }
 
 static Void testCmdAck()
@@ -1558,7 +1576,11 @@ static Void testCmdAck()
     );
     checkStr(Str(link::ackResultName(3)), "not in this state", "result 3 has a name");
     checkStr(Str(link::ackResultName(0)), "ok", "and so does 0");
-    checkStr(Str(link::ackResultName(2)), "unknown verb", "and 2, for a board too old for these verbs");
+    checkStr(
+        Str(link::ackResultName(2)),
+        "unknown verb",
+        "and 2, for a board too old for these verbs"
+    );
 
     // The NEWEST is the one shown. An older ack sitting where the latest belongs
     // would report the wrong command's result at the moment somebody is watching.
@@ -1701,18 +1723,18 @@ static Void testDriveKeys()
     both.left = true;
     both.right = true;
 
-    // BANG-BANG. The Pico's own SLEW does the smoothing and the trim pane tunes
-    // it; a second ramp here would be two filters in series that nobody could
-    // tell apart when the steering felt wrong.
-    check(driveview::steerFrom(none) == 0, "no key is straight ahead");
-    check(driveview::steerFrom(a) == -1000, "A is full left");
-    check(driveview::steerFrom(d) == 1000, "D is full right");
+    // WHICH WAY THE KEYS PUSH. This used to be the steering itself; it is now
+    // the direction steerHeldStep moves the held value in (testSteerHeld), and
+    // the rule is the same either way.
+    check(driveview::steerFrom(none) == 0, "no key is no push");
+    check(driveview::steerFrom(a) == -1000, "A pushes toward full left");
+    check(driveview::steerFrom(d) == 1000, "D pushes toward full right");
     check(driveview::steerFrom(a) != driveview::steerFrom(d), "and left is not right");
 
     // BOTH CANCELS, and it is not "the last one wins": a hand resting on A while
-    // reaching for D is the case, and a car that picked one would turn while its
-    // operator believed it was straight.
-    check(driveview::steerFrom(both) == 0, "A and D together cancel to straight");
+    // reaching for D is the case, and a wheel that picked one would turn while
+    // its operator believed it was holding.
+    check(driveview::steerFrom(both) == 0, "A and D together cancel to no push");
     check(driveview::steerFrom(both) != driveview::steerFrom(a), "not the left one");
     check(driveview::steerFrom(both) != driveview::steerFrom(d), "and not the right one");
 
@@ -1744,6 +1766,199 @@ static Void testDriveKeys()
     // Zero and not negative: the band this project commands is forward-only, so
     // there is no reverse to ask for.
     check(driveview::throttleFrom(ws, 300) >= 0, "a brake is never negative throttle");
+}
+
+// steerHeldStep at the default rate, named short so each case reads as one line.
+[[nodiscard]] static Int16 heldAfter(Int16 held, const driveview::Keys& k, Int32 dtMs)
+{
+    return driveview::steerHeldStep(held, k, driveview::STEER_RATE_DEFAULT, dtMs);
+}
+
+static Void testSteerHeld()
+{
+    std::printf("\n-- the steering is HELD, not sprung --\n");
+
+    const driveview::Keys none;
+    driveview::Keys a;
+    a.left = true;
+    driveview::Keys d;
+    d.right = true;
+    driveview::Keys both;
+    both.left = true;
+    both.right = true;
+    driveview::Keys c;
+    c.centre = true;
+    driveview::Keys ac;
+    ac.left = true;
+    ac.centre = true;
+
+    // 1500 A SECOND is centre to full lock in two thirds of a second, and the
+    // readout under the slider says so in milliseconds.
+    check(driveview::STEER_RATE_DEFAULT == 1500, "the default rate is 1500 a second");
+    check(driveview::steerLockMs(1500) == 666, "which is centre to full lock in 666 ms");
+    check(driveview::steerLockMs(0) == -1, "and a rate of zero has no time to show");
+
+    // AT THE RATE. 1500 a second over 100 ms is 150; a 16 ms frame is 24.
+    check(heldAfter(0, a, 100) == -150, "A moves the held steering toward full left at the rate");
+    check(heldAfter(0, d, 100) == 150, "D moves it toward full right at the same rate");
+    check(heldAfter(0, d, 16) == 24, "and a 16 ms frame is 24 milli");
+    check(heldAfter(-300, d, 100) == -150, "D from a left angle travels back toward centre");
+
+    // FROM CENTRE TO FULL LOCK in ordinary frames, and never past it.
+    Int16 held = 0;
+    Int32 frames = 0;
+    Bool overshot = false;
+    while(held < driveview::STEER_FULL && frames < 1000)
+    {
+        held = heldAfter(held, d, 16);
+        ++frames;
+        if(held > driveview::STEER_FULL)
+        {
+            overshot = true;
+        }
+    }
+    check(held == 1000, "holding D arrives at exactly full right");
+    check(!overshot, "without passing it on the way");
+    check(frames == 42, "in 42 frames of 16 ms - the rate's 666 ms plus one partial frame");
+    check(heldAfter(1000, d, 100) == 1000, "D held at full right stays there");
+    check(heldAfter(-990, a, 100) == -1000, "A near full left clamps to it rather than past it");
+    check(heldAfter(3000, none, 16) == 1000, "and a held value out of range comes back inside");
+
+    // HOLDS ON RELEASE. This is the feature: the sprung key was the complaint.
+    check(heldAfter(-420, none, 100) == -420, "releasing both keys leaves the wheel where it was");
+    check(heldAfter(-420, none, 16) != 0, "it does not drift back to centre the way a game's does");
+    check(heldAfter(420, both, 100) == 420, "A and D together hold too, rather than picking one");
+
+    // C CENTRES - instantly, and ahead of a steering key held with it.
+    check(heldAfter(-420, c, 16) == 0, "C puts the held steering back to centre");
+    check(heldAfter(1000, c, 0) == 0, "instantly - it needs no time to pass");
+    check(heldAfter(-420, ac, 100) == 0, "and C beats A held down with it");
+
+    // A HITCH IS CLAMPED. A five-second frame with D down would be full lock
+    // from one stall; it is STEER_FRAME_MS_MAX's worth of travel instead.
+    check(heldAfter(0, d, 5000) == 150, "a 5000 ms frame moves only as far as a 100 ms one");
+    check(heldAfter(0, d, driveview::STEER_FRAME_MS_MAX) == 150, "which is the cap");
+    check(heldAfter(200, d, -40) == 200, "a negative frame length moves nothing");
+    check(heldAfter(200, d, 0) == 200, "and neither does a zero-length one");
+
+    // THE RATE IS HELD TO THE SLIDER'S ENDS, and a slow rate on a fast frame
+    // still moves - a held key that never turns the wheel looks broken.
+    check(driveview::steerHeldStep(0, d, 100000, 100) == 500, "a rate past the slider is its top");
+    check(driveview::steerHeldStep(0, d, 0, 100) == 25, "a rate of zero is its bottom, not dead");
+    check(
+        driveview::steerHeldStep(0, d, driveview::STEER_RATE_MIN, 1) == 1,
+        "and a step that rounds to zero milli is one"
+    );
+
+    // THE INTENT CARRIES THE HELD VALUE, not the keys.
+    driveview::View v;
+    check(v.steerRateMilliPerS == driveview::STEER_RATE_DEFAULT, "a fresh pane has the default");
+    check(v.steerHeldMilli == 0, "and starts straight");
+    v.enabled = true;
+    v.steerHeldMilli = -420;
+    check(driveview::intentFrom(none, v).steerMilli == -420, "no key down sends the held angle");
+    check(driveview::intentFrom(d, v).steerMilli == -420, "and a key does not go around the ramp");
+    v.enabled = false;
+    check(driveview::intentFrom(none, v).steerMilli == 0, "not driving, no held angle is sent");
+}
+
+static Void testSettingsText()
+{
+    std::printf("\n-- the settings file: integers only, forgiving in, exact out --\n");
+
+    const settings::Values defaults;
+    const Str text = settings::toText(defaults);
+    check(text.find("trim.steerMinUs=1230\n") != Str::npos, "a value is written as key=value");
+    check(text.find("drive.steerRateMilliPerS=1500\n") != Str::npos, "the steering rate is saved");
+    check(text.find("drive.assumedMode=0\n") != Str::npos, "and the asserted mode");
+    check(text.find("Held") == Str::npos, "the held steering is NOT - a moment is not a setting");
+
+    settings::Values back;
+    back.steerMinUs = 1;
+    back.assumedMode = 2;
+    check(settings::fromText(text, back) == settings::VALUE_COUNT, "all ten are read back");
+    check(back == defaults, "as the values that were written");
+
+    settings::Values tuned;
+    tuned.steerMinUs = 1250;
+    tuned.steerMaxUs = 1700;
+    tuned.steerTrimUs = 1470;
+    tuned.escMinUs = 1520;
+    tuned.escMaxUs = 1650;
+    tuned.steerSlewUs = 12;
+    tuned.throttleSlewUs = 3;
+    tuned.throttleCapMilli = 180;
+    tuned.steerRateMilliPerS = 900;
+    tuned.assumedMode = 1;
+    settings::Values read;
+    check(settings::fromText(settings::toText(tuned), read) == 10u, "a tuned set round-trips");
+    check(read == tuned, "unchanged");
+    check(settings::settle(tuned) == tuned, "and a set inside its ranges is left alone by settle");
+
+    // FORGIVING IN: a BOM, CRLF, blank lines, comments, spaces around the '=',
+    // a leading plus, no final newline - and an unknown key, skipped.
+    settings::Values loose;
+    const Size looseTaken = settings::fromText(
+        "\xEF\xBB\xBF# a comment\r\n\r\n  trim.escMaxUs = 1620 \r\n; another\r\n"
+        "future.key=7\r\ndrive.throttleCapMilli=+250",
+        loose
+    );
+    check(looseTaken == 2u, "two known keys are read through all of it, the unknown one skipped");
+    check(loose.escMaxUs == 1620, "the spaced value");
+    check(loose.throttleCapMilli == 250, "and the signed one with no newline after it");
+    check(loose.steerMinUs == trimview::STEER_MIN_DEFAULT, "a key the file lacks keeps its value");
+
+    // INTEGERS ONLY. A value that is not one is IGNORED rather than half-read:
+    // "1541.5" read as 1541 would be a parser deciding what somebody meant.
+    settings::Values strict;
+    const Size strictTaken = settings::fromText(
+        "trim.escMinUs=1541.5\ntrim.escMaxUs=1,600\ntrim.steerSlewUs=fast\n"
+        "trim.throttleSlewUs=\ndrive.assumedMode=1e1\ntrim.steerMaxUs=12345678901\n",
+        strict
+    );
+    check(strictTaken == 0u, "a decimal, a comma, a word, nothing, 1e1 and 11 digits: none");
+    check(strict == settings::Values(), "and not one of them changed a value");
+
+    // OUT OF RANGE IS CLAMPED, by the panes' own settle functions.
+    settings::Values wild;
+    const Size wildTaken = settings::fromText(
+        "trim.steerMinUs=99999\ntrim.steerTrimUs=-5\ntrim.steerSlewUs=0\n"
+        "drive.throttleCapMilli=-40\ndrive.steerRateMilliPerS=1\ndrive.assumedMode=9\n",
+        wild
+    );
+    check(wildTaken == 6u, "out-of-range integers are still integers, and are read");
+    const settings::Values tame = settings::settle(wild);
+    const Int32 servoHi = static_cast<Int32>(bibowire::SERVO_US_HARD_MAX);
+    check(tame.steerMinUs == servoHi - 1, "a minimum past the servo is one below its ceiling");
+    check(tame.steerMaxUs == servoHi, "which pushes the maximum up to the ceiling");
+    check(tame.steerTrimUs == tame.steerMinUs, "and a centre below both is brought inside them");
+    const Int32 slewLo = static_cast<Int32>(bibowire::SLEW_US_MIN);
+    check(tame.steerSlewUs == slewLo, "a slew of 0 is the slowest the board accepts");
+    check(tame.throttleCapMilli == 0, "a negative cap is zero, never reverse");
+    check(tame.steerRateMilliPerS == driveview::STEER_RATE_MIN, "a slow rate clamps to the slider");
+    check(tame.assumedMode == 0, "and an impossible mode folds to MANUAL, not up to DRIVE");
+
+    // APPLY TOUCHES THE TEN AND NOTHING ELSE.
+    trimview::View trim;
+    driveview::View drive;
+    drive.open = true;
+    drive.enabled = true;
+    drive.steerHeldMilli = 300;
+    settings::apply(tuned, trim, drive);
+    check(settings::capture(trim, drive) == tuned, "applied then captured is the same set");
+    check(
+        drive.open && drive.enabled && drive.steerHeldMilli == 300,
+        "and the window, the enable and the held steering are left alone"
+    );
+
+    // A MISSING FILE IS A FIRST RUN, not an error.
+    settings::Values untouched = tuned;
+    const Opt<Size> none = settings::load(
+        "Z:\\no\\such\\directory\\bibo-viewer-settings.ini",
+        untouched
+    );
+    check(!none.has_value(), "a missing file loads nothing");
+    check(untouched == tuned, "and changes nothing");
 }
 
 static Void testEnableOnEveryDatagram()
@@ -1795,6 +2010,9 @@ static Void testEnableOnEveryDatagram()
     // say - the enable is consent, and consent is not something a key press
     // supplies on the operator's behalf.
     v.enabled = false;
+    // A wheel LEFT turned, so "neither axis moves" is a claim about the gate and
+    // not about a held value that happened to be zero.
+    v.steerHeldMilli = 600;
     Bool everEnabled = false;
     Bool everMoved = false;
     Bool estopSurvived = true;
@@ -1824,7 +2042,7 @@ static Void testEnableOnEveryDatagram()
         }
     }
     check(!everEnabled, "ENABLE is never set while the operator is not driving");
-    check(!everMoved, "and neither axis moves - steering is applied even when throttle is not");
+    check(!everMoved, "and neither axis moves - not even a steering held at 600");
     check(estopSurvived, "while ESTOP still rides every datagram, which is the point of it");
 }
 
@@ -1977,7 +2195,10 @@ static Void testCameraCaptureGaps()
         Vec<UInt8> one;
         static_cast<Void>(pushCamera(one, 1, 1000000, jpegBytes));
         static_cast<Void>(feed(first, one, 5000));
-        check(first.cameraWorstCaptureMs == 0, "the first frame starts the capture clock and is not itself a gap");
+        check(
+            first.cameraWorstCaptureMs == 0,
+            "the first frame starts the capture clock and is not itself a gap"
+        );
     }
 
     // TWO CLOCKS, HELD APART. Both frames are fed at the SAME local instant, so
@@ -1990,8 +2211,14 @@ static Void testCameraCaptureGaps()
     static_cast<Void>(pushCamera(wire, 1, 1000000, jpegBytes));
     static_cast<Void>(pushCamera(wire, 2, 1400000, jpegBytes));
     static_cast<Void>(feed(s, wire, 5000));
-    check(s.cameraWorstCaptureMs == 400, "400 ms between captures is measured on the BOARD's clock");
-    check(link::worstGapMs(s.cameraRate) == 0, "while the arrival cadence, fed at one instant, saw no gap at all");
+    check(
+        s.cameraWorstCaptureMs == 400,
+        "400 ms between captures is measured on the BOARD's clock"
+    );
+    check(
+        link::worstGapMs(s.cameraRate) == 0,
+        "while the arrival cadence, fed at one instant, saw no gap at all"
+    );
 
     Vec<UInt8> narrow;
     static_cast<Void>(pushCamera(narrow, 3, 1500000, jpegBytes));
@@ -2005,7 +2232,10 @@ static Void testCameraCaptureGaps()
     Vec<UInt8> back;
     static_cast<Void>(pushCamera(back, 4, 900000, jpegBytes));
     static_cast<Void>(feed(s, back, 5200));
-    check(s.cameraWorstCaptureMs == 400, "and a board whose clock went backwards is skipped, never counted");
+    check(
+        s.cameraWorstCaptureMs == 400,
+        "and a board whose clock went backwards is skipped, never counted"
+    );
 }
 
 static Void testSteerSigns()
@@ -2016,8 +2246,14 @@ static Void testSteerSigns()
 
     // ---- the camera's guides, in image space -------------------------------
     check(camview::bendAt(0.0f, 45, 1.0f) == 0.0f, "no steering is no bend");
-    check(camview::bendAt(1.0f, 45, 0.0f) == 0.0f, "and no bend at the bumper, whatever the wheels do");
-    check(camview::bendAt(1.0f, 45, 1.0f) > 0.0f, "a RIGHT turn sweeps the guides toward larger image u");
+    check(
+        camview::bendAt(1.0f, 45, 0.0f) == 0.0f,
+        "and no bend at the bumper, whatever the wheels do"
+    );
+    check(
+        camview::bendAt(1.0f, 45, 1.0f) > 0.0f,
+        "a RIGHT turn sweeps the guides toward larger image u"
+    );
     check(camview::bendAt(-1.0f, 45, 1.0f) < 0.0f, "and a left turn sweeps them the other way");
     check(
         std::fabs(camview::bendAt(1.0f, 45, 1.0f) + camview::bendAt(-1.0f, 45, 1.0f)) < EPS,
@@ -2039,17 +2275,26 @@ static Void testSteerSigns()
     // ---- the 3D arrow, in the world frame ----------------------------------
     const scene::Vec3 straight = scene::headingDir(0.0f);
     check(std::fabs(straight.x) < EPS, "straight wheels point along no sideways axis at all");
-    check(std::fabs(straight.y - 1.0f) < EPS, "and straight ahead is +Y, which is where the car faces");
+    check(
+        std::fabs(straight.y - 1.0f) < EPS,
+        "and straight ahead is +Y, which is where the car faces"
+    );
 
     const scene::Vec3 right = scene::headingDir(1.0f);
     const scene::Vec3 left = scene::headingDir(-1.0f);
     check(right.x > 0.0f, "a RIGHT turn points the arrow toward +X, which the frame calls right");
     check(left.x < 0.0f, "and a left turn toward -X");
     check(std::fabs(right.x + left.x) < EPS, "the two are mirrored, not offset");
-    check(right.y > 0.0f && left.y > 0.0f, "and both still point forwards - this is a heading, not a turn in place");
+    check(
+        right.y > 0.0f && left.y > 0.0f,
+        "and both still point forwards - this is a heading, not a turn in place"
+    );
 
     const Float32 len = (right.x * right.x) + (right.y * right.y);
-    check(std::fabs(len - 1.0f) < EPS, "the direction is a unit vector, so ARROW_LEN alone sets its length");
+    check(
+        std::fabs(len - 1.0f) < EPS,
+        "the direction is a unit vector, so ARROW_LEN alone sets its length"
+    );
 
     // ---- AND THE PAIR AGREES ----------------------------------------------
     //
@@ -2152,12 +2397,14 @@ int main()
     testControlSeq();
     testControlRoundTrip();
     testDriveKeys();
+    testSteerHeld();
     testEnableOnEveryDatagram();
     testAssumedModeIsTheOperatorsOwn();
     testControlSlotAndCadence();
     testControlIsOptIn();
     testCameraCaptureGaps();
     testSteerSigns();
+    testSettingsText();
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

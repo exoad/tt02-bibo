@@ -12,11 +12,13 @@
 // ---------------------------------------------------------------------------
 // WHAT THIS PANE CAN AND CANNOT PROMISE
 //
-// These values live in the Pico's RAM. They do NOT survive a reboot or a
-// reflash - docs/bibowire.md section 5 says so in as many words - and
-// firmware/lib/chassis/cal.hxx is the file that does. A pane that let somebody
-// tune for an hour without saying that is a pane that loses their afternoon, so
-// it is written on the window itself and not in this comment alone.
+// The Pico holds these in RAM and forgets them on a reboot, so the Pico is not
+// where they are kept. THE BOARD saves every tuning change it accepts to a file
+// on the Pi and re-sends the whole set whenever the Pico connects, and THIS
+// LAPTOP saves the pane's values too (settings.hxx, beside bibo.exe). Two copies
+// can drift apart - a change made from another viewer, or one the board refused
+// - which is why the window has a "send all to the car" button, and why it says
+// in one line where the values live rather than leaving that to this comment.
 //
 // The tuning verbs are also REFUSED WHILE THE CAR IS ARMED, with result = 3.
 // Re-tuning the range a live throttle is being clamped to is the one way this
@@ -57,10 +59,11 @@ namespace trimview
   // of bug this project has a name for: two halves each locally correct and
   // broken as a pair. IF cal.hxx MOVES, THESE MOVE WITH IT.
   //
-  // They are only the pane's STARTING POSITION. Nothing here is read back from
-  // the car - the protocol has no "tell me your current limits" message - so
-  // these say "what the car was last calibrated to", never "what the Pico is
-  // using right now". The window says that too.
+  // They are only the pane's STARTING POSITION, and only on a laptop with no
+  // saved settings file. Nothing here is read back from the car - the protocol
+  // has no "tell me your current limits" message - so these say "what the car
+  // was last calibrated to", never "what the Pico is using right now". The
+  // window says that too.
   constexpr Int32 STEER_MIN_DEFAULT = 1230;    // cal.hxx STEER_CAL_LEFT
   constexpr Int32 STEER_CENTRE_DEFAULT = 1480; // cal.hxx STEER_CAL_CENTER
   constexpr Int32 STEER_MAX_DEFAULT = 1660;    // cal.hxx STEER_CAL_RIGHT
@@ -148,6 +151,68 @@ namespace trimview
       // answered is a fact worth seeing.
       UInt32 sent = 0;
   };
+
+  // ---- clamping -------------------------------------------------------------
+  //
+  // Ctrl+click on an ImGui slider is a TEXT BOX, so the slider's own range is
+  // not a guarantee about the value behind it. Everything is re-clamped before
+  // it can be sent, which also keeps min below max - a pair the widgets cannot
+  // enforce between them because each only knows its own number.
+  //
+  // IN THE HEADER since settings.cxx arrived: a saved file is a second way for
+  // an out-of-range number to reach these fields, and the loader must clamp to
+  // exactly the ranges the sliders use. One copy of the ranges, or two that
+  // drift.
+
+  [[nodiscard]] inline Int32 clampTo(Int32 value, Int32 lo, Int32 hi)
+  {
+      if(value < lo)
+      {
+          return lo;
+      }
+      if(value > hi)
+      {
+          return hi;
+      }
+      return value;
+  }
+
+  inline Void settleSteer(View& v)
+  {
+      const Int32 hardLo = static_cast<Int32>(bibowire::SERVO_US_HARD_MIN);
+      const Int32 hardHi = static_cast<Int32>(bibowire::SERVO_US_HARD_MAX);
+      v.steerMinUs = clampTo(v.steerMinUs, hardLo, hardHi - 1);
+      v.steerMaxUs = clampTo(v.steerMaxUs, v.steerMinUs + 1, hardHi);
+      // THE CENTRE IS BOUNDED BY THE ENDS, not by the servo's range. A trim
+      // outside the limits is a neutral the car can never reach, and cal.hxx is
+      // explicit that 1500 has nothing to say about where a TT-02's wheels
+      // point straight - so the ends are the only meaningful bound here.
+      v.steerTrimUs = clampTo(v.steerTrimUs, v.steerMinUs, v.steerMaxUs);
+  }
+
+  inline Void settleEsc(View& v)
+  {
+      const Int32 hardLo = static_cast<Int32>(bibowire::ESC_US_HARD_MIN);
+      const Int32 hardHi = static_cast<Int32>(bibowire::ESC_US_HARD_MAX);
+      v.escMinUs = clampTo(v.escMinUs, hardLo, hardHi - 1);
+      v.escMaxUs = clampTo(v.escMaxUs, v.escMinUs + 1, hardHi);
+  }
+
+  inline Void settleSlew(View& v)
+  {
+      const Int32 slewLo = static_cast<Int32>(bibowire::SLEW_US_MIN);
+      const Int32 slewHi = static_cast<Int32>(bibowire::SLEW_US_MAX);
+      v.steerSlewUs = clampTo(v.steerSlewUs, slewLo, slewHi);
+      v.throttleSlewUs = clampTo(v.throttleSlewUs, slewLo, slewHi);
+  }
+
+  // Every field, in the order the pairs depend on each other.
+  inline Void settleAll(View& v)
+  {
+      settleSteer(v);
+      settleEsc(v);
+      settleSlew(v);
+  }
 
   // The DPI multiplier the layout uses. Called once, after ImGui exists. There is
   // no graphics device here - this window owns no texture - which is why there is

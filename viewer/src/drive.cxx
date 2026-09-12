@@ -1,5 +1,6 @@
 #include "shared.hxx"
 
+#include <cmath>
 #include <cstdio>
 
 // No <windows.h> and no <d3d11.h>, for trim.cxx's reason: this window owns no
@@ -156,6 +157,7 @@ namespace driveview
         k.forward = ImGui::IsKeyDown(ImGuiKey_W);
         k.brake = ImGui::IsKeyDown(ImGuiKey_S);
         k.estop = ImGui::IsKeyDown(ImGuiKey_Space);
+        k.centre = ImGui::IsKeyDown(ImGuiKey_C);
         return k;
     }
 
@@ -220,6 +222,7 @@ namespace driveview
             noteKey("S", journal.keys.brake, k.brake);
             noteKey("D", journal.keys.right, k.right);
             noteKey("Space", journal.keys.estop, k.estop);
+            noteKey("C", journal.keys.centre, k.centre);
         }
         journal.keys = k;
     }
@@ -238,6 +241,92 @@ namespace driveview
             return;
         }
         vlog::line("drive: BLOCKED - %s", why.c_str());
+    }
+
+    // ---- the held steering ---------------------------------------------------
+    //
+    // EDGES ONLY IN THE LOG, for the Journal's reason. A ramp step is sixty lines
+    // a second of nothing; a reset is one line that says why the wheel went back.
+
+    // Back to centre, said once with the reason - and ONLY when there was
+    // something to put back. A closed window calls this every frame, and must
+    // not write a line a frame about a wheel that is already straight.
+    Void resetSteer(View& v, CharSeq why)
+    {
+        if(v.steerHeldMilli == 0)
+        {
+            return;
+        }
+        vlog::line(
+            "drive: steering centred (reset: %s) - was %d / 1000",
+            why,
+            static_cast<Int32>(v.steerHeldMilli)
+        );
+        v.steerHeldMilli = 0;
+    }
+
+    // This frame's length in whole milliseconds. The float stops here: nothing
+    // after this line prints one, and steerHeldStep clamps what it is given.
+    [[nodiscard]] Int32 frameMs(const ImGuiIO& io)
+    {
+        return static_cast<Int32>(std::lround(io.DeltaTime * 1000.0f));
+    }
+
+    // One frame of the held steering. drawWindow has already reset it for a
+    // closed, collapsed or blocked pane; what is left is the enable and the stop.
+    //
+    // NOT RESET FOR LOST FOCUS. An unfocused window reads every key as up, so
+    // steerHeldStep holds - which is the point of holding.
+    Void steerFrame(View& v, const Keys& k, Bool centrePressed, Int32 dtMs)
+    {
+        if(!v.enabled)
+        {
+            resetSteer(v, "enable is off");
+            return;
+        }
+        if(k.estop)
+        {
+            resetSteer(v, "ESTOP (Space)");
+            return;
+        }
+        if(centrePressed && v.steerHeldMilli != 0)
+        {
+            vlog::line(
+                "drive: steering centred (C) - was %d / 1000",
+                static_cast<Int32>(v.steerHeldMilli)
+            );
+        }
+        v.steerHeldMilli = steerHeldStep(v.steerHeldMilli, k, v.steerRateMilliPerS, dtMs);
+    }
+
+    // THE HELD STEERING AS A BAR THAT FILLS FROM THE MIDDLE. A ProgressBar fills
+    // from the left, and half full reads as "halfway" rather than "straight".
+    // Left of the tick is left on the car: positive steer is right
+    // (test_link.cxx, testSteerSigns).
+    Void steerBar(Int16 heldMilli)
+    {
+        const Float32 width = ImGui::GetContentRegionAvail().x;
+        const Float32 height = ImGui::GetTextLineHeight();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(width > 1.0f ? width : 1.0f, height));
+        if(width <= 1.0f)
+        {
+            return;
+        }
+
+        const ImVec2 end(at.x + width, at.y + height);
+        const Float32 mid = at.x + (width * 0.5f);
+        const Float32 frac = static_cast<Float32>(heldMilli) / static_cast<Float32>(STEER_FULL);
+        const Float32 tip = mid + (frac * width * 0.5f);
+
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(at, end, ImGui::GetColorU32(ImGuiCol_FrameBg));
+        draw->AddRectFilled(
+            ImVec2(tip < mid ? tip : mid, at.y),
+            ImVec2(tip < mid ? mid : tip, end.y),
+            ImGui::GetColorU32(ImGuiCol_PlotHistogram)
+        );
+        draw->AddLine(ImVec2(mid, at.y), ImVec2(mid, end.y), ImGui::GetColorU32(ImGuiCol_Text));
     }
 
     // ---- the board's answer to a COMMAND ------------------------------------
@@ -288,17 +377,91 @@ namespace driveview
         }
     }
 
+    // ---- colour, so a glance tells the acts apart -----------------------------
+    //
+    // ONE MEANING PER COLOUR, used the same way for a button and for the state
+    // it produces. Four grey buttons in a row were reported as "so many buttons
+    // it can be easy to misclick one", and the two that sat side by side were
+    // ARM and DISARM - opposite acts, identical to the eye.
+    //
+    //   AMBER  makes the car LIVE      - ARM, and the ARMED state
+    //   GREEN  makes the car SAFE      - DISARM, and DISARMED / a live deadman
+    //   RED    STOPS it                - ESTOP, and a latched estop or a dead deadman
+    //   BLUE   housekeeping            - CLEAR ESTOP
+    //
+    // Amber for ARM rather than green, deliberately: green would say "go", and
+    // the act it names is the one that lets the car move.
+    struct Tone
+    {
+        ImVec4 base;
+        ImVec4 hover;
+        ImVec4 active;
+        ImVec4 text;
+    };
+
+    const Tone TONE_LIVE = {
+        ImVec4(0.80f, 0.52f, 0.08f, 1.0f),
+        ImVec4(0.92f, 0.62f, 0.12f, 1.0f),
+        ImVec4(0.66f, 0.42f, 0.06f, 1.0f),
+        ImVec4(0.08f, 0.05f, 0.01f, 1.0f),
+    };
+    const Tone TONE_SAFE = {
+        ImVec4(0.14f, 0.52f, 0.26f, 1.0f),
+        ImVec4(0.18f, 0.64f, 0.32f, 1.0f),
+        ImVec4(0.10f, 0.42f, 0.20f, 1.0f),
+        ImVec4(1.00f, 1.00f, 1.00f, 1.0f),
+    };
+    const Tone TONE_STOP = {
+        ImVec4(0.74f, 0.11f, 0.11f, 1.0f),
+        ImVec4(0.88f, 0.17f, 0.17f, 1.0f),
+        ImVec4(0.58f, 0.07f, 0.07f, 1.0f),
+        ImVec4(1.00f, 1.00f, 1.00f, 1.0f),
+    };
+    const Tone TONE_CHORE = {
+        ImVec4(0.24f, 0.36f, 0.54f, 1.0f),
+        ImVec4(0.31f, 0.45f, 0.65f, 1.0f),
+        ImVec4(0.19f, 0.29f, 0.44f, 1.0f),
+        ImVec4(1.00f, 1.00f, 1.00f, 1.0f),
+    };
+
+    // Text in the same four meanings, a little lighter so it reads on the
+    // window background rather than on a button.
+    const ImVec4 TEXT_LIVE = ImVec4(1.00f, 0.72f, 0.24f, 1.0f);
+    const ImVec4 TEXT_SAFE = ImVec4(0.42f, 0.86f, 0.52f, 1.0f);
+    const ImVec4 TEXT_STOP = ImVec4(1.00f, 0.40f, 0.36f, 1.0f);
+
+    [[nodiscard]] Bool toneButton(CharSeq label, const Tone& t, const ImVec2& size)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button, t.base);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.active);
+        ImGui::PushStyleColor(ImGuiCol_Text, t.text);
+        const Bool pressed = ImGui::Button(label, size);
+        ImGui::PopStyleColor(4);
+        return pressed;
+    }
+
     // ---- the discrete acts ---------------------------------------------------
     //
     // TCP COMMANDs, each answered by exactly one CMDACK. They are not CONTROL
     // fields and must not be: a deliberate act carried twenty times a second by
     // a stream whose whole purpose is repetition is an act nobody can point at.
+    //
+    // LAID OUT SO A SLIP CANNOT LAND ON THE OPPOSITE ACT. ARM and DISARM share a
+    // row, each half its width with a clear gap between them; ESTOP has a row
+    // of its own, full width and taller, so it is the easiest thing in the
+    // window to hit and never beside "arm"; CLEAR ESTOP sits below it, small.
     Void drawCommands(View& v, link::Client& lk, const link::Snapshot& snap)
     {
         const Bool live = link::isOpen(lk) && snap.state.haveWelcome;
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const Float32 gap = 16.0f * uiScale;
+        const Float32 rowWidth = ImGui::GetContentRegionAvail().x;
+        const Float32 half = (rowWidth - gap) * 0.5f;
+        const Float32 tall = ImGui::GetFrameHeight() * 1.6f;
 
         ImGui::BeginDisabled(!live);
-        if(ImGui::Button("ARM"))
+        if(toneButton("ARM", TONE_LIVE, ImVec2(half, tall)))
         {
             vlog::line("drive: ARM pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_ARM, 0, 0, 0);
@@ -315,8 +478,8 @@ namespace driveview
             );
         }
 
-        ImGui::SameLine();
-        if(ImGui::Button("DISARM"))
+        ImGui::SameLine(0.0f, gap);
+        if(toneButton("DISARM", TONE_SAFE, ImVec2(half, tall)))
         {
             vlog::line("drive: DISARM pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_DISARM, 0, 0, 0);
@@ -324,15 +487,16 @@ namespace driveview
         }
         ImGui::EndDisabled();
 
-        ImGui::SameLine();
+        ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y));
 
         // NOT DISABLED WITH THE REST. The stop is the one act that must be
         // available in every state this window can be in, and it has two paths
         // on purpose: this one rides TCP and is acknowledged, the Space bar's
         // bit rides the 20 Hz stream and needs no round trip. Either latches.
-        if(ImGui::Button("ESTOP"))
+        if(toneButton("ESTOP  (Space)", TONE_STOP, ImVec2(rowWidth, tall * 1.25f)))
         {
             vlog::line("drive: ESTOP pressed");
+            resetSteer(v, "ESTOP button");
             link::sendCommand(lk, bibowire::Verb::VERB_ESTOP, 0, 0, 0);
             ++v.sent;
         }
@@ -345,9 +509,8 @@ namespace driveview
             );
         }
 
-        ImGui::SameLine();
         ImGui::BeginDisabled(!live);
-        if(ImGui::Button("CLEAR ESTOP"))
+        if(toneButton("CLEAR ESTOP", TONE_CHORE, ImVec2(0.0f, 0.0f)))
         {
             vlog::line("drive: CLEAR ESTOP pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_CLEAR_ESTOP, 0, 0, 0);
@@ -396,9 +559,34 @@ namespace driveview
 
         const bibowire::CtlState& s = ctl->state;
 
+        // THE STATE IN ONE WORD, IN ITS COLOUR, before any readout. The ESTOP
+        // latch outranks armed: a latched car is stopped whatever else is true.
+        const Bool latched = s.deadman == static_cast<UInt8>(bibowire::deadman::State::STATE_ESTOP);
+        if(latched)
+        {
+            ImGui::TextColored(TEXT_STOP, "ESTOP LATCHED - CLEAR ESTOP, then ARM");
+        }
+        else if(s.armed != 0u)
+        {
+            ImGui::TextColored(TEXT_LIVE, "ARMED - W and the steering are live");
+        }
+        else
+        {
+            ImGui::TextColored(TEXT_SAFE, "DISARMED - the car will not move");
+        }
+        ImGui::Separator();
+
         readout("holder", holderText(s.holder));
-        readout("armed", s.armed != 0u ? "yes" : "no");
-        readout("deadman", deadmanText(s.deadman));
+
+        ImGui::TextUnformatted("armed");
+        ImGui::SameLine(READOUT_COLUMN * uiScale);
+        ImGui::TextColored(s.armed != 0u ? TEXT_LIVE : TEXT_SAFE, "%s", s.armed != 0u ? "yes" : "no");
+
+        // live green, soft amber, dead and estop red - the deadman's own meanings.
+        const ImVec4 deadmanTone = s.deadman == 0u ? TEXT_SAFE : (s.deadman == 1u ? TEXT_LIVE : TEXT_STOP);
+        ImGui::TextUnformatted("deadman");
+        ImGui::SameLine(READOUT_COLUMN * uiScale);
+        ImGui::TextColored(deadmanTone, "%s", deadmanText(s.deadman));
 
         // WHY THROTTLE IS NOT BEING APPLIED, named rather than deduced. A
         // refusal whose only symptom is "throttle dead, steering fine" looks
@@ -443,13 +631,7 @@ namespace driveview
         // applied 411" is a link working, "sent 412, applied 96" is one that
         // stopped three hundred datagrams ago.
         Array<Char, 80> seqs = {};
-        std::snprintf(
-            seqs.data(),
-            seqs.size(),
-            "sent %u, applied %u",
-            snap.controlSeq,
-            s.ackSeq
-        );
+        std::snprintf(seqs.data(), seqs.size(), "sent %u, applied %u", snap.controlSeq, s.ackSeq);
         readout("seq", seqs.data());
 
         readoutStr("steer now", milliText(s.steerNowMilli));
@@ -497,6 +679,7 @@ namespace driveview
       if(!v.open)
       {
           v.enabled = false;
+          resetSteer(v, "the Drive window was closed");
           noteEnabled(false, "the Drive window was closed");
           noteKeys(Keys(), false);
           link::setControl(lk, link::Intent());
@@ -512,6 +695,7 @@ namespace driveview
           // nobody can see the state of is exactly the thing this pane is
           // careful about.
           v.enabled = false;
+          resetSteer(v, "the Drive window was collapsed");
           noteEnabled(false, "the Drive window was collapsed");
           noteKeys(Keys(), false);
           link::setControl(lk, link::Intent());
@@ -529,6 +713,7 @@ namespace driveview
           // would mean the first datagram of the NEXT connection carried an
           // operator's consent that they gave to a different session.
           v.enabled = false;
+          resetSteer(v, "the pane is blocked");
           noteEnabled(false, "the pane is blocked");
       }
 
@@ -540,7 +725,14 @@ namespace driveview
       const Bool typing = io.WantTextInput || ImGui::IsAnyItemActive();
       const Bool accept = focused && !typing && !blocked;
       const Keys keys = readKeys(accept);
+      // C's EDGE, taken before noteKeys overwrites the journal's copy of last
+      // frame's keys - holding C down is one centring, not one a frame.
+      const Bool centrePressed = keys.centre && !journal.keys.centre;
       noteKeys(keys, accept);
+
+      // THE HELD STEERING MOVES BEFORE THE INTENT IS BUILT, so what is
+      // published this frame includes this frame's keys.
+      steerFrame(v, keys, centrePressed, frameMs(io));
 
       // EVERY FRAME, whatever happened. This is a level and not an edge: the
       // worker samples it on the board's own 50 ms period, and a pane that
@@ -615,13 +807,15 @@ namespace driveview
           ImGui::SetTooltip(
               "BUTTON_ENABLE, on every datagram while this is ticked.\n"
               "The board only reaches LIVE while it is set; clearing it\n"
-              "is a soft stop - throttle to zero, steering held."
+              "is a soft stop - throttle to zero, the board holds the\n"
+              "wheels where they were. This pane's held steering goes\n"
+              "back to centre, so the next enable starts straight."
           );
       }
 
       ImGui::TextDisabled(
-          accept ? "keys are live: A left  D right  W throttle  S stop  Space ESTOP"
-                 : "keys are ignored - click this window, and stop typing"
+          accept ? "keys are live: A/D steer (held)  C centre  W throttle  S stop  Space ESTOP"
+                 : "keys are ignored - click this window, and stop typing (steering holds)"
       );
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
@@ -637,14 +831,43 @@ namespace driveview
               "which is the crawl the old hub's forward key used to send."
           );
       }
-      if(v.throttleCapMilli < 0)
+
+      ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
+      ImGui::SliderInt(
+          "steer rate",
+          &v.steerRateMilliPerS,
+          STEER_RATE_MIN,
+          STEER_RATE_MAX,
+          "%d /s"
+      );
+      if(ImGui::IsItemHovered())
       {
-          v.throttleCapMilli = 0;
+          ImGui::SetTooltip(
+              "how fast A and D move the HELD steering, in thousandths\n"
+              "of full lock per second. Releasing both keys leaves the\n"
+              "wheels where they are; C puts them back to centre.\n\n"
+              "The Pico's own steering slew (the Trim pane) still limits\n"
+              "how fast the servo follows - a slow wheel is one of the two."
+          );
       }
-      if(v.throttleCapMilli > THROTTLE_CAP_MAX)
-      {
-          v.throttleCapMilli = THROTTLE_CAP_MAX;
-      }
+
+      // Ctrl+click turns either slider into a text box, so the ranges are
+      // re-applied here rather than trusted - the same settle settings.cxx
+      // uses on a loaded file.
+      settle(v);
+
+      Array<Char, 64> lock = {};
+      const Int32 lockMs = steerLockMs(v.steerRateMilliPerS);
+      std::snprintf(lock.data(), lock.size(), "centre to full lock in %d ms", lockMs);
+      ImGui::Indent(12.0f * uiScale);
+      ImGui::TextUnformatted(lock.data());
+      ImGui::Unindent(12.0f * uiScale);
+
+      // WHERE THE WHEEL HAS BEEN LEFT, as a number and as a bar. The number is
+      // what goes on the wire while enabled; "steer now" further down is what
+      // the board says the servo is actually at.
+      readoutStr("steering held", milliText(v.steerHeldMilli));
+      steerBar(v.steerHeldMilli);
 
       // ---- the mode this viewer ASSERTS -------------------------------------
 

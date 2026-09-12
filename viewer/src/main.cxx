@@ -40,6 +40,7 @@
 #include "camera.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
+#include "settings.hxx"
 #include "vlog.hxx"
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
@@ -578,7 +579,7 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
         ImGui::SetTooltip(
             "steering and throttle limits, centre, and how fast\n"
             "either may move - refused while the car is armed,\n"
-            "and lost on the Pico's next reboot"
+            "and saved both on the board and on this laptop"
         );
     }
 
@@ -888,6 +889,23 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     driveview::View drive;
     driveview::init(uiScale);
 
+    // THE OPERATOR'S NUMBERS FROM LAST TIME, before the first frame draws a
+    // slider. Into the panes ONLY: nothing is sent to the car here, because the
+    // board keeps its own saved copy and re-sends it to the Pico itself. Pushing
+    // this laptop's copy is the Trim pane's "send all to the car", taken on
+    // purpose - see settings.hxx.
+    const Str settingsPath = settings::defaultPath();
+    {
+        settings::Values loaded = settings::capture(trim, drive);
+        if(settings::load(settingsPath, loaded).has_value())
+        {
+            settings::apply(loaded, trim, drive);
+        }
+    }
+
+    // What this run believes the file holds, compared once a frame below.
+    settings::Values savedSettings = settings::capture(trim, drive);
+
     // `net`, not `link`: the module is namespace `link`, and a variable of that
     // name would hide it for the rest of the function.
     Link net;
@@ -996,6 +1014,25 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         // a key that is still held down as far as the car is concerned.
         driveview::drawWindow(drive, net.client, snap, nowMs);
 
+        // SAVED ON A CHANGE, NEVER ON A FRAME - and never while a widget is
+        // active. A slider mid-drag has a new value every frame, and a file
+        // written per frame of a drag is exactly what this must not do. The
+        // release is the moment the operator meant: trim.cxx's own rule for
+        // sending.
+        if(!ImGui::IsAnyItemActive())
+        {
+            const settings::Values current = settings::capture(trim, drive);
+            if(current != savedSettings)
+            {
+                // RECORDED AS SAVED EVEN WHEN THE WRITE FAILED. Otherwise a
+                // directory that will not take the file is a failed write and a
+                // log line on every frame from then on; this way it is one of
+                // each per change, which is still loud.
+                settings::save(settingsPath, current);
+                savedSettings = current;
+            }
+        }
+
         ImGui::Render();
 
         d3dContext->OMSetRenderTargets(1, &rtv, nullptr);
@@ -1004,6 +1041,10 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
 
         swapchain->Present(1, 0);       // vsync
     }
+
+    // ONCE MORE ON THE WAY OUT, whatever the per-frame check last wrote: a value
+    // still being dragged when the window closed never reached it.
+    settings::save(settingsPath, settings::capture(trim, drive));
 
     // Joined before anything else is torn down: the worker owns a socket and a
     // thread, and a process that exits through a thread sitting in recv() is a
