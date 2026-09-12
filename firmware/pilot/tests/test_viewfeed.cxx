@@ -1647,7 +1647,8 @@ Int32 main()
 
         // ---- the refusals ----
         check(command(obs, watcher, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an observer's ARM is answered");
-        check(ack.result == 2 && !viewfeed::drive().armed, "and refused - you cannot arm a car you are not holding");
+        check(ack.result == 1 && has(ack.text, "holding"), "and refused - you cannot arm a car you are not holding");
+        check(!viewfeed::drive().armed, "and nothing is armed");
 
         check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "the driver's ARM with no stream is answered");
         check(ack.result == 1 && has(ack.text, "live"), "and refused for the stream, in those words");

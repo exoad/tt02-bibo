@@ -1486,9 +1486,12 @@ namespace viewfeed
             ack->text = "estop is latched - CLEAR_ESTOP first, then ARM";
             return;
         }
+        // RESULT 1, NOT 2. CmdAck's 2 means "unknown verb" and the viewer labels
+        // it exactly that, so the first cut of this told an operator the board
+        // did not know what ARM was when it was really saying "not yours".
         if(!(c.holder && c.sessionId == holderSession))
         {
-            ack->result = 2;
+            ack->result = 1;
             ack->text = "you cannot arm a car you are not holding - connect as the driver";
             return;
         }
