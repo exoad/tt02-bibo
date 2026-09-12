@@ -1735,6 +1735,71 @@ Int32 main()
         viewfeed::publishBoard(bibowire::BoardState());
     }
 
+    // ---- 19. two frames arriving in ONE read ----------------------------------------
+    //
+    // consume() used to memmove the rest of the ring down over a frame BEFORE
+    // handing that frame to onFrame, whose body points into the ring - so when
+    // a second frame had arrived in the same read, the first was handled with the
+    // second one's bytes. CRC-valid, and wrong. It was found on the car: a
+    // viewer's PONG followed by its own PING was read with the PING's token, never
+    // matched, and the driver was dropped "no PONG" six seconds into every session.
+    //
+    // Nothing above could see it. Every other section sends one frame per
+    // send(), so every read held exactly one frame and the memmove moved nothing.
+    // This sends two in ONE send() and requires each to be answered as itself.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for back-to-back frames");
+        const UInt16 port = viewfeed::port();
+
+        Wire w;
+        check(w.connect(port), "a viewer connects");
+        const UInt32 session = handshake(w, 0, 0);
+        check(session != 0u, "and is welcomed");
+
+        // Two PINGs, framed into one buffer. Distinct tokens, so an answer that
+        // carries the wrong one cannot pass for the right one.
+        const Array<UInt64, 2> tokens = { 0x1111111111111111ull, 0x2222222222222222ull };
+        Array<UInt8, 128> both{};
+        Size at = 0;
+        for(Size i = 0; i < tokens.size(); ++i)
+        {
+            bibowire::Ping m;
+            m.token = tokens[i];
+            m.senderMonoUs = tokens[i];
+            Array<UInt8, 32> body{};
+            const Size len = bibowire::writePing(m, body.data(), body.size());
+            bibowire::Head h;
+            h.type = bibowire::Type::TYPE_PING;
+            h.ver = 1;
+            h.seq = static_cast<UInt16>(40u + i);
+            bibowire::Body b;
+            b.bytes = body.data();
+            b.len = len;
+            at += bibowire::put(h, b, both.data() + at, both.size() - at);
+        }
+        check(at == 64u, "both PINGs fit one 64-byte write");
+        w.raw(both.data(), at);
+
+        Vec<UInt64> echoed;
+        while(echoed.size() < 2u && w.nextOf(bibowire::Type::TYPE_PONG, 1500))
+        {
+            bibowire::Ping p;
+            if(bibowire::readPing(w.f.body, w.f.head.ver, &p))
+            {
+                echoed.push_back(p.token);
+            }
+        }
+        check(echoed.size() == 2u, "both PINGs sent in one write are answered");
+        check(
+            echoed.size() == 2u && echoed[0] == tokens[0],
+            "the FIRST is answered with its own token, not the second frame's"
+        );
+        check(echoed.size() == 2u && echoed[1] == tokens[1], "and the second with its own");
+
+        w.close();
+        viewfeed::stop();
+    }
+
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
