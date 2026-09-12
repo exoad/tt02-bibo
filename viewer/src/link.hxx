@@ -125,6 +125,18 @@ namespace link
   // The prose channel is bounded. An unbounded one is a leak with a good excuse.
   constexpr Size MAX_EVENTS = 64;
 
+  // The board's answers to this viewer's COMMANDs, kept so a pane can show what
+  // the car actually said. A FEW, not all of them: a refusal matters for as long
+  // as it takes somebody to read it, and the useful question is "what did the
+  // last thing I did do", never "what did I do a hundred commands ago".
+  constexpr Size MAX_ACKS = 8;
+
+  // Commands waiting for the worker to put them on the wire. Bounded for the
+  // same reason as everything else here, and generously: every one of these is
+  // a deliberate act by a person, so the bound is a guard against a stuck
+  // worker rather than against a stream.
+  constexpr Size MAX_PENDING_COMMANDS = 32;
+
   // THE LAST 16 ROUND TRIPS, AND THE MINIMUM OF THEM - never the mean. On a
   // hotspot the mean is dominated by stalls, so it measures the worst moment of
   // the last sixteen seconds rather than the path; the minimum is the closest
@@ -281,6 +293,25 @@ namespace link
       Int64 atMs = 0;
   };
 
+  // One CMDACK, with the moment it landed.
+  //
+  // THE SENTENCE IS THE WHOLE POINT. A tuning verb is refused while the car is
+  // armed (docs/bibowire.md section 5, result = 3) and the board says why in
+  // words; a viewer that dropped the text would leave an operator dragging a
+  // slider that does nothing, with no way to find out that the car had answered
+  // at all. Silence after a refused command is this repo's recurring bug class
+  // wearing a UI - so the ack is kept, not logged and forgotten.
+  struct Ack
+  {
+      bibowire::CmdAck ack;
+      Int64 atMs = 0;
+  };
+
+  // What a CMDACK's `result` byte means, for a person. The codec carries the
+  // number and defines no name for it, so this is the one place the viewer
+  // spells them and the one place to fix if the protocol gains a fifth.
+  [[nodiscard]] CharSeq ackResultName(UInt8 result);
+
   // One measured round trip, kept with the two numbers needed to turn it into a
   // clock offset: when the PONG landed here, and what the board's clock said
   // when it sent it.
@@ -421,6 +452,12 @@ namespace link
 
       Vec<Note> notes;
 
+      // WHAT THE BOARD SAID ABOUT THIS VIEWER'S COMMANDS, newest last. Bounded
+      // at MAX_ACKS. Cleared with the rest of the session, because a cmdId
+      // belongs to one connection: the counter that issued it is the viewer's
+      // and the session that carried it is gone.
+      Vec<Ack> acks;
+
       // Counted, never smoothed. A number nobody can read off the running system
       // is the same species of bug as a test that measures nothing.
       UInt32 frames = 0;
@@ -462,6 +499,13 @@ namespace link
       // the NETWORK's number and it answers a different question from the ages
       // above: the round trip can be 8 ms while the scan behind it is two
       // seconds old, which is precisely the pair of lies section 7 separates.
+      // The newest answer the board gave, empty until it has answered anything.
+      // Empty is a REAL state and not a formality: between sending a command and
+      // its CMDACK there is nothing true to show, and a pane that displayed the
+      // previous verb's answer there would be reporting the wrong command's
+      // result at precisely the moment somebody is watching for one.
+      [[nodiscard]] Opt<Ack> newestAck() const;
+
       [[nodiscard]] Opt<Int64> rttMs() const;
       [[nodiscard]] Opt<Int64> bestRttMs() const;
       [[nodiscard]] Opt<Int64> oneWayMs() const;
@@ -537,6 +581,33 @@ namespace link
       // other. The board still decides - it clamps to bibowire::CAM_FPS_MAX -
       // so this is a request and never a command.
       Atomic<Int32> cameraFps = 0;
+
+      // ---- COMMANDs the UI thread has asked for and the worker has not sent --
+      //
+      // The wantCamera pattern, with a queue instead of a bit, because these do
+      // not COLLAPSE: two camera-on requests are one fact, but "set the servo
+      // limits" followed by "set the trim" are two acts and each gets its own
+      // CMDACK. A latch would silently lose the first of them.
+      //
+      // `cmdLock` guards both the queue and `nextCmdId`. The counter is not an
+      // Atomic because it must be read, incremented and stamped onto a Command
+      // as ONE step - an atomic would make each of those safe and the trio
+      // still able to issue one id twice.
+      Mutex cmdLock;
+      Vec<bibowire::Command> pending;
+
+      // Viewer-monotonic and NEVER 0 - the protocol reserves 0, and CTLSTATE's
+      // lastCmdId uses it to mean "none applied", so a command numbered 0 would
+      // be a command the board could not report having run. Starts at 1 and
+      // skips back to 1 rather than to 0 on the wrap that will never happen.
+      UInt32 nextCmdId = 1;
+
+      // COUNTED, NOT SWALLOWED. Commands are DROPPED rather than held when the
+      // link is down (see sendCommand), and a drop nobody can see is the exact
+      // failure this repo keeps finding - so the pane can show that a command
+      // never left. Atomic because the UI thread reads it while the worker
+      // writes it.
+      Atomic<UInt32> commandsDropped = 0;
   };
 
   // Starts the worker. Returns false when one is already running.
@@ -588,23 +659,60 @@ namespace link
 
   [[nodiscard]] Int32 cameraFpsWanted(const Client& c);
 
-  // ---------------------------------------------------------------------------
-  // SEAM: sending CONTROL and COMMAND - driving the car - goes here.
+  // ---- COMMAND ---------------------------------------------------------------
   //
-  // Deliberately absent, not forgotten. The Pico is not connected to the board,
-  // so nothing on that path can be exercised end to end today, and a control
-  // path that has never moved a wheel is a safety mechanism nobody has tested.
-  // What lands here when it can be tested: CONTROL at 20 Hz on the UDP socket
-  // this client already binds (it carries `sessionId` from WELCOME, a strictly
-  // increasing `seq` and the `armEpoch` the viewer believes), COMMAND on TCP for
-  // the discrete acts, and the viewer's own copy of bibowire::deadman::step so
+  // One discrete act, sent once on TCP and answered by exactly one CMDACK.
+  //
+  // Safe from the UI thread and safe before a connection exists, exactly like
+  // wantCamera: this enqueues, and the worker sends once WELCOME has arrived.
+  // `cmdId` is stamped HERE, so it is monotonic across the whole run of the
+  // viewer rather than per connection, and it is never 0.
+  //
+  // `sessionId` and `armEpoch` are deliberately NOT arguments and are stamped by
+  // the worker at the moment of sending. They are facts about the connection,
+  // and the UI thread's copy of them is a snapshot that may be one frame old -
+  // stamping them at enqueue time would let a command carry the session it was
+  // typed into rather than the one it is sent on.
+  //
+  // A COMMAND QUEUED WHILE THE LINK IS DOWN IS DROPPED, NOT HELD, and that is a
+  // decision rather than an oversight. Holding it would mean a tuning value the
+  // operator set minutes ago - and has very likely since changed their mind
+  // about, or moved the slider past - being applied to the car at the instant a
+  // reconnect succeeds, with nobody watching the moment it lands. These verbs
+  // re-tune the limits a throttle is clamped to, they do not survive a Pico
+  // reboot anyway (docs/bibowire.md section 5), and the pane's sliders still
+  // hold what the operator wants, so re-sending is one click on a live link.
+  // A surprise on reconnect is strictly worse than a command that must be
+  // repeated. The drop is COUNTED - commandsDropped - because a drop nobody can
+  // see is the failure this repo keeps finding.
+  Void sendCommand(Client& c, bibowire::Verb verb, UInt8 arg0, UInt16 arg1, UInt16 arg2);
+
+  // How many commands never reached the wire because there was no connection to
+  // put them on. Shown, not just counted.
+  [[nodiscard]] UInt32 commandsDropped(const Client& c);
+
+  // ---------------------------------------------------------------------------
+  // SEAM: sending CONTROL - DRIVING the car - goes here.
+  //
+  // Deliberately absent, not forgotten, and COMMAND landing above does not
+  // change the reasoning by which this is still missing. The Pico is not
+  // connected to the board, so nothing on the driving path can be exercised end
+  // to end today, and a control path that has never moved a wheel is a safety
+  // mechanism nobody has tested. What lands here when it can be tested: CONTROL
+  // at 20 Hz on the UDP socket this client already binds (it carries
+  // `sessionId` from WELCOME, a strictly increasing `seq` and the `armEpoch` the
+  // viewer believes), and the viewer's own copy of bibowire::deadman::step so
   // the operator watches the same arithmetic that will do the tripping.
   //
-  // Until then this viewer connects as an OBSERVER - HELLO carries
-  // wantControl = 0 - which is the honest description of a program that cannot
-  // drive, and it means bibowire's deadman is not armed on our account: with no
-  // control holder the pilot runs under its own rules exactly as it does with
-  // nobody watching (docs/bibowire.md section 6).
+  // The two are separable, which is why one of them is here and the other is
+  // not. A COMMAND is a single act that is acknowledged; a CONTROL is a stream
+  // whose CADENCE is the safety property, and the tuning verbs are refused
+  // while the car is armed - so nothing above can move a wheel, and this
+  // viewer is still an OBSERVER. HELLO carries wantControl = 0, which is the
+  // honest description of a program that cannot drive, and it means bibowire's
+  // deadman is not armed on our account: with no control holder the pilot runs
+  // under its own rules exactly as it does with nobody watching
+  // (docs/bibowire.md section 6).
   // ---------------------------------------------------------------------------
 
 }

@@ -741,6 +741,91 @@ namespace link
         return true;
     }
 
+    // The epoch this viewer BELIEVES is in force, from the freshest thing that
+    // carries one. CTLSTATE is newest at 20 Hz, then BOARD at 5, then the
+    // WELCOME that opened the session.
+    //
+    // None of the tuning verbs turn on the epoch - they are refused by ARM
+    // STATE, not by generation - but the field is on the wire either way and
+    // sending a stale one would be inventing a number. When ARM itself is wired
+    // up through this same path the value will matter, and it will already be
+    // the right one.
+    [[nodiscard]] UInt8 currentEpoch(const Session& s)
+    {
+        if(s.haveControl)
+        {
+            return s.control.armEpoch;
+        }
+        if(s.haveBoard)
+        {
+            return s.board.armEpoch;
+        }
+        return s.welcome.armEpoch;
+    }
+
+    // Everything the UI thread has asked for, onto the wire - or dropped, if
+    // there is no wire to put it on.
+    //
+    // The queue is emptied EITHER WAY, and that is the drop decision written as
+    // code (link.hxx says why at length): a tuning command that waited out a
+    // reconnect would be applied to the car minutes after the person who asked
+    // for it stopped expecting it. Emptied under the lock and sent outside it,
+    // so a slow socket cannot block the UI thread's next click.
+    [[nodiscard]] Bool flushCommands(Conn& c, Client& owner, Session& s)
+    {
+        Vec<bibowire::Command> outbound;
+        {
+            LockGuard<Mutex> held(owner.cmdLock);
+            if(owner.pending.empty())
+            {
+                return true;
+            }
+            outbound.swap(owner.pending);
+        }
+
+        // HELLO is the first bytes on the connection and nothing else goes out
+        // until WELCOME has answered it - syncSubscription's rule, and the same
+        // reason. Before that there is no sessionId to stamp, so these are not
+        // merely early, they are unsendable.
+        if(!s.haveWelcome)
+        {
+            owner.commandsDropped.fetch_add(static_cast<UInt32>(outbound.size()));
+            return true;
+        }
+
+        // Indexed rather than a range-for, so the failure path below can count
+        // what is actually LEFT. Counting the whole batch there would report
+        // commands the board has already acknowledged as dropped, which is a
+        // counter that lies in the safe-looking direction.
+        for(Size i = 0; i < outbound.size(); ++i)
+        {
+            bibowire::Command cmd = outbound[i];
+            cmd.sessionId = s.welcome.sessionId;
+            cmd.armEpoch = currentEpoch(s);
+
+            Array<UInt8, 64> body = {};
+            const Size n = bibowire::writeCommand(cmd, body.data(), body.size());
+            if(n == 0)
+            {
+                // The codec refused to encode it. That is a bug in the caller's
+                // arguments rather than a link fault, so it is counted as a
+                // drop and the connection is left alone.
+                owner.commandsDropped.fetch_add(1u);
+                continue;
+            }
+            if(!sendFrame(c, bibowire::Type::TYPE_COMMAND, body.data(), n))
+            {
+                // This one and everything behind it die with the connection, by
+                // the same rule: the caller is told by the counter, not by a
+                // retry onto a socket that has just failed.
+                const Size left = outbound.size() - i;
+                owner.commandsDropped.fetch_add(static_cast<UInt32>(left));
+                return false;
+            }
+        }
+        return true;
+    }
+
     Void sendLeave(Conn& c, const Session& s)
     {
         if(c.tcp == INVALID_SOCKET || !s.haveWelcome)
@@ -957,6 +1042,15 @@ namespace link
                 if(!syncSubscription(conn, live, c->cameraOn.load(), c->cameraFps.load()))
                 {
                     why = "could not send SUBSCRIBE";
+                    break;
+                }
+
+                // After SUBSCRIBE and in the same pass, so a command typed while
+                // the link was live is on the wire within one POLL_MS rather
+                // than waiting for a frame to arrive first.
+                if(!flushCommands(conn, *c, live))
+                {
+                    why = "could not send a COMMAND";
                     break;
                 }
 
@@ -1558,6 +1652,30 @@ namespace link
           return;
       }
 
+      case bibowire::Type::TYPE_CMDACK:
+      {
+          bibowire::CmdAck m;
+          if(!bibowire::readCmdAck(f.body, ver, &m))
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          // KEPT WITH ITS SENTENCE, VERBATIM. result = 1 or 3 is a refusal, and
+          // the board explains it in words - "refused while armed" is the whole
+          // difference between a slider that appears broken and one that is
+          // doing exactly what the protocol says. A viewer that kept only the
+          // result byte would leave an operator with a number and no reason.
+          Ack a;
+          a.ack = m;
+          a.atMs = nowMs;
+          s.acks.push_back(a);
+          while(s.acks.size() > MAX_ACKS)
+          {
+              s.acks.erase(s.acks.begin());
+          }
+          return;
+      }
+
       case bibowire::Type::TYPE_EVENT:
       {
           bibowire::Event m;
@@ -1876,6 +1994,77 @@ namespace link
   Int32 cameraFpsWanted(const Client& c)
   {
       return c.cameraFps.load();
+  }
+
+  // ---- COMMAND ---------------------------------------------------------------
+
+  Void sendCommand(Client& c, bibowire::Verb verb, UInt8 arg0, UInt16 arg1, UInt16 arg2)
+  {
+      LockGuard<Mutex> held(c.cmdLock);
+
+      bibowire::Command cmd;
+      cmd.cmdId = c.nextCmdId;
+      cmd.verb = verb;
+      cmd.arg0 = arg0;
+      cmd.arg1 = arg1;
+      cmd.arg2 = arg2;
+      // sessionId and armEpoch are stamped by the worker at the moment of
+      // sending - see link.hxx. Left at their defaults here on purpose, so a
+      // reader of this function cannot mistake a snapshot for the connection.
+
+      ++c.nextCmdId;
+      if(c.nextCmdId == 0u)
+      {
+          // NEVER 0. Unreachable at any human rate - it is 4.2 billion
+          // deliberate acts - and written anyway, because the alternative is a
+          // rule enforced by an arithmetic coincidence.
+          c.nextCmdId = 1u;
+      }
+
+      c.pending.push_back(cmd);
+      while(c.pending.size() > MAX_PENDING_COMMANDS)
+      {
+          // The OLDEST goes, and it is counted. A queue this deep means the
+          // worker is not draining, and in that case the newest intent is the
+          // one worth keeping - the same newest-wins rule the rest of this
+          // protocol follows.
+          c.pending.erase(c.pending.begin());
+          c.commandsDropped.fetch_add(1u);
+      }
+  }
+
+  UInt32 commandsDropped(const Client& c)
+  {
+      return c.commandsDropped.load();
+  }
+
+  CharSeq ackResultName(UInt8 result)
+  {
+      switch(result)
+      {
+      case 0:
+          return "ok";
+      case 1:
+          return "refused";
+      case 2:
+          return "unknown verb";
+      case 3:
+          return "not in this state";
+      case 4:
+          return "no Pico";
+      default:
+          break;
+      }
+      return "?";
+  }
+
+  Opt<Ack> Session::newestAck() const
+  {
+      if(acks.empty())
+      {
+          return {};
+      }
+      return acks[acks.size() - 1u];
   }
 
 }

@@ -297,7 +297,63 @@ namespace bibowire
       VERB_MOTOR_OFF = 6,
       VERB_SET_MODE = 7,
       VERB_SET_ESC_LIMITS = 8,
+
+      // ---- tuning ---------------------------------------------------------
+      //
+      // These carry the old hub's Drive-view trim onto this wire. They fit
+      // arg0/arg1/arg2 exactly as they already are, so COMMAND's 16 bytes do
+      // not change and a board built before these verbs existed answers them
+      // with result = 2 (unknown verb) rather than misreading a field.
+      //
+      // REFUSED WHILE ARMED, all three, with result = 3. Re-tuning the limits
+      // a throttle is being clamped to, while that throttle is live, is the
+      // one way this pane could hurt somebody - and the car is disarmed by
+      // default, so the rule costs an operator nothing.
+      VERB_SET_SERVO_LIMITS = 9,   // arg1 = min us, arg2 = max us
+      VERB_SET_SERVO_TRIM = 10,    // arg1 = centre us
+      VERB_SET_SLEW = 11,          // arg0 = axis, arg1 = us per 20 ms tick
   };
+
+  // Which output VERB_SET_SLEW is talking about. "Both" is the bare `SLEW <us>`
+  // the Pico has always accepted and is what the single shared rate used to
+  // mean, kept because it is the common case on a bench.
+  constexpr UInt8 SLEW_AXIS_BOTH = 0;
+  constexpr UInt8 SLEW_AXIS_STEER = 1;
+  constexpr UInt8 SLEW_AXIS_THROTTLE = 2;
+
+  // ---------------------------------------------------------------------------
+  // THE TUNING BOUNDS ARE MIRRORED HERE, AND THEY MUST AGREE WITH THE PICO
+  //
+  // The authority is firmware/lib/chassis/chassis.hxx - SLEW_MIN_STEP,
+  // SLEW_MAX_STEP, and the hard servo and ESC clamps - and the Pico re-clamps
+  // everything it is sent regardless of what arrives here. These copies exist
+  // so a viewer can refuse an impossible number at the slider instead of
+  // watching a command travel the length of the link to be rejected by a board
+  // that then has to explain itself.
+  //
+  // That makes them a cross-boundary constant, which is this repo's named way
+  // of shipping two halves that are each correct and broken as a pair. If the
+  // chassis numbers ever move, THESE MOVE WITH THEM: the Pico is the one that
+  // decides, and a viewer whose slider stops short of what the car can do is a
+  // viewer lying about the car.
+  constexpr UInt16 SLEW_US_MIN = 1;
+  constexpr UInt16 SLEW_US_MAX = 200;
+
+  // Ticks a second, so a viewer can turn us-per-tick into us-per-second and
+  // into a lock-to-lock TIME, which is the unit an operator actually thinks in.
+  // SLEW_TICK_MS is 20 in chassis.hxx; this is the same fact divided into 1000.
+  constexpr UInt16 SLEW_TICKS_PER_S = 50;
+
+  // The servo's own range. What a TT-02's steering can REACH is narrower and
+  // off-centre (cal.hxx), which is what SET_SERVO_LIMITS is for finding.
+  constexpr UInt16 SERVO_US_HARD_MIN = 1000;
+  constexpr UInt16 SERVO_US_HARD_MAX = 2000;
+
+  // Forward only, and not by omission. The board refuses below 1500 whatever is
+  // asked for: reverse needs a brake-then-reverse sequence and is not something
+  // to reach by widening a limit from a slider.
+  constexpr UInt16 ESC_US_HARD_MIN = 1500;
+  constexpr UInt16 ESC_US_HARD_MAX = 1700;
 
   enum class Severity : UInt8
   {

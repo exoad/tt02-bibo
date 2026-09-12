@@ -352,11 +352,23 @@ namespace
   // policy sits here, and the policy is that a board that has stopped talking
   // is not given throttle. Steering is still sent: it costs nothing and is the
   // command that will show up as the first reply when the board comes back.
-  [[nodiscard]] Str escLineFor(reactive::Status status, const reactive::Outputs& out, Bool silent)
+  [[nodiscard]] Str escLineFor(reactive::Status status, const reactive::Outputs& out, Bool silent, Bool mayDrive)
   {
       const Bool trusted = status == reactive::Status::STATUS_OK;
       const Bool forward = trusted && !out.stop && out.throttle > 0.0f;
-      if(!forward || silent)
+
+      // `mayDrive` is --arm: whether THIS RUN is allowed to move the car. It is
+      // intent, not measurement, and that is the right input here - the question
+      // is what we are willing to send, not what the car currently is.
+      //
+      // Without it a run started with no --arm sent ESC <us> on every forward
+      // decision and the Pico refused every one: measured at ten "ERR esc not
+      // armed" a second, nineteen inside four seconds. Harmless to the car and
+      // corrosive to everything that reads the link - it made replyErr useless
+      // as a health signal, printed a fault line for correct behaviour, and
+      // spent the port's bandwidth being told no. NEUTRAL is the honest line:
+      // it is what we would command anyway, and it is accepted while disarmed.
+      if(!forward || silent || !mayDrive)
       {
           return proto::command("ESC", "NEUTRAL");
       }
@@ -370,6 +382,25 @@ namespace
       UInt64 ok = 0;
       UInt64 err = 0;
       UInt64 other = 0;   // INFO, banner text, anything the board says unasked
+
+      // ---- what the CAR said about itself ------------------------------------
+      //
+      // STEER goes out every tick and the Pico answers every one of them with
+      // printDrive() - the whole drive state, armed= included. This program
+      // counted that line and threw its contents away, which is the only reason
+      // BoardState::picoArmed was hard-coded to "unknown" and the viewer's Car
+      // panel could never say anything but "armed --".
+      //
+      // Reading it costs NOTHING. Not one extra byte goes down the port and no
+      // poll is added: the line was already arriving fifty times a second and
+      // was already being parsed far enough to be classified.
+      //
+      // -1 is "the car has not told us", which is a different fact from any
+      // value it could report - and is what these stay at on a dry run, where
+      // nothing is asked and nothing answers.
+      Int32 armed = -1;
+      Int32 escUs = -1;
+      Int32 steerNowMilli = 0;
   };
 
   // What this program knows about the link that the transport does not.
@@ -407,6 +438,35 @@ namespace
           {
           case proto::Kind::KIND_OK:
               ++tally.ok;
+              // "OK drive ..." is the answer to the STEER this tick already
+              // sent, so the car's own arm state and pulse arrive for free.
+              // Read BY NAME through proto::field, which matches on token
+              // boundaries - so "esc" does not find "esc_min" and a firmware
+              // that adds a field later is ignored rather than shifting
+              // everything after it.
+              if(reply.topic == "drive")
+              {
+                  // THE '=' IS PART OF THE KEY. proto::field compares the key
+                  // and then reads the value from directly after it, so "armed"
+                  // hands strtol the string "=0", which is not a number, and the
+                  // call returns false EVERY TIME. Written that way first: the
+                  // build stayed green, the suite stayed green, the live run was
+                  // clean, and armed would have sat at -1 for the life of the
+                  // process with the guard above it reading as protection.
+                  Int32 v = 0;
+                  if(proto::fieldInt(reply.rest, "armed=", v))
+                  {
+                      tally.armed = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "esc=", v))
+                  {
+                      tally.escUs = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "steer_now=", v))
+                  {
+                      tally.steerNowMilli = v;
+                  }
+              }
               break;
           case proto::Kind::KIND_ERR:
               ++tally.err;
@@ -621,6 +681,7 @@ namespace
       Bool    picoOpen = false;
       Bool    picoHeard = false;
       Int32   picoSilentMs = -1;   // carlink's own number; -1 is no link
+      Int32   picoArmed = -1;      // the car's own armed=; -1 is "it has not said"
       UInt64  replyOk = 0;
       UInt64  replyErr = 0;
       Str     pico;                // the printed phrase, shared by all three readers
@@ -704,7 +765,11 @@ namespace
       b.cpuCentiC = bibowire::CPU_ABSENT;
       b.battMilliV = bibowire::BATT_ABSENT;
       b.picoLink = s.dry || !s.picoOpen ? 0u : (s.picoHeard ? 1u : 2u);
-      b.picoArmed = 2;   // unknown: this program never asks the board its arm state
+      // The CAR's answer, not this program's intention. Every STEER is answered
+      // with armed=, so 2 ("unknown") now means only that no reply has been read
+      // yet - one tick at startup, and the whole of a dry run, where there is no
+      // port to ask down.
+      b.picoArmed = s.picoArmed < 0 ? 2u : (s.picoArmed != 0 ? 1u : 0u);
       b.pilotMode = s.dry ? 1u : 2u;   // --dry is LOOK; otherwise the autonomy drives
       b.lidarHealth = healthByte(s.lidarHealth);
       b.lidarSpinning = s.lidarSpinning ? 1u : 0u;
@@ -714,6 +779,61 @@ namespace
       b.revolutions = static_cast<UInt32>(s.revolutions);
       b.timeouts = static_cast<UInt32>(s.timeouts);
       return b;
+  }
+
+  // ---- the operator's trim, as the Pico's parser reads it ----------------------
+
+  // At most this many tuning lines per tick. A slider dragged across its range
+  // is a burst of discrete COMMANDs, and this loop's promise is that it finishes
+  // inside 20 ms - so the queue is drained at a rate the serial port can carry
+  // rather than emptied in one pass. Nothing is lost by the cap: what is not
+  // taken this tick is taken by the next, 20 ms later.
+  constexpr Int32 TUNE_PER_TICK = 2;
+
+  // One accepted tuning request as the line firmware/app/main.cxx's COMMANDS
+  // table parses. Empty for a verb this build does not send, which the caller
+  // drops rather than handing the port a bare verb with no argument.
+  //
+  // %u AND NOTHING ELSE. Every number on this path is a whole microsecond, so
+  // the locale-sensitive decimal point proto::fixed3 exists to dodge never gets
+  // near it - not because it is escaped, but because there is no float here to
+  // print in the first place.
+  [[nodiscard]] Str tuneLine(const viewfeed::Tune& t)
+  {
+      Array<Char, 48> args{};
+      const unsigned a1 = static_cast<unsigned>(t.arg1);
+      const unsigned a2 = static_cast<unsigned>(t.arg2);
+      switch(t.verb)
+      {
+          case bibowire::Verb::VERB_SET_SERVO_LIMITS:
+              std::snprintf(args.data(), args.size(), "%u %u", a1, a2);
+              return proto::command("SERVOLIMITS", args.data());
+          case bibowire::Verb::VERB_SET_ESC_LIMITS:
+              std::snprintf(args.data(), args.size(), "%u %u", a1, a2);
+              return proto::command("ESCLIMITS", args.data());
+          case bibowire::Verb::VERB_SET_SERVO_TRIM:
+              std::snprintf(args.data(), args.size(), "%u", a1);
+              return proto::command("SERVOTRIM", args.data());
+          case bibowire::Verb::VERB_SET_SLEW:
+              // The bare `SLEW <us>` is the axis-less form the board has always
+              // taken and is what one shared rate used to mean, so "both" is
+              // not spelled out - it is the absence of an axis word.
+              if(t.arg0 == bibowire::SLEW_AXIS_STEER)
+              {
+                  std::snprintf(args.data(), args.size(), "STEER %u", a1);
+              }
+              else if(t.arg0 == bibowire::SLEW_AXIS_THROTTLE)
+              {
+                  std::snprintf(args.data(), args.size(), "THROTTLE %u", a1);
+              }
+              else
+              {
+                  std::snprintf(args.data(), args.size(), "%u", a1);
+              }
+              return proto::command("SLEW", args.data());
+          default:
+              return Str();
+      }
   }
 
   // ---- the revolution and the decision, as bibowire carries them ---------------
@@ -1166,6 +1286,7 @@ Int32 main(Int32 argc, Char** argv)
         snap.picoSilentMs = opt.dry ? -1 : carlink::silentForMs();
         snap.replyOk = replies.ok;
         snap.replyErr = replies.err;
+        snap.picoArmed = replies.armed;
         snap.pico = picoPhrase(snap);
         if(opt.feed)
         {
@@ -1174,10 +1295,39 @@ Int32 main(Int32 argc, Char** argv)
             // 5 Hz section 2 asks for - the rate is the socket's business, the
             // content is this one struct.
             viewfeed::publishBoard(boardFrom(snap));
+
+            // WHAT THE CAR IS DOING, which is a different question from what
+            // was decided - and until now nothing called this at all, so every
+            // field of CTLSTATE carried its absent sentinel and viewfeed's
+            // "refuse to re-trim an armed car" guard read armed = 0 forever.
+            // A guard that cannot observe the thing it guards against is not a
+            // safety mechanism, it is a comment; this is what makes it real.
+            //
+            // Three of these are MEASURED, read out of the Pico's own reply to
+            // the STEER this loop already sends. throttleMilli is the decision
+            // rather than a measurement, which is what the field means: what
+            // was sent, not what the wheels did with it.
+            viewfeed::Applied ap;
+            ap.steerNowMilli = static_cast<Int16>(replies.steerNowMilli);
+            ap.throttleMilli = static_cast<Int16>(out.throttle * 1000.0f);
+            ap.escUs = replies.escUs < 0
+                ? bibowire::ESC_ABSENT
+                : static_cast<UInt16>(replies.escUs);
+            // Unknown reads as NOT armed, and that is the permissive direction
+            // for the tuning guard rather than the dangerous one: it lasts a
+            // single tick before the first reply lands, and a dry run - where
+            // it lasts forever - refuses tuning on "no Pico" long before this
+            // is consulted.
+            ap.armed = replies.armed > 0 ? 1u : 0u;
+            ap.pilotMode = opt.dry ? 1u : 2u;
+            ap.picoSilentMs = snap.picoSilentMs < 0
+                ? bibowire::PICO_SILENT_ABSENT
+                : static_cast<UInt32>(snap.picoSilentMs);
+            viewfeed::applied(ap);
         }
 
         const Str steerLine = proto::steer(out.steer);
-        const Str escLine = escLineFor(status, out, boardSilent);
+        const Str escLine = escLineFor(status, out, boardSilent, opt.arm);
         if(opt.dry)
         {
             std::printf(
@@ -1192,6 +1342,32 @@ Int32 main(Int32 argc, Char** argv)
         {
             sendLine(steerLine, link);
             sendLine(escLine, link);
+
+            // The operator's trim, after the car's motion and before the
+            // replies are read - so the OK or ERR the Pico answers each of
+            // these with is counted by the same readReplies below rather than
+            // being left in the buffer to be read as an answer to the NEXT
+            // tick's STEER.
+            //
+            // Inside the !opt.dry branch on purpose: a dry run has no port to
+            // send this down. viewfeed refuses these verbs with "no Pico" in
+            // that case anyway, because the BOARD frame a dry run publishes
+            // says picoLink is down - so the queue should be empty here, and
+            // this is the second of the two places that has to be true.
+            for(Int32 sent = 0; sent < TUNE_PER_TICK; ++sent)
+            {
+                viewfeed::Tune t;
+                if(!viewfeed::tune(&t))
+                {
+                    break;
+                }
+                const Str line = tuneLine(t);
+                if(line.empty())
+                {
+                    continue;
+                }
+                sendLine(line, link);
+            }
             if(!readReplies(lines, replies, link) && !link.lost)
             {
                 link.lost = true;

@@ -263,6 +263,14 @@ namespace viewfeed
         TimePoint at;
     };
 
+    // How many accepted tuning requests may wait for the tick. A slider dragged
+    // across its range is a burst of discrete COMMANDs and the tick takes only
+    // a couple a pass, so there has to be SOME slack - but this filling up does
+    // not mean a fast viewer, it means the tick stopped draining, and an
+    // unbounded queue would answer a dead control loop by growing until the
+    // board ran out of memory.
+    constexpr Size TUNE_MAX = 32;
+
     // Everything the two threads share. Every member is touched under `m`
     // except wakeFd, `count` and the seqlock, which are atomic so the pilot's
     // tick never takes this lock.
@@ -282,6 +290,23 @@ namespace viewfeed
 
         Mutex appliedM;
         Applied applied;
+
+        // The tuning handoff: a mutex and a QUEUE, where control above is a
+        // seqlock. The difference is the whole reason both exist. CONTROL is a
+        // 20 Hz stream whose old values are worthless, so keeping only the
+        // newest is correct. A tuning request is a discrete act that has
+        // already been acknowledged to the operator by name and value, so
+        // keeping only the newest would silently lose one of two sliders moved
+        // together and make that acknowledgement a lie.
+        //
+        // Drop-OLDEST if it ever fills, for the same reason: the newest value
+        // is the operator's current intent and the one their slider is showing
+        // them. Counted, because a drop here is a promise broken and a silent
+        // one would be this repo's recurring failure with a slider on it.
+        Mutex tuneM;
+        Deque<Tune> tunes;
+        UInt64 tuneDropped = 0;
+        Bool tuneDropSaid = false;
 
         Mutex tallyM;
         Counters tally;
@@ -1172,6 +1197,242 @@ namespace viewfeed
 
     Void onControlFrame(Client& c, const bibowire::Control& m);
 
+    // ---- tuning ------------------------------------------------------------
+    //
+    // Four verbs that reach the car's TRIM rather than its motion: the servo's
+    // end stops, its centre, the throttle's working range, and how fast either
+    // output may move. They used to live in a hub that is gone, and
+    // docs/bibowire.md section 5 is the contract they arrive under.
+    //
+    // NOTHING HERE TOUCHES THE SERIAL PORT. This thread validates, answers the
+    // operator with a CMDACK naming the value that was taken, and queues the
+    // request for the pilot's tick - the same split every other message in this
+    // file keeps, and the reason a stalled Pico cannot stall the socket.
+
+    [[nodiscard]] Bool isTuningVerb(bibowire::Verb v)
+    {
+        return v == bibowire::Verb::VERB_SET_ESC_LIMITS
+            || v == bibowire::Verb::VERB_SET_SERVO_LIMITS
+            || v == bibowire::Verb::VERB_SET_SERVO_TRIM
+            || v == bibowire::Verb::VERB_SET_SLEW;
+    }
+
+    // The car's arm state as the PILOT last reported it, which is the only
+    // channel the board has for the fact.
+    //
+    // READ THE HONESTY NOTE ON Applied IN THE HEADER BEFORE TRUSTING THIS. The
+    // pilot does not drive from CONTROL in this build and nothing calls
+    // applied(), so this reads 0 - disarmed - for the whole run, and the
+    // refusal below never fires today. That makes it a guard that is CORRECT
+    // and not yet LOAD-BEARING, and it must not be the only thing standing
+    // between a live throttle and a new limit: the Pico re-clamps and refuses
+    // on its own side, which is the check that is actually running.
+    [[nodiscard]] Bool armedNow()
+    {
+        LockGuard<Mutex> lock(sh.appliedM);
+        return sh.applied.armed != 0u;
+    }
+
+    // POSITIVE EVIDENCE ONLY. haveBoard is false until the pilot's first
+    // publishBoard, and "has not said yet" is not "there is no Pico" - refusing
+    // then would be this module inventing a fact it does not have. picoLink 0
+    // IS the pilot saying the port is closed or that this run is --dry, and
+    // that is a fact worth refusing on. Touched on this thread alone, like
+    // lastBoard itself, so there is no lock here for a reason.
+    [[nodiscard]] Bool picoDown()
+    {
+        return haveBoard && lastBoard.picoLink == 0u;
+    }
+
+    [[nodiscard]] Bool within(UInt16 v, UInt16 lo, UInt16 hi)
+    {
+        return v >= lo && v <= hi;
+    }
+
+    Void queueTune(const bibowire::Command& cmd)
+    {
+        LockGuard<Mutex> lock(sh.tuneM);
+        while(sh.tunes.size() >= TUNE_MAX)
+        {
+            sh.tunes.pop_front();
+            ++sh.tuneDropped;
+            if(!sh.tuneDropSaid)
+            {
+                // Once, not per drop: a tick that has stopped draining will
+                // drop every request after this one, and a line each would bury
+                // the one line that says why.
+                sh.tuneDropSaid = true;
+                std::printf("viewfeed: tuning queue full - the tick is not draining it\n");
+            }
+        }
+        Tune t;
+        t.verb = cmd.verb;
+        t.arg0 = cmd.arg0;
+        t.arg1 = cmd.arg1;
+        t.arg2 = cmd.arg2;
+        sh.tunes.push_back(t);
+    }
+
+    // Fills `ack` for one tuning verb, and queues the request when it is taken.
+    Void onTune(const bibowire::Command& cmd, bibowire::CmdAck* ack)
+    {
+        // ARMED IS CHECKED FIRST, before any talk of ranges. An operator told
+        // "1000..2000 us" by a car that was never going to accept the number
+        // has been answered a question they did not ask.
+        if(armedNow())
+        {
+            ack->result = 3;
+            ack->text = "the car is armed - disarm before changing its trim";
+            return;
+        }
+        if(picoDown())
+        {
+            ack->result = 4;
+            ack->text = "no Pico - trim lives in its RAM and there is nothing to send this to";
+            return;
+        }
+
+        Array<Char, 160> buf{};
+        const unsigned a1 = static_cast<unsigned>(cmd.arg1);
+        const unsigned a2 = static_cast<unsigned>(cmd.arg2);
+
+        if(cmd.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS
+            || cmd.verb == bibowire::Verb::VERB_SET_ESC_LIMITS)
+        {
+            const Bool esc = cmd.verb == bibowire::Verb::VERB_SET_ESC_LIMITS;
+            const UInt16 lo = esc ? bibowire::ESC_US_HARD_MIN : bibowire::SERVO_US_HARD_MIN;
+            const UInt16 hi = esc ? bibowire::ESC_US_HARD_MAX : bibowire::SERVO_US_HARD_MAX;
+            const Char* what = esc ? "esc" : "servo";
+            if(!within(cmd.arg1, lo, hi) || !within(cmd.arg2, lo, hi))
+            {
+                // The accepted range is NAMED. "Out of range" alone sends
+                // somebody to read source in a field; two numbers turn the
+                // refusal into the next thing to type.
+                std::snprintf(
+                    buf.data(),
+                    buf.size(),
+                    "%s limits must be %u..%u us at both ends",
+                    what,
+                    static_cast<unsigned>(lo),
+                    static_cast<unsigned>(hi)
+                );
+                ack->result = 1;
+                ack->text = Str(buf.data());
+                return;
+            }
+            // min BELOW max, tested on the values that will actually be sent.
+            // THIS BOARD REFUSES RATHER THAN CLAMPS, and the range test above
+            // has already turned every out-of-range endpoint into a result = 1,
+            // so the pair cannot be collapsed into equality between there and
+            // here - the relation that holds now is the relation the Pico is
+            // handed. The day a clamp is added above, this test runs again
+            // AFTER it, because a clamp is exactly what can make two accepted
+            // numbers equal.
+            if(cmd.arg1 >= cmd.arg2)
+            {
+                std::snprintf(
+                    buf.data(),
+                    buf.size(),
+                    "%s limits need min below max, not %u and %u",
+                    what,
+                    a1,
+                    a2
+                );
+                ack->result = 1;
+                ack->text = Str(buf.data());
+                return;
+            }
+            queueTune(cmd);
+            std::snprintf(
+                buf.data(),
+                buf.size(),
+                "%s limits set to %u..%u us - the Pico holds them in RAM until it reboots",
+                what,
+                a1,
+                a2
+            );
+            ack->result = 0;
+            ack->text = Str(buf.data());
+            return;
+        }
+
+        if(cmd.verb == bibowire::Verb::VERB_SET_SERVO_TRIM)
+        {
+            if(!within(cmd.arg1, bibowire::SERVO_US_HARD_MIN, bibowire::SERVO_US_HARD_MAX))
+            {
+                std::snprintf(
+                    buf.data(),
+                    buf.size(),
+                    "servo centre must be %u..%u us",
+                    static_cast<unsigned>(bibowire::SERVO_US_HARD_MIN),
+                    static_cast<unsigned>(bibowire::SERVO_US_HARD_MAX)
+                );
+                ack->result = 1;
+                ack->text = Str(buf.data());
+                return;
+            }
+            queueTune(cmd);
+            std::snprintf(
+                buf.data(),
+                buf.size(),
+                "servo centre set to %u us - the Pico holds it in RAM until it reboots",
+                a1
+            );
+            ack->result = 0;
+            ack->text = Str(buf.data());
+            return;
+        }
+
+        if(cmd.verb == bibowire::Verb::VERB_SET_SLEW)
+        {
+            if(cmd.arg0 > bibowire::SLEW_AXIS_THROTTLE)
+            {
+                ack->result = 1;
+                ack->text = "slew axis must be 0 both, 1 steer or 2 throttle";
+                return;
+            }
+            if(!within(cmd.arg1, bibowire::SLEW_US_MIN, bibowire::SLEW_US_MAX))
+            {
+                std::snprintf(
+                    buf.data(),
+                    buf.size(),
+                    "slew must be %u..%u us per tick",
+                    static_cast<unsigned>(bibowire::SLEW_US_MIN),
+                    static_cast<unsigned>(bibowire::SLEW_US_MAX)
+                );
+                ack->result = 1;
+                ack->text = Str(buf.data());
+                return;
+            }
+            const Char* axis = cmd.arg0 == bibowire::SLEW_AXIS_STEER
+                ? "steer"
+                : (cmd.arg0 == bibowire::SLEW_AXIS_THROTTLE ? "throttle" : "steer and throttle");
+            queueTune(cmd);
+            // BOTH UNITS. us-per-tick is what the wire carries; us-per-second
+            // is what an operator thinks in, and nobody should have to know
+            // that a tick is 20 ms to read their own acknowledgement.
+            std::snprintf(
+                buf.data(),
+                buf.size(),
+                "%s slew set to %u us per tick - %u us/s at %u ticks a second",
+                axis,
+                a1,
+                a1 * static_cast<unsigned>(bibowire::SLEW_TICKS_PER_S),
+                static_cast<unsigned>(bibowire::SLEW_TICKS_PER_S)
+            );
+            ack->result = 0;
+            ack->text = Str(buf.data());
+            return;
+        }
+
+        // Unreachable while isTuningVerb and the branches above agree about
+        // which verbs are tuning verbs. Answered rather than left silent for
+        // the day they stop agreeing: a COMMAND with no CMDACK is the one thing
+        // this protocol promises cannot happen.
+        ack->result = 2;
+        ack->text = "that is not a verb this board tunes";
+    }
+
     Void onCommand(Client& c, const bibowire::Body& body, UInt8 ver)
     {
         bibowire::Command cmd;
@@ -1204,6 +1465,14 @@ namespace viewfeed
             bumpEpoch();
             ack.result = 0;
             ack.text = "estop cleared - the car is disarmed and must be armed deliberately";
+        }
+        else if(isTuningVerb(cmd.verb))
+        {
+            // Trim is the ONE family of verbs this board really does forward,
+            // and it is safe to forward for the reason the refusal below is not:
+            // it changes what the outputs are allowed to do, not what they are
+            // doing, and it is refused outright while the car is armed.
+            onTune(cmd, &ack);
         }
         else
         {
@@ -3071,6 +3340,16 @@ namespace viewfeed
           LockGuard<Mutex> lock(sh.tallyM);
           sh.tally = Counters();
       }
+      {
+          // A previous run's trim is not this run's. The Pico was rebooted or
+          // reopened between the two as often as not, and forwarding a value
+          // the operator asked for before the restart would be this module
+          // acting on an intent that has expired.
+          LockGuard<Mutex> lock(sh.tuneM);
+          sh.tunes.clear();
+          sh.tuneDropped = 0;
+          sh.tuneDropSaid = false;
+      }
       sh.count.store(0);
       sh.ctlSeq.store(0, std::memory_order_release);
       armEpoch = 0;
@@ -3215,6 +3494,25 @@ namespace viewfeed
       return false;
   }
 
+  Bool tune(Tune* out)
+  {
+      if(out == nullptr || !running)
+      {
+          return false;
+      }
+      LockGuard<Mutex> lock(sh.tuneM);
+      if(sh.tunes.empty())
+      {
+          return false;
+      }
+      // FRONT, not back. These come out in the order the operator performed
+      // them, because two limits set a moment apart are two acts and the second
+      // is not a correction of the first.
+      *out = sh.tunes.front();
+      sh.tunes.pop_front();
+      return true;
+  }
+
   Void applied(const Applied& a)
   {
       if(!running)
@@ -3320,6 +3618,12 @@ namespace viewfeed
   }
 
   Bool control(bibowire::Control* out)
+  {
+      static_cast<Void>(out);
+      return false;
+  }
+
+  Bool tune(Tune* out)
   {
       static_cast<Void>(out);
       return false;

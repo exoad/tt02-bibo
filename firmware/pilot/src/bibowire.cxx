@@ -375,6 +375,12 @@ namespace bibowire
                 return "set_mode";
             case Verb::VERB_SET_ESC_LIMITS:
                 return "set_esc_limits";
+            case Verb::VERB_SET_SERVO_LIMITS:
+                return "set_servo_limits";
+            case Verb::VERB_SET_SERVO_TRIM:
+                return "set_servo_trim";
+            case Verb::VERB_SET_SLEW:
+                return "set_slew";
             default:
                 return "?";
         }

@@ -2019,6 +2019,151 @@ Int32 main()
         );
     }
 
+    // ---- the tuning verbs, argument by argument -------------------------------
+    //
+    // Verbs 9, 10 and 11 carry their payload in arg0/arg1/arg2 rather than in
+    // any new field, so COMMAND's 16 bytes did not change - which is exactly the
+    // arrangement in which a dropped argument costs nothing at encode time and
+    // shows up as a car trimmed to zero. Every check below asserts the VALUE
+    // that came back, never that the decode merely succeeded: a readCommand
+    // that forgot arg2 would still return true.
+    {
+        Wire w;
+        {
+            Command m;
+            m.sessionId = 0x0BADC0DEu;
+            m.cmdId = 77;
+            m.verb = Verb::VERB_SET_SERVO_LIMITS;
+            m.arg1 = SERVO_US_HARD_MIN;
+            m.arg2 = SERVO_US_HARD_MAX;
+            m.armEpoch = 5;
+            w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_COMMAND, 50), "SET_SERVO_LIMITS frames and comes back");
+
+            Command back;
+            check(readCommand(w.frame.body, 1, &back), "and reads back");
+            check(back.verb == Verb::VERB_SET_SERVO_LIMITS, "verb 9 survives");
+            check(back.arg1 == SERVO_US_HARD_MIN, "the servo's min us survives in arg1");
+            check(back.arg2 == SERVO_US_HARD_MAX, "and its max us in arg2, not folded into one");
+            check(back.cmdId == 77, "and the cmdId the CMDACK has to echo");
+            check(back.armEpoch == 5, "and the epoch it was sent under");
+        }
+        {
+            Command m;
+            m.sessionId = 0x0BADC0DEu;
+            m.cmdId = 78;
+            m.verb = Verb::VERB_SET_ESC_LIMITS;
+            m.arg1 = ESC_US_HARD_MIN;
+            m.arg2 = ESC_US_HARD_MAX;
+            w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_COMMAND, 51), "SET_ESC_LIMITS frames and comes back");
+
+            Command back;
+            check(readCommand(w.frame.body, 1, &back), "and reads back");
+            check(back.arg1 == ESC_US_HARD_MIN, "the throttle's min us survives in arg1");
+            check(back.arg2 == ESC_US_HARD_MAX, "and its max us in arg2");
+            check(
+                ESC_US_HARD_MIN == 1500,
+                "and the forward-only floor is still 1500 - reverse is not reached from a slider"
+            );
+        }
+        {
+            // A centre that is NOT the midpoint, and not any default. A trim of
+            // 1500 would pass a test that had dropped the field entirely on a
+            // build whose sentinel happened to be the midpoint; 1487 cannot.
+            Command m;
+            m.sessionId = 0x0BADC0DEu;
+            m.cmdId = 79;
+            m.verb = Verb::VERB_SET_SERVO_TRIM;
+            m.arg1 = 1487;
+            w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_COMMAND, 52), "SET_SERVO_TRIM frames and comes back");
+
+            Command back;
+            check(readCommand(w.frame.body, 1, &back), "and reads back");
+            check(back.verb == Verb::VERB_SET_SERVO_TRIM, "verb 10 survives");
+            check(back.arg1 == 1487, "an off-centre centre survives exactly, not rounded to 1500");
+            check(back.arg0 == 0, "arg0 is unused by trim and stays 0");
+            check(back.arg2 == 0, "so does arg2");
+        }
+        {
+            // Every field of SET_SLEW different from every other, so a decoder
+            // that read arg0 out of arg1's offset fails rather than passing by
+            // coincidence.
+            Command m;
+            m.sessionId = 0x0BADC0DEu;
+            m.cmdId = 80;
+            m.verb = Verb::VERB_SET_SLEW;
+            m.arg0 = SLEW_AXIS_THROTTLE;
+            m.arg1 = 37;
+            m.armEpoch = 6;
+            w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_COMMAND, 53), "SET_SLEW frames and comes back");
+
+            Command back;
+            check(readCommand(w.frame.body, 1, &back), "and reads back");
+            check(back.verb == Verb::VERB_SET_SLEW, "verb 11 survives");
+            check(back.arg0 == SLEW_AXIS_THROTTLE, "the axis survives in arg0 - 2, not 0 for both");
+            check(back.arg1 == 37, "and the us-per-tick in arg1");
+            check(back.armEpoch == 6, "and the epoch, which sits past both args");
+            check(
+                37u * SLEW_TICKS_PER_S == 1850u,
+                "and us-per-tick becomes us-per-second at 50 ticks a second"
+            );
+        }
+
+        // The names, through the only public path that renders them: verbName
+        // has internal linkage in bibowire.cxx, and describe() of a CMDACK is
+        // where a person actually reads a verb's name back. A new verb missing
+        // from that switch renders as "?" and fails here.
+        {
+            CmdAck a;
+            a.cmdId = 77;
+            a.verb = Verb::VERB_SET_SERVO_LIMITS;
+            a.armEpoch = 5;
+            a.text = "ok";
+            w.bodyLen = writeCmdAck(a, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_CMDACK, 54), "a CMDACK for verb 9 frames");
+            checkStr(
+                describe(w.frame),
+                "CMDACK v1 seq=54 len=16 : cmd=77 verb=set_servo_limits result=0 epoch=5 text=\"ok\"",
+                "verbName: set_servo_limits"
+            );
+        }
+        {
+            CmdAck a;
+            a.cmdId = 79;
+            a.verb = Verb::VERB_SET_SERVO_TRIM;
+            a.armEpoch = 5;
+            a.text = "ok";
+            w.bodyLen = writeCmdAck(a, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_CMDACK, 55), "a CMDACK for verb 10 frames");
+            checkStr(
+                describe(w.frame),
+                "CMDACK v1 seq=55 len=16 : cmd=79 verb=set_servo_trim result=0 epoch=5 text=\"ok\"",
+                "verbName: set_servo_trim"
+            );
+        }
+        {
+            // result = 3 as well as the name: refused-while-armed is the state
+            // this verb spends most of its life in, and the number a viewer
+            // branches on to say so.
+            CmdAck a;
+            a.cmdId = 80;
+            a.verb = Verb::VERB_SET_SLEW;
+            a.result = 3;
+            a.armEpoch = 6;
+            a.text = "ok";
+            w.bodyLen = writeCmdAck(a, w.body.data(), w.body.size());
+            check(wrap(&w, Type::TYPE_CMDACK, 56), "a CMDACK for verb 11 frames");
+            checkStr(
+                describe(w.frame),
+                "CMDACK v1 seq=56 len=16 : cmd=80 verb=set_slew result=3 epoch=6 text=\"ok\"",
+                "verbName: set_slew, and result 3 rides beside it"
+            );
+        }
+    }
+
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
