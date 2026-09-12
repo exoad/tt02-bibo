@@ -70,9 +70,16 @@ namespace bibo::drive
      *
      * @warning setSteerLimits() clamps into this range; nothing above this
      *          file can command the steering pulse outside it.
+     *
+     * @note WIDENED 2026-09-12 from 1000..2000, at the operator's request ("I
+     *       should be able to set this myself"). No longer the servo's
+     *       datasheet range but the widest pulse a hobby servo is ever driven
+     *       with; the WORKING limits (cal.hxx, then the Trim pane) keep this
+     *       car's linkage off its end stops, and they are unchanged until
+     *       somebody moves them.
      */
-#define SERVO_HARD_MIN 1000
-#define SERVO_HARD_MAX 2000
+#define SERVO_HARD_MIN 500
+#define SERVO_HARD_MAX 2500
 
     /**
      * @brief Startup and absolute throttle limits, in microseconds of ESC
@@ -93,13 +100,20 @@ namespace bibo::drive
      * experiment.
      *
      * @warning ESC_HARD_MIN/ESC_HARD_MAX are the absolute ceiling; nothing
-     *          above this file can command the ESC outside them, and that is
-     *          what keeps a stray value from ever reaching reverse.
+     *          above this file can command the ESC outside them.
+     *
+     * @note WIDENED 2026-09-12 from 1500..1700 to the whole RC pulse range, at
+     *       the operator's request - 1700 held the 10BL160 to under half of
+     *       the 1500..2000 it maps. So this bound NO LONGER keeps the car out
+     *       of reverse. Below 1500 is BRAKE in the Forward/Brake mode this ESC
+     *       is kept in, and the pilot never maps W below neutral whatever the
+     *       working minimum is - but an ESC reprogrammed to Forward/Reverse
+     *       would make an idle below 1500 mean reverse. Know that first.
      */
 #define ESC_DEFAULT_MIN THROTTLE_CAL_MIN
 #define ESC_DEFAULT_MAX THROTTLE_CAL_MAX
-#define ESC_HARD_MIN    1500
-#define ESC_HARD_MAX    1700
+#define ESC_HARD_MIN    1000
+#define ESC_HARD_MAX    2000
 
     /**
      * @brief The neutral ESC pulse, in microseconds.

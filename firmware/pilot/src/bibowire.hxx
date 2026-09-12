@@ -364,16 +364,22 @@ namespace bibowire
   // SLEW_TICK_MS is 20 in chassis.hxx; this is the same fact divided into 1000.
   constexpr UInt16 SLEW_TICKS_PER_S = 50;
 
-  // The servo's own range. What a TT-02's steering can REACH is narrower and
-  // off-centre (cal.hxx), which is what SET_SERVO_LIMITS is for finding.
-  constexpr UInt16 SERVO_US_HARD_MIN = 1000;
-  constexpr UInt16 SERVO_US_HARD_MAX = 2000;
+  // The widest pulse a hobby servo is driven with. WIDENED 2026-09-12 from the
+  // 1000..2000 datasheet range at the operator's request - "I should be able to
+  // set this myself". What a TT-02's steering can REACH is far narrower and
+  // off-centre (cal.hxx); the working limits are what protect the linkage, and
+  // SET_SERVO_LIMITS is how they are found.
+  constexpr UInt16 SERVO_US_HARD_MIN = 500;
+  constexpr UInt16 SERVO_US_HARD_MAX = 2500;
 
-  // Forward only, and not by omission. The board refuses below 1500 whatever is
-  // asked for: reverse needs a brake-then-reverse sequence and is not something
-  // to reach by widening a limit from a slider.
-  constexpr UInt16 ESC_US_HARD_MIN = 1500;
-  constexpr UInt16 ESC_US_HARD_MAX = 1700;
+  // The whole RC pulse range, WIDENED 2026-09-12 from 1500..1700, which held the
+  // 10BL160 to under half of the 1500..2000 it maps. Forward-only is no longer
+  // enforced by this bound: below 1500 is brake on this ESC in its Forward/Brake
+  // mode, and the pilot never maps W below neutral whatever the working minimum
+  // is (main.cxx escPulseWithin). An ESC reprogrammed to Forward/Reverse would
+  // make an idle below 1500 mean reverse - that is the thing to know first.
+  constexpr UInt16 ESC_US_HARD_MIN = 1000;
+  constexpr UInt16 ESC_US_HARD_MAX = 2000;
 
   enum class Severity : UInt8
   {

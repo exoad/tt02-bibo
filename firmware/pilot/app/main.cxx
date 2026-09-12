@@ -377,8 +377,17 @@ namespace
   [[nodiscard]] Int32 escPulseWithin(Float32 throttle, Int32 carMin, Int32 carMax)
   {
       const Bool known = carMin > 0 && carMax > carMin;
-      const Int32 lo = known ? carMin : ESC_MIN_US;
+      // NEVER BELOW NEUTRAL. The hard limits now reach down to 1000 so the
+      // operator can set an idle below 1500 - which is brake on this ESC, and
+      // reverse on one reprogrammed - and W is forward throttle, so its range
+      // starts at neutral whatever the car's minimum says.
+      constexpr Int32 ESC_NEUTRAL_US = 1500;
+      const Int32 lo = known ? (carMin < ESC_NEUTRAL_US ? ESC_NEUTRAL_US : carMin) : ESC_MIN_US;
       const Int32 hi = known ? carMax : ESC_MAX_US;
+      if(hi <= lo)
+      {
+          return ESC_NEUTRAL_US;
+      }
       if(throttle > 1.0f)
       {
           throttle = 1.0f;
