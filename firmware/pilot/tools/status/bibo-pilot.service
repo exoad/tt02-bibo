@@ -1,0 +1,33 @@
+[Unit]
+Description=bibo pilot - the car, driven from the viewer, armed only by the viewer's ARM
+# AFTER THE SCAN FEED, because both want TCP 8011. scanfeed owns it and relays to
+# the pilot's 8012 (README, "Seeing the lidar from the hub"); a pilot that won
+# the race at boot would take 8011 itself and leave scanfeed failing to bind.
+After=network.target bibo-scanfeed.service
+
+[Service]
+User=jack
+# install.sh rewrites this line: the build directory on this board, and the
+# lidar and the Pico by their /dev/serial/by-id names, found on the board at
+# install time rather than written into a public repository.
+#
+# --manual AND NOT --arm. A unit starts the pilot at boot with nobody at the
+# car, and --arm would arm the ESC right then. The car is armed by COMMAND ARM
+# from a viewer that is already holding the control slot with a live stream -
+# docs/bibowire.md section 6 - which is a person, present, choosing to.
+ExecStart=/home/jack/build-pilot-app/pilot --manual --lidar /dev/ttyUSB0 --pico /dev/ttyACM0
+# The pilot exits 1 when the lidar or the Pico cannot be opened - unplugged, or
+# held by scanfeed for a hub client - and 0 when it is asked to stop. So a
+# failure retries and a `systemctl stop` stays stopped. Five seconds, not two:
+# lidar::open alone blocks for two, and systemd's default start limit is five
+# starts in ten seconds.
+Restart=on-failure
+RestartSec=5
+# SIGTERM is handled: the shutdown sends STOP to the Pico before the process
+# goes, so a stop never leaves the car armed. Ten seconds is ample for that.
+TimeoutStopSec=10
+# dialout and video are the user's own groups; no capability is granted.
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

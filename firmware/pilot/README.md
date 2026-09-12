@@ -150,8 +150,9 @@ SDK (`make` in `rplidar_sdk`; the library lands in `output/Linux/Release`):
     build-pilot/lidar_probe                  # is the C1 there, what does it see
     build-pilot/pilot --dry --seconds 12     # decide for 12 s, touch no car
     build-pilot/pilot --arm                  # drive, until Ctrl-C
+    build-pilot/pilot --manual               # a viewer drives, and arms with ARM
 
-    pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N] [--no-feed]
+    pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm] [--forward DEG] [--seconds N] [--no-feed]
 
 The lidar is `/dev/ttyUSB0` and the Pico `/dev/ttyACM0` unless told otherwise.
 While it runs the pilot also serves the scan feed on TCP 8011 - see "Seeing
@@ -162,9 +163,19 @@ is said once and the pilot drives without viewers rather than refusing to
 start.
 `--forward` is the raw lidar angle that points along the car - a mounting
 fact, not a tuning, and 0 is an assumption until it is measured. `--arm` is
-what lets the car move: without it the board refuses every throttle pulse and
-the program prints each refusal, which is the correct behaviour for a car that
-was not meant to go anywhere. Ctrl-C sends STOP, stops the motor, and exits 0.
+what lets the autonomy move the car: without it the board refuses every
+throttle pulse and the program prints each refusal, which is the correct
+behaviour for a car that was not meant to go anywhere.
+
+Under `--manual` it is not. There a **viewer's `COMMAND ARM`** arms the car
+(`docs/bibowire.md` section 6): refused, with a sentence, unless that viewer
+holds the control slot with a stream live for half a second, the estop is clear
+and the Pico is answering - and gone the moment anything moves the arm epoch:
+an estop, the deadman tripping, the Pico link dropping, the driver leaving, or
+a `DISARM` from any viewer. A stream that stalls and resumes does not get the
+arm back. `--arm` still arms the ESC when the port opens, but in `MANUAL` no
+throttle passes without a standing ARM, so a pilot started with nobody at the
+car comes up held still. Ctrl-C sends STOP, stops the motor, and exits 0.
 A timed run that saw no revolution at all exits 1.
 
 ### Reaching the board
@@ -190,6 +201,15 @@ the hotspot profile's, since on this Ubuntu the second cannot exceed the first.
 The profile half needs the hotspot joined first, or `BIBO_HOTSPOT=<profile>`.
 Run it again after a pull; it is idempotent. A board that still carries the
 old status page's units (`bibo-status.*`) has them disabled and deleted.
+
+It also installs **`bibo-pilot`**, the pilot at boot: `--manual` and never
+`--arm`, so the car is armed only by a viewer's ARM, with the lidar and the
+Pico named by their `/dev/serial/by-id` links as found when the installer runs.
+Before this the pilot was started by hand, and a reboot quietly took it away -
+along with WASD, which then looked like a broken viewer rather than a board
+with nothing listening on 8020. The installer RESTARTS it so a rebuild takes
+effect, which stops a car that is being driven, and refuses to start it over a
+pilot somebody launched by hand: stop that one first.
 
 ### Seeing the lidar from the hub
 
