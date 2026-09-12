@@ -71,6 +71,13 @@
 // board's refusals are printed once per tick - which is the right amount of
 // noise for a car that was not supposed to move.
 //
+// --manual is different, and that rule does not reach it. There a VIEWER'S
+// COMMAND ARM is what arms the car (docs/bibowire.md section 6): refused unless
+// its sender holds the slot with a live stream and the Pico is answering, and
+// gone the moment anything moves the arm epoch. --arm still arms the ESC when
+// the port opens, but no throttle passes in MANUAL without a standing ARM - so
+// a pilot started at boot by bibo-pilot.service comes up held still.
+//
 // ---------------------------------------------------------------------------
 // --dry, AND WHY IT IS THE FIRST THING TO RUN
 //
@@ -211,7 +218,8 @@ namespace
           "  --pico PORT    the car's serial device       (default /dev/ttyACM0)\n"
           "  --dry          never open the Pico; print each decision instead\n"
           "  --manual       a viewer's CONTROL drives, not the autonomy\n"
-          "  --arm          send ESC ARM once the link is up, so throttle is obeyed\n"
+          "  --arm          send ESC ARM once the link is up, so throttle is obeyed;\n"
+          "                 with --manual a viewer's ARM is still what lets throttle through\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
           "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n"
           "  --no-feed      no viewers: no scan feed on TCP %u (or %u)\n",
@@ -1123,6 +1131,13 @@ Int32 main(Int32 argc, Char** argv)
     // board being heard, which is the event worth a line.
     Bool boardSilent = true;
 
+    // Whether the Pico has been told ESC ARM on a viewer's behalf, in MANUAL.
+    // viewfeed's Drive.armed says whether the ARM STANDS; this says whether the
+    // CAR has heard it. The two differ for exactly one tick at each edge, and
+    // that tick is the one that sends ESC ARM or ESC DISARM. Anything that
+    // disarms the Pico by another road - STOP, a link that came back - clears it.
+    Bool armSent = false;
+
     // A lidar that dies mid-run. grab() times out forever on an unplugged C1
     // and the loop would otherwise run to --seconds sending NEUTRAL and exit 0
     // on the strength of whatever revolutions arrived before the cable came
@@ -1389,6 +1404,7 @@ Int32 main(Int32 argc, Char** argv)
                 // is ready. Re-arming is COMMAND ARM and nothing else.
                 heldSteerMilli = 0;
                 escLine = proto::stop();
+                armSent = false;
                 sentSteerMilli = 0;
                 sentThrottleMilli = 0;
             }
@@ -1409,9 +1425,14 @@ Int32 main(Int32 argc, Char** argv)
                 // who is about to arrive. The difference between the two
                 // branches is the difference between "stopped" and "not being
                 // driven", which are not the same thing.
+                //
+                // A driver who LEFT is the exception: the slot going empty moved
+                // the epoch and took their ARM with it, so the Pico is told
+                // DISARM once rather than left armed for whoever connects next.
                 heldSteerMilli = 0;
                 steerLine = proto::steer(0.0f);
-                escLine = proto::command("ESC", "NEUTRAL");
+                escLine = armSent ? proto::command("ESC", "DISARM") : proto::command("ESC", "NEUTRAL");
+                armSent = false;
                 sentSteerMilli = 0;
                 sentThrottleMilli = 0;
             }
@@ -1423,14 +1444,33 @@ Int32 main(Int32 argc, Char** argv)
                 }
                 steerLine = proto::steer(static_cast<Float32>(heldSteerMilli) / 1000.0f);
 
-                // Throttle only while LIVE, only while this run is allowed to
-                // move the car, and only while the board is answering. The last
-                // of those is L3 and it stays: a cable this program cannot hear
-                // is not one to push throttle down.
-                const Bool mayPush = dm.deadman == 0u && opt.arm && !boardSilent;
-                escLine = mayPush && cmd.throttleMilli > 0
-                    ? proto::escUs(escPulseFor(static_cast<Float32>(cmd.throttleMilli) / 1000.0f))
-                    : proto::command("ESC", "NEUTRAL");
+                // Throttle only while LIVE, only while a viewer's ARM stands AND
+                // the Pico has been told so, and only while the board is
+                // answering. The last of those is L3 and it stays: a cable this
+                // program cannot hear is not one to push throttle down.
+                //
+                // --arm IS NOT CONSULTED HERE ANY MORE. It was the only way to
+                // arm, so a pilot started at boot either armed itself with nobody
+                // there or could never be armed, and an estop could not be
+                // recovered without restarting the process. COMMAND ARM is the
+                // way now (section 6), and the edge below carries it to the car.
+                const Bool mayPush = dm.deadman == 0u && dm.armed && armSent && !boardSilent;
+                if(dm.armed != armSent)
+                {
+                    // THE EDGE TAKES THIS TICK'S ESC LINE. ESC ARM resets the
+                    // Pico's throttle target to neutral, so a pulse sent beside
+                    // it would be undone or refused; throttle starts on the next
+                    // tick, 20 ms later. mayPush is false on an edge tick either
+                    // way, because it was computed from armSent's old value.
+                    escLine = proto::command("ESC", dm.armed ? "ARM" : "DISARM");
+                    armSent = dm.armed;
+                }
+                else
+                {
+                    escLine = mayPush && cmd.throttleMilli > 0
+                        ? proto::escUs(escPulseFor(static_cast<Float32>(cmd.throttleMilli) / 1000.0f))
+                        : proto::command("ESC", "NEUTRAL");
+                }
 
                 sentSteerMilli = heldSteerMilli;
                 sentThrottleMilli = mayPush ? cmd.throttleMilli : 0;
@@ -1530,6 +1570,10 @@ Int32 main(Int32 argc, Char** argv)
             {
                 if(openPico(linkCfg, opt.arm, link))
                 {
+                    // A Pico that came back came back DISARMED. viewfeed moved
+                    // the epoch when the BOARD frame said the link was down, so
+                    // the viewer's ARM is gone too; this is the tick's half.
+                    armSent = false;
                     std::printf("pico %s: link back\n", opt.picoPort.c_str());
                 }
             }
