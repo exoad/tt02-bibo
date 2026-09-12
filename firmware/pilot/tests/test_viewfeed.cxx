@@ -1551,6 +1551,189 @@ Int32 main()
         viewfeed::publishBoard(bibowire::BoardState());
     }
 
+    // ---- 18. ARM and DISARM, which this board refused outright until now ------------
+    //
+    // The viewer's ARM button sent VERB_ARM from the day it was drawn and was
+    // answered "the pilot does not take bibowire commands yet". The only way to
+    // arm a manual car was --arm on the pilot's command line, so a pilot started
+    // at boot either armed itself with nobody there or could never be armed, and
+    // an estop could not be recovered from without restarting the process.
+    //
+    // Every refusal section 6 lists is driven here, and so is every road that
+    // must take an ARM away - above all the deadman: a stream that stalls and
+    // then resumes must NOT find the car armed again on its own. That case is
+    // the one the first cut of this got wrong, and the reason it is asserted.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for arming");
+        const UInt16 port = viewfeed::port();
+        const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+
+        // A MANUAL pilot whose Pico answers. picoLink 1 is the only link an ARM
+        // is granted over: 2 is up-but-silent and 0 is down.
+        bibowire::BoardState board;
+        board.pilotMode = manual;
+        board.picoLink = 1u;
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+
+        Datagram udp;
+        check(udp.open(), "a driver binds its control socket");
+        Wire w;
+        check(w.connect(port), "and connects");
+        const UInt32 session = handshake(w, udp.port, 1);
+        check(session != 0u, "and takes the control slot");
+
+        Wire obs;
+        check(obs.connect(port), "an observer connects beside it");
+        const UInt32 watcher = handshake(obs, 0, 0);
+        check(watcher != 0u, "and is welcomed as one");
+
+        bibowire::CtlState st;
+        check(udp.state(2000, &st), "CTLSTATE arrives, carrying the board's epoch");
+
+        UInt32 seq = 0;
+        UInt32 cmdId = 0;
+        Array<UInt8, 32> body{};
+
+        // The driver's 20 Hz stream, stamped with the NEWEST epoch the board has
+        // said - read on every pass, so a bump is followed rather than refused.
+        const auto stream = [&](Int32 ms) {
+            for(Int32 t = 0; t < ms; t += 40)
+            {
+                static_cast<Void>(udp.newest(&st));
+                udp.controlAs(port, session, ++seq, bibowire::BUTTON_ENABLE, manual, 0, st.armEpoch);
+                sleepMs(40);
+            }
+            static_cast<Void>(udp.newest(&st));
+        };
+
+        const auto command = [&](Wire& on, UInt32 sess, bibowire::Verb verb, UInt8 epoch, bibowire::CmdAck* ack) {
+            bibowire::Command m;
+            m.sessionId = sess;
+            m.cmdId = static_cast<decltype(m.cmdId)>(++cmdId);
+            m.verb = verb;
+            m.armEpoch = epoch;
+            const Size len = bibowire::writeCommand(m, body.data(), body.size());
+            on.put(bibowire::Type::TYPE_COMMAND, body.data(), len, static_cast<UInt16>(cmdId));
+            return on.nextOf(bibowire::Type::TYPE_CMDACK, 1000)
+                && bibowire::readCmdAck(on.f.body, on.f.head.ver, ack)
+                && ack->cmdId == m.cmdId;
+        };
+
+        // Polls drive() rather than sleeping a guessed interval, streaming while
+        // it waits when asked to - so a slot released by silence cannot be what
+        // made a check pass.
+        const auto settles = [&](Bool want, Int32 ms, Bool streaming) {
+            for(Int32 t = 0; t < ms; t += 20)
+            {
+                if(viewfeed::drive().armed == want)
+                {
+                    return true;
+                }
+                if(streaming)
+                {
+                    udp.controlAs(port, session, ++seq, bibowire::BUTTON_ENABLE, manual, 0, st.armEpoch);
+                }
+                sleepMs(20);
+            }
+            return viewfeed::drive().armed == want;
+        };
+
+        const auto has = [](const Str& text, CharSeq word) {
+            return text.find(word) != Str::npos;
+        };
+
+        bibowire::CmdAck ack;
+
+        // ---- the refusals ----
+        check(command(obs, watcher, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an observer's ARM is answered");
+        check(ack.result == 2 && !viewfeed::drive().armed, "and refused - you cannot arm a car you are not holding");
+
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "the driver's ARM with no stream is answered");
+        check(ack.result == 1 && has(ack.text, "live"), "and refused for the stream, in those words");
+
+        stream(200);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM 200 ms into the stream is answered");
+        check(ack.result == 1 && !viewfeed::drive().armed, "and refused - REARM_STREAM_MS is 500");
+
+        stream(450);
+        const UInt8 wrong = static_cast<UInt8>(st.armEpoch + 1u);
+        check(command(w, session, bibowire::Verb::VERB_ARM, wrong, &ack), "an ARM under a stale epoch is answered");
+        check(ack.result == 1 && has(ack.text, "epoch"), "and refused, naming the epoch");
+
+        // ---- granted ----
+        stream(80);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "a proper ARM is answered");
+        check(ack.result == 0, "and GRANTED");
+        check(viewfeed::drive().armed, "and drive() says so to the tick");
+
+        // ---- estop takes it, and recovery is three deliberate steps ----
+        check(command(w, session, bibowire::Verb::VERB_ESTOP, st.armEpoch, &ack), "ESTOP is answered");
+        check(!viewfeed::drive().armed, "and the ARM is gone the moment it latches");
+        stream(120);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM while latched is answered");
+        check(ack.result == 1 && has(ack.text, "estop"), "and refused until CLEAR_ESTOP");
+        check(command(w, session, bibowire::Verb::VERB_CLEAR_ESTOP, st.armEpoch, &ack), "CLEAR_ESTOP is answered");
+        check(!viewfeed::drive().armed, "and it does NOT re-arm the car");
+        stream(120);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM after clearing is answered");
+        check(ack.result == 0 && viewfeed::drive().armed, "and granted - the third step");
+
+        // ---- DISARM from anybody ----
+        check(command(obs, watcher, bibowire::Verb::VERB_DISARM, 0, &ack), "an OBSERVER's DISARM is answered");
+        check(ack.result == 0 && !viewfeed::drive().armed, "and it disarms - making the car safer is not a privilege");
+
+        // ---- a Pico link going down takes it ----
+        stream(120);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "re-armed for the link test");
+        check(ack.result == 0, "and granted");
+        bibowire::BoardState noPico = board;
+        noPico.picoLink = 0u;
+        viewfeed::publishBoard(noPico);
+        check(settles(false, 500, true), "a BOARD saying the Pico link is down takes the ARM");
+        stream(120);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM with no Pico is answered");
+        check(ack.result == 4, "and refused - no arm into a closed port");
+        check(command(w, session, bibowire::Verb::VERB_DISARM, st.armEpoch, &ack), "a DISARM with no Pico is answered");
+        check(ack.result == 4, "with result 4: disarmed here, the Pico's own deadman does the rest");
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+
+        // ---- the deadman takes it, and a resumed stream does NOT give it back ----
+        stream(120);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "re-armed for the deadman test");
+        check(ack.result == 0, "and granted");
+        check(settles(false, 800, false), "a stream that stops past CONTROL_DEAD_MS takes the ARM");
+        stream(600);
+        check(!viewfeed::drive().armed, "and the stream RESUMING does not give it back");
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "only a fresh ARM does");
+        check(ack.result == 0 && viewfeed::drive().armed, "and it is granted");
+
+        // ---- not manual ----
+        bibowire::BoardState driving = board;
+        driving.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
+        viewfeed::publishBoard(driving);
+        stream(120);
+        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM while the autonomy drives is answered");
+        check(ack.result == 3, "and refused - a viewer arms only a car it is driving");
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+
+        // ---- leaving the slot takes it ----
+        stream(120);
+        check(viewfeed::drive().armed, "still armed before the driver leaves");
+        w.close();
+        check(settles(false, 1500, false), "and the driver leaving takes the ARM with the slot");
+
+        obs.close();
+        udp.close();
+        viewfeed::stop();
+        check(!viewfeed::drive().armed, "a stopped feed reports nothing armed");
+
+        // lastBoard outlives stop(), as the section above notes.
+        viewfeed::publishBoard(bibowire::BoardState());
+    }
+
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

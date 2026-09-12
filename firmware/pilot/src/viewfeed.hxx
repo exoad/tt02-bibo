@@ -267,6 +267,13 @@ namespace viewfeed
       // trips must not be able to disagree.
       Int32 neutralInMs = 0;
       Int32 disarmInMs = 0;
+
+      // A viewer's COMMAND ARM, standing. Granted under one arm epoch and gone
+      // the moment the epoch moves - an estop, the deadman tripping, a lost Pico
+      // link, the slot changing hands, or a DISARM. The pilot sends ESC ARM when
+      // this rises and ESC DISARM when it falls, and in MANUAL no throttle
+      // passes without it.
+      Bool armed = false;
   };
 
   [[nodiscard]] Drive drive();

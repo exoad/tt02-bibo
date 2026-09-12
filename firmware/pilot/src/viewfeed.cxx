@@ -291,6 +291,11 @@ namespace viewfeed
         Mutex appliedM;
         Applied applied;
 
+        // Whether a viewer's COMMAND ARM stands. Written on this thread by
+        // onArm and bumpEpoch, read by the tick through drive() - atomic for
+        // ctlSeq's reason, which is that the tick never takes a lock.
+        Atomic<Bool> operatorArmed{ false };
+
         // The tuning handoff: a mutex and a QUEUE, where control above is a
         // seqlock. The difference is the whole reason both exist. CONTROL is a
         // 20 Hz stream whose old values are worthless, so keeping only the
@@ -328,6 +333,7 @@ namespace viewfeed
     Bool haveHolder = false;
     UInt32 holderSession = 0;
     TimePoint lastControlAt;
+    TimePoint streamSince;     // when the holder's current unbroken stream began
     Bool everControl = false;
     UInt32 appliedSeq = 0;
     Bool holderGone = false;   // positive evidence the driver left
@@ -642,13 +648,18 @@ namespace viewfeed
         }
     }
 
-    // The epoch is bumped on a deadman disarm, an e-stop, a Pico link loss and
-    // a CONTROL-SLOT CHANGE - which is what disarms a displaced viewer for
-    // free, and why handing the wheel over cannot leave the old holder's
-    // throttle believed.
+    // The epoch is bumped on a deadman disarm, an e-stop, a Pico link loss, a
+    // DISARM and a CONTROL-SLOT CHANGE - which is what disarms a displaced
+    // viewer for free, and why handing the wheel over cannot leave the old
+    // holder's throttle believed.
+    //
+    // AND THE ARM GOES WITH IT. A COMMAND ARM is granted under the epoch in
+    // force, so moving the epoch IS disarming - there is no second list of
+    // "things that disarm" to fall out of step with this one.
     Void bumpEpoch()
     {
         armEpoch = (armEpoch + 1u) & 0xFFu;
+        sh.operatorArmed.store(false, std::memory_order_release);
     }
 
     // ---- encoding, framing and the drop classes ----------------------------
@@ -1448,6 +1459,108 @@ namespace viewfeed
         ack->text = "that is not a verb this board tunes";
     }
 
+    // ---- arming ------------------------------------------------------------
+    //
+    // docs/bibowire.md section 6 specified this long before anything did it.
+    // The viewer's ARM button sent the verb from the day it was drawn and this
+    // board answered "does not take bibowire commands yet", so the only way to
+    // arm a car driven from the viewer was --arm on the pilot's command line -
+    // which meant a pilot started at boot either armed itself with nobody there
+    // or could never be armed at all, and an estop could not be recovered from
+    // without restarting the process.
+    //
+    // Refused unless the estop is clear, the request comes from the holder, the
+    // pilot is in MANUAL, the Pico is up and answering, the viewer is looking
+    // at the current epoch, and its CONTROL stream has been live for
+    // REARM_STREAM_MS. Each refusal says which, because "refused" alone sends
+    // an operator to guess.
+    //
+    // THIS THREAD ONLY DECIDES. The tick sends ESC ARM when it sees the flag
+    // rise, for the reason tuning is queued: nothing here touches the port.
+    Void onArm(const Client& c, const bibowire::Command& cmd, bibowire::CmdAck* ack)
+    {
+        Array<Char, 160> buf{};
+        if(estopLatched)
+        {
+            ack->result = 1;
+            ack->text = "estop is latched - CLEAR_ESTOP first, then ARM";
+            return;
+        }
+        if(!(c.holder && c.sessionId == holderSession))
+        {
+            ack->result = 2;
+            ack->text = "you cannot arm a car you are not holding - connect as the driver";
+            return;
+        }
+
+        // POSITIVE EVIDENCE, the other way round from picoDown(). Refusing a
+        // TUNE because the pilot has not said yet would be inventing a fault;
+        // ARMING because it has not said yet would be sending an arm into a port
+        // nobody has seen open.
+        if(!haveBoard)
+        {
+            ack->result = 4;
+            ack->text = "the pilot has not reported the car yet - ARM again in a moment";
+            return;
+        }
+        if(lastBoard.pilotMode != static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL))
+        {
+            ack->result = 3;
+            ack->text = "this pilot is not in manual - a viewer arms only a car it is driving";
+            return;
+        }
+        if(lastBoard.picoLink != 1u)
+        {
+            ack->result = 4;
+            ack->text = lastBoard.picoLink == 0u
+                ? "no Pico link - the board will not send an arm into a closed port"
+                : "the Pico is not answering - the board will not arm a car it cannot hear";
+            return;
+        }
+        if(cmd.armEpoch != static_cast<UInt8>(armEpoch))
+        {
+            std::snprintf(
+                buf.data(),
+                buf.size(),
+                "the arm epoch is %u and this ARM was sent under %u - something disarmed the car; ARM again",
+                static_cast<unsigned>(armEpoch),
+                static_cast<unsigned>(cmd.armEpoch)
+            );
+            ack->result = 1;
+            ack->text = Str(buf.data());
+            return;
+        }
+
+        // A stream that has gone stale is no stream at all, whatever it did
+        // before - the half-second has to be CURRENT.
+        const Bool streaming = everControl && !holderGone
+            && elapsedMs(lastControlAt) <= static_cast<Float64>(bibowire::CONTROL_STALE_MS);
+        const Int32 liveMs = streaming ? static_cast<Int32>(elapsedMs(streamSince)) : 0;
+        if(liveMs < bibowire::REARM_STREAM_MS)
+        {
+            std::snprintf(
+                buf.data(),
+                buf.size(),
+                "your CONTROL stream has been live %d ms and arming needs %d - hold the slot and let it run",
+                liveMs,
+                bibowire::REARM_STREAM_MS
+            );
+            ack->result = 1;
+            ack->text = Str(buf.data());
+            return;
+        }
+
+        sh.operatorArmed.store(true, std::memory_order_release);
+        std::snprintf(
+            buf.data(),
+            buf.size(),
+            "armed under epoch %u - an estop, the deadman, a lost Pico link or leaving the slot disarms",
+            static_cast<unsigned>(armEpoch)
+        );
+        ack->result = 0;
+        ack->text = Str(buf.data());
+    }
+
     Void onCommand(Client& c, const bibowire::Body& body, UInt8 ver)
     {
         bibowire::Command cmd;
@@ -1463,6 +1576,27 @@ namespace viewfeed
         {
             ack.result = 1;
             ack.text = "that COMMAND carries another session's id";
+        }
+        else if(cmd.verb == bibowire::Verb::VERB_ARM)
+        {
+            onArm(c, cmd, &ack);
+        }
+        else if(cmd.verb == bibowire::Verb::VERB_DISARM)
+        {
+            // ALWAYS SUCCEEDS, from any session, holder or observer: a way to
+            // make the car safer is not a privilege. Moving the epoch is the
+            // disarm; the tick sends ESC DISARM when it sees the flag fall.
+            bumpEpoch();
+            if(picoDown())
+            {
+                ack.result = 4;
+                ack.text = "disarmed locally; the Pico did not answer, its own 400 ms deadman will stop the car";
+            }
+            else
+            {
+                ack.result = 0;
+                ack.text = "disarmed - ARM again to drive";
+            }
         }
         else if(cmd.verb == bibowire::Verb::VERB_ESTOP)
         {
@@ -1491,13 +1625,12 @@ namespace viewfeed
         }
         else
         {
-            // The verbs that reach the CAR are refused rather than answered
-            // with an OK nothing acted on. The pilot does not drive from
-            // bibowire in this build, and a board that sent an arm into a
-            // closed port and reported success is the failure this whole
-            // protocol is shaped against.
+            // MOTOR and SET_MODE are refused rather than answered with an OK
+            // nothing acted on. A board that reported success for a verb it
+            // never carried out is the failure this whole protocol is shaped
+            // against.
             ack.result = 3;
-            ack.text = "the pilot does not take bibowire commands yet - it drives from reactive::step";
+            ack.text = "this board does not act on that verb yet";
         }
         ack.armEpoch = static_cast<UInt8>(armEpoch);
         emit(c, bibowire::Type::TYPE_CMDACK, [&ack](UInt8* out, Size cap) {
@@ -1835,6 +1968,28 @@ namespace viewfeed
         }
 
         appliedSeq = o.highestSeq;
+
+        // WHEN THIS STREAM BEGAN, for ARM's "live for REARM_STREAM_MS". A gap
+        // the deadman would call dead starts a new one: a stream that stalled
+        // and resumed is exactly the one that has to earn its half-second again.
+        const Bool deadGap = everControl
+            && elapsedMs(lastControlAt) > static_cast<Float64>(bibowire::CONTROL_DEAD_MS);
+        if(!everControl || holderGone || deadGap)
+        {
+            streamSince = monoNow();
+        }
+
+        // AND THAT GAP DISARMS, HERE, BEFORE lastControlAt MOVES. The loop's own
+        // check below catches a stream that never comes back, but it runs after
+        // the reads - so a datagram landing after a 300 ms gap would make the
+        // deadman LIVE again before the loop ever saw it DEAD. The tick had sent
+        // STOP and would then have seen an arm still standing, and sent ESC ARM:
+        // a car re-arming itself off a stall, which is the one recovery section
+        // 6 says must never happen on its own.
+        if(deadGap && sh.operatorArmed.load(std::memory_order_acquire))
+        {
+            bumpEpoch();
+        }
         lastControlAt = monoNow();
         everControl = true;
         holderGone = false;
@@ -2869,6 +3024,15 @@ namespace viewfeed
             }
             break;
         case What::WHAT_BOARD:
+            // A PICO LINK THAT WENT DOWN moves the epoch, which disarms. The
+            // Pico that comes back was replugged or rebooted and is disarmed on
+            // its own side, and an arm left standing here would push throttle
+            // straight into its refusal. Section 6 lists it; until now nothing
+            // did it.
+            if(haveBoard && lastBoard.picoLink != 0u && item.board.picoLink == 0u)
+            {
+                bumpEpoch();
+            }
             lastBoard = item.board;
             haveBoard = true;
             // 5 Hz on the wire from a pilot that fills the struct every tick.
@@ -3206,6 +3370,15 @@ namespace viewfeed
                 }
             }
 
+            // THE DEADMAN TRIPPING DISARMS. The tick has already sent STOP -
+            // neutral, disarm, release - so the Pico is disarmed on its side;
+            // this is the board's arm following it, so the operator ARMs again
+            // rather than finding throttle back the moment the stream resumes.
+            if(sh.operatorArmed.load(std::memory_order_acquire) && deadmanByte() >= 2u)
+            {
+                bumpEpoch();
+            }
+
             for(Client& c : clients)
             {
                 if(!c.dropWhy.empty())
@@ -3393,6 +3566,10 @@ namespace viewfeed
       armEpoch = 0;
       estopLatched = false;
       haveHolder = false;
+      // A new start is a new car as far as any viewer is concerned, and an ARM
+      // from the previous run standing across it would be exactly the stale
+      // consent the epoch exists to prevent.
+      sh.operatorArmed.store(false, std::memory_order_release);
       holderSession = 0;
       everControl = false;
       appliedSeq = 0;
@@ -3550,6 +3727,7 @@ namespace viewfeed
       d.refuse = o.refuse;
       d.neutralInMs = o.neutralInMs;
       d.disarmInMs = o.disarmInMs;
+      d.armed = sh.operatorArmed.load(std::memory_order_acquire);
       return d;
   }
 

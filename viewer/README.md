@@ -136,12 +136,25 @@ dimensions change rather than every frame.
   window reports `frames 91-94 missing` rather than showing the next picture
   as though nothing were dropped.
 
+## Driving
+
+`src/drive.cxx` is the Drive window. Once this viewer holds the control slot,
+WASD goes out as `CONTROL` at 20 Hz and the deliberate acts - **ARM**,
+**DISARM**, **ESTOP**, **CLEAR ESTOP** - as `COMMAND`s, each answered by a
+`CMDACK` whose sentence is shown.
+
+- **Connecting never arms the car.** Let the stream run for half a second, then
+  press **ARM**. The board refuses it, and says which reason, while the estop is
+  latched, while the Pico is not answering, when the pilot is not in manual, or
+  when the ARM carries a stale arm epoch.
+- **Anything that moves the arm epoch disarms**: an estop, the deadman tripping
+  after 300 ms of silence, the Pico link dropping, leaving the slot, or a
+  **DISARM** from any viewer. A stream that resumes does not bring the arm back
+  - press ARM again. Until 2026-09-12 the board refused ARM outright, and the
+  only way to get throttle was starting the pilot with `--arm`.
+
 ## Not wired yet
 
-- **Driving.** The viewer connects as an *observer*: `HELLO` carries
-  `wantControl = 0` and no `CONTROL` or `COMMAND` is ever sent. The Pico is not
-  connected to the board, so that path cannot be tested end to end at all yet.
-  The seam for it is at the bottom of `src/link.hxx`.
 - **`CTLSTATE` on UDP.** The socket is bound and its port is carried in
   `HELLO`, and a datagram that arrives is decoded and shown — but a board that
   only sends it to a control holder will never send it here.
