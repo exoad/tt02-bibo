@@ -857,6 +857,56 @@ namespace camview
           readout("undecodable", bad.data());
       }
 
+      // ---- WHERE A DROPOUT HAPPENED ------------------------------------------
+      //
+      // The two clocks side by side, which is the whole diagnosis. `worst gap`
+      // is the widest wait THIS VIEWER had between pictures; `worst capture` is
+      // the widest gap between two frames by the BOARD'S own clock. Read with
+      // the `missed` row above:
+      //
+      //   missed frames, capture steady -> they were made and lost on the way
+      //   no missed frames, capture gap -> the board stopped making them
+      //
+      // Every one of these numbers was already being computed and thrown away
+      // at this boundary, which is why a dropout used to need a log tailed on
+      // somebody else's machine to explain.
+      if(shot->worstCaptureMs > 0)
+      {
+          Array<Char, 96> gaps = {};
+          std::snprintf(
+              gaps.data(),
+              gaps.size(),
+              "%lld ms waiting, %lld ms between captures",
+              shot->worstGapMs,
+              shot->worstCaptureMs
+          );
+          readout("worst gap", gaps.data());
+      }
+
+      if(snap.state.refusedFrames > 0u)
+      {
+          Array<Char, 48> refused = {};
+          std::snprintf(refused.data(), refused.size(), "%u", snap.state.refusedFrames);
+          readout("refused", refused.data());
+      }
+
+      // THE BOARD'S OWN RING, and named for what it actually counts: this is
+      // every frame type to every client, not the camera's alone. Labelling it
+      // "camera dropped" would read as precise and be wrong - but a number that
+      // climbs while pictures vanish still says the ring is where they went.
+      const Opt<link::Board> ring = snap.state.boardState(nowMs);
+      if(ring.has_value() && ring->state.txDroppedFrames > 0u)
+      {
+          Array<Char, 64> drops = {};
+          std::snprintf(
+              drops.data(),
+              drops.size(),
+              "%u (board, all frame types)",
+              static_cast<UInt32>(ring->state.txDroppedFrames)
+          );
+          readout("dropped at the board", drops.data());
+      }
+
       if(snap.state.haveCameraNote)
       {
           ImGui::Separator();

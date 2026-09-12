@@ -1643,6 +1643,7 @@ namespace link
       // Measured against the real board that was 57 frames out of 57.
       shot.staleAtMs = staleBandMs(cameraRate);
       shot.worstGapMs = worstGapMs(cameraRate);
+      shot.worstCaptureMs = cameraWorstCaptureMs;
       shot.stale = age > shot.staleAtMs;
       return shot;
   }
@@ -1907,6 +1908,25 @@ namespace link
               );
               s.cameraGapText = line.data();
           }
+
+          // THE GAP BETWEEN TWO CAPTURES, on the board's clock. The first frame
+          // only starts it - there is no gap before a feed's first picture, and
+          // inventing one from a zero initial timestamp would report the whole
+          // uptime of the board as a stall. noteArrival states that rule for
+          // arrivals; this is the same rule for the other clock.
+          //
+          // A timestamp that went BACKWARDS is a restarted board, not a
+          // negative gap: skipped rather than recorded, because the safe
+          // reading of a clock that moved the wrong way is "measure again".
+          if(s.haveCamera && m.tMonoUs > s.cameraBoardUs)
+          {
+              const Int64 capturedMs = static_cast<Int64>((m.tMonoUs - s.cameraBoardUs) / 1000u);
+              if(capturedMs > s.cameraWorstCaptureMs)
+              {
+                  s.cameraWorstCaptureMs = capturedMs;
+              }
+          }
+          s.cameraBoardUs = m.tMonoUs;
 
           s.haveCamera = true;
           s.cameraAtMs = nowMs;

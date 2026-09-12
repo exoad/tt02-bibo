@@ -33,12 +33,15 @@
 //     perfectly. What is NOT proved is any pixel of either: the drawing lives
 //     behind an ImDrawList and NEITHER HAS EVER BEEN SEEN ON SCREEN.
 //   - THE CAMERA'S SOCKET HALF. The decode path below is driven with
-//     hand-built CAMERA frames and a real JPEG, but no SUBSCRIBE has ever been
-//     put on a wire: the board-side producer is being written in parallel and
-//     no board has ever sent a CAMERA frame. What is proved here is that the
-//     bytes survive the codec and become pixels; what is NOT proved is that
-//     the board answers a subscription, that it stops sending when one is
-//     withdrawn, or that a real camera's JPEG looks like this one.
+//     hand-built CAMERA frames and a real JPEG. The board DOES send CAMERA now
+//     and a real one has been watched for hours - that sentence used to say no
+//     board had ever sent one, and it went stale. What is proved here is that
+//     the bytes survive the codec, become pixels, and that a dropout is
+//     classified onto the right clock; what is NOT proved is the subscription
+//     handshake itself, that the board stops sending when one is withdrawn, or
+//     anything about WHY a real camera drops out - which is what the arrival
+//     and capture gaps below exist to let an operator answer in the field
+//     rather than by sending somebody a log.
 //   - the texture upload and the window. Those need a D3D11 device, which is
 //     why the decoder is its own module (jpeg.cxx) and the window is not.
 //   - THE TRIM PANE AS DRAWN, and the board's half of COMMAND. The queue, the
@@ -2065,6 +2068,59 @@ static Void testControlSlotAndCadence()
 //
 // This is orient.cxx's argument - a quarter turn is a transpose and nobody can
 // eyeball a transpose - applied to a sign.
+// WHICH CLOCK A DROPOUT HAPPENED ON.
+//
+// Two numbers answer it and neither can alone: the widest wait between
+// ARRIVALS, on this viewer's clock, and the widest gap between CAPTURES, on the
+// board's. Frames missing with captures steady means they were made and lost on
+// the way; no frames missing with a capture gap means the board stopped making
+// them. Before these existed a dropout needed a log tailed on somebody else's
+// machine to explain, which is no use in a field.
+static Void testCameraCaptureGaps()
+{
+    std::printf("\n-- which clock a camera dropout happened on --\n");
+
+    const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
+
+    // THE FIRST FRAME ONLY STARTS THE CLOCK. Without that rule the board's
+    // whole uptime - a thousand seconds here - is reported as a stall on the
+    // very first picture, which is the classic version of this bug.
+    {
+        link::Session first;
+        Vec<UInt8> one;
+        static_cast<Void>(pushCamera(one, 1, 1000000, jpegBytes));
+        static_cast<Void>(feed(first, one, 5000));
+        check(first.cameraWorstCaptureMs == 0, "the first frame starts the capture clock and is not itself a gap");
+    }
+
+    // TWO CLOCKS, HELD APART. Both frames are fed at the SAME local instant, so
+    // the arrival cadence sees no gap whatsoever - while the capture gap is
+    // 400 ms, because that is what the board's own timestamps say. If these are
+    // ever fed from one source this check fails, and it should: the entire
+    // diagnosis rests on them being independent measurements.
+    link::Session s;
+    Vec<UInt8> wire;
+    static_cast<Void>(pushCamera(wire, 1, 1000000, jpegBytes));
+    static_cast<Void>(pushCamera(wire, 2, 1400000, jpegBytes));
+    static_cast<Void>(feed(s, wire, 5000));
+    check(s.cameraWorstCaptureMs == 400, "400 ms between captures is measured on the BOARD's clock");
+    check(link::worstGapMs(s.cameraRate) == 0, "while the arrival cadence, fed at one instant, saw no gap at all");
+
+    Vec<UInt8> narrow;
+    static_cast<Void>(pushCamera(narrow, 3, 1500000, jpegBytes));
+    static_cast<Void>(feed(s, narrow, 5100));
+    check(s.cameraWorstCaptureMs == 400, "a narrower gap afterwards does not erase the worst one");
+
+    // A board that restarted sends a SMALLER timestamp. Skipped rather than
+    // recorded: the safe reading of a clock that moved the wrong way is
+    // "measure again", and the unsigned subtraction would otherwise wrap to
+    // something enormous and read as a catastrophic stall.
+    Vec<UInt8> back;
+    static_cast<Void>(pushCamera(back, 4, 900000, jpegBytes));
+    static_cast<Void>(feed(s, back, 5200));
+    check(s.cameraWorstCaptureMs == 400, "and a board whose clock went backwards is skipped, never counted");
+}
+
 static Void testSteerSigns()
 {
     std::printf("\n  the signs of the heading arrow and the bending guides\n");
@@ -2214,6 +2270,7 @@ int main()
     testAssumedModeIsTheOperatorsOwn();
     testControlSlotAndCadence();
     testControlIsOptIn();
+    testCameraCaptureGaps();
     testSteerSigns();
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
