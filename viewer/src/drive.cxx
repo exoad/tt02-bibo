@@ -9,6 +9,7 @@
 #include "imgui.h"
 
 #include "drive.hxx"
+#include "vlog.hxx"
 
 namespace driveview
 {
@@ -158,6 +159,87 @@ namespace driveview
         return k;
     }
 
+    // ---- what the round-trip log is told --------------------------------------
+    //
+    // EDGES ONLY. drawWindow runs every frame and publishes a LEVEL, which is
+    // right for the wire and ruinous for a log. What a person reconstructing a
+    // round trip needs is the moment a key went down, the moment the enable was
+    // ticked, and the moment this pane decided the keys were dead - each ONCE,
+    // stamped, so it can be laid beside the worker's CONTROL lines and the
+    // board's own journal.
+    struct Journal
+    {
+        Bool enabled = false;
+        Bool accepting = false;
+        Keys keys;
+        Bool haveWhy = false;
+        Str why;
+    };
+
+    Journal journal;
+
+    Void noteEnabled(Bool now, CharSeq because)
+    {
+        if(now == journal.enabled)
+        {
+            return;
+        }
+        journal.enabled = now;
+        vlog::line("drive: enable %s - %s", now ? "ON" : "OFF", because);
+    }
+
+    Void noteKey(CharSeq name, Bool was, Bool now)
+    {
+        if(was != now)
+        {
+            vlog::line("drive: key %s %s", name, now ? "DOWN" : "up");
+        }
+    }
+
+    // Key edges ONLY WHILE KEYS ARE ACCEPTED. When they stop being accepted
+    // every key reads as up at once, and one line saying so is the truth; five
+    // "up" lines would claim five fingers lifted that may still be resting there.
+    Void noteKeys(const Keys& k, Bool accept)
+    {
+        if(accept != journal.accepting)
+        {
+            journal.accepting = accept;
+            if(accept)
+            {
+                vlog::line("drive: keys ACCEPTED - focused, nothing being typed");
+            }
+            else
+            {
+                vlog::line("drive: keys IGNORED - unfocused, typing or blocked; all read as up");
+            }
+        }
+        if(accept)
+        {
+            noteKey("W", journal.keys.forward, k.forward);
+            noteKey("A", journal.keys.left, k.left);
+            noteKey("S", journal.keys.brake, k.brake);
+            noteKey("D", journal.keys.right, k.right);
+            noteKey("Space", journal.keys.estop, k.estop);
+        }
+        journal.keys = k;
+    }
+
+    Void noteWhy(const Str& why)
+    {
+        if(journal.haveWhy && why == journal.why)
+        {
+            return;
+        }
+        journal.haveWhy = true;
+        journal.why = why;
+        if(why.empty())
+        {
+            vlog::line("drive: unblocked - the enable and the keys can be used");
+            return;
+        }
+        vlog::line("drive: BLOCKED - %s", why.c_str());
+    }
+
     // ---- the board's answer to a COMMAND ------------------------------------
     //
     // trim.cxx's drawAck, and the same argument: a refusal must be VISIBLE.
@@ -218,6 +300,7 @@ namespace driveview
         ImGui::BeginDisabled(!live);
         if(ImGui::Button("ARM"))
         {
+            vlog::line("drive: ARM pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_ARM, 0, 0, 0);
             ++v.sent;
         }
@@ -233,6 +316,7 @@ namespace driveview
         ImGui::SameLine();
         if(ImGui::Button("DISARM"))
         {
+            vlog::line("drive: DISARM pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_DISARM, 0, 0, 0);
             ++v.sent;
         }
@@ -246,6 +330,7 @@ namespace driveview
         // bit rides the 20 Hz stream and needs no round trip. Either latches.
         if(ImGui::Button("ESTOP"))
         {
+            vlog::line("drive: ESTOP pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_ESTOP, 0, 0, 0);
             ++v.sent;
         }
@@ -262,6 +347,7 @@ namespace driveview
         ImGui::BeginDisabled(!live);
         if(ImGui::Button("CLEAR ESTOP"))
         {
+            vlog::line("drive: CLEAR ESTOP pressed");
             link::sendCommand(lk, bibowire::Verb::VERB_CLEAR_ESTOP, 0, 0, 0);
             ++v.sent;
         }
@@ -409,6 +495,8 @@ namespace driveview
       if(!v.open)
       {
           v.enabled = false;
+          noteEnabled(false, "the Drive window was closed");
+          noteKeys(Keys(), false);
           link::setControl(lk, link::Intent());
           return;
       }
@@ -422,6 +510,8 @@ namespace driveview
           // nobody can see the state of is exactly the thing this pane is
           // careful about.
           v.enabled = false;
+          noteEnabled(false, "the Drive window was collapsed");
+          noteKeys(Keys(), false);
           link::setControl(lk, link::Intent());
           ImGui::End();
           return;
@@ -429,6 +519,7 @@ namespace driveview
 
       const Str why = whyBlocked(lk, snap);
       const Bool blocked = !why.empty();
+      noteWhy(why);
       if(blocked)
       {
           // FORCED OFF, not merely greyed out. The enable is the bit the
@@ -436,6 +527,7 @@ namespace driveview
           // would mean the first datagram of the NEXT connection carried an
           // operator's consent that they gave to a different session.
           v.enabled = false;
+          noteEnabled(false, "the pane is blocked");
       }
 
       // READ BEFORE ANYTHING IS DRAWN, so IsAnyItemActive describes the widget
@@ -446,6 +538,7 @@ namespace driveview
       const Bool typing = io.WantTextInput || ImGui::IsAnyItemActive();
       const Bool accept = focused && !typing && !blocked;
       const Keys keys = readKeys(accept);
+      noteKeys(keys, accept);
 
       // EVERY FRAME, whatever happened. This is a level and not an edge: the
       // worker samples it on the board's own 50 ms period, and a pane that
@@ -461,6 +554,10 @@ namespace driveview
       if(ImGui::Checkbox("request control on connect", &ask))
       {
           link::wantControlSlot(lk, ask);
+          vlog::line(
+              "drive: request control on connect %s - applies to the NEXT HELLO",
+              ask ? "ON" : "OFF"
+          );
       }
       if(ImGui::IsItemHovered())
       {
@@ -481,6 +578,10 @@ namespace driveview
           // A close and an open. The session ends, the sessionId and the epoch
           // are new, and the car - which stopped when the old stream did - stays
           // stopped until somebody arms it again.
+          vlog::line(
+              "drive: Reconnect pressed - request control on connect is %s",
+              ask ? "ON" : "OFF"
+          );
           static_cast<Void>(link::reconnect(lk));
       }
       ImGui::EndDisabled();
@@ -503,7 +604,10 @@ namespace driveview
 
       ImGui::BeginDisabled(blocked);
 
-      ImGui::Checkbox("enable (the deadman reads this as consent)", &v.enabled);
+      if(ImGui::Checkbox("enable (the deadman reads this as consent)", &v.enabled))
+      {
+          noteEnabled(v.enabled, "the enable checkbox");
+      }
       if(ImGui::IsItemHovered())
       {
           ImGui::SetTooltip(
@@ -565,6 +669,7 @@ namespace driveview
           // asserting, which is why this is a button beside the combo rather
           // than something the combo does.
           const UInt8 want = modeOf(v.assumedMode);
+          vlog::line("drive: ask the board pressed - SET_MODE %u", static_cast<UInt32>(want));
           link::sendCommand(lk, bibowire::Verb::VERB_SET_MODE, want, 0, 0);
           ++v.sent;
       }

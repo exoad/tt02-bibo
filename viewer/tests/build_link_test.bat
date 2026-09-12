@@ -40,12 +40,16 @@ REM  jpeg.cxx is compiled in because the camera's DECODE is exercised here, on
 REM  a real JPEG, with no board and no graphics device. That is the whole
 REM  reason the decoder is its own module and not part of camera.cxx, which
 REM  owns a D3D11 texture and could not be linked into a console test.
+REM
+REM  vlog.cxx is compiled in because link.cxx writes its round-trip log through
+REM  it. Nothing here calls vlog::open, so every line it would write is a no-op.
 cl /nologo /EHsc /O2 /MT /W4 /std:c++20 /D_CRT_SECURE_NO_WARNINGS ^
   /I"%HERE%..\src" /I"%HERE%..\..\shared" ^
   /I"%HERE%..\..\firmware\pilot\src" /I"%HERE%..\..\third_party\imgui" ^
   /I"%HERE%..\..\third_party\stb" ^
   "%HERE%test_link.cxx" ^
   "%HERE%..\src\link.cxx" ^
+  "%HERE%..\src\vlog.cxx" ^
   "%HERE%..\src\jpeg.cxx" ^
   "%HERE%..\src\orient.cxx" ^
   "%HERE%..\..\firmware\pilot\src\bibowire.cxx" ^

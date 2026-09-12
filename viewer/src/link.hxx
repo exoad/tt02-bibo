@@ -546,13 +546,101 @@ namespace link
   // Forgets the bootId as well: a deliberate disconnect ends the comparison.
   Void clearAll(Session& s);
 
+  // ---- what the round-trip log is told about arriving frames -----------------
+  //
+  // THE PURE HALF'S CONTRIBUTION TO THE VIEWER'S LOG, and still pure: counters
+  // and copies, no clock, no file, no socket. The worker hands one of these to
+  // the decode, drains it every pass and writes the lines; the suite hands in
+  // nothing and none of it happens.
+  //
+  // It exists because the facts a round-trip log needs - the header seq of a
+  // board PING, how long the link was quiet before it, the token of a PONG that
+  // matched nothing - are known ONLY inside the decode and are gone the moment
+  // it returns. Reconstructing them from the Session afterwards would mean
+  // guessing which of eight bounded acks is the new one.
+  //
+  // SCAN, CAMERA, BOARD, DECIDE and CTLSTATE are only COUNTED here. They arrive
+  // tens of times a second, and a line each would make the log the busiest
+  // thing on the network thread it is meant to be watching.
+
+  struct HeardPing
+  {
+      UInt64 token = 0;
+      UInt16 seq = 0;       // the frame header's, so a gap in the board's stream shows
+      Int64 atMs = 0;       // when it was decoded, on monoMs()
+      Int64 quietMs = 0;    // since the frame before it, of any type
+  };
+
+  struct HeardPong
+  {
+      UInt64 token = 0;
+
+      // False is a PONG for no PING this connection has outstanding - either a
+      // duplicate, or an answer so late its PING was already pushed out of the
+      // bounded list. Logged either way, because it is dropped either way.
+      Bool matched = false;
+      Int64 rttMs = 0;
+  };
+
+  // Bounded like everything else here. The worker drains every pass, so reaching
+  // this means one recv carried this many of one kind - counted in `overflow`,
+  // never quietly lost.
+  constexpr Size HEARD_MAX = 64;
+
+  struct Heard
+  {
+      // Every frame taken, TCP and UDP both, by tag byte - including tags this
+      // build has no name for. Cumulative for the connection; the summary
+      // subtracts its previous copy.
+      Array<UInt32, 256> byType = {};
+
+      // A known type whose body would not decode, and the latest one's tag.
+      UInt32 bodiesRefused = 0;
+      UInt8 lastRefusedType = 0;
+
+      // A tag this build does not know, and the latest one.
+      UInt32 unknownTypes = 0;
+      UInt8 lastUnknownType = 0;
+
+      // What the reader stepped over on TCP. A CORRUPTED frame lands in
+      // `resyncBytes`: take() cannot tell a bad CRC from junk and does not try.
+      // `framingRefused` is its TOO_BIG and BAD_FLAG answers.
+      UInt32 resyncs = 0;
+      UInt32 resyncBytes = 0;
+      UInt32 framingRefused = 0;
+
+      // Header seqs on the TCP stream that were not the previous one plus one,
+      // with the latest pair. COUNTED, NOT INTERPRETED: whether the board numbers
+      // a frame before or after its ring may drop it decides what a jump means,
+      // and that is a question for the board's source rather than this reader.
+      UInt32 seqJumps = 0;
+      Bool haveSeq = false;
+      UInt16 lastSeq = 0;
+      UInt16 jumpFrom = 0;
+      UInt16 jumpTo = 0;
+
+      Vec<HeardPing> pings;
+      Vec<HeardPong> pongs;
+      Vec<Ack> acks;
+      Vec<Note> events;
+      UInt32 overflow = 0;
+  };
+
   // Pure. One decoded frame into the session.
   Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs);
+
+  // The same, telling `heard` what the log needs. Null is allowed and is the
+  // overload above.
+  Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs, Heard* heard);
 
   // Pure. Takes as many whole frames as `buf` holds, ingesting each; returns the
   // number of bytes the caller should retire. Junk is resynced past and counted,
   // never skipped in silence.
   [[nodiscard]] Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 nowMs);
+
+  // The same, telling `heard` what the log needs - including the resyncs and
+  // seq jumps only the byte-level reader can see.
+  [[nodiscard]] Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 now, Heard* heard);
 
   // ---- CONTROL, the pure half ------------------------------------------------
   //
