@@ -134,6 +134,7 @@
 #include "proto.hxx"
 #include "reactive.hxx"
 #include "scanwire.hxx"
+#include "trimfile.hxx"
 #include "viewfeed.hxx"
 
 // The car's measured numbers - see cal.hxx, and "WHAT THE CAR IS TOLD" above,
@@ -364,6 +365,32 @@ namespace
       return ESC_MIN_US + static_cast<Int32>(throttle * span + 0.5f);
   }
 
+  // THE SAME MAPPING ONTO THE CAR'S OWN LIMITS, for MANUAL.
+  //
+  // escPulseFor maps onto cal.hxx's band, compiled in, and that is right for the
+  // autonomy: its band is deliberately narrow. It was WRONG for a viewer's W. The
+  // operator widened the ESC limits in the Trim pane to 1564..1700, the Pico took
+  // them, and full W still went out as 1600 - the top of a band measured on a
+  // brushed motor the car no longer has - so the motor hummed and the car sat
+  // there. The limits the Pico reports back are the range the operator chose,
+  // so W is mapped onto those; until the Pico has said, the compiled band stands.
+  [[nodiscard]] Int32 escPulseWithin(Float32 throttle, Int32 carMin, Int32 carMax)
+  {
+      const Bool known = carMin > 0 && carMax > carMin;
+      const Int32 lo = known ? carMin : ESC_MIN_US;
+      const Int32 hi = known ? carMax : ESC_MAX_US;
+      if(throttle > 1.0f)
+      {
+          throttle = 1.0f;
+      }
+      if(throttle < 0.0f)
+      {
+          throttle = 0.0f;
+      }
+      const Float32 span = static_cast<Float32>(hi - lo);
+      return lo + static_cast<Int32>(throttle * span + 0.5f);
+  }
+
   // The throttle line: a pulse for a forward decision from a scan the module
   // trusted, NEUTRAL for everything else - blind, stop, reverse. The steering
   // line needs no such function; it is proto::steer(out.steer) every tick.
@@ -429,6 +456,11 @@ namespace
       // exactly how this program steered nothing for its whole life.
       Int32 servoOn = -1;
       Int32 servoUs = -1;
+
+      // The ESC limits the Pico is ACTUALLY using (esc_min=, esc_max=), which
+      // is what W is mapped onto in MANUAL - see escPulseWithin.
+      Int32 escMinUs = -1;
+      Int32 escMaxUs = -1;
   };
 
   // What this program knows about the link that the transport does not.
@@ -504,6 +536,14 @@ namespace
                   {
                       tally.servoUs = v;
                   }
+                  if(proto::fieldInt(reply.rest, "esc_min=", v))
+                  {
+                      tally.escMinUs = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "esc_max=", v))
+                  {
+                      tally.escMaxUs = v;
+                  }
               }
               break;
           case proto::Kind::KIND_ERR:
@@ -553,7 +593,7 @@ namespace
       }
   }
 
-  [[nodiscard]] Bool openPico(const carlink::Config& cfg, Bool arm, Link& link)
+  [[nodiscard]] Bool openPico(const carlink::Config& cfg, Bool arm, const trimfile::Store& trim, Link& link)
   {
       // Whatever the last board said no longer counts, whether or not this
       // attempt succeeds: a failed reopen leaves no descriptor, and a board
@@ -576,6 +616,16 @@ namespace
       // a tick later. Every STEER and ESC line gets an OK as well; this one
       // simply goes out first, and has an answer even from an unarmed board.
       sendLine(proto::command("PING"), link);
+
+      // THE OPERATOR'S TRIM, BEFORE ANYTHING ELSE MOVES. The Pico keeps these in
+      // RAM and comes up on cal.hxx's compiled numbers after every power cycle
+      // or replug - so the board, which is always there when it comes up,
+      // hands them back on every open, the quiet reconnect included. Before
+      // any arm, so no throttle is ever clamped to a range about to change.
+      for(const Str& line : trimfile::lines(trim))
+      {
+          sendLine(line, link);
+      }
       if(arm)
       {
           // Re-sent on every (re)open, not just the first: a board that was
@@ -1019,11 +1069,33 @@ Int32 main(Int32 argc, Char** argv)
     carlink::Config linkCfg;
     linkCfg.where = opt.picoPort;
     Link link;
+    // The trim the viewer's pane last set, kept on the board - see trimfile.hxx.
+    // A missing file is a car nobody has tuned, and the Pico's compiled
+    // numbers stand; an unreadable one is said and then treated the same way,
+    // because refusing to drive over a trim file would be a strange priority.
+    const Str trimPath = trimfile::defaultPath();
+    trimfile::Store trim;
+    {
+        Str why;
+        if(!trimfile::load(trimPath, trim, why))
+        {
+            std::printf("trim: cannot read %s: %s - the Pico keeps its compiled values\n", trimPath.c_str(), why.c_str());
+        }
+        else
+        {
+            std::printf(
+                "trim: %zu setting(s) from %s, replayed whenever the Pico is opened\n",
+                trimfile::lines(trim).size(),
+                trimPath.c_str()
+            );
+        }
+    }
+
     if(opt.dry)
     {
         std::printf("pico: dry run - decisions are printed, nothing is sent\n");
     }
-    else if(!openPico(linkCfg, opt.arm, link))
+    else if(!openPico(linkCfg, opt.arm, trim, link))
     {
         lidar::close();
         return 1;
@@ -1518,8 +1590,9 @@ Int32 main(Int32 argc, Char** argv)
                 }
                 else
                 {
+                    const Float32 wanted = static_cast<Float32>(cmd.throttleMilli) / 1000.0f;
                     escLine = mayPush && cmd.throttleMilli > 0
-                        ? proto::escUs(escPulseFor(static_cast<Float32>(cmd.throttleMilli) / 1000.0f))
+                        ? proto::escUs(escPulseWithin(wanted, replies.escMinUs, replies.escMaxUs))
                         : proto::command("ESC", "NEUTRAL");
                 }
 
@@ -1588,6 +1661,22 @@ Int32 main(Int32 argc, Char** argv)
                     continue;
                 }
                 sendLine(line, link);
+
+                // KEPT the moment it goes out, and only when it changed
+                // something: a slider dragged end to end sends a line per step,
+                // and a write per unchanged value would be a disk for nothing.
+                if(trimfile::remember(trim, line))
+                {
+                    Str why;
+                    if(trimfile::save(trimPath, trim, why))
+                    {
+                        std::printf("trim: saved \"%s\" to %s\n", line.c_str(), trimPath.c_str());
+                    }
+                    else
+                    {
+                        std::printf("trim: NOT saved \"%s\" to %s: %s\n", line.c_str(), trimPath.c_str(), why.c_str());
+                    }
+                }
             }
             if(!readReplies(lines, replies, link) && !link.lost)
             {
@@ -1624,7 +1713,7 @@ Int32 main(Int32 argc, Char** argv)
             // been stopped by its own deadman; what is owed is a quiet reconnect.
             if(!opt.dry && link.lost)
             {
-                if(openPico(linkCfg, opt.arm, link))
+                if(openPico(linkCfg, opt.arm, trim, link))
                 {
                     // A Pico that came back came back DISARMED. viewfeed moved
                     // the epoch when the BOARD frame said the link was down, so

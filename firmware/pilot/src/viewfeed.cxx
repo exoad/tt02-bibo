@@ -1414,7 +1414,7 @@ namespace viewfeed
             std::snprintf(
                 buf.data(),
                 buf.size(),
-                "%s limits set to %u..%u us - the Pico holds them in RAM until it reboots",
+                "%s limits set to %u..%u us - saved on the board and re-sent whenever the Pico connects",
                 what,
                 a1,
                 a2
@@ -1443,7 +1443,7 @@ namespace viewfeed
             std::snprintf(
                 buf.data(),
                 buf.size(),
-                "servo centre set to %u us - the Pico holds it in RAM until it reboots",
+                "servo centre set to %u us - saved on the board and re-sent whenever the Pico connects",
                 a1
             );
             ack->result = 0;
