@@ -1776,7 +1776,7 @@ static Void testDriveKeys()
 
 static Void testSteerHeld()
 {
-    std::printf("\n-- the steering is HELD, not sprung --\n");
+    std::printf("\n-- the steering ramps out and springs back to centre --\n");
 
     const driveview::Keys none;
     driveview::Keys a;
@@ -1822,12 +1822,18 @@ static Void testSteerHeld()
     check(frames == 42, "in 42 frames of 16 ms - the rate's 666 ms plus one partial frame");
     check(heldAfter(1000, d, 100) == 1000, "D held at full right stays there");
     check(heldAfter(-990, a, 100) == -1000, "A near full left clamps to it rather than past it");
-    check(heldAfter(3000, none, 16) == 1000, "and a held value out of range comes back inside");
+    check(heldAfter(3000, none, 16) == 976, "a value out of range is clamped first, then springs back");
 
-    // HOLDS ON RELEASE. This is the feature: the sprung key was the complaint.
-    check(heldAfter(-420, none, 100) == -420, "releasing both keys leaves the wheel where it was");
-    check(heldAfter(-420, none, 16) != 0, "it does not drift back to centre the way a game's does");
-    check(heldAfter(420, both, 100) == 420, "A and D together hold too, rather than picking one");
+    // SPRINGS BACK ON RELEASE, at the same rate. Asked for in as many words -
+    // "once A or D are released the steering should go back to centre" - after
+    // a held steering that stayed put was tried and was the wrong answer.
+    check(heldAfter(-420, none, 100) == -270, "releasing both keys moves the wheel back toward centre at the rate");
+    check(heldAfter(-420, none, 16) == -396, "a 16 ms frame at a time, the way a game's does");
+    check(heldAfter(420, both, 100) == 270, "A and D together return toward centre too, rather than picking one");
+    check(heldAfter(100, none, 100) == 0, "and it stops AT centre rather than swinging past it");
+    check(heldAfter(-5, none, 100) == 0, "from the other side as well");
+    check(heldAfter(0, none, 100) == 0, "and centre with no key stays centre");
+    check(heldAfter(-420, none, 0) == -420, "no time passing moves nothing on the way back either");
 
     // C CENTRES - instantly, and ahead of a steering key held with it.
     check(heldAfter(-420, c, 16) == 0, "C puts the held steering back to centre");

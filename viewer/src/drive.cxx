@@ -276,7 +276,8 @@ namespace driveview
     // closed, collapsed or blocked pane; what is left is the enable and the stop.
     //
     // NOT RESET FOR LOST FOCUS. An unfocused window reads every key as up, so
-    // steerHeldStep holds - which is the point of holding.
+    // steerHeldStep springs the wheel back to centre at the rate, exactly as
+    // letting go of the keys would.
     Void steerFrame(View& v, const Keys& k, Bool centrePressed, Int32 dtMs)
     {
         if(!v.enabled)
@@ -814,8 +815,8 @@ namespace driveview
       }
 
       ImGui::TextDisabled(
-          accept ? "keys are live: A/D steer (held)  C centre  W throttle  S stop  Space ESTOP"
-                 : "keys are ignored - click this window, and stop typing (steering holds)"
+          accept ? "keys are live: A/D steer (springs back)  C centre  W throttle  S stop  Space ESTOP"
+                 : "keys are ignored - click this window, and stop typing (steering returns to centre)"
       );
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
@@ -866,7 +867,7 @@ namespace driveview
       // WHERE THE WHEEL HAS BEEN LEFT, as a number and as a bar. The number is
       // what goes on the wire while enabled; "steer now" further down is what
       // the board says the servo is actually at.
-      readoutStr("steering held", milliText(v.steerHeldMilli));
+      readoutStr("steering", milliText(v.steerHeldMilli));
       steerBar(v.steerHeldMilli);
 
       // ---- the mode this viewer ASSERTS -------------------------------------

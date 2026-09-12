@@ -38,26 +38,29 @@
 //    disabled rather than accepting keys that go nowhere.
 //
 // ---------------------------------------------------------------------------
-// STEERING IS HELD, NOT SPRUNG
+// STEERING RAMPS OUT AND SPRINGS BACK
 //
-// It was bang-bang: A was -1000 while it was down and the wheels went back to
-// centre the instant it came up, the way a game steers. Driven for real, that
-// was the complaint - a car taking a long corner needs the wheel to STAY where
-// it was turned, and a sprung key made the operator hold a finger down for the
-// whole arc. So the pane keeps a held steering value: A moves it toward full
-// left, D toward full right, at `steerRateMilliPerS`; releasing both leaves it
-// where it is; C puts it back to centre.
+// A moves the steering toward full left and D toward full right at
+// `steerRateMilliPerS`; letting go returns it to centre at the same rate, the
+// way a game steers; C centres it at once.
+//
+// This is the SECOND answer, and the first is worth keeping on record. It began
+// bang-bang - full lock the instant a key went down, centre the instant it came
+// up. A report that "the wheels try to return to centre" was read as a
+// complaint, and the steering was made to HOLD wherever it was left. The
+// operator's next words were that releasing A or D should bring it back to
+// centre. The ramp stayed; the hold went.
 //
 // TWO RATES IN SERIES, AND THEY ARE SHOWN SIDE BY SIDE. The Pico's `SLEW` still
 // limits how fast the servo may follow, so a steering that feels slow is one of
-// the two. The Drive window prints this pane's held value beside CTLSTATE's
+// the two. The Drive window prints this pane's value beside CTLSTATE's
 // steerNowMilli, which is the pair that tells them apart.
 //
-// HELD IS NOT STICKY ACROSS A STOP. Every way this pane stops driving - blocked,
-// enable off, window closed or collapsed, ESTOP - puts the held value back to
-// 0, so the next enable starts straight rather than at whatever angle the last
-// session ended on. Losing keyboard focus is deliberately NOT one of them: the
-// keys read as up, so the value simply stops moving and holds.
+// A STOP CENTRES AT ONCE. Every way this pane stops driving - blocked, enable
+// off, window closed or collapsed, ESTOP - puts the value straight to 0 rather
+// than springing it back, so the next enable starts straight. Losing keyboard
+// focus is not a stop: every key reads as up, so the wheel springs back exactly
+// as it would on a release.
 #pragma once
 
 #include "shared.hxx"
@@ -161,12 +164,14 @@ namespace driveview
   // others, for S-beats-W's reason: it is pressed while a steering key is still
   // down, so "both" is exactly the moment it is for.
   //
-  // NO PUSH HOLDS. Neither key or both keys returns `held` unchanged - that is
-  // the whole feature.
+  // NO PUSH SPRINGS BACK. Neither key or both keys moves the value toward 0 at
+  // the same rate a key moves it away, and stops AT 0 - it never swings past
+  // centre into the other side. That is a game's steering, and it is what was
+  // asked for.
   //
-  // AT LEAST ONE MILLI while a key is down and time has passed. Integer steps
-  // at a slow rate on a fast frame round to zero (250 /s over 1 ms is 0.25),
-  // and a held key that never moves the wheel is a key that looks broken.
+  // AT LEAST ONE MILLI whenever time has passed. Integer steps at a slow rate
+  // on a fast frame round to zero (250 /s over 1 ms is 0.25), and a key - or a
+  // release - that never moves the wheel is one that looks broken.
   [[nodiscard]] inline Int16 steerHeldStep(Int16 held, const Keys& k, Int32 rateMilliPerS, Int32 dtMs)
   {
       if(k.centre)
@@ -174,17 +179,21 @@ namespace driveview
           return 0;
       }
       const Int32 from = clampMilli(held, -STEER_FULL, STEER_FULL);
-      const Int16 push = steerFrom(k);
-      if(push == 0)
-      {
-          return static_cast<Int16>(from);
-      }
       const Int32 dt = clampMilli(dtMs, 0, STEER_FRAME_MS_MAX);
       const Int32 rate = clampMilli(rateMilliPerS, STEER_RATE_MIN, STEER_RATE_MAX);
       Int32 step = (rate * dt) / 1000;
       if(step < 1 && dt > 0)
       {
           step = 1;
+      }
+      const Int16 push = steerFrom(k);
+      if(push == 0)
+      {
+          if(from > 0)
+          {
+              return static_cast<Int16>(from > step ? from - step : 0);
+          }
+          return static_cast<Int16>(-from > step ? from + step : 0);
       }
       const Int32 to = push > 0 ? from + step : from - step;
       return static_cast<Int16>(clampMilli(to, -STEER_FULL, STEER_FULL));
