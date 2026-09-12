@@ -1,5 +1,9 @@
 #include "link.hxx"
 
+// The round-trip log. It names no Windows header, so it sits with link.hxx above
+// the Winsock block rather than below it and the order there stays safe.
+#include "vlog.hxx"
+
 // Winsock before anything that might drag in <windows.h>: winsock2.h and the
 // original winsock.h define the same symbols, and the loser is whichever one
 // arrives second. Nothing above this line includes a Windows header - link.hxx
@@ -76,6 +80,12 @@ namespace link
     // frame, so a socket that cannot take 72 bytes in half a second is not slow,
     // it is gone.
     constexpr Int64 SEND_BUDGET_MS = 500;
+
+    // How often the worker writes its summary line to the round-trip log. A
+    // second, because the board's PING is 1 Hz and its "no PONG" is judged in
+    // seconds: a coarser line would put the moment the link stopped answering
+    // inside a window too wide to line up against the board's journal.
+    constexpr Int64 SUMMARY_MS = 1000;
 
     // ---- ages ---------------------------------------------------------------
 
@@ -186,6 +196,169 @@ namespace link
         return Str(t.data());
     }
 
+    // ---- names, for the round-trip log only ---------------------------------
+    //
+    // bibowire.cxx spells verbs, reasons and severities too, but inside its own
+    // anonymous namespace, so nothing outside the codec can reach them - and the
+    // codec is shared with the board, so it is not edited for a viewer's log.
+    // Spelled again HERE FOR THE LOG ONLY: nothing drawn or decided reads these,
+    // and every line that uses one prints the number beside it, so a verb this
+    // table has never heard of is a "?" with a value rather than a wrong word.
+
+    [[nodiscard]] CharSeq verbText(bibowire::Verb v)
+    {
+        switch(v)
+        {
+        case bibowire::Verb::VERB_NONE:
+            return "none";
+        case bibowire::Verb::VERB_ARM:
+            return "arm";
+        case bibowire::Verb::VERB_DISARM:
+            return "disarm";
+        case bibowire::Verb::VERB_ESTOP:
+            return "estop";
+        case bibowire::Verb::VERB_CLEAR_ESTOP:
+            return "clear_estop";
+        case bibowire::Verb::VERB_MOTOR_ON:
+            return "motor_on";
+        case bibowire::Verb::VERB_MOTOR_OFF:
+            return "motor_off";
+        case bibowire::Verb::VERB_SET_MODE:
+            return "set_mode";
+        case bibowire::Verb::VERB_SET_ESC_LIMITS:
+            return "set_esc_limits";
+        case bibowire::Verb::VERB_SET_SERVO_LIMITS:
+            return "set_servo_limits";
+        case bibowire::Verb::VERB_SET_SERVO_TRIM:
+            return "set_servo_trim";
+        case bibowire::Verb::VERB_SET_SLEW:
+            return "set_slew";
+        default:
+            break;
+        }
+        return "?";
+    }
+
+    [[nodiscard]] CharSeq reasonText(bibowire::Reason r)
+    {
+        switch(r)
+        {
+        case bibowire::Reason::REASON_NONE:
+            return "none";
+        case bibowire::Reason::REASON_VERSION:
+            return "version";
+        case bibowire::Reason::REASON_TOO_BIG:
+            return "too_big";
+        case bibowire::Reason::REASON_BAD_CRC:
+            return "bad_crc";
+        case bibowire::Reason::REASON_BAD_SESSION:
+            return "bad_session";
+        case bibowire::Reason::REASON_TIMEOUT:
+            return "timeout";
+        case bibowire::Reason::REASON_SHUTDOWN:
+            return "shutdown";
+        case bibowire::Reason::REASON_SUPERSEDED:
+            return "superseded";
+        case bibowire::Reason::REASON_REFUSED:
+            return "refused";
+        case bibowire::Reason::REASON_BAD_FLAG:
+            return "bad_flag";
+        default:
+            break;
+        }
+        return "?";
+    }
+
+    [[nodiscard]] CharSeq severityText(bibowire::Severity s)
+    {
+        switch(s)
+        {
+        case bibowire::Severity::SEVERITY_INFO:
+            return "info";
+        case bibowire::Severity::SEVERITY_WARN:
+            return "warn";
+        case bibowire::Severity::SEVERITY_ERROR:
+            return "error";
+        default:
+            break;
+        }
+        return "?";
+    }
+
+    [[nodiscard]] CharSeq typeText(UInt8 tag)
+    {
+        return bibowire::knownType(tag) ? bibowire::typeName(static_cast<bibowire::Type>(tag)) : "?";
+    }
+
+    // A socket error as its number AND Windows' own sentence for it. The number
+    // is what a search finds; the sentence is what a person reads without one.
+    [[nodiscard]] Str wsaText(Int32 code)
+    {
+        Array<Char, 192> t = {};
+        const DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+        const DWORD n = ::FormatMessageA(
+            flags,
+            nullptr,
+            static_cast<DWORD>(code),
+            0,
+            t.data(),
+            static_cast<DWORD>(t.size()),
+            nullptr
+        );
+        Size end = n;
+        while(end > 0 && (t[end - 1] == '\r' || t[end - 1] == '\n' || t[end - 1] == ' '))
+        {
+            --end;
+        }
+        Str out = numberText(code);
+        if(end > 0)
+        {
+            out += " ";
+            out += Str(t.data(), end);
+        }
+        return out;
+    }
+
+    // An address the way a person types one: 100.101.3.7:8020, [fd7a::1]:8020.
+    [[nodiscard]] Str addressText(const sockaddr* a)
+    {
+        Array<Char, 64> host = {};
+        Array<Char, 96> t = {};
+        if(a->sa_family == AF_INET)
+        {
+            const sockaddr_in* v4 = reinterpret_cast<const sockaddr_in*>(a);
+            ::inet_ntop(AF_INET, &v4->sin_addr, host.data(), host.size());
+            const UInt32 port = ::ntohs(v4->sin_port);
+            std::snprintf(t.data(), t.size(), "%s:%u", host.data(), port);
+            return Str(t.data());
+        }
+        if(a->sa_family == AF_INET6)
+        {
+            const sockaddr_in6* v6 = reinterpret_cast<const sockaddr_in6*>(a);
+            ::inet_ntop(AF_INET6, &v6->sin6_addr, host.data(), host.size());
+            const UInt32 port = ::ntohs(v6->sin6_port);
+            std::snprintf(t.data(), t.size(), "[%s]:%u", host.data(), port);
+            return Str(t.data());
+        }
+        return "address family " + numberText(a->sa_family);
+    }
+
+    // One end of a connected socket. Through Tailscale the peer is a 100.x
+    // address and the local end is the tailnet interface; seeing both is what
+    // says which path a connection actually took.
+    [[nodiscard]] Str endpointText(SOCKET fd, Bool peer)
+    {
+        sockaddr_storage at = {};
+        Int32 len = static_cast<Int32>(sizeof(at));
+        sockaddr* atAddr = reinterpret_cast<sockaddr*>(&at);
+        const Int32 rc = peer ? ::getpeername(fd, atAddr, &len) : ::getsockname(fd, atAddr, &len);
+        if(rc != 0)
+        {
+            return "unknown (" + wsaText(::WSAGetLastError()) + ")";
+        }
+        return addressText(atAddr);
+    }
+
     // Does this sentence talk about the camera?
     //
     // A HEURISTIC, and deliberately a visible one. EVENT carries a `code`
@@ -210,6 +383,114 @@ namespace link
     }
 
     // ---- the connection -----------------------------------------------------
+
+    // ---- what the round-trip log keeps about one connection -----------------
+
+    // What ONE send did, kept so the callers that matter - the PONG above all,
+    // whose answer is the case this log was written for - can say it in words:
+    // how much the socket took, how often it would not, and how long that took.
+    struct SendNote
+    {
+        Bool ok = false;
+        Size offered = 0;
+        Size taken = 0;
+        UInt32 calls = 0;
+        UInt32 shortCalls = 0;
+        UInt32 wouldBlock = 0;
+        Int32 error = 0;        // the WSA code that ended it; 0 when nothing did
+        Int64 tookMs = 0;
+    };
+
+    // One pass of the worker loop, by where its time went. `logMs` is the drain
+    // of Heard into the file, measured apart so the log can never hide its own
+    // cost inside the numbers it reports.
+    struct PassSplit
+    {
+        Int64 selectMs = 0;
+        Int64 recvMs = 0;
+        Int64 logMs = 0;
+        Int64 sendMs = 0;
+        Int64 publishMs = 0;
+    };
+
+    // ONE SECOND of the socket half, written as the summary line and zeroed.
+    struct Wire
+    {
+        Int64 windowMs = 0;
+        UInt64 rxBytes = 0;
+        UInt64 txBytes = 0;
+        UInt32 recvCalls = 0;
+        UInt32 recvWouldBlock = 0;
+        UInt32 recvZero = 0;
+        UInt32 recvErrors = 0;
+        Int64 worstRecvGapMs = 0;
+        UInt32 sends = 0;
+        UInt32 sendShort = 0;
+        UInt32 sendWouldBlock = 0;
+        UInt32 sendFailed = 0;
+        Int64 worstSendMs = 0;
+        UInt32 udpTx = 0;
+        UInt32 udpTxFailed = 0;
+        UInt32 udpRx = 0;
+        UInt32 udpRxBad = 0;
+        UInt32 udpRxErrors = 0;
+        UInt32 passes = 0;
+        Int64 worstPassMs = 0;
+        PassSplit worstSplit;
+        Size worstPongsDue = 0;
+    };
+
+    // A COMMAND on the wire and not yet answered, so its CMDACK's line can say
+    // how long the board took - the command's own round trip.
+    struct CmdOut
+    {
+        UInt32 cmdId = 0;
+        Int64 sentMs = 0;
+    };
+
+    struct Journal
+    {
+        Wire wire;
+        SendNote lastSend;
+        Heard heard;
+
+        // The frame counts as they stood at the previous summary, so a line can
+        // say what arrived in THIS second rather than since the connect.
+        Array<UInt32, 256> byTypeAtSummary = {};
+
+        Int64 openedMs = 0;
+        Int64 helloAtMs = 0;
+        Int64 lastRecvMs = 0;       // the last recv() that returned bytes
+        UInt64 rxTotal = 0;
+        UInt64 txTotal = 0;
+
+        // Why recv or select ended the connection, when one of them did. The
+        // panel's `why` stays the sentence it always was; this is the detail.
+        Str endedBy;
+
+        // UDP errors: the first CONTROL failure is said in a line, the rest are
+        // counted, and the last receive error is carried into the summary.
+        Int32 udpError = 0;
+        Int32 udpRxError = 0;
+        Bool saidUdpFailure = false;
+
+        // FIRST OF EACH KIND, said once per connection and counted after.
+        Bool saidRefused = false;
+        Bool saidUnknown = false;
+        Bool saidResync = false;
+        Bool saidFraming = false;
+        Bool saidSeqJump = false;
+        Bool saidOverflow = false;
+        Bool saidBye = false;
+
+        // CONTROL as last written to the log, so the next line is written only
+        // when something on the wire has actually changed.
+        Bool haveControlLine = false;
+        bibowire::Control controlLine;
+        Bool controlLineOnTcp = false;
+
+        Vec<CmdOut> commandsOut;
+    };
 
     // SOCKET is UINT_PTR and INVALID_SOCKET is ~0, so these stay out of link.hxx
     // and every file that draws a panel is spared <winsock2.h>.
@@ -256,6 +537,11 @@ namespace link
         // And what rate it was told, so a viewer that changes the slider
         // re-sends rather than waiting for a mask change that never comes.
         UInt16 sentFps = 0;
+
+        // Everything the round-trip log knows about this connection. Reset with
+        // it, because a tally that ran across a reconnect would blur the exact
+        // moment this log exists to catch.
+        Journal journal;
     };
 
     Void dropConn(Conn& c)
@@ -279,6 +565,7 @@ namespace link
         c.udpTxSeq = 0;
         c.boardAddrLen = 0;
         c.haveBoardAddr = false;
+        c.journal = Journal();
     }
 
     Void setNonBlocking(SOCKET fd)
@@ -308,31 +595,93 @@ namespace link
         return FD_ISSET(fd, &writes) != 0;
     }
 
-    [[nodiscard]] Bool sendAll(SOCKET fd, const UInt8* buf, Size len)
+    // `note` is told what the socket did, whatever the answer - see SendNote.
+    [[nodiscard]] Bool sendAll(SOCKET fd, const UInt8* buf, Size len, SendNote& note)
     {
+        note = SendNote();
+        note.offered = len;
+        const Int64 started = monoMs();
+        const Int64 deadline = started + SEND_BUDGET_MS;
         Size sent = 0;
-        const Int64 deadline = monoMs() + SEND_BUDGET_MS;
         while(sent < len)
         {
             const Char* at = reinterpret_cast<const Char*>(buf + sent);
             const Int32 want = static_cast<Int32>(len - sent);
             const Int32 n = ::send(fd, at, want, 0);
+            ++note.calls;
             if(n > 0)
             {
+                if(n < want)
+                {
+                    ++note.shortCalls;
+                }
                 sent += static_cast<Size>(n);
+                note.taken = sent;
                 continue;
             }
-            if(n == 0 || ::WSAGetLastError() != WSAEWOULDBLOCK)
+            const Int32 err = n == 0 ? 0 : ::WSAGetLastError();
+            if(n == 0 || err != WSAEWOULDBLOCK)
             {
+                note.error = err;
+                note.tookMs = monoMs() - started;
                 return false;
             }
+            ++note.wouldBlock;
             const Int64 left = deadline - monoMs();
             if(left <= 0 || !waitWritable(fd, left))
             {
+                // The budget ran out with the socket still full. WOULDBLOCK is
+                // the honest name for what ended it - no call returned an error.
+                note.error = WSAEWOULDBLOCK;
+                note.tookMs = monoMs() - started;
                 return false;
             }
         }
+        note.ok = true;
+        note.tookMs = monoMs() - started;
         return true;
+    }
+
+    // One send, into this second's tally.
+    Void noteSend(Journal& j, const SendNote& note)
+    {
+        ++j.wire.sends;
+        j.wire.txBytes += note.taken;
+        j.txTotal += note.taken;
+        j.wire.sendShort += note.shortCalls;
+        j.wire.sendWouldBlock += note.wouldBlock;
+        if(!note.ok)
+        {
+            ++j.wire.sendFailed;
+        }
+        if(note.tookMs > j.wire.worstSendMs)
+        {
+            j.wire.worstSendMs = note.tookMs;
+        }
+    }
+
+    // What one send did, in words.
+    [[nodiscard]] Str sendText(const SendNote& note)
+    {
+        Array<Char, 128> t = {};
+        std::snprintf(
+            t.data(),
+            t.size(),
+            "%s %zu/%zu B in %u call(s), %u short, %u would-block, %lld ms",
+            note.ok ? "ok" : "FAILED",
+            note.taken,
+            note.offered,
+            note.calls,
+            note.shortCalls,
+            note.wouldBlock,
+            note.tookMs
+        );
+        Str out = t.data();
+        if(!note.ok && note.error != 0)
+        {
+            out += ", error " + wsaText(note.error);
+        }
+        return out;
     }
 
     // One typed frame out. The header is assembled HERE and nowhere else, so no
@@ -341,6 +690,10 @@ namespace link
     // it neither.
     [[nodiscard]] Bool sendFrame(Conn& c, bibowire::Type type, const UInt8* body, Size bodyLen)
     {
+        // Cleared first, so a frame the codec refused reads as nothing offered
+        // rather than as the previous send's success.
+        c.journal.lastSend = SendNote();
+
         bibowire::Head head;
         head.type = type;
         head.ver = 1;
@@ -354,28 +707,37 @@ namespace link
             return false;
         }
         ++c.txSeq;
-        return sendAll(c.tcp, frame.data(), n);
+        const Bool ok = sendAll(c.tcp, frame.data(), n, c.journal.lastSend);
+        noteSend(c.journal, c.journal.lastSend);
+        return ok;
     }
 
     // ---- dialling -----------------------------------------------------------
 
-    [[nodiscard]] Bool finishConnect(SOCKET fd, Int64 budgetMs)
+    // `err` is SO_ERROR when the socket has one, and WSAETIMEDOUT when the budget
+    // simply ran out - so a refused port and a board that never answered are
+    // logged as the two different facts they are.
+    [[nodiscard]] Bool finishConnect(SOCKET fd, Int64 budgetMs, Int32& err)
     {
-        if(!waitWritable(fd, budgetMs))
-        {
-            return false;
-        }
+        const Bool writable = waitWritable(fd, budgetMs);
         // Writable is not the same fact as connected: a refused connection is
         // reported by SO_ERROR, and a socket that skipped this check would send
         // HELLO into a connection that never happened.
-        Int32 err = 0;
-        Int32 len = static_cast<Int32>(sizeof(err));
-        Char* slot = reinterpret_cast<Char*>(&err);
+        Int32 soError = 0;
+        Int32 len = static_cast<Int32>(sizeof(soError));
+        Char* slot = reinterpret_cast<Char*>(&soError);
         if(::getsockopt(fd, SOL_SOCKET, SO_ERROR, slot, &len) != 0)
         {
+            err = ::WSAGetLastError();
             return false;
         }
-        return err == 0;
+        if(soError != 0)
+        {
+            err = soError;
+            return false;
+        }
+        err = writable ? 0 : WSAETIMEDOUT;
+        return writable;
     }
 
     Void tuneTcp(SOCKET fd)
@@ -419,6 +781,9 @@ namespace link
     // outing, and bibobox.local over mDNS is the thing that stays true.
     [[nodiscard]] Bool dialTcp(Conn& c, const Str& host, UInt16 port, Str* why)
     {
+        const Int64 dialMs = monoMs();
+        vlog::line("dial %s port %u: resolving", host.c_str(), static_cast<UInt32>(port));
+
         addrinfo hints = {};
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
@@ -431,8 +796,23 @@ namespace link
         const Int32 rc = ::getaddrinfo(host.c_str(), portText.data(), &hints, &found);
         if(rc != 0 || found == nullptr)
         {
+            vlog::line(
+                "resolve %s FAILED after %lld ms: getaddrinfo %s",
+                host.c_str(),
+                monoMs() - dialMs,
+                wsaText(rc).c_str()
+            );
             *why = "cannot resolve " + host + " - is the board on this network?";
             return false;
+        }
+
+        // EVERY address the name produced, before any is tried. A name can
+        // answer with more than one, and a dial that failed on the first and
+        // succeeded on the second reads very differently from one that never
+        // had a second choice.
+        for(addrinfo* a = found; a != nullptr; a = a->ai_next)
+        {
+            vlog::line("resolved %s -> %s", host.c_str(), addressText(a->ai_addr).c_str());
         }
 
         const Int64 deadline = monoMs() + CONNECT_MS;
@@ -440,27 +820,39 @@ namespace link
 
         for(addrinfo* a = found; a != nullptr; a = a->ai_next)
         {
+            const Str target = addressText(a->ai_addr);
             const Int64 left = deadline - monoMs();
             if(left <= 0)
             {
+                vlog::line("connect %s skipped: the dial deadline is spent", target.c_str());
                 break;
             }
+            const Int64 triedMs = monoMs();
             const SOCKET fd = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
             if(fd == INVALID_SOCKET)
             {
+                const Str err = wsaText(::WSAGetLastError());
+                vlog::line("connect %s: socket() FAILED %s", target.c_str(), err.c_str());
                 continue;
             }
             setNonBlocking(fd);
 
             const Int32 len = static_cast<Int32>(a->ai_addrlen);
             const Int32 answer = ::connect(fd, a->ai_addr, len);
+            Int32 err = answer == 0 ? 0 : ::WSAGetLastError();
             Bool up = answer == 0;
-            if(!up && ::WSAGetLastError() == WSAEWOULDBLOCK)
+            if(!up && err == WSAEWOULDBLOCK)
             {
-                up = finishConnect(fd, left);
+                up = finishConnect(fd, left, err);
             }
             if(!up)
             {
+                vlog::line(
+                    "connect %s FAILED after %lld ms: %s",
+                    target.c_str(),
+                    monoMs() - triedMs,
+                    wsaText(err).c_str()
+                );
                 ::closesocket(fd);
                 continue;
             }
@@ -469,10 +861,24 @@ namespace link
             c.tcp = fd;
             c.rx.assign(RX_BYTES, 0);
             c.rxUsed = 0;
+            c.journal.openedMs = monoMs();
+            vlog::line(
+                "connected %s -> %s in %lld ms, %lld ms after the dial began",
+                endpointText(fd, false).c_str(),
+                endpointText(fd, true).c_str(),
+                monoMs() - triedMs,
+                monoMs() - dialMs
+            );
             ::freeaddrinfo(found);
             return true;
         }
 
+        vlog::line(
+            "dial %s FAILED after %lld ms: %s",
+            host.c_str(),
+            monoMs() - dialMs,
+            why->c_str()
+        );
         ::freeaddrinfo(found);
         return false;
     }
@@ -487,6 +893,7 @@ namespace link
         const SOCKET fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if(fd == INVALID_SOCKET)
         {
+            vlog::line("UDP socket FAILED: %s", wsaText(::WSAGetLastError()).c_str());
             return false;
         }
         setNonBlocking(fd);
@@ -498,6 +905,7 @@ namespace link
         const sockaddr* anyAddr = reinterpret_cast<const sockaddr*>(&any);
         if(::bind(fd, anyAddr, static_cast<Int32>(sizeof(any))) != 0)
         {
+            vlog::line("UDP bind FAILED: %s", wsaText(::WSAGetLastError()).c_str());
             ::closesocket(fd);
             return false;
         }
@@ -507,12 +915,14 @@ namespace link
         sockaddr* gotAddr = reinterpret_cast<sockaddr*>(&got);
         if(::getsockname(fd, gotAddr, &gotLen) != 0)
         {
+            vlog::line("UDP getsockname FAILED: %s", wsaText(::WSAGetLastError()).c_str());
             ::closesocket(fd);
             return false;
         }
 
         c.udp = fd;
         c.udpPort = ::ntohs(got.sin_port);
+        vlog::line("UDP bound on local port %u", static_cast<UInt32>(c.udpPort));
         return true;
     }
 
@@ -531,6 +941,10 @@ namespace link
         sockaddr* peerAddr = reinterpret_cast<sockaddr*>(&peer);
         if(::getpeername(c.tcp, peerAddr, &len) != 0)
         {
+            vlog::line(
+                "UDP filter not applied: getpeername %s",
+                wsaText(::WSAGetLastError()).c_str()
+            );
             return;
         }
         if(peer.ss_family == AF_INET)
@@ -551,18 +965,35 @@ namespace link
         }
         else
         {
+            vlog::line(
+                "UDP filter not applied: TCP peer family %u",
+                static_cast<UInt32>(peer.ss_family)
+            );
             return;
         }
         // A UDP socket bound to AF_INET cannot be connected to an AF_INET6 peer;
         // when that happens the filter is simply not applied and the datagrams
         // are still CRC-checked like everything else.
         c.udpFiltered = ::connect(c.udp, peerAddr, len) == 0;
+
+        Str result = "connected - datagrams from anywhere else are dropped";
+        if(!c.udpFiltered)
+        {
+            result = "NOT connected (" + wsaText(::WSAGetLastError()) + ")";
+            result += c.haveBoardAddr ? " - CONTROL goes by sendto" : " - no address to send CONTROL to";
+        }
+        vlog::line(
+            "UDP pointed at the board %s: %s",
+            addressText(peerAddr).c_str(),
+            result.c_str()
+        );
     }
 
     // ---- pumping ------------------------------------------------------------
 
     [[nodiscard]] Bool pumpTcp(Conn& c, Session& s)
     {
+        Journal& j = c.journal;
         for(;;)
         {
             if(c.rxUsed >= c.rx.size())
@@ -570,26 +1001,47 @@ namespace link
                 // 512 KiB with no frame in it. MAX_PAYLOAD is 256 KiB, so this
                 // is not a big frame - it is a peer writing something that will
                 // never parse.
+                j.endedBy = "the 512 KiB receive ring filled with no frame in it";
                 return false;
             }
             Char* at = reinterpret_cast<Char*>(c.rx.data() + c.rxUsed);
             const Int32 want = static_cast<Int32>(c.rx.size() - c.rxUsed);
             const Int32 n = ::recv(c.tcp, at, want, 0);
+            ++j.wire.recvCalls;
             if(n == 0)
             {
+                ++j.wire.recvZero;
+                j.endedBy = "recv returned 0 - the board closed its end (FIN)";
                 return false;                     // orderly close from the board
             }
             if(n < 0)
             {
-                if(::WSAGetLastError() == WSAEWOULDBLOCK)
+                const Int32 err = ::WSAGetLastError();
+                if(err == WSAEWOULDBLOCK)
                 {
+                    ++j.wire.recvWouldBlock;
                     return true;
                 }
+                ++j.wire.recvErrors;
+                j.endedBy = "recv failed " + wsaText(err);
                 return false;
             }
 
+            // THE GAP BETWEEN TWO RECEIVES THAT RETURNED BYTES. This is the
+            // number that says whether board->viewer data stopped arriving at
+            // the socket or arrived and was not acted on: the decode below and
+            // the PONG after it both hang off this moment.
+            const Int64 nowMs = monoMs();
+            if(j.lastRecvMs > 0 && nowMs - j.lastRecvMs > j.wire.worstRecvGapMs)
+            {
+                j.wire.worstRecvGapMs = nowMs - j.lastRecvMs;
+            }
+            j.lastRecvMs = nowMs;
+            j.wire.rxBytes += static_cast<UInt64>(n);
+            j.rxTotal += static_cast<UInt64>(n);
+
             c.rxUsed += static_cast<Size>(n);
-            const Size used = ingestBytes(s, c.rx.data(), c.rxUsed, monoMs());
+            const Size used = ingestBytes(s, c.rx.data(), c.rxUsed, nowMs, &j.heard);
             if(used > 0)
             {
                 std::memmove(c.rx.data(), c.rx.data() + used, c.rxUsed - used);
@@ -616,8 +1068,19 @@ namespace link
             const Int32 n = ::recvfrom(c.udp, at, cap, 0, nullptr, nullptr);
             if(n <= 0)
             {
+                // WOULDBLOCK is a drained socket. Anything else is counted:
+                // Windows reports an ICMP port-unreachable for an EARLIER
+                // datagram here, as 10054 on the next receive - which is the
+                // board saying its UDP port is not open.
+                const Int32 err = n < 0 ? ::WSAGetLastError() : 0;
+                if(n < 0 && err != WSAEWOULDBLOCK)
+                {
+                    ++c.journal.wire.udpRxErrors;
+                    c.journal.udpRxError = err;
+                }
                 return;
             }
+            ++c.journal.wire.udpRx;
             // One datagram is one frame. take() checks the CRC, so a truncated
             // or forged datagram is dropped here rather than believed.
             bibowire::Frame f;
@@ -625,13 +1088,44 @@ namespace link
             const Size len = static_cast<Size>(n);
             if(bibowire::take(dgram.data(), len, &f, &used) == bibowire::Take::TAKE_FRAME)
             {
-                ingestFrame(s, f, monoMs());
+                ingestFrame(s, f, monoMs(), &c.journal.heard);
+            }
+            else
+            {
+                ++c.journal.wire.udpRxBad;
             }
         }
     }
 
+    // EVERY PONG, with how long after its PING it left and exactly what the
+    // socket did with it. This is the line the board's "no PONG" is held
+    // against: a PONG logged here as taken whole by the socket and never seen by
+    // the board is a different fault from one this viewer never sent.
+    Void logPong(const Journal& j, UInt64 token, Bool encoded)
+    {
+        if(!encoded)
+        {
+            vlog::line("PONG token=%llu NOT SENT: the codec refused to encode it", token);
+            return;
+        }
+        Str after = "its PING's arrival was not recorded";
+        for(const HeardPing& p : j.heard.pings)
+        {
+            if(p.token == token)
+            {
+                after = numberText(monoMs() - p.atMs) + " ms after its PING was decoded";
+                break;
+            }
+        }
+        vlog::line("PONG token=%llu %s: %s", token, after.c_str(), sendText(j.lastSend).c_str());
+    }
+
     [[nodiscard]] Bool flushPongs(Conn& c, Session& s)
     {
+        if(s.pongsDue.size() > c.journal.wire.worstPongsDue)
+        {
+            c.journal.wire.worstPongsDue = s.pongsDue.size();
+        }
         Bool ok = true;
         for(const bibowire::Ping& ping : s.pongsDue)
         {
@@ -641,7 +1135,9 @@ namespace link
             // the board only ever compares with itself.
             pong.senderMonoUs = static_cast<UInt64>(monoMs()) * 1000u;
             const Size n = bibowire::writePing(pong, body.data(), body.size());
-            if(n == 0 || !sendFrame(c, bibowire::Type::TYPE_PONG, body.data(), n))
+            const Bool sent = n != 0 && sendFrame(c, bibowire::Type::TYPE_PONG, body.data(), n);
+            logPong(c.journal, ping.token, n != 0);
+            if(!sent)
             {
                 ok = false;
                 break;
@@ -671,7 +1167,9 @@ namespace link
             return false;
         }
         notePingSent(s, ping.token, nowMs);
-        return sendFrame(c, bibowire::Type::TYPE_PING, body.data(), n);
+        const Bool sent = sendFrame(c, bibowire::Type::TYPE_PING, body.data(), n);
+        vlog::line("PING token=%llu: %s", ping.token, sendText(c.journal.lastSend).c_str());
+        return sent;
     }
 
     [[nodiscard]] Bool sendHello(Conn& c, const Str& name, Bool wantSlot)
@@ -709,9 +1207,22 @@ namespace link
         const Size n = bibowire::writeHello(hello, body.data(), body.size());
         if(n == 0)
         {
+            vlog::line("HELLO NOT SENT: the codec refused to encode it");
             return false;
         }
-        return sendFrame(c, bibowire::Type::TYPE_HELLO, body.data(), n);
+        const Bool sent = sendFrame(c, bibowire::Type::TYPE_HELLO, body.data(), n);
+        c.journal.helloAtMs = monoMs();
+        vlog::line(
+            "HELLO name=\"%s\" wantControl=%u udpPort=%u controlHz=%u proto %u.%u: %s",
+            hello.name.c_str(),
+            static_cast<UInt32>(hello.wantControl),
+            static_cast<UInt32>(hello.viewerUdpPort),
+            static_cast<UInt32>(hello.controlHz),
+            static_cast<UInt32>(hello.protoMajor),
+            static_cast<UInt32>(hello.protoMinor),
+            sendText(c.journal.lastSend).c_str()
+        );
+        return sent;
     }
 
     // SUBSCRIBE, and only when it would say something new.
@@ -775,7 +1286,16 @@ namespace link
         {
             return false;
         }
-        if(!sendFrame(c, bibowire::Type::TYPE_SUBSCRIBE, body.data(), n))
+        const Bool sent = sendFrame(c, bibowire::Type::TYPE_SUBSCRIBE, body.data(), n);
+        vlog::line(
+            "SUBSCRIBE mask=0x%08X camFps=%u scanDivisor=%u sessionId=%u: %s",
+            sub.typeMask,
+            static_cast<UInt32>(sub.camFps),
+            static_cast<UInt32>(sub.scanDivisor),
+            sub.sessionId,
+            sendText(c.journal.lastSend).c_str()
+        );
+        if(!sent)
         {
             return false;
         }
@@ -834,6 +1354,15 @@ namespace link
         // merely early, they are unsendable.
         if(!s.haveWelcome)
         {
+            for(const bibowire::Command& cmd : outbound)
+            {
+                vlog::line(
+                    "COMMAND cmdId=%u verb=%u (%s) DROPPED: no WELCOME on this connection yet",
+                    cmd.cmdId,
+                    static_cast<UInt32>(cmd.verb),
+                    verbText(cmd.verb)
+                );
+            }
             owner.commandsDropped.fetch_add(static_cast<UInt32>(outbound.size()));
             return true;
         }
@@ -855,17 +1384,53 @@ namespace link
                 // The codec refused to encode it. That is a bug in the caller's
                 // arguments rather than a link fault, so it is counted as a
                 // drop and the connection is left alone.
+                vlog::line(
+                    "COMMAND cmdId=%u verb=%u (%s) DROPPED: the codec refused its arguments",
+                    cmd.cmdId,
+                    static_cast<UInt32>(cmd.verb),
+                    verbText(cmd.verb)
+                );
                 owner.commandsDropped.fetch_add(1u);
                 continue;
             }
-            if(!sendFrame(c, bibowire::Type::TYPE_COMMAND, body.data(), n))
+            const Bool sent = sendFrame(c, bibowire::Type::TYPE_COMMAND, body.data(), n);
+            vlog::line(
+                "COMMAND cmdId=%u verb=%u (%s) args %u/%u/%u armEpoch=%u sessionId=%u: %s",
+                cmd.cmdId,
+                static_cast<UInt32>(cmd.verb),
+                verbText(cmd.verb),
+                static_cast<UInt32>(cmd.arg0),
+                static_cast<UInt32>(cmd.arg1),
+                static_cast<UInt32>(cmd.arg2),
+                static_cast<UInt32>(cmd.armEpoch),
+                cmd.sessionId,
+                sendText(c.journal.lastSend).c_str()
+            );
+            if(!sent)
             {
                 // This one and everything behind it die with the connection, by
                 // the same rule: the caller is told by the counter, not by a
                 // retry onto a socket that has just failed.
                 const Size left = outbound.size() - i;
+                if(left > 1u)
+                {
+                    vlog::line(
+                        "%zu COMMAND(s) queued behind it DROPPED with the connection",
+                        left - 1u
+                    );
+                }
                 owner.commandsDropped.fetch_add(static_cast<UInt32>(left));
                 return false;
+            }
+
+            // Remembered, so its CMDACK's line can say how long the board took.
+            CmdOut out;
+            out.cmdId = cmd.cmdId;
+            out.sentMs = monoMs();
+            c.journal.commandsOut.push_back(out);
+            while(c.journal.commandsOut.size() > MAX_PENDING_COMMANDS)
+            {
+                c.journal.commandsOut.erase(c.journal.commandsOut.begin());
             }
         }
         return true;
@@ -893,24 +1458,75 @@ namespace link
     // One datagram onto the wire. `send` when the socket was connected to the
     // board (the filter that keeps strangers out), `sendto` when it could not
     // be - an address is better than not sending at all.
+    //
+    // A failure leaves its WSA code in the journal for the log to name.
     [[nodiscard]] Bool sendControlUdp(Conn& c, const UInt8* frame, Size len)
     {
         if(c.udp == INVALID_SOCKET)
         {
+            c.journal.udpError = WSAENOTSOCK;
             return false;
         }
         const Char* at = reinterpret_cast<const Char*>(frame);
         const Int32 want = static_cast<Int32>(len);
+        Int32 n = 0;
         if(c.udpFiltered)
         {
-            return ::send(c.udp, at, want, 0) == want;
+            n = ::send(c.udp, at, want, 0);
         }
-        if(!c.haveBoardAddr)
+        else if(c.haveBoardAddr)
         {
+            const sockaddr* to = reinterpret_cast<const sockaddr*>(&c.boardAddr);
+            n = ::sendto(c.udp, at, want, 0, to, c.boardAddrLen);
+        }
+        else
+        {
+            // No address the board is known to be at. Not a socket error at
+            // all, so it is named as the one Winsock has for exactly this.
+            c.journal.udpError = WSAEDESTADDRREQ;
             return false;
         }
-        const sockaddr* to = reinterpret_cast<const sockaddr*>(&c.boardAddr);
-        return ::sendto(c.udp, at, want, 0, to, c.boardAddrLen) == want;
+        if(n != want)
+        {
+            c.journal.udpError = n < 0 ? ::WSAGetLastError() : 0;
+            return false;
+        }
+        return true;
+    }
+
+    // CONTROL ON CHANGE, never per datagram. The stream is twenty identical
+    // frames a second, and what a person reading the log needs is the moment the
+    // operator's hand did something - or the moment the wire stopped agreeing
+    // with it: an epoch that moved, a transport that fell back.
+    Void noteControl(Journal& j, const bibowire::Control& m, Bool onTcp)
+    {
+        const bibowire::Control& was = j.controlLine;
+        const Bool same = j.haveControlLine
+                          && was.buttons == m.buttons
+                          && was.steerMilli == m.steerMilli
+                          && was.throttleMilli == m.throttleMilli
+                          && was.assumedMode == m.assumedMode
+                          && was.armEpoch == m.armEpoch
+                          && j.controlLineOnTcp == onTcp;
+        if(same)
+        {
+            return;
+        }
+        j.haveControlLine = true;
+        j.controlLine = m;
+        j.controlLineOnTcp = onTcp;
+        vlog::line(
+            "CONTROL now buttons=0x%04X%s%s steer=%d throttle=%d assumedMode=%u armEpoch=%u via %s, seq %u",
+            static_cast<UInt32>(m.buttons),
+            (m.buttons & bibowire::BUTTON_ENABLE) != 0u ? " ENABLE" : "",
+            (m.buttons & bibowire::BUTTON_ESTOP) != 0u ? " ESTOP" : "",
+            static_cast<Int32>(m.steerMilli),
+            static_cast<Int32>(m.throttleMilli),
+            static_cast<UInt32>(m.assumedMode),
+            static_cast<UInt32>(m.armEpoch),
+            onTcp ? "TCP" : "UDP",
+            m.seq
+        );
     }
 
     // EVERY PERIOD, CHANGED OR NOT, for as long as this viewer holds the slot.
@@ -952,6 +1568,7 @@ namespace link
 
         c.ctlSeq = at.seq;
         say.controlSeq = at.seq;
+        noteControl(c.journal, m, say.controlOnTcp);
 
         if(say.controlOnTcp)
         {
@@ -962,6 +1579,8 @@ namespace link
             // connection failing - unlike the datagram below.
             if(!sendFrame(c, bibowire::Type::TYPE_CONTROL, body.data(), n))
             {
+                const Str sent = sendText(c.journal.lastSend);
+                vlog::line("CONTROL seq=%u on TCP FAILED: %s", at.seq, sent.c_str());
                 ++say.controlFailed;
                 return false;
             }
@@ -995,8 +1614,21 @@ namespace link
         if(!sendControlUdp(c, frame.data(), total))
         {
             ++say.controlFailed;
+            ++c.journal.wire.udpTxFailed;
+            // THE FIRST ONE IN WORDS, the rest in the summary's count: at 20 Hz
+            // a line per failure would bury the keepalive lines this log is for.
+            if(!c.journal.saidUdpFailure)
+            {
+                c.journal.saidUdpFailure = true;
+                vlog::line(
+                    "CONTROL datagram seq=%u did not leave: %s - further failures are only counted",
+                    at.seq,
+                    wsaText(c.journal.udpError).c_str()
+                );
+            }
             return true;
         }
+        ++c.journal.wire.udpTx;
         ++say.controlSent;
         return true;
     }
@@ -1022,10 +1654,13 @@ namespace link
         // Best effort, and the answer is consumed rather than cast away: this
         // socket is closing either way, and the board's own timers cover a LEAVE
         // that never made it onto the wire.
-        if(!sendFrame(c, bibowire::Type::TYPE_LEAVE, body.data(), n))
-        {
-            return;
-        }
+        const Bool sent = sendFrame(c, bibowire::Type::TYPE_LEAVE, body.data(), n);
+        vlog::line(
+            "LEAVE sessionId=%u %s: %s",
+            leave.sessionId,
+            sent ? "sent" : "NOT sent",
+            sendText(c.journal.lastSend).c_str()
+        );
     }
 
     // ---- the sentence the panel shows ---------------------------------------
@@ -1116,8 +1751,440 @@ namespace link
         }
     }
 
+    // ---- the round-trip log, the worker's side ------------------------------
+
+    // Everything the decode told the log this pass, into the file. Board PINGs
+    // STAY in the Heard until flushPongs has answered them, because each PONG's
+    // line needs the moment its PING arrived.
+    Void drainHeard(Conn& c, const Session& s)
+    {
+        Journal& j = c.journal;
+        Heard& h = j.heard;
+
+        for(const HeardPing& p : h.pings)
+        {
+            vlog::line(
+                "board PING token=%llu seq=%u - the link was quiet %lld ms before it",
+                p.token,
+                static_cast<UInt32>(p.seq),
+                p.quietMs
+            );
+        }
+        for(const HeardPong& p : h.pongs)
+        {
+            if(p.matched)
+            {
+                vlog::line("PONG received token=%llu rtt %lld ms", p.token, p.rttMs);
+            }
+            else
+            {
+                vlog::line(
+                    "PONG received token=%llu matches no outstanding PING - ignored",
+                    p.token
+                );
+            }
+        }
+        for(const Ack& a : h.acks)
+        {
+            Str after = "its send was not recorded";
+            for(Size i = 0; i < j.commandsOut.size(); ++i)
+            {
+                if(j.commandsOut[i].cmdId == a.ack.cmdId)
+                {
+                    after = numberText(a.atMs - j.commandsOut[i].sentMs) + " ms after it was sent";
+                    j.commandsOut.erase(j.commandsOut.begin() + static_cast<ISize>(i));
+                    break;
+                }
+            }
+            vlog::line(
+                "CMDACK cmdId=%u verb=%u (%s) result=%u (%s) armEpoch=%u, %s: \"%s\"",
+                a.ack.cmdId,
+                static_cast<UInt32>(a.ack.verb),
+                verbText(a.ack.verb),
+                static_cast<UInt32>(a.ack.result),
+                ackResultName(a.ack.result),
+                static_cast<UInt32>(a.ack.armEpoch),
+                after.c_str(),
+                a.ack.text.c_str()
+            );
+        }
+        for(const Note& e : h.events)
+        {
+            vlog::line("EVENT %s: %s", severityText(e.severity), e.text.c_str());
+        }
+        h.pongs.clear();
+        h.acks.clear();
+        h.events.clear();
+
+        // THE FIRST OF EACH KIND in words, and every one after it only in the
+        // summary's totals - a stream going bad would otherwise write a line
+        // for every byte it could not read.
+        if(h.bodiesRefused > 0u && !j.saidRefused)
+        {
+            j.saidRefused = true;
+            vlog::line(
+                "reader REFUSED a %s frame (tag 0x%02X): its body would not decode",
+                typeText(h.lastRefusedType),
+                static_cast<UInt32>(h.lastRefusedType)
+            );
+        }
+        if(h.unknownTypes > 0u && !j.saidUnknown)
+        {
+            j.saidUnknown = true;
+            vlog::line(
+                "reader skipped a frame of UNKNOWN tag 0x%02X",
+                static_cast<UInt32>(h.lastUnknownType)
+            );
+        }
+        if(h.resyncs > 0u && !j.saidResync)
+        {
+            j.saidResync = true;
+            vlog::line(
+                "reader RESYNCED past %u byte(s) of junk - a corrupted frame lands here",
+                h.resyncBytes
+            );
+        }
+        if(h.framingRefused > 0u && !j.saidFraming)
+        {
+            j.saidFraming = true;
+            vlog::line("reader refused a frame header on TCP (TOO_BIG or BAD_FLAG)");
+        }
+        if(h.seqJumps > 0u && !j.saidSeqJump)
+        {
+            j.saidSeqJump = true;
+            vlog::line(
+                "board TCP seq jumped %u -> %u",
+                static_cast<UInt32>(h.jumpFrom),
+                static_cast<UInt32>(h.jumpTo)
+            );
+        }
+        if(h.overflow > 0u && !j.saidOverflow)
+        {
+            j.saidOverflow = true;
+            vlog::line(
+                "more than %zu frames of one kind in one pass - the rest were not logged",
+                HEARD_MAX
+            );
+        }
+        if(s.haveBye && !j.saidBye)
+        {
+            j.saidBye = true;
+            vlog::line(
+                "BYE reason=%u (%s): \"%s\"",
+                static_cast<UInt32>(s.byeReason),
+                reasonText(s.byeReason),
+                s.byeText.c_str()
+            );
+        }
+    }
+
+    // The kernel's own account of the TCP connection - what no counter in this
+    // file can see: bytes the board has not acknowledged, retransmissions,
+    // timeout episodes, the windows both ends are offering. When the board stops
+    // hearing this viewer while these say every byte left and was acknowledged,
+    // the fault is not in this process.
+    Void appendTcpInfo(Str& out, SOCKET fd)
+    {
+        u_long queued = 0;
+        if(::ioctlsocket(fd, FIONREAD, &queued) == 0)
+        {
+            vlog::append(out, " | kernel rx queue %u B", static_cast<UInt32>(queued));
+        }
+#ifdef SIO_TCP_INFO
+        DWORD version = 0;
+        TCP_INFO_v0 info = {};
+        DWORD got = 0;
+        const Int32 rc = ::WSAIoctl(
+            fd,
+            SIO_TCP_INFO,
+            &version,
+            static_cast<DWORD>(sizeof(version)),
+            &info,
+            static_cast<DWORD>(sizeof(info)),
+            &got,
+            nullptr,
+            nullptr
+        );
+        if(rc != 0)
+        {
+            out += " | tcp_info unavailable: " + wsaText(::WSAGetLastError());
+            return;
+        }
+        vlog::append(
+            out,
+            " | tcp rtt %u us (min %u), in flight %u B, retrans %u B (%u fast), timeouts %u",
+            static_cast<UInt32>(info.RttUs),
+            static_cast<UInt32>(info.MinRttUs),
+            static_cast<UInt32>(info.BytesInFlight),
+            static_cast<UInt32>(info.BytesRetrans),
+            static_cast<UInt32>(info.FastRetrans),
+            static_cast<UInt32>(info.TimeoutEpisodes)
+        );
+        vlog::append(
+            out,
+            ", dup acks %u, cwnd %u, sndwnd %u, rcvwnd %u, rcvbuf %u, kernel in %llu B out %llu B",
+            static_cast<UInt32>(info.DupAcksIn),
+            static_cast<UInt32>(info.Cwnd),
+            static_cast<UInt32>(info.SndWnd),
+            static_cast<UInt32>(info.RcvWnd),
+            static_cast<UInt32>(info.RcvBuf),
+            static_cast<UInt64>(info.BytesIn),
+            static_cast<UInt64>(info.BytesOut)
+        );
+#else
+        // SAID rather than left out, so a reader never wonders whether these
+        // numbers were zero or simply never asked for.
+        out += " | tcp_info: SIO_TCP_INFO is not in this Windows SDK";
+#endif
+    }
+
+    // ONCE A SECOND, the socket half in ONE line. One rather than several, so a
+    // search for the moment the board said "no PONG" lands on everything this
+    // end knew about that second at once.
+    Void logSummary(Conn& c, const Session& s, const Report& say, Int64 nowMs)
+    {
+        Journal& j = c.journal;
+        Wire& w = j.wire;
+        const Heard& h = j.heard;
+
+        Str out;
+        out.reserve(1024);
+        vlog::append(
+            out,
+            "summary %lld ms: tcp rx %llu B, tx %llu B",
+            nowMs - w.windowMs,
+            w.rxBytes,
+            w.txBytes
+        );
+
+        out += " | frames in";
+        Bool any = false;
+        for(Size i = 0; i < h.byType.size(); ++i)
+        {
+            const UInt32 got = h.byType[i] - j.byTypeAtSummary[i];
+            if(got == 0u)
+            {
+                continue;
+            }
+            any = true;
+            const UInt8 tag = static_cast<UInt8>(i);
+            if(bibowire::knownType(tag))
+            {
+                vlog::append(out, " %s=%u", typeText(tag), got);
+            }
+            else
+            {
+                vlog::append(out, " 0x%02X=%u", static_cast<UInt32>(tag), got);
+            }
+        }
+        if(!any)
+        {
+            out += " NONE";
+        }
+        j.byTypeAtSummary = h.byType;
+
+        const Str lastByte = j.lastRecvMs > 0
+            ? numberText(nowMs - j.lastRecvMs) + " ms ago"
+            : Str("never");
+        vlog::append(
+            out,
+            " | recv %u calls (%u would-block, %u zero, %u error), worst gap %lld ms, last byte %s",
+            w.recvCalls,
+            w.recvWouldBlock,
+            w.recvZero,
+            w.recvErrors,
+            w.worstRecvGapMs,
+            lastByte.c_str()
+        );
+        vlog::append(
+            out,
+            " | loop %u passes, worst %lld ms (select %lld recv %lld log %lld send %lld publish %lld)",
+            w.passes,
+            w.worstPassMs,
+            w.worstSplit.selectMs,
+            w.worstSplit.recvMs,
+            w.worstSplit.logMs,
+            w.worstSplit.sendMs,
+            w.worstSplit.publishMs
+        );
+        // NO OUTBOUND QUEUE, said rather than left as a missing number: sendAll
+        // blocks for up to SEND_BUDGET_MS until the socket takes the whole
+        // frame, so what would be a backlog here shows up as a slow send instead
+        // - and the kernel's own unacknowledged bytes are in tcp_info below.
+        vlog::append(
+            out,
+            " | send %u (short %u, would-block %u, failed %u), worst %lld ms, no outbound queue",
+            w.sends,
+            w.sendShort,
+            w.sendWouldBlock,
+            w.sendFailed,
+            w.worstSendMs
+        );
+        vlog::append(
+            out,
+            " | udp out %u (failed %u), in %u (bad %u, errors %u, last %d)",
+            w.udpTx,
+            w.udpTxFailed,
+            w.udpRx,
+            w.udpRxBad,
+            w.udpRxErrors,
+            j.udpRxError
+        );
+        vlog::append(
+            out,
+            " | control %s seq %u, %u sent %u failed this connection%s",
+            say.controlOnTcp ? "TCP" : "UDP",
+            c.ctlSeq,
+            say.controlSent,
+            say.controlFailed,
+            holdsSlot(s) ? "" : " (slot not held - none sent)"
+        );
+        if(s.haveControl)
+        {
+            const UInt8 dm = s.control.deadman;
+            CharSeq dmName = "?";
+            if(dm <= static_cast<UInt8>(bibowire::deadman::State::STATE_ESTOP))
+            {
+                dmName = bibowire::deadman::stateName(static_cast<bibowire::deadman::State>(dm));
+            }
+            vlog::append(
+                out,
+                " | ctlstate deadman %u (%s), refuse %s, ackSeq %u, armEpoch %u",
+                static_cast<UInt32>(dm),
+                dmName,
+                bibowire::refuseName(s.control.refuse),
+                s.control.ackSeq,
+                static_cast<UInt32>(s.control.armEpoch)
+            );
+            vlog::append(
+                out,
+                ", armed %u, holder %u, age %lld ms",
+                static_cast<UInt32>(s.control.armed),
+                static_cast<UInt32>(s.control.holder),
+                nowMs - s.controlAtMs
+            );
+        }
+        else
+        {
+            out += " | ctlstate NEVER";
+        }
+        vlog::append(
+            out,
+            " | pongsDue worst %zu, own PINGs unanswered %zu",
+            w.worstPongsDue,
+            s.pingsOut.size()
+        );
+        vlog::append(
+            out,
+            " | reader totals: refused %u, unknown %u, resync %u B in %u, framing %u, seq jumps %u",
+            h.bodiesRefused,
+            h.unknownTypes,
+            h.resyncBytes,
+            h.resyncs,
+            h.framingRefused,
+            h.seqJumps
+        );
+        appendTcpInfo(out, c.tcp);
+        vlog::line("%s", out.c_str());
+
+        w = Wire();
+        w.windowMs = nowMs;
+    }
+
+    Void notePass(Wire& w, const PassSplit& split)
+    {
+        ++w.passes;
+        const Int64 total = split.selectMs + split.recvMs + split.logMs + split.sendMs + split.publishMs;
+        if(total > w.worstPassMs)
+        {
+            w.worstPassMs = total;
+            w.worstSplit = split;
+        }
+    }
+
+    Void logWelcome(const Conn& c, const Session& s)
+    {
+        const bibowire::Welcome& w = s.welcome;
+        CharSeq slot = "REFUSED";
+        if(w.accepted == 1u)
+        {
+            slot = "control is yours";
+        }
+        else if(w.accepted == 2u)
+        {
+            slot = "observer";
+        }
+        const Int64 afterMs = c.journal.helloAtMs > 0 ? monoMs() - c.journal.helloAtMs : -1;
+        vlog::line(
+            "WELCOME %lld ms after HELLO: accepted=%u (%s) refusal=%u sessionId=%u armEpoch=%u",
+            afterMs,
+            static_cast<UInt32>(w.accepted),
+            slot,
+            static_cast<UInt32>(w.refusal),
+            w.sessionId,
+            static_cast<UInt32>(w.armEpoch)
+        );
+        vlog::line(
+            "WELCOME bootId=0x%08X caps=0x%02X proto %u.%u board=\"%s\" text=\"%s\"",
+            w.bootId,
+            static_cast<UInt32>(w.capabilities),
+            static_cast<UInt32>(w.protoMajor),
+            static_cast<UInt32>(w.protoMinor),
+            w.boardName.c_str(),
+            w.text.c_str()
+        );
+        vlog::line(
+            "WELCOME controlUdpPort=%u controlPeriod %u ms, stale %u ms, dead %u ms",
+            static_cast<UInt32>(w.controlUdpPort),
+            static_cast<UInt32>(w.controlPeriodMs),
+            static_cast<UInt32>(w.staleMs),
+            static_cast<UInt32>(w.deadMs)
+        );
+    }
+
+    Void logClose(const Conn& c, const Session& s, const Str& why, Int64 nowMs, Bool quitting)
+    {
+        const Journal& j = c.journal;
+        const Str reason = quitting ? Str("this viewer disconnected") : why;
+        const Int64 livedMs = j.openedMs > 0 ? nowMs - j.openedMs : 0;
+        vlog::line(
+            "connection CLOSED: %s%s%s - it lived %lld ms, rx %llu B, tx %llu B, %u frames",
+            reason.c_str(),
+            j.endedBy.empty() ? "" : " - ",
+            j.endedBy.c_str(),
+            livedMs,
+            j.rxTotal,
+            j.txTotal,
+            s.frames
+        );
+        if(!j.lastSend.ok && j.lastSend.offered > 0u)
+        {
+            vlog::line("the last send before the close: %s", sendText(j.lastSend).c_str());
+        }
+    }
+
+    // The reconnect schedule's next wait, said out loud - the attempt, the base
+    // and the jittered answer - because "why did it take four seconds to come
+    // back" is a question the log should answer without arithmetic.
+    [[nodiscard]] Int32 retryDelay(Int32 attempt, UInt32 seed, const Str& why)
+    {
+        const Int32 base = backoffBaseMs(attempt);
+        const Int32 wait = jittered(base, seed);
+        vlog::line(
+            "reconnect attempt %d in %d ms (base %d) - %s",
+            attempt,
+            wait,
+            base,
+            why.c_str()
+        );
+        return wait;
+    }
+
     Void runWorker(Client* c)
     {
+        vlog::nameThread("net");
+        vlog::line("worker started for %s port %u", c->host.c_str(), static_cast<UInt32>(c->port));
+
         Conn conn;
         Session live;
         Int32 attempt = 0;
@@ -1147,7 +2214,7 @@ namespace link
                 dropConn(conn);
                 ++attempt;
                 seed = stir(seed);
-                waitToRetry(*c, live, jittered(backoffBaseMs(attempt), seed), why);
+                waitToRetry(*c, live, retryDelay(attempt, seed, why), why);
                 continue;
             }
 
@@ -1168,6 +2235,7 @@ namespace link
                 // socket for a datagram to leave by at all, so the measurement
                 // has nothing to measure and the answer is already known.
                 say.controlOnTcp = true;
+                vlog::line("CONTROL goes to TCP from the first datagram: there is no UDP socket");
             }
             say.phase = Phase::PHASE_CONNECTING;
             say.status = "connected to " + c->host;
@@ -1186,7 +2254,7 @@ namespace link
                 waitToRetry(
                     *c,
                     live,
-                    jittered(backoffBaseMs(attempt), seed),
+                    retryDelay(attempt, seed, "could not send HELLO"),
                     "could not send HELLO"
                 );
                 continue;
@@ -1208,8 +2276,18 @@ namespace link
             Int64 welcomeAtMs = 0;
             why = "the board closed the connection";
 
+            // The summary's first second starts with the connection.
+            conn.journal.wire.windowMs = monoMs();
+
             while(!c->quit.load())
             {
+                // WHERE EACH PASS SPENDS ITS TIME, in the same milliseconds as
+                // everything else here. A pass that took 500 ms in `send` is a
+                // socket that would not take a frame; one that took it in
+                // `publish` is this thread waiting on the UI's lock - and those
+                // are different fixes.
+                const Int64 passMs = monoMs();
+
                 fd_set reads;
                 FD_ZERO(&reads);
                 FD_SET(conn.tcp, &reads);
@@ -1223,20 +2301,37 @@ namespace link
                 const Int32 ready = ::select(0, &reads, nullptr, nullptr, &tv);
                 if(ready == SOCKET_ERROR)
                 {
+                    conn.journal.endedBy = "select failed " + wsaText(::WSAGetLastError());
                     why = "the connection failed";
                     break;
                 }
+                const Int64 selectedMs = monoMs();
 
                 const Bool hadWelcome = live.haveWelcome;
-                if(ready > 0 && FD_ISSET(conn.tcp, &reads) && !pumpTcp(conn, live))
-                {
-                    break;
-                }
-                if(ready > 0 && conn.udp != INVALID_SOCKET && FD_ISSET(conn.udp, &reads))
+
+                // PUMPED, THEN DRAINED INTO THE LOG, THEN JUDGED. The frames
+                // that arrived just before a close are the ones most worth
+                // reading, and breaking first would throw their lines away.
+                const Bool tcpReadable = ready > 0 && FD_ISSET(conn.tcp, &reads);
+                const Bool tcpAlive = !tcpReadable || pumpTcp(conn, live);
+                const Bool udpReadable = ready > 0 && conn.udp != INVALID_SOCKET
+                                         && FD_ISSET(conn.udp, &reads);
+                if(tcpAlive && udpReadable)
                 {
                     pumpUdp(conn, live);
                 }
-                if(!flushPongs(conn, live))
+                const Int64 receivedMs = monoMs();
+                drainHeard(conn, live);
+                const Int64 loggedMs = monoMs();
+                if(!tcpAlive)
+                {
+                    break;
+                }
+
+                const Bool answered = flushPongs(conn, live);
+                // Answered, so the PINGs' arrival times have done their job.
+                conn.journal.heard.pings.clear();
+                if(!answered)
                 {
                     why = "could not answer a PING";
                     break;
@@ -1258,6 +2353,14 @@ namespace link
                     // board's probe wants five of them inside 1000 ms.
                     welcomeAtMs = monoMs();
                     nextControlMs = welcomeAtMs;
+
+                    logWelcome(conn, live);
+                    if(!holdsSlot(live))
+                    {
+                        // One of the sentences behind "I cannot drive": an
+                        // observer's CONTROL stream is never sent at all.
+                        vlog::line("no control slot on this connection - no CONTROL is sent");
+                    }
                 }
 
                 // Re-asserted every pass, because the answer can change at any
@@ -1325,6 +2428,16 @@ namespace link
                    && now - welcomeAtMs > probeMs)
                 {
                     say.controlOnTcp = true;
+                    vlog::line(
+                        "CONTROL FALLS BACK TO TCP: no CTLSTATE %lld ms after WELCOME (window %lld ms)",
+                        now - welcomeAtMs,
+                        probeMs
+                    );
+                    vlog::line(
+                        "  UDP until then: CONTROL %u sent, %u failed",
+                        say.controlSent,
+                        say.controlFailed
+                    );
                     Note note;
                     note.severity = bibowire::Severity::SEVERITY_WARN;
                     note.text = "no CTLSTATE for " + numberText(now - welcomeAtMs)
@@ -1348,23 +2461,51 @@ namespace link
                     }
                 }
 
+                const Int64 sentMs = monoMs();
+
                 say.phase = live.haveWelcome ? Phase::PHASE_LIVE : Phase::PHASE_HANDSHAKING;
                 say.status = liveStatus(live, c->host, now);
                 say.retryInMs = 0;
                 publish(*c, say, live);
+
+                const Int64 publishedMs = monoMs();
+                PassSplit split;
+                split.selectMs = selectedMs - passMs;
+                split.recvMs = receivedMs - selectedMs;
+                split.logMs = loggedMs - receivedMs;
+                split.sendMs = sentMs - loggedMs;
+                split.publishMs = publishedMs - sentMs;
+                notePass(conn.journal.wire, split);
+
+                if(publishedMs - conn.journal.wire.windowMs >= SUMMARY_MS)
+                {
+                    logSummary(conn, live, say, publishedMs);
+                }
             }
 
-            if(c->quit.load())
+            // The LEAVE first when this viewer is the one leaving, so the close
+            // line below comes after everything that went on the wire. Then the
+            // partial second before the close - the second this log exists to
+            // catch - and the close itself, with its reason.
+            const Bool quitting = c->quit.load();
+            if(quitting)
             {
                 sendLeave(conn, live);
-                dropConn(conn);
+            }
+            const Int64 closedMs = monoMs();
+            logSummary(conn, live, say, closedMs);
+            logClose(conn, live, why, closedMs, quitting);
+            dropConn(conn);
+
+            if(quitting)
+            {
+                vlog::line("worker stopping: this viewer disconnected");
                 break;
             }
 
-            dropConn(conn);
             ++attempt;
             seed = stir(seed);
-            waitToRetry(*c, live, jittered(backoffBaseMs(attempt), seed), why);
+            waitToRetry(*c, live, retryDelay(attempt, seed, why), why);
         }
     }
 
@@ -2084,7 +3225,113 @@ namespace link
       ++s.unknownFrames;
   }
 
+  namespace
+  {
+
+    // Bounded, and what does not fit is counted rather than silently lost.
+    template<typename T>
+    Void keepHeard(Vec<T>& into, const T& item, UInt32& overflow)
+    {
+        if(into.size() >= HEARD_MAX)
+        {
+            ++overflow;
+            return;
+        }
+        into.push_back(item);
+    }
+
+  }
+
+  // A WRAPPER AROUND THE DECODE, not a change to it. The three-argument
+  // ingestFrame above is exactly what the suite holds to an answer, and threading
+  // a log through its fourteen early returns would put the log's bookkeeping
+  // inside the code it is meant to watch. Everything here is read before or
+  // after, from the frame and the session.
+  Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs, Heard* heard)
+  {
+      if(heard == nullptr)
+      {
+          ingestFrame(s, f, nowMs);
+          return;
+      }
+
+      const bibowire::Type type = f.head.type;
+      const UInt8 tag = static_cast<UInt8>(type);
+      ++heard->byType[tag];
+
+      // READ BEFORE the frame is ingested: ingesting overwrites lastFrameMs, and
+      // for a PONG it removes the very PING the answer is matched against.
+      const Int64 quietMs = nowMs - s.lastFrameMs;
+      const UInt32 refusedBefore = s.refusedFrames;
+      const UInt32 unknownBefore = s.unknownFrames;
+
+      // The token decoded a SECOND time - sixteen bytes, once a second - rather
+      // than threading the log through the decode it is watching.
+      const Bool keepalive = type == bibowire::Type::TYPE_PING || type == bibowire::Type::TYPE_PONG;
+      bibowire::Ping echo;
+      const Bool haveEcho = keepalive && bibowire::readPing(f.body, f.head.ver, &echo);
+      HeardPong pong;
+      pong.token = echo.token;
+      if(haveEcho && type == bibowire::Type::TYPE_PONG)
+      {
+          for(const PingOut& out : s.pingsOut)
+          {
+              if(out.token == echo.token)
+              {
+                  pong.matched = true;
+                  pong.rttMs = nowMs - out.sentMs;
+                  break;
+              }
+          }
+      }
+
+      ingestFrame(s, f, nowMs);
+
+      // UP, not CHANGED: a WELCOME from a restarted board clears the whole
+      // session, its counters included, and that is not a refusal.
+      if(s.refusedFrames > refusedBefore)
+      {
+          ++heard->bodiesRefused;
+          heard->lastRefusedType = tag;
+          return;
+      }
+      if(s.unknownFrames > unknownBefore)
+      {
+          ++heard->unknownTypes;
+          heard->lastUnknownType = tag;
+          return;
+      }
+
+      if(type == bibowire::Type::TYPE_PING && haveEcho)
+      {
+          HeardPing ping;
+          ping.token = echo.token;
+          ping.seq = f.head.seq;
+          ping.atMs = nowMs;
+          ping.quietMs = quietMs;
+          keepHeard(heard->pings, ping, heard->overflow);
+      }
+      else if(type == bibowire::Type::TYPE_PONG && haveEcho)
+      {
+          keepHeard(heard->pongs, pong, heard->overflow);
+      }
+      else if(type == bibowire::Type::TYPE_CMDACK && !s.acks.empty())
+      {
+          // Not refused, so the case pushed it, and the newest is last.
+          keepHeard(heard->acks, s.acks.back(), heard->overflow);
+      }
+      else if(type == bibowire::Type::TYPE_EVENT && !s.notes.empty())
+      {
+          keepHeard(heard->events, s.notes.back(), heard->overflow);
+      }
+  }
+
   Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 nowMs)
+  {
+      return ingestBytes(s, buf, len, nowMs, nullptr);
+  }
+
+  Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 nowMs, Heard* heard)
   {
       Size at = 0;
       while(at < len)
@@ -2094,7 +3341,21 @@ namespace link
           const bibowire::Take got = bibowire::take(buf + at, len - at, &f, &used);
           if(got == bibowire::Take::TAKE_FRAME)
           {
-              ingestFrame(s, f, nowMs);
+              // Here and never for a datagram: the TCP stream is the one whose
+              // seqs run as a sequence, and a datagram arrives outside it.
+              if(heard != nullptr)
+              {
+                  const UInt16 expected = static_cast<UInt16>(heard->lastSeq + 1u);
+                  if(heard->haveSeq && f.head.seq != expected)
+                  {
+                      ++heard->seqJumps;
+                      heard->jumpFrom = heard->lastSeq;
+                      heard->jumpTo = f.head.seq;
+                  }
+                  heard->haveSeq = true;
+                  heard->lastSeq = f.head.seq;
+              }
+              ingestFrame(s, f, nowMs, heard);
               at += used;
               continue;
           }
@@ -2103,6 +3364,11 @@ namespace link
               // Junk on a checksummed stream that is never counted is a fault
               // nobody discovers.
               s.resyncBytes += static_cast<UInt32>(used);
+              if(heard != nullptr)
+              {
+                  ++heard->resyncs;
+                  heard->resyncBytes += static_cast<UInt32>(used);
+              }
               at += used;
               continue;
           }
@@ -2115,6 +3381,10 @@ namespace link
           // can never wedge on it - the connection is torn down by the silence
           // watchdog if the peer keeps it up.
           ++s.refusedFrames;
+          if(heard != nullptr)
+          {
+              ++heard->framingRefused;
+          }
           at += 1;
       }
       return at;
@@ -2170,18 +3440,27 @@ namespace link
   {
       if(c.running.load())
       {
+          vlog::line("link open ignored: a worker is already running");
           return false;
       }
+      const Str name = host == nullptr ? Str("bibobox.local") : Str(host);
+      vlog::line(
+          "link open: %s port %u, control slot wanted: %s",
+          name.c_str(),
+          static_cast<UInt32>(port),
+          c.wantSlot.load() ? "yes" : "no"
+      );
       WSADATA wsa;
       if(::WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
       {
+          vlog::line("link open FAILED: WSAStartup refused");
           LockGuard<Mutex> held(c.lock);
           c.shared.phase = Phase::PHASE_IDLE;
           c.shared.status = "Winsock would not start";
           return false;
       }
 
-      c.host = host == nullptr ? Str("bibobox.local") : Str(host);
+      c.host = name;
       c.port = port;
       c.quit.store(false);
       c.running.store(true);
@@ -2201,11 +3480,14 @@ namespace link
       {
           return;
       }
+      vlog::line("link close: stopping the worker");
+      const Int64 askedMs = monoMs();
       c.quit.store(true);
       if(c.worker.joinable())
       {
           c.worker.join();
       }
+      vlog::line("link closed: the worker joined in %lld ms", monoMs() - askedMs);
       c.running.store(false);
       ::WSACleanup();
 
@@ -2288,36 +3570,63 @@ namespace link
 
   Void sendCommand(Client& c, bibowire::Verb verb, UInt8 arg0, UInt16 arg1, UInt16 arg2)
   {
-      LockGuard<Mutex> held(c.cmdLock);
-
       bibowire::Command cmd;
-      cmd.cmdId = c.nextCmdId;
-      cmd.verb = verb;
-      cmd.arg0 = arg0;
-      cmd.arg1 = arg1;
-      cmd.arg2 = arg2;
-      // sessionId and armEpoch are stamped by the worker at the moment of
-      // sending - see link.hxx. Left at their defaults here on purpose, so a
-      // reader of this function cannot mistake a snapshot for the connection.
-
-      ++c.nextCmdId;
-      if(c.nextCmdId == 0u)
+      Size waiting = 0;
+      UInt32 evicted = 0;
       {
-          // NEVER 0. Unreachable at any human rate - it is 4.2 billion
-          // deliberate acts - and written anyway, because the alternative is a
-          // rule enforced by an arithmetic coincidence.
-          c.nextCmdId = 1u;
+          LockGuard<Mutex> held(c.cmdLock);
+
+          cmd.cmdId = c.nextCmdId;
+          cmd.verb = verb;
+          cmd.arg0 = arg0;
+          cmd.arg1 = arg1;
+          cmd.arg2 = arg2;
+          // sessionId and armEpoch are stamped by the worker at the moment of
+          // sending - see link.hxx. Left at their defaults here on purpose, so a
+          // reader of this function cannot mistake a snapshot for the connection.
+
+          ++c.nextCmdId;
+          if(c.nextCmdId == 0u)
+          {
+              // NEVER 0. Unreachable at any human rate - it is 4.2 billion
+              // deliberate acts - and written anyway, because the alternative is
+              // a rule enforced by an arithmetic coincidence.
+              c.nextCmdId = 1u;
+          }
+
+          c.pending.push_back(cmd);
+          while(c.pending.size() > MAX_PENDING_COMMANDS)
+          {
+              // The OLDEST goes, and it is counted. A queue this deep means the
+              // worker is not draining, and in that case the newest intent is
+              // the one worth keeping - the same newest-wins rule the rest of
+              // this protocol follows.
+              c.pending.erase(c.pending.begin());
+              c.commandsDropped.fetch_add(1u);
+              ++evicted;
+          }
+          waiting = c.pending.size();
       }
 
-      c.pending.push_back(cmd);
-      while(c.pending.size() > MAX_PENDING_COMMANDS)
+      // Written AFTER the lock is released: a slow disk must never be the thing
+      // the worker waits on to take the next command off the queue.
+      vlog::line(
+          "COMMAND queued cmdId=%u verb=%u (%s) args %u/%u/%u, %zu waiting for the worker",
+          cmd.cmdId,
+          static_cast<UInt32>(verb),
+          verbText(verb),
+          static_cast<UInt32>(arg0),
+          static_cast<UInt32>(arg1),
+          static_cast<UInt32>(arg2),
+          waiting
+      );
+      if(evicted > 0u)
       {
-          // The OLDEST goes, and it is counted. A queue this deep means the
-          // worker is not draining, and in that case the newest intent is the
-          // one worth keeping - the same newest-wins rule the rest of this
-          // protocol follows.
-          c.pending.erase(c.pending.begin());
-          c.commandsDropped.fetch_add(1u);
+          vlog::line(
+              "COMMAND queue over %zu - the oldest %u DROPPED",
+              MAX_PENDING_COMMANDS,
+              evicted
+          );
       }
   }
 
@@ -2459,6 +3768,7 @@ namespace link
       // same object.
       const Str host = c.host;
       const UInt16 port = c.port;
+      vlog::line("link reconnect: %s port %u", host.c_str(), static_cast<UInt32>(port));
       close(c);
       return open(c, host.c_str(), port);
   }

@@ -40,6 +40,7 @@
 #include "camera.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
+#include "vlog.hxx"
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -764,6 +765,13 @@ static Void handleCameraInput(scene::Camera& cam)
 // ---------------------------------------------------------------------------
 Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
 {
+    // FIRST, before anything that can fail. This program has no console, so a
+    // window that would not open or a device that would not start is otherwise
+    // a process that simply vanished; the log is where it says why. See vlog.hxx
+    // for where the file goes.
+    vlog::open();
+    vlog::line("bibo viewer starting - built %s %s", __DATE__, __TIME__);
+
     ImGui_ImplWin32_EnableDpiAwareness();
 
     HMONITOR primary = ::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
@@ -809,6 +817,11 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     );
     if(!hwnd)
     {
+        vlog::line(
+            "no window: CreateWindowExW error %u - exiting",
+            static_cast<UInt32>(::GetLastError())
+        );
+        vlog::close();
         ::UnregisterClassW(wc.lpszClassName, hinstance);
         return 1;
     }
@@ -826,6 +839,8 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         ::DestroyWindow(hwnd);
         ::UnregisterClassW(wc.lpszClassName, hinstance);
         ::MessageBoxW(nullptr, L"Failed to create a Direct3D 11 device.", L"bibo viewer", MB_ICONERROR);
+        vlog::line("no Direct3D 11 device - exiting");
+        vlog::close();
         return 1;
     }
 
@@ -1007,5 +1022,10 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     cleanupDeviceD3D();
     ::DestroyWindow(hwnd);
     ::UnregisterClassW(wc.lpszClassName, hinstance);
+
+    // LAST, after the link has been joined, so the worker's closing lines - its
+    // final summary, the LEAVE, the close and its reason - are in the file.
+    vlog::line("viewer exiting");
+    vlog::close();
     return 0;
 }
