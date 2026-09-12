@@ -1444,10 +1444,44 @@ Int32 main(Int32 argc, Char** argv)
                 modeWord = "manual  nobody holding";
             }
 
-            if(dm.estopLatched || dm.deadman >= 2u || !dm.haveHolder || !haveCmd)
+            // THE ARM STATE, from the car rather than from this program's
+            // intention - replies.armed is parsed out of the Pico's own answer
+            // to the STEER this loop already sends. Shown because nothing on
+            // screen said it, and a disarmed ESC is indistinguishable from a
+            // broken throttle to anybody watching the car instead of the wire.
+            modeWord += replies.armed > 0 ? " armed" : " disarmed";
+
+            if(dm.estopLatched || dm.deadman >= 2u)
             {
+                // ESTOP or DEAD. Section 6's stop - neutral, disarm, release -
+                // and it deliberately does NOT recover on its own, because a
+                // link that came back is not the same fact as an operator who
+                // is ready. Re-arming is COMMAND ARM and nothing else.
                 heldSteerMilli = 0;
                 escLine = proto::stop();
+                sentSteerMilli = 0;
+                sentThrottleMilli = 0;
+            }
+            else if(!dm.haveHolder || !haveCmd)
+            {
+                // NOBODY HAS CONNECTED YET, which is not a fault and must not be
+                // answered like one. This sent proto::stop() as well, and STOP
+                // is neutral-DISARM-release: it undid --arm inside the first
+                // tick of every run and kept it undone, so by the time a viewer
+                // took the slot and pressed W the pilot was commanding a
+                // throttle the Pico had been disarmed out of and the firmware
+                // refused it - "ERR esc not armed", measured. Steering worked,
+                // throttle did not, and it read as a broken feature rather than
+                // as a disarmed ESC.
+                //
+                // Neutral holds the car still, keeps the Pico's own 400 ms
+                // deadman fed, and leaves the arm state alone for the operator
+                // who is about to arrive. The difference between the two
+                // branches is the difference between "stopped" and "not being
+                // driven", which are not the same thing.
+                heldSteerMilli = 0;
+                steerLine = proto::steer(0.0f);
+                escLine = proto::command("ESC", "NEUTRAL");
                 sentSteerMilli = 0;
                 sentThrottleMilli = 0;
             }
