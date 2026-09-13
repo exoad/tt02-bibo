@@ -11,12 +11,6 @@
 // built by a bibowire writeX and framed by bibowire::put, so the board and the
 // viewer cannot disagree about a field's offset while both still compile.
 //
-// It is shaped on feed.cxx and is deliberately SEPARATE from it. feed.cxx
-// moves LINES for the hub on scanwire::PORT, and it
-// must keep doing exactly that - the text feed is the field-debugging story
-// (docs/bibowire.md section 8) and deleting it to save a socket would trade a
-// thing a person can read from a phone for one they cannot.
-//
 // ---------------------------------------------------------------------------
 // publish() NEVER BLOCKS THE CALLER, AND THE TICK NEVER ENCODES
 //
@@ -49,7 +43,7 @@
 //   CLASS_VITAL  never dropped. If the vital ring fills, the CLIENT IS CLOSED:
 //                a viewer that cannot absorb 120 bytes of state has gone,
 //                whatever its socket says. So is one whose oldest unsent vital
-//                byte is more than BEHIND_MS old - feed.cxx's 500, unchanged.
+//                byte is more than BEHIND_MS old.
 //
 // That ordering is the reason a camera is safe to add to a 220 kbit/s link at
 // all: what degrades is the camera, not the car's picture of the world.
@@ -69,15 +63,14 @@
 // The tick never takes this module's mutex and can never read half a command.
 //
 // ---------------------------------------------------------------------------
-// LINUX ONLY, LIKE feed AND link
+// LINUX ONLY, LIKE link
 //
 // The real half is accept4, pipe2, poll, recvfrom and MSG_NOSIGNAL. Elsewhere
-// start() REFUSES, saying so, and every other call does nothing - the same rule
-// feed.hxx states, and for the same reason: a stub that listened and reported
-// an empty room would be this repo's named recurring bug with a socket on it.
-// tests/test_viewfeed.cxx is a ctest run on the board for that reason and is
-// deliberately NOT in firmware\verify.bat, where it could only ever prove that
-// start() returns false.
+// start() REFUSES, saying so, and every other call does nothing: a stub that
+// listened and reported an empty room would be this repo's named recurring bug
+// with a socket on it. tests/test_viewfeed.cxx is a ctest run on Linux for that
+// reason and is deliberately NOT in tools\test.bat, where it could only ever
+// prove that start() returns false.
 #pragma once
 
 #include "shared.hxx"
@@ -108,11 +101,6 @@ namespace viewfeed
 
       // b0 canDrive, b1 hasLidar, b2 hasPico, b3 hasBattery.
       UInt8 capabilities = 0;
-
-      // Called on this module's thread whenever the client count changes. Must
-      // return quickly and must not call back into viewfeed - same contract as
-      // feed::Policy::onClients.
-      Fn<Void(Size clients)> onClients;
   };
 
   // What the PILOT did with the newest CONTROL, for CTLSTATE's honesty line.
@@ -159,12 +147,9 @@ namespace viewfeed
   };
 
   // Binds TCP and UDP on 0.0.0.0:port and starts the thread. There is NO
-  // fallback port and no relay - scanwire's two-port dance exists because
-  // scanfeed idles on 8011 under systemd, and nothing idles on 8020; a second
-  // protocol quietly moving next door is how a board ends up with two feeds
-  // nobody can tell apart. false, with the reason printed, when either socket
-  // could not be made, bound or listened on, and false when called twice
-  // without a stop().
+  // fallback port: a feed that quietly moves next door is one no viewer can
+  // find. false, with the reason printed, when either socket could not be made,
+  // bound or listened on, and false when called twice without a stop().
   [[nodiscard]] Bool start(UInt16 port, const Policy& p);
 
   // The port actually bound; 0 when not started. 0 asks the system for one,

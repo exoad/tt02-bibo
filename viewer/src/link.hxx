@@ -161,15 +161,6 @@ namespace link
       PHASE_RETRYING,
   };
 
-  // reactive::Mode, spelled for a person. The pilot owns these numbers and
-  // bibowire carries them as a UInt8; the codec exports no name for them, so
-  // this is the one place the viewer spells them and the one place to fix if
-  // reactive.hxx ever gains a sixth.
-  [[nodiscard]] CharSeq modeName(UInt8 mode);
-
-  // 0 manual, 1 look, 2 drive - WHO produced a DECIDE's numbers.
-  [[nodiscard]] CharSeq sourceName(UInt8 source);
-
   // ---- what a feed is actually delivering at ----------------------------------
 
   // Arrival times only. It never looks at the board's clock, which is what makes
@@ -878,21 +869,11 @@ namespace link
   [[nodiscard]] Snapshot snapshot(Client& c);
 
   // ---- the subscription ------------------------------------------------------
-  //
-  // THE MASK CONVENTION, and it is not this file's invention: bit = tag - 0x10
-  // for tags 0x10..0x2F, settled in firmware/pilot/src/viewfeed.cxx and
-  // asserted by its suite. So CAMERA (0x20) is bit 16.
-  //
-  // The obvious mapping - `1u << (tag & 0x1F)` - is a known bug and not a
-  // simplification: DECIDE (0x11) and SCHEMA (0xF1) collide on it, so
-  // subscribing to one would silently subscribe to the other. A type outside
-  // the telemetry range has no bit and is always sent.
-  [[nodiscard]] UInt32 typeBit(bibowire::Type type);
 
-  // What this viewer asks for. NEVER ZERO, and that is the point: a zero mask
-  // means "everything" to the board, so an unsubscribe spelled as 0 would ask
-  // for more than it started with rather than less. Turning the camera off
-  // names every other type explicitly instead.
+  // What this viewer asks for, as bibowire::typeBit bits. NEVER ZERO, and that
+  // is the point: a zero mask means "everything" to the board, so an
+  // unsubscribe spelled as 0 would ask for more than it started with rather
+  // than less. Turning the camera off names every other type explicitly instead.
   [[nodiscard]] UInt32 subscriptionMask(Bool withCamera);
 
   // Ask the board for the camera, or stop asking. Safe from the UI thread and

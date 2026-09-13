@@ -178,7 +178,7 @@ namespace link
 
     // Integer digits, never printf's %.1f: the decimal point honours the locale,
     // a machine set to a comma decimal writes "3,2", and that is the bug
-    // proto.cxx and scanwire.cxx both already met. Nothing on this wire is a
+    // proto.cxx already met. Nothing on this wire is a
     // float and nothing this module prints from it becomes one.
     [[nodiscard]] Str secondsText(Int64 ms)
     {
@@ -1179,8 +1179,7 @@ namespace link
         bibowire::Hello hello;
         hello.protoMajor = bibowire::PROTO_MAJOR;
         hello.protoMinor = bibowire::PROTO_MINOR;
-        // Every bit set, under the mask convention viewfeed.cxx settles for all
-        // three mask fields (see typeBit).
+        // Every bit set, under bibowire::typeBit's convention.
         hello.featureMask = 0xFFFFFFFFu;
         hello.viewerBuild = 0;
         hello.viewerUdpPort = c.udpPort;
@@ -2516,42 +2515,6 @@ namespace link
 
   // ---- names -----------------------------------------------------------------
 
-  CharSeq modeName(UInt8 mode)
-  {
-      switch(mode)
-      {
-      case 0:
-          return "cruise";
-      case 1:
-          return "slow";
-      case 2:
-          return "stop";
-      case 3:
-          return "reverse";
-      case 4:
-          return "blind";
-      default:
-          break;
-      }
-      return "?";
-  }
-
-  CharSeq sourceName(UInt8 source)
-  {
-      switch(source)
-      {
-      case 0:
-          return "manual";
-      case 1:
-          return "look";
-      case 2:
-          return "drive";
-      default:
-          break;
-      }
-      return "?";
-  }
-
   // ---- the pure half ---------------------------------------------------------
 
   Void clearSession(Session& s)
@@ -3497,17 +3460,6 @@ namespace link
 
   // ---- the subscription --------------------------------------------------
 
-  UInt32 typeBit(bibowire::Type type)
-  {
-      // bit = tag - 0x10 for the board->viewer telemetry range, which is what
-      // "a bit per telemetry type" means. Settled in viewfeed.cxx and asserted
-      // by its suite; restated here rather than invented, and the viewer's own
-      // suite pins the same answers so the two ends cannot drift apart in
-      // silence. A type outside the range has no bit and is always sent.
-      const UInt8 tag = static_cast<UInt8>(type);
-      return tag >= 0x10u && tag <= 0x2Fu ? (1u << (tag - 0x10u)) : 0u;
-  }
-
   UInt32 subscriptionMask(Bool withCamera)
   {
       // Every telemetry type this viewer actually draws, named one at a time.
@@ -3515,16 +3467,16 @@ namespace link
       // board - so an unsubscribe written as 0 would ask for MORE than it
       // started with, which is the opposite of what the caller meant and the
       // exact bug that would only show up as a bandwidth figure.
-      UInt32 mask = typeBit(bibowire::Type::TYPE_SCAN)
-                    | typeBit(bibowire::Type::TYPE_DECIDE)
-                    | typeBit(bibowire::Type::TYPE_BOARD)
-                    | typeBit(bibowire::Type::TYPE_LIDAR_INFO)
-                    | typeBit(bibowire::Type::TYPE_EVENT)
-                    | typeBit(bibowire::Type::TYPE_CTLSTATE)
-                    | typeBit(bibowire::Type::TYPE_CMDACK);
+      UInt32 mask = bibowire::typeBit(bibowire::Type::TYPE_SCAN)
+                    | bibowire::typeBit(bibowire::Type::TYPE_DECIDE)
+                    | bibowire::typeBit(bibowire::Type::TYPE_BOARD)
+                    | bibowire::typeBit(bibowire::Type::TYPE_LIDAR_INFO)
+                    | bibowire::typeBit(bibowire::Type::TYPE_EVENT)
+                    | bibowire::typeBit(bibowire::Type::TYPE_CTLSTATE)
+                    | bibowire::typeBit(bibowire::Type::TYPE_CMDACK);
       if(withCamera)
       {
-          mask |= typeBit(bibowire::Type::TYPE_CAMERA);
+          mask |= bibowire::typeBit(bibowire::Type::TYPE_CAMERA);
       }
       return mask;
   }

@@ -1354,19 +1354,6 @@ static Void testSubscriptionMask()
 {
     std::printf("\n-- the mask, which is why any of this arrives at all --\n");
 
-    // bit = tag - 0x10, settled in firmware/pilot/src/viewfeed.cxx. CAMERA is
-    // 0x20, so it is bit 16 - NOT bit 0, which is what the naive
-    // `1u << (tag & 0x1F)` gives it, and which is the same bug that puts
-    // DECIDE and SCHEMA on one bit.
-    check(link::typeBit(bibowire::Type::TYPE_SCAN) == 1u, "SCAN is bit 0");
-    check(link::typeBit(bibowire::Type::TYPE_DECIDE) == 2u, "DECIDE is bit 1");
-    check(link::typeBit(bibowire::Type::TYPE_CAMERA) == 65536u, "CAMERA is bit 16");
-    check(link::typeBit(bibowire::Type::TYPE_SCHEMA) == 0u, "SCHEMA has no bit");
-    check(
-        link::typeBit(bibowire::Type::TYPE_DECIDE) != link::typeBit(bibowire::Type::TYPE_SCHEMA),
-        "so DECIDE and SCHEMA cannot collide"
-    );
-
     const UInt32 without = link::subscriptionMask(false);
     const UInt32 with = link::subscriptionMask(true);
 
@@ -1379,8 +1366,8 @@ static Void testSubscriptionMask()
     check(with == (without | 65536u), "and differs in exactly that one bit");
 
     // Everything this viewer draws survives turning the camera off.
-    check((without & link::typeBit(bibowire::Type::TYPE_SCAN)) != 0u, "the scan survives");
-    check((without & link::typeBit(bibowire::Type::TYPE_EVENT)) != 0u, "so do the sentences");
+    check((without & bibowire::typeBit(bibowire::Type::TYPE_SCAN)) != 0u, "the scan survives");
+    check((without & bibowire::typeBit(bibowire::Type::TYPE_EVENT)) != 0u, "so do the sentences");
 }
 
 static Void checkUv(const orient::Uv& got, Float32 u, Float32 v, const Char* what)

@@ -810,7 +810,6 @@ Int32 main()
         nc.raw(reinterpret_cast<const UInt8*>(typed.data()), typed.size());
         const Str said = nc.asciiLine(1000);
         check(said.find("bibowire v1 binary on 8020") != Str::npos, "and is answered in words");
-        check(said.find("8011") != Str::npos, "naming where the text feed is");
         check(nc.closed(2000), "then closed");
         nc.close();
     }

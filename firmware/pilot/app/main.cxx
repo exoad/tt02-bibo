@@ -97,35 +97,6 @@
 // moves left out.
 //
 // ---------------------------------------------------------------------------
-// THE FEED RIDES ALONG
-//
-// While it drives, the pilot serves the same wire tools/scanfeed.cxx does -
-// src/feed.hxx on scanwire::PORT - so the hub, or `nc` from a phone in a
-// field, can watch the car see. Each revolution goes out as the F line it was and is
-// followed by a D line saying what was decided about it; a blind tick sends
-// only the D, so a viewer's mode and clearance stay live through the spin-up
-// and through a lost lidar rather than freezing on the last good picture.
-//
-// A viewer may not stop the motor. scanfeed obeys MOTOR 0 because the lidar
-// is spinning for the viewer alone; here it is spinning for the car, and a
-// viewer that could stop it could stop the car seeing. The request is answered
-// with the true state - MOTOR 1 - and logged once per client.
-//
-// The tick pays for none of it. publish() takes a mutex for a push and wakes
-// the feed thread, which does the sends; a viewer that stalls is dropped by
-// that thread, and a tick with no viewer connected pays for nothing at all.
-// The exit summary prints what the publishes cost.
-//
-// The feed is on by default and --no-feed turns it off: the flag means "no
-// viewers", not "no sockets". scanwire::PORT is the
-// address, and when it is already taken - scanfeed idling under systemd,
-// which is the field case and one nobody on the board has root to stop -
-// the feed falls back to scanwire::PILOT_PORT and says so. scanfeed, finding
-// the lidar held, relays every viewer there, so the hub keeps dialing 8011
-// and sees the car drive. A feed that could not bind either is said once
-// and driven without: the car does not wait for its audience.
-//
-// ---------------------------------------------------------------------------
 // WHAT IS COUNTED
 //
 // Every revolution, every grab that timed out, every line the board answered
@@ -137,12 +108,10 @@
 
 #include "shared.hxx"
 
-#include "feed.hxx"
 #include "lidar.hxx"
 #include "link.hxx"
 #include "proto.hxx"
 #include "reactive.hxx"
-#include "scanwire.hxx"
 #include "trimfile.hxx"
 #include "viewfeed.hxx"
 
@@ -245,13 +214,12 @@ namespace
 
       Float32 forwardDeg = 0.0f;
       Float64 seconds = -1.0;   // negative: until a signal
-      Bool    feed = true;      // serve the scan feed on scanwire::PORT
   };
 
   Void usage()
   {
       std::printf(
-          "pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm] [--forward DEG] [--seconds N] [--no-feed]\n"
+          "pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm] [--forward DEG] [--seconds N]\n"
           "  --lidar PORT   the C1's serial device        (default /dev/ttyUSB0)\n"
           "  --pico PORT    the car's serial device       (default /dev/ttyACM0)\n"
           "  --dry          never open the Pico; print each decision instead\n"
@@ -260,9 +228,6 @@ namespace
           "                 with --manual a viewer's ARM is still what lets throttle through\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
           "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n"
-          "  --no-feed      no viewers: no scan feed on TCP %u (or %u)\n",
-          static_cast<unsigned>(scanwire::PORT),
-          static_cast<unsigned>(scanwire::PILOT_PORT)
       );
   }
 
@@ -329,10 +294,6 @@ namespace
           else if(flag == "--manual")
           {
               o.manual = true;
-          }
-          else if(flag == "--no-feed")
-          {
-              o.feed = false;
           }
           else if(flag == "--lidar")
           {
@@ -829,66 +790,10 @@ namespace
 
   // ---- the viewers -------------------------------------------------------------
 
-  // What a new client is told: INFO, HEALTH when the device answered, and the
-  // motor state - which, while the pilot runs, is on.
-  [[nodiscard]] Str greetingFor(const lidar::Device& d)
-  {
-      scanwire::Info info;
-      info.model = d.model;
-      info.fwMajor = d.fwMajor;
-      info.fwMinor = d.fwMinor;
-      info.hwRev = d.hwRev;
-      info.serial = d.serial;
-      Str hello = scanwire::formatInfo(info);
-      // HEALTH carries only the three values the wire defines; -1 (the device
-      // did not answer) is left out rather than sent as a line every reader
-      // would have to reject.
-      if(d.health >= 0 && d.health <= 2)
-      {
-          hello += scanwire::formatHealth(d.health);
-      }
-      hello += scanwire::formatMotor(true);
-      return hello;
-  }
-
-  // The revolution as the feed sends it. `hz` is what this tick measured, so
-  // the viewer sees the rate the car is deciding at.
-  [[nodiscard]] Str frameLine(const Vec<reactive::Ray>& rays, const Vec<UInt8>& quality, Int32 dtMs)
-  {
-      scanwire::Frame f;
-      f.hz = dtMs > 0 ? 1000.0f / static_cast<Float32>(dtMs) : 0.0f;
-      f.samples.reserve(rays.size());
-      for(Size i = 0; i < rays.size(); ++i)
-      {
-          scanwire::Sample s;
-          s.angleDeg = rays[i].angleDeg;
-          s.distMm = rays[i].distMm;
-          s.quality = i < quality.size() ? quality[i] : static_cast<UInt8>(0);
-          f.samples.push_back(s);
-      }
-      return scanwire::formatFrame(f);
-  }
-
-  // The decision as the feed sends it. "blind" for a tick with no revolution,
-  // the same word describe() prints, whatever mode the module was left in.
-  [[nodiscard]] Str driveLine(const reactive::Outputs& out, Bool got)
-  {
-      scanwire::Drive d;
-      d.mode = got ? reactive::modeName(out.mode) : "blind";
-      d.clearanceMm = static_cast<Int32>(out.clearanceMm + 0.5f);
-      d.hits = out.corridorHits;
-      d.steer = out.steer;
-      d.throttle = out.throttle;
-      d.stop = out.stop;
-      return scanwire::formatDrive(d);
-  }
-
   // What serving the viewers cost the tick, so "adds nothing" is a number in
   // the exit summary rather than a belief.
   struct Viewer
   {
-      Bool    serving = false;   // feed::start succeeded
-      UInt64  frames = 0;        // F lines published
       Float64 costMaxUs = 0.0;   // the longest publish of any tick
       Float64 costSumUs = 0.0;
       UInt64  costTicks = 0;
@@ -1058,9 +963,8 @@ namespace
 
   // Degrees and millimetres to whole centi-degrees and whole millimetres, which
   // is LOSSLESS with respect to the device - the C1 does not measure finer. 360
-  // degrees wraps to 0 and is never 36000, which is scanwire's rule and what the
-  // encoder refuses. This is the same loop frameLine already runs, minus the
-  // snprintf; the framing and the CRC happen on viewfeed's thread, not here.
+  // degrees wraps to 0 and is never 36000, which the encoder refuses. The
+  // framing and the CRC happen on viewfeed's thread, not here.
   [[nodiscard]] bibowire::Scan scanFrom(const Vec<reactive::Ray>& r, const Vec<UInt8>& q)
   {
       bibowire::Scan s;
@@ -1299,47 +1203,10 @@ Int32 main(Int32 argc, Char** argv)
         );
     }
 
-    // ---- the viewers -------------------------------------------------------------------
-    // After the motor, so the greeting's MOTOR 1 is true when it is sent, and
-    // never fatal: a port already taken is scanfeed idling under systemd, the
-    // feed moves next door and scanfeed relays to it, and the car drives with
-    // or without an audience either way.
+    // ---- the viewers: never fatal, the car does not wait for them -----------------
     Viewer viewer;
-    if(opt.feed && interrupted == 0)
+    if(interrupted == 0)
     {
-        feed::Policy policy;
-        policy.greeting = greetingFor(lidar::device());
-        policy.motor = feed::Motor::MOTOR_REFUSE;
-        policy.motorOn = true;
-        policy.refusal = "viewer asked for the motor; the pilot keeps it while driving";
-        policy.fallbackPort = scanwire::PILOT_PORT;
-        viewer.serving = feed::start(scanwire::PORT, policy);
-        if(!viewer.serving)
-        {
-            std::printf("feed: not serving - driving without viewers\n");
-        }
-        else if(feed::port() == scanwire::PORT)
-        {
-            std::printf("feed: serving on port %u\n", static_cast<unsigned>(feed::port()));
-        }
-        else
-        {
-            std::printf(
-                "feed: port %u is taken (scanfeed, most likely) - serving on %u, which scanfeed relays to\n",
-                static_cast<unsigned>(scanwire::PORT),
-                static_cast<unsigned>(feed::port())
-            );
-        }
-
-        // And bibowire, for the Windows viewer, on 8020. A separate socket and
-        // a separate module on purpose: feed.cxx moves LINES for the hub and
-        // must keep doing exactly that, because `nc bibobox.local 8011` from a
-        // phone is the field-debugging story this binary format spends and has
-        // to pay back.
-        //
-        // Never fatal. A board that could not bind 8020 still drives, still
-        // steers and still serves the text feed; the viewer is an audience, and
-        // the car does not wait for its audience.
         viewfeed::Policy wire;
         wire.boardName = "bibobox";
         wire.boardBuild = BOARD_BUILD;
@@ -1455,45 +1322,34 @@ Int32 main(Int32 argc, Char** argv)
 
         status = reactive::step(rays.data(), rays.size(), dtMs, &state, &out);
 
-        // The viewers, before the car is told: the car's lines go to a serial
-        // port that may stall for WRITE_WAIT_MS, and the feed's go to a queue
+        // The viewer, before the car is told: the car's lines go to a serial
+        // port that may stall for WRITE_WAIT_MS, and the viewer's go to a queue
         // that cannot. Timed, so the summary can say what they cost.
-        if(opt.feed)
+        const TimePoint before = monoNow();
+        // publish() is a push and a wake: the encode, the CRC and the send
+        // all happen on viewfeed's thread, so this tick pays a queue push
+        // whether the viewer is fast, slow or absent - and with nobody
+        // connected it pays nothing at all.
+        if(got)
         {
-            const TimePoint before = monoNow();
-            if(got)
-            {
-                ++viewer.frames;
-                feed::publish(frameLine(rays, quality, dtMs));
-            }
-            feed::publish(driveLine(out, got));
-
-            // The same revolution and the same decision to the viewer, as
-            // frames rather than lines. publish() is a push and a wake: the
-            // encode, the CRC and the send all happen on viewfeed's thread, so
-            // this tick pays a queue push whether the viewer is fast, slow or
-            // absent - and with nobody connected it pays nothing at all.
-            if(got)
-            {
-                bibowire::Scan scan = scanFrom(rays, quality);
-                scan.tMonoUs = static_cast<UInt64>(elapsedS(start) * 1000000.0);
-                scan.revIndex = static_cast<UInt32>(revolutions);
-                scan.freqMilliHz = dtMs > 0 ? static_cast<UInt16>(1000000 / dtMs) : 0;
-                scan.health = healthByte(lidar::device().health);
-                scan.motor = 1;
-                viewfeed::publishScan(std::move(scan));
-            }
-            const UInt32 rev = got ? static_cast<UInt32>(revolutions) : 0u;
-            bibowire::Decide decide = decideFrom(out, state.modeMs, rev);
-            decide.source = pilotModeOf(opt);
-            viewfeed::publishDecide(decide);
-            const Float64 costUs = elapsedMs(before) * 1000.0;
-            viewer.costSumUs += costUs;
-            ++viewer.costTicks;
-            if(costUs > viewer.costMaxUs)
-            {
-                viewer.costMaxUs = costUs;
-            }
+            bibowire::Scan scan = scanFrom(rays, quality);
+            scan.tMonoUs = static_cast<UInt64>(elapsedS(start) * 1000000.0);
+            scan.revIndex = static_cast<UInt32>(revolutions);
+            scan.freqMilliHz = dtMs > 0 ? static_cast<UInt16>(1000000 / dtMs) : 0;
+            scan.health = healthByte(lidar::device().health);
+            scan.motor = 1;
+            viewfeed::publishScan(std::move(scan));
+        }
+        const UInt32 rev = got ? static_cast<UInt32>(revolutions) : 0u;
+        bibowire::Decide decide = decideFrom(out, state.modeMs, rev);
+        decide.source = pilotModeOf(opt);
+        viewfeed::publishDecide(decide);
+        const Float64 costUs = elapsedMs(before) * 1000.0;
+        viewer.costSumUs += costUs;
+        ++viewer.costTicks;
+        if(costUs > viewer.costMaxUs)
+        {
+            viewer.costMaxUs = costUs;
         }
 
         // The board's silence, judged before deciding, so this tick's throttle
@@ -1554,43 +1410,40 @@ Int32 main(Int32 argc, Char** argv)
         snap.replyErr = replies.err;
         snap.picoArmed = replies.armed;
         snap.pico = picoPhrase(snap);
-        if(opt.feed)
-        {
-            // Every tick. viewfeed holds it as the state the NEXT viewer is
-            // owed before it is shown a point, and puts it on the wire at the
-            // 5 Hz section 2 asks for - the rate is the socket's business, the
-            // content is this one struct.
-            viewfeed::publishBoard(boardFrom(snap));
+        // Every tick. viewfeed holds it as the state the NEXT viewer is
+        // owed before it is shown a point, and puts it on the wire at the
+        // 5 Hz section 2 asks for - the rate is the socket's business, the
+        // content is this one struct.
+        viewfeed::publishBoard(boardFrom(snap));
 
-            // WHAT THE CAR IS DOING, which is a different question from what
-            // was decided - and until now nothing called this at all, so every
-            // field of CTLSTATE carried its absent sentinel and viewfeed's
-            // "refuse to re-trim an armed car" guard read armed = 0 forever.
-            // A guard that cannot observe the thing it guards against is not a
-            // safety mechanism, it is a comment; this is what makes it real.
-            //
-            // Three of these are MEASURED, read out of the Pico's own reply to
-            // the STEER this loop already sends. throttleMilli is the decision
-            // rather than a measurement, which is what the field means: what
-            // was sent, not what the wheels did with it.
-            viewfeed::Applied ap;
-            ap.steerNowMilli = static_cast<Int16>(replies.steerNowMilli);
-            ap.throttleMilli = static_cast<Int16>(out.throttle * 1000.0f);
-            ap.escUs = replies.escUs < 0
-                ? bibowire::ESC_ABSENT
-                : static_cast<UInt16>(replies.escUs);
-            // Unknown reads as NOT armed, and that is the permissive direction
-            // for the tuning guard rather than the dangerous one: it lasts a
-            // single tick before the first reply lands, and a dry run - where
-            // it lasts forever - refuses tuning on "no Pico" long before this
-            // is consulted.
-            ap.armed = replies.armed > 0 ? 1u : 0u;
-            ap.pilotMode = pilotModeOf(opt);
-            ap.picoSilentMs = snap.picoSilentMs < 0
-                ? bibowire::PICO_SILENT_ABSENT
-                : static_cast<UInt32>(snap.picoSilentMs);
-            viewfeed::applied(ap);
-        }
+        // WHAT THE CAR IS DOING, which is a different question from what
+        // was decided - and until now nothing called this at all, so every
+        // field of CTLSTATE carried its absent sentinel and viewfeed's
+        // "refuse to re-trim an armed car" guard read armed = 0 forever.
+        // A guard that cannot observe the thing it guards against is not a
+        // safety mechanism, it is a comment; this is what makes it real.
+        //
+        // Three of these are MEASURED, read out of the Pico's own reply to
+        // the STEER this loop already sends. throttleMilli is the decision
+        // rather than a measurement, which is what the field means: what
+        // was sent, not what the wheels did with it.
+        viewfeed::Applied ap;
+        ap.steerNowMilli = static_cast<Int16>(replies.steerNowMilli);
+        ap.throttleMilli = static_cast<Int16>(out.throttle * 1000.0f);
+        ap.escUs = replies.escUs < 0
+            ? bibowire::ESC_ABSENT
+            : static_cast<UInt16>(replies.escUs);
+        // Unknown reads as NOT armed, and that is the permissive direction
+        // for the tuning guard rather than the dangerous one: it lasts a
+        // single tick before the first reply lands, and a dry run - where
+        // it lasts forever - refuses tuning on "no Pico" long before this
+        // is consulted.
+        ap.armed = replies.armed > 0 ? 1u : 0u;
+        ap.pilotMode = pilotModeOf(opt);
+        ap.picoSilentMs = snap.picoSilentMs < 0
+            ? bibowire::PICO_SILENT_ABSENT
+            : static_cast<UInt32>(snap.picoSilentMs);
+        viewfeed::applied(ap);
 
         // ---- who writes steer and throttle this tick --------------------------
         //
@@ -2076,17 +1929,14 @@ Int32 main(Int32 argc, Char** argv)
     if(viewer.costTicks > 0)
     {
         std::printf(
-            "feed: %llu frames published to %s, viewer cost per tick avg %.0f us, max %.0f us\n",
-            static_cast<unsigned long long>(viewer.frames),
-            viewer.serving ? "the feed" : "nobody (the feed never bound)",
+            "viewfeed: publish cost per tick avg %.0f us, max %.0f us\n",
             viewer.costSumUs / static_cast<Float64>(viewer.costTicks),
             viewer.costMaxUs
         );
     }
 
-    // What bibowire cost, measured rather than asserted - the same argument the
-    // line above makes for the text feed, and section 9's claim made readable
-    // off the running system instead of believed.
+    // What bibowire cost, measured rather than asserted - section 9's claim made
+    // readable off the running system instead of believed.
     if(viewer.wire)
     {
         const viewfeed::Counters wireCount = viewfeed::counters();
@@ -2113,7 +1963,6 @@ Int32 main(Int32 argc, Char** argv)
 
     // The viewers last: they were watching a car that has now stopped, and
     // their sockets closing is how they learn it.
-    feed::stop();
     // BYE(SHUTDOWN) with a sentence, rather than a socket that simply stops
     // answering: on this link silence already means four other things, and the
     // one time the board knows why it is going is the one time it can say so.

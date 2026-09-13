@@ -21,7 +21,7 @@ set "EXTRA="
 set "LIBS="
 
 set "FIRMWARE_SUITES=text pins chassis"
-set "PILOT_SUITES=proto pilot reactive scanwire bibowire trimfile"
+set "PILOT_SUITES=proto pilot reactive bibowire trimfile"
 
 for %%s in (%FIRMWARE_SUITES%) do if "%SUITE%"=="%%s" goto :firmware
 for %%s in (%PILOT_SUITES%) do if "%SUITE%"=="%%s" goto :pilot

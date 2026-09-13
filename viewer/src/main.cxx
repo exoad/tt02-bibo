@@ -618,8 +618,8 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
 
     if(dec.has_value())
     {
-        const Str mode = Str(link::modeName(dec->decide.mode)) + " by "
-                         + link::sourceName(dec->decide.source);
+        const Str mode = Str(bibowire::driveModeName(dec->decide.mode)) + " by "
+                         + bibowire::pilotModeName(dec->decide.source);
         readoutStr("mode", dec->stale ? (mode + " (stale)") : mode);
         readoutStr("clearance", metresText(dec->decide.clearanceMm));
         readoutStr("steer", milliText(dec->decide.steerMilli));

@@ -874,7 +874,7 @@ namespace driveview
           ImGui::TextColored(
               ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
               "board is in %s - throttle refused",
-              link::sourceName(ctl->state.pilotMode)
+              bibowire::pilotModeName(ctl->state.pilotMode)
           );
       }
 
@@ -908,7 +908,7 @@ namespace driveview
       {
           if(ctl.has_value())
           {
-              readout("board mode", link::sourceName(ctl->state.pilotMode));
+              readout("board mode", bibowire::pilotModeName(ctl->state.pilotMode));
           }
           readoutStr("steer", milliText(in.steerMilli));
           readoutStr("throttle", milliText(in.throttleMilli));

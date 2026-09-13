@@ -24,13 +24,13 @@ namespace viewfeed
   namespace
   {
 
-    // feed.cxx:26's number, unchanged. A client whose oldest unsent VITAL byte
-    // is older than this has gone, whatever its socket says.
+    // A client whose oldest unsent VITAL byte is older than this has gone,
+    // whatever its socket says.
     constexpr Int64 BEHIND_MS = 500;
 
-    // The longest the loop sleeps with nothing to do. Smaller than feed.cxx's
-    // 250 because CTLSTATE owes a datagram every 50 ms and a loop that sleeps
-    // through four of them is a loop that reports the deadman late.
+    // The longest the loop sleeps with nothing to do. CTLSTATE owes a datagram
+    // every CTLSTATE_EVERY_MS, and a loop that sleeps through several of them
+    // reports the deadman late.
     constexpr Int32 POLL_MS = 20;
 
     // The bounded ring, per client: 96 KiB or 12 frames, whichever fills first.
@@ -233,7 +233,7 @@ namespace viewfeed
         UInt16 camFps = 0;
 
         // What the viewer said it understands. ADVISORY, and recorded for the
-        // log rather than acted on - see typeBit(). An unknown bit here is
+        // log rather than acted on - see bibowire::typeBit. An unknown bit here is
         // ignored, never refused: the whole point of the length prefix is that
         // a type a reader has no name for is skipped, so a viewer claiming one
         // this board has never heard of costs nothing.
@@ -506,7 +506,7 @@ namespace viewfeed
         if(::write(sh.wakeFd, &one, 1) < 0)
         {
             // Deliberately nothing: a full pipe means the loop is awake
-            // already. See feed.cxx for the same silence and the same reason.
+            // already.
         }
     }
 
@@ -871,32 +871,6 @@ namespace viewfeed
         enqueue(c, type, total);
     }
 
-    // ---- the mask convention, written down because nothing else writes it ----
-    //
-    // Section 5 calls SUBSCRIBE.typeMask "a bit per telemetry type" and names no
-    // bit anywhere; HELLO.featureMask and WELCOME.featureMask are given no
-    // convention at all, in the document, in bibowire.hxx or in its 312 checks.
-    // A viewer reading that has nothing to send but every bit set. So the rule
-    // is settled HERE, and the suite asserts it:
-    //
-    //   bit = tag - 0x10, for tags 0x10..0x2F - the board->viewer range, which
-    //   is exactly what "telemetry type" means. One mapping serves all three
-    //   fields, so a reader who learns it once has learned it everywhere.
-    //
-    // The obvious mapping - `1u << (tag & 0x1F)` - is the bug this replaced:
-    // DECIDE (0x11) and SCHEMA (0xF1) land on the same bit, so subscribing to
-    // one silently subscribes to the other.
-    //
-    // A type OUTSIDE that range has no bit and is always sent. WELCOME, BYE,
-    // PING and CMDACK are the plumbing that carries the mask negotiation
-    // itself; a mask that could switch them off would be a mask that could
-    // switch off the way to change it.
-    [[nodiscard]] constexpr UInt32 typeBit(bibowire::Type type)
-    {
-        const UInt8 tag = static_cast<UInt8>(type);
-        return tag >= 0x10u && tag <= 0x2Fu ? (1u << (tag - 0x10u)) : 0u;
-    }
-
     // What this board actually sends, for WELCOME.featureMask - which section 4
     // defines as "what this board will send", and which is therefore a fact
     // about the build rather than an echo of what the viewer asked for.
@@ -910,10 +884,14 @@ namespace viewfeed
     // tries to open it, because that is the moment it can be answered honestly.
     [[nodiscard]] UInt32 boardFeatures()
     {
-        return typeBit(bibowire::Type::TYPE_SCAN) | typeBit(bibowire::Type::TYPE_DECIDE)
-             | typeBit(bibowire::Type::TYPE_BOARD) | typeBit(bibowire::Type::TYPE_LIDAR_INFO)
-             | typeBit(bibowire::Type::TYPE_EVENT) | typeBit(bibowire::Type::TYPE_CTLSTATE)
-             | typeBit(bibowire::Type::TYPE_CMDACK) | typeBit(bibowire::Type::TYPE_CAMERA);
+        return bibowire::typeBit(bibowire::Type::TYPE_SCAN)
+             | bibowire::typeBit(bibowire::Type::TYPE_DECIDE)
+             | bibowire::typeBit(bibowire::Type::TYPE_BOARD)
+             | bibowire::typeBit(bibowire::Type::TYPE_LIDAR_INFO)
+             | bibowire::typeBit(bibowire::Type::TYPE_EVENT)
+             | bibowire::typeBit(bibowire::Type::TYPE_CTLSTATE)
+             | bibowire::typeBit(bibowire::Type::TYPE_CMDACK)
+             | bibowire::typeBit(bibowire::Type::TYPE_CAMERA);
     }
 
     [[nodiscard]] Bool wants(const Client& c, bibowire::Type type)
@@ -922,7 +900,7 @@ namespace viewfeed
         {
             return false;
         }
-        const UInt32 bit = typeBit(type);
+        const UInt32 bit = bibowire::typeBit(type);
         if(bit == 0u)
         {
             return true;
@@ -1946,9 +1924,7 @@ namespace viewfeed
     // by a binary port is the moment they connect to it by hand.
     Void wrongService(Client& c)
     {
-        const Str line =
-            "ERR bibowire v1 binary on 8020; scanwire text is on 8011; "
-            "run `biboctl watch` on the board to read this port\n";
+        const Str line = "ERR bibowire v1 binary on 8020; connect with the bibo viewer\n";
         static_cast<Void>(::send(c.fd, line.data(), line.size(), MSG_NOSIGNAL | MSG_DONTWAIT));
         refuse(c, bibowire::Reason::REASON_REFUSED, "not bibowire", "not speaking bibowire");
     }
@@ -3016,8 +2992,7 @@ namespace viewfeed
         if(cam.partial.size() > CAM_MAX_PARTIAL)
         {
             // Not a picture. Rather than grow without bound, drop back to
-            // hunting for the next marker - the deliberate resync the scan feed
-            // already does on an impossible line.
+            // hunting for the next marker.
             cam.partial.clear();
             std::printf("viewfeed: camera resyncing - no frame boundary in 4 MiB\n");
         }
@@ -3154,8 +3129,7 @@ namespace viewfeed
     }
 
     // Opened while at least one viewer subscribes to CAMERA, released when the
-    // last one stops. The same bargain scanfeed already keeps with the lidar,
-    // and the reason an unwatched camera costs the board nothing: no
+    // last one stops, so an unwatched camera costs the board nothing: no
     // process, no pipes, no buffers, and the device handed straight back to
     // whoever wants it next.
     Void tendCamera(Vec<Client>& clients)
@@ -3618,7 +3592,6 @@ namespace viewfeed
     Void loop()
     {
         Vec<Client> clients;
-        Size announced = 0;
 
         for(;;)
         {
@@ -3774,14 +3747,6 @@ namespace viewfeed
             reap(clients);
 
             sh.count.store(liveClients(clients));
-            if(clients.size() != announced)
-            {
-                announced = clients.size();
-                if(policy.onClients)
-                {
-                    policy.onClients(sh.count.load());
-                }
-            }
         }
 
         for(Client& c : clients)

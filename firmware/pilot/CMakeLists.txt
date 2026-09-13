@@ -6,8 +6,8 @@
 #   cmake -S firmware/pilot -B build-pilot && cmake --build build-pilot -j
 #   ctest --test-dir build-pilot --output-on-failure
 #
-# With the lidar SDK (see PILOT_RPLIDAR_SDK below) the same configure also
-# builds the program itself and the probe:
+# That builds the pilot too, but its lidar refuses at run time. With the lidar
+# SDK (see PILOT_RPLIDAR_SDK below) it can see, and the probe is built:
 #
 #   cmake -S firmware/pilot -B build-pilot -DPILOT_RPLIDAR_SDK=$HOME/rplidar_sdk
 #   cmake --build build-pilot -j
@@ -34,8 +34,8 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 # Everything else here - the tests, the probe - links this.
 add_library(
     pilotlib STATIC
-    src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx src/feed.cxx
-    src/bibowire.cxx src/viewfeed.cxx src/trimfile.cxx
+    src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/bibowire.cxx src/viewfeed.cxx
+    src/trimfile.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -79,31 +79,18 @@ if(PILOT_RPLIDAR_SDK)
 
     add_executable(lidar_probe tools/lidar_probe.cxx)
     target_link_libraries(lidar_probe PRIVATE pilotlib)
-
-    # The scan feed: the C1's revolutions on TCP 8011 for the hub, src/feed.cxx
-    # with a lidar loop on top. SDK builds only, like the probe - its source
-    # compiles on any Linux, but a feed whose lidar half refuses would listen
-    # all day and answer every client with ERR. tools/status/install.sh points
-    # a systemd unit at this binary.
-    add_executable(scanfeed tools/scanfeed.cxx)
-    target_link_libraries(scanfeed PRIVATE pilotlib)
-
-    # The program. Only with the SDK, on purpose: without a lidar half that can
-    # see, app/main.cxx would open the car and send it a stop once a tick, which
-    # is a test of the link wearing the program's name. The source itself is
-    # portable - it names nothing from the SDK - so the day there is a second
-    # sensor this condition is the only thing that moves.
-    add_executable(pilot app/main.cxx)
-    target_link_libraries(pilot PRIVATE pilotlib)
 endif()
 
+# The program. Built with or without the SDK, so CI compiles it; without the
+# SDK lidar::open refuses and it exits before it opens the Pico.
+add_executable(pilot app/main.cxx)
+target_link_libraries(pilot PRIVATE pilotlib)
+
 enable_testing()
-# test_feed and test_viewfeed are here and NOT in firmware/verify.bat: their
-# real halves are Linux sockets, and on MSVC every call refuses, so a .bat could
-# only prove that start() returns false - which test_pilot already proves for
-# the lidar and the link. On the board they exercise the feeds over loopback:
-# feed the hub's lines on 8011, viewfeed bibowire's frames on 8020.
-foreach(t proto pilot reactive scanwire feed bibowire viewfeed trimfile)
+# test_viewfeed is here and NOT in tools\test.bat: its real half is Linux
+# sockets, and on MSVC every call refuses, so a .bat could only prove that
+# start() returns false. On Linux it exercises bibowire's frames over loopback.
+foreach(t proto pilot reactive bibowire viewfeed trimfile)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

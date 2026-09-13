@@ -42,7 +42,7 @@ REM Every suite tools\test.bat knows: firmware\tests, pilot\tests and the viewer
 REM link suite, which compiles pilot\src\bibowire.cxx. A suite missing from this
 REM list is one nothing runs, and the gate still says PASS the day it breaks.
 for %%s in (text pins chassis) do call :suite %%s
-for %%s in (proto pilot reactive scanwire bibowire trimfile link) do call :suite %%s
+for %%s in (proto pilot reactive bibowire trimfile link) do call :suite %%s
 
 REM ---- 3. the style audit --------------------------------------------------
 python "%ROOT%\tools\style_audit.py" >nul 2>&1

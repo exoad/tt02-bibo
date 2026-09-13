@@ -7,9 +7,8 @@
 // stalls for seconds and drops when the phone moves. This file is the whole
 // agreement about what crosses that link: one 16-byte frame shape, one body
 // layout per message, one deadman, one renderer. The board's program and the
-// Windows viewer compile the SAME OBJECT FILE - the rule scanwire.cxx and
-// reactive.cxx already follow - so the encoder and the decoder cannot drift
-// into disagreeing about a field's offset while both still compile.
+// Windows viewer compile the SAME OBJECT FILE, so the encoder and the decoder
+// cannot drift into disagreeing about a field's offset while both still compile.
 //
 // Pure, in the proto.hxx sense: no sockets, no clock, no device, no globals.
 // Everything here is a function of its arguments. That is what lets the frame
@@ -33,8 +32,8 @@
 // NO FLOATING POINT ANYWHERE ON THE WIRE
 //
 // Every quantity is a fixed-point integer with its unit in its name. That is
-// not compactness - it is the locale bug proto.cxx and scanwire.cxx both
-// already met (printf("%.3f") honours the locale, a machine set to a comma
+// not compactness - it is the locale bug proto.cxx already met
+// (printf("%.3f") honours the locale, a machine set to a comma
 // decimal emits `0,250`, the far end reads `0`, and that is a silent hard-left
 // at the first corner on somebody else's laptop) deleted at the root. There is
 // no formatting step to be locale-sensitive, no NaN, no denormal, and every
@@ -78,11 +77,8 @@ namespace bibowire
 
   // ---- the wire's fixed numbers ---------------------------------------------
 
-  // 8020, TCP and UDP, the same number for both. Deliberately a clear gap from
-  // scanwire's 8011/8012, so `801x` means "the text feed a person can read" and
-  // 8020 means bibowire, with no arithmetic. There is no fallback port and no
-  // relay: a second protocol quietly moving next door is how a board ends up
-  // with two feeds nobody can tell apart.
+  // 8020, TCP and UDP, the same number for both. There is no fallback port: a
+  // feed that quietly moves next door is one no viewer can find.
   constexpr UInt16 PORT = 8020;
 
   constexpr UInt16 PROTO_MAJOR = 1;
@@ -198,8 +194,8 @@ namespace bibowire
   // reverse / blind, and both are small integers called "mode" in the same
   // program. Render one through the other's names and MANUAL prints as "cruise"
   // and DRIVE as "stop" - wrong in the most plausible-looking way, on the panel
-  // somebody reads before pressing a key. The viewer's sourceName() is THIS
-  // vocabulary; its modeName() is the other one.
+  // somebody reads before pressing a key. pilotModeName() spells THIS
+  // vocabulary; driveModeName() spells Decide::mode.
   enum class PilotMode : UInt8
   {
       PILOT_MODE_MANUAL = 0,   // CONTROL's stick values go to the Pico
@@ -537,6 +533,17 @@ namespace bibowire
   [[nodiscard]] Bool knownType(UInt8 tag);
   [[nodiscard]] CharSeq typeName(Type t);
 
+  // A type's bit in HELLO.featureMask, WELCOME.featureMask and
+  // SUBSCRIBE.typeMask: tag - 0x10, for the board->viewer tags 0x10..0x2F. Any
+  // other type has no bit (0) and is always sent, so a mask cannot switch off
+  // the frames that negotiate it. Not `1u << (tag & 0x1F)`: DECIDE (0x11) and
+  // SCHEMA (0xF1) would share a bit.
+  [[nodiscard]] constexpr UInt32 typeBit(Type type)
+  {
+      const UInt8 tag = static_cast<UInt8>(type);
+      return tag >= 0x10u && tag <= 0x2Fu ? (1u << (tag - 0x10u)) : 0u;
+  }
+
   // ---- one struct and one typed pair per Type --------------------------------
   //
   // Each writeX returns the BODY bytes written, or 0 when it would not fit or
@@ -547,8 +554,7 @@ namespace bibowire
   //
   // Each readX returns false on a wrong length or an out-of-range field and
   // NEVER PARTIALLY FILLS `out`. A frame with the wrong count is not a shorter
-  // frame - test_scanwire.cxx's own words about the text format, and the same
-  // rule here.
+  // frame.
   //
   // `ver` HIGHER than this module knows: the known prefix is read and the tail
   // ignored, which is why every readX accepts a body LONGER than it needs.
@@ -1055,6 +1061,12 @@ namespace bibowire
     [[nodiscard]] CharSeq stateName(State s);
 
   }
+
+  // Names for a person, the same on the board and in the viewer.
+  // driveModeName: Decide::mode (0 cruise .. 4 blind). pilotModeName: PilotMode,
+  // as BoardState::pilotMode and Decide::source carry it. "?" when unknown.
+  [[nodiscard]] CharSeq driveModeName(UInt8 mode);
+  [[nodiscard]] CharSeq pilotModeName(UInt8 mode);
 
   [[nodiscard]] CharSeq refuseName(Refuse r);
 

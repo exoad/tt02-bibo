@@ -278,40 +278,6 @@ namespace bibowire
         return "?";
     }
 
-    [[nodiscard]] CharSeq driveModeName(UInt8 v)
-    {
-        switch(v)
-        {
-            case 0u:
-                return "cruise";
-            case 1u:
-                return "slow";
-            case 2u:
-                return "stop";
-            case 3u:
-                return "reverse";
-            case 4u:
-                return "blind";
-            default:
-                return "?";
-        }
-    }
-
-    [[nodiscard]] CharSeq pilotModeName(UInt8 v)
-    {
-        switch(v)
-        {
-            case 0u:
-                return "manual";
-            case 1u:
-                return "look";
-            case 2u:
-                return "drive";
-            default:
-                return "?";
-        }
-    }
-
     [[nodiscard]] CharSeq deadmanName(UInt8 v)
     {
         switch(v)
@@ -2497,6 +2463,40 @@ namespace bibowire
       text += ")";
       m.text = text;
       return m;
+  }
+
+  CharSeq driveModeName(UInt8 mode)
+  {
+      switch(mode)
+      {
+          case 0u:
+              return "cruise";
+          case 1u:
+              return "slow";
+          case 2u:
+              return "stop";
+          case 3u:
+              return "reverse";
+          case 4u:
+              return "blind";
+          default:
+              return "?";
+      }
+  }
+
+  CharSeq pilotModeName(UInt8 mode)
+  {
+      switch(mode)
+      {
+          case 0u:
+              return "manual";
+          case 1u:
+              return "look";
+          case 2u:
+              return "drive";
+          default:
+              return "?";
+      }
   }
 
   CharSeq refuseName(Refuse r)

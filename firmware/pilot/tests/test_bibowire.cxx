@@ -2,7 +2,7 @@
 //
 //   tests\build_bibowire_test.bat run
 //
-// Pure byte work and pure arithmetic, like proto and scanwire: the same object
+// Pure byte work and pure arithmetic, like proto: the same object
 // file goes into the board's pilot and the Windows viewer, so what is proved
 // here is proved for both ends at once - and the deadman is a pure function, so
 // the safety property is exercised in microseconds on a laptop rather than by
@@ -1868,6 +1868,18 @@ Int32 main()
             "the states have names"
         );
         checkStr(Str(refuseName(Refuse::REFUSE_NO_UDP)), "no_udp", "and so do the refusals");
+        checkStr(Str(driveModeName(4)), "blind", "Decide::mode has names");
+        checkStr(Str(pilotModeName(0)), "manual", "and PilotMode has its own, not the same list");
+        checkStr(Str(pilotModeName(9)), "?", "and an unknown mode says so");
+
+        // tag - 0x10. CAMERA (0x20) is bit 16, not the bit 0 that the naive
+        // `1u << (tag & 0x1F)` gives it - the same bug that puts DECIDE and
+        // SCHEMA on one bit.
+        check(typeBit(Type::TYPE_SCAN) == 1u, "SCAN is mask bit 0");
+        check(typeBit(Type::TYPE_DECIDE) == 2u, "DECIDE is bit 1");
+        check(typeBit(Type::TYPE_CAMERA) == 65536u, "CAMERA is bit 16");
+        check(typeBit(Type::TYPE_SCHEMA) == 0u, "SCHEMA has no bit, so it cannot share DECIDE's");
+        static_assert(typeBit(Type::TYPE_WELCOME) == 0u, "the session frames are never masked off");
     }
 
     // ---- 33. the locale trap -------------------------------------------------
