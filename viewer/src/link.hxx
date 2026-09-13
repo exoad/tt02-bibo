@@ -1,38 +1,19 @@
 // The viewer's half of bibowire: one TCP connection to the pilot on the Orange
 // Pi, decoded on its own thread, handed to the frame loop newest-wins.
 //
-// ---------------------------------------------------------------------------
-// THE CODEC IS NOT HERE, AND THAT IS THE POINT
+// Framing, CRC and message bodies all come from firmware/pilot/src/bibowire.cxx,
+// the same object file the board compiles (docs/bibowire.md section 12), so the
+// two ends cannot disagree about a field while both still compile. This module
+// owns sockets, a thread, a reconnect schedule and staleness.
 //
-// Every byte that crosses this link is framed, checksummed and read by
-// firmware/pilot/src/bibowire.cxx - THE SAME OBJECT FILE the board's program
-// compiles, with the same suite behind it. docs/bibowire.md section 12
-// requires exactly that, so the two ends cannot drift into disagreeing about a
-// field's offset while both still compile. Nothing in this module hand-rolls
-// framing, a CRC or a message body; what it owns is sockets, a thread, a
-// reconnect schedule and the question "is what I am about to draw still true".
+// Session is pure: bytes and a millisecond in, decoded state out, so the decode
+// path is tested against hand-built frames (viewer/tests/test_link.cxx). Client
+// is the socket half; it owns a Session and publishes copies under a lock.
 //
-// ---------------------------------------------------------------------------
-// THE TWO HALVES, AND WHY THEY ARE SEPARATE
-//
-// `Session` is PURE - no socket, no clock, no thread. Bytes and a millisecond
-// go in, decoded state comes out. That is what lets the whole decode path be
-// exercised against hand-built frames on a laptop with no board anywhere
-// (viewer/tests/test_link.cxx).
-//
-// `Client` is the socket half: a thread, a connection, a backoff schedule.
-// It owns a `Session` and publishes copies of it under a lock.
-//
-// ---------------------------------------------------------------------------
-// STALENESS IS INSIDE THE ACCESSOR, NOT BESIDE IT
-//
-// revolution(), decision() and board() take the caller's clock and return
-// Opt<T>, empty when the value is too old to draw. There is deliberately no
-// way to reach the underlying revolution without naming a time, because the
-// alternative - a field the renderer is trusted to check - is this repo's named
-// recurring bug class (a healthy link making a dead sensor look alive) with the
-// check written on the wrong side of the seam. Absence is the only rendering a
-// person cannot misread.
+// The Session accessors take the caller's clock and return an empty Opt when the
+// value is too old to draw. There is deliberately no way to reach the data
+// without naming a time: a staleness flag the renderer must remember to check is
+// how a healthy link makes a dead sensor look alive.
 #pragma once
 
 #include "shared.hxx"
@@ -42,113 +23,65 @@
 
 namespace link
 {
-
-  // One monotonic millisecond clock for the viewer, based at the first call.
-  // The network thread stamps arrivals with it and the frame loop asks its
-  // questions in it; two clocks would make every age a subtraction between
-  // different origins.
+  // The viewer's one monotonic millisecond clock, based at the first call. The
+  // network thread stamps arrivals with it and the frame loop asks in it, so
+  // every age is a subtraction within one origin.
   [[nodiscard]] Int64 monoMs();
 
-  // ---- the numbers this module owns ------------------------------------------
-  //
-  // docs/bibowire.md section 7: drawn normally to 400 ms, drawn desaturated with
-  // its age printed to 1500, NOT DRAWN AT ALL beyond it. A greyed-out picture is
-  // still a picture and people read pictures as current whatever colour they
-  // are.
+  // docs/bibowire.md section 7: drawn normally up to FRESH_MS, desaturated with
+  // its age printed up to GONE_MS, not drawn at all beyond it. A greyed-out
+  // picture is still read as current.
   constexpr Int64 FRESH_MS = 400;
   constexpr Int64 GONE_MS = 1500;
 
-  // ---- the staleness band, MEASURED rather than assumed ----------------------
-  //
-  // FRESH_MS is right for a feed arriving FASTER than it. A 10 Hz revolution is
-  // ~100 ms old when it lands and nothing about 400 is arbitrary for it. It is
-  // wrong as a constant for a feed arriving SLOWER, and the camera proved it on
-  // the board: at the pilot's 2 fps default a picture is 500 ms old the instant
-  // before its successor lands, so it read STALE for the last 100 ms of every
-  // frame and the window flickered twice a second. Measured against the real
-  // board, 57 camera frames out of 57 crossed FRESH_MS while the camera was
-  // delivering exactly what it had promised. That is two constants chosen in
-  // different files disagreeing - not a camera that was ever late.
-  //
-  // The scan had the same disease from the other end. Its mean interval on this
-  // board is 103 ms, comfortably inside 400 - but the board goes quiet for about
-  // 400 ms every five or six seconds (SCAN and BOARD stop together, and the
-  // board's OWN tMonoUs deltas show the gap, so it is the pilot pausing and not
-  // the network), which puts the threshold exactly on the feed's jitter. A
-  // threshold sitting on the noise floor is a coin toss rendered as a colour.
-  //
-  // So the band is derived from what the feed is ACTUALLY DELIVERING, measured
-  // here from arrival times. The property it holds: a feed keeping its own
-  // observed cadence, INCLUDING that cadence's jitter, is never called stale;
-  // one that has genuinely stopped still goes stale and then disappears.
-  //
-  // The two bounds are what keep it honest. The floor holds a fast feed to
-  // FRESH_MS, so measuring cannot make the scan's band SMALLER than the number
-  // section 7 fixed. The ceiling keeps every band strictly below GONE_MS, so
-  // "stale" stays a band every feed passes THROUGH on its way to vanishing and
-  // never one it can skip - which is the part of section 7 that must survive
-  // this change, because a picture with no age written on it is worse than a
-  // stale point cloud.
+  // Each feed's stale band is derived from its own measured arrival cadence: a
+  // feed keeping its observed rate, jitter included, is never called stale, and
+  // one that has stopped still goes stale and then disappears. A fixed FRESH_MS
+  // is wrong for a feed slower than it (the camera) and sits on the jitter of
+  // one near it (the scan's pauses). The floor is FRESH_MS; STALE_CEIL_MS keeps
+  // every band strictly below GONE_MS, so stale is a band every feed passes
+  // through before it vanishes.
   constexpr Int64 STALE_CEIL_MS = 1200;
 
-  // 1.5x the worst recent gap. A feed whose widest real gap is W is not late
-  // until meaningfully past W, and half again is the allowance.
+  // A feed is stale past STALE_SLACK_NUM / STALE_SLACK_DEN of its widest gap.
   constexpr Int64 STALE_SLACK_NUM = 3;
   constexpr Int64 STALE_SLACK_DEN = 2;
 
-  // The window the band is measured over. The WORST of the recent gaps, not the
-  // mean: the mean of the scan's intervals is 103 ms and its real gap is 400, so
-  // a band built from the mean is a band that flickers on every stall. Bounded
-  // and sliding, so a stall that has stopped happening stops widening the band -
-  // an all-time worst would never narrow again and the feed could die quietly
-  // inside a band its worst moment bought it an hour ago.
+  // The gaps the band is measured over. The worst, not the mean: the mean hides
+  // the stalls the band must cover. Sliding, so an old stall stops widening it.
   constexpr Size CADENCE_SAMPLES = 64;
 
-  // Redial when no frame OF ANY TYPE has arrived in this long. At 5 Hz BOARD and
-  // 1 Hz PING, silence that long is not a quiet moment. The car stopped 2700 ms
-  // before it mattered.
+  // Redial when no frame of any type has arrived for this long; BOARD at 5 Hz
+  // and PING at 1 Hz make that much silence a dead link.
   constexpr Int64 SILENCE_MS = 3000;
 
-  // The connect deadline of section 2, and the name is resolved on every attempt
-  // rather than cached: the field network is a phone hotspot whose DHCP hands
-  // out a different address every outing.
+  // The connect deadline of section 2. The name is resolved on every attempt,
+  // never cached: the field hotspot's DHCP hands out a new address each outing.
   constexpr Int64 CONNECT_MS = 3000;
 
-  // 250, 500, 1000, 2000, 4000, then 4000 forever - each with +-20 % jitter,
-  // never giving up. Jitter because every viewer on the hotspot comes back at
-  // the same instant when it returns, and two clients synchronised on one
-  // schedule hammer the board in lockstep.
+  // 250 ms doubling to 4000 over BACKOFF_STEPS, then 4000 forever, each with
+  // +-JITTER_PERCENT so viewers returning together do not retry in lockstep.
   constexpr Int32 BACKOFF_STEPS = 5;
   constexpr Int32 JITTER_PERCENT = 20;
 
-  // The prose channel is bounded. An unbounded one is a leak with a good excuse.
   constexpr Size MAX_EVENTS = 64;
 
-  // The board's answers to this viewer's COMMANDs, kept so a pane can show what
-  // the car actually said. A FEW, not all of them: a refusal matters for as long
-  // as it takes somebody to read it, and the useful question is "what did the
-  // last thing I did do", never "what did I do a hundred commands ago".
+  // CMDACKs kept for the pane. A refusal matters until someone has read it.
   constexpr Size MAX_ACKS = 8;
 
-  // Commands waiting for the worker to put them on the wire. Bounded for the
-  // same reason as everything else here, and generously: every one of these is
-  // a deliberate act by a person, so the bound is a guard against a stuck
-  // worker rather than against a stream.
+  // Commands queued for the worker. Each is a person's act, so the bound guards
+  // against a stuck worker, not a stream.
   constexpr Size MAX_PENDING_COMMANDS = 32;
 
-  // THE LAST 16 ROUND TRIPS, AND THE MINIMUM OF THEM - never the mean. On a
-  // hotspot the mean is dominated by stalls, so it measures the worst moment of
-  // the last sixteen seconds rather than the path; the minimum is the closest
-  // thing to the true one. Half of it is the one-way delay.
+  // Round trips kept. Latency is their minimum, never the mean: on a hotspot the
+  // mean measures stalls, not the path. Half the minimum is the one-way delay.
   constexpr Size RTT_SAMPLES = 16;
 
-  // This viewer sends its OWN PING at 1 Hz. Answering the board's PING proves
-  // the board's round trip, not ours, and a latency readout built from it would
-  // be a number measured on the far end wearing this end's label.
+  // The viewer's own PING. Answering the board's PING measures the board's round
+  // trip, not this end's.
   constexpr Int64 PING_PERIOD_MS = 1000;
 
-  // Outstanding PINGs are bounded too: an unanswered one is the silence
-  // watchdog's business, not a list to grow.
+  // An unanswered PING is the silence watchdog's business, not a list to grow.
   constexpr Size MAX_PINGS_OUT = 8;
 
   enum class Phase
@@ -161,45 +94,34 @@ namespace link
       PHASE_RETRYING,
   };
 
-  // ---- what a feed is actually delivering at ----------------------------------
-
-  // Arrival times only. It never looks at the board's clock, which is what makes
-  // it answer the question the band actually asks - "how long does this viewer
-  // wait between pictures" - rather than "how old does the board think they
-  // are". Those are different numbers and only the first one flickers.
+  // Arrival times only, never the board's clock: the band asks how long this
+  // viewer waits between frames, not how old the board thinks they are.
   struct Cadence
   {
       Bool have = false;
       Int64 lastAtMs = 0;
 
-      // The last CADENCE_SAMPLES gaps, oldest overwritten first. A ring rather
-      // than a running maximum, so the band NARROWS again once a stall stops
-      // happening.
+      // A ring rather than a running maximum, so the band narrows again once a
+      // stall stops happening.
       Array<Int64, CADENCE_SAMPLES> gaps = {};
       Size count = 0;
       Size at = 0;
   };
 
-  // Pure. One arrival. The FIRST one only starts the clock - there is no gap
-  // before a feed's first frame, and inventing one would be a measurement of
-  // when the viewer happened to connect.
+  // Pure. The first arrival only starts the clock: there is no gap before a
+  // feed's first frame.
   Void noteArrival(Cadence& c, Int64 nowMs);
 
   // The widest gap in the window, or 0 when nothing has been measured yet.
   [[nodiscard]] Int64 worstGapMs(const Cadence& c);
 
-  // The age past which THIS feed is stale, from what it has been delivering.
-  // FRESH_MS until a cadence is known, so a feed is held to section 7's number
-  // until it has earned a different one, and never wider than STALE_CEIL_MS so
-  // stale always sits strictly below GONE_MS.
+  // The age past which this feed is stale: FRESH_MS until a cadence is known,
+  // never below FRESH_MS and never above STALE_CEIL_MS.
   [[nodiscard]] Int64 staleBandMs(const Cadence& c);
-
-  // ---- what the frame loop is allowed to draw --------------------------------
 
   struct Revolution
   {
-      // Already in the scene's frame and units: X right, Y forward, Z up,
-      // metres. The conversion happens once, where the units are known.
+      // The scene's frame and units: X right, Y forward, Z up, metres.
       Vec<scene::Vec3> cloud;
 
       UInt32 revIndex = 0;
@@ -209,10 +131,8 @@ namespace link
       UInt8 motor = 0;
       Int64 ageMs = 0;
 
-      // The band this feed was actually held to, and the widest recent gap it
-      // was derived from. Carried out rather than kept private: a staleness
-      // rule nobody can read off the running system is the same species of bug
-      // as a test that measures nothing.
+      // The band this feed was held to and the gap it came from, published so
+      // the staleness rule can be read off the running system.
       Int64 staleAtMs = FRESH_MS;
       Int64 worstGapMs = 0;
 
@@ -234,9 +154,8 @@ namespace link
       Bool stale = false;
   };
 
-  // What the board said it is DOING, as opposed to what it was asked. Arrives on
-  // UDP at 20 Hz, so it may never arrive at all on a network that blocks it -
-  // which is exactly why `have` is a field and not an assumption.
+  // What the board says it is doing, as opposed to what it was asked. Arrives on
+  // UDP at 20 Hz, so a network that blocks UDP never delivers it.
   struct Control
   {
       bibowire::CtlState state;
@@ -244,38 +163,29 @@ namespace link
       Bool stale = false;
   };
 
-  // One JPEG from the car's camera, still true enough to draw.
-  //
-  // The bytes are carried VERBATIM and are not decoded here: this module owns
-  // the wire and the question "is this still true", and a JPEG decoder in it
-  // would put a third-party parser on the network thread. jpeg.cxx decodes, on
-  // the UI thread, once per frame index.
+  // One JPEG from the car's camera, fresh enough to draw. The bytes are carried
+  // verbatim: jpeg.cxx decodes on the UI thread, keeping a third-party parser off
+  // the network thread.
   struct CameraShot
   {
       UInt32 frameIndex = 0;
       UInt16 width = 0;
       UInt16 height = 0;
 
-      // Echoed on every frame so a capture is self-describing - 1 is JPEG and
-      // nothing else is defined. Carried rather than assumed, so a frame in
-      // some future codec is refused by name instead of being fed to a decoder
-      // that will find out the hard way.
+      // 1 is JPEG and nothing else is defined; carried so another codec is
+      // refused by name instead of fed to the decoder.
       UInt8 codec = 0;
 
       Vec<UInt8> bytes;
       Int64 ageMs = 0;
 
-      // As Revolution above: the band this picture was judged against and the
-      // measured gap behind it. The camera window shows both, because "stale"
-      // with no number beside it is the claim that flickered.
+      // As in Revolution.
       Int64 staleAtMs = FRESH_MS;
       Int64 worstGapMs = 0;
 
-      // The widest gap between two CAPTURES, by the board's own clock - against
-      // worstGapMs above, which is the widest gap between two ARRIVALS by this
-      // viewer's. When they agree the link is carrying what the board makes;
-      // when arrivals are gappy and captures are not, the frames existed and
-      // something between here and there ate them.
+      // The widest gap between captures by the board's clock, against
+      // worstGapMs between arrivals by this viewer's. Gappy arrivals with steady
+      // captures mean frames were made and lost on the way.
       Int64 worstCaptureMs = 0;
 
       Bool stale = false;
@@ -288,28 +198,21 @@ namespace link
       Int64 atMs = 0;
   };
 
-  // One CMDACK, with the moment it landed.
-  //
-  // THE SENTENCE IS THE WHOLE POINT. A tuning verb is refused while the car is
-  // armed (docs/bibowire.md section 5, result = 3) and the board says why in
-  // words; a viewer that dropped the text would leave an operator dragging a
-  // slider that does nothing, with no way to find out that the car had answered
-  // at all. Silence after a refused command is this repo's recurring bug class
-  // wearing a UI - so the ack is kept, not logged and forgotten.
+  // One CMDACK and when it landed, kept with its text: a tuning verb is refused
+  // while armed (docs/bibowire.md section 5, result 3) and only the board's
+  // sentence tells the operator why the slider did nothing.
   struct Ack
   {
       bibowire::CmdAck ack;
       Int64 atMs = 0;
   };
 
-  // What a CMDACK's `result` byte means, for a person. The codec carries the
-  // number and defines no name for it, so this is the one place the viewer
-  // spells them and the one place to fix if the protocol gains a fifth.
+  // A CMDACK result byte for a person. The codec defines no names, so this is
+  // the one place the viewer spells them.
   [[nodiscard]] CharSeq ackResultName(UInt8 result);
 
-  // One measured round trip, kept with the two numbers needed to turn it into a
-  // clock offset: when the PONG landed here, and what the board's clock said
-  // when it sent it.
+  // One round trip, with what turns it into a clock offset: when the PONG landed
+  // here, and the board's clock when it sent it.
   struct RttSample
   {
       Int64 rttMs = 0;
@@ -317,20 +220,16 @@ namespace link
       UInt64 boardUs = 0;
   };
 
-  // A PING sent and not yet answered. Matching is by TOKEN, which the protocol
-  // echoes verbatim, so a duplicate PONG or one for a PING this connection never
-  // sent cannot invent a round trip.
+  // A PING not yet answered. Matched by token, which the protocol echoes, so a
+  // duplicate PONG or one for a PING never sent cannot invent a round trip.
   struct PingOut
   {
       UInt64 token = 0;
       Int64 sentMs = 0;
   };
 
-  // ---- the pure half ---------------------------------------------------------
-
-  // Everything one connection has told this viewer. No socket, no clock: every
-  // entry point takes the caller's `nowMs`, which is what makes the decode path
-  // testable against recorded bytes.
+  // Everything one connection has told this viewer. No socket and no clock:
+  // every entry point takes the caller's nowMs.
   struct Session
   {
       Bool haveWelcome = false;
@@ -362,127 +261,80 @@ namespace link
       bibowire::CtlState control;
       Int64 controlAtMs = 0;
 
-      // ---- the camera --------------------------------------------------
-      //
-      // Arrives ONLY while this viewer has subscribed to it. CAMERA is
-      // CLASS_BULK and the stream is about 1 MB/s at 640x480, so a viewer that
-      // received it whether or not anybody was looking would spend the scan's
-      // bandwidth on a window that is closed.
+      // Arrives only while subscribed: CAMERA is CLASS_BULK at about 1 MB/s,
+      // bandwidth the scan needs when the window is closed.
       Bool haveCamera = false;
       bibowire::Camera camera;
       Int64 cameraAtMs = 0;
 
-      // Counted, never smoothed - frameIndex is monotonic, so what is missing
-      // is knowable exactly. The same rule the scan's missedRevs follows, and
-      // for the same reason: showing the next picture as though nothing were
-      // dropped hides a link losing half the stream.
+      // Counted, never smoothed: frameIndex is monotonic, so every missed frame
+      // is known exactly.
       UInt32 cameraFrames = 0;
       UInt32 missedCameraFrames = 0;
       Str cameraGapText;
 
-      // ---- the board's OWN capture clock ---------------------------------
-      //
-      // NOT a Cadence, and deliberately so: that type's whole contract is
-      // "arrival times only, it never looks at the board's clock", because the
-      // band it feeds answers "how long does this viewer wait between
-      // pictures". This answers a different question, and it is the one that
-      // makes a dropout diagnosable - "did the board STOP PRODUCING, or were
-      // frames produced and lost on the way here".
-      //
-      // Read together with missedCameraFrames the two classify every dropout:
+      // The board's capture clock, deliberately not a Cadence, which is arrival
+      // times only. With missedCameraFrames it classifies a dropout:
       //   frames missing, capture steady  -> lost in transit or at the ring
       //   no frames missing, capture gap  -> the camera or pumpCamera stalled
-      // Neither number alone can tell those apart, which is why a log tailed on
-      // somebody else's machine was the wrong answer to this question.
       UInt64 cameraBoardUs = 0;
       Int64 cameraWorstCaptureMs = 0;
 
-      // WHAT THIS VIEWER HAS SENT, not what the board has confirmed. There is
-      // no acknowledgement for SUBSCRIBE in the protocol, so this is the
-      // honest name for it: the difference between "we have not asked yet" and
-      // "we asked and nothing came back" is a real distinction for a person
-      // staring at an empty rectangle, and it is the only part of it this end
-      // can actually know. Cleared with the rest of the session, because a
-      // subscription belongs to one connection.
+      // What this viewer has sent, not what the board confirmed: SUBSCRIBE has
+      // no acknowledgement. A subscription belongs to one connection.
       Bool cameraSubscribed = false;
 
-      // The board's last sentence ABOUT THE CAMERA, kept apart from the
-      // general note list so the camera window can show it beside the empty
-      // rectangle it explains - "is something else holding /dev/video0?" is the
-      // one thing that turns a blank window into an answer.
-      //
-      // Matched on the TEXT, which is a heuristic and is written down as one.
-      // EVENT carries a `code` byte, but bibowire defines no code for the
-      // camera anywhere - not in the document, not in the header, not in its
-      // 312 checks - so there is nothing structured to match on yet. When
-      // bibowire claims a code for the camera, THIS is the line to change,
-      // and it is one line.
+      // The board's last EVENT about the camera, for the camera window. Matched
+      // on the text, a heuristic: bibowire defines no EVENT code for the camera
+      // yet. When it does, match the code here instead.
       Bool haveCameraNote = false;
       Str cameraNoteText;
       Int64 cameraNoteAtMs = 0;
 
-      // THE TRIM THE BOARD HAS SAVED, as it last said: the Pico's own lines
-      // joined by "; ", EMPTY when nothing is saved. See bibowire's
-      // EVENT_CODE_TRIM - matched on the code, the structured match the camera
-      // note above is still waiting for. boardTrimAtMs and boardTrimCount
-      // together name one report, so the Trim pane takes each report exactly
-      // once, including a second one whose text is the same as the first.
+      // The trim the board has saved: the Pico's lines joined by "; ", empty
+      // when nothing is saved (EVENT_CODE_TRIM). boardTrimAtMs and
+      // boardTrimCount name one report, so the Trim pane takes each report
+      // once, even a repeat of the same text.
       Bool haveBoardTrim = false;
       Str boardTrimText;
       Int64 boardTrimAtMs = 0;
       UInt32 boardTrimCount = 0;
 
-      // WHAT EACH FEED IS DELIVERING AT, one per feed and deliberately not one
-      // shared number. The camera runs at 2 fps and the scan at 10 Hz on the
-      // same connection, so a single cadence would hold each of them to the
-      // other's clock - which is the exact mistake that made a camera borrow a
-      // threshold built for a feed arriving five times faster.
-      //
-      // DECIDE has none of its own: it is tied to the revolution it describes
-      // and shares that revolution's age exactly, so it is judged by the scan's
-      // band for the same reason it borrows the scan's board clock.
+      // One cadence per feed, so the camera and the scan are never held to each
+      // other's rate. DECIDE shares its revolution's age, so it uses scanRate.
       Cadence scanRate;
       Cadence cameraRate;
       Cadence boardRate;
       Cadence controlRate;
 
-      // The last frame of ANY type. The silence watchdog reads this and nothing
-      // else: a link that is delivering BOARD but no SCAN is a live link with a
-      // dead sensor, and those two facts must not share one timer.
+      // The last frame of any type; the silence watchdog reads only this. A link
+      // delivering BOARD but no SCAN is a live link with a dead sensor, and the
+      // two must not share a timer.
       Int64 lastFrameMs = 0;
 
-      // THE ARRIVAL FLOOR (section 7). The smallest (localMs - boardMs) seen
-      // this session, which is the sample that travelled fastest and so the
-      // closest thing to the true offset. An age computed through it is compared
-      // with the age since local arrival and THE LARGER WINS, so a clock offset
-      // that drifts optimistic can only ever be corrected upward by the fact
-      // that the bytes have not arrived yet.
+      // The arrival floor (section 7): the smallest (localMs - boardMs) this
+      // session, from the fastest sample. An age through it is compared with the
+      // age since arrival and the larger wins, so a drifting offset can only
+      // make a value older.
       Bool haveOffset = false;
       Int64 offsetMs = 0;
 
-      // Carried ACROSS reconnects by the Client, and the whole point of it: the
-      // same bootId means the board kept running, a different one means the
-      // pilot restarted and everything below is about a car that no longer
-      // exists.
+      // Survives reconnects: the same bootId means the board kept running, a
+      // different one means the pilot restarted and everything here is void.
       Bool haveBootId = false;
       UInt32 bootId = 0;
 
-      // A BYE's reason and its sentence. The sentence is the part a person can
-      // act on, so it is kept verbatim and shown rather than logged.
+      // A BYE's reason and its sentence, shown verbatim.
       Bool haveBye = false;
       bibowire::Reason byeReason = bibowire::Reason::REASON_NONE;
       Str byeText;
 
       Vec<Note> notes;
 
-      // WHAT THE BOARD SAID ABOUT THIS VIEWER'S COMMANDS, newest last. Bounded
-      // at MAX_ACKS. Cleared with the rest of the session, because a cmdId
-      // belongs to one connection: the counter that issued it is the viewer's
-      // and the session that carried it is gone.
+      // CMDACKs for this viewer's commands, newest last, at most MAX_ACKS. A
+      // cmdId belongs to one connection.
       Vec<Ack> acks;
 
-      // Counted, never smoothed. A number nobody can read off the running system
-      // is the same species of bug as a test that measures nothing.
       UInt32 frames = 0;
       UInt32 unknownFrames = 0;
       UInt32 refusedFrames = 0;
@@ -491,77 +343,50 @@ namespace link
       UInt32 missedRevs = 0;
       Str gapText;
 
-      // PINGs that have been parsed and not yet answered. The pure half cannot
-      // send, so it records what the socket half owes; the socket half drains
-      // this every pass.
+      // PINGs parsed and not yet answered. The pure half cannot send, so the
+      // socket half drains this every pass.
       Vec<bibowire::Ping> pongsDue;
 
-      // The round trips this viewer measured, and the PINGs still waiting for an
-      // answer. Cleared with the rest of the session, because a round trip
-      // belongs to one connection.
       Vec<RttSample> rtts;
       Vec<PingOut> pingsOut;
       Bool haveRtt = false;
       Int64 lastRttMs = 0;
 
-      // Empty when there is nothing true to draw. The staleness test lives HERE
-      // rather than at the call site - see the header comment.
+      // Empty when there is nothing fresh enough to draw.
       [[nodiscard]] Opt<Revolution> revolution(Int64 nowMs) const;
       [[nodiscard]] Opt<Decision> decision(Int64 nowMs) const;
       [[nodiscard]] Opt<Board> boardState(Int64 nowMs) const;
       [[nodiscard]] Opt<Control> controlState(Int64 nowMs) const;
 
-      // Empty when the newest frame is too old to draw, exactly like the scan.
-      // A frozen last picture drawn as though it were live is the precise lie
-      // section 7 is written to prevent, and it is worse for a camera than for
-      // the cloud: a photograph of a corridor looks equally convincing whether
-      // it was taken now or forty seconds ago.
+      // Empty past GONE_MS, like the scan: a photograph carries no age a person
+      // can read, so a frozen one looks exactly as live as a new one.
       [[nodiscard]] Opt<CameraShot> cameraShot(Int64 nowMs) const;
 
-      // The newest answer the board gave, empty until it has answered anything.
-      // Empty is a REAL state and not a formality: between sending a command and
-      // its CMDACK there is nothing true to show, and a pane that displayed the
-      // previous verb's answer there would be reporting the wrong command's
-      // result at precisely the moment somebody is watching for one.
+      // The newest CMDACK, empty until the board has answered anything.
       [[nodiscard]] Opt<Ack> newestAck() const;
 
-      // The measured latency, empty until a PONG has actually come back. This is
-      // the NETWORK's number and it answers a different question from the ages
-      // above: the round trip can be 8 ms while the scan behind it is two
-      // seconds old, which is precisely the pair of lies section 7 separates.
+      // The measured latency, empty until a PONG has come back. The network's
+      // number, not a feed's age: a fast round trip can carry an old scan.
       [[nodiscard]] Opt<Int64> rttMs() const;
       [[nodiscard]] Opt<Int64> bestRttMs() const;
       [[nodiscard]] Opt<Int64> oneWayMs() const;
   };
 
-  // Pure. Records a PING this viewer is about to put on the wire, so the PONG
-  // that comes back can be matched to it by token.
+  // Pure. Records a PING about to be sent, so its PONG can be matched by token.
   Void notePingSent(Session& s, UInt64 token, Int64 nowMs);
 
-  // Forgets everything about a connection. `bootId` and its flag SURVIVE, which
-  // is what lets the next WELCOME be compared against the last one.
+  // Forgets everything about a connection. `bootId` and its flag survive, so the
+  // next WELCOME can be compared against the last one.
   Void clearSession(Session& s);
 
   // Forgets the bootId as well: a deliberate disconnect ends the comparison.
   Void clearAll(Session& s);
 
-  // ---- what the round-trip log is told about arriving frames -----------------
-  //
-  // THE PURE HALF'S CONTRIBUTION TO THE VIEWER'S LOG, and still pure: counters
-  // and copies, no clock, no file, no socket. The worker hands one of these to
-  // the decode, drains it every pass and writes the lines; the suite hands in
-  // nothing and none of it happens.
-  //
-  // It exists because the facts a round-trip log needs - the header seq of a
-  // board PING, how long the link was quiet before it, the token of a PONG that
-  // matched nothing - are known ONLY inside the decode and are gone the moment
-  // it returns. Reconstructing them from the Session afterwards would mean
-  // guessing which of eight bounded acks is the new one.
-  //
-  // SCAN, CAMERA, BOARD, DECIDE and CTLSTATE are only COUNTED here. They arrive
-  // tens of times a second, and a line each would make the log the busiest
-  // thing on the network thread it is meant to be watching.
-
+  // What the decode tells the round-trip log, still pure: counters and copies,
+  // no clock, file or socket. The worker passes one in and drains it every pass.
+  // A PING's header seq, the quiet before it and an unmatched PONG's token are
+  // known only inside the decode. SCAN, CAMERA, BOARD, DECIDE and CTLSTATE are
+  // only counted: a line each would load the network thread the log watches.
   struct HeardPing
   {
       UInt64 token = 0;
@@ -574,23 +399,19 @@ namespace link
   {
       UInt64 token = 0;
 
-      // False is a PONG for no PING this connection has outstanding - either a
-      // duplicate, or an answer so late its PING was already pushed out of the
-      // bounded list. Logged either way, because it is dropped either way.
+      // False when no outstanding PING has this token: a duplicate, or so late
+      // its PING was pushed out of the bounded list.
       Bool matched = false;
       Int64 rttMs = 0;
   };
 
-  // Bounded like everything else here. The worker drains every pass, so reaching
-  // this means one recv carried this many of one kind - counted in `overflow`,
-  // never quietly lost.
+  // Per kind per drain. Anything past it is counted in `overflow`.
   constexpr Size HEARD_MAX = 64;
 
   struct Heard
   {
-      // Every frame taken, TCP and UDP both, by tag byte - including tags this
-      // build has no name for. Cumulative for the connection; the summary
-      // subtracts its previous copy.
+      // Every frame taken, TCP and UDP, by tag byte, unknown tags included.
+      // Cumulative for the connection.
       Array<UInt32, 256> byType = {};
 
       // A known type whose body would not decode, and the latest one's tag.
@@ -601,17 +422,16 @@ namespace link
       UInt32 unknownTypes = 0;
       UInt8 lastUnknownType = 0;
 
-      // What the reader stepped over on TCP. A CORRUPTED frame lands in
-      // `resyncBytes`: take() cannot tell a bad CRC from junk and does not try.
-      // `framingRefused` is its TOO_BIG and BAD_FLAG answers.
+      // What the TCP reader stepped over. A corrupted frame lands in
+      // `resyncBytes`: take() cannot tell a bad CRC from junk.
+      // `framingRefused` counts its TOO_BIG and BAD_FLAG answers.
       UInt32 resyncs = 0;
       UInt32 resyncBytes = 0;
       UInt32 framingRefused = 0;
 
-      // Header seqs on the TCP stream that were not the previous one plus one,
-      // with the latest pair. COUNTED, NOT INTERPRETED: whether the board numbers
-      // a frame before or after its ring may drop it decides what a jump means,
-      // and that is a question for the board's source rather than this reader.
+      // TCP header seqs that were not the previous plus one, with the latest
+      // pair. Counted, not interpreted: what a jump means depends on whether the
+      // board numbers a frame before or after its ring may drop it.
       UInt32 seqJumps = 0;
       Bool haveSeq = false;
       UInt16 lastSeq = 0;
@@ -628,63 +448,46 @@ namespace link
   // Pure. One decoded frame into the session.
   Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs);
 
-  // The same, telling `heard` what the log needs. Null is allowed and is the
-  // overload above.
+  // The same, also filling `heard`, which may be null.
   Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs, Heard* heard);
 
-  // Pure. Takes as many whole frames as `buf` holds, ingesting each; returns the
-  // number of bytes the caller should retire. Junk is resynced past and counted,
-  // never skipped in silence.
+  // Pure. Ingests every whole frame in `buf` and returns the bytes to retire.
+  // Junk is resynced past and counted.
   [[nodiscard]] Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 nowMs);
 
-  // The same, telling `heard` what the log needs - including the resyncs and
-  // seq jumps only the byte-level reader can see.
+  // The same, also giving `heard` the resyncs and seq jumps only the byte reader
+  // sees.
   [[nodiscard]] Size ingestBytes(Session& s, const UInt8* buf, Size len, Int64 now, Heard* heard);
 
-  // ---- CONTROL, the pure half ------------------------------------------------
-  //
-  // THE CADENCE IS THE CONSENT, NOT THE CONTENT. docs/bibowire.md section 6: a
-  // CONTROL goes out every CONTROL_PERIOD_MS for as long as this viewer holds
-  // the slot, changed or not. A protocol that sent control on change would make
-  // "nothing changed" and "the link died" the same event on the wire, which is
-  // this repo's recurring bug class pointed at the one mechanism that stops a
-  // car. So what the UI thread publishes is a LEVEL that the worker samples on
-  // its own schedule, never a queue of edges: a key that is held down is held
-  // down twenty times a second, and a key that is not is silence with a value
-  // in it.
-
+  // docs/bibowire.md section 6: CONTROL goes out every period while this viewer
+  // holds the slot, changed or not. The cadence is the consent the deadman
+  // watches, so "nothing changed" and "the link died" must differ on the wire.
+  // The UI thread publishes a level the worker samples, never a queue of edges.
   struct Intent
   {
-      // THE OPERATOR'S INTENT TO DRIVE, and BUTTON_ENABLE follows it exactly.
-      // bibowire::deadman::step only reaches STATE_LIVE when `enable` is set,
-      // so a stream without it leaves the car at REFUSE_NOT_ARMED with the keys
-      // looking dead. Clearing it is a SOFT stop - throttle to zero, steering
-      // held, the slot kept - which is why the stream CONTINUES while this is
-      // false rather than stopping: stopping is what the deadman is for.
+      // The operator's intent to drive; BUTTON_ENABLE follows it.
+      // bibowire::deadman::step only reaches STATE_LIVE with enable set, else
+      // the car stays at REFUSE_NOT_ARMED. Clearing it is a soft stop (throttle
+      // zero, steering held, slot kept), so the stream continues while it is
+      // false: stopping is the deadman's job.
       Bool driving = false;
 
       Int16 steerMilli = 0;
       Int16 throttleMilli = 0;
 
-      // b0 ESTOP, b1 ENABLE, b2 MOTOR_WANTED. Built by drive.hxx from the keys
-      // and carried verbatim, so this module never decides what a key means.
+      // b0 ESTOP, b1 ENABLE, b2 MOTOR_WANTED, built by drive.hxx from the keys
+      // and carried verbatim.
       UInt16 buttons = 0;
 
-      // WHAT THE OPERATOR BELIEVES IS ACTIVE - from this viewer's OWN mode
-      // selection, and NEVER echoed from CTLSTATE's pilotMode. The board
-      // compares the two to catch somebody driving under a false belief (its
-      // `REFUSE_MODE`), and a viewer that reflected the board's answer back
-      // would make that comparison always true and delete the check. That exact
-      // bug was found and fixed on the BOARD side of this comparison
-      // (viewfeed.cxx, onControlFrame); this is the other end of it, and the
-      // suite pins it.
+      // The mode the operator believes is active, from this viewer's own
+      // selection and never echoed from CTLSTATE's pilotMode: the board compares
+      // the two (REFUSE_MODE), and an echo would make that check always pass.
+      // The suite pins it.
       UInt8 assumedMode = 0;
   };
 
-  // The three facts only the CONNECTION knows, stamped by the worker at the
-  // moment of sending rather than carried on the Intent - sendCommand's rule and
-  // the same reason: a snapshot taken on the UI thread is the session the
-  // operator typed into, which may not be the one the frame goes out on.
+  // Connection facts, stamped by the worker at send time rather than carried on
+  // the Intent: the UI thread's snapshot may belong to an earlier session.
   struct ControlStamp
   {
       UInt32 sessionId = 0;
@@ -696,71 +499,45 @@ namespace link
   // Pure. What this viewer would put on the wire right now.
   [[nodiscard]] bibowire::Control buildControl(const Intent& in, const ControlStamp& at);
 
-  // Pure. STRICTLY INCREASING FROM 1, and never 0 - section 5 starts the stream
-  // at 1 and the board's newest-wins comparison is on the difference, so a 0
-  // would be a datagram the board could not tell from "no seq at all". At 20 Hz
-  // the wrap is 6.8 years away and is written anyway, because a rule held by an
-  // arithmetic coincidence is a rule nobody can point at.
+  // Pure. Strictly increasing from 1 and never 0, including across the wrap:
+  // section 5 starts the stream at 1 and CTLSTATE's ackSeq uses 0 for none.
   [[nodiscard]] UInt32 nextControlSeq(UInt32 previous);
 
-  // Whether the BOARD said this viewer has the control slot. WELCOME's
-  // `accepted` is the authority: 1 is "control is yours", 2 is observer.
-  //
-  // NOT a question this end can answer on its own, which is the whole point.
-  // The slot is asked for in HELLO and granted (or not) in the answer, so a
-  // viewer that decided locally that it was driving would send a stream the
-  // board counts in rxControlStale and discards, while its own UI showed a car
-  // it was not connected to. CTLSTATE's `holder` is the live confirmation and
-  // the pane shows that too.
+  // Whether the board granted this viewer the control slot: WELCOME's
+  // `accepted`, 1 control, 2 observer. Only the board's answer counts; a viewer
+  // that assumed the slot would stream CONTROL the board discards
+  // (rxControlStale). CTLSTATE's `holder` is the live confirmation.
   [[nodiscard]] Bool holdsSlot(const Session& s);
 
-  // THE BOARD'S OWN CADENCE, not a constant compiled into this viewer months
-  // earlier - section 4 says WELCOME carries controlPeriodMs, staleMs and deadMs
-  // for exactly this reason. bibowire::CONTROL_PERIOD_MS is the fallback for
-  // "no WELCOME yet", and a board that sends 0 does not get to make this viewer
-  // spin: a period of zero is not a faster stream, it is a busy loop.
+  // The board's period from WELCOME (section 4), or bibowire::CONTROL_PERIOD_MS
+  // before WELCOME or when the board sends 0, which would be a busy loop.
   [[nodiscard]] Int64 controlPeriodMs(const Session& s);
 
-  // ---- the reconnect schedule, as three pure functions -----------------------
-
+  // The reconnect schedule, pure.
   [[nodiscard]] UInt32 stir(UInt32 seed);
   [[nodiscard]] Int32 backoffBaseMs(Int32 attempt);
   [[nodiscard]] Int32 jittered(Int32 baseMs, UInt32 roll);
-
-  // ---- the socket half -------------------------------------------------------
 
   struct Snapshot
   {
       Phase phase = Phase::PHASE_IDLE;
 
-      // The truth, in a sentence, for the Connection panel: connecting,
-      // handshaking, live, retrying in N ms, and the BYE reason when there is
-      // one.
+      // The Connection panel's sentence: connecting, handshaking, live,
+      // retrying in N ms, and the BYE reason when there is one.
       Str status = "not connected";
       Int32 retryInMs = 0;
       Session state;
 
-      // ---- how CONTROL is actually leaving this machine --------------------
-      //
-      // Section 4's TCP fallback, made visible. When no CTLSTATE datagram has
-      // arrived within REVERSE_PROBE_MS of WELCOME, UDP is not getting through
-      // and CONTROL moves onto the TCP connection at the same rate - the board
-      // accepts it there always, with identical rules and identical deadman.
-      // The banner is part of the contract and not a nicety: driving degraded
-      // is still driving, and an operator who cannot tell is an operator who
-      // will not know why the wheel feels late behind a 2.5 KB SCAN.
+      // Section 4's TCP fallback: no CTLSTATE within REVERSE_PROBE_MS of WELCOME
+      // means UDP is not getting through, so CONTROL moves onto TCP at the same
+      // rate, where the board applies identical rules and deadman. Published so
+      // the operator can see why control feels late.
       Bool controlOnTcp = false;
 
-      // COUNTED, NEVER SMOOTHED, and published so a pane can show them. A
-      // control stream nobody can measure is the exact failure this repo keeps
-      // finding, and here it would be measured in metres of car.
       UInt32 controlSent = 0;
       UInt32 controlFailed = 0;
 
-      // The seq this viewer last put on the wire, so the pane can hold it up
-      // against CTLSTATE's ackSeq - "sent 412, applied 411" is a link working,
-      // and "sent 412, applied 96" is one that stopped three hundred datagrams
-      // ago while every socket still looks perfect.
+      // The seq last sent, for the pane to set against CTLSTATE's ackSeq.
       UInt32 controlSeq = 0;
   };
 
@@ -774,85 +551,48 @@ namespace link
       Snapshot shared;
 
       // `quit` is the only thing the UI thread writes while the worker runs, and
-      // the worker checks it between every blocking wait - so a Disconnect is
-      // bounded by one poll slice rather than by a socket timeout.
+      // the worker checks it between blocking waits, so close() is bounded by
+      // one poll slice.
       Atomic<Bool> quit = false;
       Atomic<Bool> running = false;
 
-      // Set by the UI thread from whether the camera window is open, read by
-      // the worker, which sends SUBSCRIBE whenever it differs from what this
-      // connection last asked for. An atomic rather than a lock because it is
-      // one bit written once a frame and read once a poll slice.
+      // Whether the camera window is open. The worker sends SUBSCRIBE whenever it
+      // differs from what this connection last asked for.
       Atomic<Bool> cameraOn = false;
 
-      // FRAMES PER SECOND THIS VIEWER IS ASKING FOR, 0 meaning "do not ask" -
-      // in which case the board keeps its own conservative default and this
-      // viewer behaves exactly as it did before the field existed.
-      //
-      // The viewer asks because only the viewer knows what its link is
-      // carrying: the board cannot tell a LAN from a phone hotspot from the
-      // far end, and the number that is right for one is ruinous for the
-      // other. The board still decides - it clamps to bibowire::CAM_FPS_MAX -
-      // so this is a request and never a command.
+      // Frames per second to ask for, 0 to leave the board's default. The viewer
+      // asks because only it knows what its link carries; the board still clamps
+      // to bibowire::CAM_FPS_MAX.
       Atomic<Int32> cameraFps = 0;
 
-      // ---- COMMANDs the UI thread has asked for and the worker has not sent --
-      //
-      // The wantCamera pattern, with a queue instead of a bit, because these do
-      // not COLLAPSE: two camera-on requests are one fact, but "set the servo
-      // limits" followed by "set the trim" are two acts and each gets its own
-      // CMDACK. A latch would silently lose the first of them.
-      //
-      // `cmdLock` guards both the queue and `nextCmdId`. The counter is not an
-      // Atomic because it must be read, incremented and stamped onto a Command
-      // as ONE step - an atomic would make each of those safe and the trio
-      // still able to issue one id twice.
+      // COMMANDs not yet sent. A queue, not a latch like cameraOn: two commands
+      // are two acts with two CMDACKs. `cmdLock` guards the queue and
+      // `nextCmdId`, which must be read, incremented and stamped as one step, so
+      // an Atomic would not do.
       Mutex cmdLock;
       Vec<bibowire::Command> pending;
 
-      // Viewer-monotonic and NEVER 0 - the protocol reserves 0, and CTLSTATE's
-      // lastCmdId uses it to mean "none applied", so a command numbered 0 would
-      // be a command the board could not report having run. Starts at 1 and
-      // skips back to 1 rather than to 0 on the wrap that will never happen.
+      // Never 0: the protocol reserves it, and CTLSTATE's lastCmdId uses 0 for
+      // none applied. Wraps to 1.
       UInt32 nextCmdId = 1;
 
-      // COUNTED, NOT SWALLOWED. Commands are DROPPED rather than held when the
-      // link is down (see sendCommand), and a drop nobody can see is the exact
-      // failure this repo keeps finding - so the pane can show that a command
-      // never left. Atomic because the UI thread reads it while the worker
-      // writes it.
+      // Commands that never reached the wire (see sendCommand). Atomic because
+      // the UI thread reads it while the worker writes it.
       Atomic<UInt32> commandsDropped = 0;
 
-      // ---- what the operator is asking the car to do -----------------------
-      //
-      // A MUTEX AND A STRUCT, not five atomics, and the difference matters. The
-      // five fields are ONE act - "left, no throttle, enabled, in manual" - and
-      // five independent atomics would let the worker read a steer from this
-      // frame beside a throttle from the last one. Two halves each locally
-      // correct and broken as a pair is a failure this repo has a name for, and
-      // this is the one place in the viewer where it would be measured in
-      // metres of car. The lock is held for a struct copy, once a UI frame and
-      // once a poll slice.
+      // A mutex and a struct, not five atomics: the fields are one act, and
+      // separate atomics would let the worker pair this frame's steer with the
+      // last frame's throttle.
       Mutex ctlLock;
       Intent intent;
 
-      // ASKED FOR IN HELLO AND NOWHERE ELSE. bibowire v1 has no message that
-      // takes the control slot mid-session: viewfeed.cxx grants it in onHello
-      // and in no other place (`c.holder = true` appears exactly once), so this
-      // is read when the connection is DIALLED and changing it later changes
-      // nothing until the next one. The pane says that in words rather than
-      // leaving a checkbox that appears to do nothing.
-      //
-      // DEFAULT TRUE SINCE 2026-09-12, by the operator's decision. It was false
-      // as a safety property: section 6 says the moment a viewer takes the slot,
-      // in ANY mode including drive, its cadence becomes the consent the
-      // deadman watches, and losing it stops the car - so opening a viewer
-      // arms a deadman over whatever the car is doing, an autonomous run
-      // included. The cost of false was measured instead: tick, Reconnect,
-      // enable, ARM, and a car that ignored its keys when one was missed. The
-      // trade was put to the operator and they chose connect-then-ARM. Taking
-      // the slot moves nothing - the car is disarmed until ARM - and a second
-      // viewer still only observes. The checkbox turns it off.
+      // Read only when dialling: HELLO is the one place the slot is asked for
+      // (viewfeed.cxx grants it in onHello alone), so a change takes effect on
+      // the next connection. Default true, the operator's choice: holding the
+      // slot makes this viewer's cadence the consent the deadman watches in any
+      // mode, autonomous runs included, so losing the stream stops the car. The
+      // slot moves nothing by itself - the car stays disarmed until ARM - and a
+      // second viewer only observes.
       Atomic<Bool> wantSlot = true;
   };
 
@@ -864,107 +604,63 @@ namespace link
 
   [[nodiscard]] Bool isOpen(const Client& c);
 
-  // Newest-wins: a copy of the most recently published state. The frame loop
-  // holds the lock for a memcpy and never for a socket.
+  // Newest-wins: a copy of the most recently published state. The lock is held
+  // for a copy, never across a socket call.
   [[nodiscard]] Snapshot snapshot(Client& c);
 
-  // ---- the subscription ------------------------------------------------------
-
-  // What this viewer asks for, as bibowire::typeBit bits. NEVER ZERO, and that
-  // is the point: a zero mask means "everything" to the board, so an
-  // unsubscribe spelled as 0 would ask for more than it started with rather
-  // than less. Turning the camera off names every other type explicitly instead.
+  // bibowire::typeBit bits to ask for, never zero: 0 means everything to the
+  // board, so turning the camera off names every other type explicitly.
   [[nodiscard]] UInt32 subscriptionMask(Bool withCamera);
 
-  // Ask the board for the camera, or stop asking. Safe from the UI thread and
-  // safe before a connection exists - the worker sends SUBSCRIBE once WELCOME
-  // has arrived, and again after every reconnect, because a new connection has
-  // subscribed to nothing.
+  // Safe from the UI thread and before a connection exists: the worker sends
+  // SUBSCRIBE once WELCOME has arrived, and again after every reconnect.
   Void wantCamera(Client& c, Bool on);
 
-  // Ask the board for a camera RATE, in frames per second, or 0 to stop asking
-  // and let the board's own default stand. Clamped to bibowire::CAM_FPS_MAX on
-  // the way out, and again by the board, which is the end that owns the
-  // decision. Safe from the UI thread and before a connection exists: the
-  // worker re-sends SUBSCRIBE whenever this differs from what the current
-  // connection was told, including after a reconnect, because a new connection
-  // has asked for nothing.
+  // Ask for a camera rate in frames per second, or 0 for the board's default.
+  // Clamped to bibowire::CAM_FPS_MAX here and again by the board. Re-sent like
+  // wantCamera whenever it differs from what the connection was told.
   Void wantCameraFps(Client& c, Int32 fps);
 
   [[nodiscard]] Int32 cameraFpsWanted(const Client& c);
 
-  // ---- COMMAND ---------------------------------------------------------------
+  // One discrete act, sent once on TCP and answered by one CMDACK. Safe from the
+  // UI thread and before a connection exists: this enqueues, and the worker
+  // sends after WELCOME. `cmdId` is stamped here, monotonic across the viewer's
+  // run and never 0. `sessionId` and `armEpoch` are stamped by the worker at
+  // send time, so a command carries the session it goes out on.
   //
-  // One discrete act, sent once on TCP and answered by exactly one CMDACK.
-  //
-  // Safe from the UI thread and safe before a connection exists, exactly like
-  // wantCamera: this enqueues, and the worker sends once WELCOME has arrived.
-  // `cmdId` is stamped HERE, so it is monotonic across the whole run of the
-  // viewer rather than per connection, and it is never 0.
-  //
-  // `sessionId` and `armEpoch` are deliberately NOT arguments and are stamped by
-  // the worker at the moment of sending. They are facts about the connection,
-  // and the UI thread's copy of them is a snapshot that may be one frame old -
-  // stamping them at enqueue time would let a command carry the session it was
-  // typed into rather than the one it is sent on.
-  //
-  // A COMMAND QUEUED WHILE THE LINK IS DOWN IS DROPPED, NOT HELD, and that is a
-  // decision rather than an oversight. Holding it would mean a tuning value the
-  // operator set minutes ago - and has very likely since changed their mind
-  // about, or moved the slider past - being applied to the car at the instant a
-  // reconnect succeeds, with nobody watching the moment it lands. These verbs
-  // re-tune the limits a throttle is clamped to, they do not survive a Pico
-  // reboot anyway (docs/bibowire.md section 5), and the pane's sliders still
-  // hold what the operator wants, so re-sending is one click on a live link.
-  // A surprise on reconnect is strictly worse than a command that must be
-  // repeated. The drop is COUNTED - commandsDropped - because a drop nobody can
-  // see is the failure this repo keeps finding.
+  // A command queued while the link is down is dropped, not held: a stale tuning
+  // value applied the instant a reconnect succeeds, with nobody watching, is
+  // worse than a repeated click. A dropped tuning verb loses nothing the car had:
+  // the board keeps the trim it accepted and replays it whenever it opens the
+  // Pico (docs/bibowire.md section 5), and reports it on WELCOME for
+  // trimview::follow to take. Drops are counted in commandsDropped.
   Void sendCommand(Client& c, bibowire::Verb verb, UInt8 arg0, UInt16 arg1, UInt16 arg2);
 
-  // How many commands never reached the wire because there was no connection to
-  // put them on. Shown, not just counted.
+  // Commands that never reached the wire.
   [[nodiscard]] UInt32 commandsDropped(const Client& c);
 
-  // ---- CONTROL, the socket half ----------------------------------------------
+  // CONTROL is sent every controlPeriodMs while this viewer holds the slot, on
+  // the client's UDP socket, or on TCP when section 4's probe says UDP is not
+  // getting through. There is no viewer-side bibowire::deadman::step: countdowns
+  // come from CTLSTATE's neutralInMs and disarmInMs, computed by the board with
+  // the function that trips, so the margin shown is the car's.
   //
-  //   - CONTROL is built, framed and sent every controlPeriodMs while this
-  //     viewer holds the slot, on the UDP socket the client already binds, and
-  //     on TCP instead when section 4's CTLSTATE probe says UDP is not getting
-  //     through. seq is strictly increasing from 1, sessionId comes from
-  //     WELCOME and armEpoch from the freshest thing the board has said.
-  //   - The slot is ASKED FOR in HELLO, by default. There is no taking it
-  //     without reconnecting: bibowire v1 has no message for it and the board
-  //     grants it in onHello alone.
-  //   - There is no viewer-side copy of bibowire::deadman::step. The
-  //     countdowns an operator reads come from CTLSTATE's neutralInMs and
-  //     disarmInMs, which the BOARD computes with the same pure function that
-  //     does the tripping - so there is one arithmetic rather than two that can
-  //     disagree, and nothing here can render a margin the car does not have.
-
-  // The level the worker samples. Safe from the UI thread, safe before a
-  // connection exists, and called EVERY FRAME from the pane rather than on
-  // change: this is a level and not an edge, and a "send it when it changes"
-  // path here would be the one bug section 6 is written to prevent.
+  // setControl publishes the level the worker samples. Call it every frame, not
+  // on change: section 6 forbids change-only control.
   Void setControl(Client& c, const Intent& in);
 
   [[nodiscard]] Intent controlIntent(Client& c);
 
-  // Ask for the control slot on the NEXT connection - HELLO carries it and
-  // nothing else can. Default true; Client::wantSlot has the trade.
+  // Ask for the control slot on the next connection. Client::wantSlot has the
+  // deadman trade-off of the default.
   Void wantControlSlot(Client& c, Bool on);
 
   [[nodiscard]] Bool controlSlotWanted(const Client& c);
 
-  // Drop this connection and dial the same host again, because asking for the
-  // slot is a HELLO-time decision and a HELLO belongs to a connection. Returns
-  // false when there was nothing running to restart.
-  //
-  // It is a close and an open, in that order, and it is deliberately not
-  // dressed up as anything smaller: the session is gone, the sessionId is new,
-  // the board issues a fresh epoch, and the car - which stopped at DEAD when
-  // the old stream stopped - stays stopped until somebody arms it again. That
-  // is section 7's reconnect paragraph, and a "reconnect" that hid any of it
-  // would be hiding the part an operator has to know.
+  // Close, then open the same host, because the slot is asked for in HELLO.
+  // Returns false when nothing was running. Nothing survives: a new session and
+  // sessionId, a fresh epoch, and a car stopped at DEAD stays stopped until armed
+  // again (section 7).
   Bool reconnect(Client& c);
-
 }

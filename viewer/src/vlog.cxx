@@ -1,10 +1,7 @@
 #include "vlog.hxx"
 
-// <windows.h> for what the standard library cannot say here: where this exe
-// lives, making a directory by wide path, a precise UTC clock and the process id.
-// NOTHING OF OURS IS INCLUDED AFTER IT, which is why this file carries none of
-// main.cxx's `small`/`near`/`far`/SEVERITY_ERROR surgery - the day a link or
-// bibowire header is included below this line, that block has to come with it.
+// Nothing of ours is included after <windows.h>. A link or bibowire header
+// below it would need main.cxx's #undef block with it.
 #include <windows.h>
 
 #include <cstdarg>
@@ -13,29 +10,21 @@
 
 namespace vlog
 {
-
   namespace
   {
-
-    // 50 MiB. A healthy session writes a summary line a second and a handful of
-    // keepalive lines beside it - well under a megabyte an hour - so reaching
-    // this means something is logging in a loop, and the cap is what stops that
-    // filling the disk of a laptop left running in a field.
+    // A healthy session writes well under a megabyte an hour, so the cap only
+    // stops a logging loop filling the disk.
     constexpr Size CAP_BYTES = Size{50} * 1024 * 1024;
 
-    // One line after its prefix. An EVENT or CMDACK sentence is a few hundred
-    // bytes at most, and the once-a-second summary is the longest line written.
+    // One line after its prefix; the once-a-second summary is the longest.
     constexpr Size LINE_BYTES = 2048;
 
     constexpr Size PATH_CHARS = 1024;
 
-    // A wide path, because the directory a person unzipped the viewer into is
-    // not promised to be ASCII, and a log that silently failed to open over an
-    // accented folder name is the absence this module exists to end.
+    // Wide, because the folder the viewer was unzipped into may not be ASCII.
     using WidePath = Array<wchar_t, PATH_CHARS>;
 
-    // The same run started twice inside one second gets -2, -3... rather than
-    // the second viewer truncating the first one's evidence.
+    // Two runs in the same second get -2, -3... instead of truncating the first.
     constexpr UInt32 NAME_TRIES = 9;
 
     Mutex lock;
@@ -46,8 +35,7 @@ namespace vlog
     Size written = 0;
     Bool capped = false;
 
-    // The fast path's test, read without the lock: a viewer that could not open
-    // a file must not take a mutex for every line it would have written.
+    // Read without the lock, so a viewer with no file takes no mutex per line.
     Atomic<Bool> live = false;
 
     thread_local CharSeq threadTag = nullptr;
@@ -61,10 +49,8 @@ namespace vlog
         return std::this_thread::get_id() == opener ? "ui" : "thread";
     }
 
-    // Formats into `into` and makes the result safe to write as ONE line. A
-    // sentence from the board can carry a newline, and a log whose lines can be
-    // split by the data inside them is a log whose timestamps that data can
-    // forge - so every control character becomes a space.
+    // Control characters become spaces, so text from the board cannot split a
+    // line and forge a timestamp. Truncation is marked, not silent.
     Void formatInto(Array<Char, LINE_BYTES>& into, CharSeq fmt, std::va_list args)
     {
         const Int32 need = std::vsnprintf(into.data(), into.size(), fmt, args);
@@ -83,8 +69,6 @@ namespace vlog
                 c = ' ';
             }
         }
-        // SAID, not silently cut: a line that ends mid-sentence with nothing to
-        // show for it reads as the whole sentence.
         if(need >= static_cast<Int32>(into.size()))
         {
             const Size at = into.size() - sizeof(" [truncated]");
@@ -99,16 +83,13 @@ namespace vlog
         {
             return;
         }
-
-        // PRECISE rather than GetSystemTime, whose answer moves in timer ticks
-        // of up to 15.6 ms - a granularity that could put two lines from
-        // different ends of a round trip in the wrong order.
+        // Precise: GetSystemTime moves in ticks of up to 15.6 ms, enough to
+        // misorder lines from the two ends of a round trip.
         FILETIME ft = {};
         ::GetSystemTimePreciseAsFileTime(&ft);
         SYSTEMTIME utc = {};
         ::FileTimeToSystemTime(&ft, &utc);
         const Int64 sinceMs = std::chrono::duration_cast<Millis>(Clock::now() - base).count();
-
         Array<Char, 96> head = {};
         const Int32 headLen = std::snprintf(
             head.data(),
@@ -131,7 +112,6 @@ namespace vlog
         const Size headBytes = static_cast<Size>(headLen);
         const Size bodyBytes = std::strlen(body.data());
         const Size total = headBytes + bodyBytes + 1;
-
         if(written + total > CAP_BYTES)
         {
             capped = true;
@@ -140,7 +120,6 @@ namespace vlog
             std::fflush(file);
             return;
         }
-
         std::fwrite(head.data(), 1, headBytes, file);
         std::fwrite(body.data(), 1, bodyBytes, file);
         std::fputc('\n', file);
@@ -169,8 +148,7 @@ namespace vlog
     {
         const DWORD cap = static_cast<DWORD>(dir.size());
         const DWORD n = ::GetModuleFileNameW(nullptr, dir.data(), cap);
-        // n == cap is TRUNCATION, not success - the path is longer than the
-        // buffer, and cutting it at a separator would name some other directory.
+        // n == cap is truncation, not success.
         if(n == 0 || n >= cap)
         {
             return false;
@@ -217,16 +195,14 @@ namespace vlog
             {
                 continue;
             }
-            // A name that does not exist and still will not open is a directory
-            // that cannot be written, and trying eight more names in it would
-            // only fail eight more times.
+            // A free name that will not open means the directory is not
+            // writable, and further names would fail the same way.
             return ::_wfopen(name.data(), L"wb");
         }
         return nullptr;
     }
 
-    // latest.txt: the newest log's full path and nothing else, so finding it is
-    // one read rather than a directory listing sorted by somebody's guess.
+    // latest.txt holds the newest log's full path and nothing else.
     Void pointLatestAt(const WidePath& dir, const Str& logPath)
     {
         WidePath latest = {};
@@ -240,7 +216,6 @@ namespace vlog
         std::fputs("\n", f);
         std::fclose(f);
     }
-
   }
 
   Bool open()
@@ -249,21 +224,15 @@ namespace vlog
       {
           return true;
       }
-
       FILETIME ft = {};
       ::GetSystemTimePreciseAsFileTime(&ft);
       SYSTEMTIME utc = {};
       ::FileTimeToSystemTime(&ft, &utc);
-
-      // Beside the exe first - viewer\build\ is gitignored, so a log there can
-      // never be committed - and %TEMP% only when that directory will not take
-      // a file, which is a viewer copied somewhere read-only.
       WidePath exeDir = {};
       WidePath logsDir = {};
       WidePath chosen = {};
       std::FILE* f = nullptr;
       Bool inTemp = false;
-
       if(exeDirectory(exeDir))
       {
           std::swprintf(logsDir.data(), logsDir.size(), L"%ls\\logs", exeDir.data());
@@ -284,10 +253,8 @@ namespace vlog
       {
           return false;
       }
-
       const Str logPath = utf8Of(chosen);
       pointLatestAt(logsDir, logPath);
-
       {
           LockGuard<Mutex> held(lock);
           file = f;
@@ -298,15 +265,11 @@ namespace vlog
           capped = false;
       }
       live.store(true);
-
       line("log opened: %s", logPath.c_str());
       if(inTemp)
       {
           line("the exe's own directory would not take a file, so this log is under %%TEMP%%");
       }
-
-      // The LOCAL time once, so a person who remembers "about ten past one"
-      // can find the moment - every prefix after this is UTC.
       SYSTEMTIME local = {};
       if(::SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local) != 0)
       {
@@ -351,14 +314,12 @@ namespace vlog
       {
           return;
       }
-      // Formatted OUTSIDE the lock, so one thread's long line never holds the
-      // other thread's short one - the worker must not wait on the UI's text.
+      // Formatted outside the lock, so the worker never waits on the UI's text.
       Array<Char, LINE_BYTES> body = {};
       std::va_list args;
       va_start(args, fmt);
       formatInto(body, fmt, args);
       va_end(args);
-
       LockGuard<Mutex> held(lock);
       writeLocked(body);
   }
@@ -383,5 +344,4 @@ namespace vlog
       LockGuard<Mutex> held(lock);
       return where;
   }
-
 }

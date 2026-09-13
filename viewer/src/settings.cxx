@@ -1,13 +1,9 @@
 #include "settings.hxx"
 #include "vlog.hxx"
 
-// <windows.h> for what the standard library cannot say here: where this exe
-// lives, and a rename that replaces its target in one step. INCLUDED AFTER EVERY
-// HEADER OF OURS, vlog.cxx's arrangement with a sharper reason: settings.hxx
-// pulls in bibowire, whose Severity::SEVERITY_ERROR <winnt.h> would turn into a
-// number, and with windows.h last that header has been read before the macro
-// exists. The day a header of ours is included below this line, main.cxx's
-// #undef block has to come with it.
+// Included after every header of ours: settings.hxx pulls in bibowire, whose
+// Severity::SEVERITY_ERROR <winnt.h> would turn into a number. A header of ours
+// below this line would need main.cxx's #undef block with it.
 #include <windows.h>
 
 #include <cstdio>
@@ -15,30 +11,23 @@
 
 namespace settings
 {
-
   namespace
   {
-
     constexpr Size PATH_CHARS = 1024;
 
-    // Wide, for vlog.cxx's reason: the folder a person unzipped the viewer into
-    // is not promised to be ASCII.
+    // Wide, because the folder the viewer was unzipped into may not be ASCII.
     using WidePath = Array<wchar_t, PATH_CHARS>;
 
     constexpr const wchar_t* FILE_NAME = L"bibo-viewer-settings.ini";
 
-    // Ten short lines are a few hundred bytes. A file past this is not one of
-    // ours, and reading it whole into a string would be trusting it.
+    // A real file is a few hundred bytes; a larger one is not ours and is not read.
     constexpr Size MAX_FILE_BYTES = Size{64} * 1024;
 
-    // Notepad can put one of these at the front, and a first key that silently
-    // failed to match because of three invisible bytes is an absence nobody
-    // would find.
+    // Notepad can prepend one, and the first key would then silently not match.
     constexpr StrView UTF8_BOM = "\xEF\xBB\xBF";
 
-    // THE ONE LIST OF KEYS. toText writes in this order and fromText looks names
-    // up here, so a field cannot be saved under one spelling and read under
-    // another.
+    // The one list of keys, used by both toText and fromText, so a field cannot
+    // be written and read under different spellings.
     struct Field
     {
         CharSeq key;
@@ -59,8 +48,6 @@ namespace settings
         { "drive.assumedMode", &Values::assumedMode },
     } };
 
-    // ---- text ---------------------------------------------------------------
-
     [[nodiscard]] Bool isBlank(Char c)
     {
         return c == ' ' || c == '\t' || c == '\r';
@@ -79,11 +66,8 @@ namespace settings
         return s;
     }
 
-    // An optional sign and one to nine digits, and nothing else.
-    //
-    // NINE, because ten can overflow an Int32 and no field here is within five
-    // orders of magnitude of that - so a longer run of digits is garbage, not a
-    // big number waiting to be clamped.
+    // An optional sign and one to nine digits, nothing else. Ten digits can
+    // overflow Int32 and no field is near that, so a longer run is garbage.
     [[nodiscard]] Opt<Int32> integerOf(StrView s)
     {
         Bool negative = false;
@@ -107,8 +91,6 @@ namespace settings
         }
         return negative ? -value : value;
     }
-
-    // ---- the panes ----------------------------------------------------------
 
     Void put(const Values& from, trimview::View& trim, driveview::View& drive)
     {
@@ -141,8 +123,6 @@ namespace settings
         v.assumedMode = drive.assumedMode;
         return v;
     }
-
-    // ---- paths --------------------------------------------------------------
 
     [[nodiscard]] Bool wideOf(const Str& utf8, WidePath& out)
     {
@@ -182,7 +162,6 @@ namespace settings
             static_cast<UInt32>(error)
         );
     }
-
   }
 
   Values capture(const trimview::View& trim, const driveview::View& drive)
@@ -227,14 +206,12 @@ namespace settings
       {
           text.remove_prefix(UTF8_BOM.size());
       }
-
       Array<Bool, VALUE_COUNT> seen = {};
       while(!text.empty())
       {
           const Size eol = text.find('\n');
           StrView line = trimmed(text.substr(0, eol));
           text = eol == StrView::npos ? StrView() : text.substr(eol + 1);
-
           if(line.empty() || line.front() == '#' || line.front() == ';')
           {
               continue;
@@ -259,7 +236,6 @@ namespace settings
               }
           }
       }
-
       Size taken = 0;
       for(const Bool got : seen)
       {
@@ -273,13 +249,11 @@ namespace settings
 
   Str defaultPath()
   {
-      // A folder of its own under the roaming profile - settings.hxx says why
-      // not beside the exe any more.
       constexpr const wchar_t* DIR_NAME = L"bibo";
       WidePath appData = {};
       const DWORD cap = static_cast<DWORD>(appData.size());
       const DWORD n = ::GetEnvironmentVariableW(L"APPDATA", appData.data(), cap);
-      // n >= cap is the buffer being too small, answered with the size needed.
+      // n >= cap: the buffer is too small and n is the size needed.
       if(n == 0 || n >= cap)
       {
           vlog::line("settings: APPDATA is not set - the settings stay beside bibo.exe");
@@ -305,7 +279,7 @@ namespace settings
       WidePath exe = {};
       const DWORD cap = static_cast<DWORD>(exe.size());
       const DWORD n = ::GetModuleFileNameW(nullptr, exe.data(), cap);
-      // n == cap is TRUNCATION, not success - vlog.cxx's rule.
+      // n == cap is truncation, not success.
       if(n == 0 || n >= cap)
       {
           return "";
@@ -334,7 +308,6 @@ namespace settings
           vlog::line("settings: no usable path for the settings file - using the defaults");
           return {};
       }
-
       const HANDLE h = ::CreateFileW(
           wide.data(),
           GENERIC_READ,
@@ -347,9 +320,8 @@ namespace settings
       if(h == INVALID_HANDLE_VALUE)
       {
           const DWORD error = ::GetLastError();
-          // ABSENT IS NOT BROKEN. A first run has no file, and saying "could not
-          // open" about it would teach somebody to ignore the line that one day
-          // means a real permissions problem.
+          // No file is a first run, logged apart from a real open failure so
+          // the failure line is not trained into noise.
           if(error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
           {
               vlog::line("settings: no file yet at %s - using the defaults", path.c_str());
@@ -364,7 +336,6 @@ namespace settings
           }
           return {};
       }
-
       LARGE_INTEGER size = {};
       Str text;
       Bool read = ::GetFileSizeEx(h, &size) != 0
@@ -389,7 +360,6 @@ namespace settings
           );
           return {};
       }
-
       Values raw = into;
       const Size taken = fromText(text, raw);
       into = settle(raw);
@@ -411,12 +381,9 @@ namespace settings
           vlog::line("settings: NOT saved - the path is too long for its .tmp beside it");
           return false;
       }
-
-      // THE FOLDER FIRST. The bibo folder under APPDATA does not exist until
-      // this viewer has saved once, and CreateFileW will not make a directory.
-      // One level, which is all defaultPath() adds. ERROR_ALREADY_EXISTS is the
-      // usual answer; anything else is reported by the CreateFileW below, with
-      // the file's name on it.
+      // CreateFileW will not make the folder, which does not exist before the
+      // first save. One level is all defaultPath() adds; a real failure is
+      // reported by CreateFileW below.
       WidePath folder = wide;
       for(Size i = std::wcslen(folder.data()); i > 0; --i)
       {
@@ -427,9 +394,7 @@ namespace settings
               break;
           }
       }
-
       const Str text = toText(settle(v));
-
       const HANDLE h = ::CreateFileW(
           temp.data(),
           GENERIC_WRITE,
@@ -444,16 +409,12 @@ namespace settings
           saveFailed(path, "creating the .tmp", ::GetLastError());
           return false;
       }
-
       DWORD wrote = 0;
       const DWORD want = static_cast<DWORD>(text.size());
       const Bool written = ::WriteFile(h, text.data(), want, &wrote, nullptr) != 0 && wrote == want;
       DWORD error = written ? 0 : ::GetLastError();
-
-      // FLUSHED BEFORE THE RENAME. Without it the rename can reach the disk
-      // before the data does, and a power cut between the two leaves the new
-      // NAME over empty contents - the one outcome an atomic write exists to
-      // prevent, and the likeliest one on a laptop whose battery ran out.
+      // Flushed before the rename, or a power cut can leave the new name over
+      // empty contents.
       const Bool flushed = written && ::FlushFileBuffers(h) != 0;
       if(written && !flushed)
       {
@@ -466,7 +427,6 @@ namespace settings
           saveFailed(path, written ? "flushing the .tmp" : "writing the .tmp", error);
           return false;
       }
-
       const DWORD how = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
       if(::MoveFileExW(temp.data(), wide.data(), how) == 0)
       {
@@ -475,9 +435,7 @@ namespace settings
           saveFailed(path, "replacing the file", error);
           return false;
       }
-
       vlog::line("settings: saved %u values to %s", static_cast<UInt32>(VALUE_COUNT), path.c_str());
       return true;
   }
-
 }

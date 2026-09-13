@@ -1,23 +1,17 @@
 #include "link.hxx"
 
-// The round-trip log. It names no Windows header, so it sits with link.hxx above
-// the Winsock block rather than below it and the order there stays safe.
+// Names no Windows header, so it may sit above the Winsock block.
 #include "vlog.hxx"
 
-// Winsock before anything that might drag in <windows.h>: winsock2.h and the
-// original winsock.h define the same symbols, and the loser is whichever one
-// arrives second. Nothing above this line includes a Windows header - link.hxx
-// is the vocabulary, the codec and the scene, none of which know what a socket
-// is - so this is the first and the order is safe.
+// Winsock before anything that might include <windows.h>: winsock2.h and the old
+// winsock.h define the same symbols, and whichever arrives second loses. Nothing
+// above this line includes a Windows header.
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <mstcpip.h>
 
-// <winnt.h>, underneath those, defines SEVERITY_ERROR as a macro - and
-// bibowire::Severity has a member of that name. link.hxx is included above, so
-// the enum is already declared and this file compiles either way; the undef is
-// here so that the day somebody writes SEVERITY_ERROR below this line, it means
-// what it says rather than expanding to 1.
+// <winnt.h> defines SEVERITY_ERROR as a macro, and bibowire::Severity has a
+// member of that name, so later uses must mean the enum.
 #undef SEVERITY_SUCCESS
 #undef SEVERITY_ERROR
 
@@ -27,81 +21,60 @@
 
 namespace link
 {
-
   namespace
   {
-
-    // The lidar's height above the ground, matching what the stand-in cloud
-    // this replaces was drawn at. NOT a mounting correction: docs/hardware.md
-    // records the lidar-to-vehicle transform as NOT ESTABLISHED, so
-    // rotating or offsetting the cloud here would bake a guess into every point
-    // and every sensor fused with it afterwards - and it would look like a
-    // sensor fault rather than a bad constant. When the transform is measured,
-    // it applies here, once.
+    // The lidar's height above the ground. Not a mounting correction:
+    // docs/hardware.md records the lidar-to-vehicle transform as not
+    // established, and rotating or offsetting the cloud would bake a guess into
+    // every point. When the transform is measured, it applies here, once.
     constexpr Float32 LIDAR_HEIGHT_M = 0.16f;
 
-    // Centi-degrees to radians. The wire has no floating point on it at all, so
-    // this multiply is the first and only place a scan becomes inexact.
+    // The wire has no floating point, so this multiply is where a scan first
+    // becomes inexact.
     constexpr Float32 CENTI_DEG_TO_RAD = 3.14159265358979f / 18000.0f;
 
     constexpr Float32 MM_TO_M = 0.001f;
 
-    // Section 3: the viewer keeps a 512 KiB receive ring. One allocation at
-    // connect, reused until the socket closes; nothing in the receive path ever
-    // sizes an allocation from a number a stranger on a hotspot wrote.
-    // Size{512}, not 512u: the product is worked out in the type of its
-    // operands and only then widened, so a 32-bit multiply that overflows has
-    // already lost the bits by the time it becomes a Size. Half a megabyte is
-    // nowhere near that, and this line is not the bug - it is the SHAPE of the
-    // bug, and the shape is what gets copied to the place that does overflow.
+    // Section 3: a 512 KiB receive ring, allocated once per connection, so no
+    // allocation is sized from a number off the network. Size{512}, not 512u:
+    // the product is computed in its operands' type before it is widened.
     constexpr Size RX_BYTES = Size{512} * 1024;
 
     // Section 2: viewer SO_RCVBUF 256 KiB.
     constexpr Int32 RCVBUF_BYTES = 256 * 1024;
 
-    // How long the worker blocks in one select(). It bounds how long a
-    // Disconnect waits, and at 20 Hz it is far below the 50 ms cadence of the
-    // fastest thing on the wire.
+    // One select() slice. It bounds how long a Disconnect waits and is far below
+    // the 50 ms cadence of the fastest thing on the wire.
     constexpr Int32 POLL_MS = 20;
 
-    // A frame this viewer SENDS. HELLO with a 31-byte name is 72 bytes and PONG
-    // is 32; MAX_INBOUND_PAYLOAD is 256, so nothing the board will accept from us
-    // comes close to this.
+    // A frame this viewer sends. HELLO with a 31-byte name is 72 bytes and PONG
+    // 32; the board accepts no more than MAX_INBOUND_PAYLOAD.
     constexpr Size TX_BYTES = 512;
 
-    // The keepalive of section 2, in the shape Windows takes it. TCP_KEEPCNT has
-    // no Windows equivalent - the count is fixed at 10 - so the two numbers that
-    // can be set are set and the third is written down rather than pretended.
+    // Section 2's keepalive as Windows takes it. Windows has no TCP_KEEPCNT; its
+    // probe count is fixed at 10.
     constexpr UInt32 KEEPALIVE_IDLE_MS = 2000;
     constexpr UInt32 KEEPALIVE_INTERVAL_MS = 1000;
 
-    // How long a send may spend waiting for a writable socket before the
-    // connection is declared broken. Everything this viewer sends is one small
-    // frame, so a socket that cannot take 72 bytes in half a second is not slow,
-    // it is gone.
+    // How long a send may wait for a writable socket before the connection is
+    // declared broken. Everything sent is one small frame, so a socket that
+    // cannot take it in this long is gone.
     constexpr Int64 SEND_BUDGET_MS = 500;
 
-    // How often the worker writes its summary line to the round-trip log. A
-    // second, because the board's PING is 1 Hz and its "no PONG" is judged in
-    // seconds: a coarser line would put the moment the link stopped answering
-    // inside a window too wide to line up against the board's journal.
+    // The round-trip log's summary window, fine enough to line up with the
+    // board's 1 Hz PING and its "no PONG" in the board's journal.
     constexpr Int64 SUMMARY_MS = 1000;
 
-    // ---- ages ---------------------------------------------------------------
-
-    // A negative age is a bug upstream, and the safe reading of a bug is "old".
-    // Treating it as freshness is how a sign error becomes a stale picture drawn
-    // as live - the same rule bibowire::deadman applies to nowMs < lastControlMs.
+    // A negative age is a bug upstream, and the safe reading of a bug is "old":
+    // the rule bibowire::deadman applies to nowMs < lastControlMs.
     [[nodiscard]] Int64 ageFrom(Int64 nowMs, Int64 atMs)
     {
         const Int64 age = nowMs - atMs;
         return age < 0 ? (GONE_MS + 1) : age;
     }
 
-    // The larger of two ages: the one measured from local arrival, and the one
-    // measured through the board's own clock. See Session::offsetMs - the offset
-    // can only ever be corrected toward "older", by the fact that the bytes have
-    // not arrived yet.
+    // The larger of the age since local arrival and the age through the board's
+    // clock (Session::offsetMs).
     [[nodiscard]] Int64 ageOf(const Session& s, Int64 nowMs, Int64 atMs, UInt64 boardUs)
     {
         const Int64 local = ageFrom(nowMs, atMs);
@@ -122,8 +95,6 @@ namespace link
         }
         const Int64 boardMs = static_cast<Int64>(boardUs / 1000u);
         const Int64 offset = nowMs - boardMs;
-        // The MINIMUM, because on a hotspot the mean is dominated by stalls and
-        // the smallest sample is the one that travelled closest to the true path.
         if(!s.haveOffset || offset < s.offsetMs)
         {
             s.haveOffset = true;
@@ -148,16 +119,10 @@ namespace link
         return best;
     }
 
-    // A round trip is the only measurement here that can separate the clock
-    // offset from the transit time, so it gives the better offset: the board
-    // stamped its PONG at boardUs, that stamp took half the round trip to get
-    // here, and the difference is the offset. Computed from the FASTEST of the
-    // last sixteen, because that is the sample least polluted by a stall.
-    //
-    // Folded into the same minimum as the arrival floor, and only ever downward.
-    // A smaller offset yields a LARGER age, so this can make the picture look
-    // older than local arrival suggested and never younger - which is the whole
-    // of "the one place the design deliberately distrusts its own cleverness".
+    // Only a round trip separates clock offset from transit time: the board
+    // stamped its PONG at boardUs, and the stamp took half the round trip to
+    // arrive. Taken from the fastest kept sample and folded into the arrival
+    // floor's minimum, so it can only make a value older, never younger.
     Void noteRttOffset(Session& s)
     {
         const RttSample* best = bestSample(s);
@@ -174,12 +139,7 @@ namespace link
         }
     }
 
-    // ---- text ---------------------------------------------------------------
-
-    // Integer digits, never printf's %.1f: the decimal point honours the locale,
-    // a machine set to a comma decimal writes "3,2", and that is the bug
-    // proto.cxx already met. Nothing on this wire is a
-    // float and nothing this module prints from it becomes one.
+    // Integer digits, never "%.1f" (the locale trap, vlog.hxx).
     [[nodiscard]] Str secondsText(Int64 ms)
     {
         Array<Char, 32> t = {};
@@ -196,15 +156,10 @@ namespace link
         return Str(t.data());
     }
 
-    // ---- names, for the round-trip log only ---------------------------------
-    //
-    // bibowire.cxx spells verbs, reasons and severities too, but inside its own
-    // anonymous namespace, so nothing outside the codec can reach them - and the
-    // codec is shared with the board, so it is not edited for a viewer's log.
-    // Spelled again HERE FOR THE LOG ONLY: nothing drawn or decided reads these,
-    // and every line that uses one prints the number beside it, so a verb this
-    // table has never heard of is a "?" with a value rather than a wrong word.
-
+    // Names for the round-trip log only; nothing drawn or decided reads them.
+    // bibowire.cxx's spellings are private to the codec, which is shared with
+    // the board. Every log line prints the number beside the name, so an unknown
+    // value shows as "?" with its number.
     [[nodiscard]] CharSeq verbText(bibowire::Verb v)
     {
         switch(v)
@@ -292,8 +247,7 @@ namespace link
         return bibowire::knownType(tag) ? bibowire::typeName(static_cast<bibowire::Type>(tag)) : "?";
     }
 
-    // A socket error as its number AND Windows' own sentence for it. The number
-    // is what a search finds; the sentence is what a person reads without one.
+    // A socket error as its number and Windows' own sentence for it.
     [[nodiscard]] Str wsaText(Int32 code)
     {
         Array<Char, 192> t = {};
@@ -346,8 +300,7 @@ namespace link
     }
 
     // One end of a connected socket. Through Tailscale the peer is a 100.x
-    // address and the local end is the tailnet interface; seeing both is what
-    // says which path a connection actually took.
+    // address, so both ends show which path a connection took.
     [[nodiscard]] Str endpointText(SOCKET fd, Bool peer)
     {
         sockaddr_storage at = {};
@@ -361,17 +314,9 @@ namespace link
         return addressText(atAddr);
     }
 
-    // Does this sentence talk about the camera?
-    //
-    // A HEURISTIC, and deliberately a visible one. EVENT carries a `code`
-    // byte, but bibowire defines no code for the camera anywhere - not in the
-    // document, not in the header, not in its 312 checks - so there is nothing
-    // structured to match on and the alternative is showing an empty window
-    // beside a note list the operator has to read for themselves.
-    //
-    // ASCII by construction: section 5 says EVENT text is ASCII, so this
-    // comparison has no locale in it and does not call std::tolower, whose
-    // answer depends on one.
+    // Whether a sentence mentions the camera (Session::haveCameraNote's
+    // heuristic). EVENT text is ASCII (section 5), so this lowercases by hand,
+    // not with the locale's std::tolower.
     [[nodiscard]] Bool mentionsCamera(const Str& text)
     {
         Str lower;
@@ -384,13 +329,8 @@ namespace link
         return lower.find("camera") != Str::npos;
     }
 
-    // ---- the connection -----------------------------------------------------
-
-    // ---- what the round-trip log keeps about one connection -----------------
-
-    // What ONE send did, kept so the callers that matter - the PONG above all,
-    // whose answer is the case this log was written for - can say it in words:
-    // how much the socket took, how often it would not, and how long that took.
+    // What one send did, so the log can say how much the socket took, how often
+    // it would not, and how long that took.
     struct SendNote
     {
         Bool ok = false;
@@ -403,9 +343,8 @@ namespace link
         Int64 tookMs = 0;
     };
 
-    // One pass of the worker loop, by where its time went. `logMs` is the drain
-    // of Heard into the file, measured apart so the log can never hide its own
-    // cost inside the numbers it reports.
+    // One worker pass by where its time went. `logMs`, the drain of Heard into
+    // the file, is measured apart so the log cannot hide its own cost.
     struct PassSplit
     {
         Int64 selectMs = 0;
@@ -415,7 +354,8 @@ namespace link
         Int64 publishMs = 0;
     };
 
-    // ONE SECOND of the socket half, written as the summary line and zeroed.
+    // One SUMMARY_MS window of the socket half, written as the summary line and
+    // zeroed.
     struct Wire
     {
         Int64 windowMs = 0;
@@ -442,8 +382,8 @@ namespace link
         Size worstPongsDue = 0;
     };
 
-    // A COMMAND on the wire and not yet answered, so its CMDACK's line can say
-    // how long the board took - the command's own round trip.
+    // A COMMAND sent and not yet answered, so its CMDACK line can say how long
+    // the board took.
     struct CmdOut
     {
         UInt32 cmdId = 0;
@@ -456,8 +396,8 @@ namespace link
         SendNote lastSend;
         Heard heard;
 
-        // The frame counts as they stood at the previous summary, so a line can
-        // say what arrived in THIS second rather than since the connect.
+        // Frame counts at the previous summary, so a line shows this window's
+        // arrivals rather than the connection's.
         Array<UInt32, 256> byTypeAtSummary = {};
 
         Int64 openedMs = 0;
@@ -466,17 +406,17 @@ namespace link
         UInt64 rxTotal = 0;
         UInt64 txTotal = 0;
 
-        // Why recv or select ended the connection, when one of them did. The
-        // panel's `why` stays the sentence it always was; this is the detail.
+        // Why recv or select ended the connection, when one did: the detail
+        // behind the panel's `why`.
         Str endedBy;
 
-        // UDP errors: the first CONTROL failure is said in a line, the rest are
-        // counted, and the last receive error is carried into the summary.
+        // The first CONTROL datagram failure is logged and the rest counted; the
+        // last receive error goes into the summary.
         Int32 udpError = 0;
         Int32 udpRxError = 0;
         Bool saidUdpFailure = false;
 
-        // FIRST OF EACH KIND, said once per connection and counted after.
+        // The first of each kind is logged once per connection, then counted.
         Bool saidRefused = false;
         Bool saidUnknown = false;
         Bool saidResync = false;
@@ -485,8 +425,7 @@ namespace link
         Bool saidOverflow = false;
         Bool saidBye = false;
 
-        // CONTROL as last written to the log, so the next line is written only
-        // when something on the wire has actually changed.
+        // CONTROL as last logged, so a line is written only on change.
         Bool haveControlLine = false;
         bibowire::Control controlLine;
         Bool controlLineOnTcp = false;
@@ -494,8 +433,7 @@ namespace link
         Vec<CmdOut> commandsOut;
     };
 
-    // SOCKET is UINT_PTR and INVALID_SOCKET is ~0, so these stay out of link.hxx
-    // and every file that draws a panel is spared <winsock2.h>.
+    // Kept out of link.hxx so no file that draws a panel needs <winsock2.h>.
     struct Conn
     {
         SOCKET tcp = INVALID_SOCKET;
@@ -507,42 +445,31 @@ namespace link
         Vec<UInt8> rx;
         Size rxUsed = 0;
 
-        // ---- CONTROL, which belongs to ONE connection ---------------------
-        //
-        // The seq is per SESSION and starts again at 1 on every reconnect,
-        // which is not an oversight: section 6 says the board's high-water
-        // mark is reset by the handshake, and comparison is on the signed
-        // difference precisely so a viewer that begins again at 1 is accepted
-        // rather than frozen out by a huge stale number.
+        // Per session, restarting at 1 on every reconnect: section 6 resets the
+        // board's high-water mark at the handshake and compares the signed
+        // difference.
         UInt32 ctlSeq = 0;
 
-        // The frame header's own counter for the UDP stream, kept apart from
-        // txSeq. The frame-header ring reads seqs per STREAM, and pushing two
-        // streams through one counter would make the TCP side look like it was
-        // losing every frame the UDP side sent.
+        // The frame header counter for the UDP stream, apart from txSeq: seqs
+        // are read per stream, and one counter would make TCP look like it lost
+        // every frame UDP sent.
         UInt16 udpTxSeq = 0;
 
-        // Where the board is, learned from the TCP peer - the only address
-        // this end can be sure belongs to the board. Kept even when connect()
-        // on the UDP socket did not take, so a datagram can still be addressed
-        // explicitly rather than not sent at all.
+        // The board's address, learned from the TCP peer. Kept even when
+        // connect() on the UDP socket failed, so CONTROL can still go by sendto.
         sockaddr_storage boardAddr = {};
         Int32 boardAddrLen = 0;
         Bool haveBoardAddr = false;
 
-        // What THIS connection has told the board it wants. 0 means "never
-        // asked", which is not the same fact as "asked for nothing" - see
-        // syncSubscription. Reset with the connection, because the board keeps
-        // no subscription across a session either.
+        // What this connection has asked the board for. 0 is "never asked",
+        // which differs from asking for nothing (syncSubscription). The board
+        // keeps no subscription across sessions either.
         UInt32 sentMask = 0;
 
-        // And what rate it was told, so a viewer that changes the slider
-        // re-sends rather than waiting for a mask change that never comes.
+        // And the rate, so a slider change re-sends without a mask change.
         UInt16 sentFps = 0;
 
-        // Everything the round-trip log knows about this connection. Reset with
-        // it, because a tally that ran across a reconnect would blur the exact
-        // moment this log exists to catch.
+        // Reset with the connection, so no log tally blurs across a reconnect.
         Journal journal;
     };
 
@@ -584,11 +511,9 @@ namespace link
         FD_ZERO(&fails);
         FD_SET(fd, &writes);
         FD_SET(fd, &fails);
-
         timeval tv;
         tv.tv_sec = static_cast<long>(budgetMs / 1000);
         tv.tv_usec = static_cast<long>((budgetMs % 1000) * 1000);
-
         const Int32 ready = ::select(0, nullptr, &writes, &fails, &tv);
         if(ready <= 0 || FD_ISSET(fd, &fails))
         {
@@ -597,7 +522,7 @@ namespace link
         return FD_ISSET(fd, &writes) != 0;
     }
 
-    // `note` is told what the socket did, whatever the answer - see SendNote.
+    // `note` records what the socket did, whether or not the send succeeded.
     [[nodiscard]] Bool sendAll(SOCKET fd, const UInt8* buf, Size len, SendNote& note)
     {
         note = SendNote();
@@ -632,8 +557,8 @@ namespace link
             const Int64 left = deadline - monoMs();
             if(left <= 0 || !waitWritable(fd, left))
             {
-                // The budget ran out with the socket still full. WOULDBLOCK is
-                // the honest name for what ended it - no call returned an error.
+                // The budget ran out with the socket still full; no call
+                // returned an error.
                 note.error = WSAEWOULDBLOCK;
                 note.tookMs = monoMs() - started;
                 return false;
@@ -644,7 +569,6 @@ namespace link
         return true;
     }
 
-    // One send, into this second's tally.
     Void noteSend(Journal& j, const SendNote& note)
     {
         ++j.wire.sends;
@@ -662,7 +586,6 @@ namespace link
         }
     }
 
-    // What one send did, in words.
     [[nodiscard]] Str sendText(const SendNote& note)
     {
         Array<Char, 128> t = {};
@@ -686,21 +609,17 @@ namespace link
         return out;
     }
 
-    // One typed frame out. The header is assembled HERE and nowhere else, so no
-    // call site ever picks its own seq - the per-connection counter is the
-    // frame-header ring's and the loss accounting's, and two writers would make
-    // it neither.
+    // One typed frame out on TCP. The header is assembled here and nowhere else,
+    // so no call site picks its own seq.
     [[nodiscard]] Bool sendFrame(Conn& c, bibowire::Type type, const UInt8* body, Size bodyLen)
     {
         // Cleared first, so a frame the codec refused reads as nothing offered
         // rather than as the previous send's success.
         c.journal.lastSend = SendNote();
-
         bibowire::Head head;
         head.type = type;
         head.ver = 1;
         head.seq = c.txSeq;
-
         Array<UInt8, TX_BYTES> frame = {};
         const bibowire::Body payload = { body, bodyLen };
         const Size n = bibowire::put(head, payload, frame.data(), frame.size());
@@ -714,17 +633,13 @@ namespace link
         return ok;
     }
 
-    // ---- dialling -----------------------------------------------------------
-
-    // `err` is SO_ERROR when the socket has one, and WSAETIMEDOUT when the budget
-    // simply ran out - so a refused port and a board that never answered are
-    // logged as the two different facts they are.
+    // `err` is SO_ERROR when the socket has one and WSAETIMEDOUT when the budget
+    // ran out, so a refused port and a silent board log differently.
     [[nodiscard]] Bool finishConnect(SOCKET fd, Int64 budgetMs, Int32& err)
     {
         const Bool writable = waitWritable(fd, budgetMs);
-        // Writable is not the same fact as connected: a refused connection is
-        // reported by SO_ERROR, and a socket that skipped this check would send
-        // HELLO into a connection that never happened.
+        // Writable is not connected: a refused connection is reported by
+        // SO_ERROR.
         Int32 soError = 0;
         Int32 len = static_cast<Int32>(sizeof(soError));
         Char* slot = reinterpret_cast<Char*>(&soError);
@@ -746,20 +661,14 @@ namespace link
     {
         Int32 on = 1;
         const Char* onBytes = reinterpret_cast<const Char*>(&on);
-        // A 40-byte CMDACK must not sit in Nagle's queue behind the 2540-byte
-        // SCAN it follows.
+        // A small frame must not wait in Nagle's queue behind a SCAN.
         ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, onBytes, static_cast<Int32>(sizeof(on)));
         ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, onBytes, static_cast<Int32>(sizeof(on)));
-
         Int32 rcvbuf = RCVBUF_BYTES;
         const Char* rcvBytes = reinterpret_cast<const Char*>(&rcvbuf);
         ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvBytes, static_cast<Int32>(sizeof(rcvbuf)));
-
-        // A phone that walks out of range stops ACKing without ever sending a
-        // FIN, and the default keepalive is two hours. Windows fixes the probe
-        // COUNT at 10 and offers no TCP_KEEPCNT, so the two numbers that can be
-        // set are set; the viewer's own 3000 ms silence redial is what actually
-        // catches this case first anyway.
+        // A phone that walks out of range stops ACKing without a FIN, and the
+        // default keepalive is two hours. SILENCE_MS usually catches it first.
         tcp_keepalive ka = {};
         ka.onoff = 1;
         ka.keepalivetime = KEEPALIVE_IDLE_MS;
@@ -778,22 +687,17 @@ namespace link
         );
     }
 
-    // BY NAME, every single attempt, and never a cached address: the field
-    // network is a phone hotspot whose DHCP hands out a different address every
-    // outing, and bibobox.local over mDNS is the thing that stays true.
+    // Resolves the name on every attempt, never a cached address (CONNECT_MS).
     [[nodiscard]] Bool dialTcp(Conn& c, const Str& host, UInt16 port, Str* why)
     {
         const Int64 dialMs = monoMs();
         vlog::line("dial %s port %u: resolving", host.c_str(), static_cast<UInt32>(port));
-
         addrinfo hints = {};
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_protocol = IPPROTO_TCP;
-
         Array<Char, 16> portText = {};
         std::snprintf(portText.data(), portText.size(), "%u", static_cast<UInt32>(port));
-
         addrinfo* found = nullptr;
         const Int32 rc = ::getaddrinfo(host.c_str(), portText.data(), &hints, &found);
         if(rc != 0 || found == nullptr)
@@ -807,19 +711,13 @@ namespace link
             *why = "cannot resolve " + host + " - is the board on this network?";
             return false;
         }
-
-        // EVERY address the name produced, before any is tried. A name can
-        // answer with more than one, and a dial that failed on the first and
-        // succeeded on the second reads very differently from one that never
-        // had a second choice.
+        // Every address the name produced, logged before any is tried.
         for(addrinfo* a = found; a != nullptr; a = a->ai_next)
         {
             vlog::line("resolved %s -> %s", host.c_str(), addressText(a->ai_addr).c_str());
         }
-
         const Int64 deadline = monoMs() + CONNECT_MS;
         *why = "no answer from " + host + " within " + numberText(CONNECT_MS) + " ms";
-
         for(addrinfo* a = found; a != nullptr; a = a->ai_next)
         {
             const Str target = addressText(a->ai_addr);
@@ -838,7 +736,6 @@ namespace link
                 continue;
             }
             setNonBlocking(fd);
-
             const Int32 len = static_cast<Int32>(a->ai_addrlen);
             const Int32 answer = ::connect(fd, a->ai_addr, len);
             Int32 err = answer == 0 ? 0 : ::WSAGetLastError();
@@ -858,7 +755,6 @@ namespace link
                 ::closesocket(fd);
                 continue;
             }
-
             tuneTcp(fd);
             c.tcp = fd;
             c.rx.assign(RX_BYTES, 0);
@@ -874,7 +770,6 @@ namespace link
             ::freeaddrinfo(found);
             return true;
         }
-
         vlog::line(
             "dial %s FAILED after %lld ms: %s",
             host.c_str(),
@@ -885,11 +780,8 @@ namespace link
         return false;
     }
 
-    // Bound before HELLO, because HELLO has to carry the port the board will
-    // send CTLSTATE to. An observer never sends a datagram, so this socket is
-    // receive-only today - it is opened anyway so the reverse path exists the
-    // day the control seam is filled in, and so a board that sends CTLSTATE to
-    // an observer is heard rather than silently ignored.
+    // Bound before HELLO, which carries the port the board sends CTLSTATE to.
+    // CONTROL datagrams leave by the same socket.
     [[nodiscard]] Bool openUdp(Conn& c)
     {
         const SOCKET fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -899,7 +791,6 @@ namespace link
             return false;
         }
         setNonBlocking(fd);
-
         sockaddr_in any = {};
         any.sin_family = AF_INET;
         any.sin_addr.s_addr = INADDR_ANY;
@@ -911,7 +802,6 @@ namespace link
             ::closesocket(fd);
             return false;
         }
-
         sockaddr_in got = {};
         Int32 gotLen = static_cast<Int32>(sizeof(got));
         sockaddr* gotAddr = reinterpret_cast<sockaddr*>(&got);
@@ -921,17 +811,15 @@ namespace link
             ::closesocket(fd);
             return false;
         }
-
         c.udp = fd;
         c.udpPort = ::ntohs(got.sin_port);
         vlog::line("UDP bound on local port %u", static_cast<UInt32>(c.udpPort));
         return true;
     }
 
-    // Point the UDP socket at the board and nowhere else, once WELCOME has named
-    // the port. CTLSTATE carries no sessionId, so this filter is the only thing
-    // between the honesty line and anybody else on the hotspot who fancies
-    // telling this viewer the car is armed.
+    // Point the UDP socket at the board once WELCOME has named the port.
+    // CTLSTATE carries no sessionId, so this filter is all that stops anyone
+    // else on the hotspot telling this viewer the car is armed.
     Void filterUdpToBoard(Conn& c, UInt16 boardPort)
     {
         if(c.udp == INVALID_SOCKET || c.udpFiltered)
@@ -952,11 +840,9 @@ namespace link
         if(peer.ss_family == AF_INET)
         {
             reinterpret_cast<sockaddr_in*>(&peer)->sin_port = ::htons(boardPort);
-            // KEPT, and only for AF_INET: this socket is created AF_INET, so an
-            // IPv6 board is an address it cannot send to at all. Recording one
-            // would leave sendto failing forever on every datagram instead of
-            // the fallback noticing there is no reverse path and moving CONTROL
-            // onto TCP, where the board accepts it always.
+            // Only for AF_INET: this socket cannot send to an IPv6 board, and
+            // recording one would fail every sendto instead of letting the
+            // fallback move CONTROL onto TCP.
             c.boardAddr = peer;
             c.boardAddrLen = len;
             c.haveBoardAddr = true;
@@ -973,11 +859,9 @@ namespace link
             );
             return;
         }
-        // A UDP socket bound to AF_INET cannot be connected to an AF_INET6 peer;
-        // when that happens the filter is simply not applied and the datagrams
-        // are still CRC-checked like everything else.
+        // An AF_INET socket cannot connect to an AF_INET6 peer; then there is no
+        // filter, and datagrams are still CRC-checked.
         c.udpFiltered = ::connect(c.udp, peerAddr, len) == 0;
-
         Str result = "connected - datagrams from anywhere else are dropped";
         if(!c.udpFiltered)
         {
@@ -991,8 +875,6 @@ namespace link
         );
     }
 
-    // ---- pumping ------------------------------------------------------------
-
     [[nodiscard]] Bool pumpTcp(Conn& c, Session& s)
     {
         Journal& j = c.journal;
@@ -1000,9 +882,8 @@ namespace link
         {
             if(c.rxUsed >= c.rx.size())
             {
-                // 512 KiB with no frame in it. MAX_PAYLOAD is 256 KiB, so this
-                // is not a big frame - it is a peer writing something that will
-                // never parse.
+                // A full ring holds more than MAX_PAYLOAD, so this is not a big
+                // frame but bytes that will never parse.
                 j.endedBy = "the 512 KiB receive ring filled with no frame in it";
                 return false;
             }
@@ -1028,11 +909,8 @@ namespace link
                 j.endedBy = "recv failed " + wsaText(err);
                 return false;
             }
-
-            // THE GAP BETWEEN TWO RECEIVES THAT RETURNED BYTES. This is the
-            // number that says whether board->viewer data stopped arriving at
-            // the socket or arrived and was not acted on: the decode below and
-            // the PONG after it both hang off this moment.
+            // The gap between receives that returned bytes: it tells board data
+            // that stopped arriving from data that arrived and was not acted on.
             const Int64 nowMs = monoMs();
             if(j.lastRecvMs > 0 && nowMs - j.lastRecvMs > j.wire.worstRecvGapMs)
             {
@@ -1041,7 +919,6 @@ namespace link
             j.lastRecvMs = nowMs;
             j.wire.rxBytes += static_cast<UInt64>(n);
             j.rxTotal += static_cast<UInt64>(n);
-
             c.rxUsed += static_cast<Size>(n);
             const Size used = ingestBytes(s, c.rx.data(), c.rxUsed, nowMs, &j.heard);
             if(used > 0)
@@ -1070,10 +947,10 @@ namespace link
             const Int32 n = ::recvfrom(c.udp, at, cap, 0, nullptr, nullptr);
             if(n <= 0)
             {
-                // WOULDBLOCK is a drained socket. Anything else is counted:
-                // Windows reports an ICMP port-unreachable for an EARLIER
-                // datagram here, as 10054 on the next receive - which is the
-                // board saying its UDP port is not open.
+                // WOULDBLOCK is a drained socket; anything else is counted.
+                // Windows reports an ICMP port-unreachable for an earlier
+                // datagram as 10054 on the next receive: the board's UDP port
+                // is not open.
                 const Int32 err = n < 0 ? ::WSAGetLastError() : 0;
                 if(n < 0 && err != WSAEWOULDBLOCK)
                 {
@@ -1083,8 +960,7 @@ namespace link
                 return;
             }
             ++c.journal.wire.udpRx;
-            // One datagram is one frame. take() checks the CRC, so a truncated
-            // or forged datagram is dropped here rather than believed.
+            // One datagram is one frame; take() checks its CRC.
             bibowire::Frame f;
             Size used = 0;
             const Size len = static_cast<Size>(n);
@@ -1099,10 +975,8 @@ namespace link
         }
     }
 
-    // EVERY PONG, with how long after its PING it left and exactly what the
-    // socket did with it. This is the line the board's "no PONG" is held
-    // against: a PONG logged here as taken whole by the socket and never seen by
-    // the board is a different fault from one this viewer never sent.
+    // Every PONG, with how long after its PING it left and what the socket did
+    // with it: the line the board's "no PONG" is held against.
     Void logPong(const Journal& j, UInt64 token, Bool encoded)
     {
         if(!encoded)
@@ -1133,8 +1007,8 @@ namespace link
         {
             Array<UInt8, 64> body = {};
             bibowire::Ping pong = ping;
-            // The token is echoed VERBATIM; senderMonoUs is our own clock, which
-            // the board only ever compares with itself.
+            // The token is echoed verbatim; senderMonoUs is this viewer's clock,
+            // which the board only compares with itself.
             pong.senderMonoUs = static_cast<UInt64>(monoMs()) * 1000u;
             const Size n = bibowire::writePing(pong, body.data(), body.size());
             const Bool sent = n != 0 && sendFrame(c, bibowire::Type::TYPE_PONG, body.data(), n);
@@ -1149,19 +1023,14 @@ namespace link
         return ok;
     }
 
-    // This viewer's OWN PING. Answering the board's proves the board's round
-    // trip; the number an operator reads off this panel has to be the one
-    // measured from here, or it is a far-end measurement wearing this end's
-    // label.
     [[nodiscard]] Bool sendPing(Conn& c, Session& s, Int64 nowMs)
     {
         ++c.pingToken;
         bibowire::Ping ping;
-        // A counter rather than the clock: two PINGs in the same millisecond
-        // must not look like one another when their answers come back.
+        // A counter, not the clock, so two PINGs in one millisecond stay
+        // distinct.
         ping.token = c.pingToken;
         ping.senderMonoUs = static_cast<UInt64>(nowMs) * 1000u;
-
         Array<UInt8, 64> body = {};
         const Size n = bibowire::writePing(ping, body.data(), body.size());
         if(n == 0)
@@ -1183,20 +1052,14 @@ namespace link
         hello.featureMask = 0xFFFFFFFFu;
         hello.viewerBuild = 0;
         hello.viewerUdpPort = c.udpPort;
-        // The ONLY place the question is ever put: viewfeed.cxx grants the slot
-        // in onHello and nowhere else, so a viewer that did not ask here is an
-        // observer for the whole life of this connection however many buttons
-        // it grows. Asked by default; Client::wantSlot has the trade.
+        // The only place the control slot is asked for.
         hello.wantControl = wantSlot ? 1u : 0u;
-        // Informational, and only when there is a stream to describe. 20 Hz is
-        // CONTROL_PERIOD_MS turned into a rate, from the protocol's own header
-        // rather than typed again: what this viewer INTENDS before WELCOME has
-        // told it the board's period.
+        // Informational: the rate this viewer intends before WELCOME gives the
+        // board's period.
         hello.controlHz = wantSlot
             ? static_cast<UInt16>(1000 / bibowire::CONTROL_PERIOD_MS)
             : 0u;
         hello.name = name;
-
         Array<UInt8, 128> body = {};
         const Size n = bibowire::writeHello(hello, body.data(), body.size());
         if(n == 0)
@@ -1219,41 +1082,27 @@ namespace link
         return sent;
     }
 
-    // SUBSCRIBE, and only when it would say something new.
-    //
-    // THIS ONE FRAME IS THE WHOLE COST CONTROL. The board never sends a type
-    // the mask did not claim, so it is the entire difference between a link
-    // carrying 2.5 KB per revolution and one carrying about a megabyte a
-    // second, and between a board that opens /dev/video0 and one that leaves
-    // it alone.
+    // SUBSCRIBE, only when it would say something new. The board sends only the
+    // types the mask claims, so this frame decides between kilobytes a
+    // revolution and a megabyte a second, and whether the board opens
+    // /dev/video0.
     [[nodiscard]] Bool syncSubscription(Conn& c, Session& s, Bool wantCam, Int32 wantFps)
     {
-        // HELLO is the first bytes on the connection and nothing else goes out
-        // until WELCOME has answered it.
         if(!s.haveWelcome)
         {
             return true;
         }
-
         const UInt32 want = subscriptionMask(wantCam);
-
-        // A RATE IS ONLY MEANINGFUL ALONGSIDE A SUBSCRIPTION. With the camera
-        // off there is nothing to set a rate for, so it is sent as 0 - "did not
-        // ask" - rather than carrying the last slider position on a frame that
-        // switches the camera off.
+        // With the camera off the rate is sent as 0 (did not ask), not the last
+        // slider position.
         UInt16 fps = 0;
         if(wantCam && wantFps > 0)
         {
             const Int32 ceiling = static_cast<Int32>(bibowire::CAM_FPS_MAX);
             fps = static_cast<UInt16>(wantFps > ceiling ? ceiling : wantFps);
         }
-
-        // NEVER ASKED, AND NOTHING WANTED: say nothing at all. The board's
-        // default already sends the telemetry this viewer draws, so a
-        // SUBSCRIBE here would change nothing except to make this viewer's
-        // first act on every connection a frame nobody needed - and it would
-        // change the behaviour of a viewer whose camera window has never been
-        // opened, which is every viewer until somebody opens one.
+        // Never asked and nothing wanted: send nothing. The board's default
+        // already sends what this viewer draws.
         if(c.sentMask == 0u && !wantCam)
         {
             return true;
@@ -1262,18 +1111,13 @@ namespace link
         {
             return true;
         }
-
         bibowire::Subscribe sub;
         sub.sessionId = s.welcome.sessionId;
         sub.typeMask = want;
         sub.camFps = fps;
-        // 1 = every revolution. The camera does NOT quietly buy itself room by
-        // thinning the scan: which of the two matters is the operator's
-        // decision, and halving the scan the moment a window opened would be
-        // exactly the silent degradation the drop classes exist to make
-        // visible instead.
+        // 1 = every revolution. The camera never thins the scan to make room:
+        // which matters more is the operator's decision.
         sub.scanDivisor = 1;
-
         Array<UInt8, 32> body = {};
         const Size n = bibowire::writeSubscribe(sub, body.data(), body.size());
         if(n == 0)
@@ -1293,22 +1137,14 @@ namespace link
         {
             return false;
         }
-
         c.sentMask = want;
         c.sentFps = fps;
         s.cameraSubscribed = wantCam;
         return true;
     }
 
-    // The epoch this viewer BELIEVES is in force, from the freshest thing that
-    // carries one. CTLSTATE is newest at 20 Hz, then BOARD at 5, then the
-    // WELCOME that opened the session.
-    //
-    // None of the tuning verbs turn on the epoch - they are refused by ARM
-    // STATE, not by generation - but the field is on the wire either way and
-    // sending a stale one would be inventing a number. When ARM itself is wired
-    // up through this same path the value will matter, and it will already be
-    // the right one.
+    // The epoch this viewer believes is in force, from the freshest source:
+    // CTLSTATE (20 Hz), then BOARD (5 Hz), then WELCOME.
     [[nodiscard]] UInt8 currentEpoch(const Session& s)
     {
         if(s.haveControl)
@@ -1322,14 +1158,9 @@ namespace link
         return s.welcome.armEpoch;
     }
 
-    // Everything the UI thread has asked for, onto the wire - or dropped, if
-    // there is no wire to put it on.
-    //
-    // The queue is emptied EITHER WAY, and that is the drop decision written as
-    // code (link.hxx says why at length): a tuning command that waited out a
-    // reconnect would be applied to the car minutes after the person who asked
-    // for it stopped expecting it. Emptied under the lock and sent outside it,
-    // so a slow socket cannot block the UI thread's next click.
+    // Everything the UI thread queued, onto the wire or dropped. The queue is
+    // emptied either way: that is sendCommand's drop rule. Swapped out under the
+    // lock and sent outside it, so a slow socket cannot block the UI thread.
     [[nodiscard]] Bool flushCommands(Conn& c, Client& owner, Session& s)
     {
         Vec<bibowire::Command> outbound;
@@ -1341,11 +1172,8 @@ namespace link
             }
             outbound.swap(owner.pending);
         }
-
-        // HELLO is the first bytes on the connection and nothing else goes out
-        // until WELCOME has answered it - syncSubscription's rule, and the same
-        // reason. Before that there is no sessionId to stamp, so these are not
-        // merely early, they are unsendable.
+        // Before WELCOME there is no sessionId to stamp, so these are
+        // unsendable.
         if(!s.haveWelcome)
         {
             for(const bibowire::Command& cmd : outbound)
@@ -1360,24 +1188,19 @@ namespace link
             owner.commandsDropped.fetch_add(static_cast<UInt32>(outbound.size()));
             return true;
         }
-
-        // Indexed rather than a range-for, so the failure path below can count
-        // what is actually LEFT. Counting the whole batch there would report
-        // commands the board has already acknowledged as dropped, which is a
-        // counter that lies in the safe-looking direction.
+        // Indexed, so a failure counts only the commands left, never ones
+        // already sent.
         for(Size i = 0; i < outbound.size(); ++i)
         {
             bibowire::Command cmd = outbound[i];
             cmd.sessionId = s.welcome.sessionId;
             cmd.armEpoch = currentEpoch(s);
-
             Array<UInt8, 64> body = {};
             const Size n = bibowire::writeCommand(cmd, body.data(), body.size());
             if(n == 0)
             {
-                // The codec refused to encode it. That is a bug in the caller's
-                // arguments rather than a link fault, so it is counted as a
-                // drop and the connection is left alone.
+                // The codec refused the arguments: a caller bug, not a link
+                // fault, so it is dropped and the connection kept.
                 vlog::line(
                     "COMMAND cmdId=%u verb=%u (%s) DROPPED: the codec refused its arguments",
                     cmd.cmdId,
@@ -1402,9 +1225,8 @@ namespace link
             );
             if(!sent)
             {
-                // This one and everything behind it die with the connection, by
-                // the same rule: the caller is told by the counter, not by a
-                // retry onto a socket that has just failed.
+                // This one and everything behind it are dropped with the
+                // connection, never retried on a socket that just failed.
                 const Size left = outbound.size() - i;
                 if(left > 1u)
                 {
@@ -1416,8 +1238,6 @@ namespace link
                 owner.commandsDropped.fetch_add(static_cast<UInt32>(left));
                 return false;
             }
-
-            // Remembered, so its CMDACK's line can say how long the board took.
             CmdOut out;
             out.cmdId = cmd.cmdId;
             out.sentMs = monoMs();
@@ -1430,12 +1250,8 @@ namespace link
         return true;
     }
 
-    // ---- what the UI thread is told, in ONE go ------------------------------
-    //
-    // The panel's sentence and the control tally beside it are published
-    // together, so they can never be read from two different passes: "live -
-    // bibobox, rev 41" above "sent 0" would be two true statements that are
-    // false as a pair, which is the shape of bug this repo keeps naming.
+    // What the UI thread is told, published in one go so the panel's sentence
+    // and the control tally beside it always come from the same pass.
     struct Report
     {
         Phase phase = Phase::PHASE_IDLE;
@@ -1447,13 +1263,9 @@ namespace link
         UInt32 controlSeq = 0;
     };
 
-    // ---- CONTROL ------------------------------------------------------------
-
-    // One datagram onto the wire. `send` when the socket was connected to the
-    // board (the filter that keeps strangers out), `sendto` when it could not
-    // be - an address is better than not sending at all.
-    //
-    // A failure leaves its WSA code in the journal for the log to name.
+    // One CONTROL datagram: `send` when the socket is connected to the board,
+    // `sendto` when it could not be. A failure leaves its WSA code in the
+    // journal.
     [[nodiscard]] Bool sendControlUdp(Conn& c, const UInt8* frame, Size len)
     {
         if(c.udp == INVALID_SOCKET)
@@ -1475,8 +1287,7 @@ namespace link
         }
         else
         {
-            // No address the board is known to be at. Not a socket error at
-            // all, so it is named as the one Winsock has for exactly this.
+            // No known board address, which Winsock names WSAEDESTADDRREQ.
             c.journal.udpError = WSAEDESTADDRREQ;
             return false;
         }
@@ -1488,10 +1299,9 @@ namespace link
         return true;
     }
 
-    // CONTROL ON CHANGE, never per datagram. The stream is twenty identical
-    // frames a second, and what a person reading the log needs is the moment the
-    // operator's hand did something - or the moment the wire stopped agreeing
-    // with it: an epoch that moved, a transport that fell back.
+    // Logs CONTROL on change, never per datagram: the stream repeats every
+    // period, and the log needs the moments the operator, the epoch or the
+    // transport changed it.
     Void noteControl(Journal& j, const bibowire::Control& m, Bool onTcp)
     {
         const bibowire::Control& was = j.controlLine;
@@ -1523,54 +1333,41 @@ namespace link
         );
     }
 
-    // EVERY PERIOD, CHANGED OR NOT, for as long as this viewer holds the slot.
-    // Section 5 sends CONTROL every CONTROL_PERIOD_MS, changed or not, and says why:
-    // the constant stream is what makes silence mean something, and there is no
-    // separate heartbeat because a separate heartbeat is a thing that can keep
-    // beating while the control path is dead.
+    // Called every period, changed or not, while this viewer holds the slot.
+    // There is no separate heartbeat: one could keep beating while the control
+    // path is dead.
     [[nodiscard]] Bool sendControl(Conn& c, Client& owner, const Session& s, Report& say)
     {
-        // An OBSERVER sends nothing, and that is not a failure. Its datagrams
-        // would be counted in the board's rxControlStale and discarded, and -
-        // worse - a viewer streaming into a slot it does not hold is a viewer
-        // whose own panel would look like it was driving.
+        // An observer sends nothing, and that is not a failure.
         if(!s.haveWelcome || !holdsSlot(s))
         {
             return true;
         }
-
         ControlStamp at;
         at.sessionId = s.welcome.sessionId;
         at.seq = nextControlSeq(c.ctlSeq);
         at.armEpoch = currentEpoch(s);
-        // The VIEWER's clock, which the board only ever compares with itself.
+        // The viewer's clock, which the board only compares with itself.
         at.tMonoUs = static_cast<UInt64>(monoMs()) * 1000u;
-
         const bibowire::Control m = buildControl(controlIntent(owner), at);
         Array<UInt8, 64> body = {};
         const Size n = bibowire::writeControl(m, body.data(), body.size());
         if(n == 0)
         {
-            // The codec refused to encode it - a steer or throttle outside
-            // +-1000 - which is a bug at THIS end rather than a link fault. The
-            // connection is left alone and the refusal is counted, because a
-            // stream that silently stopped encoding is the failure this repo
-            // names as an absence.
+            // The codec refused it (steer or throttle outside +-1000): a bug at
+            // this end, not a link fault, so the connection stays and the
+            // refusal is counted rather than silently ending the stream.
             ++say.controlFailed;
             return true;
         }
-
         c.ctlSeq = at.seq;
         say.controlSeq = at.seq;
         noteControl(c.journal, m, say.controlOnTcp);
-
         if(say.controlOnTcp)
         {
-            // The same frame on a different socket. The board accepts CONTROL
-            // on TCP always, with identical rules, identical deadman and
-            // identical session and seq checks, so there is nothing to
-            // negotiate and no second code path. A TCP send that fails IS the
-            // connection failing - unlike the datagram below.
+            // The same frame on TCP, where the board applies identical rules,
+            // deadman, session and seq checks. A failed TCP send is the
+            // connection failing, unlike a datagram.
             if(!sendFrame(c, bibowire::Type::TYPE_CONTROL, body.data(), n))
             {
                 const Str sent = sendText(c.journal.lastSend);
@@ -1581,12 +1378,10 @@ namespace link
             ++say.controlSent;
             return true;
         }
-
         bibowire::Head head;
         head.type = bibowire::Type::TYPE_CONTROL;
         head.ver = 1;
         head.seq = c.udpTxSeq;
-
         Array<UInt8, 96> frame = {};
         const bibowire::Body payload = { body.data(), n };
         const Size total = bibowire::put(head, payload, frame.data(), frame.size());
@@ -1596,21 +1391,16 @@ namespace link
             return true;
         }
         ++c.udpTxSeq;
-
-        // A DATAGRAM THAT DID NOT LEAVE IS NOT A DEAD CONNECTION, and this is
-        // the one send in this file that may not tear the session down. Section
-        // 7 is explicit that the viewer infers nothing from send() returning: a
-        // board whose UDP socket is not up answers with ICMP port-unreachable,
-        // which Windows reports on the NEXT send, and a viewer that redialled
-        // over it would throw away a perfectly good telemetry stream. It is
-        // counted, the fallback notices a reverse path that never worked, and
-        // the deadman is what notices for real.
+        // A datagram that did not leave is not a dead connection, and must not
+        // end the session: section 7 infers nothing from send(), and Windows
+        // reports a closed board port's ICMP on the next send. It is counted;
+        // the TCP fallback and the deadman are what notice.
         if(!sendControlUdp(c, frame.data(), total))
         {
             ++say.controlFailed;
             ++c.journal.wire.udpTxFailed;
-            // THE FIRST ONE IN WORDS, the rest in the summary's count: at 20 Hz
-            // a line per failure would bury the keepalive lines this log is for.
+            // The first failure in words, the rest counted, so a line per
+            // datagram cannot bury the log.
             if(!c.journal.saidUdpFailure)
             {
                 c.journal.saidUdpFailure = true;
@@ -1641,13 +1431,9 @@ namespace link
         {
             return;
         }
-        // A deliberate close says so rather than letting the board find out by
-        // FIN. It costs one 24-byte frame and it is the difference between "the
-        // operator left" and "the link died" in the board's own journal.
-        //
-        // Best effort, and the answer is consumed rather than cast away: this
-        // socket is closing either way, and the board's own timers cover a LEAVE
-        // that never made it onto the wire.
+        // A deliberate close says so, so the board's journal can tell "the
+        // operator left" from "the link died". Best effort: the socket closes
+        // either way and the board's timers cover a lost LEAVE.
         const Bool sent = sendFrame(c, bibowire::Type::TYPE_LEAVE, body.data(), n);
         vlog::line(
             "LEAVE sessionId=%u %s: %s",
@@ -1656,8 +1442,6 @@ namespace link
             sendText(c.journal.lastSend).c_str()
         );
     }
-
-    // ---- the sentence the panel shows ---------------------------------------
 
     [[nodiscard]] Str scanPhrase(const Session& s, Int64 nowMs)
     {
@@ -1668,8 +1452,7 @@ namespace link
         const Int64 age = ageOf(s, nowMs, s.scanAtMs, s.scanBoardUs);
         if(age > GONE_MS)
         {
-            // The link is healthy and the sensor is not. Those are different
-            // facts and this is the sentence that keeps them apart.
+            // A live link with a silent sensor, said as such.
             return "no scan for " + secondsText(age);
         }
         Array<Char, 96> t = {};
@@ -1718,9 +1501,8 @@ namespace link
         c.shared.state = s;
     }
 
-    // Sleeps in slices so a Disconnect is answered in one POLL_MS rather than in
-    // four seconds, and republishes the countdown as it goes - "retrying in
-    // 1840 ms" is a thing an operator can wait for; a frozen panel is not.
+    // Sleeps in POLL_MS slices so a Disconnect is answered promptly, and
+    // republishes the countdown as it goes.
     Void waitToRetry(Client& c, const Session& s, Int32 waitMs, const Str& why)
     {
         const Int64 until = monoMs() + waitMs;
@@ -1735,26 +1517,20 @@ namespace link
             say.phase = Phase::PHASE_RETRYING;
             say.status = "retrying in " + numberText(left) + " ms - " + why;
             say.retryInMs = static_cast<Int32>(left);
-            // The control tally is left at ZERO rather than carried across, and
-            // that is the honest reading rather than a lost field: there is no
-            // stream while there is no connection, and "sent 412" frozen on a
-            // panel during a four-second retry is a count of a thing that
-            // stopped four seconds ago.
+            // The control tally is published as zero: there is no stream without
+            // a connection.
             publish(c, say, s);
             ::Sleep(static_cast<DWORD>(left < POLL_MS ? left : POLL_MS));
         }
     }
 
-    // ---- the round-trip log, the worker's side ------------------------------
-
-    // Everything the decode told the log this pass, into the file. Board PINGs
-    // STAY in the Heard until flushPongs has answered them, because each PONG's
-    // line needs the moment its PING arrived.
+    // What the decode told the log this pass, into the file. Board PINGs stay in
+    // the Heard until flushPongs has answered them, because each PONG's line
+    // needs its PING's arrival time.
     Void drainHeard(Conn& c, const Session& s)
     {
         Journal& j = c.journal;
         Heard& h = j.heard;
-
         for(const HeardPing& p : h.pings)
         {
             vlog::line(
@@ -1809,10 +1585,8 @@ namespace link
         h.pongs.clear();
         h.acks.clear();
         h.events.clear();
-
-        // THE FIRST OF EACH KIND in words, and every one after it only in the
-        // summary's totals - a stream going bad would otherwise write a line
-        // for every byte it could not read.
+        // The first of each kind in words, the rest only in the summary's
+        // totals, or a bad stream would log a line per byte.
         if(h.bodiesRefused > 0u && !j.saidRefused)
         {
             j.saidRefused = true;
@@ -1872,11 +1646,10 @@ namespace link
         }
     }
 
-    // The kernel's own account of the TCP connection - what no counter in this
-    // file can see: bytes the board has not acknowledged, retransmissions,
-    // timeout episodes, the windows both ends are offering. When the board stops
-    // hearing this viewer while these say every byte left and was acknowledged,
-    // the fault is not in this process.
+    // The kernel's account of the TCP connection: unacknowledged bytes,
+    // retransmissions, timeouts and both windows. If the board stops hearing
+    // this viewer while these show every byte sent and acknowledged, the fault
+    // is not in this process.
     Void appendTcpInfo(Str& out, SOCKET fd)
     {
         u_long queued = 0;
@@ -1926,21 +1699,18 @@ namespace link
             static_cast<UInt64>(info.BytesOut)
         );
 #else
-        // SAID rather than left out, so a reader never wonders whether these
-        // numbers were zero or simply never asked for.
+        // Said, so absent numbers are not mistaken for zeros.
         out += " | tcp_info: SIO_TCP_INFO is not in this Windows SDK";
 #endif
     }
 
-    // ONCE A SECOND, the socket half in ONE line. One rather than several, so a
-    // search for the moment the board said "no PONG" lands on everything this
-    // end knew about that second at once.
+    // Once per SUMMARY_MS, the socket half in one line, so a search for the
+    // moment the board said "no PONG" lands on everything this end knew then.
     Void logSummary(Conn& c, const Session& s, const Report& say, Int64 nowMs)
     {
         Journal& j = c.journal;
         Wire& w = j.wire;
         const Heard& h = j.heard;
-
         Str out;
         out.reserve(1024);
         vlog::append(
@@ -1950,7 +1720,6 @@ namespace link
             w.rxBytes,
             w.txBytes
         );
-
         out += " | frames in";
         Bool any = false;
         for(Size i = 0; i < h.byType.size(); ++i)
@@ -1976,7 +1745,6 @@ namespace link
             out += " NONE";
         }
         j.byTypeAtSummary = h.byType;
-
         const Str lastByte = j.lastRecvMs > 0
             ? numberText(nowMs - j.lastRecvMs) + " ms ago"
             : Str("never");
@@ -2001,10 +1769,8 @@ namespace link
             w.worstSplit.sendMs,
             w.worstSplit.publishMs
         );
-        // NO OUTBOUND QUEUE, said rather than left as a missing number: sendAll
-        // blocks for up to SEND_BUDGET_MS until the socket takes the whole
-        // frame, so what would be a backlog here shows up as a slow send instead
-        // - and the kernel's own unacknowledged bytes are in tcp_info below.
+        // No outbound queue: sendAll blocks up to SEND_BUDGET_MS, so a backlog
+        // shows as a slow send, and unacknowledged bytes are in tcp_info.
         vlog::append(
             out,
             " | send %u (short %u, would-block %u, failed %u), worst %lld ms, no outbound queue",
@@ -2080,7 +1846,6 @@ namespace link
         );
         appendTcpInfo(out, c.tcp);
         vlog::line("%s", out.c_str());
-
         w = Wire();
         w.windowMs = nowMs;
     }
@@ -2157,9 +1922,7 @@ namespace link
         }
     }
 
-    // The reconnect schedule's next wait, said out loud - the attempt, the base
-    // and the jittered answer - because "why did it take four seconds to come
-    // back" is a question the log should answer without arithmetic.
+    // The next reconnect wait, logged with its attempt and base.
     [[nodiscard]] Int32 retryDelay(Int32 attempt, UInt32 seed, const Str& why)
     {
         const Int32 base = backoffBaseMs(attempt);
@@ -2178,30 +1941,22 @@ namespace link
     {
         vlog::nameThread("net");
         vlog::line("worker started for %s port %u", c->host.c_str(), static_cast<UInt32>(c->port));
-
         Conn conn;
         Session live;
         Int32 attempt = 0;
-        // Seeded from the clock, so two viewers started from the same script do
-        // not draw the same jitter and hammer the board in lockstep - which is
-        // the whole reason the jitter is there.
+        // Seeded from the clock, so two viewers started together do not share a
+        // jitter sequence.
         UInt32 seed = static_cast<UInt32>(monoMs()) ^ 0xB1B0B0C5u;
-
         while(!c->quit.load())
         {
-            // A new connection RESUMES NOTHING. There is no session-resumption
-            // path in this protocol at all: the only state worth resuming is the
-            // live picture, which is worthless by the time the link is back.
+            // A new connection resumes nothing: the live picture is worthless by
+            // the time the link is back.
             clearSession(live);
-
-            // One connection's worth of what the UI is told, INCLUDING the
-            // control tally - which starts at zero here for the same reason the
-            // session does: a stream belongs to a connection.
+            // The Report, control tally included, starts at zero per connection.
             Report say;
             say.phase = Phase::PHASE_RESOLVING;
             say.status = "resolving " + c->host;
             publish(*c, say, live);
-
             Str why;
             if(!dialTcp(conn, c->host, c->port, &why))
             {
@@ -2211,35 +1966,25 @@ namespace link
                 waitToRetry(*c, live, retryDelay(attempt, seed, why), why);
                 continue;
             }
-
             if(!openUdp(conn))
             {
-                // Telemetry is unaffected: CTLSTATE is the only thing that rides
-                // UDP toward this viewer, so what degrades is the honesty line
-                // and nothing else. Said in words rather than left as a panel
-                // row that is quietly always "--".
+                // Only CTLSTATE rides UDP toward this viewer, so telemetry is
+                // unaffected; said in a note rather than a row always "--".
                 Note note;
                 note.severity = bibowire::Severity::SEVERITY_WARN;
                 note.text = "no UDP socket - CTLSTATE cannot arrive";
                 note.atMs = monoMs();
                 live.notes.push_back(note);
-
-                // AND CONTROL GOES STRAIGHT TO TCP. The fallback below measures
-                // a reverse path for 1000 ms before deciding; here there is no
-                // socket for a datagram to leave by at all, so the measurement
-                // has nothing to measure and the answer is already known.
+                // With no socket there is no reverse path to probe, so CONTROL
+                // goes straight to TCP.
                 say.controlOnTcp = true;
                 vlog::line("CONTROL goes to TCP from the first datagram: there is no UDP socket");
             }
             say.phase = Phase::PHASE_CONNECTING;
             say.status = "connected to " + c->host;
             publish(*c, say, live);
-
-            // HELLO IS THE FIRST BYTES ON THE CONNECTION, and nothing else is
-            // sent until WELCOME arrives.
-            // AND THE CONTROL SLOT IS ASKED FOR HERE OR NOT AT ALL. The board
-            // grants it in its HELLO handler and in no other place, so this one
-            // byte decides whether this whole connection can drive.
+            // HELLO is the first bytes on the connection, and nothing else is
+            // sent until WELCOME answers it.
             if(!sendHello(conn, "bibo viewer", c->wantSlot.load()))
             {
                 dropConn(conn);
@@ -2253,35 +1998,21 @@ namespace link
                 );
                 continue;
             }
-
             live.lastFrameMs = monoMs();
             Int64 nextPingMs = live.lastFrameMs + PING_PERIOD_MS;
-
-            // THE CONTROL DEADLINE, IN nextPingMs's SHAPE AND NOT A THREAD. One
-            // select() loop honours both, which is what keeps the cadence
-            // answerable to the same POLL_MS slice everything else here is: a
-            // second thread ticking at 50 ms would be a second thing that can
-            // still look alive while this one is wedged, and the whole point of
-            // the stream is that its silence means something.
-            //
-            // Zero until WELCOME, which is also what arms it: there is no
-            // session to stamp on a datagram before then, and no slot either.
+            // The control deadline, a timestamp like nextPingMs rather than a
+            // thread: a second thread could look alive while this loop is wedged,
+            // and the stream's silence must mean something. Zero until WELCOME
+            // arms it; before then there is no session to stamp and no slot.
             Int64 nextControlMs = 0;
             Int64 welcomeAtMs = 0;
             why = "the board closed the connection";
-
-            // The summary's first second starts with the connection.
             conn.journal.wire.windowMs = monoMs();
-
             while(!c->quit.load())
             {
-                // WHERE EACH PASS SPENDS ITS TIME, in the same milliseconds as
-                // everything else here. A pass that took 500 ms in `send` is a
-                // socket that would not take a frame; one that took it in
-                // `publish` is this thread waiting on the UI's lock - and those
-                // are different fixes.
+                // Where each pass spends its time: a slow `send` is a full
+                // socket, a slow `publish` is a wait on the UI's lock.
                 const Int64 passMs = monoMs();
-
                 fd_set reads;
                 FD_ZERO(&reads);
                 FD_SET(conn.tcp, &reads);
@@ -2300,12 +2031,9 @@ namespace link
                     break;
                 }
                 const Int64 selectedMs = monoMs();
-
                 const Bool hadWelcome = live.haveWelcome;
-
-                // PUMPED, THEN DRAINED INTO THE LOG, THEN JUDGED. The frames
-                // that arrived just before a close are the ones most worth
-                // reading, and breaking first would throw their lines away.
+                // Pumped, logged, then judged: the frames that arrived just
+                // before a close are the ones most worth logging.
                 const Bool tcpReadable = ready > 0 && FD_ISSET(conn.tcp, &reads);
                 const Bool tcpAlive = !tcpReadable || pumpTcp(conn, live);
                 const Bool udpReadable = ready > 0 && conn.udp != INVALID_SOCKET
@@ -2321,7 +2049,6 @@ namespace link
                 {
                     break;
                 }
-
                 const Bool answered = flushPongs(conn, live);
                 // Answered, so the PINGs' arrival times have done their job.
                 conn.journal.heard.pings.clear();
@@ -2330,71 +2057,48 @@ namespace link
                     why = "could not answer a PING";
                     break;
                 }
-
                 if(!hadWelcome && live.haveWelcome)
                 {
-                    // A handshake that completed is a schedule that starts over:
-                    // the next failure is a fresh one, not the tail of an old
-                    // outage.
+                    // A completed handshake restarts the backoff schedule.
                     attempt = 0;
                     filterUdpToBoard(conn, live.welcome.controlUdpPort);
-
-                    // WELCOME starts both control clocks: section 4's
-                    // reverse-path window, and the stream's own cadence - which
-                    // is the BOARD's controlPeriodMs and not a number compiled
-                    // into this viewer months earlier. The first datagram goes
-                    // on this pass rather than a period later, because the
-                    // board's probe wants five of them inside 1000 ms.
+                    // WELCOME starts section 4's reverse-path window and the
+                    // control cadence. The first datagram goes on this pass: the
+                    // board's probe wants several inside REVERSE_PROBE_MS.
                     welcomeAtMs = monoMs();
                     nextControlMs = welcomeAtMs;
-
                     logWelcome(conn, live);
                     if(!holdsSlot(live))
                     {
-                        // One of the sentences behind "I cannot drive": an
-                        // observer's CONTROL stream is never sent at all.
                         vlog::line("no control slot on this connection - no CONTROL is sent");
                     }
                 }
-
-                // Re-asserted every pass, because the answer can change at any
-                // moment: the operator closes the camera window mid-outing, or
-                // the link drops and comes back and the new session has been
-                // told nothing. `sentMask` went with the old connection, so a
-                // window that was open before the drop is asked for again.
+                // Every pass: the camera window can change at any moment, and a
+                // new connection's sentMask is reset, so an open window is
+                // asked for again.
                 if(!syncSubscription(conn, live, c->cameraOn.load(), c->cameraFps.load()))
                 {
                     why = "could not send SUBSCRIBE";
                     break;
                 }
-
-                // After SUBSCRIBE and in the same pass, so a command typed while
-                // the link was live is on the wire within one POLL_MS rather
-                // than waiting for a frame to arrive first.
+                // Same pass as SUBSCRIBE, so a command is on the wire within one
+                // POLL_MS.
                 if(!flushCommands(conn, *c, live))
                 {
                     why = "could not send a COMMAND";
                     break;
                 }
-
                 if(live.haveBye)
                 {
                     why = live.byeText.empty() ? Str("the board said BYE") : live.byeText;
                     break;
                 }
-
                 const Int64 now = monoMs();
                 if(now - live.lastFrameMs > SILENCE_MS)
                 {
-                    // No frame of ANY type. At 5 Hz BOARD and 1 Hz PING this is
-                    // not a quiet moment.
                     why = "no frame for " + numberText(now - live.lastFrameMs) + " ms";
                     break;
                 }
-
-                // Only once WELCOME has arrived: HELLO is the first bytes on the
-                // connection and NOTHING else goes out until the board has
-                // answered it.
                 if(live.haveWelcome && now >= nextPingMs)
                 {
                     nextPingMs = now + PING_PERIOD_MS;
@@ -2404,19 +2108,12 @@ namespace link
                         break;
                     }
                 }
-
-                // SECTION 4'S TCP FALLBACK, MEASURED AND THEN LATCHED. CTLSTATE
-                // is the only thing that rides UDP toward this viewer, so a
-                // silent 1000 ms after WELCOME is a measurement that UDP is not
-                // working in at least one direction rather than a guess - this
-                // repo's rule about reverse paths, applied to the link itself.
-                //
-                // It latches for the life of the connection, and that is the
-                // part worth naming: while the fallback is active the board
-                // MIRRORS CTLSTATE onto TCP, so a test that kept asking "has a
-                // CTLSTATE arrived lately" would flip straight back to UDP the
-                // moment the mirror answered, and then flap once a second
-                // between two transports while the car was being driven.
+                // Section 4's TCP fallback, measured then latched. Only CTLSTATE
+                // rides UDP toward this viewer, so none within REVERSE_PROBE_MS
+                // of WELCOME shows UDP failing in at least one direction. It
+                // latches for the connection: the board then mirrors CTLSTATE
+                // onto TCP, so re-testing would flap between transports while
+                // driving.
                 const Int64 probeMs = static_cast<Int64>(bibowire::REVERSE_PROBE_MS);
                 if(!say.controlOnTcp && welcomeAtMs > 0 && !live.haveControl
                    && now - welcomeAtMs > probeMs)
@@ -2439,12 +2136,8 @@ namespace link
                     note.atMs = now;
                     live.notes.push_back(note);
                 }
-
-                // EVERY PERIOD, CHANGED OR NOT, and a period that is the
-                // BOARD's. sendControl decides there is nothing to send when
-                // this viewer is an observer; the deadline rolls either way, so
-                // a slot taken on a later connection starts its stream on the
-                // same schedule rather than whenever a key was first pressed.
+                // Every period, changed or not, at the board's period. The
+                // deadline rolls even for an observer, which sends nothing.
                 if(live.haveWelcome && now >= nextControlMs)
                 {
                     nextControlMs = now + controlPeriodMs(live);
@@ -2454,14 +2147,11 @@ namespace link
                         break;
                     }
                 }
-
                 const Int64 sentMs = monoMs();
-
                 say.phase = live.haveWelcome ? Phase::PHASE_LIVE : Phase::PHASE_HANDSHAKING;
                 say.status = liveStatus(live, c->host, now);
                 say.retryInMs = 0;
                 publish(*c, say, live);
-
                 const Int64 publishedMs = monoMs();
                 PassSplit split;
                 split.selectMs = selectedMs - passMs;
@@ -2470,17 +2160,13 @@ namespace link
                 split.sendMs = sentMs - loggedMs;
                 split.publishMs = publishedMs - sentMs;
                 notePass(conn.journal.wire, split);
-
                 if(publishedMs - conn.journal.wire.windowMs >= SUMMARY_MS)
                 {
                     logSummary(conn, live, say, publishedMs);
                 }
             }
-
-            // The LEAVE first when this viewer is the one leaving, so the close
-            // line below comes after everything that went on the wire. Then the
-            // partial second before the close - the second this log exists to
-            // catch - and the close itself, with its reason.
+            // LEAVE first when this viewer is leaving, so the close line follows
+            // everything sent; then the partial summary window and the close.
             const Bool quitting = c->quit.load();
             if(quitting)
             {
@@ -2490,32 +2176,23 @@ namespace link
             logSummary(conn, live, say, closedMs);
             logClose(conn, live, why, closedMs, quitting);
             dropConn(conn);
-
             if(quitting)
             {
                 vlog::line("worker stopping: this viewer disconnected");
                 break;
             }
-
             ++attempt;
             seed = stir(seed);
             waitToRetry(*c, live, retryDelay(attempt, seed, why), why);
         }
     }
-
   }
-
-  // ---- the clock -------------------------------------------------------------
 
   Int64 monoMs()
   {
       static const TimePoint BASE = monoNow();
       return static_cast<Int64>(elapsedMs(BASE));
   }
-
-  // ---- names -----------------------------------------------------------------
-
-  // ---- the pure half ---------------------------------------------------------
 
   Void clearSession(Session& s)
   {
@@ -2531,32 +2208,22 @@ namespace link
       s = Session();
   }
 
-  // ---- what a feed is delivering at ------------------------------------------
-
   Void noteArrival(Cadence& c, Int64 nowMs)
   {
       if(!c.have)
       {
-          // THE FIRST FRAME STARTS THE CLOCK AND NOTHING ELSE. There is no gap
-          // before a feed's first arrival, and inventing one would measure the
-          // moment this viewer happened to connect rather than anything the
-          // board is doing.
           c.have = true;
           c.lastAtMs = nowMs;
           return;
       }
-
       const Int64 gap = nowMs - c.lastAtMs;
       c.lastAtMs = nowMs;
-
-      // A clock that went backwards, or two frames stamped inside one
-      // millisecond. Neither is an interval this feed delivered at, and a
-      // negative one would poison the maximum in the wrong direction.
+      // A clock that went backwards, or two frames in one millisecond: not an
+      // interval the feed delivered at.
       if(gap <= 0)
       {
           return;
       }
-
       c.gaps[c.at] = gap;
       c.at = (c.at + 1u) % CADENCE_SAMPLES;
       if(c.count < CADENCE_SAMPLES)
@@ -2568,9 +2235,7 @@ namespace link
   Int64 worstGapMs(const Cadence& c)
   {
       Int64 worst = 0;
-      // `count` and not CADENCE_SAMPLES: the unfilled tail of a fresh ring is
-      // zeros, and while zeros cannot raise a maximum, reading them would make
-      // this loop's correctness depend on that coincidence.
+      // `count`, not CADENCE_SAMPLES: a fresh ring's tail is unfilled.
       for(Size i = 0; i < c.count; ++i)
       {
           if(c.gaps[i] > worst)
@@ -2586,25 +2251,15 @@ namespace link
       const Int64 worst = worstGapMs(c);
       if(worst <= 0)
       {
-          // Nothing measured yet, so the feed is held to section 7's number
-          // until it has earned a different one.
           return FRESH_MS;
       }
-
       const Int64 band = (worst * STALE_SLACK_NUM) / STALE_SLACK_DEN;
       if(band < FRESH_MS)
       {
-          // MEASURING CAN NEVER TIGHTEN THE BAND. A feed arriving every 20 ms
-          // is not thereby promised to be called stale at 30, because the
-          // number that matters to a person reading the screen is section 7's
-          // and this function may only ever widen it for a feed that is slower.
           return FRESH_MS;
       }
       if(band > STALE_CEIL_MS)
       {
-          // And never so wide that "stale" stops existing. Past this the feed
-          // would go straight from live to gone, and the band that warns
-          // somebody the picture is aging is the one thing between those two.
           return STALE_CEIL_MS;
       }
       return band;
@@ -2649,9 +2304,6 @@ namespace link
       Decision d;
       d.decide = decide;
       d.ageMs = age;
-      // The SCAN's band, because a DECIDE is tied to the revolution it
-      // describes and shares its age exactly - the same reason it borrows that
-      // revolution's board clock a few lines up in ingestFrame.
       d.stale = age > staleBandMs(scanRate);
       return d;
   }
@@ -2701,11 +2353,6 @@ namespace link
       const Int64 age = ageOf(*this, nowMs, cameraAtMs, camera.tMonoUs);
       if(age > GONE_MS)
       {
-          // No picture at all, rather than a dimmer one. A photograph of a
-          // corridor is equally convincing whether it was taken now or forty
-          // seconds ago - there is nothing in the image itself for a person to
-          // read the age off, which makes absence matter MORE here than it
-          // does for the cloud.
           return {};
       }
       CameraShot shot;
@@ -2715,11 +2362,6 @@ namespace link
       shot.codec = camera.codec;
       shot.bytes = camera.data;
       shot.ageMs = age;
-      // THE WHOLE POINT OF THE BAND, and the bug it was written for: at the
-      // board's 2 fps default a picture is ~500 ms old the instant before its
-      // successor arrives, so a fixed FRESH_MS of 400 called a camera that was
-      // perfectly on time STALE for the last 100 ms of every single frame.
-      // Measured against the real board that was 57 frames out of 57.
       shot.staleAtMs = staleBandMs(cameraRate);
       shot.worstGapMs = worstGapMs(cameraRate);
       shot.worstCaptureMs = cameraWorstCaptureMs;
@@ -2762,9 +2404,6 @@ namespace link
       out.token = token;
       out.sentMs = nowMs;
       s.pingsOut.push_back(out);
-      // An unanswered PING is the silence watchdog's business. This list exists
-      // to match tokens, not to accumulate evidence of a link that has already
-      // stopped answering.
       while(s.pingsOut.size() > MAX_PINGS_OUT)
       {
           s.pingsOut.erase(s.pingsOut.begin());
@@ -2773,13 +2412,10 @@ namespace link
 
   Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs)
   {
-      // EVERY frame, including one whose body this build has no name for. The
-      // silence watchdog asks "has anything arrived", and a reader that only
-      // counted the messages it understood would redial a perfectly live board
-      // the day it learns a new type.
+      // Every frame, unknown types included: the silence watchdog must not
+      // redial a live board that has learned a new type.
       ++s.frames;
       s.lastFrameMs = nowMs;
-
       const UInt8 ver = f.head.ver;
       switch(f.head.type)
       {
@@ -2791,11 +2427,9 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // A DIFFERENT bootId means the pilot restarted, and everything this
-          // viewer knows is about a car that no longer exists. Cleared BEFORE a
-          // single point is drawn - this is the specific defence against the
-          // most convincing stale picture there is: a healthy new socket to a
-          // restarted car, still showing the previous run.
+          // A different bootId means the pilot restarted: clear everything
+          // before a point is drawn, or a healthy new socket to a restarted car
+          // still shows the previous run.
           if(s.haveBootId && s.bootId != m.bootId)
           {
               clearAll(s);
@@ -2812,10 +2446,8 @@ namespace link
           s.haveWelcome = true;
           s.welcome = m;
           noteOffset(s, nowMs, m.boardMonoUs);
-
-          // The viewer applies the version rule to WELCOME too, and shows the
-          // sentence rather than a spinner. An explanation that says only
-          // "incompatible" sends a person to read source in a field.
+          // The version rule applies to WELCOME too, with a sentence naming both
+          // versions and what to do.
           if(!bibowire::versionOk(m.protoMajor))
           {
               s.haveBye = true;
@@ -2828,7 +2460,6 @@ namespace link
           }
           return;
       }
-
       case bibowire::Type::TYPE_LIDAR_INFO:
       {
           bibowire::LidarInfo m;
@@ -2841,7 +2472,6 @@ namespace link
           s.lidar = m;
           return;
       }
-
       case bibowire::Type::TYPE_SCAN:
       {
           bibowire::Scan m;
@@ -2850,9 +2480,8 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // GAPS ARE COUNTED, NEVER SMOOTHED. revIndex is monotonic, so what is
-          // missing is knowable exactly; an interpolated sweep between two
-          // revolutions a second apart is a lie the eye cannot detect.
+          // Gaps are counted, never interpolated: revIndex is monotonic, and a
+          // smoothed sweep is a lie the eye cannot detect.
           if(s.haveScan && m.revIndex > s.revIndex + 1u)
           {
               s.missedRevs += m.revIndex - s.revIndex - 1u;
@@ -2866,7 +2495,6 @@ namespace link
               );
               s.gapText = line.data();
           }
-
           s.cloud.clear();
           s.cloud.reserve(m.points.size());
           for(const bibowire::ScanPoint& p : m.points)
@@ -2877,13 +2505,10 @@ namespace link
               }
               const Float32 a = static_cast<Float32>(p.angleCentiDeg) * CENTI_DEG_TO_RAD;
               const Float32 r = static_cast<Float32>(p.distMm) * MM_TO_M;
-              // scene.hxx's frame: X right, Y forward, Z up, metres, with the
-              // car at the origin pointing along +Y - so bearing 0 is +Y and a
-              // growing angle swings toward +X, which is exactly how the
-              // stand-in cloud this replaces was laid out.
+              // scene.hxx's frame with the car at the origin facing +Y: bearing 0
+              // is +Y and a growing angle swings toward +X, the car's right.
               s.cloud.push_back(scene::Vec3{ r * std::sin(a), r * std::cos(a), LIDAR_HEIGHT_M });
           }
-
           s.haveScan = true;
           s.revIndex = m.revIndex;
           s.freqMilliHz = m.freqMilliHz;
@@ -2896,7 +2521,6 @@ namespace link
           noteOffset(s, nowMs, m.tMonoUs);
           return;
       }
-
       case bibowire::Type::TYPE_DECIDE:
       {
           bibowire::Decide m;
@@ -2905,11 +2529,9 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // A DECIDE naming a SCAN this viewer never received is DISCARDED, not
-          // drawn. The corridor belongs to one revolution, and drawing it over a
-          // different one produces a picture that is individually plausible and
-          // jointly false. revIndex 0 is the BLIND tick, which has no revolution
-          // behind it by definition and is kept.
+          // A DECIDE naming a scan this viewer never received is discarded:
+          // drawn over another revolution it is plausible and false. revIndex 0
+          // is the BLIND tick, which has no revolution, and is kept.
           if(m.revIndex != 0u && (!s.haveScan || m.revIndex != s.revIndex))
           {
               ++s.orphanDecides;
@@ -2918,13 +2540,10 @@ namespace link
           s.haveDecide = true;
           s.decide = m;
           s.decideAtMs = nowMs;
-          // DECIDE carries no timestamp of its own; it is tied to the SCAN it
-          // describes, so it borrows that revolution's board clock and shares
-          // its age exactly.
+          // DECIDE has no timestamp; it borrows its revolution's board clock.
           s.decideBoardUs = m.revIndex == 0u ? 0u : s.scanBoardUs;
           return;
       }
-
       case bibowire::Type::TYPE_BOARD:
       {
           bibowire::BoardState m;
@@ -2940,7 +2559,6 @@ namespace link
           noteOffset(s, nowMs, m.tMonoUs);
           return;
       }
-
       case bibowire::Type::TYPE_CTLSTATE:
       {
           bibowire::CtlState m;
@@ -2956,7 +2574,6 @@ namespace link
           noteOffset(s, nowMs, m.tMonoUs);
           return;
       }
-
       case bibowire::Type::TYPE_CAMERA:
       {
           bibowire::Camera m;
@@ -2965,15 +2582,9 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // GAPS ARE COUNTED, NEVER SMOOTHED - the scan's rule, applied here
-          // for the same reason. frameIndex is monotonic, so what is missing
-          // is knowable exactly, and a window that simply showed the next
-          // picture would hide a link dropping half the stream.
-          //
-          // CAMERA is CLASS_BULK and is discarded before any scan or state
-          // frame, so on a bad hotspot this is the counter that moves FIRST.
-          // That is the design working, not a fault - what degrades is the
-          // camera and not the car's picture of the world.
+          // Counted like the scan's gaps. CAMERA is CLASS_BULK, dropped before
+          // any scan or state frame, so on a bad hotspot this counter moves
+          // first, by design.
           if(s.haveCamera && m.frameIndex > s.camera.frameIndex + 1u)
           {
               s.missedCameraFrames += m.frameIndex - s.camera.frameIndex - 1u;
@@ -2987,16 +2598,10 @@ namespace link
               );
               s.cameraGapText = line.data();
           }
-
-          // THE GAP BETWEEN TWO CAPTURES, on the board's clock. The first frame
-          // only starts it - there is no gap before a feed's first picture, and
-          // inventing one from a zero initial timestamp would report the whole
-          // uptime of the board as a stall. noteArrival states that rule for
-          // arrivals; this is the same rule for the other clock.
-          //
-          // A timestamp that went BACKWARDS is a restarted board, not a
-          // negative gap: skipped rather than recorded, because the safe
-          // reading of a clock that moved the wrong way is "measure again".
+          // The capture gap on the board's clock. The first frame only starts
+          // it, or the board's whole uptime would read as a stall. A timestamp
+          // that went backwards is a restarted board, skipped rather than
+          // recorded.
           if(s.haveCamera && m.tMonoUs > s.cameraBoardUs)
           {
               const Int64 capturedMs = static_cast<Int64>((m.tMonoUs - s.cameraBoardUs) / 1000u);
@@ -3006,19 +2611,16 @@ namespace link
               }
           }
           s.cameraBoardUs = m.tMonoUs;
-
           s.haveCamera = true;
           s.cameraAtMs = nowMs;
           ++s.cameraFrames;
           noteArrival(s.cameraRate, nowMs);
           noteOffset(s, nowMs, m.tMonoUs);
-          // Moved rather than copied: the body is a whole JPEG, tens of
-          // kilobytes, and this runs on the network thread several times a
-          // second.
+          // Moved, not copied: a whole JPEG, several times a second on the
+          // network thread.
           s.camera = std::move(m);
           return;
       }
-
       case bibowire::Type::TYPE_CMDACK:
       {
           bibowire::CmdAck m;
@@ -3027,11 +2629,6 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // KEPT WITH ITS SENTENCE, VERBATIM. result = 1 or 3 is a refusal, and
-          // the board explains it in words - "refused while armed" is the whole
-          // difference between a slider that appears broken and one that is
-          // doing exactly what the protocol says. A viewer that kept only the
-          // result byte would leave an operator with a number and no reason.
           Ack a;
           a.ack = m;
           a.atMs = nowMs;
@@ -3042,7 +2639,6 @@ namespace link
           }
           return;
       }
-
       case bibowire::Type::TYPE_EVENT:
       {
           bibowire::Event m;
@@ -3051,18 +2647,14 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // Every lidar::reason() and every carlink::detail() the board writes
-          // for a person arrives here VERBATIM, and is shown that way. A
-          // protocol that keeps only the codes is how a project loses the one
-          // thing that makes a fault diagnosable.
+          // The board's sentences are shown verbatim; codes alone do not make a
+          // fault diagnosable.
           Note note;
           note.severity = m.severity;
           note.text = m.text;
           note.atMs = nowMs;
-
-          // THE BOARD'S SAVED TRIM is state, not news: kept where the Trim pane
-          // takes it from, and still listed as a note in words, so the list
-          // shows when the car's trim was saved.
+          // The saved trim is state, not news: kept for the Trim pane and still
+          // listed as a note.
           if(m.code == bibowire::EVENT_CODE_TRIM)
           {
               s.haveBoardTrim = true;
@@ -3077,19 +2669,12 @@ namespace link
           {
               note.text += " (+" + numberText(m.droppedSince) + " suppressed)";
           }
-          // Kept where the camera window can reach it, as well as in the note
-          // list. "another program holds /dev/video0" is the sentence that
-          // turns a blank rectangle into an answer, and an operator should not
-          // have to find it in a scrolling list to learn why there is no
-          // picture. See link.hxx: matching on the text is a heuristic, and a
-          // deliberate one.
           if(mentionsCamera(note.text))
           {
               s.haveCameraNote = true;
               s.cameraNoteText = note.text;
               s.cameraNoteAtMs = nowMs;
           }
-
           s.notes.push_back(note);
           while(s.notes.size() > MAX_EVENTS)
           {
@@ -3097,7 +2682,6 @@ namespace link
           }
           return;
       }
-
       case bibowire::Type::TYPE_PING:
       {
           bibowire::Ping m;
@@ -3109,7 +2693,6 @@ namespace link
           s.pongsDue.push_back(m);
           return;
       }
-
       case bibowire::Type::TYPE_BYE:
       {
           bibowire::Bye m;
@@ -3123,7 +2706,6 @@ namespace link
           s.byeText = m.text;
           return;
       }
-
       case bibowire::Type::TYPE_PONG:
       {
           bibowire::Ping m;
@@ -3132,11 +2714,6 @@ namespace link
               ++s.refusedFrames;
               return;
           }
-          // Matched by TOKEN, which the protocol echoes verbatim. A PONG for a
-          // PING this connection never sent, or a second copy of one already
-          // accounted for, must not be able to invent a round trip - so an
-          // unmatched token is dropped rather than timed against the newest
-          // send.
           for(Size i = 0; i < s.pingsOut.size(); ++i)
           {
               if(s.pingsOut[i].token != m.token)
@@ -3166,21 +2743,16 @@ namespace link
           }
           return;
       }
-
       default:
           break;
       }
-
-      // AN UNKNOWN TYPE IS SKIPPED BY EXACTLY len AND COUNTED, NEVER FATAL. That
-      // is what the length prefix is for, and it is the whole reason an older
-      // viewer can keep watching a newer board.
+      // An unknown type is skipped by exactly its len and counted, never fatal,
+      // so an older viewer can keep watching a newer board.
       ++s.unknownFrames;
   }
 
   namespace
   {
-
-    // Bounded, and what does not fit is counted rather than silently lost.
     template<typename T>
     Void keepHeard(Vec<T>& into, const T& item, UInt32& overflow)
     {
@@ -3191,14 +2763,12 @@ namespace link
         }
         into.push_back(item);
     }
-
   }
 
-  // A WRAPPER AROUND THE DECODE, not a change to it. The three-argument
-  // ingestFrame above is exactly what the suite holds to an answer, and threading
-  // a log through its fourteen early returns would put the log's bookkeeping
-  // inside the code it is meant to watch. Everything here is read before or
-  // after, from the frame and the session.
+  // A wrapper around the decode, not a change to it: the three-argument
+  // ingestFrame is what the suite tests, and threading the log through its early
+  // returns would put the log inside the code it watches. Everything here is
+  // read before or after, from the frame and the session.
   Void ingestFrame(Session& s, const bibowire::Frame& f, Int64 nowMs, Heard* heard)
   {
       if(heard == nullptr)
@@ -3206,19 +2776,14 @@ namespace link
           ingestFrame(s, f, nowMs);
           return;
       }
-
       const bibowire::Type type = f.head.type;
       const UInt8 tag = static_cast<UInt8>(type);
       ++heard->byType[tag];
-
-      // READ BEFORE the frame is ingested: ingesting overwrites lastFrameMs, and
-      // for a PONG it removes the very PING the answer is matched against.
+      // Read before ingesting, which overwrites lastFrameMs and, for a PONG,
+      // removes the PING it matches. The token is decoded a second time.
       const Int64 quietMs = nowMs - s.lastFrameMs;
       const UInt32 refusedBefore = s.refusedFrames;
       const UInt32 unknownBefore = s.unknownFrames;
-
-      // The token decoded a SECOND time - sixteen bytes, once a second - rather
-      // than threading the log through the decode it is watching.
       const Bool keepalive = type == bibowire::Type::TYPE_PING || type == bibowire::Type::TYPE_PONG;
       bibowire::Ping echo;
       const Bool haveEcho = keepalive && bibowire::readPing(f.body, f.head.ver, &echo);
@@ -3236,11 +2801,9 @@ namespace link
               }
           }
       }
-
       ingestFrame(s, f, nowMs);
-
-      // UP, not CHANGED: a WELCOME from a restarted board clears the whole
-      // session, its counters included, and that is not a refusal.
+      // Up, not changed: a restarted board's WELCOME clears the counters, and
+      // that is not a refusal.
       if(s.refusedFrames > refusedBefore)
       {
           ++heard->bodiesRefused;
@@ -3253,7 +2816,6 @@ namespace link
           heard->lastUnknownType = tag;
           return;
       }
-
       if(type == bibowire::Type::TYPE_PING && haveEcho)
       {
           HeardPing ping;
@@ -3293,8 +2855,7 @@ namespace link
           const bibowire::Take got = bibowire::take(buf + at, len - at, &f, &used);
           if(got == bibowire::Take::TAKE_FRAME)
           {
-              // Here and never for a datagram: the TCP stream is the one whose
-              // seqs run as a sequence, and a datagram arrives outside it.
+              // TCP only: its seqs form a sequence, datagrams arrive outside it.
               if(heard != nullptr)
               {
                   const UInt16 expected = static_cast<UInt16>(heard->lastSeq + 1u);
@@ -3313,8 +2874,6 @@ namespace link
           }
           if(got == bibowire::Take::TAKE_RESYNC)
           {
-              // Junk on a checksummed stream that is never counted is a fault
-              // nobody discovers.
               s.resyncBytes += static_cast<UInt32>(used);
               if(heard != nullptr)
               {
@@ -3328,10 +2887,9 @@ namespace link
           {
               break;
           }
-          // TOO_BIG or BAD_FLAG: a terminal answer about a frame at the stream
-          // position. Counted, and the byte is stepped over so the caller's ring
-          // can never wedge on it - the connection is torn down by the silence
-          // watchdog if the peer keeps it up.
+          // TOO_BIG or BAD_FLAG. Counted and stepped over by one byte, so the
+          // ring cannot wedge; a peer that keeps it up meets the silence
+          // watchdog.
           ++s.refusedFrames;
           if(heard != nullptr)
           {
@@ -3342,11 +2900,8 @@ namespace link
       return at;
   }
 
-  // ---- the reconnect schedule ------------------------------------------------
-
-  // xorshift32, written here rather than taken from <random>: the schedule is a
-  // safety-adjacent behaviour and a test that cannot reproduce a failure is a
-  // test nobody will fix.
+  // xorshift32 rather than <random>, so a schedule failure is reproducible in a
+  // test.
   UInt32 stir(UInt32 seed)
   {
       UInt32 x = seed == 0u ? 0x9E3779B9u : seed;
@@ -3358,9 +2913,8 @@ namespace link
 
   Int32 backoffBaseMs(Int32 attempt)
   {
-      // 250, 500, 1 s, 2 s, 4 s, then 4 s forever. NEVER GIVING UP, because
-      // outdoors the link comes back when the phone stops moving, and a viewer
-      // that stopped trying makes that recovery a manual step in a field.
+      // Never gives up: outdoors the link comes back when the phone stops
+      // moving, and recovery must not be a manual step.
       const Int32 step = attempt < 1 ? 1 : attempt;
       if(step >= BACKOFF_STEPS)
       {
@@ -3386,8 +2940,6 @@ namespace link
       return baseMs + delta;
   }
 
-  // ---- the socket half -------------------------------------------------------
-
   Bool open(Client& c, CharSeq host, UInt16 port)
   {
       if(c.running.load())
@@ -3411,7 +2963,6 @@ namespace link
           c.shared.status = "Winsock would not start";
           return false;
       }
-
       c.host = name;
       c.port = port;
       c.quit.store(false);
@@ -3442,7 +2993,6 @@ namespace link
       vlog::line("link closed: the worker joined in %lld ms", monoMs() - askedMs);
       c.running.store(false);
       ::WSACleanup();
-
       LockGuard<Mutex> held(c.lock);
       c.shared = Snapshot();
   }
@@ -3458,15 +3008,9 @@ namespace link
       return c.shared;
   }
 
-  // ---- the subscription --------------------------------------------------
-
   UInt32 subscriptionMask(Bool withCamera)
   {
-      // Every telemetry type this viewer actually draws, named one at a time.
-      // Spelled out rather than left as 0, because 0 means EVERYTHING to the
-      // board - so an unsubscribe written as 0 would ask for MORE than it
-      // started with, which is the opposite of what the caller meant and the
-      // exact bug that would only show up as a bandwidth figure.
+      // Every telemetry type this viewer draws, named one at a time.
       UInt32 mask = bibowire::typeBit(bibowire::Type::TYPE_SCAN)
                     | bibowire::typeBit(bibowire::Type::TYPE_DECIDE)
                     | bibowire::typeBit(bibowire::Type::TYPE_BOARD)
@@ -3488,10 +3032,8 @@ namespace link
 
   Void wantCameraFps(Client& c, Int32 fps)
   {
-      // Clamped HERE as well as in syncSubscription and again on the board.
-      // Not redundancy for its own sake: this is the value the UI reads back to
-      // show what was asked for, and a readout that echoed 60 while the wire
-      // carried 15 would be a number describing nothing.
+      // Clamped here as well as on the wire, because the UI reads this value
+      // back to show what was asked for.
       const Int32 ceiling = static_cast<Int32>(bibowire::CAM_FPS_MAX);
       const Int32 held = fps < 0 ? 0 : (fps > ceiling ? ceiling : fps);
       c.cameraFps.store(held);
@@ -3502,8 +3044,6 @@ namespace link
       return c.cameraFps.load();
   }
 
-  // ---- COMMAND ---------------------------------------------------------------
-
   Void sendCommand(Client& c, bibowire::Verb verb, UInt8 arg0, UInt16 arg1, UInt16 arg2)
   {
       bibowire::Command cmd;
@@ -3511,41 +3051,29 @@ namespace link
       UInt32 evicted = 0;
       {
           LockGuard<Mutex> held(c.cmdLock);
-
           cmd.cmdId = c.nextCmdId;
           cmd.verb = verb;
           cmd.arg0 = arg0;
           cmd.arg1 = arg1;
           cmd.arg2 = arg2;
-          // sessionId and armEpoch are stamped by the worker at the moment of
-          // sending - see link.hxx. Left at their defaults here on purpose, so a
-          // reader of this function cannot mistake a snapshot for the connection.
-
           ++c.nextCmdId;
           if(c.nextCmdId == 0u)
           {
-              // NEVER 0. Unreachable at any human rate - it is 4.2 billion
-              // deliberate acts - and written anyway, because the alternative is
-              // a rule enforced by an arithmetic coincidence.
               c.nextCmdId = 1u;
           }
-
           c.pending.push_back(cmd);
           while(c.pending.size() > MAX_PENDING_COMMANDS)
           {
-              // The OLDEST goes, and it is counted. A queue this deep means the
-              // worker is not draining, and in that case the newest intent is
-              // the one worth keeping - the same newest-wins rule the rest of
-              // this protocol follows.
+              // The oldest goes, counted: a queue this deep means the worker is
+              // stuck, and the newest intent is the one worth keeping.
               c.pending.erase(c.pending.begin());
               c.commandsDropped.fetch_add(1u);
               ++evicted;
           }
           waiting = c.pending.size();
       }
-
-      // Written AFTER the lock is released: a slow disk must never be the thing
-      // the worker waits on to take the next command off the queue.
+      // Logged after the lock is released, so a slow disk never delays the
+      // worker.
       vlog::line(
           "COMMAND queued cmdId=%u verb=%u (%s) args %u/%u/%u, %zu waiting for the worker",
           cmd.cmdId,
@@ -3600,40 +3128,24 @@ namespace link
       return acks[acks.size() - 1u];
   }
 
-  // ---- CONTROL ---------------------------------------------------------------
-
   bibowire::Control buildControl(const Intent& in, const ControlStamp& at)
   {
       bibowire::Control m;
       m.sessionId = at.sessionId;
       m.seq = at.seq;
       m.tMonoUs = at.tMonoUs;
-
-      // NEUTRAL WHEN THE OPERATOR IS NOT DRIVING, and it is written HERE as
-      // well as in the pane on purpose. Steering is applied by the board even
-      // while throttle is refused - section 6, and it is right to, because a
-      // car that snaps to centre mid-corner changes its line at the moment it
-      // stopped being commanded - so a viewer that kept sending a steer angle
-      // after its operator switched driving off would still be steering the
-      // car. This is the last place before the wire, which makes it the one
-      // place the rule cannot be bypassed by a caller that forgot.
-      // Cast written out rather than left to the assignment. Both arms are in
-      // range - an Int16 or a literal 0 - so nothing is lost either way, but a
-      // ternary mixing Int16 with an int literal promotes to int and narrows
-      // back implementation-defined on the way in. These are the two fields that
-      // carry steering and throttle; they are the last two in this program worth
-      // leaving to a conversion nobody wrote down.
+      // Neutral when the operator is not driving, enforced here, the last place
+      // before the wire. The board applies steering even while throttle is
+      // refused (section 6), so a steer angle sent after driving was switched
+      // off would still steer the car. The casts are explicit because the
+      // ternary mixes Int16 with an int literal.
       m.steerMilli = static_cast<Int16>(in.driving ? in.steerMilli : 0);
       m.throttleMilli = static_cast<Int16>(in.driving ? in.throttleMilli : 0);
-
-      // ESTOP SURVIVES THE ENABLE BEING OFF; ENABLE CANNOT SURVIVE IT. The
-      // stop is the one thing that must work in every state this viewer can be
-      // in, and the consent is the one thing that must never be asserted by
-      // accident - so they are masked in opposite directions.
+      // ESTOP survives driving being off; ENABLE cannot. The stop must work in
+      // every state and consent must never be asserted by accident.
       m.buttons = in.driving
           ? in.buttons
           : static_cast<UInt16>(in.buttons & bibowire::BUTTON_ESTOP);
-
       m.armEpoch = at.armEpoch;
       m.assumedMode = in.assumedMode;
       return m;
@@ -3642,19 +3154,11 @@ namespace link
   UInt32 nextControlSeq(UInt32 previous)
   {
       const UInt32 next = previous + 1u;
-      // 0 IS NOT A SEQ. The board's newest-wins test is a signed difference, so
-      // 0 is a perfectly ordinary number to it - but section 5 starts the
-      // stream at 1, and CTLSTATE's ackSeq uses 0 for "none applied yet", so a
-      // datagram numbered 0 is one the board could never report having run.
       return next == 0u ? 1u : next;
   }
 
   Bool holdsSlot(const Session& s)
   {
-      // 1 is "control is yours", 2 is "observing" - and a WELCOME that refused
-      // the connection outright (0) is neither. Asked of the BOARD's answer and
-      // never of what this end wanted, because those are different facts and
-      // the difference is a car.
       return s.haveWelcome && s.welcome.accepted == 1u;
   }
 
@@ -3663,9 +3167,6 @@ namespace link
       const Int64 fallback = static_cast<Int64>(bibowire::CONTROL_PERIOD_MS);
       if(!s.haveWelcome || s.welcome.controlPeriodMs == 0u)
       {
-          // A board that sends 0 does not get to make this viewer spin: a
-          // period of zero is not a faster stream, it is a busy loop that would
-          // saturate the link the stream is trying to survive on.
           return fallback;
       }
       return static_cast<Int64>(s.welcome.controlPeriodMs);
@@ -3699,14 +3200,11 @@ namespace link
       {
           return false;
       }
-      // Copied BEFORE the close, because open() takes them as arguments and
-      // this is the one call site where the source and the destination are the
-      // same object.
+      // Copied before close(): open() is passed the same fields it assigns.
       const Str host = c.host;
       const UInt16 port = c.port;
       vlog::line("link reconnect: %s port %u", host.c_str(), static_cast<UInt32>(port));
       close(c);
       return open(c, host.c_str(), port);
   }
-
 }

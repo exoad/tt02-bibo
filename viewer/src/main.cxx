@@ -1,12 +1,6 @@
-// bibo viewer - a Win32 window, a D3D11 device, and Dear ImGui's frame loop.
-//
-// This file owns the platform and the three floating panels. Everything that is
-// three-dimensional lives in scene.cxx and draws through ImGui's own draw list.
-//
-// It replaces a 45,000-line predecessor on purpose. There is no editor here, no
-// language server and no reference browser, because the code is written
-// elsewhere: one 3D view, and a few plain windows floating over it.
-
+// bibo viewer: a Win32 window, a D3D11 device and Dear ImGui's frame loop. This
+// file owns the platform and the floating windows; the 3D view is scene.cxx,
+// drawn through ImGui's own draw list.
 #include "shared.hxx"
 
 #include <cstdio>
@@ -15,19 +9,15 @@
 #include <dwmapi.h>
 #include <d3d11.h>
 
-// <rpcndr.h>, dragged in by the headers above, does `#define small char`; near
-// and far come from the same era. Kill them before any header of ours.
+// <rpcndr.h>, dragged in above, defines `small` as char, with near and far from
+// the same era. Undefined before any header of ours.
 #undef small
 #undef near
 #undef far
 
-// <winnt.h> spells the HRESULT severity bits SEVERITY_SUCCESS and
-// SEVERITY_ERROR, as macros, and bibowire::Severity has a member by the second
-// of those names - so `Severity::SEVERITY_ERROR` becomes `Severity::1` and the
-// protocol header stops parsing three hundred lines before anything of ours is
-// read. Undefined here for the same reason and in the same place as the three
-// above: a Windows macro that collides with a name of ours is killed at the
-// boundary, not worked around at every use.
+// <winnt.h> defines SEVERITY_SUCCESS and SEVERITY_ERROR as macros, and
+// bibowire::Severity has a SEVERITY_ERROR member, which would become
+// Severity::1 and break the protocol header. Undefined at the boundary.
 #undef SEVERITY_SUCCESS
 #undef SEVERITY_ERROR
 
@@ -51,29 +41,16 @@
 static constexpr Int32 DEFAULT_WIDTH = 1400;
 static constexpr Int32 DEFAULT_HEIGHT = 900;
 
-// The viewport's own background. Deliberately NOT ImGui's WindowBg: the 3D view
-// fills the whole client area, and a panel floating over it has to be readable
-// AS a panel. Making the ground darker than the windows is what separates them.
+// Darker than ImGui's WindowBg, so panels floating over the view read as panels.
 static constexpr Array<Float32, 4> CLEAR_COLOR = { 0.086f, 0.094f, 0.110f, 1.0f };
 
-// A NAME, and specifically one this machine can resolve. It was "bibobox.local"
-// and that made the Connect button fail on its own default: Windows has no mDNS
-// responder here, so `bibobox.local` returns getaddrinfo 11001 and reads as a
-// broken client, while the board answers to it perfectly well on its own LAN.
-// Measured both ways on 2026-09-10 - `bibobox` and the raw address connect
-// instantly, `.local` never resolves.
-//
-// Still a name and not an address, which is the rule that matters: the field
-// network is a phone hotspot whose DHCP hands out a different address every
-// outing, so an address typed in here is wrong by the next time it is used. Both
-// spellings are names; this is the one that works from this laptop today, and
-// the field is editable for the outing where the other one is.
+// A NAME, not an address: the field hotspot's DHCP hands out a different
+// address every outing, so the client resolves the name on every attempt.
+// `bibobox` is Tailscale MagicDNS; `bibobox.local` is mDNS, which this laptop
+// cannot resolve (getaddrinfo 11001). The field is editable for other networks.
 static constexpr CharSeq DEFAULT_HOST = "bibobox";
 
-// From the protocol's own header rather than typed again here: the port is a
-// fact about bibowire, and a viewer carrying its own copy of it is a viewer that
-// can be pointed at the wrong one by a one-character edit nobody links to the
-// board.
+// From bibowire rather than retyped, so the viewer cannot drift to another port.
 static constexpr Int32 DEFAULT_PORT = static_cast<Int32>(bibowire::PORT);
 
 // Where a readout's value starts, in logical pixels from the window's left.
@@ -86,17 +63,12 @@ static ID3D11RenderTargetView* rtv = nullptr;
 static UINT resizeW = 0;
 static UINT resizeH = 0;
 
-// Monitor DPI as a multiplier: 1.25 on this machine. Everything laid out in
-// logical pixels multiplies by it.
+// Monitor DPI as a multiplier; everything laid out in logical pixels uses it.
 static Float32 uiScale = 1.0f;
 
-// ---------------------------------------------------------------------------
-// THE NETWORK.
-//
-// What a person typed, plus the client that turns it into a connection. The
-// client runs its own thread and hands over copies of its decoded state; this
-// file never names a socket and the frame loop never waits for one.
-// ---------------------------------------------------------------------------
+// What a person typed, plus the client. The client runs its own thread and
+// hands over copies of its decoded state, so the frame loop never waits on a
+// socket.
 struct Link
 {
     Array<Char, 64> host = {};
@@ -106,20 +78,11 @@ struct Link
 
 static Void initLink(Link& lk)
 {
-    // snprintf rather than a brace-initialised literal: docs/conventions.md is
-    // explicit that a long literal in an Array<Char, N> is better written as
-    // the format call than as a list of character constants.
+    // snprintf rather than a brace list of characters (docs/conventions.md).
     std::snprintf(lk.host.data(), lk.host.size(), "%s", DEFAULT_HOST);
 }
 
-// ---------------------------------------------------------------------------
-// Numbers, rendered.
-//
-// Every one of these is integer arithmetic. printf's "%.3f" honours the locale,
-// a machine set to a comma decimal writes "3,410", and that is the bug this
-// project already met twice - so the decimal point in this program is a
-// character somebody wrote, not one a locale chose.
-// ---------------------------------------------------------------------------
+// Integer digits, never "%f" (the locale trap, vlog.hxx).
 static Str metresText(UInt32 mm)
 {
     Array<Char, 32> t = {};
@@ -162,8 +125,8 @@ static CharSeq severityMark(bibowire::Severity s)
     return "[info] ";
 }
 
-// 0 live, 1 soft, 2 dead, 3 estop latched - named by the protocol module, so the
-// viewer and the board cannot disagree about what a 2 means.
+// 0 live, 1 soft, 2 dead, 3 estop latched - named by bibowire, so the viewer
+// and the board cannot disagree about what a 2 means.
 static CharSeq deadmanText(UInt8 v)
 {
     if(v > static_cast<UInt8>(bibowire::deadman::State::STATE_ESTOP))
@@ -190,9 +153,6 @@ static CharSeq picoText(UInt8 v)
     return "--";
 }
 
-// ---------------------------------------------------------------------------
-// D3D11
-// ---------------------------------------------------------------------------
 static Void createRenderTarget()
 {
     ID3D11Texture2D* backbuffer = nullptr;
@@ -229,10 +189,8 @@ static Bool createDeviceD3D(HWND hwnd)
     sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
     constexpr D3D_FEATURE_LEVEL LEVELS[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
     D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_11_0;
-
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
         nullptr,
         D3D_DRIVER_TYPE_HARDWARE,
@@ -247,9 +205,7 @@ static Bool createDeviceD3D(HWND hwnd)
         &got,
         &d3dContext
     );
-
-    // WARP, so the viewer still opens over RDP or on a machine with no usable
-    // 3D driver. It draws lines and discs; software is fast enough for that.
+    // WARP, so the viewer still opens over RDP or without a usable 3D driver.
     if(hr == DXGI_ERROR_UNSUPPORTED)
     {
         hr = D3D11CreateDeviceAndSwapChain(
@@ -267,12 +223,10 @@ static Bool createDeviceD3D(HWND hwnd)
             &d3dContext
         );
     }
-
     if(FAILED(hr))
     {
         return false;
     }
-
     createRenderTarget();
     return true;
 }
@@ -297,9 +251,6 @@ static Void cleanupDeviceD3D()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Window
-// ---------------------------------------------------------------------------
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -308,7 +259,6 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     {
         return 1;
     }
-
     switch(msg)
     {
     case WM_SIZE:
@@ -317,8 +267,8 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             return 0;
         }
-        // Queued, not applied: resizing the swap chain from inside the message
-        // pump is unsafe, and a zero extent must never reach ResizeBuffers.
+        // Queued, not applied: resizing the swap chain inside the message pump
+        // is unsafe, and a zero extent must never reach ResizeBuffers.
         const UINT w = static_cast<UINT>(LOWORD(lparam));
         const UINT h = static_cast<UINT>(HIWORD(lparam));
         if(w == 0 || h == 0)
@@ -329,25 +279,19 @@ static LRESULT WINAPI wndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         resizeH = h;
         return 0;
     }
-
     case WM_SYSCOMMAND:
         if((wparam & 0xfff0) == SC_KEYMENU)     // swallow the ALT menu
         {
             return 0;
         }
         break;
-
     case WM_DESTROY:
         ::PostQuitMessage(0);
         return 0;
     }
-
     return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-// ---------------------------------------------------------------------------
-// The floating windows. Plain ImGui: no theme, no design system, no status bar.
-// ---------------------------------------------------------------------------
 static Void readout(CharSeq label, CharSeq value)
 {
     ImGui::TextUnformatted(label);
@@ -369,26 +313,13 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
         ImGui::End();
         return;
     }
-
     const Bool up = link::isOpen(lk.client);
-
-    // A HOSTNAME, not an address. The field network is a phone hotspot and its
-    // DHCP hands out a different address every time, so an address typed here is
-    // wrong by the next outing; a name is the thing that stays true, and the
-    // client resolves it on EVERY attempt for the same reason.
-    //
-    // WHICH name depends on the network, which is why this is a text field and
-    // not a constant. `bibobox` is Tailscale's MagicDNS and works wherever the
-    // tailnet is up; `bibobox.local` is mDNS and works on a LAN the board shares
-    // - but not from this laptop, which has no mDNS responder and answers it
-    // with getaddrinfo 11001.
     ImGui::BeginDisabled(up);
     ImGui::SetNextItemWidth(-70.0f * uiScale);
     ImGui::InputText("host", lk.host.data(), lk.host.size());
     ImGui::SetNextItemWidth(-70.0f * uiScale);
     ImGui::InputInt("port", &lk.port);
     ImGui::EndDisabled();
-
     ImGui::BeginDisabled(up);
     if(ImGui::Button("Connect"))
     {
@@ -399,22 +330,17 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
         link::open(lk.client, lk.host.data(), static_cast<UInt16>(lk.port));
     }
     ImGui::EndDisabled();
-
     ImGui::SameLine();
-
     ImGui::BeginDisabled(!up);
     if(ImGui::Button("Disconnect"))
     {
         link::close(lk.client);
     }
     ImGui::EndDisabled();
-
     ImGui::Separator();
-
-    // The truth, in a sentence: connecting, handshaking, live, retrying in N ms,
-    // or the reason the board gave for saying BYE.
+    // One sentence: connecting, handshaking, live, retrying in N ms, or the
+    // reason the board gave for saying BYE.
     ImGui::TextWrapped("%s", snap.status.c_str());
-
     const Opt<link::Revolution> rev = snap.state.revolution(nowMs);
     if(rev.has_value())
     {
@@ -423,17 +349,15 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     }
     else if(snap.state.haveScan)
     {
-        // The link can be perfectly healthy while this says so. That is the
-        // point: a link that is healthy must never make a dead sensor look
-        // alive.
+        // Possibly over a healthy link: a healthy link must never make a dead
+        // sensor look alive.
         readout("scan", "too old - not drawn");
     }
     else
     {
         readout("scan", "--");
     }
-
-    // The sender's own count of what it threw away for this client, so a thin
+    // The sender's own count of what it dropped for this client, so a thin
     // stream reads as dropped rather than as a slow lidar.
     if(rev.has_value() && rev->droppedSinceLast > 0u)
     {
@@ -442,11 +366,9 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
         std::snprintf(t.data(), t.size(), "%u since last", dropped);
         readout("dropped", t.data());
     }
-
-    // THE NETWORK'S NUMBER, and it answers a different question from the ages
-    // above: the round trip can be 8 ms while the picture behind it is two
-    // seconds old. Current, and the minimum of the last 16 - never the mean,
-    // which on a hotspot measures the worst moment of the last sixteen seconds
+    // The network's number, a different question from the ages above: an 8 ms
+    // round trip can carry a two-second-old picture. Current and the minimum of
+    // the last 16, never the mean, which on a hotspot tracks the worst moment
     // rather than the path.
     const Opt<Int64> rtt = snap.state.rttMs();
     const Opt<Int64> bestRtt = snap.state.bestRttMs();
@@ -460,17 +382,13 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     {
         readout("round trip", "--");
     }
-
-    // THE BOARD MEASURING ITSELF, beside the value it describes rather than
-    // lumped in with the network number. This is the second lie: a link that is
-    // perfectly healthy with dead data behind it. It rides CTLSTATE on UDP, so
-    // for an observer it may never arrive at all - and then it says so.
+    // The board's own scan age, apart from the network number. It rides
+    // CTLSTATE on UDP, so for an observer it may never arrive.
     const Opt<link::Control> ctlAge = snap.state.controlState(nowMs);
     if(ctlAge.has_value())
     {
         readoutStr("scan age (board)", msText(static_cast<Int64>(ctlAge->state.scanAgeMs)));
     }
-
     if(snap.state.haveLidar)
     {
         Array<Char, 48> fw = {};
@@ -488,10 +406,7 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     {
         readout("lidar", "--");
     }
-
-    // Counted, never smoothed - and shown, because a count nobody can read off
-    // the running system is the same species of bug as a test that measures
-    // nothing.
+    // Counted, never smoothed, and shown.
     if(snap.state.missedRevs > 0u && !snap.state.gapText.empty())
     {
         readoutStr("missed", snap.state.gapText);
@@ -508,10 +423,8 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
         );
         readout("junk", junk.data());
     }
-
-    // The prose channel. Every lidar::reason() and carlink::detail() the board
-    // writes for a person arrives here verbatim, and a binary protocol that
-    // dropped these would lose the one thing that makes a fault diagnosable.
+    // The board's sentences for a person (lidar::reason(), carlink::detail()),
+    // verbatim: they are what makes a fault diagnosable.
     if(!snap.state.notes.empty())
     {
         ImGui::Separator();
@@ -529,7 +442,6 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
 static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View& trim, driveview::View& drive)
 {
     static constexpr Array<CharSeq, 2> COLOR_NAMES = { "uniform", "by distance" };
-
     ImGui::SetNextWindowPos(ImVec2(16.0f * uiScale, 176.0f * uiScale), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(300.0f * uiScale, 0.0f), ImGuiCond_FirstUseEver);
     if(!ImGui::Begin("View"))
@@ -537,7 +449,6 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
         ImGui::End();
         return;
     }
-
     ImGui::Checkbox("grid", &sc.opt.grid);
     ImGui::Checkbox("points", &sc.opt.points);
     ImGui::Checkbox("car", &sc.opt.car);
@@ -547,36 +458,20 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     {
         ImGui::SetTooltip("solid: where the wheels are - ghost: where asked");
     }
-
     ImGui::Separator();
-
-    // NOT a view option like the four above, and it is here only because this
-    // is where the toggles live. Ticking it opens a separate window AND
-    // subscribes to the camera; the box and the window's own X are two ways to
-    // set one thing. It costs the board a megabyte a second, so it says so.
+    // Not a view option: this box and the Camera window's X set the same flag,
+    // which opens the window AND subscribes.
     ImGui::Checkbox("camera", &cam.open);
     if(ImGui::IsItemHovered())
     {
         ImGui::SetTooltip("streams about 1 MB/s while open");
     }
-
-    // The car's limits, centre and response rates. Unlike the camera above, this
-    // one costs the board nothing while it is open - there is no subscription
-    // behind it, only COMMANDs sent when the operator finishes a slider.
     ImGui::Checkbox("trim", &trim.open);
-
-    // DRIVING. Opening this window costs the board nothing and changes nothing
-    // on its own: the control slot is asked for in HELLO, the enable inside the
-    // window is off, and a viewer that has not asked for the slot is an
-    // observer whose datagrams the board would discard. Three gates, and this
-    // checkbox is not one of them - it only puts the pane on screen.
+    // Only puts the pane on screen; it is not one of drive.hxx's three gates.
     ImGui::Checkbox("drive", &drive.open);
-
     ImGui::Separator();
-
     ImGui::SetNextItemWidth(-88.0f * uiScale);
     ImGui::SliderFloat("size", &sc.opt.pointSize, 1.0f, 10.0f, "%.1f px");
-
     Int32 coloring = static_cast<Int32>(sc.opt.coloring);
     const Int32 colorCount = static_cast<Int32>(COLOR_NAMES.size());
     ImGui::SetNextItemWidth(-88.0f * uiScale);
@@ -584,9 +479,7 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     {
         sc.opt.coloring = static_cast<scene::PointColor>(coloring);
     }
-
     ImGui::Separator();
-
     if(ImGui::Button("Reset camera"))
     {
         scene::resetCamera(sc.cam);
@@ -605,17 +498,12 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
         ImGui::End();
         return;
     }
-
-    // "--" is the honest reading for a value this program has never been told,
-    // and every row below can still say it. mode, clearance, steer and throttle
-    // come from DECIDE - what the pilot CHOSE - and armed comes from CTLSTATE,
-    // which is what the board is actually DOING. Those are two different
-    // questions and the panel keeps them side by side for that reason: a car
-    // that is commanded and not armed does not move.
+    // "--" for anything never reported. mode, clearance, steer and throttle come
+    // from DECIDE (what the pilot CHOSE); armed comes from CTLSTATE (what the
+    // board is DOING). A car that is commanded and not armed does not move.
     const Opt<link::Decision> dec = snap.state.decision(nowMs);
     const Opt<link::Board> brd = snap.state.boardState(nowMs);
     const Opt<link::Control> ctl = snap.state.controlState(nowMs);
-
     if(dec.has_value())
     {
         const Str mode = Str(bibowire::driveModeName(dec->decide.mode)) + " by "
@@ -632,17 +520,13 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
         readout("steer", "--");
         readout("throttle", "--");
     }
-
-    // CTLSTATE first, because it is the board reporting what it DID. It rides
-    // UDP at 20 Hz, so on a network that blocks UDP it never arrives at all -
-    // and then BOARD's own picoArmed answers, with 2 meaning unknown rather
-    // than meaning no.
+    // CTLSTATE first. It rides UDP, so where UDP is blocked BOARD's picoArmed
+    // answers instead, with 2 meaning unknown, not no.
     if(ctl.has_value())
     {
         readout("armed", ctl->state.armed != 0u ? "yes" : "no");
         readout("refusing", bibowire::refuseName(ctl->state.refuse));
-        // The board's own age for the control it last APPLIED. 0xFFFFFFFF is
-        // "never", which is not the same fact as "a long time ago".
+        // CONTROL_AGE_NEVER means never applied, not a long time ago.
         if(ctl->state.controlAgeMs == bibowire::CONTROL_AGE_NEVER)
         {
             readout("control age", "never");
@@ -660,14 +544,11 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
     {
         readout("armed", "--");
     }
-
     if(brd.has_value())
     {
         readout("deadman", deadmanText(brd->state.deadman));
         readout("pico", picoText(brd->state.picoLink));
-        // Another of the board's own ages, beside the thing it describes. The
-        // sentinel means there is no link at all, which reads differently from
-        // a link that has simply been quiet for 900 ms.
+        // PICO_SILENT_ABSENT means no link at all, not a quiet one.
         if(brd->state.picoSilentMs == bibowire::PICO_SILENT_ABSENT)
         {
             readout("pico silent", "no link");
@@ -676,8 +557,8 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
         {
             readoutStr("pico silent", msText(static_cast<Int64>(brd->state.picoSilentMs)));
         }
-        // 0xFFFF is NOT MEASURED, and 0 is a real reading of a dead pack - which
-        // is exactly why the sentinel is not 0 and why this is not an if(mv).
+        // BATT_ABSENT is not measured; 0 is a real reading of a dead pack, which
+        // is why the sentinel is not 0.
         if(brd->state.battMilliV == bibowire::BATT_ABSENT)
         {
             readout("battery", "not measured");
@@ -696,65 +577,50 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
     ImGui::End();
 }
 
-// ---------------------------------------------------------------------------
-// Camera input. Only when no ImGui window wants the mouse - otherwise dragging
-// a slider would orbit the world behind it.
-// ---------------------------------------------------------------------------
+// The mouse moves the view only when no ImGui window wants it, or dragging a
+// slider would orbit the world behind it.
 static Void handleCameraInput(scene::Camera& cam)
 {
     const ImGuiIO& io = ImGui::GetIO();
-
     if(!io.WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_R, false))
     {
         scene::resetCamera(cam);
     }
-
     if(io.WantCaptureMouse)
     {
         return;
     }
-
     if(ImGui::IsMouseDragging(ImGuiMouseButton_Left))
     {
         const ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
         scene::orbit(cam, d.x, d.y);
         ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
     }
-
     if(ImGui::IsMouseDragging(ImGuiMouseButton_Right))
     {
         const ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
         scene::pan(cam, d.x, d.y);
         ImGui::ResetMouseDragDelta(ImGuiMouseButton_Right);
     }
-
     if(io.MouseWheel != 0.0f)
     {
         scene::zoom(cam, io.MouseWheel);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
 {
-    // FIRST, before anything that can fail. This program has no console, so a
-    // window that would not open or a device that would not start is otherwise
-    // a process that simply vanished; the log is where it says why. See vlog.hxx
-    // for where the file goes.
+    // First, before anything that can fail: with no console, the log is the only
+    // place a failed start can say why.
     vlog::open();
     vlog::line("bibo viewer starting - built %s %s", __DATE__, __TIME__);
-
     ImGui_ImplWin32_EnableDpiAwareness();
-
     HMONITOR primary = ::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
     uiScale = ImGui_ImplWin32_GetDpiScaleForMonitor(primary);
     if(uiScale <= 0.0f)
     {
         uiScale = 1.0f;
     }
-
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof(wc));
     wc.cbSize = sizeof(wc);
@@ -765,16 +631,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     wc.hbrBackground = nullptr;         // every pixel is painted by us
     wc.lpszClassName = L"BiboViewerWindow";
     ::RegisterClassExW(&wc);
-
     const DWORD style = WS_OVERLAPPEDWINDOW;
-    // lround, not a cast of x + 0.5f: the two agree for the positive numbers a
-    // window size always is, but the cast is the shape that rounds the wrong way
-    // on a negative, so it reads as a bug wherever it is copied to next.
+    // lround, not a cast of x + 0.5f, which rounds negatives the wrong way.
     RECT rc = { 0, 0,
                 std::lround(DEFAULT_WIDTH * uiScale),
                 std::lround(DEFAULT_HEIGHT * uiScale) };
     ::AdjustWindowRectEx(&rc, style, FALSE, 0);
-
     HWND hwnd = ::CreateWindowExW(
         0,
         wc.lpszClassName,
@@ -799,14 +661,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         ::UnregisterClassW(wc.lpszClassName, hinstance);
         return 1;
     }
-
-    // Said explicitly: Windows picks the frame from the SYSTEM theme, so on a
-    // light-mode machine the title bar would come back white above a dark UI.
+    // Explicit, because Windows follows the SYSTEM theme and would draw a white
+    // title bar above the dark UI on a light-mode machine.
     {
         BOOL dark = TRUE;
         ::DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     }
-
     if(!createDeviceD3D(hwnd))
     {
         cleanupDeviceD3D();
@@ -817,63 +677,38 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         vlog::close();
         return 1;
     }
-
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
-    // Docking is deliberately off - it is not in this branch of Dear ImGui and
-    // it is not wanted: these are three small floating panels over one view.
+    // No docking: it is not in this Dear ImGui branch, and the panels float.
     ImGui::StyleColorsDark();
     ImGui::GetStyle().WindowRounding = 4.0f;
     ImGui::GetStyle().FrameRounding = 3.0f;
-
-    // ScaleAllSizes bakes the DPI into every padding and thickness; FontScaleDpi
-    // is 1.92's own hook and re-rasterises the font at the new size rather than
-    // stretching the old atlas. Both, or the text is sharp and tiny inside
-    // widgets sized for it, or blurry inside widgets that are not.
+    // ScaleAllSizes scales every padding and thickness; FontScaleDpi re-rasterises
+    // the font. Both, or text and widgets end up sized for different DPIs.
     ImGui::GetStyle().ScaleAllSizes(uiScale);
     ImGui::GetStyle().FontScaleDpi = uiScale;
-
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3dDevice, d3dContext);
-
     scene::Scene sc;
     scene::resetCamera(sc.cam);
-
-    // The camera window. Closed on purpose at startup: opening it costs the
-    // board about a megabyte a second, so it is something a person asks for
-    // and never something that happens because the program started.
+    // Closed at startup: open costs the board about a megabyte a second.
     camview::View cam;
     camview::init(d3dDevice, d3dContext, uiScale);
-
-    // The trim window. Closed at startup like the camera, though for a different
-    // reason: it costs nothing to have open, but a pane of microsecond limits is
-    // not what somebody wants over a point cloud until they go looking for it.
-    // It owns no device resource, so there is no shutdown to match camview's.
+    // Closed at startup. Trim and Drive own no device resource, so neither has a
+    // shutdown.
     trimview::View trim;
     trimview::init(uiScale);
-
-    // The drive window. Closed at startup for the trim window's reason and one
-    // of its own: it is the only pane in this program that can make the car
-    // move, and nothing about starting a viewer should be a step toward that.
-    // It owns no device resource either.
     driveview::View drive;
     driveview::init(uiScale);
-
-    // OPEN AT STARTUP since 2026-09-12: the operator's drive is connect, then
-    // ARM, and the ARM button lives in this window. Opening it moves nothing -
-    // the enable is off and the car disarmed until ARM is pressed and
-    // confirmed.
+    // Open at startup, since the operator connects and then presses ARM here.
+    // Opening moves nothing: the enable is off and the car disarmed until ARM
+    // is pressed and confirmed.
     drive.open = true;
-
-    // THE OPERATOR'S NUMBERS FROM LAST TIME, before the first frame draws a
-    // slider. Into the panes ONLY: nothing is sent to the car here, because the
-    // board keeps its own saved copy and re-sends it to the Pico itself. Pushing
-    // this laptop's copy is the Trim pane's "send all to the car", taken on
-    // purpose - see settings.hxx. And once connected, the board's own saved trim
-    // replaces these in the sliders (trimview::follow): the car's copy wins.
+    // Last run's numbers into the panes before the first frame. Nothing is sent
+    // to the car: the board keeps its own saved copy, and once connected it
+    // replaces these in the sliders (trimview::follow).
     const Str settingsPath = settings::defaultPath();
     {
         settings::Values loaded = settings::capture(trim, drive);
@@ -883,12 +718,9 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         }
         else
         {
-            // THE OLD HOME, read once. Until 2026-09-12 the file lived beside
-            // bibo.exe in viewer\build, where build.bat clean deletes it. A
-            // laptop that still has one there keeps its numbers, and they are
-            // written to the new home at once so this branch does not run again.
-            // The old file is left alone - nothing reads it once the new one
-            // exists, and deleting a person's file is not this program's call.
+            // The legacy file beside bibo.exe, which build.bat clean deletes:
+            // read once and written to the new path so this branch does not run
+            // again. The old file is left alone.
             const Str oldPath = settings::legacyPath();
             if(!oldPath.empty() && oldPath != settingsPath && settings::load(oldPath, loaded).has_value())
             {
@@ -897,18 +729,13 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
             }
         }
     }
-
     // What this run believes the file holds, compared once a frame below.
     settings::Values savedSettings = settings::capture(trim, drive);
-
-    // `net`, not `link`: the module is namespace `link`, and a variable of that
-    // name would hide it for the rest of the function.
+    // `net`, not `link`: a variable named `link` would hide the namespace.
     Link net;
     initLink(net);
-
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(hwnd);
-
     Bool done = false;
     while(!done)
     {
@@ -926,7 +753,6 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         {
             break;
         }
-
         if(resizeW != 0 && resizeH != 0)
         {
             const UINT rw = resizeW;
@@ -939,7 +765,6 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
                 createRenderTarget();
             }
         }
-
         if(rtv == nullptr)
         {
             createRenderTarget();
@@ -949,16 +774,11 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
                 continue;
             }
         }
-
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
-
-        // THE SCAN. Whatever the board has sent that is still true - and NOTHING
-        // when the newest revolution is too old to draw, which is what an empty
-        // Opt from revolution() means. There is no branch here that can forget
-        // to check the age, because when it is too old there is no value to
-        // draw: the staleness test lives inside the accessor.
+        // NOTHING when the newest revolution is too old: the staleness test
+        // lives inside revolution(), so no branch here can forget it.
         const Int64 nowMs = link::monoMs();
         const link::Snapshot snap = link::snapshot(net.client);
         const Opt<link::Revolution> rev = snap.state.revolution(nowMs);
@@ -972,11 +792,8 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
             sc.cloud.clear();
             sc.cloudStale = false;
         }
-
-        // WHERE THE WHEELS ARE, AND WHERE THEY WERE ASKED TO BE - from the two
-        // accessors that already carry their own staleness test, so an old angle
-        // stops being drawn rather than being drawn old. Absent stays absent:
-        // neither arrow has a value to fall back to, and centre is not one.
+        // From accessors with their own staleness test. Absent stays absent:
+        // centre is not a fallback.
         const Opt<link::Control> steerCtl = snap.state.controlState(nowMs);
         const Opt<link::Decision> steerDec = snap.state.decision(nowMs);
         sc.haveSteerNow = steerCtl.has_value();
@@ -987,89 +804,59 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         sc.steerWant = steerDec.has_value()
             ? static_cast<Float32>(steerDec->decide.steerMilli) / 1000.0f
             : 0.0f;
-
         handleCameraInput(sc.cam);
-
-        // The view fills the window and the panels float over it, so it draws
-        // into the BACKGROUND list - behind every ImGui window, whatever order
-        // they were submitted in.
+        // Into the BACKGROUND list, behind every ImGui window.
         const ImGuiViewport* area = ImGui::GetMainViewport();
         const scene::Viewport where = { area->WorkPos, area->WorkSize };
         scene::draw(ImGui::GetBackgroundDrawList(), where, sc);
-
         drawConnectionWindow(net, snap, nowMs);
         drawViewWindow(sc, cam, trim, drive);
         drawCarWindow(snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
-
-        // THE BOARD'S SAVED TRIM INTO THE SLIDERS, before they are drawn and
-        // before the settings check below - so the laptop's file follows the
-        // car - and on every frame whether or not the Trim window is open.
+        // Before the sliders draw and before the settings check below.
         trimview::follow(trim, snap);
         trimview::drawWindow(trim, net.client, snap, nowMs);
-
-        // LAST, and every frame whether or not its window is open: this call is
-        // what publishes the control intent, and a frame that skipped it would
-        // leave the worker sending whatever the last frame asked for - which is
-        // a key that is still held down as far as the car is concerned.
-        // FROM THE TRIM PANE, this frame: its idle test rides the Drive pane's
-        // CONTROL, and a reverse limit at neutral is what S warns about.
+        // LAST, and every frame whether or not its window is open: this publishes
+        // the control intent, and a skipped frame would leave the worker sending
+        // the last one - a key still held down as far as the car knows.
         drive.idleTest = trim.idleTest;
         drive.reverseOff = trim.escReverseUs >= static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
         driveview::drawWindow(drive, net.client, snap, nowMs);
-
-        // SAVED ON A CHANGE, NEVER ON A FRAME - and never while a widget is
-        // active. A slider mid-drag has a new value every frame, and a file
-        // written per frame of a drag is exactly what this must not do. The
-        // release is the moment the operator meant: trim.cxx's own rule for
-        // sending.
+        // Saved on a change, never per frame, and never while a widget is active:
+        // the release is the moment the operator meant.
         if(!ImGui::IsAnyItemActive())
         {
             const settings::Values current = settings::capture(trim, drive);
             if(current != savedSettings)
             {
-                // RECORDED AS SAVED EVEN WHEN THE WRITE FAILED. Otherwise a
-                // directory that will not take the file is a failed write and a
-                // log line on every frame from then on; this way it is one of
-                // each per change, which is still loud.
+                // Recorded as saved even when the write failed, so an unwritable
+                // folder logs once per change rather than every frame.
                 settings::save(settingsPath, current);
                 savedSettings = current;
             }
         }
-
         ImGui::Render();
-
         d3dContext->OMSetRenderTargets(1, &rtv, nullptr);
         d3dContext->ClearRenderTargetView(rtv, CLEAR_COLOR.data());
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
         swapchain->Present(1, 0);       // vsync
     }
-
-    // ONCE MORE ON THE WAY OUT, whatever the per-frame check last wrote: a value
-    // still being dragged when the window closed never reached it.
+    // Once more on the way out: a value still being dragged at close never
+    // reached the per-frame check.
     settings::save(settingsPath, settings::capture(trim, drive));
-
-    // Joined before anything else is torn down: the worker owns a socket and a
-    // thread, and a process that exits through a thread sitting in recv() is a
-    // crash report nobody can read.
+    // Joined before anything is torn down: exiting through a thread sitting in
+    // recv() crashes.
     link::close(net.client);
-
-    // Before the device goes: the camera window owns a texture created on it,
-    // and releasing a resource after its device has been destroyed is a crash
-    // that only happens on the way out, where nobody is looking.
+    // Before the device goes: releasing a texture after its device is destroyed
+    // crashes on exit.
     camview::shutdown(cam);
-
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-
     cleanupDeviceD3D();
     ::DestroyWindow(hwnd);
     ::UnregisterClassW(wc.lpszClassName, hinstance);
-
-    // LAST, after the link has been joined, so the worker's closing lines - its
-    // final summary, the LEAVE, the close and its reason - are in the file.
+    // Last, after the link is joined, so the worker's closing lines are in the file.
     vlog::line("viewer exiting");
     vlog::close();
     return 0;

@@ -6,15 +6,10 @@
 #include <windows.h>
 #include <d3d11.h>
 
-// <rpcndr.h> does `#define small char`; near and far come from the same era.
-// SEVERITY_SUCCESS and SEVERITY_ERROR are <winnt.h>'s HRESULT severity bits,
-// and bibowire::Severity has a member by the second of those names - so
-// `Severity::SEVERITY_ERROR` would become `Severity::1` and the protocol
-// header would stop parsing hundreds of lines before anything of ours is read.
-//
-// Killed at the boundary, in the same place and for the same reason as in
-// main.cxx: every one of these must be undefined BEFORE camera.hxx below,
-// because that header includes link.hxx and link.hxx includes bibowire.hxx.
+// Windows macros that break our headers, undefined before camera.hxx reaches
+// bibowire.hxx through link.hxx: <rpcndr.h>'s `small`, `near` and `far`, and
+// <winnt.h>'s SEVERITY_SUCCESS and SEVERITY_ERROR, which would turn
+// bibowire::Severity::SEVERITY_ERROR into Severity::1.
 #undef small
 #undef near
 #undef far
@@ -29,12 +24,9 @@
 
 namespace camview
 {
-
   namespace
   {
-
-    // Handed over by init(). This module creates textures and never presents,
-    // so it needs the device to make them and the context to fill them.
+    // From init(): the device creates textures and the context fills them.
     ID3D11Device* device = nullptr;
     ID3D11DeviceContext* context = nullptr;
     Float32 uiScale = 1.0f;
@@ -48,9 +40,7 @@ namespace camview
         ImGui::TextUnformatted(value);
     }
 
-    // Integer digits, never printf's "%.1f": the decimal point honours the
-    // locale, a machine set to a comma decimal writes "3,2", and that is the
-    // bug this project has already met three times.
+    // Integer digits, never "%.1f" (the locale trap, vlog.hxx).
     [[nodiscard]] Str secondsText(Int64 ms)
     {
         Array<Char, 32> t = {};
@@ -79,9 +69,8 @@ namespace camview
         v.shownBytes = 0;
     }
 
-    // DYNAMIC and CPU-writable, because this texture is rewritten from a new
-    // JPEG several times a second and a DEFAULT one would need a staging copy
-    // for every frame.
+    // DYNAMIC and CPU-writable: rewritten several times a second, where a
+    // DEFAULT texture would need a staging copy per frame.
     [[nodiscard]] Bool makeTexture(View& v, Int32 width, Int32 height)
     {
         releaseTexture(v);
@@ -89,7 +78,6 @@ namespace camview
         {
             return false;
         }
-
         D3D11_TEXTURE2D_DESC desc;
         ZeroMemory(&desc, sizeof(desc));
         desc.Width = static_cast<UINT>(width);
@@ -101,46 +89,38 @@ namespace camview
         desc.Usage = D3D11_USAGE_DYNAMIC;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-
         if(FAILED(device->CreateTexture2D(&desc, nullptr, &v.tex)) || v.tex == nullptr)
         {
             return false;
         }
-
         D3D11_SHADER_RESOURCE_VIEW_DESC srv;
         ZeroMemory(&srv, sizeof(srv));
         srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
         srv.Texture2D.MipLevels = 1;
-
         if(FAILED(device->CreateShaderResourceView(v.tex, &srv, &v.srv)))
         {
             releaseTexture(v);
             return false;
         }
-
         v.texW = width;
         v.texH = height;
         return true;
     }
 
-    // ROW BY ROW, because RowPitch is the driver's and is not width * 4. A
-    // single memcpy of the whole buffer is the shape that works on the machine
-    // it was written on and skews the picture diagonally on the next one.
+    // Row by row, because RowPitch is the driver's and need not be width * 4.
     [[nodiscard]] Bool uploadPixels(View& v, const jpeg::Picture& pic)
     {
         if(context == nullptr || v.tex == nullptr)
         {
             return false;
         }
-
         D3D11_MAPPED_SUBRESOURCE mapped;
         ZeroMemory(&mapped, sizeof(mapped));
         if(FAILED(context->Map(v.tex, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         {
             return false;
         }
-
         const Size rowBytes = static_cast<Size>(pic.width) * 4u;
         for(Int32 y = 0; y < pic.height; ++y)
         {
@@ -148,24 +128,20 @@ namespace camview
             const UInt8* src = pic.rgba.data() + (static_cast<Size>(y) * rowBytes);
             std::memcpy(dst, src, rowBytes);
         }
-
         context->Unmap(v.tex, 0);
         return true;
     }
 
-    // Decode one JPEG into the texture, creating or resizing it only when the
-    // dimensions have actually moved.
+    // Decodes one JPEG into the texture, recreating it only when the dimensions
+    // change.
     Void adopt(View& v, const link::CameraShot& shot)
     {
         v.haveShown = true;
         v.shownIndex = shot.frameIndex;
         v.shownBytes = shot.bytes.size();
         v.decodeWhy.clear();
-
-        // The codec byte is echoed on every frame so a capture is
-        // self-describing (docs/bibowire.md section 5). Anything but 1 is not
-        // a JPEG, and handing it to a JPEG decoder to find out would be
-        // guessing at a value the frame already stated.
+        // Codec 1 is JPEG and nothing else is (docs/bibowire.md section 5): any
+        // other value is refused, not handed to the decoder to guess.
         if(shot.codec != 1u)
         {
             ++v.decodeFailures;
@@ -174,16 +150,13 @@ namespace camview
             std::snprintf(t.data(), t.size(), "codec %u is not JPEG", codec);
             v.decodeWhy = Str(t.data());
             releaseTexture(v);
-            // Marked shown AFTER the release, and that order is load-bearing:
-            // releaseTexture clears these three, so setting them first would
-            // leave this frame looking un-adopted and the refusal would be
-            // recomputed at 60 Hz for as long as the camera sent that codec.
+            // Marked shown AFTER the release, which clears these three;
+            // otherwise the refusal is recomputed every frame.
             v.haveShown = true;
             v.shownIndex = shot.frameIndex;
             v.shownBytes = shot.bytes.size();
             return;
         }
-
         jpeg::Picture pic;
         Str why;
         if(!jpeg::decode(shot.bytes.data(), shot.bytes.size(), &pic, &why))
@@ -192,7 +165,6 @@ namespace camview
             v.decodeWhy = why;
             return;
         }
-
         if(v.tex == nullptr || v.texW != pic.width || v.texH != pic.height)
         {
             if(!makeTexture(v, pic.width, pic.height))
@@ -202,7 +174,6 @@ namespace camview
                 return;
             }
         }
-
         if(!uploadPixels(v, pic))
         {
             ++v.decodeFailures;
@@ -210,54 +181,30 @@ namespace camview
         }
     }
 
-    // The corner mapping lives in orient.cxx, which names no ImGui or D3D type
-    // and can therefore be linked into viewer/tests. It was here first, where
-    // nothing could reach it: the 90-degree case is a transpose, it is the part
-    // most likely to be silently wrong, and "it looked right on screen" is not
-    // a check anybody can re-run.
-
-    // ---- alignment overlays -------------------------------------------------
-    //
-    // EVERY POINT BELOW IS IN THE WINDOW'S FRAME - 0..1 across and down the
-    // picture AS IT IS DRAWN - and the rotate and flip controls do not touch
-    // them. Right is right on the screen, and the bottom of the rectangle is the
-    // near end of the guides, whichever way the camera happens to be mounted.
-    //
-    // This used to be the other way round: every point was authored in the
-    // sensor's frame and carried through an image-to-display transform, so the
-    // guides turned and mirrored with the picture's contents. Correct
-    // arithmetic, wrong tool. The guides are marks an operator drags into place
-    // against the picture they are LOOKING AT, and marks that jump to the top of
-    // the window when a mount is corrected have to be placed all over again -
-    // which, from the chair, is an overlay that does not work. Decided
-    // 2026-09-12: the overlays follow the GUI, never the camera.
-    //
-    // AND NOTHING HERE IS CALIBRATED. See the View, which says it at length;
-    // the short form is that no band is ever labelled with a distance, because
-    // there is no camera calibration and no measured camera-to-car transform in
-    // this project to derive one from.
+    // OVERLAYS FOLLOW THE GUI, NEVER THE CAMERA. Every point below is a fraction
+    // of the picture AS DRAWN, in window space, and rotate and flip never touch
+    // them: marks the operator dragged into place against what they see must not
+    // move when the mount setting is corrected. None is calibrated, so no band is
+    // ever labelled with a distance.
     constexpr ImU32 OVERLAY_SHADE = IM_COL32(0, 0, 0, 165);
     constexpr ImU32 CROSS_COL = IM_COL32(255, 255, 255, 225);
     constexpr ImU32 BOX_COL = IM_COL32(120, 210, 255, 225);
     constexpr ImU32 THIRDS_COL = IM_COL32(235, 235, 235, 105);
 
-    // Near, middle and far, in the colours a reversing camera uses. COLOURS
-    // ONLY: the operator dragged these bands to where they are, so they are
-    // zones placed by eye and not distances anything derived.
+    // Near, middle and far in reversing-camera colours: zones placed by eye, not
+    // distances.
     constexpr ImU32 ZONE_NEAR = IM_COL32(244, 76, 62, 235);
     constexpr ImU32 ZONE_MID = IM_COL32(255, 196, 46, 235);
     constexpr ImU32 ZONE_FAR = IM_COL32(96, 226, 130, 235);
 
-    // Where the picture landed on screen - everything an overlay needs, because
-    // an overlay is placed against that rectangle and nothing else.
+    // Where the picture landed on screen; overlays are placed against this only.
     struct Placed
     {
         ImVec2 at;
         ImVec2 size;
     };
 
-    // The guide trapezoid as fractions of the frame, clamped, rather than the
-    // raw percentages the sliders hold.
+    // The guide trapezoid as clamped fractions of the frame.
     struct Rails
     {
         Float32 centre = 0.5f;
@@ -267,9 +214,8 @@ namespace camview
         Float32 farY = 0.45f;
     };
 
-    // A LIGHT STROKE OVER A DARK ONE, every line. A single-colour overlay
-    // vanishes into a bright sky or a dark garage depending on which colour was
-    // picked, and what is under it is whatever the car happens to be looking at.
+    // A light stroke over a dark one, so a line shows over a bright sky or a
+    // dark garage alike.
     Void strokeLine(ImDrawList* dl, const ImVec2& a, const ImVec2& b, ImU32 col, Float32 w)
     {
         dl->AddLine(a, b, OVERLAY_SHADE, w + (2.0f * uiScale));
@@ -277,7 +223,7 @@ namespace camview
     }
 
     // A fraction of the drawn rectangle to a pixel. No rotation and no mirror,
-    // on purpose - see the note at the top of this section.
+    // on purpose.
     [[nodiscard]] ImVec2 screenOf(const Placed& p, Float32 x, Float32 y)
     {
         return ImVec2(p.at.x + (x * p.size.x), p.at.y + (y * p.size.y));
@@ -300,10 +246,6 @@ namespace camview
         return ImVec2(dx / len, dy / len);
     }
 
-    // pctToUnit and bendAt moved to camera.hxx, at namespace scope, so
-    // test_link.cxx can assert the bend's SIGN without linking a translation
-    // unit that names ImGui. Every call below resolves to them unchanged.
-
     [[nodiscard]] Rails railsOf(const View& v)
     {
         Rails r;
@@ -322,18 +264,9 @@ namespace camview
         const Float32 nearX = r.centre + (side * r.spread);
         const Float32 farX = r.centre + (side * r.converge);
         const Float32 bend = bendAt(steer, bendPct, t);
-
-        // THE SWING GOES HERE, not in drawGuides: this is the one place a guide
-        // point is made, so the bend and the trapezoid cannot disagree about
-        // where a point is. Positive steer is RIGHT (camera.hxx says why) and
-        // right is +x on the screen, whatever the rotate and flip controls say.
-        //
-        // BOTH RAILS BY THE SAME AMOUNT, so the corridor swings rather than
-        // deforming - the car's path does not get wider because it is turning.
-        //
-        // t*t, not t: a reversing camera's guides barely move at the bumper and
-        // sweep hardest at the far end, because that is where a given steering
-        // angle has had the most distance to act.
+        // The only place a guide point is made, so the bend and the trapezoid
+        // cannot disagree. Both rails swing by the same amount: the corridor
+        // turns without getting wider.
         return screenOf(
             p,
             nearX + ((farX - nearX) * t) + (bend * t * t),
@@ -341,18 +274,14 @@ namespace camview
         );
     }
 
-    // THE REVERSING GUIDES: two rails converging toward a far end the operator
-    // chooses, in three colour bands, each closed by a cross line.
+    // Two rails converging toward the far end, in three colour bands, each
+    // closed by a cross line.
     Void drawGuides(ImDrawList* dl, const Placed& p, const View& v, Float32 steer)
     {
         const Rails r = railsOf(v);
         const Array<ImU32, 3> zone = { ZONE_NEAR, ZONE_MID, ZONE_FAR };
         const Float32 w = 2.0f * uiScale;
-
-        // The geometry - and its sign - is in camera.hxx where the suite can
-        // assert it. This is only whether the operator asked for it.
         const Float32 swing = v.guideBend ? steer : 0.0f;
-
         for(Size i = 0; i < 3u; ++i)
         {
             const Float32 t0 = static_cast<Float32>(i) / 3.0f;
@@ -367,11 +296,8 @@ namespace camview
         }
     }
 
-    // A CENTRED FRACTION OF THE FRAME, deliberately not a square. It is a
-    // scaled copy of the picture's own outline, which is what makes it useful
-    // for centring the car on something. A square would need a different
-    // fraction on each axis of a 4:3 picture, and which fraction it was would
-    // then be a number nobody could read back off the screen.
+    // A centred, scaled copy of the picture's own outline, not a square: a
+    // square would need a different fraction on each axis of a 4:3 picture.
     Void drawBox(ImDrawList* dl, const Placed& p, const View& v)
     {
         const Float32 half = pctToUnit(v.boxPct, 5, 48);
@@ -399,40 +325,30 @@ namespace camview
         }
     }
 
-    // THE ARMS ARE MEASURED IN PIXELS. Built from frame fractions instead, a
-    // crosshair is a third longer across than down on a 4:3 picture, which
-    // reads as a bug; measured off the shorter side it is square on screen.
-    //
-    // The gap in the middle is the point of the whole thing: a solid cross
-    // hides the one thing being lined up.
+    // Arms measured in pixels off the shorter side, so the cross is square on
+    // screen. The gap in the middle keeps the thing being lined up visible.
     Void drawCross(ImDrawList* dl, const Placed& p)
     {
         const ImVec2 mid = screenOf(p, 0.5f, 0.5f);
         const ImVec2 alongU = unitFrom(mid, screenOf(p, 1.0f, 0.5f));
         const ImVec2 alongV = unitFrom(mid, screenOf(p, 0.5f, 1.0f));
-
         const Float32 half = (p.size.x < p.size.y ? p.size.x : p.size.y) * 0.5f;
         const Float32 reach = half * 0.62f;
         const Float32 gap = half * 0.10f;
         const Float32 tick = half * 0.055f;
         const Float32 w = 1.6f * uiScale;
-
         Array<ImVec2, 4> arm = {};
         arm[0] = alongU;
         arm[1] = ImVec2(-alongU.x, -alongU.y);
         arm[2] = alongV;
         arm[3] = ImVec2(-alongV.x, -alongV.y);
-
-        // Two ticks along each arm. They mark NOTHING MEASURABLE - there is no
-        // calibration here - they are there so the eye can judge how far off
-        // centre something is rather than only whether it is off.
+        // Two ticks per arm. They mark nothing measurable; they let the eye judge
+        // how far off centre something is.
         const Array<Float32, 2> where = { 0.45f, 0.78f };
-
         for(Size i = 0; i < 4u; ++i)
         {
             const ImVec2 d = arm[i];
             strokeLine(dl, stepBy(mid, d, gap), stepBy(mid, d, reach), CROSS_COL, w);
-
             const ImVec2 side = ImVec2(-d.y, d.x);
             for(Size k = 0; k < 2u; ++k)
             {
@@ -448,20 +364,14 @@ namespace camview
         {
             return;
         }
-
         Placed p;
         p.at = at;
         p.size = size;
-
         ImDrawList* dl = ImGui::GetWindowDrawList();
-
-        // CLIPPED TO THE PICTURE. A spread dragged wide would otherwise run out
-        // over the readouts below, and a guide drawn outside the picture is
-        // marking something the camera cannot see.
+        // Clipped to the picture, so a wide spread cannot draw over the readouts.
         const ImVec2 corner = ImVec2(at.x + size.x, at.y + size.y);
         dl->PushClipRect(at, corner, true);
-
-        // Faintest first, so the crosshair is never the thing that gets buried.
+        // Faintest first, so the crosshair is never buried.
         if(v.showThirds)
         {
             drawThirds(dl, p);
@@ -478,27 +388,18 @@ namespace camview
         {
             drawCross(dl, p);
         }
-
         dl->PopClipRect();
     }
 
-    // The switches, behind one button. Four toggles and six numbers do not fit
-    // beside the rotate combo, and the row above the picture is what an operator
-    // reaches for when the window is empty - it stays short.
+    // The overlay switches behind one button, so the row above the picture
+    // stays short.
     //
-    // THE BUTTON OPENS A PANEL, NOT A POPUP, and the popup was a bug. Clicking
-    // outside a Dear ImGui popup only closes it: the click is spent on the
-    // dismissal and never reaches the widget under the pointer. The guides are
-    // switched on in here, so the very next thing an operator does is reach
-    // for flip H or flip V with the popup still open - and that click did
-    // nothing, while the picture and the guides stayed exactly where they were.
-    // Measured by driving the real drawWindow headlessly and clicking the real
-    // checkbox: with the popup open flipY stayed 0, without it it went to 1.
-    // A panel drawn inline has no dismissal to eat the click.
+    // THE BUTTON OPENS AN INLINE PANEL, NOT A POPUP. Clicking outside an ImGui
+    // popup only dismisses it, so the operator's next click - on flip H or flip V
+    // right after switching guides on - did nothing.
     Void drawOverlayToggle(View& v)
     {
-        // "###" keeps one id while the label changes, so this is the same item
-        // whichever way it currently points.
+        // "###" keeps one id while the label changes.
         if(ImGui::Button(v.overlayPanel ? "overlays -###overlays" : "overlays +###overlays"))
         {
             v.overlayPanel = !v.overlayPanel;
@@ -507,9 +408,7 @@ namespace camview
         {
             ImGui::SetTooltip("uncalibrated marks, placed by eye");
         }
-
-        // So the row says whether anything is being drawn without the panel
-        // having to be opened to find out.
+        // Says whether anything is drawn without opening the panel.
         if(v.showCross || v.showGuides || v.showBox || v.showThirds)
         {
             ImGui::SameLine();
@@ -523,39 +422,30 @@ namespace camview
         {
             return;
         }
-
         ImGui::Separator();
         ImGui::Checkbox("crosshair", &v.showCross);
         ImGui::Checkbox("reversing guides", &v.showGuides);
         ImGui::Checkbox("centre box", &v.showBox);
         ImGui::Checkbox("thirds", &v.showThirds);
         ImGui::Separator();
-
         ImGui::PushItemWidth(128.0f * uiScale);
         ImGui::SliderInt("centre", &v.guideCentrePct, 10, 90, "%d%%");
         ImGui::SliderInt("spread", &v.guideSpreadPct, 5, 60, "%d%%");
         ImGui::SliderInt("converge", &v.guideConvergePct, 0, 40, "%d%%");
         ImGui::SliderInt("near edge", &v.guideNearPct, 40, 100, "%d%%");
         ImGui::SliderInt("far edge", &v.guideFarPct, 5, 95, "%d%%");
-
         ImGui::Checkbox("bend with the wheels", &v.guideBend);
         ImGui::SliderInt("bend", &v.guideBendPct, 0, 100, "%d%%");
-
         ImGui::Separator();
         ImGui::SliderInt("box", &v.boxPct, 5, 48, "%d%%");
         ImGui::PopItemWidth();
     }
 
-    // The controls, drawn whether or not there is a picture behind them.
-    //
-    // Deliberately ABOVE the picture and outside every early return: the rate
-    // is the thing an operator reaches for when the window is empty or jerky,
-    // and a control that appears only once a frame has arrived is missing at
-    // exactly the moment it is wanted.
+    // Drawn above the picture and outside every early return, so the rate is
+    // reachable when the window is empty or jerky.
     Void drawControls(View& v)
     {
         static constexpr Array<CharSeq, 4> TURN_NAMES = { "0", "90", "180", "270" };
-
         ImGui::SetNextItemWidth(72.0f * uiScale);
         Int32 turns = v.turns;
         const Int32 turnCount = static_cast<Int32>(TURN_NAMES.size());
@@ -567,14 +457,12 @@ namespace camview
         {
             ImGui::SetTooltip("degrees clockwise");
         }
-
         ImGui::SameLine();
         ImGui::Checkbox("flip H", &v.flipX);
         ImGui::SameLine();
         ImGui::Checkbox("flip V", &v.flipY);
         ImGui::SameLine();
         drawOverlayToggle(v);
-
         ImGui::SetNextItemWidth(-96.0f * uiScale);
         Int32 fps = v.fps;
         const Int32 ceiling = static_cast<Int32>(bibowire::CAM_FPS_MAX);
@@ -586,15 +474,11 @@ namespace camview
         {
             ImGui::SetTooltip("0 = the board's default (2 fps)");
         }
-
-        // Under the rate slider rather than on the row above it, so opening it
-        // never pushes flip H and flip V somewhere the hand was not reaching.
+        // Under the rate slider, so opening it never moves flip H and flip V.
         drawOverlayPanel(v);
     }
 
-    // The sentence for a window with no picture in it. Which of these is true
-    // is the whole question an operator has when the rectangle is empty, and
-    // an empty rectangle answers none of them.
+    // The sentence for a window with no picture in it.
     [[nodiscard]] Str whyNothing(link::Client& lk, const link::Snapshot& snap, Int64 nowMs)
     {
         if(!link::isOpen(lk))
@@ -613,13 +497,11 @@ namespace camview
         {
             return "waiting for the first frame";
         }
-        // Subscribed, frames arrived, and the newest is too old to draw. The
-        // link can be perfectly healthy while this is true, which is exactly
-        // the pair of lies section 7 keeps apart.
+        // Frames arrived but the newest is too old to draw, however healthy the
+        // link is (section 7).
         const Int64 age = nowMs - snap.state.cameraAtMs;
         return "no camera frame for " + secondsText(age < 0 ? 0 : age);
     }
-
   }
 
   Void init(ID3D11Device* dev, ID3D11DeviceContext* ctx, Float32 scale)
@@ -636,53 +518,34 @@ namespace camview
 
   Void drawWindow(View& v, link::Client& lk, const link::Snapshot& snap, Int64 nowMs)
   {
-      // Told every frame, from the one piece of state that decides it. Two
-      // booleans - "the window is open" and "the board is sending" - that were
-      // set in different places would drift, and the direction they drift in
-      // costs a megabyte a second on a phone hotspot.
+      // Both told every frame from the window's own state, so the subscription
+      // and rate cannot drift from what the operator sees. The worker re-sends
+      // SUBSCRIBE only when a value changes.
       link::wantCamera(lk, v.open);
-
-      // Told every frame, beside the subscription and for the same reason: the
-      // window's slider is the one piece of state that decides it, and a rate
-      // cached anywhere else would drift from what the operator is looking at.
-      // The worker re-sends SUBSCRIBE only when the number actually changes.
       link::wantCameraFps(lk, v.fps);
-
       if(!v.open)
       {
-          // Nothing on screen and nothing on the wire: the texture goes back
-          // with the subscription, because 1.2 MB of device memory holding a
-          // picture nobody can see is the same waste as the bandwidth.
+          // The texture goes back with the subscription.
           releaseTexture(v);
           return;
       }
-
       ImGui::SetNextWindowPos(ImVec2(380.0f * uiScale, 16.0f * uiScale), ImGuiCond_FirstUseEver);
       ImGui::SetNextWindowSize(ImVec2(420.0f * uiScale, 400.0f * uiScale), ImGuiCond_FirstUseEver);
-
-      // `&v.open` is what puts the X in the title bar, and closing it is what
-      // unsubscribes on the next frame.
       if(!ImGui::Begin("Camera", &v.open))
       {
           ImGui::End();
           return;
       }
-
       drawControls(v);
       ImGui::Separator();
-
       const Opt<link::CameraShot> shot = snap.state.cameraShot(nowMs);
-
       if(!shot.has_value())
       {
-          // A frame this viewer never received, or one too old to draw. Either
-          // way there is no picture, and the texture is released so a later
-          // bug cannot draw the previous one.
+          // Never received or too old to draw. The texture is released so the
+          // previous picture cannot be drawn.
           releaseTexture(v);
           ImGui::TextWrapped("%s", whyNothing(lk, snap, nowMs).c_str());
-
-          // The board's own sentence, verbatim. It is the difference between
-          // an empty rectangle and "a second pilot has the camera".
+          // The board's own sentence, e.g. that a second pilot has the camera.
           if(snap.state.haveCameraNote)
           {
               ImGui::Separator();
@@ -691,10 +554,8 @@ namespace camview
           ImGui::End();
           return;
       }
-
-      // Decoded once per FRAME INDEX, not once per redraw. The byte length
-      // joins the comparison so a board that restarts its counter at 0 while
-      // frame 0 is still on screen is still a new picture.
+      // Decoded once per frame index. The byte length joins the test so a board
+      // restarting its counter at 0 still shows a new picture.
       const Bool same = v.haveShown
                         && v.shownIndex == shot->frameIndex
                         && v.shownBytes == shot->bytes.size();
@@ -702,31 +563,18 @@ namespace camview
       {
           adopt(v, *shot);
       }
-
       if(v.srv != nullptr && v.texW > 0 && v.texH > 0)
       {
-          // THE DISPLAYED SHAPE SWAPS AT 90 AND 270. A 640x480 picture shown on
-          // its side is 480x640, so the fit has to be computed from the turned
-          // dimensions - fitting the unturned ones would stretch the picture
-          // into a rectangle of the wrong shape and quietly change its aspect
-          // ratio, which on a camera used for judging clearance is a lie about
-          // the room.
           const Bool turned = orient::sideways(v.turns);
           const Float32 wide = static_cast<Float32>(turned ? v.texH : v.texW);
           const Float32 high = static_cast<Float32>(turned ? v.texW : v.texH);
-
-          // Fit the width, keep the aspect ratio. The picture is what the
-          // window is for, so it takes the space and the readouts sit under it.
+          // Fit the width, keep the aspect ratio; the readouts sit under it.
           const Float32 avail = ImGui::GetContentRegionAvail().x;
           const Float32 shown = avail > 16.0f ? avail : 16.0f;
           const ImVec2 size = ImVec2(shown, shown * (high / wide));
           const ImTextureID id = static_cast<ImTextureID>(reinterpret_cast<UPtr>(v.srv));
-
-          // DESATURATED when stale, with its age printed below - section 7's
-          // middle band. A greyed-out picture is still a picture, which is why
-          // the band above it is absence rather than a darker grey.
+          // Desaturated when stale, with its age below: section 7's middle band.
           const ImU32 tint = shot->stale ? IM_COL32(115, 115, 115, 255) : IM_COL32_WHITE;
-
           const Array<orient::Uv, 4> corner = orient::cornerUvs(v.turns, v.flipX, v.flipY);
           const ImVec2 uv0 = ImVec2(corner[0].u, corner[0].v);
           const ImVec2 uv1 = ImVec2(corner[1].u, corner[1].v);
@@ -737,7 +585,6 @@ namespace camview
           const ImVec2 topRight = ImVec2(at.x + size.x, at.y);
           const ImVec2 botRight = ImVec2(at.x + size.x, at.y + size.y);
           const ImVec2 botLeft = ImVec2(at.x, at.y + size.y);
-
           ImGui::GetWindowDrawList()->AddImageQuad(
               ImTextureRef(id),
               topLeft,
@@ -750,16 +597,9 @@ namespace camview
               uv3,
               tint
           );
-
-          // OVER THE PICTURE, ON THE SAME RECTANGLE. Same `at` and `size` as the
-          // quad above, and deliberately NOT its turns and flips: the overlays
-          // follow the window, never the camera.
-          // WHERE THE WHEELS ARE, for guides that bend with them - and zero when
-          // the board has not said, so they sit straight rather than sweeping to
-          // an angle nobody reported. steerNowMilli and not the commanded value:
-          // the slew limiter means a request takes about a second to become an
-          // angle, and guides drawn from the request would show a turn the car
-          // has not made.
+          // Overlays use the quad's `at` and `size` but deliberately NOT its turns
+          // and flips. Guide steer is zero when the board has not reported the
+          // wheels, so the guides sit straight rather than at an unreported angle.
           Float32 guideSteer = 0.0f;
           if(v.guideBend)
           {
@@ -770,40 +610,30 @@ namespace camview
               }
           }
           drawOverlays(v, at, size, guideSteer);
-
-          // The draw list does not move the cursor, so the layout is told how
-          // much room the picture took. Without this the readouts below would
-          // be drawn on top of it.
+          // The draw list does not move the cursor, so reserve the picture's
+          // space or the readouts draw on top of it.
           ImGui::Dummy(size);
       }
       else
       {
-          // A frame arrived and could not be shown. That is a different fact
-          // from "no frame arrived" and it gets a different sentence.
+          // A frame arrived and could not be shown: a different fact from no frame.
           ImGui::TextWrapped("frame %u could not be shown", shot->frameIndex);
           if(!v.decodeWhy.empty())
           {
               ImGui::TextWrapped("%s", v.decodeWhy.c_str());
           }
       }
-
       ImGui::Separator();
-
       const Str age = secondsText(shot->ageMs) + (shot->stale ? " - STALE" : "");
       readout("age", age.c_str());
-
-      // THE BAND, AND THE CADENCE IT CAME FROM. Shown rather than kept inside
-      // the accessor, because "STALE" with no number beside it is exactly the
-      // claim that used to appear twice a second on a camera that was never
-      // late - and a staleness rule nobody can read off the running system is
-      // a rule nobody can catch being wrong.
+      // The staleness band is shown beside STALE, so a wrong rule can be caught
+      // on the running system.
       if(shot->worstGapMs > 0)
       {
           Array<Char, 96> band = {};
           std::snprintf(band.data(), band.size(), "%lld ms", shot->staleAtMs);
           readout("stale after", band.data());
       }
-
       Array<Char, 64> what = {};
       std::snprintf(
           what.data(),
@@ -814,40 +644,26 @@ namespace camview
           static_cast<UInt32>(shot->bytes.size())
       );
       readout("frame", what.data());
-
       Array<Char, 48> num = {};
       std::snprintf(num.data(), num.size(), "%u", shot->frameIndex);
       readout("index", num.data());
-
-      // GAPS ARE COUNTED, NEVER SMOOTHED - the same rule the scan follows.
-      // frameIndex is monotonic, so what is missing is knowable exactly, and a
-      // viewer that just showed the next picture would be hiding a link
-      // dropping half the stream.
+      // Gaps are counted, never smoothed: frameIndex is monotonic, so what is
+      // missing is known exactly.
       if(snap.state.missedCameraFrames > 0u && !snap.state.cameraGapText.empty())
       {
           readout("missed", snap.state.cameraGapText.c_str());
       }
-
       if(v.decodeFailures > 0u)
       {
           Array<Char, 48> bad = {};
           std::snprintf(bad.data(), bad.size(), "%u", v.decodeFailures);
           readout("undecodable", bad.data());
       }
-
-      // ---- WHERE A DROPOUT HAPPENED ------------------------------------------
-      //
-      // The two clocks side by side, which is the whole diagnosis. `worst gap`
-      // is the widest wait THIS VIEWER had between pictures; `worst capture` is
-      // the widest gap between two frames by the BOARD'S own clock. Read with
-      // the `missed` row above:
+      // The widest wait between pictures HERE beside the widest gap by the
+      // BOARD's capture clock. Read with `missed` above:
       //
       //   missed frames, capture steady -> they were made and lost on the way
       //   no missed frames, capture gap -> the board stopped making them
-      //
-      // Every one of these numbers was already being computed and thrown away
-      // at this boundary, which is why a dropout used to need a log tailed on
-      // somebody else's machine to explain.
       if(shot->worstCaptureMs > 0)
       {
           Array<Char, 96> gaps = {};
@@ -860,18 +676,14 @@ namespace camview
           );
           readout("worst gap", gaps.data());
       }
-
       if(snap.state.refusedFrames > 0u)
       {
           Array<Char, 48> refused = {};
           std::snprintf(refused.data(), refused.size(), "%u", snap.state.refusedFrames);
           readout("refused", refused.data());
       }
-
-      // THE BOARD'S OWN RING, and named for what it actually counts: this is
-      // every frame type to every client, not the camera's alone. Labelling it
-      // "camera dropped" would read as precise and be wrong - but a number that
-      // climbs while pictures vanish still says the ring is where they went.
+      // The board's ring counts every frame type to every client, not only the
+      // camera's, hence "board drops" rather than "camera dropped".
       const Opt<link::Board> ring = snap.state.boardState(nowMs);
       if(ring.has_value() && ring->state.txDroppedFrames > 0u)
       {
@@ -884,14 +696,11 @@ namespace camview
           );
           readout("board drops", drops.data());
       }
-
       if(snap.state.haveCameraNote)
       {
           ImGui::Separator();
           ImGui::TextWrapped("board: %s", snap.state.cameraNoteText.c_str());
       }
-
       ImGui::End();
   }
-
 }

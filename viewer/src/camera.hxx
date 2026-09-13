@@ -1,39 +1,18 @@
-// The camera window: its own floating Dear ImGui window, showing the board's
-// JPEG stream, and nothing else on screen changes when it is closed.
+// The Camera window: a floating ImGui window showing the board's JPEG stream.
 //
-// ---------------------------------------------------------------------------
-// `camview`, NOT `camera`
+// `camview`, not `camera`: scene::Camera and resetCamera are the 3D orbit camera.
 //
-// Every other "camera" in this program is the 3D orbit camera - scene::Camera,
-// scene::resetCamera, the R key. This module is the one that shows a picture
-// from a lens on the car, and giving it the obvious name would make half the
-// uses of the word in the viewer mean the other thing.
+// THE WINDOW BEING OPEN IS THE SUBSCRIPTION. The board opens the camera only
+// while somebody is subscribed, and the stream is about 1 MB/s at 640x480, more
+// than scan and state together (docs/bibowire.md section 10). Closing the window
+// sends SUBSCRIBE without the camera bit and releases the texture. CAMERA is
+// CLASS_BULK and is discarded before any scan or state frame (section 7), so
+// under pressure this window degrades, not the car's picture of the world. A
+// frame is aged against link.hxx's FRESH_MS and GONE_MS, the scan's own bands.
 //
-// ---------------------------------------------------------------------------
-// THE WINDOW BEING OPEN IS THE SUBSCRIPTION
-//
-// This is the load-bearing behaviour of the whole module, not a nicety. The
-// board only opens /dev/video0 while somebody is subscribed, and the stream is
-// roughly 1 MB/s at 640x480, measured - far more than the scan and state
-// together (docs/bibowire.md section 10). So a camera window nobody is looking at
-// must cost nothing: closing it sends SUBSCRIBE without the camera bit and
-// releases the texture, exactly as the scan already costs nothing when there
-// is no viewer.
-//
-// The consequence worth stating: opening this window takes bandwidth away from
-// the scan, on a link that does not have it spare. CAMERA is CLASS_BULK and is
-// discarded before any scan or state frame (section 7), so what degrades under
-// pressure is this window and not the car's picture of the world - which is
-// the reason a camera is safe to add to this link at all.
-//
-// ---------------------------------------------------------------------------
-// THE D3D TYPES ARE FORWARD-DECLARED
-//
-// Same reason link.hxx never names a SOCKET: <d3d11.h> drags in <windows.h>,
-// which defines `small`, `near`, `far` and - the one that actually breaks a
-// build here - SEVERITY_ERROR, which is a member of bibowire::Severity. A
-// header that made every file including it deal with that would be spreading a
-// platform problem rather than containing it.
+// The D3D types are forward-declared: <d3d11.h> drags in <windows.h>, whose
+// `small`, `near`, `far` and SEVERITY_ERROR macros break bibowire::Severity in
+// every file that would include this header.
 #pragma once
 
 #include "shared.hxx"
@@ -47,50 +26,16 @@ struct ID3D11ShaderResourceView;
 
 namespace camview
 {
-
-  // Past this the last frame is not drawn at all, only described. The scan's
-  // numbers, deliberately: docs/bibowire.md section 7 fixes them for the
-  // picture the operator reads, and a camera that stayed on screen under the
-  // same conditions that blank the cloud would be the one surface still
-  // claiming the car can see.
-  //
-  // They live in link.hxx as FRESH_MS and GONE_MS and are used from there
-  // rather than restated, so there is one pair of numbers in this program.
-
-  // What the camera window asks the board for when nobody has touched the
-  // slider.
-  //
-  // SIX, not ten. Ten was chosen for smoothness alone and measured against the
-  // scan it competes with: asking for ten pushed the worst SCAN gap from 402 ms
-  // to about 1420 ms, and GONE_MS is 1500 - eighty milliseconds before the point
-  // cloud stops being drawn at all rather than merely greying. CLASS_BULK drops
-  // pictures before scans on the wire, but the board still spends capture and
-  // encode on frames the ring will discard, and that cost lands on the loop that
-  // owns the lidar. Six is visibly moving rather than a slideshow, which is what
-  // was actually asked for, and it leaves the scan its margin. The slider still
-  // goes to CAM_FPS_MAX for anyone on a link that can afford it.
+  // The rate asked for before the slider is touched. Not higher: at ten the
+  // board's capture and encode starved the lidar loop until the worst scan gap
+  // came within 80 ms of GONE_MS. The slider still goes to CAM_FPS_MAX.
   constexpr Int32 CAM_FPS_DEFAULT_ASK = 6;
 
-  // ---------------------------------------------------------------------------
-  // GUIDE GEOMETRY, inline so the suite can reach it
-  //
-  // trim.hxx's reason arrived at from a third side, and orient.cxx's before
-  // that: a quarter turn is a transpose and nobody can eyeball a transpose -
-  // and nobody can eyeball a SIGN either. Which way the guides sweep when the
-  // wheels turn right rests on two facts written down elsewhere, neither of
-  // them inferred: chassis.hxx's steerToUs sends a positive fraction toward
-  // servoMax, which cal.hxx names STEER_CAL_RIGHT, so positive steer is RIGHT;
-  // and the overlays are drawn in the window's own frame, where x grows to the
-  // right whatever the camera's rotate and flip say. Invert either and this compiles perfectly, looks entirely
-  // plausible, and is discovered while driving.
-  //
-  // So it lives here rather than in camera.cxx's anonymous namespace, where the
-  // suite cannot reach it - camera.hxx names no ImGui and no D3D type, only
-  // forward declarations, which is what makes that possible.
-
-  // Clamped HERE rather than trusted from the slider. Ctrl+click on an ImGui
-  // slider is a text box, and a guide built from a number outside its own range
-  // is a line drawn somewhere off the picture.
+  // Guide geometry is inline so the suite can check its SIGN: positive steer is
+  // RIGHT (chassis.hxx steerToUs sends it toward servoMax, cal.hxx
+  // STEER_CAL_RIGHT), and overlays are drawn in window space, where +x is right
+  // whatever rotate and flip say. Invert either and it still looks plausible.
+  // Clamped here rather than trusted: Ctrl+click turns a slider into a text box.
   [[nodiscard]] inline Float32 pctToUnit(Int32 pct, Int32 lo, Int32 hi)
   {
       Int32 n = pct;
@@ -106,14 +51,12 @@ namespace camview
   }
 
   // Fraction of the frame's width the far end may swing at full lock and full
-  // bend. Capped well under half for a reason: guides that leave the picture
-  // are marking something the camera cannot see.
+  // bend. Well under half, so the guides stay on the picture.
   constexpr Float32 GUIDE_BEND_SPAN = 0.45f;
 
-  // How far the guide at `t` - 0 at the bumper, 1 at the far end - is pushed
-  // sideways, as a fraction of the drawn picture's width. t*t and not t: a steering angle has had more
-  // distance to act at the far end, so the guides barely move at the bumper and
-  // sweep hardest where they matter.
+  // How far the guide at `t` (0 at the bumper, 1 at the far end) is pushed
+  // sideways, as a fraction of the drawn picture's width. t*t, not t: a steering
+  // angle has had more distance to act at the far end.
   [[nodiscard]] inline Float32 bendAt(Float32 steer, Int32 bendPct, Float32 t)
   {
       return steer * pctToUnit(bendPct, 0, 100) * GUIDE_BEND_SPAN * t * t;
@@ -125,125 +68,66 @@ namespace camview
       // close button, so the X in the corner is what unsubscribes.
       Bool open = false;
 
-      // Recreated only when the dimensions change - not per frame. At 640x480
-      // that is 1.2 MB of device memory and a full pipeline flush every time,
-      // to display a picture whose size has not moved since the camera was
-      // switched on.
+      // Recreated only when the dimensions change, not per frame.
       ID3D11Texture2D* tex = nullptr;
       ID3D11ShaderResourceView* srv = nullptr;
       Int32 texW = 0;
       Int32 texH = 0;
 
-      // WHICH frame is currently in that texture. A JPEG is decoded once, when
-      // its frameIndex is new, rather than once per redraw at 60 Hz.
+      // Which frame is in the texture, so a JPEG is decoded once per frame and
+      // not once per redraw.
       Bool haveShown = false;
       UInt32 shownIndex = 0;
       Size shownBytes = 0;
 
-      // Counted, never smoothed, and shown. A frame that would not decode is a
-      // fact about the link or the camera, and a viewer that silently drew the
-      // previous picture instead would be reporting success while measuring
-      // nothing.
+      // Counted and shown. A frame that would not decode is never silently
+      // replaced by the previous picture.
       UInt32 decodeFailures = 0;
       Str decodeWhy;
 
-      // ---- how the picture is oriented -----------------------------------
-      //
-      // Quarter turns CLOCKWISE: 0, 1, 2, 3 for 0, 90, 180, 270 degrees. The
-      // camera can be bolted to the car on its side, and a picture that is
-      // only readable with the operator's head tilted is a picture nobody
-      // reads in a hurry.
-      //
-      // These live on the View, which outlives the window being closed and
-      // reopened, so a sideways mount is set up once and stays set for the
-      // session rather than being re-entered every time the checkbox is
-      // ticked. They are deliberately NOT reset by releaseTexture: the
-      // orientation describes how the camera is MOUNTED, which does not change
-      // because a frame was late.
+      // Quarter turns CLOCKWISE (0..3 for 0..270 degrees) and flips, for a
+      // camera mounted on its side. They describe the mount, so they outlive the
+      // window being closed and releaseTexture does NOT reset them.
       Int32 turns = 0;
       Bool flipX = false;
       Bool flipY = false;
 
-      // ---- alignment overlays ---------------------------------------------
-      //
-      // OFF BY DEFAULT, all four of them. An alignment aid nobody asked for,
-      // drawn over a live picture, is clutter on the one surface that is
-      // supposed to show the room.
-      //
-      // NOTHING HERE IS CALIBRATED, and the UI says so rather than leaving it
-      // to be inferred. There is no camera calibration in this project and no
-      // measured camera-to-car transform - docs/hardware.md records even the
-      // lidar-to-vehicle transform as not established - so these
-      // lines carry no distance and are never labelled with one. They are marks
-      // the operator places by eye and then reads the same way every time,
-      // which is a real aid; a band labelled "1 m" would be an invented number
-      // somebody judges clearance against.
+      // Alignment overlays, OFF BY DEFAULT. NOTHING HERE IS CALIBRATED: there is
+      // no camera calibration or camera-to-car transform (docs/hardware.md), so
+      // these are marks placed by eye and never labelled with a distance.
       Bool showCross = false;
       Bool showGuides = false;
       Bool showBox = false;
       Bool showThirds = false;
 
-      // Whether the overlay settings are showing under the controls row. A
-      // panel and NOT a popup - camera.cxx's drawOverlayToggle says why, and
-      // the short form is that a popup ate the first click on the flips.
+      // Whether the overlay settings show under the controls row. A panel, NOT A
+      // POPUP: camera.cxx's drawOverlayToggle says why.
       Bool overlayPanel = false;
 
-      // The guide trapezoid, in PERCENT of the frame - whole numbers on
-      // purpose. A Float32 slider would be printed by ImGui through "%.2f",
-      // whose decimal point honours the locale, and a machine set to a comma
-      // decimal writes "0,42" - the bug this project has already met three
-      // times. Percent has no decimal point in it.
-      //
-      // Live here beside `turns` and for the same reason: they describe how the
-      // camera is MOUNTED and how the operator reads it, so closing the window
-      // and reopening it must not throw the setup away.
-      //
-      // centre and spread are the near end; converge is the half-width at the
-      // far end, which is what makes it a trapezoid rather than a corridor.
-      // near and far are heights down the frame, 0 at the top.
+      // The guide trapezoid in whole PERCENT of the frame: a Float32 slider would
+      // print through a locale-aware "%.2f". They outlive the window like `turns`.
+      // centre and spread are the near end; converge is the half-width at the far
+      // end; near and far are heights down the frame, 0 at the top.
       Int32 guideCentrePct = 50;
       Int32 guideSpreadPct = 42;
       Int32 guideConvergePct = 12;
       Int32 guideNearPct = 100;
       Int32 guideFarPct = 45;
 
-      // ---- guides that follow the steering --------------------------------
-      //
-      // A reversing camera's guides bend with the wheels, and that is what makes
-      // them readable while turning rather than only while straight. Off by
-      // default like every other overlay here.
-      //
-      // THE BEND IS A FEEL NUMBER, NOT A GEOMETRY. A real backup camera derives
-      // its curve from a measured wheelbase, a steering-angle map and a lens
-      // calibration. This project has none of the three - docs/hardware.md records
-      // even the lidar-to-vehicle transform as not established - so this is a sweep the
-      // operator tunes until it matches what the car does, exactly like the
-      // spread and converge sliders above it. It carries no radius and is never
-      // labelled with one.
-      //
-      // It follows where the wheels ARE (CTLSTATE's steerNowMilli), not what was
-      // asked for: the slew limiter means a command takes about a second to
-      // become an angle, so bending on the request would show a turn the car has
-      // not made yet.
+      // Guides that bend with the wheels, off by default. THE BEND IS A FEEL
+      // NUMBER, NOT GEOMETRY: there is no measured wheelbase, steering-angle map
+      // or lens calibration, so it is tuned by eye and never labelled with a
+      // radius. It follows CTLSTATE's steerNowMilli, where the wheels ARE, since
+      // the slew limiter makes a command lag the real angle by about a second.
       Bool guideBend = false;
       Int32 guideBendPct = 45;
 
-      // Half-width of the centred box, percent of the frame. It is a scaled
-      // copy of the picture's own outline rather than a square - see drawBox.
+      // Half-width of the centred box, percent of the frame.
       Int32 boxPct = 20;
 
-      // ---- what rate this viewer asks the board for -----------------------
-      //
-      // Frames per second, 0 meaning "do not ask" - the board then keeps its
-      // own conservative default. Held here rather than in link::Client so it
-      // survives a disconnect and is re-sent on the next connection, the same
-      // way `open` is.
-      //
-      // The default asks for a rate rather than sitting at 0: the board's
-      // default is two frames a second, which is an honest number for a phone
-      // hotspot and reads as a slideshow on a LAN. A camera window is already
-      // opt-in and already costs bandwidth, so the useful default is the one
-      // that shows moving pictures to the person who just asked for a camera.
+      // Frames per second asked of the board; 0 leaves the board's default of
+      // two, a slideshow on a LAN. Held here, not in link::Client, so it
+      // survives a disconnect and is re-sent on the next connection like `open`.
       Int32 fps = CAM_FPS_DEFAULT_ASK;
   };
 
@@ -258,5 +142,4 @@ namespace camview
   // One frame. Sets the subscription from `v.open`, draws the window when it
   // is open, and says why there is no picture when there is not one.
   Void drawWindow(View& v, link::Client& lk, const link::Snapshot& snap, Int64 nowMs);
-
 }

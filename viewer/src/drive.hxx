@@ -1,54 +1,27 @@
-// The Drive window: WASD on a keyboard, turned into the CONTROL stream of
-// docs/bibowire.md section 6, and the board's own account of what it did with
-// it.
+// The Drive window: WASD turned into the CONTROL stream (docs/bibowire.md
+// section 6), and the board's own account of what it did with it.
 //
-// ---------------------------------------------------------------------------
-// `driveview`, NOT `drive`
+// `driveview`, not `drive`: main.cxx holds a `driveview::View drive;`, and
+// bibo::drive is a firmware namespace.
 //
-// camera.cxx's reason and trim.cxx's, arrived at a third time: main.cxx holds a
-// `driveview::View drive;`, and a variable named `drive` would hide a namespace
-// of that name for the rest of the function. `bibo::drive` is also a firmware
-// namespace (the chassis outputs), which is a second reason not to spend the
-// word here.
-//
-// ---------------------------------------------------------------------------
 // THREE GATES
+// 1. The CONTROL SLOT is asked for in HELLO and nowhere else, so it is decided
+//    when a connection is dialled. Asked for by default (link::Client::wantSlot
+//    has the trade); holding it moves nothing while the car is disarmed.
+// 2. ENABLE, a toggle in this window, default off: the operator saying "I am
+//    driving now". bibowire::deadman::step reaches STATE_LIVE only while it is set.
+// 3. WELCOME's capabilities bit 0 (canDrive) gates the whole pane. A pilot
+//    started `--dry` clears it, and the window says why it is disabled.
 //
-// 1. The CONTROL SLOT is asked for in HELLO and nowhere else (the board grants
-//    it in its HELLO handler alone), so it is a decision taken when a
-//    connection is dialled. Asked for by default: link::Client::wantSlot has
-//    the trade, and taking the slot moves nothing while the car is disarmed.
-// 2. ENABLE is a toggle in this window, default off. It is the operator saying
-//    "I am driving now", and bibowire::deadman::step only reaches STATE_LIVE
-//    while it is set.
-// 3. The board's own `capabilities` bit 0 - canDrive - gates the whole pane. A
-//    pilot started `--dry` says so in WELCOME, and this window says why it is
-//    disabled rather than accepting keys that go nowhere.
+// A and D move the steering toward full lock at `steerRateMilliPerS`; letting go
+// springs it back to centre at the same rate; C centres it at once. The Pico's
+// SLEW limits the servo in series, so the window shows this pane's value beside
+// CTLSTATE's steerNowMilli to tell the two rates apart.
 //
-// ---------------------------------------------------------------------------
-// STEERING RAMPS OUT AND SPRINGS BACK
-//
-// A moves the steering toward full left and D toward full right at
-// `steerRateMilliPerS`; letting go returns it to centre at the same rate, the
-// way a game steers; C centres it at once.
-//
-// This is the SECOND answer, and the first is worth keeping on record. It began
-// bang-bang - full lock the instant a key went down, centre the instant it came
-// up. A report that "the wheels try to return to centre" was read as a
-// complaint, and the steering was made to HOLD wherever it was left. The
-// operator's next words were that releasing A or D should bring it back to
-// centre. The ramp stayed; the hold went.
-//
-// TWO RATES IN SERIES, AND THEY ARE SHOWN SIDE BY SIDE. The Pico's `SLEW` still
-// limits how fast the servo may follow, so a steering that feels slow is one of
-// the two. The Drive window prints this pane's value beside CTLSTATE's
-// steerNowMilli, which is the pair that tells them apart.
-//
-// A STOP CENTRES AT ONCE. Every way this pane stops driving - blocked, enable
-// off, window closed or collapsed, ESTOP - puts the value straight to 0 rather
-// than springing it back, so the next enable starts straight. Losing keyboard
-// focus is not a stop: every key reads as up, so the wheel springs back exactly
-// as it would on a release.
+// EVERY STOP CENTRES AT ONCE: blocked, enable off, window closed or collapsed,
+// ESTOP all put the steering straight to 0, so the next enable starts straight.
+// Lost keyboard focus is not a stop: every key reads as up, so the wheel springs
+// back as on a release.
 #pragma once
 
 #include "shared.hxx"
@@ -57,50 +30,31 @@
 
 namespace driveview
 {
-
-  // ---------------------------------------------------------------------------
-  // WHY A DIGITAL THROTTLE NEEDS A CAP
-  //
-  // W is a switch. Without a cap it is full throttle the instant it goes down,
-  // on a car whose ESC band is narrow and whose gearing was changed under it -
-  // docs/hardware.md records that the brushless 21.5T at 10.71:1 breaks
-  // static friction at a LOWER pulse than the 1541 the firmware still calls
-  // idle. So the cap is the whole of the throttle's resolution, and the useful
-  // default is a crawl.
-  //
-  // 100, and the arithmetic behind it: against the committed 1541..1600 band
-  // (cal.hxx, mirrored in trim.hxx) a 1547 us crawl is (1547-1541)/59 of the
-  // way up, which is 102 milli. The default is the round number beside it. THE
-  // MAPPING IS THE BOARD'S, not this file's: the pilot turns throttleMilli into
-  // microseconds between the forward limits the Pico reports, which the Trim
-  // pane sets, so moving those limits moves what 100 means. That is why the
-  // number here is a fraction and not a microsecond count.
+  // W is a switch, so the cap is the throttle's whole resolution, and the
+  // default is a crawl: docs/hardware.md records the brushless drivetrain
+  // breaking static friction below the 1541 the firmware calls idle. The board
+  // maps throttleMilli between the forward limits the Pico reports (set in
+  // Trim), so this is a fraction, not microseconds; against the committed
+  // 1541..1600 band, 100 is about a 1547 us crawl.
   constexpr Int32 THROTTLE_CAP_DEFAULT = 100;
 
   // Full scale on this wire. bibowire refuses anything outside +-1000.
   constexpr Int32 THROTTLE_CAP_MAX = 1000;
   constexpr Int16 STEER_FULL = 1000;
 
-  // ---------------------------------------------------------------------------
-  // HOW FAST A AND D MOVE THE HELD STEERING, in milli of full scale per second
-  //
-  // 1500 is centre to full lock in 667 ms: quick enough that a key tap is a
-  // correction and not a wait, slow enough that a tap is not a swerve. The
-  // slider's ends are these two numbers, and settings.cxx clamps a saved value
-  // to the same pair.
+  // How fast A and D move the held steering, milli of full scale per second.
+  // The default is centre to full lock in 667 ms. The slider and settings.cxx
+  // both clamp to MIN..MAX.
   constexpr Int32 STEER_RATE_DEFAULT = 1500;
   constexpr Int32 STEER_RATE_MIN = 250;
   constexpr Int32 STEER_RATE_MAX = 5000;
 
-  // THE LONGEST FRAME THE RAMP BELIEVES. A window drag, a breakpoint or a
-  // swap-chain resize can stall one frame for seconds, and a ramp that trusted
-  // that dt would jump to full lock on a single frame with a key held. 100 ms is
-  // six ordinary frames: long enough never to matter at 60 Hz, short enough that
-  // a hitch costs at most a tenth of a second of travel.
+  // The longest frame the ramp believes. A window drag or a breakpoint can
+  // stall a frame for seconds, and trusting that dt would jump to full lock in
+  // one frame with a key held.
   constexpr Int32 STEER_FRAME_MS_MAX = 100;
 
-  // What the keyboard said this frame. A struct rather than six arguments so
-  // the pure functions below take one thing and the suite builds cases by name.
+  // What the keyboard said this frame.
   struct Keys
   {
       Bool left = false;      // A
@@ -111,13 +65,8 @@ namespace driveview
       Bool centre = false;    // C
   };
 
-  // ---- the mapping, pure and inline so the suite can reach it ----------------
-  //
-  // trim.hxx's reason: drive.cxx names ImGui, which cannot be linked into a
-  // console test, and the arithmetic that decides what a key MEANS is the part
-  // that has to be held to an answer. Defined here, viewer/tests reaches it
-  // without linking this module at all.
-
+  // The key mapping is pure and inline so viewer/tests can check what a key
+  // MEANS without linking ImGui.
   [[nodiscard]] inline Int32 clampMilli(Int32 value, Int32 lo, Int32 hi)
   {
       if(value < lo)
@@ -131,11 +80,9 @@ namespace driveview
       return value;
   }
 
-  // WHICH WAY THE KEYS PUSH: full left, full right, or 0 for no push. It is no
-  // longer the steering itself - steerHeldStep moves toward this - but the rule
-  // is unchanged. Both keys down is 0 and not "the last one wins": a hand
-  // resting on A while reaching for D is the case this is for, and a wheel that
-  // picked one of them would turn while its operator believed it was holding.
+  // Which way the keys push: full left, full right, or 0. steerHeldStep moves
+  // toward it. Both keys down is 0, not last-wins: a hand resting on A while
+  // reaching for D must not turn the wheel.
   [[nodiscard]] inline Int16 steerFrom(const Keys& k)
   {
       if(k.left == k.right)
@@ -145,21 +92,13 @@ namespace driveview
       return k.left ? static_cast<Int16>(-STEER_FULL) : static_cast<Int16>(STEER_FULL);
   }
 
-  // ONE FRAME OF THE HELD STEERING. `held` is last frame's value, `dtMs` this
-  // frame's length. Pure, so the suite holds every rule below to an answer.
-  //
-  // C BEATS A AND D. Centre is the one key whose answer does not depend on the
-  // others, for S-beats-W's reason: it is pressed while a steering key is still
-  // down, so "both" is exactly the moment it is for.
-  //
-  // NO PUSH SPRINGS BACK. Neither key or both keys moves the value toward 0 at
-  // the same rate a key moves it away, and stops AT 0 - it never swings past
-  // centre into the other side. That is a game's steering, and it is what was
-  // asked for.
-  //
-  // AT LEAST ONE MILLI whenever time has passed. Integer steps at a slow rate
-  // on a fast frame round to zero (250 /s over 1 ms is 0.25), and a key - or a
-  // release - that never moves the wheel is one that looks broken.
+  // One frame of the held steering: `held` is last frame's value, `dtMs` this
+  // frame's length.
+  // C BEATS A AND D: it is pressed while a steering key is still down.
+  // NO PUSH SPRINGS BACK toward 0 at the same rate and stops AT 0, never past
+  // centre.
+  // AT LEAST ONE MILLI whenever time has passed, or a slow rate on a fast frame
+  // rounds to no movement at all.
   [[nodiscard]] inline Int16 steerHeldStep(Int16 held, const Keys& k, Int32 rateMilliPerS, Int32 dtMs)
   {
       if(k.centre)
@@ -187,9 +126,8 @@ namespace driveview
       return static_cast<Int16>(clampMilli(to, -STEER_FULL, STEER_FULL));
   }
 
-  // Milliseconds from centre to full lock at `rateMilliPerS`, for the readout
-  // under the slider - the number an operator can picture. -1 for a rate that
-  // never arrives.
+  // Milliseconds from centre to full lock at `rateMilliPerS`, for the readout;
+  // -1 for a rate that never arrives.
   [[nodiscard]] inline Int32 steerLockMs(Int32 rateMilliPerS)
   {
       if(rateMilliPerS <= 0)
@@ -199,17 +137,14 @@ namespace driveview
       return (static_cast<Int32>(STEER_FULL) * 1000) / rateMilliPerS;
   }
 
-  // S IS THE TRIGGER PUSHED FORWARD: brake, then reverse. Held, it asks for
-  // minus the cap. This car's ESC is in Forward/Reverse/Brake mode, so the
-  // first push below neutral BRAKES and, once S has been let go and the pulse
-  // is back at neutral, the next press REVERSES - the transmitter's own double
-  // tap, done with the key the same way. Only the SIGN reaches the ESC: the
-  // pilot sends the Trim pane's reverse limit itself, which is the reverse
-  // strength, and is off until it is set - so until then S is a plain stop.
+  // S is brake, then reverse: held, it asks for minus the cap. The ESC is in
+  // Forward/Reverse/Brake mode, so the first push below neutral BRAKES and,
+  // once S is released and the pulse is back at neutral, the next press
+  // REVERSES (the transmitter's double tap). Only the SIGN reaches the ESC: the
+  // pilot sends the Trim pane's reverse limit, which is off until set, so until
+  // then S is a plain stop.
   //
-  // S BEATS W, ALWAYS. A brake that W can override is not a brake - and W is
-  // already held when somebody reaches for S, so "both down" is precisely the
-  // moment the rule is for.
+  // S BEATS W, ALWAYS: W is already held when somebody reaches for S.
   [[nodiscard]] inline Int16 throttleFrom(const Keys& k, Int32 capMilli)
   {
       if(capMilli <= 0)
@@ -228,13 +163,11 @@ namespace driveview
       return static_cast<Int16>(held);
   }
 
-  // ENABLE ON EVERY DATAGRAM WHILE THE OPERATOR INTENDS TO DRIVE. Not optional
-  // and not an edge: deadman::step reaches STATE_LIVE only while `enable` is
-  // set, so a stream that carried it once would be a car that went SOFT 150 ms
-  // later with the keys looking dead.
+  // ENABLE ON EVERY DATAGRAM while driving, not as an edge: deadman::step
+  // reaches STATE_LIVE only while `enable` is set, so a stream that carried it
+  // once would go SOFT 150 ms later.
   //
-  // MOTOR_WANTED is deliberately not set. That bit is the LIDAR's motor
-  // (section 6), which belongs to the scan and not to driving.
+  // MOTOR_WANTED is never set here: it is the LIDAR's motor (section 6).
   [[nodiscard]] inline UInt16 buttonsFrom(const Keys& k, Bool driving)
   {
       UInt16 bits = 0;
@@ -250,9 +183,7 @@ namespace driveview
   }
 
   // 0 manual, 1 look, 2 drive - bibowire::PilotMode's numbers. Anything else
-  // folds to MANUAL, which is the mode whose stick values the board actually
-  // reads, so an out-of-range selection cannot become a belief about a mode
-  // nobody is in.
+  // folds to MANUAL, the mode whose stick values the board actually reads.
   [[nodiscard]] inline UInt8 modeOf(Int32 choice)
   {
       const UInt8 drive = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
@@ -263,31 +194,23 @@ namespace driveview
       return static_cast<UInt8>(choice);
   }
 
-  // ---- the window ------------------------------------------------------------
-
   struct View
   {
-      // Bound to ImGui::Begin's close button. Unlike the camera's, closing this
-      // costs the board nothing and RELEASES NOTHING: the control slot belongs
-      // to the connection, not to the window. What closing does is stop the
-      // keys - the intent goes neutral with ENABLE clear, which is a SOFT stop
-      // the board reaches in 150 ms, rather than silence, which is a full one
-      // at 300. Said here because "I closed a window and the car stopped" has
-      // to be a thing somebody can predict.
+      // Bound to ImGui::Begin's close button. Closing RELEASES NOTHING (the
+      // control slot belongs to the connection) but stops the keys: the intent
+      // goes neutral with ENABLE clear, a SOFT stop the board reaches in 150 ms,
+      // rather than silence, a full stop at 300.
       Bool open = false;
 
-      // THE OPERATOR'S HAND ON THE WHEEL. Off at startup and off again whenever
-      // the pane is disabled for any reason, because this is the bit the
-      // deadman treats as consent. TICKED BY ARM: when the board confirms the
-      // car armed, ARM was the consent, and a second click on a checkbox was
-      // a step the operator reported forgetting (2026-09-12). Cleared when the
-      // board says the car is no longer armed. Unticking it by hand is still a
-      // soft stop that stays stopped until the next ARM.
+      // The operator's consent, which the deadman reads. Off at startup and
+      // whenever the pane is disabled. TICKED BY ARM once the board confirms the
+      // car armed, since ARM was the consent; cleared when the board says it is
+      // no longer armed. Unticking by hand is a soft stop until the next ARM.
       Bool enabled = false;
 
-      // The armed state the board last reported, so ARM's confirmation is taken
-      // as an EDGE. As a level it would re-tick an enable the operator had
-      // unticked on purpose. State, never saved.
+      // The armed state the board last reported, so ARM's confirmation is an
+      // EDGE; as a level it would re-tick an enable unticked on purpose. Never
+      // saved.
       Bool boardArmed = false;
 
       // Handed in by main.cxx from the Trim pane each frame. idleTest puts
@@ -296,44 +219,32 @@ namespace driveview
       Bool idleTest = false;
       Bool reverseOff = false;
 
-      // These outlive the window being closed and reopened - camera.hxx's rule,
-      // and the same reason: they describe how this operator drives, and
-      // closing a window is not a decision to re-enter a setup.
+      // Settings: they outlive the window and are saved.
       Int32 throttleCapMilli = THROTTLE_CAP_DEFAULT;
 
-      // WHAT THE OPERATOR BELIEVES IS ACTIVE. bibowire::PilotMode as an Int32
-      // because ImGui::Combo writes an int, folded through modeOf() on the way
-      // to the wire.
+      // What the OPERATOR believes is active: bibowire::PilotMode as an Int32
+      // because ImGui::Combo writes an int, folded through modeOf() for the wire.
       //
       // NEVER ASSIGNED FROM CTLSTATE'S pilotMode. The board compares the two to
-      // catch a viewer driving under a false belief, and a viewer that copied
-      // the board's answer into its own claim would make that comparison always
-      // true and delete the check - a bug that was just fixed on the board side
-      // of the same comparison. The pane shows both numbers side by side and
-      // says when they disagree; it never reconciles them.
+      // catch a viewer driving under a false belief, and copying its answer here
+      // would make that check always pass. The pane shows both and never
+      // reconciles them.
       Int32 assumedMode = 0;
 
-      // How fast A and D move the held steering. A setting like the cap above,
-      // and saved with it.
       Int32 steerRateMilliPerS = STEER_RATE_DEFAULT;
 
-      // WHERE THE OPERATOR HAS LEFT THE WHEEL, -1000..+1000. State, not a
-      // setting, and NEVER SAVED: a steering angle remembered across a restart
-      // would be a car that turns the moment somebody ticks enable. drawWindow
-      // zeroes it on every way the pane stops driving.
+      // Where the operator has left the wheel, -1000..+1000. NEVER SAVED: a
+      // restored angle would turn the car the moment enable is ticked.
+      // drawWindow zeroes it on every stop.
       Int16 steerHeldMilli = 0;
 
-      // COMMANDs this pane has sent, counted and shown. A verb the board never
-      // answered is a fact worth seeing.
+      // COMMANDs this pane has sent, shown in the window.
       UInt32 sent = 0;
   };
 
-  // The settings fields, clamped to the ranges their widgets use. For
-  // settings.cxx, which loads numbers somebody may have edited by hand.
-  //
-  // THE MODE IS FOLDED, NOT CLAMPED. modeOf's rule: a 9 clamped to the top of
-  // the range would be a saved file asserting DRIVE, and garbage must become
-  // the mode whose sticks the board reads, which is MANUAL.
+  // The saved fields clamped to their widgets' ranges, for settings.cxx. The
+  // mode is FOLDED by modeOf, not clamped: a garbage 9 clamped would assert
+  // DRIVE, and must become MANUAL.
   inline Void settle(View& v)
   {
       v.throttleCapMilli = clampMilli(v.throttleCapMilli, 0, THROTTLE_CAP_MAX);
@@ -341,30 +252,23 @@ namespace driveview
       v.assumedMode = static_cast<Int32>(modeOf(v.assumedMode));
   }
 
-  // What the keys and the pane's own settings add up to. Pure, so the suite
-  // holds it to an answer without a window or a socket.
-  //
-  // STEERING COMES FROM THE HELD VALUE, NOT FROM THE KEYS. `k` still decides
-  // throttle and ESTOP; the steering was already moved by steerHeldStep before
-  // this is called, so a key that is down this frame is not counted twice.
+  // What the keys and the pane's settings add up to. Pure, for the suite.
+  // Steering comes from steerHeldMilli, already stepped this frame, so a key is
+  // not counted twice; `k` decides throttle and ESTOP.
   [[nodiscard]] inline link::Intent intentFrom(const Keys& k, const View& v)
   {
       link::Intent in;
       in.driving = v.enabled;
-      // NEUTRAL ON BOTH AXES when not driving. link::buildControl enforces this
-      // again at the wire; it is here as well so that what this pane DISPLAYS
-      // and what it sends are the same object rather than two descriptions of
-      // one intention.
+      // NEUTRAL ON BOTH AXES when not driving. link::buildControl enforces it
+      // again at the wire; doing it here too keeps what the pane displays and
+      // what it sends the same object.
       const Int32 held = clampMilli(v.steerHeldMilli, -STEER_FULL, STEER_FULL);
       in.steerMilli = v.enabled ? static_cast<Int16>(held) : static_cast<Int16>(0);
       in.throttleMilli = v.enabled ? throttleFrom(k, v.throttleCapMilli) : static_cast<Int16>(0);
-      // ESTOP IS NOT GATED BY THE ENABLE. The one thing that must work in every
-      // state this window can be in is the stop.
+      // ESTOP IS NOT GATED BY THE ENABLE: the stop must work in every state.
       in.buttons = buttonsFrom(k, v.enabled);
-      // THE IDLE TEST rides the stream like ENABLE, and only with it: without
-      // consent there is nothing for the pilot to hold at idle. The throttle is
-      // zero beside it - the pilot ignores the field then, and a W that reads
-      // as counting would be a lie on the wire.
+      // The idle test rides only with ENABLE. The throttle is zeroed beside it
+      // because the pilot ignores the field then.
       if(v.enabled && v.idleTest)
       {
           in.buttons = static_cast<UInt16>(in.buttons | bibowire::BUTTON_IDLE_TEST);
@@ -375,13 +279,11 @@ namespace driveview
   }
 
   // The DPI multiplier the layout uses. Called once, after ImGui exists. This
-  // window owns no graphics resource, so there is no shutdown to match
-  // camview's.
+  // window owns no graphics resource, so there is no shutdown.
   Void init(Float32 scale);
 
   // One frame. Reads the keyboard when this window has focus and nothing is
-  // being typed into, publishes the intent to the client EVERY frame - it is a
-  // level and not an edge - and shows the board's own account of what it did.
+  // being typed into, publishes the intent EVERY frame (a level, not an edge),
+  // and shows the board's own account of what it did.
   Void drawWindow(View& v, link::Client& lk, const link::Snapshot& snap, Int64 nowMs);
-
 }

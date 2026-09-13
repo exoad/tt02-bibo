@@ -1,67 +1,24 @@
-// The viewer's bibowire client, held to what it promises - WITHOUT A BOARD.
+// The viewer's bibowire client, tested without a board.
 //
 //   tools\test.bat link run
 //
-// WHY THIS FILE EXISTS AND WHAT IT CANNOT DO.
-//
-// A suite has no board to point this viewer at and nothing on the far end of a
-// socket to prove anything against. What CAN be proved offline is the half
-// that decides what gets drawn: bytes in, decoded state out, and the question
-// "is this still true" answered the same way every time. So link.cxx is split
-// with that seam in it - `Session` is pure, takes the caller's clock, and never
-// names a socket - and this file drives it with hand-built frames.
-//
-// WHAT IS NOT COVERED HERE, said plainly rather than implied:
-//   - connect, resolve, the 3000 ms deadline, TCP_NODELAY / SO_RCVBUF /
-//     keepalive, the UDP bind and its peer filter, the select loop, and the
-//     reconnect loop's use of the backoff numbers below. Those need a socket
-//     and a peer.
-//   - CONTROL'S SOCKET HALF. This viewer DOES send CONTROL now - the seq rule,
-//     the encoding, the key mapping and the enable bit are all held to an
-//     answer below - but nothing here puts a datagram on a wire. sendControl,
-//     the UDP sendto, the TCP fallback and its latch, and the reverse-path
-//     probe are not exercised here, and the deadman, the arm sequence and
-//     REFUSE_MODE are held only as shapes matched to docs/bibowire.md section 6.
-//   - THE HEADING ARROW AND THE BENDING GUIDES AS DRAWN. Their SIGNS are held
-//     to an answer below, which is the part that cannot be eyeballed: positive
-//     steer is right (chassis.hxx's steerToUs toward servoMax, which cal.hxx
-//     names STEER_CAL_RIGHT) and +X is right (scene.hxx's frame note), so an
-//     inversion of either draws a confident arrow the wrong way and compiles
-//     perfectly. What is NOT proved is any pixel of either: the drawing lives
-//     behind an ImDrawList.
-//   - THE CAMERA'S SOCKET HALF. The decode path below is driven with
-//     hand-built CAMERA frames and a real JPEG. What is proved here is that
-//     the bytes survive the codec, become pixels, and that a dropout is
-//     classified onto the right clock; what is NOT proved is the subscription
-//     handshake itself, that the board stops sending when one is withdrawn, or
-//     anything about WHY a real camera drops out - which is what the arrival
-//     and capture gaps below exist to let an operator answer in the field
-//     rather than by sending somebody a log.
-//   - the texture upload and the window. Those need a D3D11 device, which is
-//     why the decoder is its own module (jpeg.cxx) and the window is not.
-//   - THE TRIM PANE AS DRAWN, and the board's half of COMMAND. The queue, the
-//     cmdId rule, the encoding and the slew arithmetic are all held to an answer
-//     below, and trim.hxx keeps that arithmetic inline in the header precisely
-//     so this suite can reach it without linking a file that names ImGui. What
-//     is NOT proved is any of it against a car, so "refused while armed" is a
-//     sentence this suite can only check the SHAPE of, never the behaviour.
-//   - THE ALIGNMENT OVERLAYS. They are placed in the window's frame - a scale
-//     and an offset onto the drawn picture, ignoring rotate and flip by the
-//     user's decision - so there is no mapping left here to hold to an answer.
-//     The drawing itself lives in camera.cxx behind an ImDrawList; it was
-//     checked by driving camview::drawWindow headlessly, not by this suite.
-//   - THE SETTINGS FILE ON DISK. settings.cxx's text half - the integer
-//     parser, the key list and the clamping - is held to an answer below, and
-//     one path that does not exist is read. The atomic save itself (the .tmp,
-//     the flush, MoveFileExW) is never exercised here: a suite that writes
-//     files beside itself is one that can leave them behind.
-//
-// The framing, the CRC, the resync and every message body belong to
-// firmware/pilot/src/bibowire.cxx and its 312 checks; this file uses that codec
-// to BUILD its inputs rather than restating what it already proves.
-//
-// Exits 0 on PASS, 1 on FAIL.
-
+// link.cxx's Session is pure, so this file drives it with hand-built frames,
+// built with firmware/pilot/src/bibowire.cxx rather than restating what that
+// codec's own suite proves. Not covered here:
+//   - anything needing a socket and a peer: connect, resolve, CONNECT_MS, the
+//     socket options, the UDP bind and filter, the select and reconnect loops;
+//   - CONTROL's socket half: sendControl, sendto, the TCP fallback and its latch,
+//     the reverse-path probe. The deadman, arming and REFUSE_MODE are held only
+//     as shapes matched to docs/bibowire.md section 6;
+//   - the heading arrow and bending guides as drawn (their signs are tested);
+//   - the camera's socket half: the subscription handshake, and why a real
+//     camera drops out (decode, pixels and gap classification are tested);
+//   - the texture upload and the window, which need a D3D11 device;
+//   - the trim pane as drawn and the board's half of COMMAND, so "refused while
+//     armed" is checked only in shape;
+//   - the alignment overlays, drawn in window space by camera.cxx;
+//   - the settings file on disk: the atomic save never runs, so the suite leaves
+//     no files behind.
 #include "shared.hxx"
 
 #include "bibowire.hxx"
@@ -72,10 +29,8 @@
 #include "drive.hxx"
 #include "settings.hxx"
 
-// For bendAt and pctToUnit, which live at namespace scope in the header rather
-// than in camera.cxx's anonymous namespace precisely so this file can reach
-// them. camera.hxx names no ImGui type and no D3D type - only forward
-// declarations - so including it here links nothing graphical.
+// For bendAt and pctToUnit. camera.hxx names no ImGui or D3D type, so this links
+// nothing graphical.
 #include "camera.hxx"
 #include "scene.hxx"
 
@@ -114,15 +69,12 @@ static Void checkStr(const Str& got, const Char* want, const Char* what)
     return std::fabs(got - want) < 0.002f;
 }
 
-// ---- building the bytes a board would send ---------------------------------
-
 static Size framed(Vec<UInt8>& out, bibowire::Type t, const UInt8* body, Size len)
 {
     bibowire::Head h;
     h.type = t;
     h.ver = 1;
     h.seq = static_cast<UInt16>(out.size() & 0xFFFFu);
-
     Vec<UInt8> frame(24000, 0);
     const bibowire::Body payload = { body, len };
     const Size n = bibowire::put(h, payload, frame.data(), frame.size());
@@ -140,10 +92,8 @@ static Size framed(Vec<UInt8>& out, bibowire::Type t, const UInt8* body, Size le
     s.motor = 1;
     s.droppedSinceLast = 0;
     s.scanDivisor = 1;
-    // One point per quadrant, so the frame conversion is checked at every
-    // cardinal bearing rather than at one angle where a swapped sine and cosine
-    // would still agree. The fifth is a NO RETURN and must not become a point at
-    // the origin.
+    // One point per quadrant, so a swapped sine and cosine fail. The fifth is a
+    // NO RETURN and must not become a point.
     s.points.push_back(bibowire::ScanPoint{ 0, 1000 });
     s.points.push_back(bibowire::ScanPoint{ 9000, 2000 });
     s.points.push_back(bibowire::ScanPoint{ 18000, 3000 });
@@ -273,9 +223,8 @@ static Size pushCtlState(Vec<UInt8>& out, UInt64 tUs, UInt8 armed)
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_CTLSTATE, body.data(), n);
 }
 
-// A WELCOME whose every field the caller chose. pushWelcome above fixes
-// `accepted` at 2, which is exactly the field the control tests are about, so
-// this one takes the struct - pushCmdAck's shape, for pushCmdAck's reason.
+// A WELCOME with every field chosen by the caller; pushWelcome fixes `accepted`,
+// the field the control tests are about.
 static Size pushWelcomeAs(Vec<UInt8>& out, const bibowire::Welcome& m)
 {
     Array<UInt8, 256> body = {};
@@ -283,9 +232,6 @@ static Size pushWelcomeAs(Vec<UInt8>& out, const bibowire::Welcome& m)
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_WELCOME, body.data(), n);
 }
 
-// The board's answer to one COMMAND. Takes the whole struct rather than a
-// parameter per field, the way pushScan does: the interesting cases differ in
-// three or four fields at once and a list of them would wrap.
 static Size pushCmdAck(Vec<UInt8>& out, const bibowire::CmdAck& m)
 {
     Array<UInt8, 256> body = {};
@@ -303,9 +249,7 @@ static Size pushBye(Vec<UInt8>& out, bibowire::Reason why, const Str& text)
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_BYE, body.data(), n);
 }
 
-// A type this build has no name for. 0x7E is in nobody's tag space and the
-// length prefix is the whole extensibility story, so it must be stepped over by
-// exactly its len and counted.
+// A type this build has no name for; 0x7E is in no tag space.
 static Size pushUnknown(Vec<UInt8>& out)
 {
     Array<UInt8, 8> body = { 1, 2, 3, 4, 5, 6, 7, 8 };
@@ -320,20 +264,11 @@ static Size pushUnknown(Vec<UInt8>& out)
     return n;
 }
 
-// A REAL, DECODABLE JPEG - 16x12, quality 92 - and not a plausible-looking
-// blob, because a blob would prove the framing and quietly prove nothing about
-// the decoder this viewer actually ships.
-//
-// It carries a COM segment holding two kinds of hostile bytes:
-//
-//   - `ff d8 ff` runs, which is what an embedded EXIF thumbnail looks like. A
-//     valid JPEG cannot carry those in its entropy-coded data - 0xFF is always
-//     byte-stuffed - so a comment segment is how they really turn up, and this
-//     one puts them at offsets 6, 12, 14 and 21 as well as at 0.
-//   - `42 57`, which is BIBOWIRE'S OWN FRAME MAGIC, four times over. A reader
-//     that hunted for the magic inside a payload instead of trusting byteLen
-//     would resync in the middle of a picture; this is the byte pattern that
-//     catches it, and testCameraByteAtATime is where it would show.
+// A real, decodable 16x12 JPEG, so the shipped decoder is tested and not just
+// the framing. Its COM segment holds hostile bytes: `ff d8 ff` runs (what an
+// embedded EXIF thumbnail looks like) and `42 57`, bibowire's frame magic, four
+// times. A reader that searched a payload for the magic instead of trusting
+// byteLen would resync mid-picture (testCameraByteAtATime).
 static const Array<UInt8, 741> TINY_JPEG = {
     0xFF, 0xD8, 0xFF, 0xFE, 0x00, 0x18, 0xFF, 0xD8, 0xFF, 0xE0, 0x42, 0x57, 0xFF, 0xD8,
     0xFF, 0xD8, 0xFF, 0x42, 0x57, 0x42, 0x57, 0xFF, 0xD8, 0xFF, 0x42, 0x57, 0x00, 0x10,
@@ -412,9 +347,8 @@ static Size pushCamera(Vec<UInt8>& out, UInt32 index, UInt64 tUs, const Vec<UInt
     return at < pic.rgba.size() ? pic.rgba[at] : 0u;
 }
 
-// JPEG is lossy, so the tolerance is real. The numbers it is compared against
-// are what PIL decoded the SAME bytes to, which makes this a comparison
-// between two independent decoders rather than against what was painted.
+// JPEG is lossy, so the tolerance is real. The expected values are what PIL
+// decoded the same bytes to: two independent decoders compared.
 [[nodiscard]] static Bool nearByte(UInt8 got, Int32 want)
 {
     const Int32 delta = static_cast<Int32>(got) - want;
@@ -426,27 +360,20 @@ static Size feed(link::Session& s, const Vec<UInt8>& bytes, Int64 nowMs)
     return link::ingestBytes(s, bytes.data(), bytes.size(), nowMs);
 }
 
-// ---- the cases -------------------------------------------------------------
-
 static Void testGeometry()
 {
     std::printf("\n-- a SCAN becomes points in the scene's frame --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(41, 1000000)));
-
     link::Session s;
     const Size used = feed(s, wire, 1000);
     check(used == wire.size(), "the whole scan frame is consumed");
     check(s.haveScan, "a scan arrived");
     check(s.revIndex == 41u, "revIndex is the frame's");
     check(s.freqMilliHz == 10000u, "freqMilliHz is the frame's");
-
-    // Four, not five: distMm == 0 is NO RETURN and must not become a point at
-    // the sensor's own position - a ring of those would read as an obstacle
-    // wrapped around the car.
+    // Four, not five: distMm == 0 is NO RETURN, and points at the sensor would
+    // read as an obstacle around the car.
     check(s.cloud.size() == 4, "a no-return point is dropped, not placed at zero");
-
     if(s.cloud.size() == 4)
     {
         check(near(s.cloud[0].x, 0.0f) && near(s.cloud[0].y, 1.0f), "0 deg is +Y at 1 m");
@@ -460,19 +387,15 @@ static Void testGeometry()
 static Void testByteBoundaries()
 {
     std::printf("\n-- the same stream, one byte at a time --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushWelcome(wire, 1, bibowire::PROTO_MAJOR));
     static_cast<Void>(pushScan(wire, scanOf(41, 1000000)));
     static_cast<Void>(pushDecide(wire, 41, 0));
     static_cast<Void>(pushBoard(wire, 1000000));
-
     link::Session whole;
     static_cast<Void>(feed(whole, wire, 1000));
-
-    // A ring that is handed one byte per call must produce the identical
-    // answer: NEED_MORE consumes nothing, so a partial frame is never a short
-    // message.
+    // One byte per call must give the identical answer: NEED_MORE consumes
+    // nothing, so a partial frame is never a short message.
     link::Session drip;
     Vec<UInt8> ring;
     for(Size i = 0; i < wire.size(); ++i)
@@ -481,7 +404,6 @@ static Void testByteBoundaries()
         const Size used = link::ingestBytes(drip, ring.data(), ring.size(), 1000);
         ring.erase(ring.begin(), ring.begin() + static_cast<ISize>(used));
     }
-
     check(ring.empty(), "nothing is left over when the last byte lands");
     check(drip.frames == whole.frames, "the same number of frames either way");
     check(drip.cloud.size() == whole.cloud.size(), "the same cloud either way");
@@ -492,23 +414,19 @@ static Void testByteBoundaries()
 static Void testJunkAndUnknown()
 {
     std::printf("\n-- junk, and a type this build has no name for --\n");
-
     Vec<UInt8> wire;
-    // Seven bytes of rubbish, including something that spells the magic, so the
-    // resync has a false lock to reject before it finds the real frame.
+    // Seven bytes of junk that spell the magic, so the resync must reject a
+    // false lock.
     const Array<UInt8, 7> junk = { 0x11, 0x42, 0x57, 0x00, 0x99, 0xAB, 0xCD };
     wire.insert(wire.end(), junk.begin(), junk.end());
     static_cast<Void>(pushScan(wire, scanOf(7, 500000)));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.haveScan, "the frame behind the junk is found");
     check(s.resyncBytes == 7u, "the skipped bytes are counted exactly");
-
     Vec<UInt8> mixed;
     static_cast<Void>(pushUnknown(mixed));
     static_cast<Void>(pushScan(mixed, scanOf(8, 600000)));
-
     link::Session u;
     const Size used = feed(u, mixed, 1000);
     check(used == mixed.size(), "an unknown type is stepped over by exactly its len");
@@ -520,11 +438,9 @@ static Void testJunkAndUnknown()
 static Void testCorruption()
 {
     std::printf("\n-- a corrupted frame is not a shorter frame --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(41, 1000000)));
     wire[20] = static_cast<UInt8>(wire[20] ^ 0xFFu);
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(!s.haveScan, "a CRC failure yields no scan at all");
@@ -534,11 +450,9 @@ static Void testCorruption()
 static Void testTruncation()
 {
     std::printf("\n-- a truncated frame consumes nothing --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(41, 1000000)));
     wire.resize(wire.size() - 3);
-
     link::Session s;
     const Size used = feed(s, wire, 1000);
     check(used == 0, "no bytes are retired");
@@ -549,33 +463,27 @@ static Void testTruncation()
 static Void testBootId()
 {
     std::printf("\n-- a different bootId clears everything --\n");
-
     Vec<UInt8> first;
     static_cast<Void>(pushWelcome(first, 1000, bibowire::PROTO_MAJOR));
     static_cast<Void>(pushScan(first, scanOf(41, 1000000)));
     static_cast<Void>(pushDecide(first, 41, 0));
-
     link::Session s;
     static_cast<Void>(feed(s, first, 1000));
     check(s.haveScan && s.haveDecide, "the first session has a picture");
     check(s.bootId == 1000u, "and remembers the boot it belongs to");
-
-    // A reconnect: the connection state goes, the bootId does NOT - it is the
-    // only thing worth carrying across, and carrying it is what makes the
-    // comparison below possible at all.
+    // A reconnect drops the connection state and keeps the bootId, which the
+    // comparison below needs.
     link::clearSession(s);
     check(!s.haveScan && !s.haveDecide, "a reconnect resumes nothing");
     check(s.haveBootId && s.bootId == 1000u, "but the bootId survives the reconnect");
-
+    // The same boot reconnects.
     Vec<UInt8> same;
     static_cast<Void>(pushWelcome(same, 1000, bibowire::PROTO_MAJOR));
     static_cast<Void>(pushScan(same, scanOf(42, 1100000)));
     static_cast<Void>(feed(s, same, 2000));
     check(s.notes.empty(), "the same bootId is not a restart and says nothing");
     check(s.haveScan, "and the picture rebuilds normally");
-
-    // Now the pilot restarts. A healthy new socket to a restarted car, still
-    // showing the previous run, is the most convincing stale picture there is.
+    // The pilot restarts.
     Vec<UInt8> other;
     static_cast<Void>(pushWelcome(other, 2001, bibowire::PROTO_MAJOR));
     static_cast<Void>(feed(s, other, 3000));
@@ -590,25 +498,21 @@ static Void testBootId()
 static Void testDecideTie()
 {
     std::printf("\n-- a DECIDE belongs to one revolution --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(41, 1000000)));
     static_cast<Void>(pushDecide(wire, 41, 0));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.haveDecide, "a DECIDE naming the scan we have is kept");
     check(s.decide.mode == 0u, "with its mode");
     check(s.decide.clearanceMm == 3410u, "and its clearance");
-
     Vec<UInt8> orphan;
     static_cast<Void>(pushDecide(orphan, 99, 2));
     static_cast<Void>(feed(s, orphan, 1010));
     check(s.orphanDecides == 1u, "a DECIDE naming a scan we never saw is counted");
     check(s.decide.mode == 0u, "and does not replace the one that belongs here");
-
-    // revIndex 0 is the BLIND tick: no revolution behind it BY DEFINITION, which
-    // is not the same thing as naming one we missed.
+    // revIndex 0 is the BLIND tick: no revolution behind it by definition, which
+    // differs from naming one we missed.
     Vec<UInt8> blind;
     static_cast<Void>(pushDecide(blind, 0, 4));
     static_cast<Void>(feed(s, blind, 1020));
@@ -619,15 +523,12 @@ static Void testDecideTie()
 static Void testStaleness()
 {
     std::printf("\n-- what may be drawn, and when it may not --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(41, 0)));
     static_cast<Void>(pushDecide(wire, 41, 0));
     static_cast<Void>(pushBoard(wire, 0));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
-
     check(s.revolution(1000).has_value(), "a fresh revolution is there to draw");
     check(!s.revolution(1000)->stale, "and is not marked stale");
     check(s.revolution(1399).has_value(), "at 399 ms it is still fresh");
@@ -635,21 +536,15 @@ static Void testStaleness()
     check(s.revolution(1401).has_value(), "at 401 ms it is still drawable");
     check(s.revolution(1401)->stale, "but is marked stale");
     check(s.revolution(1401)->ageMs == 401, "with its age");
-
-    // Beyond 1500 ms there is NO VALUE AT ALL. A greyed-out picture is still a
-    // picture and people read pictures as current whatever colour they are.
     check(!s.revolution(2501).has_value(), "past 1500 ms there is nothing to draw");
     check(!s.decision(2501).has_value(), "and no decision either");
     check(!s.boardState(2501).has_value(), "and no board state");
-
-    // A negative age is a bug upstream and the safe reading of a bug is "old".
     check(!s.revolution(900).has_value(), "a clock that went backwards reads as gone");
 }
 
 static Void testArrivalFloor()
 {
     std::printf("\n-- an age is never smaller than the arrival floor --\n");
-
     // The first scan sets the offset: it left the board at 100 ms and arrived at
     // 1000, so the board's clock is 900 ms behind this one.
     Vec<UInt8> first;
@@ -657,7 +552,6 @@ static Void testArrivalFloor()
     link::Session s;
     static_cast<Void>(feed(s, first, 1000));
     check(s.haveOffset && s.offsetMs == 900, "the first sample sets the offset");
-
     // The second one left at 200 ms and did not arrive until 1600 - it spent
     // 500 ms in a stall. Local arrival alone would call it 100 ms old at 1700;
     // the board's own clock says 600, and the LARGER wins.
@@ -665,22 +559,13 @@ static Void testArrivalFloor()
     static_cast<Void>(pushScan(late, scanOf(2, 200000)));
     static_cast<Void>(feed(s, late, 1600));
     check(s.offsetMs == 900, "a slower sample does not move the offset");
-
     const Opt<link::Revolution> rev = s.revolution(1700);
     check(rev.has_value(), "the revolution is still drawable");
     check(rev->ageMs == 600, "and its age is the board's, not the socket's");
-
-    // THE AGE IS WHAT THIS TEST IS ABOUT AND IT HAS NOT CHANGED. Whether 600 ms
-    // READS as stale is now the measured band's business, and it deliberately
-    // answers differently: this feed has delivered exactly one interval and that
-    // interval was 600 ms, so 600 ms is the cadence it is keeping rather than
-    // evidence it has stopped. It goes stale past the band that interval earned,
-    // which is the check below - and the old assertion here, that 600 ms is
-    // stale because 600 > 400, is the very arithmetic that made the lidar dots
-    // and the camera flicker.
+    // Whether 600 ms reads stale is the measured band's call: the feed's one
+    // interval was 600 ms, which earns a 900 ms band.
     check(!rev->stale, "600 ms is not stale for a feed whose measured gap IS 600");
     check(rev->staleAtMs == 900, "the band that one 600 ms interval earned is 900 ms");
-
     const Opt<link::Revolution> later = s.revolution(2500);
     check(later.has_value(), "the same revolution is still drawable at 1400 ms");
     check(later.has_value() && later->stale, "and past the band it does read stale");
@@ -689,20 +574,13 @@ static Void testArrivalFloor()
 static Void testCadenceBand()
 {
     std::printf("\n-- the staleness band is measured, not assumed --\n");
-
-    // Nothing measured yet: section 7's number stands until a feed has earned
-    // a different one.
     link::Cadence fresh;
     check(link::worstGapMs(fresh) == 0, "an unmeasured feed reports no gap");
     check(link::staleBandMs(fresh) == link::FRESH_MS, "and is held to FRESH_MS");
-
-    // The first arrival starts the clock; it is not itself an interval.
     link::noteArrival(fresh, 1000);
     check(link::worstGapMs(fresh) == 0, "the first frame is not a gap");
     check(link::staleBandMs(fresh) == link::FRESH_MS, "so the band has not moved");
-
-    // A FAST feed must not be able to tighten the band. Measuring may only ever
-    // widen it for a slow feed, never shorten section 7's number for a quick one.
+    // A fast feed must not tighten the band below FRESH_MS.
     link::Cadence quick;
     for(Int32 i = 0; i < 20; ++i)
     {
@@ -710,9 +588,7 @@ static Void testCadenceBand()
     }
     check(link::worstGapMs(quick) == 20, "a 50 Hz feed measures a 20 ms gap");
     check(link::staleBandMs(quick) == link::FRESH_MS, "and is STILL held to FRESH_MS, never less");
-
-    // Two frames a second - the board's own default, and the case that was
-    // measured reading STALE on 57 frames out of 57.
+    // Two frames a second, the board's default camera rate.
     link::Cadence slow;
     for(Int32 i = 0; i < 20; ++i)
     {
@@ -721,10 +597,8 @@ static Void testCadenceBand()
     check(link::worstGapMs(slow) == 500, "a 2 fps feed measures a 500 ms gap");
     check(link::staleBandMs(slow) == 750, "and earns a 750 ms band");
     check(link::staleBandMs(slow) > 500, "which is wider than the interval it delivers at");
-
-    // THE CEILING, and why it exists: however dreadful the feed, stale has to
-    // stay strictly below GONE_MS or a picture would go from live to absent
-    // with no band in between to warn anybody it was aging.
+    // However bad the feed, stale stays below GONE_MS, so nothing goes from live
+    // to absent without a stale band between.
     link::Cadence awful;
     for(Int32 i = 0; i < 8; ++i)
     {
@@ -738,10 +612,7 @@ static Void testCadenceBand()
         link::staleBandMs(awful) < link::GONE_MS,
         "so stale is always passed THROUGH on the way to gone"
     );
-
-    // The window SLIDES. A stall that has stopped happening must stop widening
-    // the band, or a feed could die quietly inside room its worst moment bought
-    // it an hour ago.
+    // The window slides, so a past stall stops widening the band.
     link::Cadence passing;
     link::noteArrival(passing, 0);
     link::noteArrival(passing, 900);
@@ -759,13 +630,10 @@ static Void testCadenceBand()
 static Void testCameraKeepsItsPromise()
 {
     std::printf("\n-- a camera delivering what it promised is never stale --\n");
-
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
     link::Session s;
-
-    // Twelve frames at the board's 2 fps default, each arriving exactly when
-    // the one before it implied. tMonoUs is 0 throughout so the age is the one
-    // measured from local arrival and this test is about the band alone.
+    // Twelve frames at the board's 2 fps default, each on time. tMonoUs is 0, so
+    // ages come from local arrival and only the band is tested.
     Int64 at = 1000;
     for(UInt32 i = 0; i < 12u; ++i)
     {
@@ -774,16 +642,13 @@ static Void testCameraKeepsItsPromise()
         static_cast<Void>(feed(s, wire, at));
         at += 500;
     }
-
     const Int64 last = at - 500;
     const Opt<link::CameraShot> shot = s.cameraShot(last + 499);
     check(shot.has_value(), "the newest picture is there to draw");
     check(shot.has_value() && !shot->stale, "and 499 ms after it arrived it is NOT stale");
     check(shot.has_value() && shot->staleAtMs == 750, "because the band it earned is 750 ms");
     check(shot.has_value() && shot->worstGapMs == 500, "from its measured 500 ms cadence");
-
-    // A camera that has genuinely STOPPED still goes stale, and then still goes.
-    // The band moved; what it means did not.
+    // A camera that has stopped still goes stale, then gone.
     const Opt<link::CameraShot> aging = s.cameraShot(last + 800);
     check(aging.has_value(), "a stopped camera is still drawable at 800 ms");
     check(aging.has_value() && aging->stale, "but it IS stale past the band it earned");
@@ -793,20 +658,16 @@ static Void testCameraKeepsItsPromise()
 static Void testCameraRate()
 {
     std::printf("\n-- the rate this viewer asks the board for --\n");
-
     link::Client c;
     check(link::cameraFpsWanted(c) == 0, "a fresh client asks for no particular rate");
-
     link::wantCameraFps(c, 10);
     check(link::cameraFpsWanted(c) == 10, "and carries what it was given");
-
     // The board owns the ceiling; the viewer must not be able to ask past it.
     link::wantCameraFps(c, 900);
     check(
         link::cameraFpsWanted(c) == static_cast<Int32>(bibowire::CAM_FPS_MAX),
         "a request above the board's ceiling is clamped to it"
     );
-
     link::wantCameraFps(c, -5);
     check(link::cameraFpsWanted(c) == 0, "and a negative rate is no request at all");
 }
@@ -814,21 +675,18 @@ static Void testCameraRate()
 static Void testPingAndProse()
 {
     std::printf("\n-- PING, and the sentences --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushPing(wire, 0xABCDEF0123456789ull));
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.pongsDue.size() == 1, "a PING is queued for an answer");
     check(s.pongsDue[0].token == 0xABCDEF0123456789ull, "with its token echoed verbatim");
-
     Vec<UInt8> events;
     static_cast<Void>(pushEvent(events, "lidar timeout - no revolution in 200 ms", 0));
     static_cast<Void>(feed(s, events, 1010));
     check(s.notes.size() == 1, "an EVENT becomes a note");
     checkStr(s.notes[0].text, "lidar timeout - no revolution in 200 ms", "carried verbatim");
     check(s.notes[0].severity == bibowire::Severity::SEVERITY_WARN, "with its severity");
-
     Vec<UInt8> dropped;
     static_cast<Void>(pushEvent(dropped, "port busy", 4));
     static_cast<Void>(feed(s, dropped, 1020));
@@ -838,11 +696,9 @@ static Void testPingAndProse()
 static Void testBoardAndControl()
 {
     std::printf("\n-- absence is representable --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushBoard(wire, 1000000));
     static_cast<Void>(pushCtlState(wire, 1000000, 1));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.haveBoard, "BOARD arrives");
@@ -850,7 +706,6 @@ static Void testBoardAndControl()
     check(s.board.picoSilentMs == bibowire::PICO_SILENT_ABSENT, "so does a missing Pico link");
     check(s.board.picoArmed == 2u, "and an unknown arm state is unknown, not no");
     check(s.board.cpuCentiC == 5420, "a measured value is itself");
-
     check(s.haveControl, "CTLSTATE arrives, as it would on UDP");
     check(s.control.armed == 1u, "with what the board IS doing");
     check(s.control.refuse == bibowire::Refuse::REFUSE_DEADMAN_SOFT, "and why it refuses");
@@ -859,16 +714,13 @@ static Void testBoardAndControl()
 static Void testGapsAndBye()
 {
     std::printf("\n-- gaps counted, and a BYE with a reason --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(41, 1000000)));
     static_cast<Void>(pushScan(wire, scanOf(45, 1400000)));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.missedRevs == 3u, "three missing revolutions are counted");
     checkStr(s.gapText, "revolutions 42-44 missing", "and named exactly");
-
     Vec<UInt8> bye;
     static_cast<Void>(pushBye(bye, bibowire::Reason::REASON_SHUTDOWN, "pilot stopping"));
     static_cast<Void>(feed(s, bye, 1100));
@@ -880,12 +732,10 @@ static Void testGapsAndBye()
 static Void testVersionRule()
 {
     std::printf("\n-- protoMajor must be EQUAL --\n");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushWelcome(wire, 5, 2));
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
-
     check(s.haveBye, "a major mismatch in WELCOME ends the session");
     check(s.byeReason == bibowire::Reason::REASON_VERSION, "for the version reason");
     // The sentence must EXIST. An explanation that says only "incompatible"
@@ -898,7 +748,6 @@ static Void testVersionRule()
 static Void testBackoff()
 {
     std::printf("\n-- the reconnect schedule --\n");
-
     check(link::backoffBaseMs(1) == 250, "first retry at 250 ms");
     check(link::backoffBaseMs(2) == 500, "then 500");
     check(link::backoffBaseMs(3) == 1000, "then 1 s");
@@ -906,9 +755,8 @@ static Void testBackoff()
     check(link::backoffBaseMs(5) == 4000, "then 4 s");
     check(link::backoffBaseMs(6) == 4000, "and 4 s forever after");
     check(link::backoffBaseMs(400) == 4000, "never giving up, and never longer");
-
-    // +-20 %, and the jitter must actually move: a schedule that always returned
-    // the base would pass a bounds check and still put two clients in lockstep.
+    // +-JITTER_PERCENT, and the jitter must actually move: always returning the
+    // base would pass the bounds and keep clients in lockstep.
     Bool inBand = true;
     Bool moved = false;
     UInt32 seed = 12345;
@@ -927,7 +775,6 @@ static Void testBackoff()
     }
     check(inBand, "4 s jitters inside +-20 %");
     check(moved, "and is not the base every time");
-
     Bool smallInBand = true;
     seed = 999;
     for(Int32 i = 0; i < 4000; ++i)
@@ -946,35 +793,27 @@ static Void testBackoff()
 static Void testRoundTrip()
 {
     std::printf("\n-- the round trip, measured rather than assumed --\n");
-
     link::Session s;
     check(!s.rttMs().has_value(), "before any PONG there is no latency to show");
     check(!s.bestRttMs().has_value(), "and no minimum either");
-
     // Sent at 1000, answered at 1100: 100 ms on the wire, measured from HERE.
     link::notePingSent(s, 7001u, 1000);
     Vec<UInt8> pong;
     static_cast<Void>(pushPong(pong, 7001u, 1000000));
     static_cast<Void>(feed(s, pong, 1100));
-
     const Opt<Int64> rtt = s.rttMs();
     const Opt<Int64> best = s.bestRttMs();
     const Opt<Int64> oneWay = s.oneWayMs();
     check(rtt.has_value() && *rtt == 100, "a matched PONG is a measured round trip");
     check(best.has_value() && *best == 100, "one sample is its own minimum");
     check(oneWay.has_value() && *oneWay == 50, "half the minimum is the one-way delay");
-
-    // A PONG for a PING nobody sent must not be able to invent a round trip.
     Vec<UInt8> stray;
     static_cast<Void>(pushPong(stray, 999999u, 1000000));
     static_cast<Void>(feed(s, stray, 1200));
     const Opt<Int64> after = s.rttMs();
     check(after.has_value() && *after == 100, "an unmatched token is ignored");
     check(s.rtts.size() == 1, "and adds no sample");
-
-    // Twenty round trips, nineteen of them stalled and one fast. THE MINIMUM is
-    // the path; the mean would be the worst moment of the last sixteen seconds
-    // wearing the path's name.
+    // Twenty round trips, one of them fast: the minimum is the path.
     link::Session many;
     for(Int32 i = 0; i < 20; ++i)
     {
@@ -991,22 +830,19 @@ static Void testRoundTrip()
     check(many.rtts.size() == 16, "only the last 16 round trips are kept");
     check(lowest.has_value() && *lowest == 12, "the minimum wins, not the mean");
     check(latest.has_value() && *latest == 900, "while the current one stays current");
-
-    // And the offset a round trip implies can only make the picture OLDER.
+    // The offset a round trip implies can only make the picture older.
     link::Session aged;
     link::notePingSent(aged, 42u, 1000);
     Vec<UInt8> wire;
     static_cast<Void>(pushPong(wire, 42u, 1000000));
     static_cast<Void>(feed(aged, wire, 1100));
     check(aged.haveOffset && aged.offsetMs == 50, "the offset comes off the best round trip");
-
     Vec<UInt8> scan;
     static_cast<Void>(pushScan(scan, scanOf(1, 1000000)));
     static_cast<Void>(feed(aged, scan, 1100));
     check(aged.offsetMs == 50, "an arrival sample cannot raise it back");
-
     // Local arrival alone would call this 100 ms old; through the board's clock
-    // it is 150, and the LARGER wins.
+    // it is 150, and the larger wins.
     const Opt<link::Revolution> rev = aged.revolution(1200);
     check(rev.has_value() && rev->ageMs == 150, "so the age is the larger of the two");
 }
@@ -1014,13 +850,10 @@ static Void testRoundTrip()
 static Void testSilenceInput()
 {
     std::printf("\n-- every frame feeds the silence watchdog --\n");
-
-    // Including one whose body this build has no name for. A reader that only
-    // stamped the messages it understood would redial a perfectly live board the
-    // day it meets a new type.
+    // Including an unknown type, or a live board would be redialled the day it
+    // sends a new one.
     Vec<UInt8> wire;
     static_cast<Void>(pushUnknown(wire));
-
     link::Session s;
     s.lastFrameMs = 0;
     static_cast<Void>(feed(s, wire, 7777));
@@ -1031,17 +864,11 @@ static Void testSilenceInput()
 static Void testCameraFrames()
 {
     std::printf("\n-- a CAMERA frame, carried verbatim --\n");
-
-    // The array is the whole file, not a truncated paste: a short one would
-    // zero-fill silently and every check below would still be testing
-    // something, just not a JPEG.
+    // A short array would zero-fill silently, so the sample must end in EOI.
     check(TINY_JPEG[TINY_JPEG.size() - 1] == 0xD9u, "the sample ends with a JPEG EOI");
-
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
-
     Vec<UInt8> wire;
     static_cast<Void>(pushCamera(wire, 7, 1000000, jpegBytes));
-
     link::Session s;
     const Size used = feed(s, wire, 1000);
     check(used == wire.size(), "the whole camera frame is consumed");
@@ -1050,15 +877,11 @@ static Void testCameraFrames()
     check(s.camera.frameIndex == 7u, "with its frame index");
     check(s.camera.width == 16u && s.camera.height == 12u, "and its dimensions");
     check(s.camera.codec == 1u, "and its codec tag, echoed rather than assumed");
-
-    // THE BYTES, EXACTLY. The payload contains bibowire's own frame magic and
-    // five ff d8 ff runs; a reader that scanned for either instead of trusting
-    // byteLen would have truncated the picture here.
+    // The payload holds frame magic and ff d8 ff runs, so a reader that scanned
+    // for either instead of trusting byteLen would truncate it.
     check(s.camera.data.size() == jpegBytes.size(), "the JPEG is the length it was sent at");
     check(s.camera.data == jpegBytes, "and is byte-for-byte what the board sent");
-
-    // A reconnect subscribes to nothing and carries no picture: the board
-    // keeps no subscription across a session, so neither may this.
+    // The board keeps no subscription across a session, so neither may this.
     s.cameraSubscribed = true;
     link::clearSession(s);
     check(!s.cameraSubscribed, "a reconnect subscribes to nothing");
@@ -1068,13 +891,11 @@ static Void testCameraFrames()
 static Void testCameraByteAtATime()
 {
     std::printf("\n-- the same camera frame, one byte at a time --\n");
-
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
     Vec<UInt8> wire;
     static_cast<Void>(pushScan(wire, scanOf(3, 900000)));
     static_cast<Void>(pushCamera(wire, 1, 1000000, jpegBytes));
     static_cast<Void>(pushScan(wire, scanOf(4, 1100000)));
-
     link::Session drip;
     Vec<UInt8> ring;
     for(Size i = 0; i < wire.size(); ++i)
@@ -1083,39 +904,29 @@ static Void testCameraByteAtATime()
         const Size used = link::ingestBytes(drip, ring.data(), ring.size(), 1000);
         ring.erase(ring.begin(), ring.begin() + static_cast<ISize>(used));
     }
-
     check(ring.empty(), "nothing is left over when the last byte lands");
     check(drip.haveCamera, "the camera frame is reassembled");
     check(drip.camera.data == jpegBytes, "byte for byte, across every split");
     check(drip.revIndex == 4u, "and the scan after it still parses");
-
-    // THE ONE THAT MATTERS. The JPEG contains `42 57` four times, which is the
-    // frame magic. A single resynced byte here would mean the reader had gone
-    // looking for structure inside a payload it was already told the length of.
+    // The JPEG contains the frame magic, so one resynced byte would mean the
+    // reader searched a payload whose length it already had.
     check(drip.resyncBytes == 0u, "with no resync inside the picture");
 }
 
 static Void testCameraDecodes()
 {
     std::printf("\n-- and it is a picture stb_image can actually read --\n");
-
-    // The thing a hand-built frame cannot prove on its own: that what came off
-    // the wire is a real JPEG, and that the decoder this viewer ships turns it
-    // into the pixels the camera saw.
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
     Vec<UInt8> wire;
     static_cast<Void>(pushCamera(wire, 11, 1000000, jpegBytes));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
-
     const Opt<link::CameraShot> shot = s.cameraShot(1000);
     check(shot.has_value(), "a fresh camera frame is there to draw");
     if(!shot.has_value())
     {
         return;
     }
-
     jpeg::Picture pic;
     Str why;
     const Bool ok = jpeg::decode(shot->bytes.data(), shot->bytes.size(), &pic, &why);
@@ -1125,22 +936,16 @@ static Void testCameraDecodes()
         std::printf("        %s\n", why.c_str());
         return;
     }
-
     check(pic.width == 16 && pic.height == 12, "to the size the frame claimed");
     check(pic.rgba.size() == 16u * 12u * 4u, "with four bytes a pixel, RGBA");
-
-    // Four quadrants, sampled well inside each, so a swapped row or column
-    // order is a failure rather than a rounding difference.
+    // Sampled well inside each quadrant, so a swapped row or column order fails.
     check(nearByte(channelAt(pic, 4, 3, 0), 203), "top-left is red");
     check(nearByte(channelAt(pic, 12, 3, 1), 199), "top-right is green");
     check(nearByte(channelAt(pic, 4, 9, 2), 205), "bottom-left is blue");
     check(nearByte(channelAt(pic, 12, 9, 0), 231), "bottom-right is near white");
-
-    // A JPEG has no alpha to read, so reqComp 4 must synthesise an opaque one.
-    // A 0 here would upload a fully transparent texture - a window that is
-    // empty for a reason nobody would think to look for.
+    // A JPEG has no alpha, so reqComp 4 must synthesise an opaque one; 0 would
+    // upload an invisible texture.
     check(channelAt(pic, 8, 6, 3) == 255u, "and every pixel is opaque");
-
     // Refusals are sentences, not silence.
     jpeg::Picture bad;
     Str badWhy;
@@ -1155,42 +960,29 @@ static Void testCameraDecodes()
 static Void testCameraStaleness()
 {
     std::printf("\n-- a camera frame too old to draw is not drawn --\n");
-
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
     Vec<UInt8> wire;
     static_cast<Void>(pushCamera(wire, 1, 0, jpegBytes));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
-
     check(s.cameraShot(1000).has_value(), "a fresh frame is there to draw");
     check(!s.cameraShot(1000)->stale, "and is not marked stale");
     check(s.cameraShot(1401).has_value(), "at 401 ms it is still drawable");
     check(s.cameraShot(1401)->stale, "but is marked stale");
     check(s.cameraShot(1401)->ageMs == 401, "with its age");
-
-    // Past 1500 ms there is NO PICTURE AT ALL. A photograph of a corridor is
-    // equally convincing whether it was taken now or forty seconds ago - there
-    // is nothing in the image for a person to read the age off - which is why
-    // the band above stale is absence rather than a dimmer picture.
     check(!s.cameraShot(2501).has_value(), "past 1500 ms there is nothing to draw");
-
-    // While the session still knows one arrived, so the window can say "no
-    // camera frame for 3.2 s" instead of "not subscribed".
+    // So the window can say how long since the last frame, not "not subscribed".
     check(s.haveCamera, "while the session still knows one arrived");
-
     check(!s.cameraShot(900).has_value(), "a clock that went backwards reads as gone");
 }
 
 static Void testCameraGaps()
 {
     std::printf("\n-- camera gaps are counted, never smoothed --\n");
-
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
     Vec<UInt8> wire;
     static_cast<Void>(pushCamera(wire, 90, 1000000, jpegBytes));
     static_cast<Void>(pushCamera(wire, 95, 1400000, jpegBytes));
-
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.missedCameraFrames == 4u, "four missing frames are counted");
@@ -1202,16 +994,13 @@ static Void testCameraGaps()
 static Void testCameraRefusal()
 {
     std::printf("\n-- why there is no picture, in the board's own words --\n");
-
     link::Session s;
     check(!s.haveCameraNote, "nothing is claimed before the board says anything");
-
     Vec<UInt8> wire;
     static_cast<Void>(
         pushEvent(wire, "camera busy - another pilot holds /dev/video0", 0)
     );
     static_cast<Void>(feed(s, wire, 1000));
-
     check(s.haveCameraNote, "an EVENT about the camera is kept where the window can show it");
     checkStr(
         s.cameraNoteText,
@@ -1219,10 +1008,7 @@ static Void testCameraRefusal()
         "verbatim, because the sentence is the part a person can act on"
     );
     check(s.notes.size() == 1, "and it is still an ordinary note as well");
-
-    // An EVENT about something else must not be dressed up as a camera
-    // refusal: an empty window blaming the wrong subsystem is worse than an
-    // empty window.
+    // An unrelated EVENT must not be shown as the camera's reason.
     Vec<UInt8> other;
     static_cast<Void>(pushEvent(other, "lidar timeout - no revolution in 200 ms", 0));
     static_cast<Void>(feed(s, other, 1010));
@@ -1236,32 +1022,27 @@ static Void testCameraRefusal()
 static Void testIdleTestIntent()
 {
     std::printf("\n-- the idle test rides the stream only with the enable --\n");
-
     driveview::View v;
     v.throttleCapMilli = 300;
     driveview::Keys w;
     w.forward = true;
-
     v.idleTest = true;
     const link::Intent off = driveview::intentFrom(w, v);
     check(
         (off.buttons & bibowire::BUTTON_IDLE_TEST) == 0u,
         "without the enable there is no idle test on the wire"
     );
-
     v.enabled = true;
     const link::Intent on = driveview::intentFrom(w, v);
     check((on.buttons & bibowire::BUTTON_IDLE_TEST) != 0u, "with it, the bit is set");
     check((on.buttons & bibowire::BUTTON_ENABLE) != 0u, "beside ENABLE");
     check(on.throttleMilli == 0, "and W counts for nothing while the motor is held at idle");
-
     link::ControlStamp at;
     at.sessionId = 0x1D1E7E57u;
     at.seq = 1u;
     at.armEpoch = 1u;
     const bibowire::Control m = link::buildControl(on, at);
     check((m.buttons & bibowire::BUTTON_IDLE_TEST) != 0u, "and it survives onto the datagram");
-
     v.idleTest = false;
     check(driveview::intentFrom(w, v).throttleMilli == 300, "untick it and W is W again");
 }
@@ -1269,12 +1050,9 @@ static Void testIdleTestIntent()
 static Void testBoardTrim()
 {
     std::printf("\n-- the trim the board has saved, taken into the pane --\n");
-
     const Char* FULL = "SERVOLIMITS 1200 1700; ESCLIMITS 1564 1700; SERVOTRIM 1470; SLEW STEER 22; SLEW THROTTLE 14";
-
     link::Session s;
     check(!s.haveBoardTrim, "nothing is claimed before the board says anything");
-
     Vec<UInt8> wire;
     static_cast<Void>(pushEvent(wire, FULL, 0, bibowire::EVENT_CODE_TRIM));
     static_cast<Void>(feed(s, wire, 1000));
@@ -1288,9 +1066,7 @@ static Void testBoardTrim()
         s.notes.size() == 1 && s.notes[0].text.rfind("trim saved on the board: ", 0) == 0,
         "and listed in words as a note"
     );
-
-    // THE CODE DECIDES, NOT THE TEXT. A sentence that happens to contain a trim
-    // line is not the board's saved trim.
+    // The code decides, not the text.
     Vec<UInt8> other;
     static_cast<Void>(pushEvent(other, "SERVOTRIM 1500", 0));
     static_cast<Void>(feed(s, other, 1010));
@@ -1300,7 +1076,6 @@ static Void testBoardTrim()
         "an EVENT under another code is not taken as trim, whatever its text"
     );
     check(s.boardTrimCount == 1u, "and is not counted as a report");
-
     Vec<UInt8> none;
     static_cast<Void>(pushEvent(none, "", 0, bibowire::EVENT_CODE_TRIM));
     static_cast<Void>(feed(s, none, 1020));
@@ -1309,8 +1084,6 @@ static Void testBoardTrim()
         "an empty report says the board has nothing saved"
     );
     check(s.boardTrimCount == 2u, "and is a report of its own");
-
-    // ---- into the sliders ----
     trimview::View v;
     check(trimview::adoptReport(v, FULL) == 5, "all five settings are taken");
     check(
@@ -1319,7 +1092,6 @@ static Void testBoardTrim()
     );
     check(v.escMinUs == 1564 && v.escMaxUs == 1700, "the throttle limits");
     check(v.steerSlewUs == 22 && v.throttleSlewUs == 14, "and both rates, each on its own axis");
-
     trimview::View rev;
     check(
         trimview::adoptReport(rev, "ESCLIMITS 1541 1700; ESCREVERSE 1350") == 2,
@@ -1335,7 +1107,6 @@ static Void testBoardTrim()
         revHigh.escReverseUs == trimview::ESC_REVERSE_DEFAULT,
         "and settled back to off, never a forward pulse"
     );
-
     trimview::View part;
     check(
         trimview::adoptReport(part, "SERVOTRIM 1490") == 1,
@@ -1348,7 +1119,6 @@ static Void testBoardTrim()
             && part.throttleSlewUs == trimview::THROTTLE_SLEW_DEFAULT,
         "which moves the centre and leaves every other slider where it was"
     );
-
     trimview::View junk;
     const Int32 junkTaken = trimview::adoptReport(
         junk,
@@ -1361,7 +1131,6 @@ static Void testBoardTrim()
             && junk.steerSlewUs == trimview::STEER_SLEW_DEFAULT,
         "so nothing moved"
     );
-
     trimview::View wild;
     check(
         trimview::adoptReport(wild, "ESCLIMITS 900 3000") == 1,
@@ -1372,7 +1141,6 @@ static Void testBoardTrim()
             && wild.escMaxUs == static_cast<Int32>(bibowire::ESC_US_HARD_MAX),
         "and settled to the sliders' own range"
     );
-
     trimview::View blank;
     check(trimview::adoptReport(blank, "") == 0, "an empty report takes nothing");
     check(
@@ -1384,19 +1152,12 @@ static Void testBoardTrim()
 static Void testSubscriptionMask()
 {
     std::printf("\n-- the mask, which is why any of this arrives at all --\n");
-
     const UInt32 without = link::subscriptionMask(false);
     const UInt32 with = link::subscriptionMask(true);
-
-    // A ZERO MASK MEANS EVERYTHING to the board, so the mask that switches the
-    // camera off must never be 0 - it would ask for MORE than it started with,
-    // and the only symptom would be a bandwidth figure nobody is watching.
     check(without != 0u, "the no-camera mask is never zero");
     check((without & 65536u) == 0u, "and does not claim the camera");
     check((with & 65536u) != 0u, "while the camera mask does");
     check(with == (without | 65536u), "and differs in exactly that one bit");
-
-    // Everything this viewer draws survives turning the camera off.
     check((without & bibowire::typeBit(bibowire::Type::TYPE_SCAN)) != 0u, "the scan survives");
     check((without & bibowire::typeBit(bibowire::Type::TYPE_EVENT)) != 0u, "so do the sentences");
 }
@@ -1421,31 +1182,24 @@ static Void checkUv(const orient::Uv& got, Float32 u, Float32 v, const Char* wha
 static Void testOrientation()
 {
     std::printf("\n-- rotating and flipping the camera picture --\n");
-
-    // Unturned, every corner maps to itself.
     const Array<orient::Uv, 4> flat = orient::cornerUvs(0, false, false);
     checkUv(flat[0], 0.0f, 0.0f, "unturned, the top-left is the source's top-left");
     checkUv(flat[2], 1.0f, 1.0f, "and the bottom-right is the source's bottom-right");
     check(!orient::sideways(0), "and the picture is not on its side");
-
-    // A QUARTER TURN CLOCKWISE, which is the case ImGui::Image cannot express:
-    // what was at the source's bottom-left belongs at the destination's
-    // top-left, and no pair of opposite uv corners can say that.
+    // A quarter turn clockwise, which ImGui::Image's two opposite uv corners
+    // cannot express.
     const Array<orient::Uv, 4> cw = orient::cornerUvs(1, false, false);
     checkUv(cw[0], 0.0f, 1.0f, "turned 90, the top-left samples the source's BOTTOM-left");
     checkUv(cw[1], 0.0f, 0.0f, "the top-right samples the source's top-left");
     checkUv(cw[2], 1.0f, 0.0f, "the bottom-right samples the source's top-right");
     checkUv(cw[3], 1.0f, 1.0f, "and the bottom-left samples the source's bottom-right");
     check(orient::sideways(1), "and 90 degrees IS on its side, so the fit swaps");
-
-    // Half a turn is both axes mirrored - the one rotation a plain Image could
-    // also have drawn, so the two had better agree about it.
+    // Half a turn is both axes mirrored.
     const Array<orient::Uv, 4> half = orient::cornerUvs(2, false, false);
     checkUv(half[0], 1.0f, 1.0f, "turned 180, the top-left samples the far corner");
     check(!orient::sideways(2), "and 180 is not on its side");
     check(orient::sideways(3), "while 270 is");
-
-    // The flips are in SOURCE space, so they mean the same thing at any angle.
+    // The flips are in source space, so they mean the same at any angle.
     const Array<orient::Uv, 4> mirrored = orient::cornerUvs(0, true, false);
     checkUv(mirrored[0], 1.0f, 0.0f, "flipped horizontally, the top-left samples the top-right");
     const Array<orient::Uv, 4> upended = orient::cornerUvs(0, false, true);
@@ -1454,9 +1208,7 @@ static Void testOrientation()
         sameCorners(orient::cornerUvs(0, true, true), half),
         "and flipping BOTH axes is the same picture as turning it 180"
     );
-
-    // FOLDED, NOT REFUSED. A rotate-left button hands this a negative, and a
-    // mapping that only works for 0..3 breaks the first time one is wired up.
+    // Turns fold rather than being refused: a rotate-left button passes negatives.
     check(
         sameCorners(orient::cornerUvs(-1, false, false), orient::cornerUvs(3, false, false)),
         "a negative turn folds to the same corners as 3"
@@ -1468,45 +1220,28 @@ static Void testOrientation()
 static Void testCommandIds()
 {
     std::printf("\n-- a cmdId is never 0, and never repeats --\n");
-
     link::Client c;
     check(c.pending.empty(), "a fresh client has nothing queued");
     check(link::commandsDropped(c) == 0u, "and has dropped nothing");
-
     link::sendCommand(c, bibowire::Verb::VERB_SET_SERVO_TRIM, 0, 1480, 0);
     link::sendCommand(c, bibowire::Verb::VERB_SET_SLEW, bibowire::SLEW_AXIS_STEER, 8, 0);
     link::sendCommand(c, bibowire::Verb::VERB_SET_ESC_LIMITS, 0, 1541, 1600);
-
     check(c.pending.size() == 3, "three deliberate acts are three queued commands");
     if(c.pending.size() != 3)
     {
         return;
     }
-
-    // ZERO IS RESERVED. CTLSTATE's lastCmdId uses 0 to mean "none applied", so a
-    // command numbered 0 is one the board could never report having run.
     check(c.pending[0].cmdId != 0u, "the first cmdId is not 0");
     check(c.pending[1].cmdId != 0u, "nor the second");
     check(c.pending[2].cmdId != 0u, "nor the third");
-
     check(c.pending[0].cmdId == 1u, "the counter starts at 1");
     check(c.pending[1].cmdId == 2u, "and the second is 2");
     check(c.pending[2].cmdId == 3u, "and the third is 3");
-
-    // STRICTLY increasing, asserted as an ordering and not only as three
-    // constants: the constants above would still pass if the counter were reset
-    // between calls in some way that happened to produce 1, 2, 3.
+    // Also asserted as an ordering, not only as constants.
     check(c.pending[1].cmdId > c.pending[0].cmdId, "strictly increasing");
     check(c.pending[2].cmdId > c.pending[1].cmdId, "at every step");
-
-    // They do not COLLAPSE. Two camera-on requests are one fact; two tuning
-    // commands are two acts, each of which gets its own CMDACK.
     check(c.pending[0].verb == bibowire::Verb::VERB_SET_SERVO_TRIM, "the first verb survives");
     check(c.pending[2].verb == bibowire::Verb::VERB_SET_ESC_LIMITS, "and so does the third");
-
-    // sessionId and armEpoch are the WORKER's to stamp, at the moment of
-    // sending - a snapshot taken here would be the session the operator typed
-    // into rather than the one the frame goes out on.
     check(c.pending[0].sessionId == 0u, "sessionId is left for the worker to stamp");
     check(c.pending[0].armEpoch == 0u, "and so is armEpoch");
 }
@@ -1514,7 +1249,6 @@ static Void testCommandIds()
 static Void testCommandEncoding()
 {
     std::printf("\n-- a queued command becomes a COMMAND frame, exactly --\n");
-
     link::Client c;
     link::sendCommand(c, bibowire::Verb::VERB_SET_SERVO_LIMITS, 0, 1230, 1660);
     check(c.pending.size() == 1, "one command is queued");
@@ -1522,13 +1256,10 @@ static Void testCommandEncoding()
     {
         return;
     }
-
-    // What the worker does before it writes: stamp the connection's facts onto
-    // the act the UI thread queued.
+    // Stamped as the worker does before it writes.
     bibowire::Command cmd = c.pending[0];
     cmd.sessionId = 0x51E55101u;
     cmd.armEpoch = 3;
-
     Array<UInt8, 64> body = {};
     const Size n = bibowire::writeCommand(cmd, body.data(), body.size());
     check(n != 0, "it encodes");
@@ -1536,10 +1267,8 @@ static Void testCommandEncoding()
     {
         return;
     }
-
     Vec<UInt8> wire;
     static_cast<Void>(framed(wire, bibowire::Type::TYPE_COMMAND, body.data(), n));
-
     bibowire::Frame f;
     Size used = 0;
     const bibowire::Take got = bibowire::take(wire.data(), wire.size(), &f, &used);
@@ -1549,14 +1278,9 @@ static Void testCommandEncoding()
     {
         return;
     }
-
     bibowire::Command back;
     check(bibowire::readCommand(f.body, f.head.ver, &back), "and decodes");
-
-    // VALUES, NOT SUCCESS. 1230 and 1660 are different numbers on purpose, so a
-    // swap of arg1 and arg2 fails here rather than round-tripping happily - and
-    // arg1/arg2 are min/max, which is the pair a reader of the verb table is
-    // most likely to reverse.
+    // Distinct values, so swapping arg1 (min) and arg2 (max) fails.
     check(back.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS, "verb 9 survives");
     check(back.arg1 == 1230u, "min lands in arg1");
     check(back.arg2 == 1660u, "max lands in arg2");
@@ -1564,10 +1288,8 @@ static Void testCommandEncoding()
     check(back.cmdId == 1u, "the cmdId survives");
     check(back.sessionId == 0x51E55101u, "and the session the worker stamped");
     check(back.armEpoch == 3u, "and the epoch");
-
-    // SET_SLEW puts the AXIS in arg0 and the rate in arg1, which is the other
-    // place a field can be put in the wrong slot - and the failure would be a
-    // throttle rate silently applied to the steering.
+    // SET_SLEW puts the axis in arg0 and the rate in arg1; a swap would apply a
+    // throttle rate to the steering.
     link::Client s;
     link::sendCommand(s, bibowire::Verb::VERB_SET_SLEW, bibowire::SLEW_AXIS_THROTTLE, 12, 0);
     check(s.pending.size() == 1, "a slew command is queued");
@@ -1575,7 +1297,6 @@ static Void testCommandEncoding()
     {
         return;
     }
-
     Array<UInt8, 64> slewBody = {};
     const Size sn = bibowire::writeCommand(s.pending[0], slewBody.data(), slewBody.size());
     check(sn != 0, "it encodes");
@@ -1583,7 +1304,6 @@ static Void testCommandEncoding()
     {
         return;
     }
-
     Vec<UInt8> slewWire;
     static_cast<Void>(framed(slewWire, bibowire::Type::TYPE_COMMAND, slewBody.data(), sn));
     bibowire::Frame sf;
@@ -1601,51 +1321,34 @@ static Void testCommandEncoding()
 static Void testSlewArithmetic()
 {
     std::printf("\n-- us per tick, into us per second, into a TIME --\n");
-
-    // 50 ticks a second, because the Pico's tick is 20 ms. This is the whole of
-    // the first conversion and it is the one an operator never has to do again.
+    // The Pico's tick is 20 ms, so 50 ticks a second.
     check(trimview::slewUsPerSec(8) == 400, "8 us a tick is 400 us a second");
     check(trimview::slewUsPerSec(1) == 50, "1 is 50");
     check(trimview::slewUsPerSec(200) == 10000, "and 200 is 10000");
-
-    // THE NUMBER cal.hxx ITSELF CLAIMS. Its comment says 8 is 400 us/s, "which
-    // walks this car's 430 us of steering travel in about a second" - 1230 to
-    // 1660 is 430, and the arithmetic here says 1.07 s. Agreeing with the
-    // firmware's own prose is the point: two files describing one car.
+    // 430 us is the steering travel, 1230 to 1660.
     check(trimview::crossCentis(430, 8) == 107, "430 us of travel at 8 is 1.07 s lock to lock");
-
     // The throttle's 59 us band - 1541 to 1600 - at the same rate.
     check(trimview::crossCentis(59, 8) == 14, "the 59 us throttle band at 8 is 0.14 s");
-
     // The slowest and fastest the protocol allows, across the steering's travel.
     check(trimview::crossCentis(430, 1) == 860, "at 1 us a tick the same travel takes 8.60 s");
     check(trimview::crossCentis(430, 200) == 4, "and at 200 it takes 0.04 s");
-
-    // ARGUMENT ORDER. A span and a rate are both small integers, so a swap
-    // compiles and produces a plausible-looking number; these are different
-    // answers, which is what makes the check worth writing.
+    // Span and rate are both small integers, so a swap compiles; these differ.
     check(
         trimview::crossCentis(430, 8) != trimview::crossCentis(8, 430),
         "span and rate are not interchangeable"
     );
-
-    // NOT A QUESTION WITH AN ANSWER. A zero span would read as "instant" and a
-    // zero rate is a divide by zero; both are -1, which the pane renders as a
-    // dash rather than as 0.00 s.
+    // No answer is -1, shown as a dash: a zero span would read as instant, and
+    // a zero rate divides by zero.
     check(trimview::crossCentis(0, 8) == -1, "no travel to cross has no time");
     check(trimview::crossCentis(-5, 8) == -1, "nor does a crossed pair of limits");
     check(trimview::crossCentis(430, 0) == -1, "and a rate of zero never arrives");
-
-    // The defaults this pane starts from are the committed ones, so a drift in
-    // either file is a failure here rather than a surprise on the car.
+    // The pane's defaults must match the firmware's committed values.
     check(trimview::STEER_MIN_DEFAULT == 1230, "the steering minimum mirrors cal.hxx");
     check(trimview::STEER_CENTRE_DEFAULT == 1480, "and the centre, which is not 1500");
     check(trimview::STEER_MAX_DEFAULT == 1660, "and the maximum");
     check(trimview::ESC_MIN_DEFAULT == 1541, "and the throttle's idle");
     check(trimview::ESC_MAX_DEFAULT == 1600, "and its full");
-
-    // Every default must sit inside the bounds the protocol will accept, or the
-    // pane opens on a value the board would refuse.
+    // Inside the protocol's bounds, or the pane opens on a value the board refuses.
     check(
         trimview::STEER_MIN_DEFAULT >= static_cast<Int32>(bibowire::SERVO_US_HARD_MIN),
         "inside the servo floor"
@@ -1667,23 +1370,18 @@ static Void testSlewArithmetic()
 static Void testCmdAck()
 {
     std::printf("\n-- what the board said, which is the whole point of a refusal --\n");
-
     link::Session s;
     check(!s.newestAck().has_value(), "before any answer there is nothing to show");
-
-    // A REFUSAL. result 3 is "not in this state", which is what a tuning verb
-    // gets while the car is armed.
+    // result 3, "not in this state", is what a tuning verb gets while armed.
     bibowire::CmdAck refused;
     refused.cmdId = 7;
     refused.verb = bibowire::Verb::VERB_SET_SERVO_LIMITS;
     refused.result = 3;
     refused.armEpoch = 3;
     refused.text = "refused - disarm before changing the servo limits";
-
     Vec<UInt8> wire;
     static_cast<Void>(pushCmdAck(wire, refused));
     static_cast<Void>(feed(s, wire, 1000));
-
     const Opt<link::Ack> got = s.newestAck();
     check(got.has_value(), "a CMDACK is kept");
     if(!got.has_value())
@@ -1694,9 +1392,6 @@ static Void testCmdAck()
     check(got->ack.result == 3u, "and its result");
     check(got->ack.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS, "and the verb it answers");
     check(got->atMs == 1000, "and when it landed");
-
-    // VERBATIM. The sentence is the part a person can act on, and a viewer that
-    // kept only the result byte would leave an operator with a number.
     checkStr(
         got->ack.text,
         "refused - disarm before changing the servo limits",
@@ -1709,9 +1404,6 @@ static Void testCmdAck()
         "unknown verb",
         "and 2, for a board too old for these verbs"
     );
-
-    // The NEWEST is the one shown. An older ack sitting where the latest belongs
-    // would report the wrong command's result at the moment somebody is watching.
     bibowire::CmdAck ok;
     ok.cmdId = 8;
     ok.verb = bibowire::Verb::VERB_SET_SLEW;
@@ -1722,8 +1414,6 @@ static Void testCmdAck()
     static_cast<Void>(feed(s, second, 1100));
     check(s.newestAck().has_value() && s.newestAck()->ack.cmdId == 8u, "the newest answer wins");
     check(s.acks.size() == 2, "while the one before it is still kept");
-
-    // BOUNDED. An unbounded list is a leak with a good excuse.
     for(UInt32 i = 0; i < 20u; ++i)
     {
         bibowire::CmdAck more;
@@ -1735,8 +1425,6 @@ static Void testCmdAck()
     }
     check(s.acks.size() == link::MAX_ACKS, "the ack list is bounded");
     check(s.newestAck()->ack.cmdId == 119u, "and keeps the newest, not the first");
-
-    // A cmdId belongs to one connection, so the answers go with the session.
     link::clearSession(s);
     check(s.acks.empty(), "a reconnect carries no acks across");
     check(!s.newestAck().has_value(), "and has nothing to show");
@@ -1745,14 +1433,10 @@ static Void testCmdAck()
 static Void testControlSeq()
 {
     std::printf("\n-- a CONTROL seq starts at 1, never repeats and is never 0 --\n");
-
     check(link::nextControlSeq(0u) == 1u, "the first seq of a session is 1, not 0");
     check(link::nextControlSeq(1u) == 2u, "then 2");
     check(link::nextControlSeq(41u) == 42u, "and it counts by one");
-
-    // STRICTLY INCREASING, asserted as an ordering over a run rather than as
-    // three constants: the three above would still pass if the counter reset in
-    // some way that happened to produce 1, 2, 42.
+    // Also asserted as an ordering over a run, not only as constants.
     UInt32 seq = 0;
     Bool rising = true;
     Bool everZero = false;
@@ -1772,29 +1456,23 @@ static Void testControlSeq()
     check(rising, "strictly increasing across four thousand datagrams");
     check(!everZero, "and never 0 - CTLSTATE's ackSeq uses 0 for none applied");
     check(seq == 4000u, "four thousand sends is seq 4000, so none were skipped");
-
-    // 6.8 years away at 20 Hz, and written anyway: a rule held by an arithmetic
-    // coincidence is a rule nobody can point at.
     check(link::nextControlSeq(0xFFFFFFFFu) == 1u, "the wrap skips 0 and begins again at 1");
 }
 
 static Void testControlRoundTrip()
 {
     std::printf("\n-- a CONTROL this viewer built, field by field --\n");
-
     link::Intent in;
     in.driving = true;
     in.steerMilli = -437;
     in.throttleMilli = 268;
     in.buttons = static_cast<UInt16>(bibowire::BUTTON_ENABLE | bibowire::BUTTON_MOTOR_WANTED);
     in.assumedMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_LOOK);
-
     link::ControlStamp at;
     at.sessionId = 0x51E55101u;
     at.seq = 4242u;
     at.armEpoch = 7u;
     at.tMonoUs = 1234567890ull;
-
     const bibowire::Control m = link::buildControl(in, at);
     Array<UInt8, 64> body = {};
     const Size n = bibowire::writeControl(m, body.data(), body.size());
@@ -1803,10 +1481,8 @@ static Void testControlRoundTrip()
     {
         return;
     }
-
     Vec<UInt8> wire;
     static_cast<Void>(framed(wire, bibowire::Type::TYPE_CONTROL, body.data(), n));
-
     bibowire::Frame f;
     Size used = 0;
     const bibowire::Take got = bibowire::take(wire.data(), wire.size(), &f, &used);
@@ -1816,14 +1492,10 @@ static Void testControlRoundTrip()
     {
         return;
     }
-
     bibowire::Control back;
     check(bibowire::readControl(f.body, f.head.ver, &back), "and decodes");
-
-    // VALUES, NOT SUCCESS, and EVERY FIELD A DIFFERENT VALUE - so a swap of any
-    // pair fails here instead of round-tripping happily. The two Int16s and the
-    // two trailing UInt8s are the pairs a reader of the byte table is most
-    // likely to reverse, and they are asserted against each other as well.
+    // Every field a different value, so a swapped pair fails. The two Int16s and
+    // the two trailing UInt8s are also asserted against each other.
     check(back.sessionId == 0x51E55101u, "the session survives");
     check(back.seq == 4242u, "and the seq");
     check(back.tMonoUs == 1234567890ull, "and the viewer's own clock");
@@ -1840,9 +1512,7 @@ static Void testControlRoundTrip()
 static Void testDriveKeys()
 {
     std::printf("\n-- what a key means, which is the whole of the driving --\n");
-
     const driveview::Keys none;
-
     driveview::Keys a;
     a.left = true;
     driveview::Keys d;
@@ -1850,22 +1520,16 @@ static Void testDriveKeys()
     driveview::Keys both;
     both.left = true;
     both.right = true;
-
-    // WHICH WAY THE KEYS PUSH. This used to be the steering itself; it is now
-    // the direction steerHeldStep moves the held value in (testSteerHeld), and
-    // the rule is the same either way.
+    // The direction steerHeldStep moves the held steering (testSteerHeld).
     check(driveview::steerFrom(none) == 0, "no key is no push");
     check(driveview::steerFrom(a) == -1000, "A pushes toward full left");
     check(driveview::steerFrom(d) == 1000, "D pushes toward full right");
     check(driveview::steerFrom(a) != driveview::steerFrom(d), "and left is not right");
-
-    // BOTH CANCELS, and it is not "the last one wins": a hand resting on A while
-    // reaching for D is the case, and a wheel that picked one would turn while
-    // its operator believed it was holding.
+    // Both cancel, rather than the last one winning: a hand resting on A while
+    // reaching for D must not turn the wheel.
     check(driveview::steerFrom(both) == 0, "A and D together cancel to no push");
     check(driveview::steerFrom(both) != driveview::steerFrom(a), "not the left one");
     check(driveview::steerFrom(both) != driveview::steerFrom(d), "and not the right one");
-
     driveview::Keys w;
     w.forward = true;
     driveview::Keys s;
@@ -1873,26 +1537,21 @@ static Void testDriveKeys()
     driveview::Keys ws;
     ws.forward = true;
     ws.brake = true;
-
     check(driveview::throttleFrom(none, 300) == 0, "no key is no throttle");
     check(driveview::throttleFrom(w, 100) == 100, "W is the cap the operator set");
     check(driveview::throttleFrom(w, 300) == 300, "whatever that cap is");
     check(driveview::throttleFrom(w, 5000) == 1000, "and it is clamped to full scale");
     check(driveview::throttleFrom(w, 0) == 0, "a cap of zero is a key that does nothing");
     check(driveview::throttleFrom(w, -5) == 0, "and a negative cap is not reverse");
-
-    // S IS THE TRIGGER PUSHED FORWARD: minus the cap, which this ESC takes as a
-    // brake and then, after a return to neutral, as reverse.
+    // S is minus the cap, which this ESC takes as a brake and then, after a
+    // return to neutral, as reverse.
     check(
         driveview::throttleFrom(s, 300) == -300,
         "S alone is minus the cap - brake, then reverse"
     );
     check(driveview::throttleFrom(s, 5000) == -1000, "clamped to full scale like W");
     check(driveview::throttleFrom(s, 0) == 0, "and with a cap of zero S is a plain stop");
-
-    // S BEATS W. A brake W can override is not a brake - and W is already held
-    // when somebody reaches for S, so "both down" is precisely the moment the
-    // rule exists for. Inverted, the assertion below would read 300.
+    // S beats W: W is usually still held when someone reaches for the brake.
     check(driveview::throttleFrom(ws, 300) == -300, "and S BEATS W when both are down");
     check(
         driveview::throttleFrom(ws, 300) != driveview::throttleFrom(w, 300),
@@ -1909,7 +1568,6 @@ static Void testDriveKeys()
 static Void testSteerHeld()
 {
     std::printf("\n-- the steering ramps out and springs back to centre --\n");
-
     const driveview::Keys none;
     driveview::Keys a;
     a.left = true;
@@ -1923,20 +1581,14 @@ static Void testSteerHeld()
     driveview::Keys ac;
     ac.left = true;
     ac.centre = true;
-
-    // 1500 A SECOND is centre to full lock in two thirds of a second, and the
-    // readout under the slider says so in milliseconds.
     check(driveview::STEER_RATE_DEFAULT == 1500, "the default rate is 1500 a second");
     check(driveview::steerLockMs(1500) == 666, "which is centre to full lock in 666 ms");
     check(driveview::steerLockMs(0) == -1, "and a rate of zero has no time to show");
-
-    // AT THE RATE. 1500 a second over 100 ms is 150; a 16 ms frame is 24.
+    // 1500 a second over 100 ms is 150; a 16 ms frame is 24.
     check(heldAfter(0, a, 100) == -150, "A moves the held steering toward full left at the rate");
     check(heldAfter(0, d, 100) == 150, "D moves it toward full right at the same rate");
     check(heldAfter(0, d, 16) == 24, "and a 16 ms frame is 24 milli");
     check(heldAfter(-300, d, 100) == -150, "D from a left angle travels back toward centre");
-
-    // FROM CENTRE TO FULL LOCK in ordinary frames, and never past it.
     Int16 held = 0;
     Int32 frames = 0;
     Bool overshot = false;
@@ -1958,10 +1610,7 @@ static Void testSteerHeld()
         heldAfter(3000, none, 16) == 976,
         "a value out of range is clamped first, then springs back"
     );
-
-    // SPRINGS BACK ON RELEASE, at the same rate. Asked for in as many words -
-    // "once A or D are released the steering should go back to centre" - after
-    // a held steering that stayed put was tried and was the wrong answer.
+    // Released, the steering springs back to centre at the same rate.
     check(
         heldAfter(-420, none, 100) == -270,
         "releasing both keys moves the wheel back toward centre at the rate"
@@ -1975,29 +1624,24 @@ static Void testSteerHeld()
     check(heldAfter(-5, none, 100) == 0, "from the other side as well");
     check(heldAfter(0, none, 100) == 0, "and centre with no key stays centre");
     check(heldAfter(-420, none, 0) == -420, "no time passing moves nothing on the way back either");
-
-    // C CENTRES - instantly, and ahead of a steering key held with it.
     check(heldAfter(-420, c, 16) == 0, "C puts the held steering back to centre");
     check(heldAfter(1000, c, 0) == 0, "instantly - it needs no time to pass");
     check(heldAfter(-420, ac, 100) == 0, "and C beats A held down with it");
-
-    // A HITCH IS CLAMPED. A five-second frame with D down would be full lock
-    // from one stall; it is STEER_FRAME_MS_MAX's worth of travel instead.
+    // A long frame moves at most STEER_FRAME_MS_MAX's worth, so one stall is not
+    // full lock.
     check(heldAfter(0, d, 5000) == 150, "a 5000 ms frame moves only as far as a 100 ms one");
     check(heldAfter(0, d, driveview::STEER_FRAME_MS_MAX) == 150, "which is the cap");
     check(heldAfter(200, d, -40) == 200, "a negative frame length moves nothing");
     check(heldAfter(200, d, 0) == 200, "and neither does a zero-length one");
-
-    // THE RATE IS HELD TO THE SLIDER'S ENDS, and a slow rate on a fast frame
-    // still moves - a held key that never turns the wheel looks broken.
+    // The rate is held to the slider's ends, and a tiny step still moves, or a
+    // held key would look broken.
     check(driveview::steerHeldStep(0, d, 100000, 100) == 500, "a rate past the slider is its top");
     check(driveview::steerHeldStep(0, d, 0, 100) == 25, "a rate of zero is its bottom, not dead");
     check(
         driveview::steerHeldStep(0, d, driveview::STEER_RATE_MIN, 1) == 1,
         "and a step that rounds to zero milli is one"
     );
-
-    // THE INTENT CARRIES THE HELD VALUE, not the keys.
+    // The intent carries the held value, not the keys.
     driveview::View v;
     check(v.steerRateMilliPerS == driveview::STEER_RATE_DEFAULT, "a fresh pane has the default");
     check(v.steerHeldMilli == 0, "and starts straight");
@@ -2012,20 +1656,17 @@ static Void testSteerHeld()
 static Void testSettingsText()
 {
     std::printf("\n-- the settings file: integers only, forgiving in, exact out --\n");
-
     const settings::Values defaults;
     const Str text = settings::toText(defaults);
     check(text.find("trim.steerMinUs=1230\n") != Str::npos, "a value is written as key=value");
     check(text.find("drive.steerRateMilliPerS=1500\n") != Str::npos, "the steering rate is saved");
     check(text.find("drive.assumedMode=0\n") != Str::npos, "and the asserted mode");
     check(text.find("Held") == Str::npos, "the held steering is NOT - a moment is not a setting");
-
     settings::Values back;
     back.steerMinUs = 1;
     back.assumedMode = 2;
     check(settings::fromText(text, back) == settings::VALUE_COUNT, "every one is read back");
     check(back == defaults, "as the values that were written");
-
     settings::Values tuned;
     tuned.steerMinUs = 1250;
     tuned.steerMaxUs = 1700;
@@ -2044,9 +1685,8 @@ static Void testSettingsText()
     );
     check(read == tuned, "unchanged");
     check(settings::settle(tuned) == tuned, "and a set inside its ranges is left alone by settle");
-
-    // FORGIVING IN: a BOM, CRLF, blank lines, comments, spaces around the '=',
-    // a leading plus, no final newline - and an unknown key, skipped.
+    // Forgiving in: a BOM, CRLF, blank lines, comments, spaces around the '=',
+    // a leading plus, no final newline, and an unknown key, skipped.
     settings::Values loose;
     const Size looseTaken = settings::fromText(
         "\xEF\xBB\xBF# a comment\r\n\r\n  trim.escMaxUs = 1620 \r\n; another\r\n"
@@ -2057,9 +1697,7 @@ static Void testSettingsText()
     check(loose.escMaxUs == 1620, "the spaced value");
     check(loose.throttleCapMilli == 250, "and the signed one with no newline after it");
     check(loose.steerMinUs == trimview::STEER_MIN_DEFAULT, "a key the file lacks keeps its value");
-
-    // INTEGERS ONLY. A value that is not one is IGNORED rather than half-read:
-    // "1541.5" read as 1541 would be a parser deciding what somebody meant.
+    // Integers only: a value that is not one is ignored, never half-read.
     settings::Values strict;
     const Size strictTaken = settings::fromText(
         "trim.escMinUs=1541.5\ntrim.escMaxUs=1,600\ntrim.steerSlewUs=fast\n"
@@ -2068,8 +1706,7 @@ static Void testSettingsText()
     );
     check(strictTaken == 0u, "a decimal, a comma, a word, nothing, 1e1 and 11 digits: none");
     check(strict == settings::Values(), "and not one of them changed a value");
-
-    // OUT OF RANGE IS CLAMPED, by the panes' own settle functions.
+    // Out of range is clamped by the panes' own settle functions.
     settings::Values wild;
     const Size wildTaken = settings::fromText(
         "trim.steerMinUs=99999\ntrim.steerTrimUs=-5\ntrim.steerSlewUs=0\n"
@@ -2087,8 +1724,6 @@ static Void testSettingsText()
     check(tame.throttleCapMilli == 0, "a negative cap is zero, never reverse");
     check(tame.steerRateMilliPerS == driveview::STEER_RATE_MIN, "a slow rate clamps to the slider");
     check(tame.assumedMode == 0, "and an impossible mode folds to MANUAL, not up to DRIVE");
-
-    // APPLY TOUCHES THE SAVED FIELDS AND NOTHING ELSE.
     trimview::View trim;
     driveview::View drive;
     drive.open = true;
@@ -2100,8 +1735,7 @@ static Void testSettingsText()
         drive.open && drive.enabled && drive.steerHeldMilli == 300,
         "and the window, the enable and the held steering are left alone"
     );
-
-    // A MISSING FILE IS A FIRST RUN, not an error.
+    // A missing file is a first run, not an error.
     settings::Values untouched = tuned;
     const Opt<Size> none = settings::load(
         "Z:\\no\\such\\directory\\bibo-viewer-settings.ini",
@@ -2109,10 +1743,8 @@ static Void testSettingsText()
     );
     check(!none.has_value(), "a missing file loads nothing");
     check(untouched == tuned, "and changes nothing");
-
-    // WHERE IT LIVES. Beside bibo.exe is inside viewer\build, which build.bat
-    // clean deletes - the file moved to a folder of its own so a rebuild cannot
-    // throw an operator's tuning away. Nothing is written here; only the paths.
+    // Not beside bibo.exe in viewer/build, which build.bat clean deletes. Only
+    // the paths are checked; nothing is written.
     const Str home = settings::defaultPath();
     const Str old = settings::legacyPath();
     const StrView tail = "\\bibo\\bibo-viewer-settings.ini";
@@ -2126,19 +1758,15 @@ static Void testSettingsText()
 static Void testEnableOnEveryDatagram()
 {
     std::printf("\n-- ENABLE on every datagram, or the keys look dead --\n");
-
     driveview::View v;
     v.enabled = true;
     v.throttleCapMilli = 200;
-
     link::ControlStamp at;
     at.sessionId = 0x51E55101u;
     at.armEpoch = 3u;
-
-    // EVERY COMBINATION OF THE FIVE KEYS, twice over - once driving and once
-    // not. deadman::step reaches STATE_LIVE only while `enable` is set, so a
-    // combination that dropped the bit would be a car sitting at
-    // REFUSE_NOT_ARMED with somebody leaning on W.
+    // Every combination of the five keys, driving and then not. deadman::step
+    // reaches STATE_LIVE only with `enable` set, so a combination that dropped
+    // the bit would leave the car at REFUSE_NOT_ARMED.
     Bool alwaysEnabled = true;
     Bool seqRising = true;
     UInt32 seq = 0;
@@ -2150,7 +1778,6 @@ static Void testEnableOnEveryDatagram()
         k.forward = (mask & 4) != 0;
         k.brake = (mask & 8) != 0;
         k.estop = (mask & 16) != 0;
-
         const UInt32 next = link::nextControlSeq(seq);
         if(next <= seq)
         {
@@ -2158,7 +1785,6 @@ static Void testEnableOnEveryDatagram()
         }
         seq = next;
         at.seq = next;
-
         const bibowire::Control m = link::buildControl(driveview::intentFrom(k, v), at);
         if((m.buttons & bibowire::BUTTON_ENABLE) == 0u)
         {
@@ -2167,13 +1793,9 @@ static Void testEnableOnEveryDatagram()
     }
     check(alwaysEnabled, "ENABLE is set on all 32 key combinations while driving");
     check(seqRising, "and the seq rose on every one of them");
-
-    // AND IT CANNOT BE SET WHILE THE OPERATOR IS NOT DRIVING, whatever the keys
-    // say - the enable is consent, and consent is not something a key press
-    // supplies on the operator's behalf.
+    // Not driving, no key may set ENABLE: the enable is consent.
     v.enabled = false;
-    // A wheel LEFT turned, so "neither axis moves" is a claim about the gate and
-    // not about a held value that happened to be zero.
+    // A held steering, so "neither axis moves" tests the gate rather than a zero.
     v.steerHeldMilli = 600;
     Bool everEnabled = false;
     Bool everMoved = false;
@@ -2186,7 +1808,6 @@ static Void testEnableOnEveryDatagram()
         k.forward = (mask & 4) != 0;
         k.brake = (mask & 8) != 0;
         k.estop = (mask & 16) != 0;
-
         const bibowire::Control m = link::buildControl(driveview::intentFrom(k, v), at);
         if((m.buttons & bibowire::BUTTON_ENABLE) != 0u)
         {
@@ -2211,45 +1832,34 @@ static Void testEnableOnEveryDatagram()
 static Void testAssumedModeIsTheOperatorsOwn()
 {
     std::printf("\n-- assumedMode is the OPERATOR's belief, never the board's answer --\n");
-
-    // A board that says it is in DRIVE, twenty times a second.
+    // A board reporting DRIVE.
     Vec<UInt8> wire;
     static_cast<Void>(pushCtlState(wire, 1000000, 1));
     link::Session s;
     static_cast<Void>(feed(s, wire, 1000));
     check(s.control.pilotMode == 2u, "the board reports it is driving");
-
     driveview::View v;
     v.enabled = true;
     v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_MANUAL);
-
     const driveview::Keys none;
     const link::Intent manual = driveview::intentFrom(none, v);
-
-    // THE WHOLE CHECK. If this ever followed CTLSTATE, the board's own
-    // comparison - assumedMode against its real mode - would be true by
-    // construction and REFUSE_MODE could never fire, which is the bug that was
-    // just found and fixed on the BOARD side of the same comparison.
+    // If this followed CTLSTATE, the board's comparison of assumedMode with its
+    // real mode would always pass and REFUSE_MODE could never fire.
     check(manual.assumedMode == 0u, "the datagram asserts what the UI selected");
     check(
         manual.assumedMode != static_cast<UInt8>(s.control.pilotMode),
         "and it DISAGREES with the board, which is how REFUSE_MODE can ever fire"
     );
-
     v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_LOOK);
     check(driveview::intentFrom(none, v).assumedMode == 1u, "LOOK selected is LOOK sent");
     v.assumedMode = static_cast<Int32>(bibowire::PilotMode::PILOT_MODE_DRIVE);
     check(driveview::intentFrom(none, v).assumedMode == 2u, "DRIVE selected is DRIVE sent");
-
-    // An impossible selection folds to MANUAL - the mode whose stick values the
-    // board actually reads - rather than becoming a belief about a mode nobody
-    // is in.
+    // An impossible selection folds to MANUAL, the mode whose stick values the
+    // board reads.
     v.assumedMode = 9;
     check(driveview::intentFrom(none, v).assumedMode == 0u, "an out-of-range mode folds to manual");
     v.assumedMode = -3;
     check(driveview::intentFrom(none, v).assumedMode == 0u, "and so does a negative one");
-
-    // And it survives the trip to the wire, where the board reads it.
     link::ControlStamp at;
     at.sessionId = 1u;
     at.seq = 1u;
@@ -2262,16 +1872,13 @@ static Void testAssumedModeIsTheOperatorsOwn()
 static Void testControlSlotAndCadence()
 {
     std::printf("\n-- who holds the slot, and whose clock the stream keeps --\n");
-
     link::Session fresh;
     check(!link::holdsSlot(fresh), "before WELCOME this viewer holds nothing");
     check(
         link::controlPeriodMs(fresh) == static_cast<Int64>(bibowire::CONTROL_PERIOD_MS),
         "and would send at the protocol's own period"
     );
-
-    // accepted = 1 is "control is yours". Through the codec, because this is the
-    // field the whole feature turns on.
+    // Through the codec, because `accepted` decides the slot.
     bibowire::Welcome driver;
     driver.sessionId = 0x51E55101u;
     driver.bootId = 77u;
@@ -2281,18 +1888,13 @@ static Void testControlSlotAndCadence()
     driver.controlPeriodMs = 80;
     driver.boardName = "bibobox";
     driver.text = "control is yours";
-
     Vec<UInt8> wire;
     static_cast<Void>(pushWelcomeAs(wire, driver));
     link::Session held;
     static_cast<Void>(feed(held, wire, 1000));
     check(held.haveWelcome, "the WELCOME arrives");
     check(link::holdsSlot(held), "accepted = 1 is the control slot");
-
-    // THE BOARD'S NUMBER, not a constant compiled into this viewer months
-    // earlier. Section 4 puts controlPeriodMs in WELCOME for exactly this.
     check(link::controlPeriodMs(held) == 80, "and the cadence is the board's 80 ms, not 50");
-
     bibowire::Welcome observer = driver;
     observer.accepted = 2;
     observer.refusal = 2;
@@ -2302,7 +1904,6 @@ static Void testControlSlotAndCadence()
     static_cast<Void>(feed(obs, watching, 1000));
     check(obs.haveWelcome, "an observer is welcomed too");
     check(!link::holdsSlot(obs), "but accepted = 2 holds no slot, so it sends no CONTROL");
-
     bibowire::Welcome refused = driver;
     refused.accepted = 0;
     Vec<UInt8> denied;
@@ -2310,11 +1911,8 @@ static Void testControlSlotAndCadence()
     link::Session no;
     static_cast<Void>(feed(no, denied, 1000));
     check(!link::holdsSlot(no), "and a refused connection holds nothing at all");
-
-    // A board that sends 0 does not get to make this viewer spin: a period of
-    // zero is not a faster stream, it is a busy loop on the link the stream is
-    // trying to survive on. Built directly rather than through the wire, so the
-    // case is the viewer's rule and not the encoder's opinion of it.
+    // Built directly rather than through the wire, so this tests the viewer's
+    // rule, not the encoder's.
     link::Session zero;
     zero.haveWelcome = true;
     zero.welcome.controlPeriodMs = 0;
@@ -2324,34 +1922,12 @@ static Void testControlSlotAndCadence()
     );
 }
 
-// THE TWO SIGNS NOBODY CAN EYEBALL.
-//
-// Both rest on facts written down elsewhere rather than inferred: positive
-// steer is RIGHT, because chassis.hxx's steerToUs sends a positive fraction
-// toward servoMax and cal.hxx names that STEER_CAL_RIGHT; and +X is the car's
-// RIGHT, because scene.hxx states the frame and link.cxx repeats it where it
-// turns a bearing into a cloud point. Invert either and the code compiles, the
-// picture looks entirely reasonable, and the error is found while driving.
-//
-// This is orient.cxx's argument - a quarter turn is a transpose and nobody can
-// eyeball a transpose - applied to a sign.
-// WHICH CLOCK A DROPOUT HAPPENED ON.
-//
-// Two numbers answer it and neither can alone: the widest wait between
-// ARRIVALS, on this viewer's clock, and the widest gap between CAPTURES, on the
-// board's. Frames missing with captures steady means they were made and lost on
-// the way; no frames missing with a capture gap means the board stopped making
-// them. Before these existed a dropout needed a log tailed on somebody else's
-// machine to explain, which is no use in a field.
 static Void testCameraCaptureGaps()
 {
     std::printf("\n-- which clock a camera dropout happened on --\n");
-
     const Vec<UInt8> jpegBytes(TINY_JPEG.begin(), TINY_JPEG.end());
-
-    // THE FIRST FRAME ONLY STARTS THE CLOCK. Without that rule the board's
-    // whole uptime - a thousand seconds here - is reported as a stall on the
-    // very first picture, which is the classic version of this bug.
+    // The first frame only starts the capture clock, or the board's uptime would
+    // read as a stall.
     {
         link::Session first;
         Vec<UInt8> one;
@@ -2362,12 +1938,8 @@ static Void testCameraCaptureGaps()
             "the first frame starts the capture clock and is not itself a gap"
         );
     }
-
-    // TWO CLOCKS, HELD APART. Both frames are fed at the SAME local instant, so
-    // the arrival cadence sees no gap whatsoever - while the capture gap is
-    // 400 ms, because that is what the board's own timestamps say. If these are
-    // ever fed from one source this check fails, and it should: the entire
-    // diagnosis rests on them being independent measurements.
+    // Both frames arrive at one local instant, 400 ms apart on the board's
+    // clock: the two measurements must stay independent.
     link::Session s;
     Vec<UInt8> wire;
     static_cast<Void>(pushCamera(wire, 1, 1000000, jpegBytes));
@@ -2381,16 +1953,12 @@ static Void testCameraCaptureGaps()
         link::worstGapMs(s.cameraRate) == 0,
         "while the arrival cadence, fed at one instant, saw no gap at all"
     );
-
     Vec<UInt8> narrow;
     static_cast<Void>(pushCamera(narrow, 3, 1500000, jpegBytes));
     static_cast<Void>(feed(s, narrow, 5100));
     check(s.cameraWorstCaptureMs == 400, "a narrower gap afterwards does not erase the worst one");
-
-    // A board that restarted sends a SMALLER timestamp. Skipped rather than
-    // recorded: the safe reading of a clock that moved the wrong way is
-    // "measure again", and the unsigned subtraction would otherwise wrap to
-    // something enormous and read as a catastrophic stall.
+    // A restarted board sends a smaller timestamp; unsigned subtraction would
+    // wrap to an enormous stall.
     Vec<UInt8> back;
     static_cast<Void>(pushCamera(back, 4, 900000, jpegBytes));
     static_cast<Void>(feed(s, back, 5200));
@@ -2400,13 +1968,14 @@ static Void testCameraCaptureGaps()
     );
 }
 
+// Positive steer is right (chassis.hxx's steerToUs sends it to STEER_CAL_RIGHT)
+// and +X is right (scene.hxx's frame). Invert either and the picture still looks
+// reasonable, so the signs are held to an answer here.
 static Void testSteerSigns()
 {
     std::printf("\n  the signs of the heading arrow and the bending guides\n");
-
     constexpr Float32 EPS = 0.0005f;
-
-    // ---- the camera's guides, in image space -------------------------------
+    // The camera's guides, in image space.
     check(camview::bendAt(0.0f, 45, 1.0f) == 0.0f, "no steering is no bend");
     check(
         camview::bendAt(1.0f, 45, 0.0f) == 0.0f,
@@ -2422,26 +1991,21 @@ static Void testSteerSigns()
         "the two are exact opposites, so the guides are not biased to one side"
     );
     check(camview::bendAt(1.0f, 0, 1.0f) == 0.0f, "a bend slider at zero turns the sweep off");
-
-    // t*t and not t - four times the swing at twice the distance. A linear
-    // sweep would move the guides at the bumper, where a real one barely does.
+    // t squared, not t: a real path barely moves at the bumper.
     const Float32 half = camview::bendAt(1.0f, 45, 0.5f);
     const Float32 full = camview::bendAt(1.0f, 45, 1.0f);
     check(std::fabs(full - (4.0f * half)) < EPS, "the swing grows with t squared, not with t");
-
     check(
         camview::pctToUnit(150, 0, 100) == camview::pctToUnit(100, 0, 100),
         "a percent past its range clamps rather than drawing off the picture"
     );
-
-    // ---- the 3D arrow, in the world frame ----------------------------------
+    // The 3D arrow, in the world frame.
     const scene::Vec3 straight = scene::headingDir(0.0f);
     check(std::fabs(straight.x) < EPS, "straight wheels point along no sideways axis at all");
     check(
         std::fabs(straight.y - 1.0f) < EPS,
         "and straight ahead is +Y, which is where the car faces"
     );
-
     const scene::Vec3 right = scene::headingDir(1.0f);
     const scene::Vec3 left = scene::headingDir(-1.0f);
     check(right.x > 0.0f, "a RIGHT turn points the arrow toward +X, which the frame calls right");
@@ -2451,21 +2015,14 @@ static Void testSteerSigns()
         right.y > 0.0f && left.y > 0.0f,
         "and both still point forwards - this is a heading, not a turn in place"
     );
-
     const Float32 len = (right.x * right.x) + (right.y * right.y);
     check(
         std::fabs(len - 1.0f) < EPS,
         "the direction is a unit vector, so ARROW_LEN alone sets its length"
     );
-
-    // ---- AND THE PAIR AGREES ----------------------------------------------
-    //
-    // The check that matters most, and the one neither file can make alone.
-    // bendAt is in camera.hxx and headingDir is in scene.hxx; each is correct
-    // on its own terms whichever sign it carries. If one is ever flipped, the
-    // car draws guides sweeping right while the arrow points left, both look
-    // reasonable in isolation, and only the two together are wrong - which is
-    // this repo's named failure with a steering wheel attached.
+    // The pair must agree: bendAt (camera.hxx) and headingDir (scene.hxx) each
+    // look right alone whichever sign they carry, so only together is a flip
+    // caught.
     check(
         (camview::bendAt(1.0f, 45, 1.0f) > 0.0f) == (scene::headingDir(1.0f).x > 0.0f),
         "the guides and the arrow agree about which way is right"
@@ -2479,30 +2036,22 @@ static Void testSteerSigns()
 static Void testControlDefaults()
 {
     std::printf("\n-- a fresh viewer asks for the slot, and drives nothing --\n");
-
     link::Client c;
-
-    // Section 6: the moment a viewer takes the slot its cadence becomes the
-    // consent the deadman watches. Asking by default is the operator's choice
-    // of connect-then-ARM (Client::wantSlot has the trade), held here so the
-    // default cannot drift without somebody reading why it is what it is.
+    // The default is the operator's choice (Client::wantSlot), held here so it
+    // cannot drift unread.
     check(
         link::controlSlotWanted(c),
         "a fresh client asks for the control slot, by the operator's choice"
     );
-
     const link::Intent idle = link::controlIntent(c);
     check(!idle.driving, "and is not driving");
     check(idle.steerMilli == 0 && idle.throttleMilli == 0, "with both axes neutral");
     check(idle.buttons == 0u, "and no buttons - no ENABLE, no ESTOP");
-
-    // A default View is the same answer from the other end of the pane.
     const driveview::View pane;
     check(!pane.open, "the drive window starts closed");
     check(!pane.enabled, "with the enable off");
     check(pane.throttleCapMilli == driveview::THROTTLE_CAP_DEFAULT, "and a conservative cap");
     check(pane.throttleCapMilli < driveview::THROTTLE_CAP_MAX, "which is far below full throttle");
-
     link::Intent want;
     want.driving = true;
     want.steerMilli = -1000;
@@ -2510,14 +2059,12 @@ static Void testControlDefaults()
     want.buttons = bibowire::BUTTON_ENABLE;
     want.assumedMode = 2;
     link::setControl(c, want);
-
     const link::Intent got = link::controlIntent(c);
     check(got.driving, "what the pane published is what the worker reads");
     check(got.steerMilli == -1000, "steer included");
     check(got.throttleMilli == 250, "throttle included");
     check(got.buttons == bibowire::BUTTON_ENABLE, "buttons included");
     check(got.assumedMode == 2u, "and the asserted mode");
-
     link::wantControlSlot(c, true);
     check(link::controlSlotWanted(c), "asking for the slot is remembered for the next HELLO");
     link::wantControlSlot(c, false);
@@ -2527,7 +2074,6 @@ static Void testControlDefaults()
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
-
     testGeometry();
     testByteBoundaries();
     testJunkAndUnknown();
@@ -2572,7 +2118,6 @@ int main()
     testCameraCaptureGaps();
     testSteerSigns();
     testSettingsText();
-
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
