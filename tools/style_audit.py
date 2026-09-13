@@ -2,62 +2,39 @@
 
     python tools/style_audit.py
 
-Exits 0 when clean, 1 otherwise, so it can gate a commit.
-
-Comment- and string-aware: a rule about code must not fire on prose, and this
-file is full of prose describing the rules it enforces.
+Exits 0 when clean, 1 otherwise. Rules about code ignore comments and literals.
 """
 import io, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..')
 
-
 def at(*parts):
     return os.path.join(ROOT, *parts)
 
-
-# Everything in this repo that is OURS. vendor/ and third_party/ are upstream
-# and are not audited. The list is explicit rather than a walk so that adding a
-# directory is a decision somebody makes - a walk hides the interesting mistake,
-# a directory nobody remembered.
+# Our code; vendor/ and third_party/ are upstream. Listed rather than walked, so
+# adding a directory is a decision. A listed directory that does not exist is a
+# violation, below.
 DIRS = [
     at('viewer', 'src'),
-    # The viewer's own suite, added 2026-09-10 when it first had sources. It was
-    # format-gated from the moment it existed - format.py reads untracked files
-    # now - but NOT style-audited, so its C++ was held to half the rules for as
-    # long as this line was missing. A directory that compiles and is checked by
-    # one gate and not the other is the quietest kind of gap.
     at('viewer', 'tests'),
     at('firmware', 'lib'),
     at('firmware', 'lib', 'chassis'),
     at('firmware', 'app'),
     at('firmware', 'tests'),
-    # The companion board's program. It lived at the repo root until 2bde514
-    # moved it under firmware/; the old paths stayed here and matched nothing,
-    # so for a while the whole tree was silently outside the audit. An entry
-    # that names a directory that does not exist is now an error, below.
     at('firmware', 'pilot', 'src'),
     at('firmware', 'pilot', 'tests'),
     at('firmware', 'pilot', 'app'),
     at('firmware', 'pilot', 'tools'),
     at('firmware', 'pilot', 'programs'),
-    at('shared'),
 ]
 
-# Rules C cannot follow, so they are not applied to it:
-#   - named casts. C has no static_cast; `(Int64) x` is the only spelling there
-#     is. NOT silently: the carve-out is counted and reported at the end, since
-#     firmware/ is expected to become C++ and a waiver nobody can see grows.
-#   - static inline. In C that is the idiom for a header definition, not
-#     redundancy; C++ gets internal linkage from `static` alone.
-#   - .hpp: a header that must compile as C is a .h.
+# C has no named casts, and `static inline` is its header-definition idiom. The
+# cast waiver is counted and printed below rather than skipped silently.
 C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 
-# shared.hxx and shared.hxx are WHERE the aliasing happens, so they are exempt
-# from the rule that everything else use the aliases - the same carve-out that
-# lets firmware/lib/text.hxx name strtol.
-VOCAB_FILES  = {'shared.hxx', 'shared.hxx'}
+# shared.hxx defines the aliases, so it names the types they alias.
+VOCAB_FILES  = {'shared.hxx'}
 VOCAB_WAIVES = {'unaliased std type', 'bare builtin type'}
 
 def strip_noise(text):
@@ -90,11 +67,9 @@ def strip_noise(text):
             out.append(c); i += 1
     return ''.join(out)
 
-# A cast is SYNTAX, not a list of type names: enumerating the types a cast could
-# be TO missed `(MINMAXINFO*)lparam` and `(sl_u32)baud` for years. The SHAPE is
-# an open paren not following an identifier, a TYPE, a close paren, an operand.
-# Types are PascalCase here, so a capitalised name in parens is a type while
-# `(width) * 2` is arithmetic; Win32 shouts, the stdlib uses _t, Slamtec sl_.
+# A cast is matched by its shape, not by a list of target types: types are
+# PascalCase, so a capitalised name in parens is a type while `(width) * 2` is
+# arithmetic. Win32 types shout, the stdlib uses _t, Slamtec sl_.
 CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
              r'(?:[A-Z][A-Za-z0-9_]*(?:::[A-Za-z_]\w*)*'
              r'|\w+_t'
@@ -103,83 +78,57 @@ CAST_TYPE = (r'(?:const\s+)?(?:(?:unsigned|signed)\s+)?'
              r'(?:\s+(?:int|long|char))?'
              r')\s*\**\s*')
 
-# THE TRAP OF THIS FILE: these rules match the RAW line, not the stripped one.
-# strip_noise blanks comment and string-literal CONTENTS - correct for every
-# rule about code, fatal for a rule about TEXT. A hardcoded home path lives only
-# inside a literal or a comment, so run against the stripped copy it finds 0 of
-# its targets, forever, while reporting a clean tree.
+# Matched against the raw line: strip_noise blanks comment and literal contents,
+# which is where these rules' targets live.
 RAW_RULES = {'absolute user path', 'namespace trailer comment'}
 
 RULES = [
     # (name, regex, note)
-
-    # A home directory in the tree names the machine it was written on. Spelled
-    # without a name in it so it keeps working for the next contributor. The
-    # username must START alphanumeric, or `file:///C:/Users/...` in lsp.cxx
-    # matches on the ellipsis and reports a comment that names nobody.
+    # The username must start alphanumeric, or a `file:///C:/Users/...`
+    # placeholder matches on the ellipsis.
     ('absolute user path',
      r'[A-Za-z](?::|%3[Aa])[\\/]{1,4}[Uu]sers[\\/]{1,4}'
      r'[A-Za-z0-9_][A-Za-z0-9_.-]*',
      'derive the path - a home directory in the tree names the machine'),
-    # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out - a named
-    # cast whose RESULT is multiplied, not a cast of `(SRC)`. Without it every
-    # correctly-written cast followed by a `*` reported itself.
+    # The `>` in the lookbehind keeps `static_cast<Size>(SRC) * 4` out: a named
+    # cast whose result is multiplied.
     ('c-style cast',
      r'(?<![A-Za-z0-9_)\]>])\(\s*' + CAST_TYPE + r'\)\s*(?!&&|\|\|)[A-Za-z_(&*]',
      'use a named cast'),
-
     ('bare builtin type',
      r'(?<![A-Za-z_>:.])(?:unsigned\s+(?:int|char|short|long)|signed\s+char|\bint\b|\bfloat\b|\bdouble\b|\bbool\b|\bchar\b|\bsize_t\b|\bunsigned\b)(?![A-Za-z_0-9])',
      'use the shared.hxx alias'),
-
-    # `} // namespace foo`. Nothing verifies it, it is written once, and it
-    # survives a rename - at which point it is confidently wrong.
+    # Nothing verifies it, and a rename leaves it wrong.
     ('namespace trailer comment',
      r'^\s*\}\s*//\s*namespace\b',
      'delete it - a closing brace does not need to say what it closes'),
-
-    # `struct Foo f;` - the C89 elaborated type specifier. C++ injects a struct's
-    # name as a type name, so the keyword adds nothing. A NAME must follow, which
-    # separates a use from a definition or a forward declaration.
+    # `struct Foo f;`. A name must follow, which separates a use from a
+    # definition or a forward declaration.
     ('elaborated type specifier',
-     # The separator must be real - whitespace or a star. Without that,
-     # `\w*\s*\w*` splits ONE identifier in two and the forward declaration
-     # `struct ID3D11Device;` matched as `Devic` `e`.
+     # The separator must be whitespace or a star, or `struct ID3D11Device;`
+     # splits one identifier in two.
      r'(?<![A-Za-z0-9_])struct\s+[A-Za-z_]\w*(?:\s+|\s*\*+\s*)[A-Za-z_]\w*\s*[,;=)]',
      'drop the struct keyword - in C++ the name alone is the type'),
-
     ('if with space',   r'\bif\s+\(',      'if(cond)'),
     ('for with space',  r'\bfor\s+\(',     'for(...)'),
     ('while with space',r'\bwhile\s+\(',   'while(...)'),
     ('switch with space',r'\bswitch\s+\(', 'switch(...)'),
-
-    # Found `static UINT DpiForWindow(HWND)` in main.cxx, three lines from the
-    # Win32 GetDpiForWindow it wraps - which is why it read as fine.
     ('PascalCase function',
      r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
      r'UInt16|UInt32|UInt64|Float32|Float64|Size|Str|Char|Utf8|UINT|LRESULT|HRESULT)'
      r'\s+[A-Z][A-Za-z0-9]*\s*\(',
      'functions are camelCase'),
-
-    # Found `static Void sleep_ms(Int32)` in test_pico_link.cxx, reading as the
-    # Pico SDK call it is named after and is not.
     ('snake_case function',
      r'^\s*(?:static\s+)?(?:const\s+)?(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|'
      r'UInt16|UInt32|UInt64|Float32|Float64|Size|Str|Char|Utf8)'
      r'\s+[a-z][a-z0-9]*_[a-z0-9_]+\s*\(',
      'functions are camelCase'),
-
     ('k-prefixed constant', r'\bk[A-Z][A-Za-z0-9]*\b', 'SCREAMING_SNAKE_CASE'),
     ('m_ member',           r'\bm_[A-Za-z0-9_]+',      'camelCase, no m_'),
     ('g_ global',           r'\bg_[A-Za-z0-9_]+',      'camelCase, no g_'),
     ('trailing underscore', r'\b[a-z][A-Za-z0-9]*_\b(?!\s*\()', 'camelCase, no trailing _'),
-
-    # Only the TYPES are aliased in shared/shared.hxx, so they are named
-    # explicitly rather than banning the namespace: std::move, std::sort and
-    # duration_cast are functions and keep their spelling. The \b after
-    # `duration` is what separates it from `duration_cast`. chrono and the file
-    # streams joined late and were the biggest hole here - 31 raw std::chrono
-    # uses, invisible because there was no alias to point at.
+    # Only the types are aliased, so they are named rather than banning std::.
+    # The \b after `duration` spares duration_cast.
     ('unaliased std type',
      r'\bstd::(?:vector|deque|array|map|set|unordered_map|unordered_set|pair|'
      r'tuple|string|string_view|optional|variant|function|unique_ptr|'
@@ -189,105 +138,60 @@ RULES = [
      r'|milliseconds|microseconds|nanoseconds|seconds|duration)'
      r'|this_thread::sleep_for)\b',
      'use the shared.hxx alias (Vec, Str, Clock, TimePoint, sleepMs, ...)'),
-
-    # The fixed-width integers, bare or std:: qualified. `bare builtin type`
-    # above never caught uint32_t - a hole the size of the whole stdint family.
-    # Zero real uses when it went in; the alternative is finding out at 31.
     ('unaliased fixed-width integer',
      r'(?<![A-Za-z0-9_:.])(?:std::)?(?:u?int(?:8|16|32|64)_t|uintptr_t'
      r'|ptrdiff_t)(?![A-Za-z0-9_])',
      'use the vocabulary alias - Int32, UInt8, UPtr, ISize'),
-
-    # Allman, everywhere. Aggregate rows in a table are NOT this - the pattern
-    # requires a `)` or a control keyword before the brace, which separates a
-    # body from a row. A parameter list that does not close on its own line:
-    # DEFINITIONS and DECLARATIONS only, since a call's arguments are
-    # expressions and may wrap. Anchored on a leading return type, since a call
-    # starts with an identifier.
+    # Definitions and declarations only, told apart from a call (whose arguments
+    # may wrap) by the leading return type.
     ('wrapped parameter list',
      r'^\s*(?:\[\[nodiscard\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+|const\s+)*'
      r'(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|'
      r'Float64|Size|Str|Char|Utf8|CharSeq|Pin)[\w:<>,\s\*&]*?\s[\w:~]+\s*\([^)]*$',
      'put the whole parameter list on one line'),
-
-    # `static` already gives internal linkage and a static function is emitted
-    # only where it is used, so `inline` adds nothing. C is waived above - there
-    # `static inline` is the header-definition idiom and removing it is wrong.
     ('static inline',
      r'\bstatic\s+inline\b',
      'in C++, static already implies it - drop the inline'),
-
+    # The `)` or keyword before the brace separates a body from an aggregate row.
     ('one-lined body',
      r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{[^{}]*[^{}\s][^{}]*\}',
      'expand the braces onto their own lines'),
-
-    # The brace on the HEAD's line, body closing far below. The rule above needs
-    # both braces on one physical line and so cannot see this - a blind spot
-    # that hid 40 of them in the Slamtec boundary files, which were carrying the
-    # SDK's brace style. A lambda is the written-down exception, see EXEMPT.
+    # The brace on the head's line with the body below, which the rule above
+    # cannot see.
     ('cuddled brace',
      r'(?:\)|\b(?:else|do|try)\b)\s*(?:const\s*)?(?:noexcept\s*)?\{\s*$',
      'Allman - put the brace on its own line'),
-
-    # `if(x) return;` - a body with no braces, sharing its head's line. Every
-    # other brace rule looks for a brace and this is the shape that has none:
-    # 250 across the tree. A body on the NEXT line is NOT this.
-    #
-    # Three traps, all fixed here. A `[^;]*` condition can never match a for
-    # head, which has two semicolons by definition. A body required to start
-    # with a LETTER lets `while(n) --n;` walk past. And the head's parens are
-    # matched to THREE levels because a regex cannot balance them - a `[^)]*`
-    # head stops inside static_cast and reported six correct app_ui.cxx loops.
+    # `if(x) return;`; a body on the next line is not this. The head's parens are
+    # matched three levels deep, since `[^;]*` misses for heads and `[^)]*` stops
+    # inside static_cast. The body may start with any non-space, so
+    # `while(n) --n;` counts.
     ('braceless one-lined body',
      r'^\s*(?:if|while|for)\s*'
      r'\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)'
      r'\s*[^\s{/;][^;]*;',
      'give the body its own braces on their own lines'),
-
-    # `Char* p`, not `Char *p` - a pointer to Char is a type in its own right
-    # here. The tree was already 604:0 and 747:0 this way when the rule was
-    # written; it is here so it stays that way, not to fix a mess.
     ('pointer bound to the name',
      r'\b[A-Z][A-Za-z0-9_]*\s+\*[a-z][A-Za-z0-9_]*',
      'bind the * to the type: Type* name'),
-
     ('reference bound to the name',
      r'\b[A-Z][A-Za-z0-9_]*\s+&[a-z][A-Za-z0-9_]*',
      'bind the & to the type: Type& name'),
 ]
 
-# Lines that are legitimately exempt, with the reason.
 EXEMPT = [
-    # main.cxx's user32 typedefs are Win32 signatures; `int` there is the OS ABI.
     (r'typedef .*WINAPI', 'Win32 ABI signature'),
-    # `int main(` STAYS WAIVED, measured rather than assumed. Converting all 24
-    # entry points to `Int32 main(...)` passed the host suites and went clean
-    # (MSVC's int32_t IS int), then failed on both boards with
-    # "'::main' must return 'int'" - on arm-none-eabi int32_t is `long int`,
-    # same 32 bits, different type. The LANGUAGE fixes the type here, as for
-    # WinMain; writing Int32 is a portability bug MSVC cannot see.
+    # `int main(` stays: on arm-none-eabi Int32 is `long int`, and main must
+    # return int. MSVC, where Int32 is int, cannot see that.
     (r'int APIENTRY|WinMain|int main\(', 'the platform entry point signature'),
     (r'IMGUI_IMPL_API|ImGui_ImplWin32_WndProcHandler', 'third-party signature'),
     (r'static_cast<int>|static_cast<float>|static_cast<unsigned', 'named cast to an ABI type'),
     (r'#\s*(define|include|if|ifdef|ifndef|endif|else|elif|pragma)', 'preprocessor'),
-
-    # `sizeof(Float32)` is not a cast, and the pattern cannot tell `(T)x` from
-    # `sizeof(T) * x` without a real parser.
+    # The cast pattern cannot tell `(T)x` from `sizeof(T) * x`.
     (r'\bsizeof\s*\(', 'sizeof, not a cast'),
-
-    # shared.hxx is where the aliases are DEFINED; `using Float32 = float;` has
-    # to name the builtin.
     (r'\busing\s+\w+\s*=\s*(float|double|bool|char|int|unsigned|std::)', 'the alias definition itself'),
-
-    # shared.h is the same file for C: `typedef char Utf8;` is the definition.
     (r'^\s*typedef\s+\w+\s+\w+\s*;', 'the alias definition itself'),
-
-    # A single-expression lambda body reads better on one line - the rule
-    # targets function and control-flow bodies, not these.
+    # Lambdas may keep a one-expression body on one line and cuddle their brace.
     (r'\[[^\]]*\]\s*\([^)]*\)\s*(?:->\s*[A-Za-z_:<>]+\s*)?\{', 'a lambda, not a function body'),
-
-    # A lambda's brace cuddles by convention: `const auto flush = [&]() {` is an
-    # expression passed to something, not a function body standing on its own.
     (r'\[[&=]?[^\]]*\]\s*(?:\([^)]*\)\s*)?(?:mutable\s*)?(?:->[^{]*)?\{\s*$',
      'a lambda, not a function body'),
 ]
@@ -299,15 +203,8 @@ def exempt(line):
     return None
 
 def is_c(path):
-    """A .c or a .h.
-
-    The extension IS the language now, with no carve-out list to keep in step:
-    .c/.h are C, .cxx/.hxx are C++. The C++ half moved off .cpp/.hpp because .h
-    was doing double duty as "a C header" and "a header nobody thought about",
-    and an unowned .h is assumed C++ by most editors.
-    """
+    """.c and .h are C; C++ is .cxx and .hxx."""
     return path.endswith('.c') or path.endswith('.h')
-
 
 def audit(paths):
     hits = {}
@@ -320,9 +217,8 @@ def audit(paths):
             waived_here = waived_here | VOCAB_WAIVES
         for i, l in enumerate(lines):
             r = raw[i] if i < len(raw) else ''
-            # Both, not just the stripped one: a comment-only line is blank
-            # AFTER stripping, so testing `l` alone hides every raw-rule hit
-            # that lives in a comment.
+            # Both: a comment-only line is blank once stripped, and raw rules
+            # still apply to it.
             if not l.strip() and not r.strip():
                 continue
             why = exempt(r)
@@ -347,8 +243,7 @@ files = []
 missing = []
 for d in DIRS:
     if not os.path.isdir(d):
-        # Not skipped silently: that is how firmware/pilot fell out of the audit
-        # for weeks. A path in DIRS that matches nothing is a broken promise.
+        # A violation, not a skip: a skipped directory drops out of the audit unseen.
         missing.append(os.path.relpath(d, ROOT))
         continue
     for f in sorted(os.listdir(d)):
@@ -372,39 +267,27 @@ for name in [r[0] for r in RULES]:
     if len(v) > 24:
         print('  ... and %d more' % (len(v) - 24))
 
-# The structural pass: not what the code LOOKS like, but where it may reach.
-# Formatting keeps a file readable; this keeps the ARCHITECTURE true, and the
-# architecture decays one reasonable-looking include at a time.
-
-# Which layer a firmware file belongs to, and what that layer may include.
-# Strictly downward: hal knows nothing; chassis knows hal; an app knows only
-# the umbrella.
-#
-# The SPELLING is part of the rule: "../hal.hxx" rather than "hal.hxx" from
-# lib/chassis/. The bare form compiles only because -Ifirmware/lib is set, and
-# an editor without the project loaded underlines every include in the library.
+# The layer each firmware file belongs to and what it may include, strictly
+# downward: hal knows nothing, chassis knows hal, an app knows only the umbrella.
+# The spelling is part of the rule: "../hal.hxx" from lib/chassis/, since the
+# bare form needs -Ifirmware/lib and an editor without the project cannot find it.
 LAYERS = {
-    # hal.hxx is the floor everything stands on, so lib root may name it.
-    # pins.hxx sits beside shared.hxx: it declares facts, so naming pins::SERVO
-    # instead of 0 is reading downward, not sideways.
+    # pins.hxx declares facts, so naming pins::SERVO is reading downward.
     'firmware/lib':          {'shared.hxx', 'hal.hxx', 'pins.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
-    # A host test of ONE header includes that header, not the umbrella - the
-    # umbrella drags in the SDK and these compile with MSVC. chassis.hxx is
-    # tested through tests/fakes/hal.hxx.
+    # A host test includes its one header, not the umbrella, which drags in the
+    # SDK. chassis.hxx is tested through tests/fakes/hal.hxx.
     'firmware/tests':        {'../lib/text.hxx',
                               '../lib/pins.hxx',
                               '../lib/chassis/chassis.hxx'},
 }
 
-# The files at lib root that reach sideways, each written down with its reason.
+# Lib-root files that reach sideways, with the reason.
 LAYER_EXTRA = {
-    # pins.hxx formats its own conflict message, so it names text.hxx - a leaf,
-    # so this is a sideways reach that cannot cycle.
+    # pins.hxx formats its own conflict message; text.hxx is a leaf, so no cycle.
     'firmware/lib/pins.hxx': {'shared.hxx', 'text.hxx'},
-    # hal.hxx names the host-test fake behind #ifdef BIBO_FAKE_HAL, off in every
-    # image this project flashes - the one place the library reaches into tests/.
+    # The host-test fake, behind #ifdef BIBO_FAKE_HAL, off in every flashed image.
     'firmware/lib/hal.hxx': {'shared.hxx', '../tests/fakes/hal.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'pins.hxx', 'status.hxx',
@@ -430,20 +313,16 @@ for path in files:
             break
     if key is None:
         continue
-
     allowed = set(LAYERS[key])
     for extra_path, extra in LAYER_EXTRA.items():
         if p.endswith(extra_path.split('firmware/')[-1]):
             allowed |= extra
-
     for i, line in enumerate(rd(path).split('\n')):
         t = line.strip()
         if not t.startswith('#include "'):
             continue
         what = t.split('"')[1]
-        # The Pico SDK is not ours and is not a layer. hal.hxx exists precisely
-        # to be the file that reaches into somebody else's code. This pass is
-        # about the direction OUR headers point.
+        # The Pico SDK is not a layer; hal.hxx is the file that reaches into it.
         if what.startswith(('pico/', 'hardware/', 'boards/')):
             continue
         if what in allowed:
@@ -456,13 +335,10 @@ for path in files:
 if struct_bad == 0:
     print('  ok')
 
-# resource.h is compiled by rc.exe, not a C or C++ compiler. Renaming it would
-# break the resource build to satisfy a rule about C++ headers.
+# rc.exe compiles resource.h; it is not a C++ header.
 HEADER_EXEMPT = {'resource.h'}
 
-# The C carve-out, counted. C has no static_cast, but firmware/ is expected to
-# move to C++ and skipping the rule silently would leave the size of that move
-# unknown. This prints the bill. Not a violation; does not fail the audit.
+# Counted, not failed: the casts C files would need rewritten as C++.
 print('\n--- C-style casts in C files (legal in C, work if these become C++) ---')
 
 CAST_PAT = [r for name, r, _ in RULES if name == 'c-style cast'][0]
@@ -480,9 +356,8 @@ for path in files:
         c_casts[os.path.relpath(path, ROOT).replace('\\', '/')] = n
 
 if not c_casts:
-    # "none" reads as "no casts left to fix"; what it means now is "there are no
-    # C files to look in". Say which it is - a check that cannot fire should
-    # announce that, not report success.
+    # Say whether there are no casts or no C files: a check that cannot fire
+    # must not read as clean.
     cFiles = [f for f in files if is_c(f)]
     if not cFiles:
         print('  no C files in scope - the C++ conversion is complete, and '
@@ -494,18 +369,14 @@ else:
         print('  %-40s %4d' % (path, c_casts[path]))
     print('  %-40s %4d' % ('TOTAL', sum(c_casts.values())))
 
-# Application code uses the LIBRARY, not libc. firmware/lib wraps the C standard
-# library so the project has one vocabulary. The point is not speed, it is that
-# the seam is complete: a console calling printf() directly was sixty-two call
-# sites to find the day the transport is not stdio. Only app/ is checked -
-# lib/ is WHERE the wrapping happens.
+# firmware/app calls the library's wrappers, not libc, so the seam to the
+# transport stays complete. lib/ is where the wrapping happens, so only app/ is
+# checked.
 print('\n--- application code reaching past the library ---')
 
 LIBC_DIRECT = [
     ('printf',   'serial::printf'),
-    # snprintf was missing for as long as this check existed: the lookbehind
-    # below is defeated by the leading `s`, so `printf` never matched it - the
-    # one libc call the rule was surest of was the one it could not see.
+    # Listed on its own: the lookbehind below keeps `printf` from matching it.
     ('snprintf', 'text::format'),
     ('puts',     'serial::printLine'),
     ('fputs',    'serial::print'),
@@ -526,11 +397,8 @@ for path in files:
     code = strip_noise(rd(path))
     for i, line in enumerate(code.split('\n')):
         for name, instead in LIBC_DIRECT:
-            # Whole word followed by a paren, so snprintf does not match printf.
-            # The ':' in the lookbehind is what the namespaces cost this rule:
-            # serial::printf CONTAINS printf, so without it every corrected call
-            # site reported itself - the rule accusing its own fix. `.` and `>`
-            # keep a method called printf out.
+            # A whole word before a paren. `:` in the lookbehind spares
+            # serial::printf; `.` and `>` spare a method called printf.
             if re.search(r'(?<![A-Za-z0-9_:.>])' + name + r'\s*\(', line):
                 print('  %-22s %5d  %s( -> use %s('
                       % (os.path.basename(path), i + 1, name, instead))
@@ -541,15 +409,9 @@ if libc_bad == 0:
 total += libc_bad
 
 print('\n--- raw C arrays ---')
-# `T name[N]` where T is OURS. Array<T, N> carries its length; a raw array
-# decays to a pointer at the first call and the length becomes something the
-# caller has to know by other means.
-#
-# THE CARVE-OUT IS THE ELEMENT TYPE. `BYTE data[512]` handed to RegEnumValueA is
-# somebody else's buffer in somebody else's shape, and we do not dress a
-# third-party API up to look like ours. firmware/ is exempt entirely -
-# freestanding, no <array>. The first thing this found was three `Char cmd[48]`
-# buffers added AFTER the conversion pass: a sweep fixes a tree once.
+# `T name[N]` where T is ours: Array<T, N> keeps its length, a raw array decays
+# to a pointer. A third-party element type (`BYTE data[512]` for RegEnumValueA)
+# keeps its API's shape, and firmware/ is exempt: the Pico build has no Array.
 ARRAY_ELEM_OURS = re.compile(
     r'^\s*(?:static\s+|const\s+|constexpr\s+|inline\s+|mutable\s+)*'
     r'(?:const\s+)?'
@@ -578,9 +440,7 @@ if raw_arrays == 0:
 total += raw_arrays
 
 print('\n--- signatures over 100 columns ---')
-# A RATCHET: docs/conventions.md counts signatures over 100 columns against
-# SIG_BUDGET, which may only fall. The audit fails if the count rises above it,
-# and shortening or deleting a signature lowers the budget with it.
+# A ratchet: the count may not rise above SIG_BUDGET, and SIG_BUDGET only falls.
 SIG_BUDGET = 6
 
 SIGNATURE = re.compile(
@@ -614,23 +474,17 @@ elif len(long_sigs) < SIG_BUDGET:
           % len(long_sigs))
 
 print('\n--- enum member prefixes ---')
-# "Enum members: SCREAMING_SNAKE_CASE, PREFIXED WITH THE ENUM NAME" -
-# MapMode::MAP_MODE_POINTS. Nothing had ever checked it; 224 members complied by
-# habit, which is the state a rule is in right before it stops being true. The
-# prefix is what makes an unscoped enum safe to `using` and a grep for MAP_MODE
-# find the whole family.
+# Members are prefixed with their enum's name (MapMode::MAP_MODE_POINTS), so an
+# unscoped enum is safe to `using` and a grep for MAP_MODE finds the family.
 
-# Enums whose members may skip their enum's name, each with the reason. Empty,
-# and printed anyway, so a waiver that is added cannot go unseen.
+# Enums whose members may skip the prefix, name -> reason; each is printed.
 ENUM_WAIVED = {}
-
 
 def screamingOf(name):
     """MapMode -> MAP_MODE. Loss -> LOSS."""
     s = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', '_', name)
     s = re.sub(r'(?<=[A-Z])(?=[A-Z][a-z])', '_', s)
     return s.upper()
-
 
 ENUM_NAMED = re.compile(r'\benum\s+(?:class\s+|struct\s+)?([A-Z]\w*)\s*(?::[^{]*)?\{?')
 ENUM_TYPEDEF = re.compile(r'^\s*typedef\s+enum\b')
@@ -646,7 +500,6 @@ for path in files:
         if not isTypedef and not m:
             i += 1
             continue
-        # Collect the enum body by brace depth.
         j, depth, started, body = i, 0, False, []
         while j < len(lines):
             depth += lines[j].count('{') - lines[j].count('}')
@@ -687,12 +540,8 @@ for nm, why in sorted(ENUM_WAIVED.items()):
 total += enum_bad
 
 print('\n--- namespace layout ---')
-# Allman brace, and a body indented one level inside it. Two spaces per
-# namespace level - most of the firmware sits two deep (bibo::drive), and four
-# would push every real line eight columns right before it said anything.
-#
-# The tree was split 45/46 on the brace before this rule, and NOTHING indented
-# a body.
+# Allman brace, body indented two spaces per namespace level: most of the
+# firmware sits two deep, and four would push every line eight columns right.
 NS_SAME_LINE = re.compile(r'^\s*namespace(\s+[A-Za-z_][\w:]*)?\s*\{')
 NS_OPEN_LINE = re.compile(r'^(?P<ind>\s*)namespace(\s+[A-Za-z_][\w:]*)?\s*$')
 
@@ -701,7 +550,7 @@ for path in files:
     code = strip_noise(rd(path))          # braces in prose are not structure
     lines = rd(path).split('\n')
     clean = code.split('\n')
-    depth = 0          # brace depth
+    depth = 0
     ns_stack = []      # brace depths at which a namespace opened
     pending = False    # saw `namespace X`, its `{` is next
     for i, line in enumerate(lines):
@@ -720,12 +569,9 @@ for path in files:
                              len(m.group('ind')), len(want)))
                     ns_bad_layout += 1
                 pending = True
-
-        # And the BODY, which the check above cannot see: every line inside N
-        # namespaces starts at column 2N or deeper. The reindent that introduced
-        # the rule got 30 lines wrong unnoticed - it decided a line closed its
-        # namespace by counting `}`, true for `} // namespace ui` and false for
-        # `struct WorldPt { Float32 x, y; };`, left sitting at column 0.
+        # Every line inside N namespaces starts at column 2N or deeper. A line
+        # starting with `}` closes its namespace only if the depth falls to it:
+        # `struct P { Float32 x, y; };` does not.
         stripped = line.strip()
         level = len(ns_stack)
         closes, opens = c.count('}'), c.count('{')
@@ -738,7 +584,6 @@ for path in files:
                 print('  %-26s %5d  indent %d, want at least %d'
                       % (os.path.basename(path), i + 1, indent, 2 * level))
                 ns_bad_layout += 1
-
         for ch in c:
             if ch == '{':
                 if pending:
@@ -755,10 +600,6 @@ if ns_bad_layout == 0:
 total += ns_bad_layout
 
 print('\n--- header guards ---')
-# `#pragma once`, not an #ifndef guard. Six firmware headers still carried C-era
-# guards named `_H` - hal.hxx saying `#ifndef BIBO_HAL_H` - left behind when the
-# C++ migration renamed .h -> .hxx and changed nothing else. That is the kind of
-# drift a rename pass leaves and nobody sees again.
 guard_bad = 0
 for path in files:
     if not path.endswith(('.hxx', '.h')):
@@ -776,14 +617,10 @@ print('\n--- header extensions ---')
 for path in files:
     f = os.path.basename(path)
     norm = path.replace('\\', '/')
-
-    # A C header under firmware/ is correctly a .h; anywhere else it is a C++
-    # header wearing the wrong extension.
+    # A C header is a .h only under firmware/; elsewhere it is C++ misnamed.
     if f.endswith('.h') and f not in HEADER_EXEMPT and '/firmware/' not in norm:
         print('  .h outside firmware (C++ headers are .hxx):', path)
         total += 1
-
-    # The old spellings, so a file copied in from elsewhere is caught.
     if f.endswith('.hpp'):
         print('  .hpp (C++ headers are .hxx):', path)
         total += 1
@@ -798,61 +635,44 @@ for path in files:
         if not m:
             continue
         inc = m.group(1)
-        # The Pico SDK and the rest keep whatever extension upstream gave them;
-        # hal.hxx exists to be the file that reaches into the SDK.
+        # Upstream headers keep upstream's extension.
         if inc in HEADER_EXEMPT or inc.startswith(
                 ('imgui', 'sl_lidar', 'stb_',
                  'pico/', 'hardware/', 'boards/')):
             continue
-        # C sources include C headers. shared.h and pico2w.h are .h because they
-        # must be, so including them by that name is correct.
+        # C sources include C headers.
         if is_c(path) or inc in ('shared.hxx', 'types.h'):
             continue
         print('  %s:%d  %s' % (os.path.basename(path), i + 1, l.strip()))
         total += 1
 
-
-# Namespaces. This used to check module PREFIXES, because the library was C and
-# every symbol carried its module in its name. The library is C++ now and the
-# compiler enforces the boundary, so what is left to check is what it cannot:
-# that each module HAS its namespace and that it is the one everybody expects. A
-# header that quietly stops declaring one still compiles - its symbols move to
-# the global namespace, one file at a time, which is how the prefixes decayed.
-#
-# NOT LISTED: hal.hxx (deliberately many namespaces - it is THE BOARD - checked
-# as a set below), shared.hxx (the vocabulary itself, not a module), cal.hxx
-# (macros), bibo.hxx (the umbrella, declares nothing).
+# Each module declares its expected namespace; a header that stops declaring
+# one still compiles, its symbols moving to the global namespace. Not listed:
+# hal.hxx (a set of namespaces, checked below), shared.hxx, cal.hxx (macros) and
+# bibo.hxx (the umbrella).
 MODULE_NAMESPACE = {
     'status.hxx':   'status',
     'text.hxx':     'text',
     'chassis.hxx':  'drive',
 }
 
-# hal is the board, and these are the modules in it.
 HAL_NAMESPACES = {'timing', 'serial', 'board', 'pwm', 'servo', 'led'}
 
 print('\n--- namespaces ---')
 ns_bad = 0
 for path in files:
-    # By PATH, not just by name: a header outside firmware/lib may share a
-    # module's file name without being that module.
+    # By path: a header outside firmware/lib may share a module's file name.
     if '/firmware/lib' not in path.replace('\\', '/'):
         continue
-
     base = os.path.basename(path)
-
     if base == 'hal.hxx':
-        # `\s*` in front, and `(?:\w+::)*` so `bibo::gpio` counts as declaring
-        # `gpio`: namespace bodies are indented now and the names concatenated
-        # on 2026-08-31. Anchoring at column 0 on a bare inner name made every
-        # module in hal.hxx report itself missing.
+        # Indented, and `bibo::pwm` counts as declaring `pwm`.
         have = set(re.findall(r'^\s*namespace (?:\w+::)*(\w+)\s*$',
                               rd(path), re.M))
         for want in sorted(HAL_NAMESPACES - have):
             print('  %-14s declares no namespace %s' % (base, want))
             ns_bad += 1
         continue
-
     want = MODULE_NAMESPACE.get(base)
     if want is None:
         continue
@@ -862,28 +682,12 @@ for path in files:
         ns_bad += 1
 
 total += ns_bad
-
 total += struct_bad
 
-# Stray files in the repository root. Not a style rule - a DAMAGE rule, and the
-# only one here about the shell rather than about C++.
-#
-# On 2026-08-31 a 75 GB file called `headOn` was found in the root. Nothing in
-# this repository wrote it: it came from a shell command that printed source
-# text WITHOUT QUOTING it, and the text contained an arrow -
-#
-#     grep -rn in->headOn .      the shell reads as
-#     grep -rn in- .  > headOn   pattern `in-`, output redirected
-#
-# `>` truncates, so one of those costs nothing; `>>` appends, and a C++ line
-# full of shifts is full of `>>` - `(a >> 11) & 0x1F` appends to a file called
-# `11)`. Fifteen turned up in one day; fourteen were zero bytes, and the
-# fifteenth landed on a name that was also being read and grew.
-#
-# So the check is blunt: NOTHING untracked belongs in the root. Catching it at
-# zero bytes is the point - the 75 GB one was invisible for hours because
-# nothing looked, and `git status` buries it in the same `??` list as a new
-# directory somebody meant to add.
+# Nothing untracked belongs in the root. Unquoted source text in a shell command
+# redirects: `grep -rn in->headOn .` writes a file called headOn, and a C++ line
+# with `(a >> 11)` appends to one called `11)`, which can grow without bound.
+# Catch them at zero bytes.
 print('\n--- stray files in the repository root ---')
 stray_bad = 0
 try:
@@ -892,14 +696,14 @@ try:
         ['git', 'ls-files', '--others', '--exclude-standard'],
         cwd=ROOT, stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
 except Exception as e:
-    # A missing git is not a clean tree. Say which one this is.
+    # A missing git is not a clean tree.
     print('  SKIPPED - could not ask git (%s)' % e.__class__.__name__)
     out = None
 
 if out is not None:
     for name in sorted(l.strip() for l in out.split('\n') if l.strip()):
         if '/' in name:
-            continue                      # not in the root
+            continue
         full = os.path.join(ROOT, name)
         if not os.path.isfile(full):
             continue

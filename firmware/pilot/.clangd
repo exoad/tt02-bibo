@@ -1,25 +1,10 @@
-# This directory, not firmware/build.
-#
-# WHY IT IS NEEDED HERE. The parent firmware/.clangd points at the CMake
-# database, which describes ARM cross-compiled files only, and adds the
-# arm-none-eabi system header paths on top. clangd merges every .clangd from a
-# file's directory up to the root, so when pilot/ moved under firmware/ its host
-# code started inheriting --target=arm-none-eabi and failed the same way
-# firmware/tests/.clangd already describes.
-#
-# pilot/ is NOT firmware. It compiles with MSVC on a laptop today and for Linux
-# on the Orange Pi later; it never goes near the Pico's toolchain. The database
-# beside this file says so, and covers src/, tests/, app/ and tools/. It is
-# hand-written: a new .cxx here means a new entry there, or clangd parses the
-# file as ARM again and every std header fails.
+# This directory's database, not firmware/build's: pilot/ is host code, built with MSVC on the
+# laptop and g++ on the Orange Pi, never with the Pico's toolchain. The database is
+# hand-written; a .cxx with no entry of its own borrows a listed file's command.
 CompileFlags:
   CompilationDatabase: .
 
-  # The parent firmware/.clangd also ADDS the arm-none-eabi libstdc++ include
-  # paths to every file below it, and fragments merge, so pilot's host code was
-  # being parsed with the ARM standard library: `static assertion failed:
-  # __is_integer_nonstrict<unsigned __int128>` in <cstddef>, then Vec, Mutex
-  # and every alias in shared.hxx "undeclared". A deeper fragment's Remove runs
-  # after the parent's Add, and clangd strips a flag's argument with it.
+  # The parent firmware/.clangd adds the ARM libstdc++ -isystem paths, and clangd merges
+  # fragments. A deeper Remove runs after the parent's Add and strips each flag's argument.
   Remove:
     - -isystem

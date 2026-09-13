@@ -1,13 +1,8 @@
-# The style checker. Reports, and never rewrites.
+# The style checker. It reports and never rewrites.
 #
-# Two rules live in tools/format.py: how a call wraps, and that `=` is not
-# padded to line a column up. Both can be FIXED automatically, which is why the
-# report says so - a violation you can clear with one command is a different
-# thing from one you have to think about.
-#
-# The table goes to the job summary, so it is the first thing on the run's page
-# rather than something to dig out of a log. It is uploaded as an artifact too,
-# for the runs where there are more of them than a summary should hold.
+# tools/format.py enforces call wrapping, `=` padding and the blank-line rules B1-B4, all
+# fixable with --apply. Its report goes to the job summary, the first thing on the run's
+# page, and to an artifact for a report longer than a summary holds.
 name: style
 
 on:
@@ -24,46 +19,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      # continue-on-error, then fail explicitly at the end: without it the job
-      # stops here and the summary - the entire point of the run - is never
-      # written.
+      # continue-on-error and an explicit failure at the end, or the job stops here and
+      # never writes the summary.
       - name: check
         id: check
         continue-on-error: true
         run: python tools/format.py --markdown format-report.md
-
       - name: summary
         if: always()
         run: cat format-report.md >> "$GITHUB_STEP_SUMMARY"
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: format-report
           path: format-report.md
           if-no-files-found: warn
-
       - name: fail if the report found anything
         if: steps.check.outcome == 'failure'
         run: |
           echo "::error title=style::tools/format.py found violations - run it with --apply"
           exit 1
 
-  # The other half of the standard, which does NOT rewrite anything and never
-  # will: naming, layout, include direction, and the stray-file guard.
+  # tools/style_audit.py: naming, layout, include direction and stray files, none of it
+  # fixed automatically.
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: style audit
         run: python tools/style_audit.py

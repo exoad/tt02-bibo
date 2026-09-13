@@ -1,10 +1,7 @@
-# CodeQL, the vulnerability scanner proper. It analyses what a build COMPILES, so
-# its coverage is exactly the build command below: firmware/lib's host suites and
-# the headers they include. NOT covered: viewer/src, which needs MSVC and D3D11
-# on a Windows runner, firmware/pilot, and the arm-none-eabi-only parts of
-# firmware/lib. build-mode is manual because autobuild would find the root
-# CMakeLists.txt, which builds nothing, and report success having analysed none
-# of the tree.
+# CodeQL analyses what the build step compiles: firmware/lib's host suites and the headers
+# they include. Not covered: viewer/src (MSVC and D3D11), firmware/pilot, and the
+# arm-none-eabi-only parts of firmware/lib. build-mode is manual because autobuild would find
+# the root CMakeLists.txt, which builds nothing, and pass having analysed nothing.
 name: codeql
 
 on:
@@ -19,8 +16,8 @@ on:
 permissions:
   contents: read
   security-events: write
-  # The analyze step asks the API about its own run when it uploads. Without this
-  # it finishes the analysis and THEN dies with "Resource not accessible".
+  # The analyze step reads its own run when it uploads; without this it analyses, then fails
+  # with "Resource not accessible".
   actions: read
 
 jobs:
@@ -28,19 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: github/codeql-action/init@v3
         with:
           languages: c-cpp
           build-mode: manual
-          # Superset of the default: adds the uninitialised-value and dead-store
-          # quality queries.
           queries: security-and-quality
-
-      # -O0 -g: optimisation can delete the very code path a query looks for.
+      # -O0 -g: optimisation can delete the code path a query looks for.
       - name: build what is being analysed
         run: sh tools/host_tests.sh build g++ -O0 -g
-
       - uses: github/codeql-action/analyze@v3
         with:
           category: /language:c-cpp

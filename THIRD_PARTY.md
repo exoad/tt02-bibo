@@ -62,8 +62,8 @@ network payload in exchange for no feature.
 **`firmware/lib/shared.hxx`** — BSD-3-Clause, copyright (c) 2026 Jiaming Meng. From
 [manbox](https://github.com/exoad/manbox). Same author as this project, but it is
 published under its own licence and carries its own notice, which must be
-retained. Two typedefs (`Utf16`, `Utf32`) are a local addition, marked as such in
-the file.
+retained. The hosted aliases and time helpers behind `#if !PICO_ON_DEVICE` are this
+project's addition to the manbox header.
 
 ---
 

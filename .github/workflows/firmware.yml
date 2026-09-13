@@ -1,12 +1,9 @@
-# Both boards, cross-compiled for RP2350, on a Linux runner. firmware\build.bat
-# is Windows-only, so CI drives cmake directly with the flags build.bat passes -
-# keep the two in step.
+# Both boards, cross-compiled for RP2350 on a Linux runner. firmware\build.bat is
+# Windows-only, so this passes cmake the flags build.bat passes; keep the two in step.
 #
-# BOTH BOARDS: pico2_w has the CYW43 and pico2 does not, and whether the LED
-# needs cyw43 comes from the board header, not the board's name. Clean build and
-# no ccache: one
-# reporting zero warnings because it never recompiled the file that warns is how
-# this project has been told it was green when it was not.
+# BOTH BOARDS because pico2_w has the CYW43 and pico2 does not, and the board header decides
+# which LED code compiles. A clean build with no ccache, so a zero warning count means every
+# file was compiled.
 name: firmware
 
 on:
@@ -32,7 +29,6 @@ jobs:
         board: [pico2_w, pico2]
     steps:
       - uses: actions/checkout@v4
-
       - name: toolchain
         run: |
           sudo apt-get update
@@ -40,8 +36,6 @@ jobs:
             cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi \
             libstdc++-arm-none-eabi-newlib build-essential pkg-config libusb-1.0-0-dev
           arm-none-eabi-gcc --version | head -1
-
-      # vendor/ is gitignored - the SDK is fetched the way a desk fetches it.
       - name: pico-sdk
         uses: actions/checkout@v4
         with:
@@ -49,8 +43,7 @@ jobs:
           ref: ${{ env.PICO_SDK_TAG }}
           path: vendor/pico-sdk
           submodules: recursive
-
-      # The SDK needs picotool to make a .uf2; picotool_DIR is build.bat's argument.
+      # The SDK needs picotool to make a .uf2.
       - name: picotool
         run: |
           git clone --depth 1 --branch "$PICOTOOL_TAG" \
@@ -59,7 +52,6 @@ jobs:
             -DPICO_SDK_PATH="$GITHUB_WORKSPACE/vendor/pico-sdk" \
             -DCMAKE_INSTALL_PREFIX=/tmp/picotool/install
           cmake --build /tmp/picotool/build --target install
-
       - name: configure
         run: |
           cmake -S firmware -B "firmware/build-${{ matrix.board }}" -G Ninja \
@@ -69,16 +61,14 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo
         env:
           PICO_SDK_PATH: ${{ github.workspace }}/vendor/pico-sdk
-
-      # Errors counted FIRST, warnings only when errors is 0. A warning count from
-      # a build that failed before reaching the file is true and meaningless.
+      # pipefail, so a failed build fails here: a warning count from a build that stopped
+      # before reaching the file is meaningless.
       - name: build
         env:
           PICO_SDK_PATH: ${{ github.workspace }}/vendor/pico-sdk
         run: |
           set -o pipefail
           cmake --build "firmware/build-${{ matrix.board }}" 2>&1 | tee build.log
-
       - name: warnings must be zero
         run: |
           warns=$(grep -c ': warning:' build.log || true)
@@ -88,9 +78,7 @@ jobs:
             echo "::error title=warnings::$warns warning(s) building ${{ matrix.board }}"
             exit 1
           fi
-
-      # Measure the ARTIFACT, not the return code: a build that "succeeded"
-      # without producing a .uf2 is the failure this project keeps meeting.
+      # Measure the artifact, not the return code: a build can succeed with no .uf2.
       - name: images must exist
         run: |
           n=$(find "firmware/build-${{ matrix.board }}" -maxdepth 1 -name '*.uf2' | wc -l)
@@ -99,7 +87,6 @@ jobs:
             echo "::error title=no image::build reported success and produced no .uf2"
             exit 1
           fi
-
       - uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ matrix.board }}

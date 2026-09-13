@@ -1,8 +1,6 @@
-# Static analysis: cppcheck, and this repository's own clang-tidy list.
-#
-# Separate from codeql.yml: CodeQL follows data across functions, these two read
-# the code in front of them. clang-tidy runs .clang-tidy and firmware/.clang-tidy
-# so CI agrees with the editor - a rule that fires in only one of them decays.
+# cppcheck and clang-tidy, apart from codeql.yml: CodeQL follows data across functions, these
+# read the code in front of them. clang-tidy uses .clang-tidy and firmware/.clang-tidy, so CI
+# and the editor report the same rules.
 name: analysis
 
 on:
@@ -19,26 +17,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: install
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cppcheck
           cppcheck --version
-
-      # vendor/ and third_party/ are upstream - not ours to fix, and
-      # their findings would crowd out a real one. --inline-suppr so a genuine
-      # false positive can be waived AT THE LINE rather than in a list far away.
-      #
-      # useStlAlgorithm      wants std::find_if and std::fill, but the firmware is
-      #                      FREESTANDING - no heap, no exceptions, no <algorithm>
-      #                      - so each finding advises a header that is not there.
-      # knownConditionTrueFalse
-      #                      cppcheck explores #ifdef combinations the real build
-      #                      never has, such as hal.hxx without the board header
-      #                      that defines CYW43_WL_GPIO_LED_PIN.
-      # --inconclusive       removed, not suppressed: both findings it produced
-      #                      were "this member could be static".
+      # Only firmware/lib and firmware/app: vendor/ and third_party/ are not ours to fix.
+      # --inline-suppr, so a false positive is waived at its line.
+      # useStlAlgorithm: the firmware is freestanding, and <algorithm> is not there.
+      # knownConditionTrueFalse: cppcheck explores #ifdef combinations the build never has,
+      # such as hal.hxx without the board header that defines CYW43_WL_GPIO_LED_PIN.
       - name: cppcheck
         run: |
           set -o pipefail
@@ -53,9 +41,8 @@ jobs:
             --suppress=knownConditionTrueFalse \
             --error-exitcode=2 \
             -I firmware/lib \
-            firmware/lib firmware/app shared \
+            firmware/lib firmware/app \
             2>&1 | tee cppcheck.log
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -67,24 +54,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: install
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang-tidy
           clang-tidy --version
-
-      # The test translation units, because they pull firmware/lib in with a
-      # compiler that can parse it - BIBO_FAKE_HAL swaps the SDK half out. Aimed
-      # at the headers directly, clang-tidy fails on `pico/stdlib.h`, reports on a
-      # fraction of the file and still exits 0. HeaderFilterRegex keeps the count.
-      # A suite clang-tidy could not parse fails the step as well: its count of
-      # findings would be zero and would mean nothing.
+      # Over the host suites, not the headers: aimed at a header, clang-tidy fails on
+      # `pico/stdlib.h`, checks a fraction of the file and still exits 0. .clang-tidy's
+      # HeaderFilterRegex reports what the suites include. A suite it cannot parse fails the
+      # step, since its zero findings would mean nothing.
       - name: clang-tidy
         run: |
           parsed=0
           sh tools/host_tests.sh tidy > tidy.log || parsed=$?
-
           n=$(grep -c ': warning:' tidy.log || true)
           echo "  $n finding(s)"
           if [ "$n" -ne 0 ]; then
@@ -93,7 +75,6 @@ jobs:
             exit 1
           fi
           exit $parsed
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:

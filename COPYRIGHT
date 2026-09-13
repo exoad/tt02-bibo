@@ -26,7 +26,8 @@ In particular, and non-exhaustively:
     CONDITION of that licence, not a courtesy, and it must remain visible to
     anyone who receives a build of the application.
 
-  * firmware/src/shared.h is BSD-3-Clause and carries its own copyright notice,
-    which must be retained in source and binary redistributions.
+  * firmware/lib/shared.hxx is BSD-3-Clause and carries its own copyright notice,
+    which must be retained in source and binary redistributions. It also holds this
+    project's hosted half, the aliases and time helpers behind #if !PICO_ON_DEVICE.
 
 Permission requests and anything else: jackm@exoad.net

@@ -7,8 +7,7 @@ REM     tools\test.bat <suite> [run]
 REM
 REM Exits non-zero when the suite does not build or does not pass. Every check is
 REM an early return on its own line: exit /b %errorlevel% inside an if-block
-REM expands when cmd PARSES the block, before the test has run, which is how the
-REM per-suite scripts this replaced once printed OVERALL: FAIL and exited 0.
+REM expands when cmd parses the block, before the test has run.
 REM
 REM Each suite builds into build\<suite>\ beside its test file, so no two suites
 REM share an object file.
@@ -32,8 +31,7 @@ echo         usage: tools\test.bat ^<suite^> [run]
 echo         suites: %FIRMWARE_SUITES% %PILOT_SUITES% link
 exit /b 2
 
-REM firmware\lib's host-buildable headers. Only chassis reaches into hal.hxx, and
-REM BIBO_FAKE_HAL swaps its SDK half for firmware\tests\fakes\hal.hxx.
+REM Only chassis reaches into hal.hxx; BIBO_FAKE_HAL swaps in firmware\tests\fakes\hal.hxx.
 :firmware
 set "TESTS=%ROOT%\firmware\tests"
 set "INC=/I"%LIB%""
@@ -41,11 +39,10 @@ set "SRCS="%TESTS%\test_%SUITE%.cxx""
 if "%SUITE%"=="chassis" set "EXTRA=/DBIBO_FAKE_HAL"
 goto :build
 
-REM One pilot module and its test, plus the modules it calls. pilot tests the
-REM refusing halves of lidar.cxx and link.cxx, which have no module of that name.
+REM Suite pilot has no pilot.cxx: it tests the refusing halves of lidar.cxx and link.cxx.
 :pilot
 set "TESTS=%ROOT%\firmware\pilot\tests"
-set "INC=/I"%ROOT%\shared" /I"%PILOT%""
+set "INC=/I"%LIB%" /I"%PILOT%""
 set "SRCS="%TESTS%\test_%SUITE%.cxx" "%PILOT%\%SUITE%.cxx""
 if "%SUITE%"=="pilot" set "SRCS="%TESTS%\test_pilot.cxx" "%PILOT%\lidar.cxx" "%PILOT%\link.cxx""
 if "%SUITE%"=="carrules" set "SRCS=%SRCS% "%PILOT%\proto.cxx""
@@ -54,8 +51,8 @@ set "SRCS=%SRCS% "%PILOT%\carrules.cxx" "%PILOT%\proto.cxx" "%PILOT%\lidar.cxx""
 set "SRCS=%SRCS% "%PILOT%\link.cxx" "%PILOT%\viewfeed.cxx" "%PILOT%\trimfile.cxx""
 goto :build
 
-REM viewer\src BEFORE firmware\pilot\src: both have a link.hxx, and this suite
-REM means the viewer's. ws2_32.lib because link.cxx holds the socket half too.
+REM viewer\src before firmware\pilot\src: both have a link.hxx, and this suite
+REM means the viewer's. ws2_32.lib for link.cxx's sockets.
 :viewer
 set "TESTS=%ROOT%\viewer\tests"
 set "VSRC=%ROOT%\viewer\src"
@@ -63,7 +60,7 @@ set "IMGUI=%ROOT%\third_party\imgui"
 set "STB=%ROOT%\third_party\stb"
 if not exist "%IMGUI%\imgui.h" goto :nothirdparty
 if not exist "%STB%\stb_image.h" goto :nothirdparty
-set "INC=/I"%VSRC%" /I"%ROOT%\shared" /I"%PILOT%" /I"%IMGUI%" /I"%STB%""
+set "INC=/I"%VSRC%" /I"%LIB%" /I"%PILOT%" /I"%IMGUI%" /I"%STB%""
 set "SRCS="%TESTS%\test_link.cxx" "%VSRC%\link.cxx" "%VSRC%\vlog.cxx" "%VSRC%\jpeg.cxx""
 set "SRCS=%SRCS% "%VSRC%\orient.cxx" "%VSRC%\settings.cxx" "%PILOT%\bibowire.cxx""
 set "LIBS=ws2_32.lib"
@@ -74,11 +71,9 @@ set "OUT=%TESTS%\build\%SUITE%"
 call "%~dp0find_vs.bat" cl
 if errorlevel 1 exit /b 1
 if not exist "%OUT%" mkdir "%OUT%"
-
 cl %CLFLAGS% %EXTRA% %INC% %SRCS% /Fo"%OUT%\\" /Fe"%OUT%\test_%SUITE%.exe" /link /SUBSYSTEM:CONSOLE %LIBS%
 if errorlevel 1 goto :nobuild
 echo [ok] %OUT%\test_%SUITE%.exe
-
 if not "%~2"=="run" exit /b 0
 "%OUT%\test_%SUITE%.exe"
 exit /b %errorlevel%

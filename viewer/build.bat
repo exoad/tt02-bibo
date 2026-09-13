@@ -1,8 +1,7 @@
 @echo off
 setlocal
 
-rem  bibo viewer :: MSVC x64. THE AUTHORITATIVE BUILD - there is no CMake
-rem  project for the viewer and no second way to produce the exe.
+rem  bibo viewer, MSVC x64. The only build: there is no CMake project for the viewer.
 rem
 rem  Usage:  build.bat          incremental; the Dear ImGui objects are cached
 rem          build.bat clean    wipe build\ first
@@ -14,19 +13,14 @@ set "BUILD=%ROOT%build"
 set "OBJ=%BUILD%\obj"
 set "IMGUI=%ROOT%..\third_party\imgui"
 
-rem  stb_image, for the camera window's JPEG decode. Same arrangement as Dear
-rem  ImGui: third_party\ is gitignored and this is CLONED, never vendored - see
-rem  THIRD_PARTY.md, which records the version and the licence.
+rem  stb_image, for the camera window's JPEG decode.
 set "STB=%ROOT%..\third_party\stb"
 
-rem  The board's source tree. bibowire.cxx is compiled INTO this exe rather than
-rem  copied or reimplemented: docs/bibowire.md section 12 requires the viewer and
-rem  the pilot to share the object file so the encoder and the decoder cannot
-rem  drift into disagreeing about a field's offset while both still compile.
+rem  bibowire.cxx is compiled from the pilot's tree, never copied, so the viewer and
+rem  the pilot share one codec; see docs/bibowire.md section 12.
 set "PILOT=%ROOT%..\firmware\pilot\src"
 
-rem  BIBO_EXE_NAME overrides the output name, for one situation: the viewer is
-rem  running and holding bibo.exe, so the link cannot replace it.
+rem  BIBO_EXE_NAME renames the output, for when a running viewer holds bibo.exe.
 if not defined BIBO_EXE_NAME set "BIBO_EXE_NAME=bibo.exe"
 set "EXE=%BUILD%\%BIBO_EXE_NAME%"
 
@@ -56,12 +50,10 @@ if not exist "%BUILD%" mkdir "%BUILD%"
 if not exist "%OBJ%"   mkdir "%OBJ%"
 
 set "CFLAGS=%CLFLAGS% /c"
-set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%STB%" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%PILOT%""
+set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%STB%" /I"%ROOT%src" /I"%ROOT%..\firmware\lib" /I"%PILOT%""
 
-rem --- Dear ImGui core + the win32/dx11 backends, compiled once and cached.
-rem  imgui_demo.cpp is NOT built: nothing here shows the demo window.
+rem  imgui_demo.cpp is not built: nothing here shows the demo window.
 echo [imgui] core + win32/dx11 backends
-
 if not exist "%OBJ%\imgui.obj" (
     cl %CFLAGS% %INC% /Fo"%OBJ%\imgui.obj" "%IMGUI%\imgui.cpp"
     if errorlevel 1 exit /b 1
@@ -87,9 +79,8 @@ if not exist "%OBJ%\imgui_impl_dx11.obj" (
     if errorlevel 1 exit /b 1
 )
 
-rem --- the shared codec. NOT cached like the ImGui objects above: it is the one
-rem  file in this build that also belongs to another program, and a stale copy of
-rem  it is the exact failure the shared-object rule exists to prevent.
+rem  Not cached like the ImGui objects: the pilot compiles this file too, and a stale
+rem  object would let the viewer and the pilot disagree about the wire.
 echo [codec] firmware\pilot\src\bibowire.cxx
 cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%PILOT%\bibowire.cxx"
 if errorlevel 1 (
@@ -97,7 +88,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem --- the viewer. Wildcard on purpose: every .cxx in src\ is built.
+rem  Every .cxx in src\ is built, so a new file needs no edit here.
 echo [app] src\*.cxx
 cl %CFLAGS% %INC% /Fo"%OBJ%\\" "%ROOT%src\*.cxx"
 if errorlevel 1 (
@@ -105,10 +96,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem --- link.
-rem  No d3dcompiler.lib: there are no shaders in this program - the 3D view is a
-rem  perspective divide feeding ImGui's draw list, and the only HLSL in the
-rem  binary is the backend's, which ships precompiled.
+rem  No d3dcompiler.lib here: imgui_impl_dx11.cpp links it itself with a pragma.
 rem  ws2_32.lib for link.cxx's sockets.
 echo [link] %EXE%
 link /nologo /OUT:"%EXE%" /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup ^

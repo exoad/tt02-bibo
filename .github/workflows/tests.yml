@@ -1,12 +1,8 @@
-# The host suites: firmware/lib's and the pilot's on Linux under two compilers,
-# and the viewer's link suite on Windows.
+# The host suites: firmware/lib's and the pilot's on Linux under two compilers, and the
+# viewer's link suite on Windows.
 #
-# WHY LINUX for a Windows project: firmware/lib's suites are the half that needs
-# no board - text, pins, and chassis with the fake HAL. None of it is
-# MSVC-specific, and a Linux runner bills
-# at 1x where a Windows runner bills at 2x. TWO COMPILERS because MSVC is what hid
-# `Int32 main()`: int32_t is `int` there and `long int` on arm-none-eabi, so
-# twenty entry points compiled clean on the host and the board rejected three.
+# LINUX because neither of the first two is MSVC-specific, and a Linux runner bills 1x where
+# a Windows runner bills 2x. TWO COMPILERS because code one compiler accepts, another refuses.
 name: tests
 
 on:
@@ -27,18 +23,13 @@ jobs:
         cxx: [g++, clang++]
     steps:
       - uses: actions/checkout@v4
-
       - name: compiler version
         run: ${{ matrix.cxx }} --version
-
       - name: build and run
         run: sh tools/host_tests.sh run ${{ matrix.cxx }} -O2 -Wall -Wextra
 
-  # The pilot's suites under ctest, and every target beside them: the pilot, the
-  # car programs in firmware/pilot/programs. This is the only build of the
-  # pilot's Linux halves - viewfeed's sockets, the camera, the Car's signal
-  # hooks - that does not need the board: MSVC and mingw compile their refusing
-  # halves only.
+  # The only build of the pilot's Linux halves (viewfeed's sockets, the camera, the Car's
+  # signal hooks) off the board: MSVC and mingw compile their refusing halves.
   pilot:
     runs-on: ubuntu-latest
     strategy:
@@ -47,36 +38,27 @@ jobs:
         cxx: [g++, clang++]
     steps:
       - uses: actions/checkout@v4
-
       - name: configure
         run: cmake -S firmware/pilot -B build-pilot -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
-
       - name: build
         run: cmake --build build-pilot -j
-
-      # test_bibowire's locale trap refuses to pass under "C" - it must prove the
-      # wire's text is byte-identical under a comma decimal - and the runner
-      # ships no such locale.
+      # test_bibowire fails without a comma-decimal locale, and the runner ships none.
       - name: comma-decimal locale
         run: sudo locale-gen de_DE.UTF-8
-
       - name: test
         run: ctest --test-dir build-pilot --output-on-failure
 
-  # The viewer is Win32 and MSVC, so its link suite needs the Windows runner. It
-  # goes through tools\test.bat, the same runner a desk uses.
+  # The viewer is Win32 and MSVC, so its link suite needs the Windows runner.
   viewer:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      # third_party/ is gitignored and cloned; the versions are in THIRD_PARTY.md.
+      # third_party/ is gitignored; keep these versions in step with THIRD_PARTY.md.
       - name: third_party
         shell: bash
         run: |
           git clone --depth 1 --branch v1.92.9 https://github.com/ocornut/imgui.git third_party/imgui
           git clone --depth 1 https://github.com/nothings/stb.git third_party/stb
-
       - name: link suite
         shell: cmd
         run: call tools\test.bat link run

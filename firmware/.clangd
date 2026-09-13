@@ -1,23 +1,12 @@
-# Fallback flags for the firmware, for any tool that parses these files WITHOUT
-# the CMake project loaded.
-#
-# firmware/ is a separate CMake project - it cross-compiles for arm-none-eabi
-# while the root project is MSVC x64 - so until it is attached in the IDE, a file
-# here belongs to no project and every include is underlined at once. Nothing is
-# wrong with the code: firmware/build/compile_commands.json has the full include
-# set, and build.bat writes it on every configure. CompilationDatabase points the
-# parser at it.
-#
-# THIS IS A FALLBACK. Attaching the project is the fix:
-#
-#     File | Attach Project...  ->  firmware/CMakeLists.txt
-#     then pick the "Pico 2 W (RP2350, arm-none-eabi)" preset
+# Fallback for a firmware file parsed without the CMake project attached (docs/hardware.md,
+# "In CLion"). firmware/ cross-compiles for arm-none-eabi, so until it is attached a file here
+# belongs to no project; build.bat writes the full include set to build/compile_commands.json
+# on every configure.
 
 CompileFlags:
   CompilationDatabase: build
 
-  # For the ARM cross-compiler; a host parser does not understand them and
-  # reports each as an unknown argument.
+  # ARM compiler flags a host parser reports as unknown arguments.
   Remove:
     - -mcpu=*
     - -mthumb
@@ -25,12 +14,9 @@ CompileFlags:
     - -mfpu=*
     - --specs=*
 
-  # THE STANDARD LIBRARY, SPELLED OUT. The database names arm-none-eabi-g++, and
-  # clangd guesses the LLVM embedded toolchain's header layout for it, which does
-  # not exist here - so <cstddef> fails and every Int32 in shared.hxx reads as an
-  # unknown type. These are what `arm-none-eabi-g++ -x c++ -E -v` prints, in its
-  # order. HARDCODED, 13.3.0 included, like ARMBIN in build.bat: if the MSYS2
-  # toolchain moves or updates, re-run that command and paste the new list.
+  # clangd guesses an LLVM embedded toolchain's header layout for arm-none-eabi-g++, which
+  # does not exist here, so <cstddef> fails. These are what `arm-none-eabi-g++ -x c++ -E -v`
+  # prints, in its order; when MSYS2's toolchain moves or updates, paste its new list.
   Add:
     - -isystem
     - C:/msys64/mingw64/arm-none-eabi/include/c++/13.3.0
@@ -50,20 +36,16 @@ Diagnostics:
   Suppress:
     - pp_file_not_found_angled_include_not_fatal
 
-  # OFF: bibo.hxx and hal.hxx are umbrella headers, so every include they list
-  # is "unused" by the file that lists it. The warning would fire on the design
-  # rather than on a mistake.
+  # Off: bibo.hxx and hal.hxx are umbrella headers, so every include they list reads as
+  # unused.
   UnusedIncludes: None
   MissingIncludes: None
 
-  # clangd MERGES every .clangd from the file's directory up to the root, so this
-  # adds to the root's check list. firmware/.clang-tidy says why the check is
-  # scoped here; keep the two in step, since neither format reads the other.
+  # Added to the root .clangd's list. firmware/.clang-tidy has the reasons for the check and
+  # its option; keep the two in step, since neither reads the other.
   ClangTidy:
     Add:
       - hicpp-signed-bitwise
 
     CheckOptions:
-      # Without this the literal 8 in `x >> 8` reports, which is a fact about
-      # C++ and not about the file.
       hicpp-signed-bitwise.IgnorePositiveIntegerLiterals: true
