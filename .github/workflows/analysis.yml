@@ -26,7 +26,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends cppcheck
           cppcheck --version
 
-      # vendor/ and hub/third_party (imgui) are upstream - not ours to fix, and
+      # vendor/ and third_party/ are upstream - not ours to fix, and
       # their findings would crowd out a real one. --inline-suppr so a genuine
       # false positive can be waived AT THE LINE rather than in a list far away.
       #
@@ -54,7 +54,7 @@ jobs:
             --suppress=knownConditionTrueFalse \
             --error-exitcode=2 \
             -I firmware/lib \
-            firmware/lib firmware/app shared lidar/bridge \
+            firmware/lib firmware/app shared \
             2>&1 | tee cppcheck.log
 
       - uses: actions/upload-artifact@v4
@@ -79,15 +79,12 @@ jobs:
       # compiler that can parse it - BIBO_FAKE_HAL swaps the SDK half out. Aimed
       # at the headers directly, clang-tidy fails on `pico/stdlib.h`, reports on a
       # fraction of the file and still exits 0. HeaderFilterRegex keeps the count.
+      # A suite clang-tidy could not parse fails the step as well: its count of
+      # findings would be zero and would mean nothing.
       - name: clang-tidy
         run: |
-          set -u
-          : > tidy.log
-          for src in firmware/tests/test_*.cxx; do
-            defs=""
-            if [ "$(basename "$src" .cxx)" = "test_chassis" ]; then defs="-DBIBO_FAKE_HAL"; fi
-            clang-tidy --quiet "$src" -- -std=c++20 $defs -I firmware/lib >> tidy.log 2>/dev/null || true
-          done
+          parsed=0
+          sh tools/host_tests.sh tidy > tidy.log || parsed=$?
 
           n=$(grep -c ': warning:' tidy.log || true)
           echo "  $n finding(s)"
@@ -96,6 +93,7 @@ jobs:
             echo "::error title=clang-tidy::$n finding(s) under the repository's own check list"
             exit 1
           fi
+          exit $parsed
 
       - uses: actions/upload-artifact@v4
         if: always()

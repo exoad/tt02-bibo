@@ -1,7 +1,8 @@
-# The seven host suites, on Linux, under two compilers.
+# The host suites: firmware/lib's and the pilot's on Linux under two compilers,
+# and the viewer's link suite on Windows.
 #
-# WHY LINUX for a Windows project: these suites are the half of firmware/lib that
-# needs no board - text, pins, control, pursuit, the DFPlayer checksum, sfx, and
+# WHY LINUX for a Windows project: firmware/lib's suites are the half that needs
+# no board - text, pins, control, pursuit, the DFPlayer checksum, sfx, and
 # chassis with the fake HAL. None of it is MSVC-specific, and a Linux runner bills
 # at 1x where a Windows runner bills at 2x. TWO COMPILERS because MSVC is what hid
 # `Int32 main()`: int32_t is `int` there and `long int` on arm-none-eabi, so
@@ -30,32 +31,44 @@ jobs:
       - name: compiler version
         run: ${{ matrix.cxx }} --version
 
-      # Only chassis defines BIBO_FAKE_HAL - it is the one suite that reaches into
-      # hal.hxx, and the define swaps the SDK half for tests/fakes/hal.hxx. The
-      # loop reads EXIT CODES: every one of these scripts printed "OVERALL: FAIL"
-      # while exiting 0 until 2026-08-31.
       - name: build and run
+        run: sh tools/host_tests.sh run ${{ matrix.cxx }} -O2 -Wall -Wextra
+
+  # The pilot's suites under ctest. This is the only build of the pilot's Linux
+  # halves - viewfeed's sockets, the camera - that does not need the board: MSVC
+  # and mingw compile their refusing halves only.
+  pilot:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: configure
+        run: cmake -S firmware/pilot -B build-pilot -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+
+      - name: build
+        run: cmake --build build-pilot -j
+
+      - name: test
+        run: ctest --test-dir build-pilot --output-on-failure
+
+  # The viewer is Win32 and MSVC, so its link suite needs the Windows runner. It
+  # goes through tools\test.bat, the same runner a desk uses.
+  viewer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # third_party/ is gitignored and cloned; the versions are in THIRD_PARTY.md.
+      - name: third_party
+        shell: bash
         run: |
-          set -u
-          mkdir -p out
-          fail=0
-          for src in firmware/tests/test_*.cxx; do
-            name=$(basename "$src" .cxx)
-            defs=""
-            if [ "$name" = "test_chassis" ]; then defs="-DBIBO_FAKE_HAL"; fi
+          git clone --depth 1 --branch v1.92.9 https://github.com/ocornut/imgui.git third_party/imgui
+          git clone --depth 1 https://github.com/nothings/stb.git third_party/stb
 
-            if ! ${{ matrix.cxx }} -std=c++20 -O2 -Wall -Wextra $defs \
-                 -I firmware/lib -o "out/$name" "$src"; then
-              echo "::error title=build failed::$name did not compile"
-              fail=1
-              continue
-            fi
-
-            if out/"$name"; then
-              echo "  [ ok ] $name"
-            else
-              echo "::error title=suite failed::$name exited non-zero"
-              fail=1
-            fi
-          done
-          exit $fail
+      - name: link suite
+        shell: cmd
+        run: call tools\test.bat link run
