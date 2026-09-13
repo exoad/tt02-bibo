@@ -1,7 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <!--
-    Puts the bring-up firmware back on the board: LED blink plus the serial
-    command console the hub's Pico 2 W tab talks to.
+    Puts pico_debug, the car's image built from firmware/app, back on the board.
 
     This is the way back. Whenever a sketch has left the board in a state you
     cannot reason about, flash this and you have a known-good image and a working

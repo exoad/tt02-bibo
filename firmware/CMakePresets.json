@@ -37,7 +37,6 @@
 
   "buildPresets": [
     { "name": "pico2w",       "configurePreset": "pico2w" },
-    { "name": "sketch",       "configurePreset": "pico2w", "targets": [ "sketch" ] },
     { "name": "pico_debug",   "configurePreset": "pico2w", "targets": [ "pico_debug" ] },
     { "name": "pico2w-debug", "configurePreset": "pico2w-debug" }
   ]

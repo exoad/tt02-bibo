@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <!--
-    The AUTHORITATIVE firmware build. Produces both pico_debug.uf2 and
-    sketch.uf2.
+    The AUTHORITATIVE firmware build. Produces pico_debug.uf2 and one .uf2 per
+    file in firmware/sketches/.
 
     The CMake profile beside it builds the same thing with the same settings and
     is what CLion uses for indexing and for the green hammer. This script is what
