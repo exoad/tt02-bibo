@@ -1,25 +1,15 @@
-# Line endings and binary detection.
-#
-# Without this, Git guesses per file and per machine. The guesses are usually
-# right and the exceptions are expensive: a .bat checked out with LF endings can
-# fail in ways that look like a broken script, and a mis-detected binary shows up
-# as a 122,000-line diff that nobody can review.
-
-# Normalise everything to LF inside the repository. Working-copy endings are
-# then whatever the platform wants.
+# Set here rather than guessed per file and machine: a .bat checked out with LF can
+# fail like a broken script, and a mis-detected binary shows up as a huge diff.
+# LF in the repository; working-copy endings follow the platform.
 * text=auto
 
-# ---- must be CRLF in the working copy --------------------------------------
-# cmd.exe is tolerant of LF in most cases and not in all of them. PowerShell
-# here-strings are one of the places it is not.
+# cmd.exe mishandles LF in some cases, PowerShell here-strings among them.
 *.bat  text eol=crlf
 *.cmd  text eol=crlf
 *.ps1  text eol=crlf
 
-# ---- must be LF ------------------------------------------------------------
 *.sh   text eol=lf
 
-# ---- source and docs, explicitly text --------------------------------------
 *.c    text
 *.h    text
 *.cpp  text
@@ -32,7 +22,6 @@
 *.cmake text
 CMakeLists.txt text
 
-# ---- binary ----------------------------------------------------------------
 *.png  binary
 *.ico  binary
 *.jpg  binary
@@ -45,8 +34,6 @@ CMakeLists.txt text
 *.zip  binary
 *.ttf  binary
 
-# ---- diff hints ------------------------------------------------------------
-# Vendored third-party trees are cloned, not tracked, but if one is ever added
-# these keep it out of language statistics and out of review diffs.
+# Untracked today; if ever added, kept out of GitHub's language statistics.
 vendor/**            linguist-vendored
 third_party/**       linguist-vendored

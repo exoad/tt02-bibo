@@ -1,10 +1,6 @@
-# Dependabot. One ecosystem, and it is not the C++ - there is no package manager
-# here. The SDKs (pico-sdk and picotool by tag in workflows/firmware.yml, imgui
-# and stb by the clones in third_party/) are pinned by hand and invisible to
-# Dependabot, so raising one is a person's job. github-actions is what is left,
-# and it matters: a third-party action runs with this repository's token, and
-# those pinned versions are the only thing standing between a compromised action
-# and it.
+# Only github-actions: the C++ has no package manager, and pico-sdk, picotool,
+# imgui and stb are cloned by the workflows and raised by hand. A third-party
+# action runs with this repository's token, so keeping its version current matters.
 version: 2
 
 updates:

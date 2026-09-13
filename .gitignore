@@ -1,21 +1,20 @@
-# Vendored third-party source. Cloned, not tracked - see THIRD_PARTY.md.
+# Cloned, not tracked; see THIRD_PARTY.md.
 vendor/
 
 # Telemetry pulled off the SD card.
 data/*.csv
 
-# Build trees.
 build/
 **/build/
 
-# Firmware artifacts
+# Firmware build outputs.
 *.uf2
 *.elf
 *.bin
 *.hex
 *.map
 
-# MSVC / Windows build artifacts.
+# MSVC build outputs.
 *.obj
 *.pdb
 *.ilk
@@ -29,33 +28,25 @@ build/
 *.tlog
 .vs/
 
-# Dear ImGui writes window layout here at runtime.
+# Dear ImGui's window layout, written at runtime.
 imgui.ini
 
-# Python bytecode caches.
-#
-# NOT MERELY NOISE. A .pyc embeds the ABSOLUTE PATH of the source it was
-# compiled from, so a committed one carries this machine's home directory - and
-# `git grep -I` skips binary files, so no sweep for home paths can see it. A
-# file nothing can read is a file nothing can check.
+# A .pyc embeds the absolute path of its source, and git grep -I skips binaries,
+# so a committed one leaks a home directory that no sweep can see.
 __pycache__/
 *.pyc
 *.pyo
 
-# OS noise
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# The Dear ImGui and stb clones the viewer builds against - versions in
-# THIRD_PARTY.md.
+# The Dear ImGui and stb clones the viewer builds against; versions in THIRD_PARTY.md.
 third_party/
 
-# CLion / CMake. firmware/CMakePresets.json and the run configurations ARE
-# committed - they carry the toolchain knowledge and are the point of the setup.
-# Everything below is per-machine state that would only cause conflicts.
-# Every per-board build tree: build/ is the Pico 2 W, build-pico2/ is the car's
-# board, build-debug/ is the Debug preset's.
+# Per-machine CLion and CMake state; firmware/CMakePresets.json and the run
+# configurations are committed. firmware/build-pico2/ is the car's board,
+# firmware/build-debug/ the Debug preset's.
 firmware/build-*/
 cmake-build-*/
 /.idea/workspace.xml
@@ -64,25 +55,17 @@ cmake-build-*/
 /.idea/*.iml
 /.idea/modules.xml
 
-# Agent / assistant tooling. Local scratch, never part of the project.
+# Agent tooling, local only.
 .claude/
 CLAUDE.md
 .cursor/
 .aider*
 
-# Old session logs at the root. Local diagnostics only.
 /logs/
 
-# Generated so an editor can parse the host test suites, which are built by .bat
-# and appear in no CMake project.
-#
-# NOT COMMITTED: the entries carry ABSOLUTE paths, so the file names this
-# machine and is wrong on any other. Same reason the .pyc had to go.
-#
-# firmware/pilot/compile_commands.json is deliberately NOT here: it is written
-# by hand, carries no absolute path, and is committed on purpose.
+# Its entries carry absolute paths. firmware/pilot/compile_commands.json is
+# hand-written with relative paths and committed on purpose.
 firmware/tests/compile_commands.json
 
-# clangd index cache. Binary, machine-specific, and it embeds absolute paths -
-# the same property that put a .pyc with a home directory into 119 commits.
+# clangd index cache: binary, with absolute paths inside.
 .cache/
