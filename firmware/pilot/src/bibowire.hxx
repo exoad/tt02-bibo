@@ -792,6 +792,13 @@ namespace bibowire
   constexpr UInt16 BUTTON_ENABLE = 0x0002;
   constexpr UInt16 BUTTON_MOTOR_WANTED = 0x0004;
 
+  // THE IDLE TEST, from the Trim pane. With ENABLE, while armed and live, the
+  // pilot holds the ESC at exactly the Pico's idle pulse and ignores the
+  // throttle field, and the board accepts SET_ESC_LIMITS despite the arm - the
+  // one tuning verb that makes sense while the motor is being watched, and the
+  // only throttle it can change is that idle.
+  constexpr UInt16 BUTTON_IDLE_TEST = 0x0008;
+
   struct Command
   {
       UInt32 sessionId = 0;

@@ -4,9 +4,7 @@
 
 // No <windows.h> and no <d3d11.h> here, unlike camera.cxx: this window owns no
 // texture and needs no device, so none of the `small`/`near`/`far`/SEVERITY_ERROR
-// macro surgery that file performs is needed. Worth saying out loud - the undef
-// block is easy to copy into a file that does not need it, and then it looks
-// like this module touches Windows when it does not.
+// macro surgery that file performs is needed.
 #include "imgui.h"
 
 #include "trim.hxx"
@@ -26,14 +24,29 @@ namespace trimview
     // column of controls lines up rather than each call picking its own.
     constexpr Float32 ITEM_WIDTH = -128.0f;
 
+    // How often a slider being dragged sends its value. The steering follows the
+    // drag on the car, and ten a second reads as live without flooding a queue
+    // the pilot drains two lines a tick.
+    constexpr Int64 PREVIEW_SEND_MS = 100;
+
+    // How long after this pane's last send the board's trim report is left
+    // alone. A report goes out when the board's queue drains, which during a
+    // drag falls between two of this pane's own sends - taken then, it would
+    // snap the slider back to where the hand has already left.
+    constexpr Int64 FOLLOW_QUIET_MS = 800;
+
+    // The idle test turns itself off after this long. A motor held at idle and
+    // forgotten about is the thing the timeout exists for.
+    constexpr Int64 IDLE_TEST_MS = 20000;
+
+    const ImVec4 TEXT_WARN = ImVec4(1.0f, 0.72f, 0.30f, 1.0f);
+    const ImVec4 TEXT_GOOD = ImVec4(0.45f, 0.85f, 0.50f, 1.0f);
+    const ImVec4 TEXT_BAD = ImVec4(1.0f, 0.45f, 0.35f, 1.0f);
+
     // ---- text ---------------------------------------------------------------
 
-    // Centiseconds as "1.07 s", built from two integers.
-    //
-    // NEVER printf("%.2f"): the decimal point honours the locale and a machine
-    // set to a comma decimal writes "1,07". That is the bug this project has met
-    // three times, and this readout is the one place in the pane where a decimal
-    // point appears at all - so it is the one place worth being careful.
+    // Centiseconds as "1.07 s", built from two integers. NEVER printf("%.2f"):
+    // the decimal point honours the locale, and a comma decimal writes "1,07".
     [[nodiscard]] Str centisText(Int64 centis)
     {
         if(centis < 0)
@@ -56,14 +69,9 @@ namespace trimview
 
     // ---- is the car in a state that will accept this ------------------------
 
-    // Whether the car is armed, from the freshest thing that says so.
-    //
-    // CTLSTATE is the authority and arrives at 20 Hz; BOARD is the fallback at
-    // 5 Hz, and its picoArmed carries 2 for UNKNOWN - which is deliberately NOT
-    // treated as armed. An unknown state that disabled the controls would leave
-    // somebody unable to tune a disarmed car with no way to find out why, and the
-    // board's own refusal is the backstop that makes guessing safe here: if it is
-    // armed after all, the command is refused with a sentence this pane shows.
+    // Whether the car is armed, from the freshest thing that says so. CTLSTATE
+    // is the authority; BOARD's picoArmed stands in, and its 2 (UNKNOWN) is not
+    // taken as armed - the board's own refusal is the backstop if it is.
     [[nodiscard]] Bool carArmed(const link::Snapshot& snap, Int64 nowMs)
     {
         const Opt<link::Control> ctl = snap.state.controlState(nowMs);
@@ -79,35 +87,16 @@ namespace trimview
         return false;
     }
 
-    // WHY the controls are disabled, or empty when they are not. A disabled
-    // slider with no sentence beside it is a program refusing to say what it
-    // wants, which is the failure this whole window is careful about.
-    [[nodiscard]] Str whyDisabled(link::Client& lk, const link::Snapshot& snap, Int64 nowMs)
+    [[nodiscard]] Bool isTrimVerb(bibowire::Verb v)
     {
-        if(!link::isOpen(lk))
-        {
-            return "not connected - a limit is set on the car, not in this window";
-        }
-        if(!snap.state.haveWelcome)
-        {
-            return "handshaking - nothing is sent until the board has answered HELLO";
-        }
-        if(carArmed(snap, nowMs))
-        {
-            return "the car is ARMED - the board refuses tuning while armed, and it is "
-                   "right to. Disarm first.";
-        }
-        return "";
+        return v == bibowire::Verb::VERB_SET_SERVO_LIMITS
+            || v == bibowire::Verb::VERB_SET_SERVO_TRIM
+            || v == bibowire::Verb::VERB_SET_ESC_LIMITS
+            || v == bibowire::Verb::VERB_SET_ESC_REVERSE
+            || v == bibowire::Verb::VERB_SET_SLEW;
     }
 
     // ---- sending ------------------------------------------------------------
-    //
-    // ON RELEASE, NEVER ON DRAG. ImGui reports a slider as changed on every pixel
-    // of movement, which at 60 Hz is dozens of COMMANDs a second on a link that
-    // acknowledges each one individually - and every one of them would be a
-    // deliberate act as far as the board's journal is concerned.
-    // IsItemDeactivatedAfterEdit() fires once, when the mouse comes up or the
-    // typed value is committed, which is the moment the operator actually meant.
 
     Void sendServoLimits(View& v, link::Client& lk)
     {
@@ -149,13 +138,12 @@ namespace trimview
 
     // THE WHOLE SET, in the order the board needs it: limits before the centre
     // that must sit inside them. Settled first, so what goes out is exactly what
-    // the sliders show and what settings.cxx saves. clampTo, settleSteer and
-    // settleEsc live in trim.hxx now - see the note there.
-    Void sendAll(View& v, link::Client& lk)
+    // the sliders show and what settings.cxx saves.
+    Void sendAll(View& v, link::Client& lk, Int64 nowMs)
     {
         settleAll(v);
         vlog::line(
-            "trim: send all to the car - servo %d..%d centre %d, esc %d..%d reverse %d, slew %d/%d",
+            "trim: save all to the car - servo %d..%d centre %d, esc %d..%d reverse %d, slew %d/%d",
             v.steerMinUs,
             v.steerMaxUs,
             v.steerTrimUs,
@@ -171,124 +159,88 @@ namespace trimview
         sendEscReverse(v, lk);
         sendSlew(v, lk, bibowire::SLEW_AXIS_STEER, v.steerSlewUs);
         sendSlew(v, lk, bibowire::SLEW_AXIS_THROTTLE, v.throttleSlewUs);
+        v.lastSendMs = nowMs;
     }
 
-    // ---- the derived line, which is the point of the window -----------------
-    //
-    // Drawn UNDER its slider and on its own line, not in a tooltip and not as a
-    // suffix: "how long does it take to get there" is the question this pane was
-    // asked for, and an answer nobody sees without hovering is not an answer.
+    // WHETHER THE SLIDER JUST SUBMITTED SHOULD SEND NOW - for the sliders the
+    // car shows as they move. At most every PREVIEW_SEND_MS while held, and once
+    // more on release, so the position the hand stopped on is always the one
+    // the board saves. Asked straight after the slider, like IsItemEdited.
+    [[nodiscard]] Bool liveSend(View& v, Int64 nowMs)
+    {
+        if(ImGui::IsItemEdited())
+        {
+            v.dragUnsent = true;
+        }
+        const Bool released = ImGui::IsItemDeactivatedAfterEdit();
+        const Bool due = v.dragUnsent && ImGui::IsItemActive() && nowMs - v.lastSendMs >= PREVIEW_SEND_MS;
+        if(!released && !due)
+        {
+            return false;
+        }
+        v.dragUnsent = false;
+        v.lastSendMs = nowMs;
+        return true;
+    }
+
+    // On release only, for the sliders the car cannot show - a slew or the
+    // reverse limit changes nothing visible until somebody drives.
+    [[nodiscard]] Bool releaseSend(View& v, Int64 nowMs)
+    {
+        if(!ImGui::IsItemDeactivatedAfterEdit())
+        {
+            return false;
+        }
+        v.lastSendMs = nowMs;
+        return true;
+    }
+
+    // The travel time under a speed slider, as one short line.
     Void slewReadout(Int32 usPerTick, Int32 spanUs, CharSeq what)
     {
-        const Int32 perSec = slewUsPerSec(usPerTick);
         const Int64 centis = crossCentis(spanUs, usPerTick);
-
-        Array<Char, 96> line = {};
-        if(centis < 0)
-        {
-            // No span to cross - the limits are equal or crossed. Saying so beats
-            // printing "0.00 s", which reads as "instantly" rather than as "this
-            // number is not currently meaningful".
-            std::snprintf(line.data(), line.size(), "%d us/s - no travel to cross", perSec);
-        }
-        else
-        {
-            const Str time = centisText(centis);
-            std::snprintf(line.data(), line.size(), "%d us/s - %s %s", perSec, what, time.c_str());
-        }
-
-        // Indented under the slider it belongs to, so two of these in a column
-        // cannot be read as belonging to the wrong control.
+        const Str time = centisText(centis);
         ImGui::Indent(12.0f * uiScale);
-        ImGui::TextUnformatted(line.data());
+        ImGui::TextDisabled("%s %s", what, time.c_str());
         ImGui::Unindent(12.0f * uiScale);
     }
 
-    // ---- the board's answer -------------------------------------------------
-    //
-    // A REFUSAL MUST BE VISIBLE. Silence after a refused command is the failure
-    // this repo keeps finding, and it is worse here than usual: a refused limit
-    // leaves the slider sitting at a value the car never took, which looks
-    // exactly like a limit that was applied.
-    Void drawAck(const link::Snapshot& snap)
-    {
-        const Opt<link::Ack> got = snap.state.newestAck();
-        if(!got.has_value())
-        {
-            ImGui::TextDisabled("the board has not answered a command yet");
-            return;
-        }
-
-        const bibowire::CmdAck& ack = got->ack;
-        const Bool refused = ack.result != 0u;
-
-        Array<Char, 96> head = {};
-        std::snprintf(
-            head.data(),
-            head.size(),
-            "command %u - %s",
-            ack.cmdId,
-            link::ackResultName(ack.result)
-        );
-
-        if(refused)
-        {
-            // Coloured, because this is the one line in the window that means
-            // "what you just did did not happen".
-            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", head.data());
-        }
-        else
-        {
-            ImGui::TextUnformatted(head.data());
-        }
-
-        // VERBATIM, and shown for an ok as well as a refusal - the board may have
-        // clamped what it was sent, and the sentence is where it would say so.
-        if(!ack.text.empty())
-        {
-            ImGui::TextWrapped("board: %s", ack.text.c_str());
-        }
-        else if(refused)
-        {
-            ImGui::TextWrapped("board: (refused with no sentence)");
-        }
-    }
-
-    // WHOSE NUMBERS THE SLIDERS ARE SHOWING, in words, because the answer
-    // changes what "send all to the car" means: over the car's own saved trim it
-    // re-sends what the board already has, and over a board with nothing saved
-    // it is the only way this laptop's copy ever gets kept on the car.
-    Void drawSaved(link::Client& lk, const link::Snapshot& snap)
+    // ONE LINE saying whose numbers the sliders hold.
+    Void drawStatus(Bool conn, const link::Snapshot& snap)
     {
         const link::Session& s = snap.state;
-        if(!link::isOpen(lk) || !s.haveWelcome)
+        if(!conn)
         {
-            ImGui::TextDisabled("not connected - the sliders show this laptop's saved copy");
+            ImGui::TextDisabled("not connected");
             return;
         }
         if(!s.haveBoardTrim)
         {
-            ImGui::TextWrapped(
-                "the board has not said what it has saved - a pilot older than this "
-                "viewer never does - so the sliders show this laptop's copy"
-            );
+            ImGui::TextDisabled("the car has not reported its trim");
             return;
         }
         if(s.boardTrimText.empty())
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.30f, 1.0f));
-            ImGui::TextWrapped(
-                "the car has NO saved trim - the Pico is on its compiled values. The "
-                "sliders show this laptop's copy: disarm and press \"send all to the "
-                "car\" to save it on the Pi."
-            );
-            ImGui::PopStyleColor();
+            ImGui::TextColored(TEXT_WARN, "nothing saved on the car - press save to car");
             return;
         }
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.85f, 0.50f, 1.0f));
-        ImGui::TextWrapped("saved on the car: %s", s.boardTrimText.c_str());
+        ImGui::TextColored(TEXT_GOOD, "saved on the car");
+    }
+
+    // A REFUSAL MUST BE VISIBLE: a refused limit leaves the slider at a value
+    // the car never took, which looks exactly like one it did. Only the trim
+    // verbs, and only when the newest answer said no.
+    Void drawRefusal(const link::Snapshot& snap)
+    {
+        const Opt<link::Ack> got = snap.state.newestAck();
+        if(!got.has_value() || got->ack.result == 0u || !isTrimVerb(got->ack.verb))
+        {
+            return;
+        }
+        const CharSeq why = got->ack.text.empty() ? link::ackResultName(got->ack.result) : got->ack.text.c_str();
+        ImGui::PushStyleColor(ImGuiCol_Text, TEXT_BAD);
+        ImGui::TextWrapped("refused: %s", why);
         ImGui::PopStyleColor();
-        ImGui::TextDisabled("the sliders took these values from the board");
     }
 
   }
@@ -300,12 +252,45 @@ namespace trimview
 
   Void follow(View& v, const link::Snapshot& snap)
   {
+      const Int64 nowMs = link::monoMs();
+
+      // THE IDLE TEST ENDS ON ITS OWN. Every frame, window open or not, because
+      // a closed window is one of the reasons.
+      if(v.idleTest)
+      {
+          CharSeq why = nullptr;
+          if(!v.open)
+          {
+              why = "the Trim window was closed";
+          }
+          else if(!carArmed(snap, nowMs))
+          {
+              why = "the car is not armed";
+          }
+          else if(nowMs - v.idleTestSinceMs >= IDLE_TEST_MS)
+          {
+              why = "its 20 s ran out";
+          }
+          if(why != nullptr)
+          {
+              v.idleTest = false;
+              vlog::line("trim: idle test OFF - %s", why);
+          }
+      }
+
       const link::Session& s = snap.state;
       if(!s.haveBoardTrim)
       {
           return;
       }
       if(s.boardTrimAtMs == v.adoptedAtMs && s.boardTrimCount == v.adoptedCount)
+      {
+          return;
+      }
+      // NOT WHILE THE OPERATOR IS MOVING SOMETHING - see FOLLOW_QUIET_MS. Not
+      // marked as taken, so it is taken on the first quiet frame, by which time
+      // it describes where the drag ended.
+      if(ImGui::IsAnyItemActive() || nowMs - v.lastSendMs < FOLLOW_QUIET_MS)
       {
           return;
       }
@@ -316,12 +301,13 @@ namespace trimview
       {
           vlog::line(
               "trim: the board has NO saved trim - the sliders keep this laptop's copy "
-              "(servo %d..%d centre %d, esc %d..%d, slew %d/%d) until \"send all to the car\"",
+              "(servo %d..%d centre %d, esc %d..%d reverse %d, slew %d/%d)",
               v.steerMinUs,
               v.steerMaxUs,
               v.steerTrimUs,
               v.escMinUs,
               v.escMaxUs,
+              v.escReverseUs,
               v.steerSlewUs,
               v.throttleSlewUs
           );
@@ -330,7 +316,7 @@ namespace trimview
       const Int32 taken = adoptReport(v, s.boardTrimText);
       vlog::line(
           "trim: took %d setting(s) the board has saved (%s) - the sliders are now "
-          "servo %d..%d centre %d, esc %d..%d, slew %d/%d",
+          "servo %d..%d centre %d, esc %d..%d reverse %d, slew %d/%d",
           taken,
           s.boardTrimText.c_str(),
           v.steerMinUs,
@@ -338,6 +324,7 @@ namespace trimview
           v.steerTrimUs,
           v.escMinUs,
           v.escMaxUs,
+          v.escReverseUs,
           v.steerSlewUs,
           v.throttleSlewUs
       );
@@ -351,7 +338,7 @@ namespace trimview
       }
 
       ImGui::SetNextWindowPos(ImVec2(820.0f * uiScale, 16.0f * uiScale), ImGuiCond_FirstUseEver);
-      ImGui::SetNextWindowSize(ImVec2(430.0f * uiScale, 560.0f * uiScale), ImGuiCond_FirstUseEver);
+      ImGui::SetNextWindowSize(ImVec2(400.0f * uiScale, 440.0f * uiScale), ImGuiCond_FirstUseEver);
 
       if(!ImGui::Begin("Trim", &v.open))
       {
@@ -359,82 +346,74 @@ namespace trimview
           return;
       }
 
-      // SAID FIRST, BEFORE ANY CONTROL: where these values are kept. It used to
-      // say they were lost on the Pico's next reboot, which was true until the
-      // board started saving them - and a warning that has stopped being true
-      // teaches an operator to ignore the line it sits on.
-      ImGui::TextWrapped(
-          "The board saves every change it accepts on the Pi, re-sends it to the "
-          "Pico whenever the Pico connects, and tells this window what it has "
-          "saved - so while connected, these sliders show the car's saved values. "
-          "This laptop keeps a copy too, for when the car is off."
-      );
+      // WHAT MAY BE TOUCHED. The board refuses every trim verb while the car is
+      // armed, so the controls say so by being disabled - with one exception,
+      // the ESC limits during the idle test, which the board accepts too.
+      const Bool conn = link::isOpen(lk) && snap.state.haveWelcome;
+      const Bool armed = conn && carArmed(snap, nowMs);
+      const Bool tunable = conn && !armed;
+      const Bool escTunable = conn && (!armed || v.idleTest);
 
-      ImGui::Separator();
-
-      // Whose numbers the sliders are showing: the car's, or this laptop's.
-      drawSaved(lk, snap);
-
-      const Str why = whyDisabled(lk, snap, nowMs);
-      const Bool blocked = !why.empty();
-      if(blocked)
+      drawStatus(conn, snap);
+      if(armed && !v.idleTest)
       {
-          ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s", why.c_str());
+          ImGui::TextColored(TEXT_WARN, "armed - disarm to change trim");
       }
 
       ImGui::Separator();
 
-      ImGui::BeginDisabled(blocked);
+      const Int32 slewLo = static_cast<Int32>(bibowire::SLEW_US_MIN);
+      const Int32 slewHi = static_cast<Int32>(bibowire::SLEW_US_MAX);
 
       // ---- steering ---------------------------------------------------------
+      //
+      // THESE MOVE THE WHEELS AS THEY ARE DRAGGED, while the car is disarmed:
+      // the pilot engages the servo and points it at the value being set - the
+      // centre, or the end whose limit moved - and lets it go limp once the
+      // sliders are left alone.
 
       ImGui::TextUnformatted("Steering");
+      ImGui::BeginDisabled(!tunable);
 
       const Int32 servoLo = static_cast<Int32>(bibowire::SERVO_US_HARD_MIN);
       const Int32 servoHi = static_cast<Int32>(bibowire::SERVO_US_HARD_MAX);
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       ImGui::SliderInt("min us", &v.steerMinUs, servoLo, servoHi, "%d us");
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      if(liveSend(v, nowMs))
       {
           settleSteer(v);
           sendServoLimits(v, lk);
-      }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip("full lock one way - cal.hxx has 1230 for this car");
       }
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       ImGui::SliderInt("max us", &v.steerMaxUs, servoLo, servoHi, "%d us");
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      if(liveSend(v, nowMs))
       {
           settleSteer(v);
           sendServoLimits(v, lk);
       }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip("full lock the other way - cal.hxx has 1660 for this car");
-      }
 
-      // BOUNDED BY THE ENDS ABOVE, not by the servo's own range: a centre outside
-      // the limits is a neutral the steering can never reach.
+      // Bounded by the ends above: a centre outside them is unreachable.
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       ImGui::SliderInt("centre us", &v.steerTrimUs, v.steerMinUs, v.steerMaxUs, "%d us");
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      if(liveSend(v, nowMs))
       {
           settleSteer(v);
           sendServoTrim(v, lk);
       }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "where the wheels point STRAIGHT, which is not the middle\n"
-              "of the range and usually not 1500 - the horn only fits the\n"
-              "spline at whole-tooth intervals. cal.hxx has 1480."
-          );
-      }
 
+      // LOGARITHMIC: the useful range is the bottom tenth of 1..200.
+      ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
+      ImGui::SliderInt("speed##steer", &v.steerSlewUs, slewLo, slewHi, "%d us/tick", ImGuiSliderFlags_Logarithmic);
+      if(releaseSend(v, nowMs))
+      {
+          v.steerSlewUs = clampTo(v.steerSlewUs, slewLo, slewHi);
+          sendSlew(v, lk, bibowire::SLEW_AXIS_STEER, v.steerSlewUs);
+      }
+      slewReadout(v.steerSlewUs, v.steerMaxUs - v.steerMinUs, "lock to lock");
+
+      ImGui::EndDisabled();
       ImGui::Spacing();
 
       // ---- throttle ---------------------------------------------------------
@@ -444,171 +423,91 @@ namespace trimview
       const Int32 escLo = static_cast<Int32>(bibowire::ESC_US_HARD_MIN);
       const Int32 escHi = static_cast<Int32>(bibowire::ESC_US_HARD_MAX);
 
+      // Live while the idle test runs, so the motor follows the drag.
+      ImGui::BeginDisabled(!escTunable);
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       ImGui::SliderInt("idle us", &v.escMinUs, escLo, escHi, "%d us");
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      if(liveSend(v, nowMs))
       {
           settleEsc(v);
           sendEscLimits(v, lk);
-      }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "the pulse at which this motor sits still and the next\n"
-              "microsecond starts it turning. NOT the ESC's neutral."
-          );
       }
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       ImGui::SliderInt("full us", &v.escMaxUs, escLo, escHi, "%d us");
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      if(liveSend(v, nowMs))
       {
           settleEsc(v);
           sendEscLimits(v, lk);
       }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip("W at a full cap reaches this - the forward end of the range");
-      }
+      ImGui::EndDisabled();
 
-      // REVERSE, bounded below neutral. Its own slider rather than a lower idle,
-      // because below neutral is a different act on this ESC: the first pulse
-      // brakes, and after a return to neutral the next one reverses.
+      ImGui::BeginDisabled(!tunable);
       const Int32 neutral = static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
-      ImGui::SliderInt(
-          "reverse us",
-          &v.escReverseUs,
-          escLo,
-          neutral,
-          v.escReverseUs >= neutral ? "off (%d us)" : "%d us"
-      );
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      ImGui::SliderInt("reverse us", &v.escReverseUs, escLo, neutral, v.escReverseUs >= neutral ? "off" : "%d us");
+      if(releaseSend(v, nowMs))
       {
           settleEsc(v);
           sendEscReverse(v, lk);
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip(
-              "how far below neutral S may go. At 1500 reverse is OFF and S\n"
-              "only stops. Lower it and S brakes on the first press, then -\n"
-              "after you let go - reverses on the next, the way the\n"
-              "transmitter does. Try it with the wheels off the ground first."
-          );
+          ImGui::SetTooltip("below 1500 turns reverse on: S brakes, S again reverses");
       }
-
-      // THE NUMBERS ABOVE WERE MEASURED ON A MOTOR THAT NO LONGER EXISTS, and the
-      // pane says so rather than presenting them as this drivetrain's truth.
-      ImGui::TextWrapped(
-          "1541/1600 were measured on the brushed 1060 and 540, both GONE - this car "
-          "is a QuicRun 10BL160 with a 21.5T brushless and a 17T pinion. Treat them as "
-          "a narrow safe starting point, not as measurements. Re-measure on a stand."
-      );
-
-      ImGui::Spacing();
-      ImGui::Separator();
-
-      // ---- response, and the time it takes ----------------------------------
-      //
-      // The reason this window exists in the shape it does: a rate in µs-per-tick
-      // is unreadable, and what somebody tuning steering actually wants to know is
-      // how long the wheel takes to go from one lock to the other.
-
-      ImGui::TextUnformatted("Response");
-
-      const Int32 slewLo = static_cast<Int32>(bibowire::SLEW_US_MIN);
-      const Int32 slewHi = static_cast<Int32>(bibowire::SLEW_US_MAX);
-
-      // LOGARITHMIC, as the old hub's Drive view had it: the useful range is the
-      // bottom tenth, and a linear 1..200 spends most of its travel on rates that
-      // are all indistinguishably immediate.
-      ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
-      ImGui::SliderInt(
-          "steering",
-          &v.steerSlewUs,
-          slewLo,
-          slewHi,
-          "%d us/tick",
-          ImGuiSliderFlags_Logarithmic
-      );
-      if(ImGui::IsItemDeactivatedAfterEdit())
-      {
-          v.steerSlewUs = clampTo(v.steerSlewUs, slewLo, slewHi);
-          sendSlew(v, lk, bibowire::SLEW_AXIS_STEER, v.steerSlewUs);
-      }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip("Response - how fast the servo may move");
-      }
-      slewReadout(v.steerSlewUs, v.steerMaxUs - v.steerMinUs, "lock to lock");
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
-      ImGui::SliderInt(
-          "throttle",
-          &v.throttleSlewUs,
-          slewLo,
-          slewHi,
-          "%d us/tick",
-          ImGuiSliderFlags_Logarithmic
-      );
-      if(ImGui::IsItemDeactivatedAfterEdit())
+      ImGui::SliderInt("speed##throttle", &v.throttleSlewUs, slewLo, slewHi, "%d us/tick", ImGuiSliderFlags_Logarithmic);
+      if(releaseSend(v, nowMs))
       {
           v.throttleSlewUs = clampTo(v.throttleSlewUs, slewLo, slewHi);
           sendSlew(v, lk, bibowire::SLEW_AXIS_THROTTLE, v.throttleSlewUs);
       }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip("Response - how fast the ESC may move");
-      }
       slewReadout(v.throttleSlewUs, v.escMaxUs - v.escMinUs, "idle to full");
-
-      ImGui::Spacing();
-
-      // INSIDE THE DISABLED BLOCK, like every slider above. Five tuning verbs at
-      // once are five chances to re-tune a live throttle's range, so this obeys
-      // the armed rule exactly as each of them does one at a time.
-      // BLUE-GREY, the Drive window's colour for housekeeping, so a glance
-      // tells it apart from the sliders' grey and from any act that moves the car.
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.36f, 0.54f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.31f, 0.45f, 0.65f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.19f, 0.29f, 0.44f, 1.0f));
-      const Bool sendPressed = ImGui::Button("send all to the car");
-      ImGui::PopStyleColor(3);
-      if(sendPressed)
-      {
-          sendAll(v, lk);
-      }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "sends every value above: servo limits, centre, ESC limits,\n"
-              "the reverse limit and both slews - six commands, each\n"
-              "answered on its own. For a car with nothing saved yet, or\n"
-              "when this laptop's copy and the car's have drifted."
-          );
-      }
-
       ImGui::EndDisabled();
+
+      // THE IDLE TEST: only while armed, because that is when the pilot drives
+      // the ESC. follow() ends it.
+      ImGui::BeginDisabled(!armed);
+      if(ImGui::Checkbox("test idle", &v.idleTest))
+      {
+          v.idleTestSinceMs = nowMs;
+          vlog::line("trim: idle test %s", v.idleTest ? "ON - the motor is held at the idle pulse" : "OFF - unticked");
+      }
+      ImGui::EndDisabled();
+      if(v.idleTest)
+      {
+          ImGui::SameLine();
+          ImGui::TextColored(TEXT_WARN, "motor at idle - wheels up");
+      }
+      else if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+          ImGui::SetTooltip("arm first; holds the motor at the idle pulse");
+      }
 
       ImGui::Separator();
 
-      // ---- what the board said ----------------------------------------------
+      // BLUE-GREY, the Drive window's colour for housekeeping.
+      ImGui::BeginDisabled(!tunable);
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.36f, 0.54f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.31f, 0.45f, 0.65f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.19f, 0.29f, 0.44f, 1.0f));
+      const Bool savePressed = ImGui::Button("save to car");
+      ImGui::PopStyleColor(3);
+      ImGui::EndDisabled();
+      if(savePressed)
+      {
+          sendAll(v, lk, nowMs);
+      }
 
-      drawAck(snap);
+      drawRefusal(snap);
 
-      Array<Char, 48> count = {};
-      std::snprintf(count.data(), count.size(), "%u", v.sent);
-      readout("sent", count.data());
-
-      // A COMMAND THAT NEVER LEFT. Queued while the link was down and therefore
-      // dropped rather than held - see link.hxx for why that is the right way
-      // round - and counted here so the drop is visible instead of silent.
+      // A COMMAND THAT NEVER LEFT, counted so the drop is visible.
       const UInt32 lost = link::commandsDropped(lk);
       if(lost > 0u)
       {
-          Array<Char, 96> bad = {};
-          std::snprintf(bad.data(), bad.size(), "%u never sent - the link was down", lost);
+          Array<Char, 64> bad = {};
+          std::snprintf(bad.data(), bad.size(), "%u never sent", lost);
           readout("dropped", bad.data());
       }
 

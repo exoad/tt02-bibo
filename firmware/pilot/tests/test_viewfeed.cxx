@@ -1901,6 +1901,104 @@ Int32 main()
         viewfeed::stop();
     }
 
+    // ---- 21. ESC limits while armed: refused, except under the idle test ------------
+    //
+    // The one exception to "no trim while armed". It must hold only while the
+    // holder's own stream carries BUTTON_IDLE_TEST, only for the ESC limits, and
+    // it must end the moment the bit does - otherwise it is not an exception but
+    // a way round the rule.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for the idle test");
+        const UInt16 port = viewfeed::port();
+        Datagram udp;
+        check(udp.open(), "a viewer binds its control socket");
+        Wire w;
+        check(w.connect(port), "and connects");
+        const UInt32 session = handshake(w, udp.port, 1);
+        check(session != 0u, "and takes control");
+
+        viewfeed::Applied ap;
+        ap.armed = 1;
+        viewfeed::applied(ap);
+
+        Array<UInt8, 32> body{};
+        bibowire::CtlState st;
+        bibowire::CmdAck ack;
+        viewfeed::Tune t;
+        bibowire::Command m;
+        m.sessionId = session;
+
+        udp.control(port, session, 1, bibowire::BUTTON_ENABLE);
+        check(
+            udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) { return s.ackSeq == 1u; }),
+            "a plain enabled stream is applied"
+        );
+        m.cmdId = 1;
+        m.verb = bibowire::Verb::VERB_SET_ESC_LIMITS;
+        m.arg1 = 1550;
+        m.arg2 = 1900;
+        Size len = bibowire::writeCommand(m, body.data(), body.size());
+        w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 40);
+        check(
+            w.nextOf(bibowire::Type::TYPE_CMDACK, 1000) && bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack)
+                && ack.result == 3,
+            "armed, ESC limits are refused"
+        );
+
+        const UInt16 idle = static_cast<UInt16>(bibowire::BUTTON_ENABLE | bibowire::BUTTON_IDLE_TEST);
+        udp.control(port, session, 2, idle);
+        check(
+            udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) { return s.ackSeq == 2u; }),
+            "an idle-test stream is applied"
+        );
+        m.cmdId = 2;
+        len = bibowire::writeCommand(m, body.data(), body.size());
+        w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 41);
+        check(
+            w.nextOf(bibowire::Type::TYPE_CMDACK, 1000) && bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack)
+                && ack.result == 0,
+            "under the idle test they are taken"
+        );
+        check(
+            viewfeed::tune(&t) && t.verb == bibowire::Verb::VERB_SET_ESC_LIMITS && t.arg1 == 1550,
+            "and queued for the pilot"
+        );
+
+        m.cmdId = 3;
+        m.verb = bibowire::Verb::VERB_SET_SERVO_TRIM;
+        m.arg1 = 1480;
+        m.arg2 = 0;
+        len = bibowire::writeCommand(m, body.data(), body.size());
+        w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 42);
+        check(
+            w.nextOf(bibowire::Type::TYPE_CMDACK, 1000) && bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack)
+                && ack.result == 3,
+            "but nothing else is - the steering trim stays locked while armed"
+        );
+        check(!viewfeed::tune(&t), "and nothing else was queued");
+
+        udp.control(port, session, 3, bibowire::BUTTON_ENABLE);
+        check(
+            udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) { return s.ackSeq == 3u; }),
+            "the stream drops the idle test"
+        );
+        m.cmdId = 4;
+        m.verb = bibowire::Verb::VERB_SET_ESC_LIMITS;
+        m.arg1 = 1560;
+        m.arg2 = 1900;
+        len = bibowire::writeCommand(m, body.data(), body.size());
+        w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 43);
+        check(
+            w.nextOf(bibowire::Type::TYPE_CMDACK, 1000) && bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack)
+                && ack.result == 3,
+            "and with it gone, ESC limits are refused again"
+        );
+
+        w.close();
+        udp.close();
+        viewfeed::stop();
+    }
+
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

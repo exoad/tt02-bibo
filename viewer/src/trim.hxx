@@ -173,6 +173,22 @@ namespace trimview
       // them; taken only the first time, a later save would never show.
       Int64 adoptedAtMs = 0;
       UInt32 adoptedCount = 0;
+
+      // THE IDLE TEST. While ticked and the car armed, CONTROL carries
+      // bibowire::BUTTON_IDLE_TEST: the pilot holds the ESC at exactly the idle
+      // pulse and the board takes ESC limit changes despite the arm, so the idle
+      // can be dragged while the motor is watched. Never saved. follow() clears
+      // it after IDLE_TEST_MS, when the car is not armed, and when the window
+      // is closed.
+      Bool idleTest = false;
+      Int64 idleTestSinceMs = 0;
+
+      // When this pane last sent a tuning command, and whether the slider being
+      // held has an edit not yet sent. Sliders that preview on the car send
+      // while they are dragged; follow() leaves the board's reports alone until
+      // the pane has gone quiet.
+      Int64 lastSendMs = 0;
+      Bool dragUnsent = false;
   };
 
   // ---- clamping -------------------------------------------------------------

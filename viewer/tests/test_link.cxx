@@ -1240,6 +1240,36 @@ static Void testCameraRefusal()
     );
 }
 
+static Void testIdleTestIntent()
+{
+    std::printf("\n-- the idle test rides the stream only with the enable --\n");
+
+    driveview::View v;
+    v.throttleCapMilli = 300;
+    driveview::Keys w;
+    w.forward = true;
+
+    v.idleTest = true;
+    const link::Intent off = driveview::intentFrom(w, v);
+    check((off.buttons & bibowire::BUTTON_IDLE_TEST) == 0u, "without the enable there is no idle test on the wire");
+
+    v.enabled = true;
+    const link::Intent on = driveview::intentFrom(w, v);
+    check((on.buttons & bibowire::BUTTON_IDLE_TEST) != 0u, "with it, the bit is set");
+    check((on.buttons & bibowire::BUTTON_ENABLE) != 0u, "beside ENABLE");
+    check(on.throttleMilli == 0, "and W counts for nothing while the motor is held at idle");
+
+    link::ControlStamp at;
+    at.sessionId = 0x1D1E7E57u;
+    at.seq = 1u;
+    at.armEpoch = 1u;
+    const bibowire::Control m = link::buildControl(on, at);
+    check((m.buttons & bibowire::BUTTON_IDLE_TEST) != 0u, "and it survives onto the datagram");
+
+    v.idleTest = false;
+    check(driveview::intentFrom(w, v).throttleMilli == 300, "untick it and W is W again");
+}
+
 static Void testBoardTrim()
 {
     std::printf("\n-- the trim the board has saved, taken into the pane --\n");
@@ -2502,6 +2532,7 @@ int main()
     testCameraGaps();
     testCameraRefusal();
     testBoardTrim();
+    testIdleTestIntent();
     testSubscriptionMask();
     testCommandIds();
     testCommandEncoding();

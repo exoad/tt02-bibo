@@ -108,25 +108,22 @@ namespace driveview
     {
         if(!link::isOpen(lk))
         {
-            return "not connected - driving happens on the car, not in this window";
+            return "not connected";
         }
         if(!snap.state.haveWelcome)
         {
-            return "handshaking - nothing is sent until the board has answered HELLO";
+            return "connecting";
         }
         if(!canDrive(snap))
         {
-            return "this board says it cannot drive (WELCOME capabilities bit 0 is clear) "
-                   "- the pilot is probably running --dry, which is LOOK mode: the "
-                   "autonomy runs and throttle is forced to zero.";
+            // WELCOME capabilities bit 0 clear: the pilot is running --dry.
+            return "this board cannot drive (pilot running --dry)";
         }
         if(!link::holdsSlot(snap.state))
         {
-            // THE HONEST SENTENCE, and it is the one this window exists to say.
-            // bibowire v1 has no message that takes the slot mid-session.
-            return "this viewer is an OBSERVER on this connection. The control slot "
-                   "is asked for in HELLO and nowhere else, so taking it means "
-                   "reconnecting - tick the box above and press Reconnect.";
+            // bibowire v1 has no message that takes the slot mid-session: it is
+            // asked for in HELLO, so taking it means reconnecting.
+            return "watching only - tick request control and Reconnect";
         }
         return "";
     }
@@ -337,45 +334,28 @@ namespace driveview
     // shown is an operator who believes the car is armed.
     Void drawAck(const link::Snapshot& snap)
     {
+        // ONLY A REFUSAL, in the board's own words. An accepted ARM needs no line
+        // - the badge above already says what it did - and a refused trim is the
+        // Trim pane's to show.
         const Opt<link::Ack> got = snap.state.newestAck();
-        if(!got.has_value())
+        if(!got.has_value() || got->ack.result == 0u)
         {
-            ImGui::TextDisabled("the board has not answered a command yet");
             return;
         }
-
         const bibowire::CmdAck& ack = got->ack;
-        const Bool refused = ack.result != 0u;
-
-        Array<Char, 96> head = {};
-        std::snprintf(
-            head.data(),
-            head.size(),
-            "command %u - %s",
-            ack.cmdId,
-            link::ackResultName(ack.result)
-        );
-
-        if(refused)
+        const Bool trimVerb = ack.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS
+            || ack.verb == bibowire::Verb::VERB_SET_SERVO_TRIM
+            || ack.verb == bibowire::Verb::VERB_SET_ESC_LIMITS
+            || ack.verb == bibowire::Verb::VERB_SET_ESC_REVERSE
+            || ack.verb == bibowire::Verb::VERB_SET_SLEW;
+        if(trimVerb)
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", head.data());
+            return;
         }
-        else
-        {
-            ImGui::TextUnformatted(head.data());
-        }
-
-        // VERBATIM, and shown for an ok as well: "disarmed locally; the Pico did
-        // not answer" is a result 4 that an operator has to read, and it is the
-        // sentence rather than the byte that says what to do about it.
-        if(!ack.text.empty())
-        {
-            ImGui::TextWrapped("board: %s", ack.text.c_str());
-        }
-        else if(refused)
-        {
-            ImGui::TextWrapped("board: (refused with no sentence)");
-        }
+        const CharSeq why = ack.text.empty() ? link::ackResultName(ack.result) : ack.text.c_str();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.35f, 1.0f));
+        ImGui::TextWrapped("refused: %s", why);
+        ImGui::PopStyleColor();
     }
 
     // ---- colour, so a glance tells the acts apart -----------------------------
@@ -468,17 +448,6 @@ namespace driveview
             link::sendCommand(lk, bibowire::Verb::VERB_ARM, 0, 0, 0);
             ++v.sent;
         }
-        if(ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip(
-                "refused unless the estop is clear, the Pico is answering,\n"
-                "and a CONTROL stream from this viewer has been live for\n"
-                "500 ms - so hold the slot and let the stream run first\n\n"
-                "ARM also engages the steering servo. Until it is pressed,\n"
-                "A and D move nothing; DISARM lets the steering go limp."
-            );
-        }
-
         ImGui::SameLine(0.0f, gap);
         if(toneButton("DISARM", TONE_SAFE, ImVec2(half, tall)))
         {
@@ -501,15 +470,8 @@ namespace driveview
             link::sendCommand(lk, bibowire::Verb::VERB_ESTOP, 0, 0, 0);
             ++v.sent;
         }
-        if(ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip(
-                "latches. Clearing it takes CLEAR_ESTOP while disarmed and\n"
-                "then an ARM - three deliberate steps, because a stop that\n"
-                "can be undone by releasing a key will be undone by accident"
-            );
-        }
-
+        // The latch is undone by CLEAR ESTOP while disarmed and then an ARM - a
+        // stop a released key could undo would be undone by accident.
         ImGui::BeginDisabled(!live);
         if(toneButton("CLEAR ESTOP", TONE_CHORE, ImVec2(0.0f, 0.0f)))
         {
@@ -519,9 +481,40 @@ namespace driveview
         }
         if(ImGui::IsItemHovered())
         {
-            ImGui::SetTooltip("only while disarmed, and it does not re-arm the car");
+            ImGui::SetTooltip("only while disarmed; does not re-arm");
         }
         ImGui::EndDisabled();
+    }
+
+    // THE STATE IN ONE WORD, IN ITS COLOUR, above the buttons that change it.
+    // The ESTOP latch outranks armed: a latched car is stopped whatever else is
+    // true. With no CTLSTATE there is nothing true to say, and a blank would
+    // read as "disarmed".
+    Void drawBadge(const link::Snapshot& snap, Int64 nowMs)
+    {
+        const Opt<link::Control> ctl = snap.state.controlState(nowMs);
+        if(!ctl.has_value())
+        {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
+                "%s",
+                snap.state.haveControl ? "car state stopped arriving" : "no car state yet"
+            );
+            return;
+        }
+        const bibowire::CtlState& s = ctl->state;
+        if(s.deadman == static_cast<UInt8>(bibowire::deadman::State::STATE_ESTOP))
+        {
+            ImGui::TextColored(TEXT_STOP, "ESTOP - clear it, then ARM");
+        }
+        else if(s.armed != 0u)
+        {
+            ImGui::TextColored(TEXT_LIVE, "ARMED");
+        }
+        else
+        {
+            ImGui::TextColored(TEXT_SAFE, "DISARMED");
+        }
     }
 
     // ---- what the board says it is doing -------------------------------------
@@ -535,47 +528,14 @@ namespace driveview
     Void drawBoardSide(const link::Snapshot& snap, Int64 nowMs)
     {
         const Opt<link::Control> ctl = snap.state.controlState(nowMs);
+        // Missing CTLSTATE is said once, by drawBadge; "--" in every row here
+        // would read as "all zero".
         if(!ctl.has_value())
         {
-            // The honesty line itself is missing. That is a REAL state and not a
-            // formality: CTLSTATE rides UDP at 20 Hz, and on a network that
-            // blocks it this window has nothing true to say about the deadman
-            // at all. Saying "--" everywhere would read as "all zero".
-            if(snap.state.haveControl)
-            {
-                ImGui::TextColored(
-                    ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
-                    "CTLSTATE has stopped arriving - the countdowns below would be old"
-                );
-            }
-            else
-            {
-                ImGui::TextColored(
-                    ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
-                    "no CTLSTATE has ever arrived - this viewer cannot see the deadman"
-                );
-            }
             return;
         }
 
         const bibowire::CtlState& s = ctl->state;
-
-        // THE STATE IN ONE WORD, IN ITS COLOUR, before any readout. The ESTOP
-        // latch outranks armed: a latched car is stopped whatever else is true.
-        const Bool latched = s.deadman == static_cast<UInt8>(bibowire::deadman::State::STATE_ESTOP);
-        if(latched)
-        {
-            ImGui::TextColored(TEXT_STOP, "ESTOP LATCHED - CLEAR ESTOP, then ARM");
-        }
-        else if(s.armed != 0u)
-        {
-            ImGui::TextColored(TEXT_LIVE, "ARMED - W and the steering are live");
-        }
-        else
-        {
-            ImGui::TextColored(TEXT_SAFE, "DISARMED - the car will not move");
-        }
-        ImGui::Separator();
 
         readout("holder", holderText(s.holder));
 
@@ -777,25 +737,15 @@ namespace driveview
 
       // ---- the slot ---------------------------------------------------------
 
+      // HELLO carries the slot request and nothing else can, so a changed box
+      // applies to the NEXT connection - hence Reconnect beside it.
       Bool ask = link::controlSlotWanted(lk);
-      if(ImGui::Checkbox("request control on connect", &ask))
+      if(ImGui::Checkbox("request control", &ask))
       {
           link::wantControlSlot(lk, ask);
           vlog::line(
               "drive: request control on connect %s - applies to the NEXT HELLO",
               ask ? "ON" : "OFF"
-          );
-      }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "HELLO carries this and nothing else can: the board grants the\n"
-              "slot when it answers the handshake and has no message for\n"
-              "taking it later. Changing this affects the NEXT connection.\n\n"
-              "On by default, so driving is connect then ARM. Holding the\n"
-              "slot arms the board's deadman over whatever the car is\n"
-              "doing, a run somebody else started included - untick it\n"
-              "and Reconnect to only watch."
           );
       }
 
@@ -816,9 +766,8 @@ namespace driveview
 
       if(link::isOpen(lk) && ask != link::holdsSlot(snap.state))
       {
-          // The checkbox and the connection disagree, which is the exact moment
-          // a person needs telling that a tick box did nothing.
-          ImGui::TextDisabled("this connection was dialled with a different answer - Reconnect to apply");
+          // The checkbox and the connection disagree: the box did nothing yet.
+          ImGui::TextDisabled("Reconnect to apply");
       }
 
       if(blocked)
@@ -832,39 +781,29 @@ namespace driveview
 
       ImGui::BeginDisabled(blocked);
 
-      if(ImGui::Checkbox("enable (the deadman reads this as consent)", &v.enabled))
+      // BUTTON_ENABLE on every datagram while ticked, and ARM ticks it (see
+      // View::enabled). Unticking is a soft stop until the next ARM.
+      if(ImGui::Checkbox("enable", &v.enabled))
       {
           noteEnabled(v.enabled, "the enable checkbox");
       }
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "BUTTON_ENABLE, on every datagram while this is ticked.\n"
-              "The board only reaches LIVE while it is set; clearing it\n"
-              "is a soft stop - throttle to zero, the board holds the\n"
-              "wheels where they were. This pane's held steering goes\n"
-              "back to centre, so the next enable starts straight."
-          );
-      }
 
       ImGui::TextDisabled(
-          accept ? "keys are live: A/D steer (springs back)  C centre  W throttle  S brake, tap again to reverse  Space ESTOP"
-                 : "keys are ignored - click this window, and stop typing (steering returns to centre)"
+          accept ? "A/D steer  W forward  S brake, again to reverse  C centre  Space ESTOP"
+                 : "click this window to drive"
       );
 
-      ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
-      ImGui::SliderInt("forward cap", &v.throttleCapMilli, 0, THROTTLE_CAP_MAX, "%d / 1000");
-      if(ImGui::IsItemHovered())
+      // S WITH REVERSE OFF stops and goes no further, which looks exactly like a
+      // reverse that is broken - so it is said where the key is being pressed.
+      if(keys.brake && v.reverseOff)
       {
-          ImGui::SetTooltip(
-              "W IS A SWITCH - it has no travel, so this cap is the whole\n"
-              "of the throttle's resolution. The board maps this fraction\n"
-              "onto the ESC band the Trim pane set, so moving those limits\n"
-              "moves what this number means.\n\n"
-              "100 is about 1547 us against the committed 1541..1600 band,\n"
-              "which is the crawl the old hub's forward key used to send."
-          );
+          ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "reverse is off - set reverse us in Trim");
       }
+
+      ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
+      // W and S are switches, so this cap is the throttle's whole resolution -
+      // a fraction the board maps onto the ESC limits the Trim pane set.
+      ImGui::SliderInt("power", &v.throttleCapMilli, 0, THROTTLE_CAP_MAX, "%d / 1000");
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       ImGui::SliderInt(
@@ -874,16 +813,6 @@ namespace driveview
           STEER_RATE_MAX,
           "%d /s"
       );
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "how fast A and D move the HELD steering, in thousandths\n"
-              "of full lock per second. Releasing both keys leaves the\n"
-              "wheels where they are; C puts them back to centre.\n\n"
-              "The Pico's own steering slew (the Trim pane) still limits\n"
-              "how fast the servo follows - a slow wheel is one of the two."
-          );
-      }
 
       // Ctrl+click turns either slider into a text box, so the ranges are
       // re-applied here rather than trusted - the same settle settings.cxx
@@ -910,23 +839,12 @@ namespace driveview
       const Float32 rowWidth = ImGui::GetContentRegionAvail().x;
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
       const Int32 modeCount = static_cast<Int32>(MODE_NAMES.size());
-      ImGui::Combo("I am driving in", &v.assumedMode, MODE_NAMES.data(), modeCount);
-      if(ImGui::IsItemHovered())
-      {
-          ImGui::SetTooltip(
-              "assumedMode: what YOU believe is active, carried on every\n"
-              "datagram. The board compares it with its own mode and\n"
-              "refuses throttle with REFUSE_MODE when they disagree.\n\n"
-              "This is never set from what the board reports - a viewer\n"
-              "that echoed the answer back would make the comparison\n"
-              "always true and delete the check."
-          );
-      }
+      // assumedMode: what the OPERATOR believes is active, carried on every
+      // datagram and compared by the board - never copied from its answer.
+      ImGui::Combo("mode", &v.assumedMode, MODE_NAMES.data(), modeCount);
 
-      // BESIDE THE COMBO ONLY WHEN IT FITS. A plain SameLine put the button
-      // after the combo's label, "I am driving in", and at the window's default
-      // width that ran past the right edge and cut the button off - a control
-      // you cannot read is a control that is not there. The combo's item rect
+      // BESIDE THE COMBO ONLY WHEN IT FITS. A plain SameLine ran the button past
+      // the window's right edge at its default width. The combo's item rect
       // includes its label, so the arithmetic is the whole row as drawn.
       const ImGuiStyle& style = ImGui::GetStyle();
       const Float32 askWidth = ImGui::CalcTextSize("ask the board").x + (style.FramePadding.x * 2.0f);
@@ -948,87 +866,82 @@ namespace driveview
 
       ImGui::EndDisabled();
 
-      // THE TWO MODES, SIDE BY SIDE, and the disagreement named. This is the
-      // readout that turns "the throttle does nothing" into "you are asserting
-      // manual at a board that is driving".
+      // THE DISAGREEMENT NAMED - "the throttle does nothing" turned into its
+      // reason: a mode asserted at a board that is in another one.
       const Opt<link::Control> ctl = snap.state.controlState(nowMs);
-      if(ctl.has_value())
-      {
-          readout("board mode", link::sourceName(ctl->state.pilotMode));
-          if(ctl->state.pilotMode != modeOf(v.assumedMode))
-          {
-              ImGui::TextColored(
-                  ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
-                  "you are asserting %s at a board in %s - throttle will be refused",
-                  MODE_NAMES[static_cast<Size>(modeOf(v.assumedMode))],
-                  link::sourceName(ctl->state.pilotMode)
-              );
-          }
-      }
-
-      ImGui::Separator();
-
-      // ---- what is leaving this machine right now ---------------------------
-
-      readoutStr("steer", milliText(in.steerMilli));
-      readoutStr("throttle", milliText(in.throttleMilli));
-
-      Array<Char, 64> bits = {};
-      std::snprintf(
-          bits.data(),
-          bits.size(),
-          "%s%s%s",
-          (in.buttons & bibowire::BUTTON_ESTOP) != 0u ? "ESTOP " : "",
-          (in.buttons & bibowire::BUTTON_ENABLE) != 0u ? "ENABLE " : "",
-          in.buttons == 0u ? "none" : ""
-      );
-      readout("buttons", bits.data());
-
-      // DEGRADED IS A BANNER, not a footnote. Section 4 requires it said out
-      // loud: control that has fallen back to TCP still works, with identical
-      // rules at the far end, but it is now queued behind telemetry and an
-      // operator who cannot tell is one who will blame the car.
-      if(snap.controlOnTcp)
+      if(ctl.has_value() && ctl->state.pilotMode != modeOf(v.assumedMode))
       {
           ImGui::TextColored(
               ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
-              "degraded control (TCP) - no CTLSTATE arrived on UDP within %d ms of WELCOME",
-              bibowire::REVERSE_PROBE_MS
+              "board is in %s - throttle refused",
+              link::sourceName(ctl->state.pilotMode)
           );
       }
 
-      Array<Char, 96> tally = {};
-      std::snprintf(
-          tally.data(),
-          tally.size(),
-          "%u sent, %u never left (%s)",
-          snap.controlSent,
-          snap.controlFailed,
-          snap.controlOnTcp ? "TCP" : "UDP"
-      );
-      readout("datagrams", tally.data());
+      // DEGRADED IS A BANNER, not a footnote: control on TCP still works, with
+      // the same rules at the far end, but queued behind telemetry.
+      if(snap.controlOnTcp)
+      {
+          ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "control over TCP - degraded");
+      }
 
       ImGui::Separator();
 
-      // ---- what the car says it did -----------------------------------------
+      // ---- what a person drives by ------------------------------------------
 
-      drawBoardSide(snap, nowMs);
-
-      ImGui::Separator();
-
+      drawBadge(snap, nowMs);
       drawCommands(v, lk, snap);
       drawAck(snap);
 
-      Array<Char, 48> count = {};
-      std::snprintf(count.data(), count.size(), "%u", v.sent);
-      readout("commands", count.data());
-
+      // A COMMAND THAT NEVER LEFT stays visible; it is not a diagnostic.
       const UInt32 lost = link::commandsDropped(lk);
       if(lost > 0u)
       {
-          Array<Char, 96> bad = {};
-          std::snprintf(bad.data(), bad.size(), "%u never sent - the link was down", lost);
+          Array<Char, 64> bad = {};
+          std::snprintf(bad.data(), bad.size(), "%u never sent", lost);
           readout("dropped", bad.data());
+      }
+
+      // ---- everything else is for diagnosing, folded away -------------------
+
+      if(ImGui::CollapsingHeader("details"))
+      {
+          if(ctl.has_value())
+          {
+              readout("board mode", link::sourceName(ctl->state.pilotMode));
+          }
+          readoutStr("steer", milliText(in.steerMilli));
+          readoutStr("throttle", milliText(in.throttleMilli));
+
+          Array<Char, 64> bits = {};
+          std::snprintf(
+              bits.data(),
+              bits.size(),
+              "%s%s%s%s",
+              (in.buttons & bibowire::BUTTON_ESTOP) != 0u ? "ESTOP " : "",
+              (in.buttons & bibowire::BUTTON_ENABLE) != 0u ? "ENABLE " : "",
+              (in.buttons & bibowire::BUTTON_IDLE_TEST) != 0u ? "IDLE_TEST " : "",
+              in.buttons == 0u ? "none" : ""
+          );
+          readout("buttons", bits.data());
+
+          Array<Char, 96> tally = {};
+          std::snprintf(
+              tally.data(),
+              tally.size(),
+              "%u sent, %u failed (%s)",
+              snap.controlSent,
+              snap.controlFailed,
+              snap.controlOnTcp ? "TCP" : "UDP"
+          );
+          readout("datagrams", tally.data());
+
+          Array<Char, 48> count = {};
+          std::snprintf(count.data(), count.size(), "%u", v.sent);
+          readout("commands", count.data());
+
+          ImGui::Separator();
+          drawBoardSide(snap, nowMs);
       }
 
       ImGui::End();

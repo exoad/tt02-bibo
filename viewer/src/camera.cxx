@@ -174,7 +174,7 @@ namespace camview
             std::snprintf(
                 t.data(),
                 t.size(),
-                "codec %u is not JPEG - nothing here can show it",
+                "codec %u is not JPEG",
                 codec
             );
             v.decodeWhy = Str(t.data());
@@ -203,7 +203,7 @@ namespace camview
             if(!makeTexture(v, pic.width, pic.height))
             {
                 ++v.decodeFailures;
-                v.decodeWhy = "could not create a texture for the picture";
+                v.decodeWhy = "texture create failed";
                 return;
             }
         }
@@ -211,7 +211,7 @@ namespace camview
         if(!uploadPixels(v, pic))
         {
             ++v.decodeFailures;
-            v.decodeWhy = "could not upload the picture to the graphics device";
+            v.decodeWhy = "texture upload failed";
         }
     }
 
@@ -506,13 +506,7 @@ namespace camview
         }
         if(ImGui::IsItemHovered())
         {
-            ImGui::SetTooltip(
-                "crosshair, reversing guides and boxes, for lining the car up.\n"
-                "NONE OF IT IS CALIBRATED: there is no camera calibration and\n"
-                "no measured camera-to-car transform in this project, so these\n"
-                "lines carry no distance and mark no real width. They are marks\n"
-                "you place by eye and then read the same way every time."
-            );
+            ImGui::SetTooltip("uncalibrated marks, placed by eye");
         }
 
         // So the row says whether anything is being drawn without the panel
@@ -532,13 +526,11 @@ namespace camview
         }
 
         ImGui::Separator();
-        ImGui::TextUnformatted("uncalibrated - these lines are not measurements");
         ImGui::Checkbox("crosshair", &v.showCross);
         ImGui::Checkbox("reversing guides", &v.showGuides);
         ImGui::Checkbox("centre box", &v.showBox);
         ImGui::Checkbox("thirds", &v.showThirds);
         ImGui::Separator();
-        ImGui::TextUnformatted("guides - drag until they match what you see");
 
         ImGui::PushItemWidth(128.0f * uiScale);
         ImGui::SliderInt("centre", &v.guideCentrePct, 10, 90, "%d%%");
@@ -548,19 +540,6 @@ namespace camview
         ImGui::SliderInt("far edge", &v.guideFarPct, 5, 95, "%d%%");
 
         ImGui::Checkbox("bend with the wheels", &v.guideBend);
-        if(ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip(
-                "The guides sweep with the steering, the way a reversing\n"
-                "camera's do.\n\n"
-                "The sweep is NOT calculated from the car. There is no\n"
-                "wheelbase, no steering-angle map and no lens calibration\n"
-                "in this project, so this is a shape you tune until it\n"
-                "matches what the car actually does - and it still carries\n"
-                "no distance and marks no real width.\n\n"
-                "It follows where the wheels ARE, not what was asked for."
-            );
-        }
         ImGui::SliderInt("bend", &v.guideBendPct, 0, 100, "%d%%");
 
         ImGui::Separator();
@@ -587,7 +566,7 @@ namespace camview
         }
         if(ImGui::IsItemHovered())
         {
-            ImGui::SetTooltip("degrees clockwise - the camera may be\nmounted sideways on the car");
+            ImGui::SetTooltip("degrees clockwise");
         }
 
         ImGui::SameLine();
@@ -606,14 +585,7 @@ namespace camview
         }
         if(ImGui::IsItemHovered())
         {
-            ImGui::SetTooltip(
-                "frames a second to ask the board for.\n"
-                "0 leaves the board's own default, which is\n"
-                "two - honest for a hotspot, a slideshow on a LAN.\n"
-                "Pictures are dropped before scans, so asking for\n"
-                "more than the link can carry costs the camera\n"
-                "and never the car's view of the room."
-            );
+            ImGui::SetTooltip("0 = the board's default (2 fps)");
         }
 
         // Under the rate slider rather than on the row above it, so opening it
@@ -628,11 +600,11 @@ namespace camview
     {
         if(!link::isOpen(lk))
         {
-            return "not connected - the camera comes over the same link as the scan";
+            return "not connected";
         }
         if(!snap.state.haveWelcome)
         {
-            return "handshaking - nothing is asked for until the board has answered HELLO";
+            return "handshaking";
         }
         if(!snap.state.cameraSubscribed)
         {
@@ -640,7 +612,7 @@ namespace camview
         }
         if(!snap.state.haveCamera)
         {
-            return "subscribed - the board has not sent a frame yet";
+            return "waiting for the first frame";
         }
         // Subscribed, frames arrived, and the newest is too old to draw. The
         // link can be perfectly healthy while this is true, which is exactly
@@ -809,7 +781,7 @@ namespace camview
       {
           // A frame arrived and could not be shown. That is a different fact
           // from "no frame arrived" and it gets a different sentence.
-          ImGui::TextWrapped("frame %u arrived and could not be shown", shot->frameIndex);
+          ImGui::TextWrapped("frame %u could not be shown", shot->frameIndex);
           if(!v.decodeWhy.empty())
           {
               ImGui::TextWrapped("%s", v.decodeWhy.c_str());
@@ -832,11 +804,10 @@ namespace camview
           std::snprintf(
               band.data(),
               band.size(),
-              "stale past %lld ms, from a %lld ms cadence",
-              shot->staleAtMs,
-              shot->worstGapMs
+              "%lld ms",
+              shot->staleAtMs
           );
-          readout("band", band.data());
+          readout("stale after", band.data());
       }
 
       Array<Char, 64> what = {};
@@ -889,7 +860,7 @@ namespace camview
           std::snprintf(
               gaps.data(),
               gaps.size(),
-              "%lld ms waiting, %lld ms between captures",
+              "%lld ms here, %lld ms at capture",
               shot->worstGapMs,
               shot->worstCaptureMs
           );
@@ -914,10 +885,10 @@ namespace camview
           std::snprintf(
               drops.data(),
               drops.size(),
-              "%u (board, all frame types)",
+              "%u",
               static_cast<UInt32>(ring->state.txDroppedFrames)
           );
-          readout("dropped at the board", drops.data());
+          readout("board drops", drops.data());
       }
 
       if(snap.state.haveCameraNote)

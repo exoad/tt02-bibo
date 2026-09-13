@@ -1329,6 +1329,31 @@ namespace viewfeed
         return sh.applied.armed != 0u;
     }
 
+    // THE ONE EXCEPTION TO "NOT WHILE ARMED": ESC limits, while the holder's own
+    // newest CONTROL - still fresh - carries ENABLE and BUTTON_IDLE_TEST. The
+    // pilot then holds the ESC at exactly the idle pulse and ignores the
+    // throttle field, so the only throttle a new limit can change is the idle
+    // somebody is watching. A stale stream or a departed holder allows nothing.
+    [[nodiscard]] Bool idleTestAllows(bibowire::Verb v)
+    {
+        if(v != bibowire::Verb::VERB_SET_ESC_LIMITS || !everControl || holderGone)
+        {
+            return false;
+        }
+        if(elapsedMs(lastControlAt) > static_cast<Float64>(bibowire::CONTROL_DEAD_MS))
+        {
+            return false;
+        }
+        const UInt32 seq = sh.ctlSeq.load(std::memory_order_acquire);
+        if(seq == 0u)
+        {
+            return false;
+        }
+        const bibowire::Control& c = sh.ctlSlot[seq & 1u];
+        const UInt16 both = static_cast<UInt16>(bibowire::BUTTON_IDLE_TEST | bibowire::BUTTON_ENABLE);
+        return (c.buttons & both) == both;
+    }
+
     // POSITIVE EVIDENCE ONLY. haveBoard is false until the pilot's first
     // publishBoard, and "has not said yet" is not "there is no Pico" - refusing
     // then would be this module inventing a fact it does not have. picoLink 0
@@ -1375,7 +1400,7 @@ namespace viewfeed
         // ARMED IS CHECKED FIRST, before any talk of ranges. An operator told
         // "1000..2000 us" by a car that was never going to accept the number
         // has been answered a question they did not ask.
-        if(armedNow())
+        if(armedNow() && !idleTestAllows(cmd.verb))
         {
             ack->result = 3;
             ack->text = "the car is armed - disarm before changing its trim";

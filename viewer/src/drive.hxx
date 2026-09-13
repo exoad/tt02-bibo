@@ -302,6 +302,12 @@ namespace driveview
       // unticked on purpose. State, never saved.
       Bool boardArmed = false;
 
+      // Handed in by main.cxx from the Trim pane each frame. idleTest puts
+      // BUTTON_IDLE_TEST on CONTROL (intentFrom); reverseOff is only for the
+      // warning shown when S is pressed with nowhere below neutral to go.
+      Bool idleTest = false;
+      Bool reverseOff = false;
+
       // These outlive the window being closed and reopened - camera.hxx's rule,
       // and the same reason: they describe how this operator drives, and
       // closing a window is not a decision to re-enter a setup.
@@ -367,6 +373,15 @@ namespace driveview
       // ESTOP IS NOT GATED BY THE ENABLE. The one thing that must work in every
       // state this window can be in is the stop.
       in.buttons = buttonsFrom(k, v.enabled);
+      // THE IDLE TEST rides the stream like ENABLE, and only with it: without
+      // consent there is nothing for the pilot to hold at idle. The throttle is
+      // zero beside it - the pilot ignores the field then, and a W that reads
+      // as counting would be a lie on the wire.
+      if(v.enabled && v.idleTest)
+      {
+          in.buttons = static_cast<UInt16>(in.buttons | bibowire::BUTTON_IDLE_TEST);
+          in.throttleMilli = 0;
+      }
       in.assumedMode = modeOf(v.assumedMode);
       return in;
   }

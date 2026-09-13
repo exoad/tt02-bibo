@@ -504,6 +504,11 @@ namespace
       // The lowest pulse brake and reverse may reach (esc_rev=). 1500, or
       // absent - a Pico built before reverse - means reverse is off.
       Int32 escRevUs = -1;
+
+      // The steering limits the Pico is using (servo_min=, servo_max=), so the
+      // trim preview can tell which end a SERVOLIMITS line moved.
+      Int32 servoMinUs = -1;
+      Int32 servoMaxUs = -1;
   };
 
   // What this program knows about the link that the transport does not.
@@ -590,6 +595,14 @@ namespace
                   if(proto::fieldInt(reply.rest, "esc_rev=", v))
                   {
                       tally.escRevUs = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "servo_min=", v))
+                  {
+                      tally.servoMinUs = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "servo_max=", v))
+                  {
+                      tally.servoMaxUs = v;
                   }
               }
               break;
@@ -1129,6 +1142,14 @@ Int32 main(Int32 argc, Char** argv)
     // A save the viewers have not been told about yet - see the tuning drain
     // for why they are told once a burst has drained rather than per line.
     Bool trimUnreported = false;
+
+    // The trim preview (see the manual tick): where the wheels are pointed while
+    // a steering trim is being set, since when, and whether the servo was
+    // engaged for it - so it is released again by the preview and nobody else.
+    TimePoint previewAt;
+    Bool previewing = false;
+    Float32 previewSteer = 0.0f;
+    Bool previewServoOn = false;
     {
         Str why;
         if(!trimfile::load(trimPath, trim, why))
@@ -1656,7 +1677,16 @@ Int32 main(Int32 argc, Char** argv)
                     const Int32 backUs = cmd.throttleMilli < 0
                         ? escReversePulse(-wanted, replies.escMinUs, replies.escRevUs)
                         : static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
-                    if(mayPush && cmd.throttleMilli > 0)
+                    // THE IDLE TEST (bibowire::BUTTON_IDLE_TEST): exactly the idle
+                    // the Pico reports, whatever the throttle field says, so the
+                    // Trim pane's idle slider moves the motor it is tuning.
+                    const Bool idleTest = (cmd.buttons & bibowire::BUTTON_IDLE_TEST) != 0u;
+                    const Bool idleKnown = replies.escMinUs > static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
+                    if(mayPush && idleTest)
+                    {
+                        escLine = idleKnown ? proto::escUs(replies.escMinUs) : proto::command("ESC", "NEUTRAL");
+                    }
+                    else if(mayPush && cmd.throttleMilli > 0)
                     {
                         escLine = proto::escUs(escPulseWithin(wanted, replies.escMinUs, replies.escMaxUs));
                     }
@@ -1672,6 +1702,39 @@ Int32 main(Int32 argc, Char** argv)
 
                 sentSteerMilli = heldSteerMilli;
                 sentThrottleMilli = mayPush ? cmd.throttleMilli : 0;
+            }
+
+            // THE TRIM PREVIEW. A steering trim change made while nobody has
+            // armed points the wheels at what is being set - the centre, or the
+            // end whose limit moved - with the servo engaged for it, and lets
+            // them go limp TRIM_PREVIEW_MS after the last change. Never while
+            // armed: that servo belongs to the driver, and ARM's own edge engages
+            // it. Never under a stop, which releases it every tick.
+            constexpr Float64 TRIM_PREVIEW_MS = 2500.0;
+            if(!armSent && !dm.estopLatched && dm.deadman < 2u)
+            {
+                if(previewing && elapsedMs(previewAt) <= TRIM_PREVIEW_MS)
+                {
+                    if(!previewServoOn)
+                    {
+                        servoLine = proto::command("SERVO", "ON");
+                        previewServoOn = true;
+                    }
+                    steerLine = proto::steer(previewSteer);
+                }
+                else if(previewServoOn)
+                {
+                    servoLine = proto::command("SERVO", "OFF");
+                    steerLine = proto::steer(0.0f);
+                    previewServoOn = false;
+                    previewing = false;
+                }
+            }
+            else
+            {
+                // Armed or stopped: whoever owns the servo now keeps it.
+                previewServoOn = false;
+                previewing = false;
             }
         }
         else
@@ -1737,6 +1800,30 @@ Int32 main(Int32 argc, Char** argv)
                     continue;
                 }
                 sendLine(line, link);
+
+                // THE PREVIEW'S AIM (see the manual tick): the centre for a
+                // centre, and for limits the end that differs from what the Pico
+                // last reported - an unchanged pair, as "save to car" sends,
+                // keeps whatever aim it already had.
+                if(t.verb == bibowire::Verb::VERB_SET_SERVO_TRIM)
+                {
+                    previewSteer = 0.0f;
+                    previewAt = monoNow();
+                    previewing = true;
+                }
+                else if(t.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS)
+                {
+                    if(static_cast<Int32>(t.arg1) != replies.servoMinUs)
+                    {
+                        previewSteer = -1.0f;
+                    }
+                    else if(static_cast<Int32>(t.arg2) != replies.servoMaxUs)
+                    {
+                        previewSteer = 1.0f;
+                    }
+                    previewAt = monoNow();
+                    previewing = true;
+                }
 
                 // KEPT the moment it goes out, and only when it changed
                 // something: a slider dragged end to end sends a line per step,

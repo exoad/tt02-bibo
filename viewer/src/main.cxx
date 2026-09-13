@@ -545,14 +545,7 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     ImGui::Checkbox("heading", &sc.opt.heading);
     if(ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip(
-            "Which way the wheels are pointed: solid where they ARE,\n"
-            "ghost where they were ASKED to be. The two separate while\n"
-            "the Pico's slew limiter works through a command.\n\n"
-            "A heading, not a predicted path - the angle drawn is a\n"
-            "display convention, because this car has no measured\n"
-            "wheelbase or steering-angle map to derive a real one."
-        );
+        ImGui::SetTooltip("solid: where the wheels are - ghost: where asked");
     }
 
     ImGui::Separator();
@@ -564,24 +557,13 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     ImGui::Checkbox("camera", &cam.open);
     if(ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip(
-            "a separate window, and the board only sends\n"
-            "the camera while it is open - about 1 MB/s"
-        );
+        ImGui::SetTooltip("streams about 1 MB/s while open");
     }
 
     // The car's limits, centre and response rates. Unlike the camera above, this
     // one costs the board nothing while it is open - there is no subscription
     // behind it, only COMMANDs sent when the operator finishes a slider.
     ImGui::Checkbox("trim", &trim.open);
-    if(ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip(
-            "steering and throttle limits, centre, and how fast\n"
-            "either may move - refused while the car is armed,\n"
-            "and saved both on the board and on this laptop"
-        );
-    }
 
     // DRIVING. Opening this window costs the board nothing and changes nothing
     // on its own: the control slot is asked for in HELLO, the enable inside the
@@ -589,15 +571,6 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     // observer whose datagrams the board would discard. Three gates, and this
     // checkbox is not one of them - it only puts the pane on screen.
     ImGui::Checkbox("drive", &drive.open);
-    if(ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip(
-            "WASD over bibowire CONTROL. Taking the control slot needs\n"
-            "a reconnect - the handshake is the only place it is asked\n"
-            "for - and holding it arms the board's deadman, so losing\n"
-            "this viewer then stops the car"
-        );
-    }
 
     ImGui::Separator();
 
@@ -1039,6 +1012,10 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         // what publishes the control intent, and a frame that skipped it would
         // leave the worker sending whatever the last frame asked for - which is
         // a key that is still held down as far as the car is concerned.
+        // FROM THE TRIM PANE, this frame: its idle test rides the Drive pane's
+        // CONTROL, and a reverse limit at neutral is what S warns about.
+        drive.idleTest = trim.idleTest;
+        drive.reverseOff = trim.escReverseUs >= static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
         driveview::drawWindow(drive, net.client, snap, nowMs);
 
         // SAVED ON A CHANGE, NEVER ON A FRAME - and never while a widget is
