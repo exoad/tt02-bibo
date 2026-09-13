@@ -72,4 +72,4 @@ the file.
 Not licences, but the datasheets these were built against:
 Tamiya TT-02 (kit 58631), Slamtec RPLIDAR C1, Raspberry Pi Pico 2 W (RP2350),
 Orange Pi 4 Pro, Hobbywing QuicRun 10BL160 G2, Power HD 1501MG, Flysky FS-GT2.
-See [docs/wiring.md](docs/wiring.md).
+See [docs/hardware.md](docs/hardware.md).

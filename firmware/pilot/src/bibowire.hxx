@@ -286,11 +286,9 @@ namespace bibowire
       REFUSE_NO_UDP,
   };
 
-  // The BYE reasons of section 4. The document spells these BYE_VERSION,
-  // BYE_TOO_BIG and so on; that would collide with the `Bye` message struct
-  // below, and one struct per Type named after its Type is worth more than the
-  // enum's spelling. The WIRE VALUES are the document's, which is the part that
-  // has to match.
+  // The BYE reasons of section 4. Named REASON_ so they do not collide with the
+  // `Bye` message struct below. The WIRE VALUES are the document's, which is the
+  // part that has to match.
   enum class Reason : UInt16
   {
       REASON_NONE = 0,

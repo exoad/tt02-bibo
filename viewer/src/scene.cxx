@@ -31,7 +31,7 @@ namespace scene
   constexpr Int32 GRID_HALF = 10;             // metres each way, 1 m spacing
   constexpr Float32 AXIS_LEN = 0.6f;
 
-  // The TT-02 with its shell on, from docs/conventions.md: ~440 x 190 x 130 mm.
+  // The TT-02 with its shell on, from docs/hardware.md: ~440 x 190 x 130 mm.
   constexpr Float32 CAR_HALF_WIDTH = 0.095f;
   constexpr Float32 CAR_HALF_LENGTH = 0.22f;
   constexpr Float32 CAR_FLOOR = 0.02f;
@@ -256,8 +256,8 @@ namespace scene
   // A ROTATED ARROW, NOT A PREDICTED PATH, and the distinction is the whole
   // design. A real curved trajectory needs a wheelbase, a steering-angle map and
   // the geometry to turn a servo fraction into a radius; this project has
-  // measured none of them - docs/conventions.md records even the
-  // lidar-to-vehicle transform as assumed. An arc drawn over a real point cloud
+  // measured none of them - docs/hardware.md records even the
+  // lidar-to-vehicle transform as not established. An arc drawn over a real point cloud
   // would read as a claim about where the car ENDS UP, next to lidar returns
   // that are actual measurements, and somebody would judge a gap by it.
   //

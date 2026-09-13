@@ -32,8 +32,8 @@ namespace link
   {
 
     // The lidar's height above the ground, matching what the stand-in cloud
-    // this replaces was drawn at. NOT a mounting correction: docs/conventions.md
-    // records the lidar-to-vehicle transform as ASSUMED rather than measured, so
+    // this replaces was drawn at. NOT a mounting correction: docs/hardware.md
+    // records the lidar-to-vehicle transform as NOT ESTABLISHED, so
     // rotating or offsetting the cloud here would bake a guess into every point
     // and every sensor fused with it afterwards - and it would look like a
     // sensor fault rather than a bad constant. When the transform is measured,
@@ -1524,7 +1524,7 @@ namespace link
     }
 
     // EVERY PERIOD, CHANGED OR NOT, for as long as this viewer holds the slot.
-    // Section 5 says "sent every 50 ms unconditionally" and section 6 says why:
+    // Section 5 sends CONTROL every CONTROL_PERIOD_MS, changed or not, and says why:
     // the constant stream is what makes silence mean something, and there is no
     // separate heartbeat because a separate heartbeat is a thing that can keep
     // beating while the control path is dead.

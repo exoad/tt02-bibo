@@ -20,7 +20,7 @@ rem  THIRD_PARTY.md, which records the version and the licence.
 set "STB=%ROOT%..\third_party\stb"
 
 rem  The board's source tree. bibowire.cxx is compiled INTO this exe rather than
-rem  copied or reimplemented: docs/bibowire.md section 11 requires the viewer and
+rem  copied or reimplemented: docs/bibowire.md section 12 requires the viewer and
 rem  the pilot to share the object file so the encoder and the decoder cannot
 rem  drift into disagreeing about a field's offset while both still compile.
 set "PILOT=%ROOT%..\firmware\pilot\src"

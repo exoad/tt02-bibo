@@ -115,7 +115,7 @@ namespace lidar
     //
     // This exists because the SDK cannot be trusted to report an unopenable
     // port: a shadowed `ans` in its openChannelAndBind() turns a failed channel
-    // open into a successful connect() - "The C1" in firmware/pilot/README.md.
+    // open into a successful connect() - "The lidar" in docs/hardware.md.
     // Without this probe a missing /dev/ttyUSB0 is reported two
     // seconds later as "nothing answered at 460800 baud", pointing whoever
     // reads it at the baud rate when the cable is the problem.
@@ -228,8 +228,8 @@ namespace lidar
     // stop, settle, motor off - in that order, and BOTH halves run whatever the
     // first one said. A failed stop with the motor still spinning is a lidar
     // running on a desk with no program attached, which is the outcome this
-    // sequence exists to prevent; see "when a hardware sequence may
-    // short-circuit" in docs/conventions.md.
+    // sequence exists to prevent; see the hardware-sequence rule under
+    // Language in docs/conventions.md.
     [[nodiscard]] Bool stopAndPark()
     {
         const sl_result stopped = drv->stop();

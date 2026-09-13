@@ -6,11 +6,10 @@
 // half is Linux-only - accept4, pipe2, poll, recvfrom, MSG_NOSIGNAL - and on
 // MSVC every function refuses. A laptop run could prove nothing but that
 // start() returns false, which is what the #else half below checks and all it
-// claims to check. docs/bibowire.md section 11 says this out loud rather than
+// claims to check. docs/bibowire.md section 12 says this out loud rather than
 // leaving it to be discovered, and pilot/CMakeLists.txt keeps it a ctest.
 //
-// WHAT IS CHECKED, in order. Cases 35-40 are section 11's own list for this
-// file; the rest are the ones writing it turned up.
+// WHAT IS CHECKED, in order.
 //
 //   1.  start/stop, the port, and publish() with nobody connected.
 //   1b. THE BOARD'S OWN AGES. scanAgeMs, controlAgeMs and picoSilentMs are
@@ -23,20 +22,20 @@
 //       appears.
 //   3.  A person with nc: a connection whose first bytes are not the magic
 //       gets one plain ASCII line before its BYE.
-//   4.  (37) An inbound frame claiming more than MAX_INBOUND_PAYLOAD is closed
+//   4.  An inbound frame claiming more than MAX_INBOUND_PAYLOAD is closed
 //       with BYE(TOO_BIG), and nothing is allocated for the claim.
 //   5.  A second HELLO on a live connection closes it.
-//   6.  (38) A second viewer asking for control is accepted as an OBSERVER
+//   6.  A second viewer asking for control is accepted as an OBSERVER
 //       with refusal 2, and its CONTROL datagrams are counted and discarded.
-//   7.  (39) A datagram carrying the PREVIOUS session's id is rejected after a
+//   7.  A datagram carrying the PREVIOUS session's id is rejected after a
 //       reconnect - the case that would otherwise drive the car with a
 //       second-old stick position while the socket looked perfect.
-//   8.  (40) The reverse-path probe says so in words when no CONTROL datagram
+//   8.  The reverse-path probe says so in words when no CONTROL datagram
 //       arrives within 1000 ms of WELCOME.
-//   9.  (35) A client that stops reading is coalesced to ONE queued SCAN and
+//   9.  A client that stops reading is coalesced to ONE queued SCAN and
 //       then dropped, WHILE ANOTHER KEEPS RECEIVING - the property the pilot's
 //       tick depends on, and the one a shared queue would break.
-//   10. (36) The drop ORDER: BULK before LIVE before VITAL, and a client the
+//   10. The drop ORDER: BULK before LIVE before VITAL, and a client the
 //       vital frames cannot reach is closed rather than waited for.
 //   11. A fifth viewer is refused by name, with the four already connected in
 //       the sentence.
@@ -736,10 +735,10 @@ Int32 main()
 
     // ---- 2b. an OBSERVER is a first-class viewer ---------------------------------------
     // wantControl = 0 is the common case today: control is out of scope until
-    // the Pico is wired, so the viewer connects to watch. Section 6 line 631 is
-    // explicit that with nobody holding the slot bibowire's deadman does not
-    // apply and the pilot runs under its own rules - so an observer must not
-    // arm a timer that would stop a car nobody is driving.
+    // the Pico is wired, so the viewer connects to watch. Section 6, "When there
+    // is no holder at all", is explicit that with nobody holding the slot
+    // bibowire's deadman does not apply and the pilot runs under its own rules -
+    // so an observer must not arm a timer that would stop a car nobody is driving.
     {
         Datagram udp;
         check(udp.open(), "an observer binds a control socket it will not use");

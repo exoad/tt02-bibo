@@ -22,7 +22,7 @@ namespace scene
   // Z up, metres. The car sits at the origin pointing along +Y.
   //
   // +Y is where the lidar's 0 degrees will point once there is a measured
-  // mounting offset. docs/conventions.md is explicit that the transform is NOT
+  // mounting offset. docs/hardware.md is explicit that the transform is NOT
   // established, so nothing here rotates the cloud to pretend otherwise.
   struct Vec3
   {

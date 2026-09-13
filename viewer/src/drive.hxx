@@ -63,7 +63,7 @@ namespace driveview
   //
   // W is a switch. Without a cap it is full throttle the instant it goes down,
   // on a car whose ESC band is narrow and whose gearing was changed under it -
-  // docs/conventions.md records that the brushless 21.5T at 10.71:1 breaks
+  // docs/hardware.md records that the brushless 21.5T at 10.71:1 breaks
   // static friction at a LOWER pulse than the 1541 the firmware still calls
   // idle. So the cap is the whole of the throttle's resolution, and the useful
   // default is a crawl.

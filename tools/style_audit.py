@@ -578,15 +578,9 @@ if raw_arrays == 0:
 total += raw_arrays
 
 print('\n--- signatures over 100 columns ---')
-# A RATCHET, not a rule. docs/conventions.md is honest that long signatures are
-# a design problem and not a formatting one, and that the work is not done. What
-# this does instead is stop the number GROWING: the budget below is what the
-# tree measured when the check went in, and the audit fails if it rises.
-# Shortening a signature lowers the budget with it.
-#
-# Where the figure came from: 2 columns are from indenting namespace bodies on
-# 2026-08-30, and 30 -> 51 on 2026-08-31 was a const-correctness pass across
-# firmware/lib - the same parameters spelled longer, 21 crossing the line.
+# A RATCHET: docs/conventions.md counts signatures over 100 columns against
+# SIG_BUDGET, which may only fall. The audit fails if the count rises above it,
+# and shortening or deleting a signature lowers the budget with it.
 SIG_BUDGET = 6
 
 SIGNATURE = re.compile(

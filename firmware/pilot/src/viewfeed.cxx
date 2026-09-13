@@ -957,9 +957,9 @@ namespace viewfeed
         // this producer existed, take the bandwidth the scan needs, and spin up
         // a capture on a board nobody is watching a picture on.
         //
-        // So CAMERA is sent ONLY on an explicit bit. Section 10 already says the
-        // camera "arrives switched off; a viewer that wants it asks", and this
-        // is that sentence in code. The bit is `tag - 0x10` like every other, so
+        // So CAMERA is sent ONLY on an explicit bit: docs/bibowire.md section 11
+        // has a new type arrive switched off, and a viewer that wants it asks.
+        // The bit is `tag - 0x10` like every other, so
         // CAMERA (0x20) is bit 16 - nothing new to learn, just the one default
         // that is off. test_viewfeed asserts a zero-mask subscriber gets scan
         // and state and NOT camera.
@@ -2864,8 +2864,8 @@ namespace viewfeed
         m.frameIndex = cam.frameIndex;
         m.width = w;
         m.height = h;
-        // Echoed on every frame so a capture is self-describing, which is
-        // section 10's rule for this type rather than an invented one.
+        // Echoed on every frame so a capture is self-describing, the rule
+        // section 5 gives scanDivisor and the camera's codec.
         m.codec = 1;
         m.flags = 0;
         m.data.assign(jpeg, jpeg + len);

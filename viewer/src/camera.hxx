@@ -14,9 +14,8 @@
 //
 // This is the load-bearing behaviour of the whole module, not a nicety. The
 // board only opens /dev/video0 while somebody is subscribed, and the stream is
-// roughly 1 MB/s at 640x480 - measured, against docs/bibowire.md section 10's
-// assumption of ~200 KB/s and its verdict that even THAT does not fit
-// alongside the scan on this hotspot. So a camera window nobody is looking at
+// roughly 1 MB/s at 640x480, measured - far more than the scan and state
+// together (docs/bibowire.md section 10). So a camera window nobody is looking at
 // must cost nothing: closing it sends SUBSCRIBE without the camera bit and
 // releases the texture, exactly as the scan already costs nothing when there
 // is no viewer.
@@ -173,8 +172,8 @@ namespace camview
       //
       // NOTHING HERE IS CALIBRATED, and the UI says so rather than leaving it
       // to be inferred. There is no camera calibration in this project and no
-      // measured camera-to-car transform - docs/conventions.md records even the
-      // lidar-to-vehicle transform as assumed rather than measured - so these
+      // measured camera-to-car transform - docs/hardware.md records even the
+      // lidar-to-vehicle transform as not established - so these
       // lines carry no distance and are never labelled with one. They are marks
       // the operator places by eye and then reads the same way every time,
       // which is a real aid; a band labelled "1 m" would be an invented number
@@ -216,8 +215,8 @@ namespace camview
       //
       // THE BEND IS A FEEL NUMBER, NOT A GEOMETRY. A real backup camera derives
       // its curve from a measured wheelbase, a steering-angle map and a lens
-      // calibration. This project has none of the three - conventions.md records
-      // even the lidar-to-vehicle transform as assumed - so this is a sweep the
+      // calibration. This project has none of the three - docs/hardware.md records
+      // even the lidar-to-vehicle transform as not established - so this is a sweep the
       // operator tunes until it matches what the car does, exactly like the
       // spread and converge sliders above it. It carries no radius and is never
       // labelled with one.

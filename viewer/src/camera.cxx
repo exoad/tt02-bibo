@@ -163,7 +163,7 @@ namespace camview
         v.decodeWhy.clear();
 
         // The codec byte is echoed on every frame so a capture is
-        // self-describing (docs/bibowire.md section 10). Anything but 1 is not
+        // self-describing (docs/bibowire.md section 5). Anything but 1 is not
         // a JPEG, and handing it to a JPEG decoder to find out would be
         // guessing at a value the frame already stated.
         if(shot.codec != 1u)

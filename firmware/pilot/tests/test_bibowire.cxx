@@ -27,9 +27,7 @@
 //   - The LOCALE TEST. Nothing on this wire is a float, and this is the line
 //     that catches the day somebody adds one.
 //
-// Section 11 numbers forty case groups; 35 to 40 belong to test_viewfeed.cxx,
-// the socket suite, which is ctest-on-Linux only and out of this file's scope.
-// Said out loud rather than quietly skipped.
+// The socket cases belong to test_viewfeed.cxx, which is ctest on Linux only.
 //
 // Exits 0 on PASS, 1 on FAIL.
 

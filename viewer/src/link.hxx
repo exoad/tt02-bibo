@@ -6,7 +6,7 @@
 //
 // Every byte that crosses this link is framed, checksummed and read by
 // firmware/pilot/src/bibowire.cxx - THE SAME OBJECT FILE the board's program
-// compiles, with the same 312 checks behind it. docs/bibowire.md section 11
+// compiles, with the same suite behind it. docs/bibowire.md section 12
 // requires exactly that, so the two ends cannot drift into disagreeing about a
 // field's offset while both still compile. Nothing in this module hand-rolls
 // framing, a CRC or a message body; what it owns is sockets, a thread, a
