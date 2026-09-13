@@ -1179,22 +1179,15 @@ namespace link
         bibowire::Hello hello;
         hello.protoMajor = bibowire::PROTO_MAJOR;
         hello.protoMinor = bibowire::PROTO_MINOR;
-        // NO CONVENTION FOR THIS FIELD EXISTS. The spec calls it "types this
-        // viewer understands", the codec carries it verbatim and its 312 checks
-        // say nothing about what a bit means, so any value here is a guess. All
-        // bits set is the only guess that cannot be read as "this viewer
-        // understands nothing" by a board that has not been written yet; when
-        // the socket half pins the convention, this line is the one to change.
+        // Every bit set, under the mask convention viewfeed.cxx settles for all
+        // three mask fields (see typeBit).
         hello.featureMask = 0xFFFFFFFFu;
         hello.viewerBuild = 0;
         hello.viewerUdpPort = c.udpPort;
-        // OBSERVER UNLESS THE OPERATOR ASKED, and this is the ONLY place the
-        // question is ever put: viewfeed.cxx grants the slot in onHello and
-        // nowhere else, so a viewer that did not ask here is an observer for
-        // the whole life of this connection however many buttons it grows.
-        //
-        // Default off, because taking the slot arms a deadman over whatever the
-        // car is doing - including an autonomous run somebody else started.
+        // The ONLY place the question is ever put: viewfeed.cxx grants the slot
+        // in onHello and nowhere else, so a viewer that did not ask here is an
+        // observer for the whole life of this connection however many buttons
+        // it grows. Asked by default; Client::wantSlot has the trade.
         hello.wantControl = wantSlot ? 1u : 0u;
         // Informational, and only when there is a stream to describe. 20 Hz is
         // CONTROL_PERIOD_MS turned into a rate, from the protocol's own header
@@ -2523,26 +2516,6 @@ namespace link
 
   // ---- names -----------------------------------------------------------------
 
-  CharSeq phaseName(Phase p)
-  {
-      switch(p)
-      {
-      case Phase::PHASE_IDLE:
-          return "idle";
-      case Phase::PHASE_RESOLVING:
-          return "resolving";
-      case Phase::PHASE_CONNECTING:
-          return "connecting";
-      case Phase::PHASE_HANDSHAKING:
-          return "handshaking";
-      case Phase::PHASE_LIVE:
-          return "live";
-      case Phase::PHASE_RETRYING:
-          return "retrying";
-      }
-      return "?";
-  }
-
   CharSeq modeName(UInt8 mode)
   {
       switch(mode)
@@ -3559,11 +3532,6 @@ namespace link
   Void wantCamera(Client& c, Bool on)
   {
       c.cameraOn.store(on);
-  }
-
-  Bool cameraWanted(const Client& c)
-  {
-      return c.cameraOn.load();
   }
 
   Void wantCameraFps(Client& c, Int32 fps)

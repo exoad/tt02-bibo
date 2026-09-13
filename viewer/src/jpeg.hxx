@@ -11,9 +11,7 @@
 //
 // This half takes a pointer and a length and returns pixels, so
 // viewer/tests/test_link.cxx decodes a real JPEG on a laptop with no board, no
-// window and no graphics device - which matters here more than usual, because
-// the board-side producer that will send the first CAMERA frame is being
-// written in parallel and has never run.
+// window and no graphics device.
 //
 // ---------------------------------------------------------------------------
 // THE DECODER IS stb_image, AND IT IS NOT IN THIS REPOSITORY

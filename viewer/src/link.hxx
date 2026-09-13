@@ -18,8 +18,7 @@
 // `Session` is PURE - no socket, no clock, no thread. Bytes and a millisecond
 // go in, decoded state comes out. That is what lets the whole decode path be
 // exercised against hand-built frames on a laptop with no board anywhere
-// (viewer/tests/test_link.cxx), which matters here more than usual: the pilot
-// that serves port 8020 is being written in parallel and has never run.
+// (viewer/tests/test_link.cxx).
 //
 // `Client` is the socket half: a thread, a connection, a backoff schedule.
 // It owns a `Session` and publishes copies of it under a lock.
@@ -161,8 +160,6 @@ namespace link
       PHASE_LIVE,
       PHASE_RETRYING,
   };
-
-  [[nodiscard]] CharSeq phaseName(Phase p);
 
   // reactive::Mode, spelled for a person. The pilot owns these numbers and
   // bibowire carries them as a UInt8; the codec exports no name for them, so
@@ -426,9 +423,9 @@ namespace link
       // Matched on the TEXT, which is a heuristic and is written down as one.
       // EVENT carries a `code` byte, but bibowire defines no code for the
       // camera anywhere - not in the document, not in the header, not in its
-      // 312 checks - so there is nothing structured to match on yet. When the
-      // board-side producer lands and claims a code, THIS is the line to
-      // change, and it is one line.
+      // 312 checks - so there is nothing structured to match on yet. When
+      // bibowire claims a code for the camera, THIS is the line to change,
+      // and it is one line.
       Bool haveCameraNote = false;
       Str cameraNoteText;
       Int64 cameraNoteAtMs = 0;
@@ -530,10 +527,6 @@ namespace link
       // it was taken now or forty seconds ago.
       [[nodiscard]] Opt<CameraShot> cameraShot(Int64 nowMs) const;
 
-      // The measured latency, empty until a PONG has actually come back. This is
-      // the NETWORK's number and it answers a different question from the ages
-      // above: the round trip can be 8 ms while the scan behind it is two
-      // seconds old, which is precisely the pair of lies section 7 separates.
       // The newest answer the board gave, empty until it has answered anything.
       // Empty is a REAL state and not a formality: between sending a command and
       // its CMDACK there is nothing true to show, and a pane that displayed the
@@ -541,6 +534,10 @@ namespace link
       // result at precisely the moment somebody is watching for one.
       [[nodiscard]] Opt<Ack> newestAck() const;
 
+      // The measured latency, empty until a PONG has actually come back. This is
+      // the NETWORK's number and it answers a different question from the ages
+      // above: the round trip can be 8 ms while the scan behind it is two
+      // seconds old, which is precisely the pair of lies section 7 separates.
       [[nodiscard]] Opt<Int64> rttMs() const;
       [[nodiscard]] Opt<Int64> bestRttMs() const;
       [[nodiscard]] Opt<Int64> oneWayMs() const;
@@ -904,8 +901,6 @@ namespace link
   // subscribed to nothing.
   Void wantCamera(Client& c, Bool on);
 
-  [[nodiscard]] Bool cameraWanted(const Client& c);
-
   // Ask the board for a camera RATE, in frames per second, or 0 to stop asking
   // and let the board's own default stand. Clamped to bibowire::CAM_FPS_MAX on
   // the way out, and again by the board, which is the end that owns the
@@ -951,29 +946,19 @@ namespace link
 
   // ---- CONTROL, the socket half ----------------------------------------------
   //
-  // WHAT NOW EXISTS, AND WHAT STILL DOES NOT. This block replaced a SEAM
-  // comment that said driving was deliberately absent, and the honest version
-  // of that paragraph is worth keeping rather than deleting:
-  //
-  //   - EXISTS: CONTROL is built, framed and sent every controlPeriodMs while
-  //     this viewer holds the slot, on the UDP socket the client already binds,
-  //     and on TCP instead when section 4's CTLSTATE probe says UDP is not
-  //     getting through. seq is strictly increasing from 1, sessionId comes
-  //     from WELCOME and armEpoch from the freshest thing the board has said.
-  //   - EXISTS: the slot is ASKED FOR, opt-in and default off, in HELLO.
-  //   - DOES NOT EXIST: taking the slot without reconnecting. bibowire v1 has
-  //     no message for it and the board grants it in onHello alone.
-  //   - DOES NOT EXIST: a viewer-side copy of bibowire::deadman::step. The
+  //   - CONTROL is built, framed and sent every controlPeriodMs while this
+  //     viewer holds the slot, on the UDP socket the client already binds, and
+  //     on TCP instead when section 4's CTLSTATE probe says UDP is not getting
+  //     through. seq is strictly increasing from 1, sessionId comes from
+  //     WELCOME and armEpoch from the freshest thing the board has said.
+  //   - The slot is ASKED FOR in HELLO, by default. There is no taking it
+  //     without reconnecting: bibowire v1 has no message for it and the board
+  //     grants it in onHello alone.
+  //   - There is no viewer-side copy of bibowire::deadman::step. The
   //     countdowns an operator reads come from CTLSTATE's neutralInMs and
   //     disarmInMs, which the BOARD computes with the same pure function that
   //     does the tripping - so there is one arithmetic rather than two that can
   //     disagree, and nothing here can render a margin the car does not have.
-  //   - NOT TESTED ANYWHERE: any of this against a car. The Pico has never been
-  //     connected to the board, no CONTROL datagram has ever moved a wheel, and
-  //     a safety mechanism that has run only in a suite is a safety mechanism
-  //     nobody has watched fail. viewer/tests/test_link.cxx pins the shapes -
-  //     the seq rule, the round trip, the key mapping, the ENABLE bit - and
-  //     names in its own header what it cannot reach.
 
   // The level the worker samples. Safe from the UI thread, safe before a
   // connection exists, and called EVERY FRAME from the pane rather than on
@@ -984,8 +969,7 @@ namespace link
   [[nodiscard]] Intent controlIntent(Client& c);
 
   // Ask for the control slot on the NEXT connection - HELLO carries it and
-  // nothing else can. Default false; see Client::wantSlot for why that is a
-  // safety property and not a preference.
+  // nothing else can. Default true; Client::wantSlot has the trade.
   Void wantControlSlot(Client& c, Bool on);
 
   [[nodiscard]] Bool controlSlotWanted(const Client& c);

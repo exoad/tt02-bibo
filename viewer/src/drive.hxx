@@ -12,24 +12,12 @@
 // word here.
 //
 // ---------------------------------------------------------------------------
-// NOTHING HERE HAS EVER MOVED A WHEEL
-//
-// Said first because it is the most important thing about this file. The Pico
-// has never been connected to the board, no CONTROL datagram has ever reached a
-// car, and every claim below is a claim about a shape rather than about a
-// vehicle. viewer/tests/test_link.cxx pins the parts that are pure - the key
-// mapping, the ENABLE bit, the seq rule, the round trip - and says in its own
-// header what it cannot reach.
-//
-// ---------------------------------------------------------------------------
-// THREE GATES, EACH OFF BY DEFAULT, AND THAT IS THE DESIGN
+// THREE GATES
 //
 // 1. The CONTROL SLOT is asked for in HELLO and nowhere else (the board grants
 //    it in its HELLO handler alone), so it is a decision taken when a
-//    connection is dialled. Default off: section 6 says the moment a viewer
-//    takes the slot, in ANY mode including a fully autonomous drive, its
-//    cadence becomes the consent the deadman watches and losing it stops the
-//    car. Opening a viewer must not arm a deadman over somebody else's run.
+//    connection is dialled. Asked for by default: link::Client::wantSlot has
+//    the trade, and taking the slot moves nothing while the car is disarmed.
 // 2. ENABLE is a toggle in this window, default off. It is the operator saying
 //    "I am driving now", and bibowire::deadman::step only reaches STATE_LIVE
 //    while it is set.
