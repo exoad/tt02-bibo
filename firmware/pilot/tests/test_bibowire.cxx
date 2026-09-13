@@ -1851,8 +1851,8 @@ Int32 main()
         check(TICK_MS == 20, "TICK_MS is 20");
         check(PICO_HOP_BUDGET_MS == 100, "PICO_HOP_BUDGET_MS is 100");
         check(
-            PICO_DEADMAN_MS == 200,
-            "PICO_DEADMAN_MS is 200 - firmware/app/main.cxx WATCHDOG_MS, not ours to change"
+            PICO_DEADMAN_MS == BIBO_WATCHDOG_MS,
+            "PICO_DEADMAN_MS is cal.hxx BIBO_WATCHDOG_MS, not ours to change"
         );
         static_assert(
             TICK_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
@@ -1860,7 +1860,7 @@ Int32 main()
         );
         check(
             TICK_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
-            "and one tick plus one Pico hop still beats the board's own 200"
+            "and one tick plus one Pico hop still beats the board's own watchdog"
         );
         checkStr(
             Str(deadman::stateName(deadman::State::STATE_LIVE)),

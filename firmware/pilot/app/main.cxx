@@ -1,113 +1,40 @@
-// The companion board's program: a lidar revolution in, two lines to the car
-// out, for as long as it is left running.
+// pilot - the service program on the companion board. Each lidar revolution is
+// one tick: the decision goes to the viewer, and a STEER and an ESC line go to
+// the Pico.
 //
-//   pilot [--lidar PORT] [--pico PORT] [--dry] [--arm] [--forward DEG] [--seconds N]
+//   pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm] [--forward DEG] [--seconds N]
 //
-// ---------------------------------------------------------------------------
-// WHAT THIS IS
+// WHO DRIVES
+//   DRIVE (default)  reactive::step decides. Throttle only for a forward decision
+//                    from a scan it trusted, mapped onto cal.hxx's THROTTLE_CAL_MIN..
+//                    THROTTLE_CAL_MAX, and only with --arm, which sends ESC ARM and
+//                    SERVO ON whenever the Pico is opened. The autonomy's reverse is
+//                    sent as neutral: this ESC's reverse is a brake-then-push sequence
+//                    nothing here drives. A viewer's ESTOP or DISARM sends STOP and
+//                    ends the run.
+//   MANUAL           a viewer's CONTROL drives (docs/bibowire.md section 6). Only a
+//                    viewer's COMMAND ARM lets throttle through, so
+//                    bibo-pilot.service runs --manual without --arm and the car comes
+//                    up held still.
+//   --dry            never opens the Pico; prints each decision instead.
 //
-// The loop firmware/pilot exists for, in its first shape. reactive.hxx is the
-// dumb layer - no map, no path, no odometry - and this is the program that
-// gives it a real lidar and a real car. autonomy.hxx, the pursuit along a
-// planned path, is still a stub and is not touched here; when it is real it
-// gets its own loop or joins this one, and that is a decision for the day an
-// encoder exists.
+// TIMING
+//   A tick waits up to REV_WAIT_MS for a revolution, and a tick without one sends
+//   neutral. While it waits, the last lines are re-sent every PICO_KEEPALIVE_MS
+//   (grabHeld), so the Pico's watchdog, bibowire::PICO_DEADMAN_MS, fires only when
+//   this program has stopped. A lost link holds neutral instead.
 //
-// Everything below is glue. The behaviour is reactive::step's, the protocol is
-// proto's, the transport is carlink's and the sensor is lidar's; this file
-// decides only how they are sequenced and what happens when one of them is
-// late. Those are the decisions written down in the sections that follow.
-//
-// ---------------------------------------------------------------------------
-// THE LIDAR IS THE CLOCK
-//
-// lidar::grab() blocks until one revolution has arrived, and that is the tick.
-// The C1 turns at about 10 Hz, so the car gets a fresh decision every ~100 ms
-// and nothing in between, because nothing new has been seen in between. There
-// is no timer and no sleep in this loop, and dtMs handed to the module is what
-// the wall clock says passed - not the nominal 100 ms - so a slow revolution
-// counts as the longer interval it was.
-//
-// The number that shapes the loop USED TO BE the board's deadman.
-// firmware/app/main.cxx stops the car when no VALID command has arrived for
-// WATCHDOG_MS, and this loop waited at most REV_WAIT_MS - half of that - for a
-// revolution before sending anyway: a steer and a neutral, because a tick with
-// no scan behind it has nothing to say about throttle. That keeps two
-// different failures apart. The board's watchdog firing means the Pi has gone
-// quiet - a crash, a cable, a hung process - and is the board's business. A
-// late revolution is THIS program's business, and it is answered by stopping
-// the car on purpose, on time, rather than by coasting until the board
-// notices.
-//
-// THE TWO ARE NO LONGER THE SAME NUMBER, and that is what makes the board's
-// watchdog able to be 200 ms. The wait is sliced now: grabHeld() waits in
-// PICO_KEEPALIVE_MS pieces and re-sends the held command between them, so the
-// longest the car goes without hearing from us is one keepalive rather than
-// one whole revolution. How long a revolution may take and how long the board
-// will wait to hear from us were one constant while the grab was one call, and
-// only the second of them is a safety property.
-//
-// The wait is spent inside the SDK, not in a sleep, so a revolution that turns
-// up at 150 ms is acted on at 150 ms.
-//
-// ---------------------------------------------------------------------------
-// WHAT THE CAR IS TOLD
-//
-// Steering always, as a fraction. Throttle only for a forward decision from a
-// scan the module trusted. That is the rule hub/src/app_ui.cxx reactiveSend()
-// applies, and it is copied here deliberately rather than shared: the hub maps
-// onto the Drive view's live idle..full, this maps onto the numbers in
-// cal.hxx, and the two programs must be allowed to differ in exactly that.
-//
-// The AUTONOMY's reverse is sent as NEUTRAL. Reverse on this ESC is a brake, a
-// return to neutral and a second push - which the operator's S key does by
-// hand (escReversePulse) and nothing here sequences for the module - so its
-// MODE_REVERSE is a stop here and its reverse commitment becomes a pause. A known gap, stated: a car that stops at
-// a wall is the honest version of a car that was told to back up and did not.
-//
-// The pulse range is THROTTLE_CAL_MIN..THROTTLE_CAL_MAX from
-// firmware/lib/chassis/cal.hxx, 1541..1600. Read the comment there: they were
-// measured on the brushed 1060, since replaced by a brushless that maps
-// 1500..2000 almost linearly, so 1541 is probably already creeping and 1600 is
-// no longer a crawl. They are used anyway BECAUSE they are narrow. A 59 us
-// band cannot launch the car, and a first autonomous drive wants a car that
-// cannot launch. Widen them in cal.hxx from a measured test, never here.
-//
-// The board also holds the car still on its own: a pulse from an unarmed ESC
-// is refused with "ERR esc not armed". This program sends ESC ARM only with
-// --arm, on the hub's rule that reactive drives nothing until a person has
-// armed the car. Without the flag the loop still runs, still steers, and the
-// board's refusals are printed once per tick - which is the right amount of
-// noise for a car that was not supposed to move.
-//
-// --manual is different, and that rule does not reach it. There a VIEWER'S
-// COMMAND ARM is what arms the car (docs/bibowire.md section 6): refused unless
-// its sender holds the slot with a live stream and the Pico is answering, and
-// gone the moment anything moves the arm epoch. --arm still arms the ESC when
-// the port opens, but no throttle passes in MANUAL without a standing ARM - so
-// a pilot started at boot by bibo-pilot.service comes up held still.
-//
-// ---------------------------------------------------------------------------
-// --dry, AND WHY IT IS THE FIRST THING TO RUN
-//
-// Never opens the Pico. Prints what would have been sent, one line per tick,
-// with the mode and clearance that produced it. A controller that has never
-// been watched deciding should not be handed a car; this is how it is watched,
-// with the sensor, the room and the decisions all real and only the thing that
-// moves left out.
-//
-// ---------------------------------------------------------------------------
-// WHAT IS COUNTED
-//
-// Every revolution, every grab that timed out, every line the board answered
-// and whether it was OK or ERR - and, from carlink, every line sent and every
-// one dropped. The status line once a second and the summary at exit print
-// them, because the failure this project keeps finding in its own code is the
-// one that reports success while measuring nothing: a pilot that ran for a
-// minute and saw zero revolutions exits 1 and says so.
+// THE PICO
+//   Opened with STOP, so a run that died armed is disarmed, then PING and the saved
+//   trim; a lost link is reopened the same way, once a BOARD has reported it down.
+//   Its replies are read through carrules::fold and forward pulses come from
+//   carrules::forwardPulse, the same rules car programs use. Shutdown sends STOP
+//   before the lidar is touched. A run that saw no revolution, or lost the lidar
+//   partway, exits 1.
 
 #include "shared.hxx"
 
+#include "carrules.hxx"
 #include "lidar.hxx"
 #include "link.hxx"
 #include "proto.hxx"
@@ -115,46 +42,24 @@
 #include "trimfile.hxx"
 #include "viewfeed.hxx"
 
-// The car's measured numbers - see cal.hxx, and "WHAT THE CAR IS TOLD" above,
-// for why the throttle pair is used despite being out of date.
+// THROTTLE_CAL_MIN/MAX: measured on a motor the car no longer has, and kept for
+// the autonomy because the band is narrow. Widen it there from a measured test.
 #include "chassis/cal.hxx"
 
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 
 namespace
 {
 
-  // How long a tick waits for a revolution before giving up on one. NOT tied to
-  // the board's watchdog any more, and that is the point of the pair below.
-  //
-  // It was "half the board's DEADMAN_MS", 200 against 400, and the arithmetic
-  // was the only thing keeping the board quiet: this loop sends nothing until
-  // the grab returns, so the longest a tick can go without speaking to the car
-  // was this constant. Tightening the board's watchdog to 200 broke that
-  // silently - every late revolution would have tripped it, and an unplugged
-  // lidar would have held the car in a permanent watchdog stop while the Pi
-  // was alive and well.
+  // How long a tick waits for a revolution.
   constexpr Int32 REV_WAIT_MS = 200;
 
-  // How often the car is told something WHILE this tick is still waiting.
-  //
-  // The wait is spent inside the SDK, and it used to be spent in one call. It
-  // is sliced now, and between the slices the car is re-sent what it was last
-  // told - see grabHeld(). That decouples "how long a revolution may take"
-  // from "how long the board will wait to hear from us", which were the same
-  // number for as long as the grab was one call, and only one of them is a
-  // safety property.
-  //
-  // 80, so that a normal 10 Hz revolution (about 100 ms) arrives before the
-  // first keepalive is due and the common tick sends nothing extra.
+  // How often the held lines are re-sent while a tick waits. Above a normal
+  // revolution's interval, so the common tick sends nothing extra.
   constexpr Int32 PICO_KEEPALIVE_MS = 80;
 
-  // THE PAIRING, asserted rather than commented. bibowire.cxx holds the same
-  // shape for TICK_MS; this is the one that matters when a revolution is late,
-  // because then the keepalive rather than the tick is what the board hears.
   static_assert(
       PICO_KEEPALIVE_MS + bibowire::PICO_HOP_BUDGET_MS <= bibowire::PICO_DEADMAN_MS,
       "a keepalive must reach the board before its watchdog fires, or a late revolution stops the car"
@@ -162,36 +67,24 @@ namespace
 
   constexpr Int32 STATUS_EVERY_MS = 1000;
 
-  // Consecutive grab() timeouts, after the first revolution, before the lidar
-  // is called lost: 2 s at REV_WAIT_MS, twenty times the normal interval
-  // between revolutions, so a revolution that is merely late does not trip it
-  // and a cable that is out does.
+  // Consecutive timeouts, after the first revolution, before the lidar is lost.
   constexpr Int32 LIDAR_LOST_TIMEOUTS = 10;
 
-  // The narrow, stale, deliberately-kept band. See the header comment.
   constexpr Int32 ESC_MIN_US = THROTTLE_CAL_MIN;
   constexpr Int32 ESC_MAX_US = THROTTLE_CAL_MAX;
   static_assert(ESC_MAX_US > ESC_MIN_US, "cal.hxx throttle band is empty or inverted");
 
-  // What the board calls this build when it refuses a viewer's version. The
-  // sentence is the useful part - "incompatible" alone sends a person to read
-  // source in a field, and a stamp is what turns it into an action - so this is
-  // the compiler's own date and time rather than a git hash: nothing hands one
-  // in at build time, and a hand-typed hash is wrong the first day nobody
-  // remembers to change it. Wire -DBOARD_BUILD and this becomes the commit.
+  // What the board tells a viewer it refuses: the compiler's date and time unless
+  // the build hands in a stamp.
 #if defined(BOARD_BUILD_STAMP)
   constexpr CharSeq BOARD_BUILD = BOARD_BUILD_STAMP;
 #else
   constexpr CharSeq BOARD_BUILD = __DATE__ " " __TIME__;
 #endif
 
-  // Written from the signal handler, read from the loop. volatile sig_atomic_t
-  // is the one type the standard promises is safe to touch in a handler; the
-  // Atomic<> alias is not guaranteed lock-free and so is not.
+  // Set by the signal handler; sig_atomic_t is the type a handler may write.
   volatile std::sig_atomic_t interrupted = 0;
 
-  // Int32 is int32_t, which is int on every host this builds for, so the
-  // signature still matches std::signal's handler type.
   Void onInterrupt(Int32)
   {
       interrupted = 1;
@@ -199,19 +92,11 @@ namespace
 
   struct Options
   {
-      Str     lidarPort = "/dev/ttyUSB0";
-      Str     picoPort = "/dev/ttyACM0";
+      Str     lidarPort = bibo::LIDAR_PORT;
+      Str     picoPort = bibo::PICO_PORT;
       Bool    dry = false;
       Bool    arm = false;
-
-      // MANUAL: a viewer's CONTROL writes steer and throttle instead of the
-      // autonomy. A startup flag and not something a held key can cause,
-      // because section 6 is explicit that the mode changes only through
-      // COMMAND SET_MODE - and until that verb is honoured, slipping into
-      // MANUAL because somebody took the control slot would be this program
-      // inventing a mode change nobody asked for.
-      Bool    manual = false;
-
+      Bool    manual = false;   // a viewer's CONTROL drives; a startup flag only
       Float32 forwardDeg = 0.0f;
       Float64 seconds = -1.0;   // negative: until a signal
   };
@@ -219,25 +104,22 @@ namespace
   Void usage()
   {
       std::printf(
-          "pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm] [--forward DEG] [--seconds N]\n"
-          "  --lidar PORT   the C1's serial device        (default /dev/ttyUSB0)\n"
-          "  --pico PORT    the car's serial device       (default /dev/ttyACM0)\n"
+          "pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm]"
+          " [--forward DEG] [--seconds N]\n"
+          "  --lidar PORT   the C1's serial device        (default %s)\n"
+          "  --pico PORT    the car's serial device       (default %s)\n"
           "  --dry          never open the Pico; print each decision instead\n"
           "  --manual       a viewer's CONTROL drives, not the autonomy\n"
           "  --arm          send ESC ARM once the link is up, so throttle is obeyed;\n"
           "                 with --manual a viewer's ARM is still what lets throttle through\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
-          "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n"
+          "  --seconds N    run for N seconds, then stop  (default: until SIGINT)\n",
+          bibo::LIDAR_PORT,
+          bibo::PICO_PORT
       );
   }
 
-  // WHO WRITES steer and throttle, in one place.
-  //
-  // This was `opt.dry ? 1u : 2u` written out at three separate sites - the BOARD
-  // frame, DECIDE's source, and CTLSTATE's Applied - and a fourth mode arriving
-  // would have had to be remembered at all three. Two of them agreeing and one
-  // not is the shape of bug this repo keeps finding, and it would show up as a
-  // viewer being refused for a mode disagreement the board reported as agreeing.
+  // Who writes steer and throttle, for BOARD, DECIDE's source and CTLSTATE alike.
   [[nodiscard]] UInt8 pilotModeOf(const Options& o)
   {
       if(o.dry)
@@ -264,8 +146,7 @@ namespace
       return true;
   }
 
-  // strtod, but the whole token must be the number: "--seconds 12x" is a typo
-  // to report, not a 12 to run with.
+  // strtod, but the whole token must be the number: "12x" is refused.
   [[nodiscard]] Bool parseNumber(const Str& text, Float64& out)
   {
       if(text.empty())
@@ -334,290 +215,103 @@ namespace
           }
       }
 
-      // INCOHERENT, not merely redundant. --dry never opens the Pico at all;
-      // MANUAL means a viewer's CONTROL is what writes to it. Accepting both
-      // would start a run that reports pilotMode MANUAL on the wire, invites a
-      // viewer to take the control slot and hold a key, and then sends the car
-      // nothing whatsoever - with every layer truthfully reporting success.
+      // A dry run never opens the Pico, so MANUAL would report a mode that
+      // drives nothing.
       if(o.dry && o.manual)
       {
-          std::printf("--dry and --manual contradict: a dry run never opens the Pico for CONTROL to drive\n");
+          std::printf("--dry and --manual contradict: a dry run never opens the Pico\n");
           return false;
       }
       return true;
   }
 
-  // ---- the decision, as two lines ------------------------------------------
-
-  // The module's 0..1 onto idle..full of the calibrated band, rounded to the
-  // microsecond. The clamp is against a bug, not a tuning: nothing in
-  // reactive::Config exceeds 1.0, and a value that did should hit the top of
-  // the band rather than be multiplied past it.
-  [[nodiscard]] Int32 escPulseFor(Float32 throttle)
+  // The autonomy's throttle line: a pulse within cal.hxx's band for a forward
+  // decision from a trusted scan while this run may drive (--arm) and the Pico is
+  // speaking, NEUTRAL otherwise. NEUTRAL is accepted while disarmed, so a run
+  // without --arm is not refused every tick.
+  [[nodiscard]] Str escLineFor(reactive::Status s, const reactive::Outputs& o, Bool quiet, Bool arm)
   {
-      if(throttle > 1.0f)
-      {
-          throttle = 1.0f;
-      }
-      constexpr Float32 span = static_cast<Float32>(ESC_MAX_US - ESC_MIN_US);
-      return ESC_MIN_US + static_cast<Int32>(throttle * span + 0.5f);
-  }
-
-  // THE SAME MAPPING ONTO THE CAR'S OWN LIMITS, for MANUAL.
-  //
-  // escPulseFor maps onto cal.hxx's band, compiled in, and that is right for the
-  // autonomy: its band is deliberately narrow. It was WRONG for a viewer's W. The
-  // operator widened the ESC limits in the Trim pane to 1564..1700, the Pico took
-  // them, and full W still went out as 1600 - the top of a band measured on a
-  // brushed motor the car no longer has - so the motor hummed and the car sat
-  // there. The limits the Pico reports back are the range the operator chose,
-  // so W is mapped onto those; until the Pico has said, the compiled band stands.
-  [[nodiscard]] Int32 escPulseWithin(Float32 throttle, Int32 carMin, Int32 carMax)
-  {
-      const Bool known = carMin > 0 && carMax > carMin;
-      // NEVER BELOW NEUTRAL. The hard limits now reach down to 1000 so the
-      // operator can set an idle below 1500 - which is brake on this ESC, and
-      // reverse on one reprogrammed - and W is forward throttle, so its range
-      // starts at neutral whatever the car's minimum says.
-      constexpr Int32 ESC_NEUTRAL_US = 1500;
-      const Int32 lo = known ? (carMin < ESC_NEUTRAL_US ? ESC_NEUTRAL_US : carMin) : ESC_MIN_US;
-      const Int32 hi = known ? carMax : ESC_MAX_US;
-      if(hi <= lo)
-      {
-          return ESC_NEUTRAL_US;
-      }
-      if(throttle > 1.0f)
-      {
-          throttle = 1.0f;
-      }
-      if(throttle < 0.0f)
-      {
-          throttle = 0.0f;
-      }
-      const Float32 span = static_cast<Float32>(hi - lo);
-      return lo + static_cast<Int32>(throttle * span + 0.5f);
-  }
-
-  // The throttle line: a pulse for a forward decision from a scan the module
-  // trusted, NEUTRAL for everything else - blind, stop, reverse. The steering
-  // line needs no such function; it is proto::steer(out.steer) every tick.
-  //
-  // `silent`: the car has not spoken within carlink::Config::silenceMs. The
-  // transport reports it and does not act on it - see silentForMs - so the
-  // policy sits here, and the policy is that a board that has stopped talking
-  // is not given throttle. Steering is still sent: it costs nothing and is the
-  // command that will show up as the first reply when the board comes back.
-  [[nodiscard]] Str escLineFor(reactive::Status status, const reactive::Outputs& out, Bool silent, Bool mayDrive)
-  {
-      const Bool trusted = status == reactive::Status::STATUS_OK;
-      const Bool forward = trusted && !out.stop && out.throttle > 0.0f;
-
-      // `mayDrive` is --arm: whether THIS RUN is allowed to move the car. It is
-      // intent, not measurement, and that is the right input here - the question
-      // is what we are willing to send, not what the car currently is.
-      //
-      // Without it a run started with no --arm sent ESC <us> on every forward
-      // decision and the Pico refused every one: measured at ten "ERR esc not
-      // armed" a second, nineteen inside four seconds. Harmless to the car and
-      // corrosive to everything that reads the link - it made replyErr useless
-      // as a health signal, printed a fault line for correct behaviour, and
-      // spent the port's bandwidth being told no. NEUTRAL is the honest line:
-      // it is what we would command anyway, and it is accepted while disarmed.
-      if(!forward || silent || !mayDrive)
+      const Bool forward = s == reactive::Status::STATUS_OK && !o.stop && o.throttle > 0.0f;
+      if(!forward || quiet || !arm)
       {
           return proto::command("ESC", "NEUTRAL");
       }
-      return proto::escUs(escPulseFor(out.throttle));
+      return proto::escUs(carrules::forwardPulse(o.throttle, ESC_MIN_US, ESC_MAX_US));
   }
 
   // ---- the car end -----------------------------------------------------------
 
+  // What the Pico has said. carrules::fold keeps the keys car programs also use;
+  // the rest come from the same OK drive line (firmware/app/main.cxx printDrive).
   struct Replies
   {
+      carrules::Board pico;      // armed, servo_on, esc, esc limits, esc_rev, stale, ERRs
       UInt64 ok = 0;
-      UInt64 err = 0;
-      UInt64 other = 0;   // INFO, banner text, anything the board says unasked
-
-      // ---- what the CAR said about itself ------------------------------------
-      //
-      // STEER goes out every tick and the Pico answers every one of them with
-      // printDrive() - the whole drive state, armed= included. This program
-      // counted that line and threw its contents away, which is the only reason
-      // BoardState::picoArmed was hard-coded to "unknown" and the viewer's Car
-      // panel could never say anything but "armed --".
-      //
-      // Reading it costs NOTHING. Not one extra byte goes down the port and no
-      // poll is added: the line was already arriving fifty times a second and
-      // was already being parsed far enough to be classified.
-      //
-      // -1 is "the car has not told us", which is a different fact from any
-      // value it could report - and is what these stay at on a dry run, where
-      // nothing is asked and nothing answers.
-      Int32 armed = -1;
-      Int32 escUs = -1;
-      Int32 steerNowMilli = 0;
-
-      // THE BOARD'S OWN WATCHDOG, as the board reports it (stale=). 1 means it
-      // has tripped: the Pico heard no valid command for WATCHDOG_MS and has
-      // put the throttle at neutral by itself.
-      //
-      // Worth having even though this program is usually the reason it is 0:
-      // the board's answer is the only place the fact is MEASURED. If this
-      // ever reads 1 during a run, the Pi believes it is sending and the board
-      // disagrees - a stalled write, a half-open port, lines going out slower
-      // than they are being produced - and none of those look like anything
-      // from this side. -1 is "the car has not told us", which includes a
-      // firmware too old to have the field.
-      Int32 stale = -1;
-
-      // Whether the steering pin is being DRIVEN at all (servo_on=) and the
-      // pulse actually on it (servo=). The console line says both, because a
-      // released servo answers every STEER with OK and moves nothing - which is
-      // exactly how this program steered nothing for its whole life.
-      Int32 servoOn = -1;
-      Int32 servoUs = -1;
-
-      // The ESC limits the Pico is ACTUALLY using (esc_min=, esc_max=), which
-      // is what W is mapped onto in MANUAL - see escPulseWithin.
-      Int32 escMinUs = -1;
-      Int32 escMaxUs = -1;
-
-      // The lowest pulse brake and reverse may reach (esc_rev=). 1500, or
-      // absent - a Pico built before reverse - means reverse is off.
-      Int32 escRevUs = -1;
-
-      // The steering limits the Pico is using (servo_min=, servo_max=), so the
-      // trim preview can tell which end a SERVOLIMITS line moved.
-      Int32 servoMinUs = -1;
-      Int32 servoMaxUs = -1;
+      UInt64 other = 0;          // INFO, banner text, anything unasked
+      Int32  steerNowMilli = 0;
+      Int32  servoUs = -1;       // -1: not reported
+      Int32  servoMinUs = -1;
+      Int32  servoMaxUs = -1;
   };
 
-  // What this program knows about the link that the transport does not.
-  //
-  // `heard` is the one that matters for safety. carlink::open() returns OK
-  // after termios setup with no exchange, and silentForMs() counts from that
-  // moment - so for the first silenceMs after every open and every reopen the
-  // transport reports a board that is not yet silent, about a board that has
-  // never spoken. Throttle waits for the first line instead.
+  // The link as this program sees it. `heard`: carlink::open() does no exchange,
+  // so a freshly opened port is not trusted with throttle until a line arrives.
   struct Link
   {
+      carlink::Config cfg;
       Bool lost = false;        // declared gone; retried once a second
       Bool heard = false;       // a line has arrived since the port last opened
       Bool stallSaid = false;   // a stalled write has been mentioned once
   };
 
-  // Everything the board said since the last call: OK and ERR counted, ERR
-  // lines printed in full because the reason is the useful part. Returns
-  // false when the link has gone, having still handed over the board's last
-  // words.
+  // key's value in an OK drive line's fields (the '=' is part of the key), or
+  // fallback when the line lacks it.
+  [[nodiscard]] Int32 driveKey(const Str& fields, const Char* key, Int32 fallback)
+  {
+      Int32 v = 0;
+      return proto::fieldInt(fields, key, v) ? v : fallback;
+  }
+
+  // Everything the Pico said since the last call; ERR lines are printed in full.
+  // false when the link has gone, after its last lines have still been read.
   [[nodiscard]] Bool readReplies(Vec<Str>& scratch, Replies& tally, Link& link)
   {
       scratch.clear();
       const carlink::Result r = carlink::drain(scratch);
       if(!scratch.empty())
       {
-          // Any line at all, PONG and banner text included: the question is
-          // whether something is on the other end, not whether it agreed.
-          link.heard = true;
+          link.heard = true;   // any line at all: something is on the other end
       }
       for(const Str& line : scratch)
       {
           const proto::Reply reply = proto::read(line);
-          switch(reply.kind)
+          if(reply.kind == proto::Kind::KIND_OK)
           {
-          case proto::Kind::KIND_OK:
               ++tally.ok;
-              // "OK drive ..." is the answer to the STEER this tick already
-              // sent, so the car's own arm state and pulse arrive for free.
-              // Read BY NAME through proto::field, which matches on token
-              // boundaries - so "esc" does not find "esc_min" and a firmware
-              // that adds a field later is ignored rather than shifting
-              // everything after it.
-              if(reply.topic == "drive")
-              {
-                  // THE '=' IS PART OF THE KEY. proto::field compares the key
-                  // and then reads the value from directly after it, so "armed"
-                  // hands strtol the string "=0", which is not a number, and the
-                  // call returns false EVERY TIME. Written that way first: the
-                  // build stayed green, the suite stayed green, the live run was
-                  // clean, and armed would have sat at -1 for the life of the
-                  // process with the guard above it reading as protection.
-                  Int32 v = 0;
-                  if(proto::fieldInt(reply.rest, "armed=", v))
-                  {
-                      tally.armed = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "esc=", v))
-                  {
-                      tally.escUs = v;
-                  }
-                  // "stale=" does not occur inside any other key on this line.
-                  if(proto::fieldInt(reply.rest, "stale=", v))
-                  {
-                      tally.stale = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "steer_now=", v))
-                  {
-                      tally.steerNowMilli = v;
-                  }
-                  // "servo=" occurs once in printDrive's line: servo_t=,
-                  // servo_on=, servo_c=, servo_min= and servo_max= do not contain it.
-                  if(proto::fieldInt(reply.rest, "servo_on=", v))
-                  {
-                      tally.servoOn = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "servo=", v))
-                  {
-                      tally.servoUs = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "esc_min=", v))
-                  {
-                      tally.escMinUs = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "esc_max=", v))
-                  {
-                      tally.escMaxUs = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "esc_rev=", v))
-                  {
-                      tally.escRevUs = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "servo_min=", v))
-                  {
-                      tally.servoMinUs = v;
-                  }
-                  if(proto::fieldInt(reply.rest, "servo_max=", v))
-                  {
-                      tally.servoMaxUs = v;
-                  }
-              }
-              break;
-          case proto::Kind::KIND_ERR:
-              ++tally.err;
+          }
+          else if(reply.kind == proto::Kind::KIND_ERR)
+          {
               std::printf("pico: %s\n", reply.line.c_str());
-              break;
-          case proto::Kind::KIND_INFO:
-          case proto::Kind::KIND_OTHER:
+          }
+          else if(reply.kind != proto::Kind::KIND_EMPTY)
+          {
               ++tally.other;
-              break;
-          case proto::Kind::KIND_EMPTY:
-              break;
+          }
+          if(carrules::fold(tally.pico, line))
+          {
+              tally.steerNowMilli = driveKey(reply.rest, "steer_now=", 0);
+              tally.servoUs = driveKey(reply.rest, "servo=", -1);
+              tally.servoMinUs = driveKey(reply.rest, "servo_min=", -1);
+              tally.servoMaxUs = driveKey(reply.rest, "servo_max=", -1);
           }
       }
       return r != carlink::Result::RESULT_CLOSED && r != carlink::Result::RESULT_NOT_OPEN;
   }
 
-  // Sends, and says so when the line went nowhere. Once - the counters carry
-  // the running total, and a message per dropped tick on a dead link would
-  // bury the one line that explains why it died.
-  //
-  // Only CLOSED and NOT_OPEN are a lost link. WRITE_FAILED is a stall - the
-  // device took nothing for WRITE_WAIT_MS - and the descriptor is still good,
-  // so declaring it lost would have the once-a-second retry call open() on a
-  // link that never dropped, get RESULT_OK back, print "link back" and re-send
-  // ESC ARM, which resets the board's throttle target to neutral: a dip
-  // mid-drive for a 100 ms hiccup. A stall is counted by dropped() and said
-  // once here.
+  // Sends one line, and says once when it went nowhere. Only CLOSED and NOT_OPEN
+  // mark the link lost. WRITE_FAILED is a stall on a good descriptor: treating it
+  // as lost would reopen the port and re-send ESC ARM, dropping the throttle to
+  // neutral mid-drive.
   Void sendLine(const Str& line, Link& link)
   {
       const carlink::Result r = carlink::send(line);
@@ -639,40 +333,28 @@ namespace
       }
   }
 
-  // What the car was last told, re-sent while a tick waits for a revolution.
-  //
-  // Empty means "nothing yet" - the first tick of a run, and every tick of a
-  // dry run, where there is no port to send down.
+  // The lines the Pico was last sent, re-sent while a tick waits. Empty: nothing
+  // yet, or a dry run.
   struct Hold
   {
       Str steer;
       Str esc;
   };
 
-  // One revolution, waited for in SLICES, re-sending the held command between
-  // them so the board keeps hearing from us while we wait.
-  //
-  // WHY THE HELD COMMAND AND NOT A NEUTRAL. The keepalive's only job is to say
-  // the Pi is still running. Whether the throttle SHOULD be neutral is this
-  // loop's decision and it is made when the tick completes - a tick with no
-  // scan behind it sends neutral, and it does that at REV_WAIT_MS whether or
-  // not a keepalive went out first. Sending neutral here instead would cut the
-  // throttle every time a revolution ran 80 ms late, which at 10 Hz is often,
-  // and the car would stutter for a reason no operator could see. Re-sending
-  // what the car is already doing changes nothing about how long it drives
-  // blind; it changes only whether the board thinks we died.
-  //
-  // WHY NOT A PING. PING is valid and would feed the watchdog just as well,
-  // and that is the objection: it would prove the process is alive while
-  // saying nothing about what it wants the car to do. The held command is the
-  // honest keepalive - it is both liveness and the current intent, and it is
-  // idempotent, so the board applying it twice is the board doing nothing.
-  //
-  // The board answers each of these with its OK drive line. Those land in the
-  // same readReplies at the end of the tick and are parsed like any other, so
-  // the reply counters run a little higher on a slow tick and the arm state
-  // and pulse the console prints are fresher. Nothing else notices.
-  [[nodiscard]] Bool grabHeld(Vec<reactive::Ray>& out, Vec<UInt8>* qual, const Hold& hold, Link& link)
+  // What is held once the link is lost, and after it reopens: neutral and no
+  // STEER, so a throttle decided before the loss never reaches the Pico that
+  // comes back.
+  Void holdNeutral(Hold& hold)
+  {
+      hold.steer.clear();
+      hold.esc = proto::command("ESC", "NEUTRAL");
+  }
+
+  // One revolution, waited for in PICO_KEEPALIVE_MS slices with the held lines
+  // re-sent between them. The held lines and not a neutral: whether to go neutral
+  // is the tick's decision, made at REV_WAIT_MS; a neutral here would cut the
+  // throttle whenever a revolution ran late.
+  [[nodiscard]] Bool grabHeld(Vec<reactive::Ray>& out, Vec<UInt8>* q, const Hold& hold, Link& link)
   {
       Int32 waited = 0;
 
@@ -681,17 +363,24 @@ namespace
           const Int32 left = REV_WAIT_MS - waited;
           const Int32 slice = left < PICO_KEEPALIVE_MS ? left : PICO_KEEPALIVE_MS;
 
-          if(lidar::grab(out, slice, qual))
+          if(lidar::grab(out, slice, q))
           {
               return true;
           }
           waited += slice;
 
-          // The last slice's failure IS the tick's timeout - the caller sends
-          // its own line immediately, so a keepalive here would be a duplicate.
+          // The last slice's timeout is the tick's: the caller sends at once.
           if(waited >= REV_WAIT_MS)
           {
               break;
+          }
+
+          // A viewer's ESTOP does not wait for the tick: STOP goes in place of the
+          // held lines. A dry run holds nothing and has no port.
+          if(!hold.esc.empty() && viewfeed::drive().estopLatched)
+          {
+              sendLine(proto::stop(), link);
+              continue;
           }
 
           if(!hold.steer.empty())
@@ -707,45 +396,39 @@ namespace
       return false;
   }
 
-  [[nodiscard]] Bool openPico(const carlink::Config& cfg, Bool arm, const trimfile::Store& trim, Link& link)
+  // Opens the Pico, and again after every lost link: STOP, so a run that died
+  // armed is disarmed; PING, so the first tick hears it; the saved trim, before
+  // anything is armed. With --arm, ESC ARM. Outside MANUAL also SERVO ON, because
+  // the autonomy steers from its first tick; in MANUAL the viewer's ARM engages it.
+  [[nodiscard]] Bool openPico(const Options& opt, const trimfile::Store& trim, Link& link)
   {
-      // Whatever the last board said no longer counts, whether or not this
-      // attempt succeeds: a failed reopen leaves no descriptor, and a board
-      // behind a fresh descriptor has not been heard from yet.
+      // A board behind a fresh descriptor, or none, has not been heard from.
       link.heard = false;
-      const carlink::Result r = carlink::open(cfg);
+      const carlink::Result r = carlink::open(link.cfg);
       if(r != carlink::Result::RESULT_OK)
       {
           std::printf(
               "pico %s: %s - %s\n",
-              cfg.where.c_str(),
+              link.cfg.where.c_str(),
               carlink::why(r),
               carlink::detail().c_str()
           );
           return false;
       }
       link.lost = false;
-      // Something for the board to answer before the loop has said anything,
-      // so a live board is heard by the first tick's readReplies rather than
-      // a tick later. Every STEER and ESC line gets an OK as well; this one
-      // simply goes out first, and has an answer even from an unarmed board.
+      sendLine(proto::stop(), link);
       sendLine(proto::command("PING"), link);
-
-      // THE OPERATOR'S TRIM, BEFORE ANYTHING ELSE MOVES. The Pico keeps these in
-      // RAM and comes up on cal.hxx's compiled numbers after every power cycle
-      // or replug - so the board, which is always there when it comes up,
-      // hands them back on every open, the quiet reconnect included. Before
-      // any arm, so no throttle is ever clamped to a range about to change.
       for(const Str& line : trimfile::lines(trim))
       {
           sendLine(line, link);
       }
-      if(arm)
+      if(opt.arm)
       {
-          // Re-sent on every (re)open, not just the first: a board that was
-          // replugged or rebooted came up disarmed, and the flag means "this
-          // run is allowed to move the car", not "arm once".
           sendLine(proto::command("ESC", "ARM"), link);
+          if(!opt.manual)
+          {
+              sendLine(proto::command("SERVO", "ON"), link);
+          }
       }
       return true;
   }
@@ -790,30 +473,21 @@ namespace
 
   // ---- the viewers -------------------------------------------------------------
 
-  // What serving the viewers cost the tick, so "adds nothing" is a number in
-  // the exit summary rather than a belief.
+  // What publishing to the viewers cost per tick, for the exit summary.
   struct Viewer
   {
-      Float64 costMaxUs = 0.0;   // the longest publish of any tick
+      Float64 costMaxUs = 0.0;
       Float64 costSumUs = 0.0;
       UInt64  costTicks = 0;
       Bool    wire = false;      // viewfeed::start succeeded
   };
 
-  // ---- the board's state, filled ONCE a tick and read TWICE --------------------
-
-  // docs/bibowire.md section 5 puts one obligation on this file by name: what
-  // the board says about itself must be filled from the SAME STRUCT in the SAME
-  // TICK, so no two readers can disagree about what the car thinks. The two
-  // readers are the console's once-a-second line and the BOARD frame, and this
-  // is that struct. Everything the console prints about the lidar and the link
-  // and everything the viewer is told about the board is derived from one
-  // instance of it, filled once per tick below; a second, independently-filled
-  // source is exactly what the rule forbids, and it is the shape a disagreement
-  // would take.
+  // What the board says about itself, filled once a tick and read by both the
+  // BOARD frame and the console line, so the two cannot disagree
+  // (docs/bibowire.md section 5).
   struct Snapshot
   {
-      UInt64  monoUs = 0;          // the tick's instant on the monotonic clock
+      UInt64  monoUs = 0;
       UInt32  upS = 0;
       Float64 revPerS = 0.0;
       UInt64  timeouts = 0;
@@ -821,26 +495,22 @@ namespace
       Int32   lidarHealth = -1;
       Bool    lidarSpinning = false;
       Bool    dry = false;
-      UInt8   pilotMode = 2;       // who writes steer and throttle; see pilotModeOf
+      UInt8   pilotMode = 2;       // pilotModeOf
       Bool    picoOpen = false;
       Bool    picoHeard = false;
-      Int32   picoSilentMs = -1;   // carlink's own number; -1 is no link
-      Int32   picoArmed = -1;      // the car's own armed=; -1 is "it has not said"
+      Int32   picoSilentMs = -1;   // -1: no link
+      Int32   picoArmed = -1;      // the Pico's own armed=; -1: not reported
       UInt64  replyOk = 0;
       UInt64  replyErr = 0;
-      Str     pico;                // the printed phrase, built from the fields above
+      Str     pico;                // the console phrase, from the fields above
   };
 
-  // -1 (the device did not answer) becomes 255, the wire's "unknown". A health
-  // nobody read must never arrive as 0, which means "good".
+  // -1 (the device did not answer) is the wire's "unknown", never 0 ("good").
   [[nodiscard]] UInt8 healthByte(Int32 health)
   {
       return health >= 0 && health <= 2 ? static_cast<UInt8>(health) : bibowire::HEALTH_ABSENT;
   }
 
-  // The phrase the console prints about the car's link, built from the same
-  // snapshot fields the BOARD frame is, so the log cannot say something about
-  // the link that the viewer is not also told.
   [[nodiscard]] Str picoPhrase(const Snapshot& s)
   {
       Array<Char, 48> pico{};
@@ -849,8 +519,6 @@ namespace
           std::snprintf(pico.data(), pico.size(), "pico dry");
           return Str(pico.data());
       }
-      // -1 is no descriptor, and "silent -1 ms" would be a number standing in
-      // for a fact.
       Array<Char, 24> silence{};
       if(s.picoSilentMs < 0)
       {
@@ -871,12 +539,8 @@ namespace
       return Str(pico.data());
   }
 
-  // The snapshot, as the viewer is told it. The fields this program cannot
-  // measure keep their ABSENT sentinels rather than being faked by a zero: 0 mV
-  // is a real reading of a dead pack, and 0 centi-degrees is a real temperature.
-  // viewfeed fills the few fields that are its own measurement - the deadman,
-  // the epoch, the holder and its encode cost - because this file cannot know
-  // them.
+  // The snapshot as the viewer is told it. What this program cannot measure keeps
+  // its ABSENT sentinel; viewfeed fills its own fields.
   [[nodiscard]] bibowire::BoardState boardFrom(const Snapshot& s)
   {
       bibowire::BoardState b;
@@ -885,12 +549,8 @@ namespace
       b.cpuCentiC = bibowire::CPU_ABSENT;
       b.battMilliV = bibowire::BATT_ABSENT;
       b.picoLink = s.dry || !s.picoOpen ? 0u : (s.picoHeard ? 1u : 2u);
-      // The CAR's answer, not this program's intention. Every STEER is answered
-      // with armed=, so 2 ("unknown") now means only that no reply has been read
-      // yet - one tick at startup, and the whole of a dry run, where there is no
-      // port to ask down.
       b.picoArmed = s.picoArmed < 0 ? 2u : (s.picoArmed != 0 ? 1u : 0u);
-      b.pilotMode = s.pilotMode;   // decided once per tick by pilotModeOf, not here
+      b.pilotMode = s.pilotMode;
       b.lidarHealth = healthByte(s.lidarHealth);
       b.lidarSpinning = s.lidarSpinning ? 1u : 0u;
       b.picoSilentMs = s.picoSilentMs < 0
@@ -901,23 +561,14 @@ namespace
       return b;
   }
 
-  // ---- the operator's trim, as the Pico's parser reads it ----------------------
+  // ---- the operator's trim -------------------------------------------------------
 
-  // At most this many tuning lines per tick. A slider dragged across its range
-  // is a burst of discrete COMMANDs, and this loop's promise is that it finishes
-  // inside 20 ms - so the queue is drained at a rate the serial port can carry
-  // rather than emptied in one pass. Nothing is lost by the cap: what is not
-  // taken this tick is taken by the next, 20 ms later.
+  // At most this many tuning lines a tick, so a dragged slider is spread over
+  // ticks the serial port can carry; the rest wait for the next tick.
   constexpr Int32 TUNE_PER_TICK = 2;
 
-  // One accepted tuning request as the line firmware/app/main.cxx's COMMANDS
-  // table parses. Empty for a verb this build does not send, which the caller
-  // drops rather than handing the port a bare verb with no argument.
-  //
-  // %u AND NOTHING ELSE. Every number on this path is a whole microsecond, so
-  // the locale-sensitive decimal point proto::fixed3 exists to dodge never gets
-  // near it - not because it is escaped, but because there is no float here to
-  // print in the first place.
+  // One tuning request as firmware/app/main.cxx parses it; empty for a verb this
+  // build does not send. Whole microseconds only, so no locale is involved.
   [[nodiscard]] Str tuneLine(const viewfeed::Tune& t)
   {
       Array<Char, 48> args{};
@@ -938,9 +589,7 @@ namespace
               std::snprintf(args.data(), args.size(), "%u", a1);
               return proto::command("ESCREVERSE", args.data());
           case bibowire::Verb::VERB_SET_SLEW:
-              // The bare `SLEW <us>` is the axis-less form the board has always
-              // taken and is what one shared rate used to mean, so "both" is
-              // not spelled out - it is the absence of an axis word.
+              // No axis word sets both.
               if(t.arg0 == bibowire::SLEW_AXIS_STEER)
               {
                   std::snprintf(args.data(), args.size(), "STEER %u", a1);
@@ -961,10 +610,8 @@ namespace
 
   // ---- the revolution and the decision, as bibowire carries them ---------------
 
-  // Degrees and millimetres to whole centi-degrees and whole millimetres, which
-  // is LOSSLESS with respect to the device - the C1 does not measure finer. 360
-  // degrees wraps to 0 and is never 36000, which the encoder refuses. The
-  // framing and the CRC happen on viewfeed's thread, not here.
+  // Whole centi-degrees and millimetres, as fine as the C1 measures. 360 degrees
+  // wraps to 0, never 36000, which the encoder refuses.
   [[nodiscard]] bibowire::Scan scanFrom(const Vec<reactive::Ray>& r, const Vec<UInt8>& q)
   {
       bibowire::Scan s;
@@ -997,19 +644,17 @@ namespace
       return s;
   }
 
-  // Thousandths of -1..1, the units the wire uses everywhere and the ones that
-  // have no locale and no NaN in them.
+  // Thousandths of -1..1, the wire's unit.
   [[nodiscard]] Int16 milliOf(Float32 fraction)
   {
       const Float32 clamped = fraction > 1.0f ? 1.0f : (fraction < -1.0f ? -1.0f : fraction);
       return static_cast<Int16>(clamped * 1000.0f + (clamped >= 0.0f ? 0.5f : -0.5f));
   }
 
+  // rev 0 is a blind tick.
   [[nodiscard]] bibowire::Decide decideFrom(const reactive::Outputs& o, Int32 modeMs, UInt32 rev)
   {
       bibowire::Decide d;
-      // 0 is a BLIND tick with no revolution behind it, which is what the
-      // caller passes when grab() timed out.
       d.revIndex = rev;
       d.clearanceMm = static_cast<UInt32>(o.clearanceMm < 0.0f ? 0.0f : o.clearanceMm + 0.5f);
       d.hits = static_cast<UInt16>(o.corridorHits < 0 ? 0 : o.corridorHits);
@@ -1021,10 +666,8 @@ namespace
       return d;
   }
 
-  // The device's identity, as LIDAR_INFO carries it. The serial is 32 hex digits
-  // as the device printed them; the wire carries the 16 raw bytes and the viewer
-  // renders them back, so a serial that is not 32 hex digits arrives as zeros
-  // rather than as somebody else's device.
+  // The device's identity as LIDAR_INFO carries it: the 32 hex digits of the
+  // serial as 16 bytes, or zeros when it is not 32 hex digits.
   [[nodiscard]] bibowire::LidarInfo lidarInfoFrom(const lidar::Device& d)
   {
       bibowire::LidarInfo i;
@@ -1073,23 +716,15 @@ Int32 main(Int32 argc, Char** argv)
         return 2;
     }
 
-    // Line-buffered even into a pipe: a status line a second is only a status
-    // line if it arrives once a second, and over ssh or into a log stdout is
-    // otherwise held back until exit - which for a run that never exits is
-    // never.
+    // Line-buffered even into a pipe, so the status line reaches ssh or the
+    // journal once a second.
     std::setvbuf(stdout, nullptr, _IOLBF, BUFSIZ);
 
-    // Installed before anything is opened, not before the motor starts. The
-    // handlers only store a flag, so there is nothing they could run too
-    // early; what they must not be is late. lidar::open() blocks for two
-    // seconds or more and openPico() sends ESC ARM, and a Ctrl-C between
-    // those with the default handler would exit without the shutdown STOP,
-    // leaving the board armed. From here on every exit is through the
-    // shutdown below, or through a check of `interrupted` before arming.
+    // Before anything is opened: a Ctrl-C during the lidar's open or the Pico's
+    // must still end through the shutdown STOP below.
     std::signal(SIGINT, onInterrupt);
     std::signal(SIGTERM, onInterrupt);
 
-    // ---- the module's tuning ---------------------------------------------------
     reactive::Config tune = reactive::tuning();
     tune.forwardDeg = opt.forwardDeg;
     if(!reactive::configure(tune))
@@ -1101,10 +736,7 @@ Int32 main(Int32 argc, Char** argv)
         return 1;
     }
 
-    // ---- the lidar, parked ------------------------------------------------------
-    // Opened first because it is the thing most likely to be missing, and a
-    // program that arms a car and then finds it has no eyes has done the two
-    // steps in the wrong order.
+    // ---- the lidar, first: a car with no eyes is never armed -------------------
     std::printf("lidar %s: opening\n", opt.lidarPort.c_str());
     if(!lidar::open(opt.lidarPort))
     {
@@ -1114,10 +746,6 @@ Int32 main(Int32 argc, Char** argv)
     std::printf("lidar device  %s\n", lidar::info().c_str());
     std::printf("lidar health  %s\n", lidar::health().c_str());
 
-    // A Ctrl-C that landed during the lidar's open. Nothing is armed and
-    // nothing is spinning, so there is nothing to stop - only a port to give
-    // back - and arming the car now would be doing the thing the person just
-    // asked not to happen.
     if(interrupted != 0)
     {
         std::printf("interrupted before the car was opened\n");
@@ -1126,23 +754,19 @@ Int32 main(Int32 argc, Char** argv)
     }
 
     // ---- the car -----------------------------------------------------------------
-    carlink::Config linkCfg;
-    linkCfg.where = opt.picoPort;
     Link link;
-    // The trim the viewer's pane last set, kept on the board - see trimfile.hxx.
-    // A missing file is a car nobody has tuned, and the Pico's compiled
-    // numbers stand; an unreadable one is said and then treated the same way,
-    // because refusing to drive over a trim file would be a strange priority.
+    link.cfg.where = opt.picoPort;
+
+    // The trim the viewer's Trim pane last saved (trimfile.hxx). Missing or
+    // unreadable, the Pico keeps its compiled values.
     const Str trimPath = trimfile::defaultPath();
     trimfile::Store trim;
 
-    // A save the viewers have not been told about yet - see the tuning drain
-    // for why they are told once a burst has drained rather than per line.
+    // A save the viewers have not been told about yet.
     Bool trimUnreported = false;
 
-    // The trim preview (see the manual tick): where the wheels are pointed while
-    // a steering trim is being set, since when, and whether the servo was
-    // engaged for it - so it is released again by the preview and nobody else.
+    // The trim preview (see the manual tick): the aim, since when, and whether the
+    // preview engaged the servo, so only the preview releases it.
     TimePoint previewAt;
     Bool previewing = false;
     Float32 previewSteer = 0.0f;
@@ -1151,7 +775,11 @@ Int32 main(Int32 argc, Char** argv)
         Str why;
         if(!trimfile::load(trimPath, trim, why))
         {
-            std::printf("trim: cannot read %s: %s - the Pico keeps its compiled values\n", trimPath.c_str(), why.c_str());
+            std::printf(
+                "trim: cannot read %s: %s - the Pico keeps its compiled values\n",
+                trimPath.c_str(),
+                why.c_str()
+            );
         }
         else
         {
@@ -1167,23 +795,20 @@ Int32 main(Int32 argc, Char** argv)
     {
         std::printf("pico: dry run - decisions are printed, nothing is sent\n");
     }
-    else if(!openPico(linkCfg, opt.arm, trim, link))
+    else if(!openPico(opt, trim, link))
     {
         lidar::close();
         return 1;
     }
     else
     {
-        std::printf(
-            "pico %s: open%s\n",
-            opt.picoPort.c_str(),
-            opt.arm ? ", ESC ARM sent" : ", not armed"
-        );
+        const CharSeq armed = !opt.arm ? ", not armed"
+            : (opt.manual ? ", ESC ARM sent" : ", ESC ARM and SERVO ON sent");
+        std::printf("pico %s: open, STOP sent%s\n", opt.picoPort.c_str(), armed);
     }
 
-    // A Ctrl-C that landed while the car was being opened is honored by NOT
-    // starting the motor and falling through: the loop sees `interrupted` and
-    // does not run, and the shutdown sends the STOP an armed board is owed.
+    // A Ctrl-C during the open skips the motor; the loop does not run and the
+    // shutdown sends STOP.
     if(interrupted == 0)
     {
         if(!lidar::motorOn())
@@ -1210,8 +835,7 @@ Int32 main(Int32 argc, Char** argv)
         viewfeed::Policy wire;
         wire.boardName = "bibobox";
         wire.boardBuild = BOARD_BUILD;
-        // Per PROCESS, not per session: a viewer that reconnects and sees a
-        // different one throws away everything it knew before drawing a point.
+        // Per process: a viewer that sees a new one forgets what it knew.
         wire.bootId = static_cast<UInt32>(WallClock::now().time_since_epoch().count());
         wire.capabilities = static_cast<UInt8>((opt.dry ? 0u : 1u) | 2u | (opt.dry ? 0u : 4u));
         viewer.wire = viewfeed::start(bibowire::PORT, wire);
@@ -1221,15 +845,9 @@ Int32 main(Int32 argc, Char** argv)
         }
         else
         {
-            // State before scan, always: the device's identity is published
-            // before the first revolution can be, so a viewer that connects
-            // during the motor's two-second spin-up already knows what it is
-            // watching.
+            // Identity and trim before the first revolution, so a viewer that
+            // connects during spin-up knows what it is watching.
             viewfeed::publishLidarInfo(lidarInfoFrom(lidar::device()));
-
-            // And the trim this board has saved, so a viewer's Trim pane shows
-            // the car's numbers from the moment it is welcomed rather than its
-            // own laptop's copy - see bibowire's EVENT_CODE_TRIM.
             viewfeed::publishTrim(trimfile::report(trim));
         }
     }
@@ -1243,42 +861,31 @@ Int32 main(Int32 argc, Char** argv)
     Vec<Str>           lines;
     Replies            replies;
 
-    // What the car was last told, for the keepalive inside the next tick's
-    // wait. Kept across ticks for the same reason heldSteerMilli is: the thing
-    // to re-send is what the car is already doing.
+    // What the next tick's wait re-sends.
     Hold hold;
 
-    // The last steering the operator actually commanded, in milli, kept ACROSS
-    // ticks because section 6's SOFT state holds it rather than centring it: a
-    // car that snaps straight mid-corner changes its line at the instant it
-    // stopped being commanded, which is the worst moment to change it. Only
-    // updated while the deadman is LIVE, so a stale link cannot keep writing it.
+    // MANUAL's last commanded steering, held (not centred) while the deadman is
+    // SOFT, and updated only while it is LIVE.
     Int16 heldSteerMilli = 0;
 
     UInt64 revolutions = 0;
     UInt64 timeouts = 0;
     UInt64 windowRevs = 0;   // revolutions since the last status line
 
-    // Silent until proven otherwise. Starting at false would print "pico
-    // silent" on the first tick of every run, about a board that has had one
-    // tick to answer; starting at true means the first line printed is the
-    // board being heard, which is the event worth a line.
+    // Silent until heard, so the first change printed is the Pico speaking.
     Bool boardSilent = true;
 
-    // Whether the Pico has been told ESC ARM on a viewer's behalf, in MANUAL.
-    // viewfeed's Drive.armed says whether the ARM STANDS; this says whether the
-    // CAR has heard it. The two differ for exactly one tick at each edge, and
-    // that tick is the one that sends ESC ARM or ESC DISARM. Anything that
-    // disarms the Pico by another road - STOP, a link that came back - clears it.
+    // Whether the Pico has been sent ESC ARM for a viewer's ARM, in MANUAL. Anything
+    // that disarms it another way (STOP, a reopened link) clears this.
     Bool armSent = false;
 
-    // A lidar that dies mid-run. grab() times out forever on an unplugged C1
-    // and the loop would otherwise run to --seconds sending NEUTRAL and exit 0
-    // on the strength of whatever revolutions arrived before the cable came
-    // out. Consecutive timeouts are counted only once a revolution has been
-    // seen: spin-up after motorOn() produces around eleven of them (2.2 s) on
-    // every run, and that is the sensor starting, not the sensor gone.
-    Int32 blindRun = 0;          // consecutive timeouts since the last revolution
+    // Set when the link reopens: a viewer's ARM from before the loss must be seen
+    // to fall before one counts again.
+    Bool staleArm = false;
+
+    // Consecutive timeouts since the last revolution, counted only after the first
+    // one: spin-up times out several times on every run.
+    Int32 blindRun = 0;
     Bool  lidarLost = false;     // a blind run reached LIDAR_LOST_TIMEOUTS; sticky
 
     const TimePoint start = monoNow();
@@ -1286,11 +893,13 @@ Int32 main(Int32 argc, Char** argv)
     TimePoint lastStatus = start;
     Bool haveTick = false;
 
-    while(interrupted == 0 && (opt.seconds < 0.0 || elapsedS(start) < opt.seconds))
+    // A viewer's ESTOP or DISARM outside MANUAL: STOP was sent and the run ends, as a
+    // car program's does, so nothing re-arms the car on a later tick or reconnect.
+    Bool estopped = false;
+
+    while(interrupted == 0 && !estopped && (opt.seconds < 0.0 || elapsedS(start) < opt.seconds))
     {
-        // Empty on a timeout, and handed to step() anyway: an empty scan is the
-        // module's STATUS_BLIND, which is a stop, which is what a tick with no
-        // revolution behind it should send. lidar.hxx explains the emptying.
+        // Empty on a timeout, and handed to step() anyway: STATUS_BLIND is a stop.
         const Bool got = grabHeld(rays, &quality, hold, link);
         const TimePoint now = monoNow();
         const Duration<Float64, std::milli> sinceTick = now - lastTick;
@@ -1306,10 +915,6 @@ Int32 main(Int32 argc, Char** argv)
         else
         {
             ++timeouts;
-            // Said once per loss, not once per tick: the counter resets on
-            // the next revolution, so a lidar that comes back and goes again
-            // is reported again. The flag never resets - a run that lost its
-            // eyes for two seconds is not a run that succeeded.
             if(revolutions > 0 && ++blindRun == LIDAR_LOST_TIMEOUTS)
             {
                 lidarLost = true;
@@ -1322,14 +927,9 @@ Int32 main(Int32 argc, Char** argv)
 
         status = reactive::step(rays.data(), rays.size(), dtMs, &state, &out);
 
-        // The viewer, before the car is told: the car's lines go to a serial
-        // port that may stall for WRITE_WAIT_MS, and the viewer's go to a queue
-        // that cannot. Timed, so the summary can say what they cost.
+        // The viewers before the car: publish() only queues, while the serial port
+        // may stall. Timed for the exit summary.
         const TimePoint before = monoNow();
-        // publish() is a push and a wake: the encode, the CRC and the send
-        // all happen on viewfeed's thread, so this tick pays a queue push
-        // whether the viewer is fast, slow or absent - and with nobody
-        // connected it pays nothing at all.
         if(got)
         {
             bibowire::Scan scan = scanFrom(rays, quality);
@@ -1352,18 +952,12 @@ Int32 main(Int32 argc, Char** argv)
             viewer.costMaxUs = costUs;
         }
 
-        // The board's silence, judged before deciding, so this tick's throttle
-        // already reflects it. Announced on each change rather than each tick.
-        //
-        // Three silences, one policy. -1 is no descriptor - a reopen that
-        // failed - and must read as silent, or a board that is gone would be
-        // announced as speaking again. !heard is a port that opened under a
-        // board that has not yet answered; see Link. The third is the one the
-        // transport measures.
+        // The Pico's silence, judged before deciding and announced on change. No
+        // descriptor (-1) and a port not yet heard both count as silent.
         if(!opt.dry)
         {
             const Int32 silent = carlink::silentForMs();
-            const Bool nowSilent = !link.heard || silent < 0 || silent > linkCfg.silenceMs;
+            const Bool nowSilent = !link.heard || silent < 0 || silent > link.cfg.silenceMs;
             if(nowSilent && !boardSilent)
             {
                 if(link.heard && silent >= 0)
@@ -1387,11 +981,8 @@ Int32 main(Int32 argc, Char** argv)
             boardSilent = nowSilent;
         }
 
-        // ---- the board's state, filled ONCE ------------------------------------------
-        // Read twice below: by the BOARD frame the viewer reads and by the
-        // console's once-a-second line. See Snapshot - this is the obligation
-        // docs/bibowire.md section 5 puts on this file, honoured by there being
-        // one struct rather than two places that fill the same numbers.
+        const carrules::Board& car = replies.pico;
+
         Snapshot snap;
         snap.monoUs = static_cast<UInt64>(elapsedS(start) * 1000000.0);
         snap.upS = static_cast<UInt32>(elapsedS(start));
@@ -1407,38 +998,20 @@ Int32 main(Int32 argc, Char** argv)
         snap.picoHeard = link.heard;
         snap.picoSilentMs = opt.dry ? -1 : carlink::silentForMs();
         snap.replyOk = replies.ok;
-        snap.replyErr = replies.err;
-        snap.picoArmed = replies.armed;
+        snap.replyErr = car.errors;
+        snap.picoArmed = car.armed;
         snap.pico = picoPhrase(snap);
-        // Every tick. viewfeed holds it as the state the NEXT viewer is
-        // owed before it is shown a point, and puts it on the wire at the
-        // 5 Hz section 2 asks for - the rate is the socket's business, the
-        // content is this one struct.
+        // Every tick; viewfeed sends it at its own rate.
         viewfeed::publishBoard(boardFrom(snap));
 
-        // WHAT THE CAR IS DOING, which is a different question from what
-        // was decided - and until now nothing called this at all, so every
-        // field of CTLSTATE carried its absent sentinel and viewfeed's
-        // "refuse to re-trim an armed car" guard read armed = 0 forever.
-        // A guard that cannot observe the thing it guards against is not a
-        // safety mechanism, it is a comment; this is what makes it real.
-        //
-        // Three of these are MEASURED, read out of the Pico's own reply to
-        // the STEER this loop already sends. throttleMilli is the decision
-        // rather than a measurement, which is what the field means: what
-        // was sent, not what the wheels did with it.
+        // What the car is doing, from the Pico's replies; throttleMilli is what
+        // was decided. viewfeed's refusal to re-trim an armed car reads armed from
+        // here. Not reported reads as not armed.
         viewfeed::Applied ap;
         ap.steerNowMilli = static_cast<Int16>(replies.steerNowMilli);
         ap.throttleMilli = static_cast<Int16>(out.throttle * 1000.0f);
-        ap.escUs = replies.escUs < 0
-            ? bibowire::ESC_ABSENT
-            : static_cast<UInt16>(replies.escUs);
-        // Unknown reads as NOT armed, and that is the permissive direction
-        // for the tuning guard rather than the dangerous one: it lasts a
-        // single tick before the first reply lands, and a dry run - where
-        // it lasts forever - refuses tuning on "no Pico" long before this
-        // is consulted.
-        ap.armed = replies.armed > 0 ? 1u : 0u;
+        ap.escUs = car.escUs < 0 ? bibowire::ESC_ABSENT : static_cast<UInt16>(car.escUs);
+        ap.armed = car.armed > 0 ? 1u : 0u;
         ap.pilotMode = pilotModeOf(opt);
         ap.picoSilentMs = snap.picoSilentMs < 0
             ? bibowire::PICO_SILENT_ABSENT
@@ -1447,53 +1020,23 @@ Int32 main(Int32 argc, Char** argv)
 
         // ---- who writes steer and throttle this tick --------------------------
         //
-        // In MANUAL a viewer's CONTROL writes them and the autonomy does not.
-        // Section 6's chain, in its order:
-        //
-        //   ESTOP / DEAD  STOP to the Pico - neutral, disarm, release - and it
-        //                 does NOT recover on its own, because a link that came
-        //                 back is not the same fact as an operator who is ready.
-        //   SOFT          throttle forced to 0, steering HELD at the last
-        //                 commanded value rather than centred.
-        //   LIVE          obeyed. What control() returns is already gated: on an
-        //                 epoch or mode disagreement its throttle is 0 before it
-        //                 ever reaches this loop.
-        //
-        // SOMETHING IS SENT EVERY TICK IN EVERY STATE, which section 6 calls
-        // load-bearing and means literally: the Pico's own 200 ms watchdog must
-        // fire only when this program has stopped running, never routinely, or
-        // it becomes a last resort nobody notices has gone off. The keepalive
-        // inside grabHeld() is the other half of that promise - this sentence
-        // is true between ticks as well as at them.
-        //
-        // No holder and no command are treated as the dead case, not as an idle
-        // one - in MANUAL the autonomy is not driving, so if the operator is not
-        // either then nobody is.
+        // MANUAL follows section 6's deadman chain:
+        //   ESTOP / DEAD  STOP (neutral, disarm, release); only a new COMMAND ARM
+        //                 recovers.
+        //   SOFT          throttle 0, steering held at the last commanded value.
+        //   LIVE          obeyed; control() has already zeroed the throttle on an
+        //                 epoch or mode disagreement.
+        // Something is sent every tick in every state, so the Pico's watchdog
+        // fires only when this program has stopped.
         Str steerLine;
         Str escLine;
 
-        // SERVO ON or SERVO OFF, on an arm edge only, and sent BEFORE the STEER.
-        // The Pico boots with the steering RELEASED - no pulse at all, chassis.hxx
-        // rule 1 - and its STEER only moves a target: "has no effect on a
-        // released steering pin; call engage(true) first". Nothing in this
-        // program ever engaged it, so every STEER it ever sent was answered OK
-        // and moved nothing. Found 2026-09-12 with a viewer arming, the pilot
-        // logging "manual live armed steer +1.00 err 0", and the servo not
-        // moving at all.
+        // SERVO ON or OFF on an arm edge, sent before the STEER: a released
+        // steering pin ignores STEER.
         Str servoLine;
 
-        // WHAT WAS ACTUALLY COMMANDED, for the once-a-second line below.
-        //
-        // That line printed out.steer and out.throttle whatever the mode, and in
-        // MANUAL the autonomy's numbers go nowhere at all - so a manual run with
-        // no viewer connected reported "steer +0.37 thr 0.24" while the only
-        // thing on the wire was STOP. A console that disagrees with the car is
-        // the same failure as a panel that does, and this one was mine.
-        //
-        // `modeWord` empty means "use describe()", which is right for the
-        // autonomy's modes and wrong for MANUAL: cruise / slow / blind describe
-        // a decision nobody is acting on, where the deadman's state is the thing
-        // an operator holding a key needs to see.
+        // What was actually commanded, for the status line; modeWord empty means
+        // describe() the autonomy's decision.
         Int32 sentSteerMilli = static_cast<Int32>(out.steer * 1000.0f);
         Int32 sentThrottleMilli = static_cast<Int32>(out.throttle * 1000.0f);
         Str modeWord;
@@ -1503,35 +1046,24 @@ Int32 main(Int32 argc, Char** argv)
             const viewfeed::Drive dm = viewfeed::drive();
             bibowire::Control cmd;
             const Bool haveCmd = viewfeed::control(&cmd);
+            if(!dm.armed)
+            {
+                staleArm = false;
+            }
+            const Bool viewerArmed = dm.armed && !staleArm;
 
-            // Named by the protocol module rather than spelled again here, so
-            // the console, the viewer's panel and the board's CTLSTATE cannot
-            // come to disagree about what a 2 means. The range guard is for a
-            // byte that arrived wrong rather than for one this build can
-            // produce, and the safe reading of a wrong one is "stopped".
+            // A deadman byte out of range reads as DEAD.
             const bibowire::deadman::State ds = dm.deadman <= 3u
                 ? static_cast<bibowire::deadman::State>(dm.deadman)
                 : bibowire::deadman::State::STATE_DEAD;
             modeWord = Str("manual ") + bibowire::deadman::stateName(ds);
             if(!dm.haveHolder)
             {
-                // Not a deadman state at all: with nobody holding the wheel the
-                // timer does not apply (section 6), and printing "live" here
-                // would read as a healthy link to a car nobody is driving.
+                // With nobody holding the slot the deadman does not apply.
                 modeWord = "manual  nobody holding";
             }
-
-            // THE ARM STATE, from the car rather than from this program's
-            // intention - replies.armed is parsed out of the Pico's own answer
-            // to the STEER this loop already sends. Shown because nothing on
-            // screen said it, and a disarmed ESC is indistinguishable from a
-            // broken throttle to anybody watching the car instead of the wire.
-            modeWord += replies.armed > 0 ? " armed" : " disarmed";
-
-            // And whether the steering is live, from the same reply. "armed"
-            // alone read as a car that could steer, and for as long as nothing
-            // sent SERVO ON it was a car that could not.
-            if(replies.servoOn > 0)
+            modeWord += car.armed > 0 ? " armed" : " disarmed";
+            if(car.servoOn > 0)
             {
                 modeWord += " steering on " + std::to_string(replies.servoUs) + "us";
             }
@@ -1542,10 +1074,6 @@ Int32 main(Int32 argc, Char** argv)
 
             if(dm.estopLatched || dm.deadman >= 2u)
             {
-                // ESTOP or DEAD. Section 6's stop - neutral, disarm, release -
-                // and it deliberately does NOT recover on its own, because a
-                // link that came back is not the same fact as an operator who
-                // is ready. Re-arming is COMMAND ARM and nothing else.
                 heldSteerMilli = 0;
                 escLine = proto::stop();
                 armSent = false;
@@ -1554,31 +1082,15 @@ Int32 main(Int32 argc, Char** argv)
             }
             else if(!dm.haveHolder || !haveCmd)
             {
-                // NOBODY HAS CONNECTED YET, which is not a fault and must not be
-                // answered like one. This sent proto::stop() as well, and STOP
-                // is neutral-DISARM-release: it undid --arm inside the first
-                // tick of every run and kept it undone, so by the time a viewer
-                // took the slot and pressed W the pilot was commanding a
-                // throttle the Pico had been disarmed out of and the firmware
-                // refused it - "ERR esc not armed", measured. Steering worked,
-                // throttle did not, and it read as a broken feature rather than
-                // as a disarmed ESC.
-                //
-                // Neutral holds the car still, keeps the Pico's own 200 ms
-                // watchdog fed, and leaves the arm state alone for the operator
-                // who is about to arrive. The difference between the two
-                // branches is the difference between "stopped" and "not being
-                // driven", which are not the same thing.
-                //
-                // A driver who LEFT is the exception: the slot going empty moved
-                // the epoch and took their ARM with it, so the Pico is told
-                // DISARM once rather than left armed for whoever connects next.
+                // Nobody driving is not a fault: neutral, and the arm state left
+                // alone. A STOP here would disarm --arm before a viewer arrives.
+                // A driver who left took their ARM with them (the epoch moved), so
+                // the Pico is told DISARM and SERVO OFF once.
                 heldSteerMilli = 0;
                 steerLine = proto::steer(0.0f);
-                escLine = armSent ? proto::command("ESC", "DISARM") : proto::command("ESC", "NEUTRAL");
+                escLine = proto::command("ESC", armSent ? "DISARM" : "NEUTRAL");
                 if(armSent)
                 {
-                    // And the steering goes limp with the arm, as STOP would do.
                     servoLine = proto::command("SERVO", "OFF");
                 }
                 armSent = false;
@@ -1593,64 +1105,43 @@ Int32 main(Int32 argc, Char** argv)
                 }
                 steerLine = proto::steer(static_cast<Float32>(heldSteerMilli) / 1000.0f);
 
-                // Throttle only while LIVE, only while a viewer's ARM stands AND
-                // the Pico has been told so, and only while the board is
-                // answering. The last of those is L3 and it stays: a cable this
-                // program cannot hear is not one to push throttle down.
-                //
-                // --arm IS NOT CONSULTED HERE ANY MORE. It was the only way to
-                // arm, so a pilot started at boot either armed itself with nobody
-                // there or could never be armed, and an estop could not be
-                // recovered without restarting the process. COMMAND ARM is the
-                // way now (section 6), and the edge below carries it to the car.
-                const Bool mayPush = dm.deadman == 0u && dm.armed && armSent && !boardSilent;
-                if(dm.armed != armSent)
+                // Throttle only while LIVE, while a viewer's ARM stands and the Pico
+                // was sent it, and while the Pico is speaking. --arm is not consulted.
+                const Bool mayPush = dm.deadman == 0u && viewerArmed && armSent && !boardSilent;
+                if(viewerArmed != armSent)
                 {
-                    // THE EDGE TAKES THIS TICK'S ESC LINE. ESC ARM resets the
-                    // Pico's throttle target to neutral, so a pulse sent beside
-                    // it would be undone or refused; throttle starts on the next
-                    // tick, 20 ms later. mayPush is false on an edge tick either
-                    // way, because it was computed from armSent's old value.
-                    escLine = proto::command("ESC", dm.armed ? "ARM" : "DISARM");
-                    // THE STEERING IS ENGAGED BY THE SAME ACT that arms the
-                    // throttle, and released with it. A viewer's ARM is the one
-                    // deliberate "I am driving now" this protocol has, and a
-                    // servo that holds torque for somebody who has not said that
-                    // is what rule 1 exists to prevent. Engaging writes the car's
-                    // measured centre first, so the wheels do not jump.
-                    servoLine = proto::command("SERVO", dm.armed ? "ON" : "OFF");
-                    armSent = dm.armed;
+                    // The edge takes this tick's ESC line: ESC ARM resets the Pico's
+                    // throttle target, so throttle starts next tick. The steering is
+                    // engaged and released with the arm.
+                    escLine = proto::command("ESC", viewerArmed ? "ARM" : "DISARM");
+                    servoLine = proto::command("SERVO", viewerArmed ? "ON" : "OFF");
+                    armSent = viewerArmed;
                 }
                 else
                 {
                     const Float32 wanted = static_cast<Float32>(cmd.throttleMilli) / 1000.0f;
-                    // S IS NEGATIVE, AND ITS PULSE IS THE REVERSE LIMIT ITSELF - not
-                    // a fraction of the way to it. Brake or reverse is the ESC's
-                    // choice, made as it makes it for the transmitter: the first
-                    // push below neutral brakes, a push after a return to neutral
-                    // reverses. Scaled by the power cap it was measured useless
-                    // (2026-09-13): a 1000 limit at a 0.30 cap sent 1319 us, and
-                    // this ESC limits reverse force, so the motor whined and the
-                    // wheels did not turn. Now "reverse us" is the strength. A
-                    // limit at neutral, or none reported by an older Pico, is
-                    // reverse off, and S is the plain stop it always was.
                     const Int32 neutralUs = static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
-                    const Bool reverseOn = replies.escRevUs > 0 && replies.escRevUs < neutralUs;
-                    const Int32 backUs = cmd.throttleMilli < 0 && reverseOn ? replies.escRevUs : neutralUs;
-                    // THE IDLE TEST (bibowire::BUTTON_IDLE_TEST): exactly the idle
-                    // the Pico reports, whatever the throttle field says, so the
-                    // Trim pane's idle slider moves the motor it is tuning.
+                    // S (negative throttle) sends the reverse limit itself, not a
+                    // fraction of it; the ESC chooses brake or reverse as it does for
+                    // the transmitter. No limit below neutral means reverse is off.
+                    const Bool reverseOn = car.escRevUs > 0 && car.escRevUs < neutralUs;
+                    const Bool backing = cmd.throttleMilli < 0 && reverseOn;
+                    const Int32 backUs = backing ? car.escRevUs : neutralUs;
+                    // The idle test (bibowire::BUTTON_IDLE_TEST) sends the Pico's idle.
                     const Bool idleTest = (cmd.buttons & bibowire::BUTTON_IDLE_TEST) != 0u;
-                    const Bool idleKnown = replies.escMinUs > static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
+                    const Bool idleKnown = car.escMinUs > neutralUs;
                     if(mayPush && idleTest)
                     {
-                        escLine = idleKnown ? proto::escUs(replies.escMinUs) : proto::command("ESC", "NEUTRAL");
+                        escLine = idleKnown
+                            ? proto::escUs(car.escMinUs)
+                            : proto::command("ESC", "NEUTRAL");
                     }
                     else if(mayPush && cmd.throttleMilli > 0)
                     {
-                        escLine = proto::escUs(escPulseWithin(wanted, replies.escMinUs, replies.escMaxUs));
+                        const Int32 us = carrules::forwardPulse(wanted, car.escMinUs, car.escMaxUs);
+                        escLine = proto::escUs(us);
                     }
-                    else if(mayPush && backUs < static_cast<Int32>(bibowire::ESC_NEUTRAL_US))
+                    else if(mayPush && backUs < neutralUs)
                     {
                         escLine = proto::escUs(backUs);
                     }
@@ -1664,12 +1155,10 @@ Int32 main(Int32 argc, Char** argv)
                 sentThrottleMilli = mayPush ? cmd.throttleMilli : 0;
             }
 
-            // THE TRIM PREVIEW. A steering trim change made while nobody has
-            // armed points the wheels at what is being set - the centre, or the
-            // end whose limit moved - with the servo engaged for it, and lets
-            // them go limp TRIM_PREVIEW_MS after the last change. Never while
-            // armed: that servo belongs to the driver, and ARM's own edge engages
-            // it. Never under a stop, which releases it every tick.
+            // THE TRIM PREVIEW: while nobody has armed, a steering trim change points
+            // the wheels at what is being set, with the servo engaged, and releases
+            // them TRIM_PREVIEW_MS after the last change. Never while armed or
+            // stopped: that servo belongs to the driver or to the STOP.
             constexpr Float64 TRIM_PREVIEW_MS = 2500.0;
             if(!armSent && !dm.estopLatched && dm.deadman < 2u)
             {
@@ -1692,10 +1181,18 @@ Int32 main(Int32 argc, Char** argv)
             }
             else
             {
-                // Armed or stopped: whoever owns the servo now keeps it.
                 previewServoOn = false;
                 previewing = false;
             }
+        }
+        else if(viewfeed::drive().estopLatched)
+        {
+            // Beside a STOP there is no STEER, as in MANUAL.
+            escLine = proto::stop();
+            estopped = true;
+            sentSteerMilli = 0;
+            sentThrottleMilli = 0;
+            std::printf("viewer ESTOP - STOP sent, ending\n");
         }
         else
         {
@@ -1714,13 +1211,7 @@ Int32 main(Int32 argc, Char** argv)
         }
         else
         {
-            // Empty means "there is no such line this tick", which happens in
-            // MANUAL's stopped states: STOP already neutralises, disarms and
-            // releases, so a STEER beside it would be commanding a servo that
-            // was just released. An empty line written to the port would be a
-            // bare newline the Pico's parser has to classify, so it is skipped
-            // rather than sent.
-            // SERVO first: a STEER sent before the pin is engaged moves nothing.
+            // An empty line is not sent: beside a STOP there is no STEER.
             if(!servoLine.empty())
             {
                 sendLine(servoLine, link);
@@ -1734,13 +1225,8 @@ Int32 main(Int32 argc, Char** argv)
                 sendLine(escLine, link);
             }
 
-            // WHAT THE NEXT TICK'S WAIT WILL RE-SEND. Only a line that was
-            // actually sent this tick: an empty one means "there is no such
-            // line this tick", and carrying a stale one forward would have the
-            // keepalive commanding something the loop deliberately stopped
-            // saying. SERVO is left out on purpose - it is an edge, sent once
-            // when the arm state changes, and re-sending it between slices
-            // would re-engage a servo that a STOP had just released.
+            // Only lines sent this tick are held. SERVO is an edge and never
+            // re-sent, or it would re-engage a servo a STOP just released.
             if(!steerLine.empty())
             {
                 hold.steer = steerLine;
@@ -1750,17 +1236,9 @@ Int32 main(Int32 argc, Char** argv)
                 hold.esc = escLine;
             }
 
-            // The operator's trim, after the car's motion and before the
-            // replies are read - so the OK or ERR the Pico answers each of
-            // these with is counted by the same readReplies below rather than
-            // being left in the buffer to be read as an answer to the NEXT
-            // tick's STEER.
-            //
-            // Inside the !opt.dry branch on purpose: a dry run has no port to
-            // send this down. viewfeed refuses these verbs with "no Pico" in
-            // that case anyway, because the BOARD frame a dry run publishes
-            // says picoLink is down - so the queue should be empty here, and
-            // this is the second of the two places that has to be true.
+            // The operator's trim, before the replies are read, so its OK or ERR is
+            // counted this tick. A dry run has no port, and viewfeed refuses tuning
+            // without a Pico.
             Bool tuneDrained = false;
             for(Int32 sent = 0; sent < TUNE_PER_TICK; ++sent)
             {
@@ -1777,10 +1255,8 @@ Int32 main(Int32 argc, Char** argv)
                 }
                 sendLine(line, link);
 
-                // THE PREVIEW'S AIM (see the manual tick): the centre for a
-                // centre, and for limits the end that differs from what the Pico
-                // last reported - an unchanged pair, as "save to car" sends,
-                // keeps whatever aim it already had.
+                // The preview's aim: the centre for a trim; for limits, the end
+                // that differs from what the Pico last reported.
                 if(t.verb == bibowire::Verb::VERB_SET_SERVO_TRIM)
                 {
                     previewSteer = 0.0f;
@@ -1801,9 +1277,7 @@ Int32 main(Int32 argc, Char** argv)
                     previewing = true;
                 }
 
-                // KEPT the moment it goes out, and only when it changed
-                // something: a slider dragged end to end sends a line per step,
-                // and a write per unchanged value would be a disk for nothing.
+                // Saved when it changed something.
                 if(trimfile::remember(trim, line))
                 {
                     Str why;
@@ -1814,16 +1288,18 @@ Int32 main(Int32 argc, Char** argv)
                     }
                     else
                     {
-                        std::printf("trim: NOT saved \"%s\" to %s: %s\n", line.c_str(), trimPath.c_str(), why.c_str());
+                        std::printf(
+                            "trim: NOT saved \"%s\" to %s: %s\n",
+                            line.c_str(),
+                            trimPath.c_str(),
+                            why.c_str()
+                        );
                     }
                 }
             }
 
-            // THE VIEWERS ARE TOLD ONCE THE QUEUE IS EMPTY, not once per line.
-            // "send all to the car" is five lines and this takes TUNE_PER_TICK a
-            // tick, so a report per save would hand every viewer partial sets in
-            // a row - and walk its sliders back through values nobody chose
-            // before they landed on the right ones.
+            // The viewers hear the trim once the queue has drained, not per line,
+            // so their sliders never pass through partial sets.
             if(trimUnreported && tuneDrained)
             {
                 const Str report = trimfile::report(trim);
@@ -1836,16 +1312,15 @@ Int32 main(Int32 argc, Char** argv)
                 link.lost = true;
                 std::printf("pico link lost: %s\n", carlink::detail().c_str());
             }
+            if(link.lost)
+            {
+                holdNeutral(hold);
+            }
         }
 
         // ---- once a second ----------------------------------------------------------
         if(elapsedMs(lastStatus) >= STATUS_EVERY_MS)
         {
-            // The rate, the timeouts and the link phrase come from the SAME
-            // STRUCT the viewer's BOARD frame was filled from a few lines above,
-            // which is the whole of section 5's obligation on this file. The
-            // console and the viewer cannot disagree about them, because there
-            // is only one place the numbers come from.
             const Str what = modeWord.empty() ? describe(status, out, got) : modeWord;
             std::printf(
                 "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s%s\n",
@@ -1853,51 +1328,40 @@ Int32 main(Int32 argc, Char** argv)
                 what.c_str(),
                 static_cast<Float64>(sentSteerMilli) / 1000.0,
                 static_cast<Float64>(sentThrottleMilli) / 1000.0,
-                // THE PULSE ON THE ESC PIN, from the Pico's own reply - not the
-                // decision. "thr -0.30" said S was held and nothing about what
-                // the ESC was given, which is the number a whining motor asks for.
-                static_cast<int>(replies.escUs),
+                static_cast<int>(replies.pico.escUs),   // the pulse the Pico reports
                 snap.revPerS,
                 static_cast<unsigned long long>(snap.timeouts),
                 snap.pico.c_str(),
-                // THE BOARD SAYING IT STOPPED ITSELF. This should never appear
-                // while this program is running - if it does, the Pi believes
-                // it is sending and the car disagrees, and that is worth a
-                // shout on the one line an operator is watching.
-                replies.stale > 0 ? "  <<< BOARD WATCHDOG STALE" : ""
+                // The Pico's watchdog fired while this program believed it was sending.
+                replies.pico.stale > 0 ? "  <<< BOARD WATCHDOG STALE" : ""
             );
             windowRevs = 0;
             lastStatus = now;
 
-            // A lost link is retried here, once a second, rather than every tick:
-            // open() probes the device and a board that is being replugged does
-            // not need ten attempts a second to notice it. The car has already
-            // been stopped by its own deadman; what is owed is a quiet reconnect.
-            if(!opt.dry && link.lost)
+            // A lost link is retried once a second, and only after this tick's BOARD
+            // reported it down, so viewfeed has moved the epoch before it is back.
+            if(!opt.dry && link.lost && !snap.picoOpen)
             {
-                if(openPico(linkCfg, opt.arm, trim, link))
+                if(openPico(opt, trim, link))
                 {
-                    // A Pico that came back came back DISARMED. viewfeed moved
-                    // the epoch when the BOARD frame said the link was down, so
-                    // the viewer's ARM is gone too; this is the tick's half.
+                    // Reopened with STOP first, which disarmed and released the
+                    // steering. The keepalive holds neutral until a tick decides, and
+                    // a viewer's ARM from before the loss must fall before it counts.
+                    holdNeutral(hold);
                     armSent = false;
+                    staleArm = true;
+                    previewServoOn = false;
                     std::printf("pico %s: link back\n", opt.picoPort.c_str());
                 }
             }
         }
     }
 
-    // ---- shutdown -----------------------------------------------------------------------
-    // STOP is neutral, disarm, release - everything off - and it goes before the
-    // lidar is touched, because the car is the thing that can hurt somebody and
-    // the lidar is not. Then the motor, then the ports.
+    // ---- shutdown: the car first, then the lidar, then the ports ----------------------
     if(!opt.dry)
     {
         sendLine(proto::stop(), link);
-        sleepMs(50);   // long enough for the board's reply to the STOP to land
-        // The verdict is kept, not cast away: a board that was gone when the
-        // STOP went out is the one thing worth saying on the way out, because
-        // the car is then relying on its own deadman.
+        sleepMs(50);   // long enough for the reply to the STOP to land
         if(!readReplies(lines, replies, link) && !link.lost)
         {
             link.lost = true;
@@ -1908,7 +1372,7 @@ Int32 main(Int32 argc, Char** argv)
     const Float64 ran = elapsedS(start);
     std::printf(
         "%s: %llu revolutions, %llu timeouts in %.1f s (%.2f rev/s over the run)\n",
-        interrupted != 0 ? "interrupted" : "done",
+        interrupted != 0 ? "interrupted" : (estopped ? "estopped" : "done"),
         static_cast<unsigned long long>(revolutions),
         static_cast<unsigned long long>(timeouts),
         ran,
@@ -1921,7 +1385,7 @@ Int32 main(Int32 argc, Char** argv)
             static_cast<unsigned long long>(carlink::txLines()),
             static_cast<unsigned long long>(carlink::dropped()),
             static_cast<unsigned long long>(replies.ok),
-            static_cast<unsigned long long>(replies.err),
+            static_cast<unsigned long long>(replies.pico.errors),
             static_cast<unsigned long long>(replies.other)
         );
     }
@@ -1935,8 +1399,6 @@ Int32 main(Int32 argc, Char** argv)
         );
     }
 
-    // What bibowire cost, measured rather than asserted - section 9's claim made
-    // readable off the running system instead of believed.
     if(viewer.wire)
     {
         const viewfeed::Counters wireCount = viewfeed::counters();
@@ -1961,19 +1423,11 @@ Int32 main(Int32 argc, Char** argv)
     lidar::close();
     carlink::close();
 
-    // The viewers last: they were watching a car that has now stopped, and
-    // their sockets closing is how they learn it.
-    // BYE(SHUTDOWN) with a sentence, rather than a socket that simply stops
-    // answering: on this link silence already means four other things, and the
-    // one time the board knows why it is going is the one time it can say so.
+    // The viewers last, told the board is shutting down.
     viewfeed::stop();
 
-    // A signal is a person asking, and 0 is the answer to a request that was
-    // carried out. A timed run that saw no revolution at all is the other case:
-    // it did what it was told and measured nothing, and that must not look like
-    // success to whatever launched it. Nor must a run whose lidar stopped
-    // arriving partway through - see lidarLost - however many revolutions it
-    // had counted before then.
+    // A signal is a request carried out: 0. Otherwise a run that measured nothing,
+    // or lost the lidar partway, must not look like success.
     if(interrupted != 0)
     {
         return 0;

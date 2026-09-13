@@ -587,7 +587,7 @@ print('\n--- signatures over 100 columns ---')
 # Where the figure came from: 2 columns are from indenting namespace bodies on
 # 2026-08-30, and 30 -> 51 on 2026-08-31 was a const-correctness pass across
 # firmware/lib - the same parameters spelled longer, 21 crossing the line.
-SIG_BUDGET = 9
+SIG_BUDGET = 6
 
 SIGNATURE = re.compile(
     r'^\s*(?:\[\[nodiscard\]\]\s*)?'

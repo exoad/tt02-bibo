@@ -23,7 +23,8 @@
 #      home Wi-Fi while the phone's hotspot comes up beside it. The timer asks
 #      every 20 s and switches; and the hotspot profile gets a higher
 #      autoconnect priority so a boot with both in the air picks it outright.
-#   5. restarts the pilot, unless a pilot started by hand is running
+#   5. restarts the pilot, unless a program started by hand holds the lidar and
+#      the Pico
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -112,15 +113,25 @@ fi
 # THE PILOT IS RESTARTED, so a pull and a rebuild take effect. Its shutdown sends
 # the Pico STOP, so running this mid-drive stops the car for the restart.
 #
-# NOT STARTED over a pilot somebody launched by hand. Both want the lidar and the
-# Pico, the unit's copy would lose, and Restart= would retry it every five
-# seconds for as long as the other one ran. That one may be driving the car, so
-# it is named and left alone rather than killed by an installer.
+# NOT while any other process runs an executable from $BUILD: a pilot or a car
+# program started by hand. It holds the lidar and the Pico, so the unit would fail
+# to open them and retry every RestartSec. It may be driving, so it is named and
+# left alone. Matched by /proc/PID/exe rather than pgrep -f, which misses a program
+# started as ./forward; the unit's own process is its MainPID.
+SERVICE_PID=$(systemctl show -p MainPID --value bibo-pilot.service 2>/dev/null || true)
+HELD=""
+for exe in /proc/[0-9]*/exe; do
+    pid=${exe#/proc/}
+    pid=${pid%/exe}
+    case "$(readlink "$exe" 2>/dev/null || true)" in
+        "$BUILD"/*) [ "$pid" = "$SERVICE_PID" ] || HELD="$HELD $pid" ;;
+    esac
+done
 if [ ! -x "$PILOT" ]; then
-    echo "pilot NOT started: build it first (see above), then systemctl start bibo-pilot"
-elif pgrep -x pilot > /dev/null && ! systemctl is-active --quiet bibo-pilot.service; then
-    echo "pilot NOT started: a pilot launched by hand is running (pid $(pgrep -x pilot | tr '\n' ' '))"
-    echo "  stop it, then: systemctl start bibo-pilot"
+    echo "pilot NOT started: build it first (see above), then sudo systemctl start bibo-pilot"
+elif [ -n "$HELD" ]; then
+    echo "pilot NOT started: a program from $BUILD is running (pid$HELD)"
+    echo "  stop it, then: sudo systemctl start bibo-pilot"
 else
     systemctl restart bibo-pilot.service
     echo "pilot: $(systemctl is-active bibo-pilot.service) - manual, armed only by a viewer's ARM"

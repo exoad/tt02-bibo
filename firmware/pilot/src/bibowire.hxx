@@ -70,6 +70,8 @@
 
 #include "shared.hxx"
 
+#include "../../lib/chassis/cal.hxx"
+
 #include <cstring>
 
 namespace bibowire
@@ -145,10 +147,10 @@ namespace bibowire
 
   // ---- the deadman chain, timings and owners --------------------------------
   //
-  // L0 the viewer (50), L1 the Pi to neutral (150), L2 the Pi to a full stop
-  // (300), L3 the pilot's own blind/silence rules, L4 the Pico (400). The
-  // static_assert that orders L2 against L4 lives in the .cxx beside the
-  // function that trips.
+  // L0 the viewer (CONTROL_PERIOD_MS), L1 the Pi to neutral (CONTROL_STALE_MS),
+  // L2 the Pi to a full stop (CONTROL_DEAD_MS), L3 the pilot's own
+  // blind/silence rules, L4 the Pico (PICO_DEADMAN_MS). The static_assert that
+  // orders L2 against L4 lives in the .cxx beside the function that trips.
   //
   // 150 because ONE lost datagram must not cut the throttle: Wi-Fi drops single
   // frames routinely and a car that stutters on every lost packet is a car
@@ -163,18 +165,15 @@ namespace bibowire
   // Pi -> USB CDC -> Pico, measured worst case.
   constexpr Int32 PICO_HOP_BUDGET_MS = 100;
 
-  // firmware/app/main.cxx, WATCHDOG_MS. NOT OURS TO CHANGE - this is a mirror
-  // of the board's constant, and the board owns it. It is the only layer that
-  // covers the Orange Pi itself hanging, because nothing running on the Pi can
-  // save you from the Pi.
+  // The Pico's own watchdog: BIBO_WATCHDOG_MS in firmware/lib/chassis/cal.hxx,
+  // which firmware/app/main.cxx enforces. The board owns the number. It is the
+  // only layer that covers the Orange Pi itself hanging.
   //
-  // 200 since 2026-09-13, tightened from 400 along with the firmware. What made
-  // 400 necessary was the hub, which polled at 250 ms and sent on key changes;
-  // the pilot sends something every TICK_MS in every state, and during a long
+  // The pilot sends something every TICK_MS in every state, and during a long
   // lidar wait it re-sends the held command every PICO_KEEPALIVE_MS (see
-  // firmware/pilot/app/main.cxx). The gap between two lines reaching the board
-  // is bounded by that keepalive now, not by how long a revolution takes.
-  constexpr Int32 PICO_DEADMAN_MS = 200;
+  // firmware/pilot/app/main.cxx), so the gap between two lines reaching the
+  // board is bounded by that keepalive, not by how long a revolution takes.
+  constexpr Int32 PICO_DEADMAN_MS = BIBO_WATCHDOG_MS;
 
   // The control slot is released by 1000 ms of silence, not by 300: the car has
   // ALREADY been stopped by the deadman at 300, and handing the wheel to
@@ -397,7 +396,7 @@ namespace bibowire
   // 10BL160 to under half of the 1500..2000 it maps. Forward-only is no longer
   // enforced by this bound: below 1500 is brake on this ESC in its Forward/Brake
   // mode, and the pilot never maps W below neutral whatever the working minimum
-  // is (main.cxx escPulseWithin). An ESC reprogrammed to Forward/Reverse would
+  // is (carrules::forwardPulse). An ESC reprogrammed to Forward/Reverse would
   // make an idle below 1500 mean reverse - that is the thing to know first.
   constexpr UInt16 ESC_US_HARD_MIN = 1000;
   constexpr UInt16 ESC_US_HARD_MAX = 2000;
