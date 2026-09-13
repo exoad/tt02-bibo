@@ -52,6 +52,12 @@ jobs:
       - name: build
         run: cmake --build build-pilot -j
 
+      # test_bibowire's locale trap refuses to pass under "C" - it must prove the
+      # wire's text is byte-identical under a comma decimal - and the runner
+      # ships no such locale.
+      - name: comma-decimal locale
+        run: sudo locale-gen de_DE.UTF-8
+
       - name: test
         run: ctest --test-dir build-pilot --output-on-failure
 
