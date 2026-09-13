@@ -9,8 +9,8 @@
   <configuration default="false" name="Back up board flash" type="ShConfigurationType">
     <option name="SCRIPT_TEXT" value="" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
-    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/firmware/backup.bat" />
-    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/firmware/flash.bat" />
+    <option name="SCRIPT_OPTIONS" value="backup" />
     <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
     <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/firmware" />
     <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
