@@ -771,6 +771,41 @@ namespace bibo::drive
     }
 
     /**
+     * @brief Puts the ESC pulse AT neutral immediately, without disarming and
+     *        without touching the steering.
+     *
+     * The difference from throttleNeutral() is the slew limiter, and for a
+     * watchdog it is the whole point. throttleNeutral() moves the TARGET and
+     * lets pump() walk there at throttleSlewUs per SLEW_TICK_MS - 8 us per
+     * 20 ms by default, so 1600 reaches neutral in 250 ms and a widened
+     * 2000 takes 1.25 SECONDS. A stop that arrives a second after the link
+     * died is not a stop, and it would be slower than the 200 ms that decided
+     * to call it.
+     *
+     * The difference from stop() is what it leaves alone: the ESC stays ARMED
+     * and the steering keeps both its angle and its pulse. That is what the
+     * watchdog wants and stop() is wrong for - snapping the wheels straight
+     * (or limp) at the instant the link died changes the car's line at the
+     * worst possible moment, and re-arming afterward would be a second
+     * deliberate act nobody is there to make.
+     *
+     * @note Immediate, not slewed - it writes the pin. escTarget is moved too,
+     *       so pump() holds it here rather than walking back to where the
+     *       throttle was.
+     * @warning Cuts the throttle. The steering is deliberately untouched.
+     */
+    inline Void throttleNeutralNow(Void)
+    {
+        escTarget = DRIVE_NEUTRAL_US;
+        escNow = DRIVE_NEUTRAL_US;
+
+        if(up)
+        {
+            servo::writeUs(PIN_ESC, DRIVE_NEUTRAL_US);
+        }
+    }
+
+    /**
      * @brief Widens or narrows the working throttle range.
      *
      * @param lo the new lower bound, in microseconds; must be less than hi

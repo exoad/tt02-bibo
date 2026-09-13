@@ -1851,16 +1851,16 @@ Int32 main()
         check(TICK_MS == 20, "TICK_MS is 20");
         check(PICO_HOP_BUDGET_MS == 100, "PICO_HOP_BUDGET_MS is 100");
         check(
-            PICO_DEADMAN_MS == 400,
-            "PICO_DEADMAN_MS is 400 - firmware/app/main.cxx:49, not ours to change"
+            PICO_DEADMAN_MS == 200,
+            "PICO_DEADMAN_MS is 200 - firmware/app/main.cxx WATCHDOG_MS, not ours to change"
         );
         static_assert(
-            CONTROL_DEAD_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
-            "the Pi's stop must beat the Pico's, or the blunt layer fires first"
+            TICK_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
+            "a pilot ticking normally must never trip the board's watchdog"
         );
         check(
-            CONTROL_DEAD_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
-            "and the Pi's stop plus one Pico hop still beats the Pico's own 400"
+            TICK_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
+            "and one tick plus one Pico hop still beats the board's own 200"
         );
         checkStr(
             Str(deadman::stateName(deadman::State::STATE_LIVE)),

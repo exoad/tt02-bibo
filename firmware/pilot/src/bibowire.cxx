@@ -20,9 +20,30 @@ namespace bibowire
   // someone will eventually raise the constant because they were right that it
   // felt bad. This is the only thing standing in the way of that edit, and what
   // it protects is not the stop - it is the DIAGNOSABILITY of the stop.
+  //
+  // WHAT THIS ASSERTED UNTIL 2026-09-13, and why it does not any more:
+  //
+  //     CONTROL_DEAD_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS
+  //
+  // 300 + 100 <= 400, read as "the Pi's stop must beat the Pico's". It was
+  // comparing two different clocks. CONTROL_DEAD_MS measures VIEWER->PI
+  // silence; PICO_DEADMAN_MS measures PI->PICO silence. A viewer that goes
+  // quiet never trips the board at all, whatever these numbers are, because
+  // the pilot keeps sending every tick throughout - which is exactly what the
+  // tick's own comment calls load-bearing. The ordering was protecting against
+  // a case the sender already rules out, and the price was a 400 ms floor
+  // under the only layer that covers the Pi hanging.
+  //
+  // The real invariant is about the SENDER's cadence: the board must not trip
+  // while the pilot is alive and ticking. The gap between two lines reaching
+  // it is one keepalive period plus one hop, so that is what is asserted, and
+  // it is asserted where the keepalive is defined - firmware/pilot/app/main.cxx,
+  // beside REV_WAIT_MS, because the two together are what bound the gap. This
+  // header cannot see that constant; the pilot cannot see PICO_HOP_BUDGET_MS
+  // without this one.
   static_assert(
-      CONTROL_DEAD_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
-      "the Pi's stop must beat the Pico's, or the blunt layer fires first and prints ERR deadman onto a cable nobody is watching"
+      TICK_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
+      "a pilot ticking normally must never trip the board's watchdog, or the blunt layer fires routinely and prints ERR watchdog onto a cable nobody is watching"
   );
 
   namespace

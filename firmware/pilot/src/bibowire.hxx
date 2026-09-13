@@ -167,10 +167,18 @@ namespace bibowire
   // Pi -> USB CDC -> Pico, measured worst case.
   constexpr Int32 PICO_HOP_BUDGET_MS = 100;
 
-  // firmware/app/main.cxx:49. NOT OURS TO CHANGE, and do not tighten it: it is
-  // the only layer that covers the Orange Pi itself hanging, because nothing
-  // running on the Pi can save you from the Pi.
-  constexpr Int32 PICO_DEADMAN_MS = 400;
+  // firmware/app/main.cxx, WATCHDOG_MS. NOT OURS TO CHANGE - this is a mirror
+  // of the board's constant, and the board owns it. It is the only layer that
+  // covers the Orange Pi itself hanging, because nothing running on the Pi can
+  // save you from the Pi.
+  //
+  // 200 since 2026-09-13, tightened from 400 along with the firmware. What made
+  // 400 necessary was the hub, which polled at 250 ms and sent on key changes;
+  // the pilot sends something every TICK_MS in every state, and during a long
+  // lidar wait it re-sends the held command every PICO_KEEPALIVE_MS (see
+  // firmware/pilot/app/main.cxx). The gap between two lines reaching the board
+  // is bounded by that keepalive now, not by how long a revolution takes.
+  constexpr Int32 PICO_DEADMAN_MS = 200;
 
   // The control slot is released by 1000 ms of silence, not by 300: the car has
   // ALREADY been stopped by the deadman at 300, and handing the wheel to

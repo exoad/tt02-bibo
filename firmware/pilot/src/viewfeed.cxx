@@ -1726,7 +1726,7 @@ namespace viewfeed
             if(picoDown())
             {
                 ack.result = 4;
-                ack.text = "disarmed locally; the Pico did not answer, its own 400 ms deadman will stop the car";
+                ack.text = "disarmed locally; the Pico did not answer, its own 200 ms watchdog will stop the car";
             }
             else
             {

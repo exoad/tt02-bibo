@@ -28,15 +28,24 @@
 // the wall clock says passed - not the nominal 100 ms - so a slow revolution
 // counts as the longer interval it was.
 //
-// The number that shapes the loop is the BOARD'S deadman. firmware/app/main.cxx
-// stops the car when no command has arrived for DEADMAN_MS, 400 ms. This loop
-// waits at most REV_WAIT_MS, half of that, for a revolution and then sends
-// anyway: a steer and a neutral, because a tick with no scan behind it has
-// nothing to say about throttle. That keeps two different failures apart. The
-// board's deadman firing means the Pi has gone quiet - a crash, a cable, a
-// hung process - and is the board's business. A late revolution is THIS
-// program's business, and it is answered by stopping the car on purpose, on
-// time, rather than by coasting for up to 400 ms until the board notices.
+// The number that shapes the loop USED TO BE the board's deadman.
+// firmware/app/main.cxx stops the car when no VALID command has arrived for
+// WATCHDOG_MS, and this loop waited at most REV_WAIT_MS - half of that - for a
+// revolution before sending anyway: a steer and a neutral, because a tick with
+// no scan behind it has nothing to say about throttle. That keeps two
+// different failures apart. The board's watchdog firing means the Pi has gone
+// quiet - a crash, a cable, a hung process - and is the board's business. A
+// late revolution is THIS program's business, and it is answered by stopping
+// the car on purpose, on time, rather than by coasting until the board
+// notices.
+//
+// THE TWO ARE NO LONGER THE SAME NUMBER, and that is what makes the board's
+// watchdog able to be 200 ms. The wait is sliced now: grabHeld() waits in
+// PICO_KEEPALIVE_MS pieces and re-sends the held command between them, so the
+// longest the car goes without hearing from us is one keepalive rather than
+// one whole revolution. How long a revolution may take and how long the board
+// will wait to hear from us were one constant while the grab was one call, and
+// only the second of them is a safety property.
 //
 // The wait is spent inside the SDK, not in a sleep, so a revolution that turns
 // up at 150 ms is acted on at 150 ms.
@@ -149,10 +158,38 @@
 namespace
 {
 
-  // Half the board's DEADMAN_MS (firmware/app/main.cxx, 400). Not imported from
-  // there - that file is firmware and includes the Pico SDK - so the pairing is
-  // held by this comment and by the test that will one day time a car.
+  // How long a tick waits for a revolution before giving up on one. NOT tied to
+  // the board's watchdog any more, and that is the point of the pair below.
+  //
+  // It was "half the board's DEADMAN_MS", 200 against 400, and the arithmetic
+  // was the only thing keeping the board quiet: this loop sends nothing until
+  // the grab returns, so the longest a tick can go without speaking to the car
+  // was this constant. Tightening the board's watchdog to 200 broke that
+  // silently - every late revolution would have tripped it, and an unplugged
+  // lidar would have held the car in a permanent watchdog stop while the Pi
+  // was alive and well.
   constexpr Int32 REV_WAIT_MS = 200;
+
+  // How often the car is told something WHILE this tick is still waiting.
+  //
+  // The wait is spent inside the SDK, and it used to be spent in one call. It
+  // is sliced now, and between the slices the car is re-sent what it was last
+  // told - see grabHeld(). That decouples "how long a revolution may take"
+  // from "how long the board will wait to hear from us", which were the same
+  // number for as long as the grab was one call, and only one of them is a
+  // safety property.
+  //
+  // 80, so that a normal 10 Hz revolution (about 100 ms) arrives before the
+  // first keepalive is due and the common tick sends nothing extra.
+  constexpr Int32 PICO_KEEPALIVE_MS = 80;
+
+  // THE PAIRING, asserted rather than commented. bibowire.cxx holds the same
+  // shape for TICK_MS; this is the one that matters when a revolution is late,
+  // because then the keepalive rather than the tick is what the board hears.
+  static_assert(
+      PICO_KEEPALIVE_MS + bibowire::PICO_HOP_BUDGET_MS <= bibowire::PICO_DEADMAN_MS,
+      "a keepalive must reach the board before its watchdog fires, or a late revolution stops the car"
+  );
 
   constexpr Int32 STATUS_EVERY_MS = 1000;
 
@@ -459,6 +496,19 @@ namespace
       Int32 escUs = -1;
       Int32 steerNowMilli = 0;
 
+      // THE BOARD'S OWN WATCHDOG, as the board reports it (stale=). 1 means it
+      // has tripped: the Pico heard no valid command for WATCHDOG_MS and has
+      // put the throttle at neutral by itself.
+      //
+      // Worth having even though this program is usually the reason it is 0:
+      // the board's answer is the only place the fact is MEASURED. If this
+      // ever reads 1 during a run, the Pi believes it is sending and the board
+      // disagrees - a stalled write, a half-open port, lines going out slower
+      // than they are being produced - and none of those look like anything
+      // from this side. -1 is "the car has not told us", which includes a
+      // firmware too old to have the field.
+      Int32 stale = -1;
+
       // Whether the steering pin is being DRIVEN at all (servo_on=) and the
       // pulse actually on it (servo=). The console line says both, because a
       // released servo answers every STEER with OK and moves nothing - which is
@@ -539,6 +589,11 @@ namespace
                   if(proto::fieldInt(reply.rest, "esc=", v))
                   {
                       tally.escUs = v;
+                  }
+                  // "stale=" does not occur inside any other key on this line.
+                  if(proto::fieldInt(reply.rest, "stale=", v))
+                  {
+                      tally.stale = v;
                   }
                   if(proto::fieldInt(reply.rest, "steer_now=", v))
                   {
@@ -621,6 +676,74 @@ namespace
           link.stallSaid = true;
           std::printf("pico write dropped: %s - %s\n", carlink::why(r), carlink::detail().c_str());
       }
+  }
+
+  // What the car was last told, re-sent while a tick waits for a revolution.
+  //
+  // Empty means "nothing yet" - the first tick of a run, and every tick of a
+  // dry run, where there is no port to send down.
+  struct Hold
+  {
+      Str steer;
+      Str esc;
+  };
+
+  // One revolution, waited for in SLICES, re-sending the held command between
+  // them so the board keeps hearing from us while we wait.
+  //
+  // WHY THE HELD COMMAND AND NOT A NEUTRAL. The keepalive's only job is to say
+  // the Pi is still running. Whether the throttle SHOULD be neutral is this
+  // loop's decision and it is made when the tick completes - a tick with no
+  // scan behind it sends neutral, and it does that at REV_WAIT_MS whether or
+  // not a keepalive went out first. Sending neutral here instead would cut the
+  // throttle every time a revolution ran 80 ms late, which at 10 Hz is often,
+  // and the car would stutter for a reason no operator could see. Re-sending
+  // what the car is already doing changes nothing about how long it drives
+  // blind; it changes only whether the board thinks we died.
+  //
+  // WHY NOT A PING. PING is valid and would feed the watchdog just as well,
+  // and that is the objection: it would prove the process is alive while
+  // saying nothing about what it wants the car to do. The held command is the
+  // honest keepalive - it is both liveness and the current intent, and it is
+  // idempotent, so the board applying it twice is the board doing nothing.
+  //
+  // The board answers each of these with its OK drive line. Those land in the
+  // same readReplies at the end of the tick and are parsed like any other, so
+  // the reply counters run a little higher on a slow tick and the arm state
+  // and pulse the console prints are fresher. Nothing else notices.
+  [[nodiscard]] Bool grabHeld(Vec<reactive::Ray>& out, Vec<UInt8>* qual, const Hold& hold, Link& link)
+  {
+      Int32 waited = 0;
+
+      while(waited < REV_WAIT_MS)
+      {
+          const Int32 left = REV_WAIT_MS - waited;
+          const Int32 slice = left < PICO_KEEPALIVE_MS ? left : PICO_KEEPALIVE_MS;
+
+          if(lidar::grab(out, slice, qual))
+          {
+              return true;
+          }
+          waited += slice;
+
+          // The last slice's failure IS the tick's timeout - the caller sends
+          // its own line immediately, so a keepalive here would be a duplicate.
+          if(waited >= REV_WAIT_MS)
+          {
+              break;
+          }
+
+          if(!hold.steer.empty())
+          {
+              sendLine(hold.steer, link);
+          }
+          if(!hold.esc.empty())
+          {
+              sendLine(hold.esc, link);
+          }
+      }
+
+      return false;
   }
 
   [[nodiscard]] Bool openPico(const carlink::Config& cfg, Bool arm, const trimfile::Store& trim, Link& link)
@@ -1253,6 +1376,11 @@ Int32 main(Int32 argc, Char** argv)
     Vec<Str>           lines;
     Replies            replies;
 
+    // What the car was last told, for the keepalive inside the next tick's
+    // wait. Kept across ticks for the same reason heldSteerMilli is: the thing
+    // to re-send is what the car is already doing.
+    Hold hold;
+
     // The last steering the operator actually commanded, in milli, kept ACROSS
     // ticks because section 6's SOFT state holds it rather than centring it: a
     // car that snaps straight mid-corner changes its line at the instant it
@@ -1296,7 +1424,7 @@ Int32 main(Int32 argc, Char** argv)
         // Empty on a timeout, and handed to step() anyway: an empty scan is the
         // module's STATUS_BLIND, which is a stop, which is what a tick with no
         // revolution behind it should send. lidar.hxx explains the emptying.
-        const Bool got = lidar::grab(rays, REV_WAIT_MS, &quality);
+        const Bool got = grabHeld(rays, &quality, hold, link);
         const TimePoint now = monoNow();
         const Duration<Float64, std::milli> sinceTick = now - lastTick;
         const Int32 dtMs = haveTick ? static_cast<Int32>(sinceTick.count()) : 0;
@@ -1479,9 +1607,11 @@ Int32 main(Int32 argc, Char** argv)
         //                 ever reaches this loop.
         //
         // SOMETHING IS SENT EVERY TICK IN EVERY STATE, which section 6 calls
-        // load-bearing and means literally: the Pico's own 400 ms deadman must
+        // load-bearing and means literally: the Pico's own 200 ms watchdog must
         // fire only when this program has stopped running, never routinely, or
-        // it becomes a last resort nobody notices has gone off.
+        // it becomes a last resort nobody notices has gone off. The keepalive
+        // inside grabHeld() is the other half of that promise - this sentence
+        // is true between ticks as well as at them.
         //
         // No holder and no command are treated as the dead case, not as an idle
         // one - in MANUAL the autonomy is not driving, so if the operator is not
@@ -1581,8 +1711,8 @@ Int32 main(Int32 argc, Char** argv)
                 // throttle did not, and it read as a broken feature rather than
                 // as a disarmed ESC.
                 //
-                // Neutral holds the car still, keeps the Pico's own 400 ms
-                // deadman fed, and leaves the arm state alone for the operator
+                // Neutral holds the car still, keeps the Pico's own 200 ms
+                // watchdog fed, and leaves the arm state alone for the operator
                 // who is about to arrive. The difference between the two
                 // branches is the difference between "stopped" and "not being
                 // driven", which are not the same thing.
@@ -1751,6 +1881,22 @@ Int32 main(Int32 argc, Char** argv)
                 sendLine(escLine, link);
             }
 
+            // WHAT THE NEXT TICK'S WAIT WILL RE-SEND. Only a line that was
+            // actually sent this tick: an empty one means "there is no such
+            // line this tick", and carrying a stale one forward would have the
+            // keepalive commanding something the loop deliberately stopped
+            // saying. SERVO is left out on purpose - it is an edge, sent once
+            // when the arm state changes, and re-sending it between slices
+            // would re-engage a servo that a STOP had just released.
+            if(!steerLine.empty())
+            {
+                hold.steer = steerLine;
+            }
+            if(!escLine.empty())
+            {
+                hold.esc = escLine;
+            }
+
             // The operator's trim, after the car's motion and before the
             // replies are read - so the OK or ERR the Pico answers each of
             // these with is counted by the same readReplies below rather than
@@ -1849,7 +1995,7 @@ Int32 main(Int32 argc, Char** argv)
             // is only one place the numbers come from.
             const Str what = modeWord.empty() ? describe(status, out, got) : modeWord;
             std::printf(
-                "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s\n",
+                "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s%s\n",
                 elapsedS(start),
                 what.c_str(),
                 static_cast<Float64>(sentSteerMilli) / 1000.0,
@@ -1860,7 +2006,12 @@ Int32 main(Int32 argc, Char** argv)
                 static_cast<int>(replies.escUs),
                 snap.revPerS,
                 static_cast<unsigned long long>(snap.timeouts),
-                snap.pico.c_str()
+                snap.pico.c_str(),
+                // THE BOARD SAYING IT STOPPED ITSELF. This should never appear
+                // while this program is running - if it does, the Pi believes
+                // it is sending and the car disagrees, and that is worth a
+                // shout on the one line an operator is watching.
+                replies.stale > 0 ? "  <<< BOARD WATCHDOG STALE" : ""
             );
             windowRevs = 0;
             lastStatus = now;
