@@ -1,16 +1,10 @@
-# Vendored third-party source. Cloned, not tracked - see README for the pin.
+# Vendored third-party source. Cloned, not tracked - see THIRD_PARTY.md.
 vendor/
 
 # Telemetry pulled off the SD card.
 data/*.csv
 
-# Recorded runs. One .bibo holds a whole run - the lidar revolutions, the board
-# and control state, and the camera's JPEG frames verbatim as CAMERA bodies - so
-# a few minutes of driving is tens of megabytes and a long one is more. Evidence,
-# not source: it belongs beside the CSVs and never in a commit.
-data/*.bibo
-
-# Build trees (firmware, host, viewer, bridge).
+# Build trees.
 build/
 **/build/
 
@@ -22,12 +16,7 @@ build/
 *.map
 
 # MSVC / Windows build artifacts.
-#
-# *.obj also matches Wavefront OBJ models, which are ASSETS and must ship.
-# The negation has to name the directory explicitly - a bare !*.obj would
-# re-admit every compiler output too.
 *.obj
-!hub/assets/models/*.obj
 *.pdb
 *.ilk
 *.idb
@@ -43,37 +32,30 @@ build/
 # Dear ImGui writes window layout here at runtime.
 imgui.ini
 
-# Python bytecode caches, from hub/tools.
+# Python bytecode caches.
 #
 # NOT MERELY NOISE. A .pyc embeds the ABSOLUTE PATH of the source it was
-# compiled from, so hub/tools/__pycache__/livery.cpython-313.pyc carried this
-# machine's home directory - and carried it past three separate sweeps for
-# exactly that, because `git grep -I` skips binary files and every one of those
-# sweeps used it. A file nothing can read is a file nothing can check.
+# compiled from, so a committed one carries this machine's home directory - and
+# `git grep -I` skips binary files, so no sweep for home paths can see it. A
+# file nothing can read is a file nothing can check.
 __pycache__/
 *.pyc
 *.pyo
-
-# Go
-/host/bin/
 
 # OS noise
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Vendored Dear ImGui clone - pinned tag recorded in lidar/README.md.
-#
-# Moved to the repo root on 2026-09-08, when hub/ was deleted: it is 11 MB, it
-# is NOT in git, and the viewer that replaces hub needs it. Deleting the
-# directory it happened to sit in would have meant re-cloning it.
+# The Dear ImGui and stb clones the viewer builds against - versions in
+# THIRD_PARTY.md.
 third_party/
 
-# CLion / CMake. The presets and run configurations ARE committed - they carry
-# the toolchain knowledge and are the point of the setup. Everything below is
-# per-machine state that would only cause conflicts.
+# CLion / CMake. firmware/CMakePresets.json and the run configurations ARE
+# committed - they carry the toolchain knowledge and are the point of the setup.
+# Everything below is per-machine state that would only cause conflicts.
 # Every per-board build tree: build/ is the Pico 2 W, build-pico2/ is the car's
-# board. build-debug/ predates both.
+# board, build-debug/ is the Debug preset's.
 firmware/build-*/
 cmake-build-*/
 /.idea/workspace.xml
@@ -88,8 +70,7 @@ CLAUDE.md
 .cursor/
 .aider*
 
-# Session logs, one per launch. Local diagnostics only - never leaves the
-# machine, and pruned to the last 20 sessions by applog.cpp.
+# Old session logs at the root. Local diagnostics only.
 /logs/
 
 # Generated so an editor can parse the host test suites, which are built by .bat

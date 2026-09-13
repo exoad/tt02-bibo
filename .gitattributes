@@ -32,11 +32,6 @@
 *.cmake text
 CMakeLists.txt text
 
-# Wavefront OBJ is a TEXT format, unlike the MSVC .obj that shares its
-# extension. Marking it keeps it diffable and stops any auto-detection from
-# treating the car model as an opaque blob.
-hub/assets/models/*.obj text
-
 # ---- binary ----------------------------------------------------------------
 *.png  binary
 *.ico  binary
@@ -54,4 +49,4 @@ hub/assets/models/*.obj text
 # Vendored third-party trees are cloned, not tracked, but if one is ever added
 # these keep it out of language statistics and out of review diffs.
 vendor/**            linguist-vendored
-hub/third_party/**   linguist-vendored
+third_party/**       linguist-vendored

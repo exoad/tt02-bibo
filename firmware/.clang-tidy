@@ -10,9 +10,9 @@
 #   D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
 #
 # which are the correct way to call those libraries and cannot be written any
-# other way without a cast on every call. Measured before enabling it: 34 in
-# hub/, pilot/, lidar/ and shared/, and 26 of the 34 are exactly that. A check
-# that can never reach zero is not a ratchet, it is a permanent warning.
+# other way without a cast on every call. Measured before enabling it at the
+# root: 34 hits, and 26 of the 34 are exactly that. A check that can never
+# reach zero is not a ratchet, it is a permanent warning.
 #
 # firmware/ is freestanding and every line of it is ours. It is at zero.
 #
