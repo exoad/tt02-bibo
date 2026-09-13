@@ -35,7 +35,7 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/bibowire.cxx src/viewfeed.cxx
-    src/trimfile.cxx
+    src/trimfile.cxx src/carrules.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -90,7 +90,7 @@ enable_testing()
 # test_viewfeed is here and NOT in tools\test.bat: its real half is Linux
 # sockets, and on MSVC every call refuses, so a .bat could only prove that
 # start() returns false. On Linux it exercises bibowire's frames over loopback.
-foreach(t proto pilot reactive bibowire viewfeed trimfile)
+foreach(t proto pilot reactive bibowire viewfeed trimfile carrules)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

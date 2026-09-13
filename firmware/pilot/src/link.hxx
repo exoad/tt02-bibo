@@ -105,13 +105,19 @@ namespace carlink
   // cares about.
   [[nodiscard]] Bool isOpen();
 
+  // How long send() waits, unless told otherwise, for the device to take a line.
+  // A USB CDC port whose board has stopped reading fills its buffer and then
+  // blocks writers forever, so a stall is counted as a drop.
+  constexpr Int32 WRITE_WAIT_MS = 100;
+
   // Sends one line. The newline is added here so no caller has to remember it -
   // a command without one is a command the board waits forever to finish.
   //
-  // Blocks for at most WRITE_WAIT_MS (link.cxx) if the device will not take the
-  // bytes, then gives up and counts a drop. A stalled write is a stale command;
-  // holding the autonomy loop on it is worse than losing it, because the next
-  // tick will send a fresher one.
+  // Blocks for at most waitMs if the device will not take the bytes, then gives
+  // up and counts a drop. A stalled write is a stale command; holding the
+  // autonomy loop on it is worse than losing it, because the next tick will send
+  // a fresher one. A caller with a sooner deadline - a throttle line that must
+  // not arrive late - passes a shorter wait.
   //
   // A stall can leave the head of the line in the device's buffer, and the
   // board keeps collecting it. The next send() ends that fragment with a
@@ -124,7 +130,7 @@ namespace carlink
   // holds whenever anyone looks.
   // A line sent with no link is dropped, not skipped: a stop that went nowhere
   // has to show up in a number somewhere.
-  [[nodiscard]] Result send(const Str& line);
+  [[nodiscard]] Result send(const Str& line, Int32 waitMs = WRITE_WAIT_MS);
 
   // Takes any complete lines that have arrived, appending to `out`. A partial
   // line is held until the rest of it turns up rather than delivered short.

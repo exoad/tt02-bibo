@@ -21,7 +21,7 @@ set "EXTRA="
 set "LIBS="
 
 set "FIRMWARE_SUITES=text pins chassis"
-set "PILOT_SUITES=proto pilot reactive bibowire trimfile"
+set "PILOT_SUITES=proto pilot reactive bibowire trimfile carrules"
 
 for %%s in (%FIRMWARE_SUITES%) do if "%SUITE%"=="%%s" goto :firmware
 for %%s in (%PILOT_SUITES%) do if "%SUITE%"=="%%s" goto :pilot
@@ -41,13 +41,14 @@ set "SRCS="%TESTS%\test_%SUITE%.cxx""
 if "%SUITE%"=="chassis" set "EXTRA=/DBIBO_FAKE_HAL"
 goto :build
 
-REM One pilot module and its test. pilot tests the refusing halves of lidar.cxx
-REM and link.cxx, which have no module of that name.
+REM One pilot module and its test, plus the modules it calls. pilot tests the
+REM refusing halves of lidar.cxx and link.cxx, which have no module of that name.
 :pilot
 set "TESTS=%ROOT%\firmware\pilot\tests"
 set "INC=/I"%ROOT%\shared" /I"%PILOT%""
 set "SRCS="%TESTS%\test_%SUITE%.cxx" "%PILOT%\%SUITE%.cxx""
 if "%SUITE%"=="pilot" set "SRCS="%TESTS%\test_pilot.cxx" "%PILOT%\lidar.cxx" "%PILOT%\link.cxx""
+if "%SUITE%"=="carrules" set "SRCS=%SRCS% "%PILOT%\proto.cxx""
 goto :build
 
 REM viewer\src BEFORE firmware\pilot\src: both have a link.hxx, and this suite

@@ -109,12 +109,6 @@ namespace carlink
     // arrives wakes it immediately.
     constexpr Int32 POLL_MS = 50;
 
-    // How long send() will wait for the device to take the bytes. A USB CDC
-    // port whose board has stopped reading fills its buffer and then blocks
-    // writers forever; the hub's serial thread stalled that way once and the
-    // stall was counted as neither sent nor dropped. Here it is a drop.
-    constexpr Int32 WRITE_WAIT_MS = 100;
-
     // The longest line the reader will hold while waiting for its newline. The
     // protocol's lines are tens of bytes; something that runs to this many
     // without a newline is a board speaking binary or a wrong baud, and it is
@@ -438,7 +432,7 @@ namespace carlink
       return fd.load() >= 0 && !lost.load();
   }
 
-  Result send(const Str& line)
+  Result send(const Str& line, Int32 waitMs)
   {
       LockGuard<Mutex> tx(txMu);
 
@@ -483,7 +477,7 @@ namespace carlink
       Size done = 0;
       while(done < msg.size())
       {
-          const Int32 left = WRITE_WAIT_MS - static_cast<Int32>(elapsedMs(start));
+          const Int32 left = waitMs - static_cast<Int32>(elapsedMs(start));
           if(left <= 0)
           {
               note("write: stalled - nothing took the bytes within the deadline");
@@ -627,9 +621,10 @@ namespace carlink
       return opened;
   }
 
-  Result send(const Str& line)
+  Result send(const Str& line, Int32 waitMs)
   {
       static_cast<Void>(line);
+      static_cast<Void>(waitMs);
       // Counted, like every other line send() turns away. A stop that went
       // nowhere has to show up in a number somewhere, on every platform.
       ++dropCount;
