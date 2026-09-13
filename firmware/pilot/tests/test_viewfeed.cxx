@@ -49,6 +49,9 @@
 //       mentioned it would take the bandwidth the scan needs.
 //   15. Asking for the camera is ANSWERED - a picture, or a sentence saying
 //       why there is none. Never a blank panel and silence.
+//   22. A car program's run (LOOK or DRIVE): trim is refused and nothing is
+//       queued, and DISARM latches the estop the program reads. MANUAL is not.
+//       drive()'s copy stays younger than the Car's VIEWER_STUCK_MS.
 //
 // WHAT THIS SUITE DOES NOT PROVE, said out loud rather than left to be assumed.
 // /dev/video0 is SINGLE-OPENER - measured: a second streamer gets
@@ -76,6 +79,7 @@
 
 #include "shared.hxx"
 
+#include "car.hxx"
 #include "viewfeed.hxx"
 
 #include <cstdio>
@@ -1995,6 +1999,100 @@ Int32 main()
 
         w.close();
         udp.close();
+        viewfeed::stop();
+    }
+
+    // ---- 22. a car program's run: the viewer watches, and DISARM is an estop -------
+    //
+    // A program publishes LOOK (a dry run) or DRIVE. Its trim is not a viewer's to
+    // change, and it arms through its own Car rather than a viewer's epoch, so the
+    // estop latch is the only thing a DISARM can reach it by.
+    {
+        check(viewfeed::start(0, aPolicy()), "the feed starts for a program's run");
+        const UInt16 port = viewfeed::port();
+
+        bibowire::BoardState board;
+        board.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
+        board.picoLink = 1u;
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+
+        Wire w;
+        check(w.connect(port), "a viewer connects to a program's run");
+        const UInt32 session = handshake(w, 0, 0);
+        check(session != 0u, "and is welcomed");
+
+        Array<UInt8, 32> body{};
+        UInt32 cmdId = 0;
+        const auto command = [&](bibowire::Verb verb, UInt16 arg1, bibowire::CmdAck* ack) {
+            bibowire::Command m;
+            m.sessionId = session;
+            m.cmdId = ++cmdId;
+            m.verb = verb;
+            m.arg1 = arg1;
+            const Size len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, static_cast<UInt16>(cmdId));
+            return w.nextOf(bibowire::Type::TYPE_CMDACK, 1000)
+                && bibowire::readCmdAck(w.f.body, w.f.head.ver, ack)
+                && ack->cmdId == m.cmdId;
+        };
+        const auto says = [](const bibowire::CmdAck& ack, CharSeq word) {
+            return ack.text.find(word) != Str::npos;
+        };
+
+        // Section 21 left the car reported armed, and start() does not clear that.
+        viewfeed::applied(viewfeed::Applied());
+
+        // A Car ends its run when this copy is older than VIEWER_STUCK_MS, so a
+        // loop that is only polling must never let it get that old.
+        Int32 oldest = 0;
+        Bool aged = false;
+        for(Int32 i = 0; i < 40; ++i)
+        {
+            const Int32 age = viewfeed::drive().seenAgeMs;
+            oldest = age > oldest ? age : oldest;
+            aged = aged || age > 0;
+            sleepMs(7);
+        }
+        check(oldest < bibo::VIEWER_STUCK_MS, "drive()'s copy stays younger than VIEWER_STUCK_MS");
+        check(aged, "and its age is measured, not left at 0");
+
+        using Verb = bibowire::Verb;
+        bibowire::CmdAck ack;
+        viewfeed::Tune t;
+        const UInt8 look = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_LOOK);
+        const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+
+        check(command(Verb::VERB_SET_SERVO_TRIM, 1487, &ack), "a program's trim is answered");
+        check(ack.result == 3 && says(ack, "manual"), "and refused, naming manual");
+        check(!viewfeed::tune(&t), "and nothing was queued");
+
+        check(!viewfeed::drive().estopLatched, "no estop before the DISARM");
+        check(command(Verb::VERB_DISARM, 0, &ack), "a program's DISARM is answered");
+        check(ack.result == 0 && says(ack, "estop"), "and says it latched the estop");
+        check(viewfeed::drive().estopLatched, "which drive() hands the program");
+        check(command(Verb::VERB_CLEAR_ESTOP, 0, &ack), "CLEAR_ESTOP is answered");
+        check(!viewfeed::drive().estopLatched, "and releases it");
+
+        board.pilotMode = look;
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+        check(command(Verb::VERB_SET_SLEW, 40, &ack), "a dry run's trim is answered");
+        check(ack.result == 3 && !viewfeed::tune(&t), "and refused too, with nothing queued");
+        check(command(Verb::VERB_DISARM, 0, &ack), "a dry run's DISARM is answered");
+        check(viewfeed::drive().estopLatched, "and latches the estop too");
+        check(command(Verb::VERB_CLEAR_ESTOP, 0, &ack), "CLEAR_ESTOP is answered again");
+
+        board.pilotMode = manual;
+        viewfeed::publishBoard(board);
+        sleepMs(60);
+        check(command(Verb::VERB_DISARM, 0, &ack), "in manual a DISARM is answered");
+        check(ack.result == 0 && !viewfeed::drive().estopLatched, "as before: no estop latched");
+        check(command(Verb::VERB_SET_SERVO_TRIM, 1487, &ack), "in manual, trim is answered");
+        check(ack.result == 0, "and taken");
+        check(viewfeed::tune(&t) && t.arg1 == 1487, "and queued for the pilot");
+
+        w.close();
         viewfeed::stop();
     }
 

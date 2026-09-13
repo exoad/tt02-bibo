@@ -149,6 +149,12 @@ namespace carlink
     Atomic<Bool> lost{ false };
     Thread reader;
 
+    // stopFromSignal() reads fd inside a signal handler, which only a lock-free
+    // load may do.
+    static_assert(Atomic<Int32>::is_always_lock_free, "stopFromSignal needs a lock-free fd");
+
+    constexpr StrView SIGNAL_STOP = "\nSTOP\n";
+
     // Under rxMu.
     Vec<Str> queue;
     Str partial;
@@ -432,6 +438,22 @@ namespace carlink
       return fd.load() >= 0 && !lost.load();
   }
 
+  Void stopFromSignal()
+  {
+      // Not under txMu: the thread holding it may be the one this signal
+      // interrupted. One attempt; a port too full to take six bytes is left to
+      // the Pico's watchdog.
+      const Int32 f = fd.load();
+      if(f < 0)
+      {
+          return;
+      }
+      const Int32 saved = errno;
+      const ISize n = ::write(f, SIGNAL_STOP.data(), SIGNAL_STOP.size());
+      static_cast<Void>(n);
+      errno = saved;
+  }
+
   Result send(const Str& line, Int32 waitMs)
   {
       LockGuard<Mutex> tx(txMu);
@@ -619,6 +641,11 @@ namespace carlink
   Bool isOpen()
   {
       return opened;
+  }
+
+  Void stopFromSignal()
+  {
+      // No port can be open here, so there is nothing to stop.
   }
 
   Result send(const Str& line, Int32 waitMs)

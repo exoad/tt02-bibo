@@ -248,6 +248,9 @@ namespace viewfeed
   struct Drive
   {
       Bool haveHolder = false;
+
+      // A viewer's ESTOP - or, while the pilot is not in MANUAL, its DISARM -
+      // until CLEAR_ESTOP. What a car program obeys.
       Bool estopLatched = false;
 
       // 0 live, 1 soft, 2 dead, 3 estop latched - the same byte CTLSTATE
@@ -268,8 +271,16 @@ namespace viewfeed
       // this rises and ESC DISARM when it falls, and in MANUAL no throttle
       // passes without it.
       Bool armed = false;
+
+      // The age of the copy this was computed from. The feed's thread refreshes it
+      // every pass, so a large age means that thread is stuck and no ESTOP can
+      // arrive. 0 while the feed is not running.
+      Int32 seenAgeMs = 0;
   };
 
+  // Safe from any thread: it reads a copy the feed's thread takes under a mutex
+  // before it answers a viewer, so an ESTOP a viewer has been told is latched is
+  // latched here too.
   [[nodiscard]] Drive drive();
 
   // One accepted tuning request, on its way to the Pico: the verb and its args
@@ -285,7 +296,8 @@ namespace viewfeed
   };
 
   // The OLDEST tuning request not yet taken, or false when there is none. Pops
-  // it, so the tick calls this until it answers false.
+  // it, so the tick calls this until it answers false. While the pilot's BOARD
+  // says it is not in MANUAL, tuning is refused and nothing is queued.
   //
   // A MUTEX AND A QUEUE, deliberately, where control() above is a seqlock. A
   // seqlock keeps only the newest, which is exactly right for a 20 Hz stream

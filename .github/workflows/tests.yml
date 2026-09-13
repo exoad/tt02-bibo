@@ -34,9 +34,11 @@ jobs:
       - name: build and run
         run: sh tools/host_tests.sh run ${{ matrix.cxx }} -O2 -Wall -Wextra
 
-  # The pilot's suites under ctest. This is the only build of the pilot's Linux
-  # halves - viewfeed's sockets, the camera - that does not need the board: MSVC
-  # and mingw compile their refusing halves only.
+  # The pilot's suites under ctest, and every target beside them: the pilot, the
+  # car programs in firmware/pilot/programs. This is the only build of the
+  # pilot's Linux halves - viewfeed's sockets, the camera, the Car's signal
+  # hooks - that does not need the board: MSVC and mingw compile their refusing
+  # halves only.
   pilot:
     runs-on: ubuntu-latest
     strategy:

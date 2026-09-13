@@ -41,6 +41,7 @@ DIRS = [
     at('firmware', 'pilot', 'tests'),
     at('firmware', 'pilot', 'app'),
     at('firmware', 'pilot', 'tools'),
+    at('firmware', 'pilot', 'programs'),
     at('shared'),
 ]
 

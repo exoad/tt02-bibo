@@ -4,6 +4,7 @@
 
 #if defined(__linux__)
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstdlib>
@@ -303,6 +304,22 @@ namespace viewfeed
     // board ran out of memory.
     constexpr Size TUNE_MAX = 32;
 
+    // What drive() computes the deadman from. The loop copies it under
+    // Shared::driveM before it flushes, so an answer a viewer has read is what
+    // the pilot's tick, or a Car's minder, sees too. drive() reads nothing else
+    // of this thread's state.
+    struct DriveSeen
+    {
+        TimePoint at;                  // when this thread took the copy
+        Bool haveHolder = false;
+        Bool estopLatched = false;
+        Bool controlGone = true;       // no CONTROL yet, or the holder left
+        TimePoint lastControlAt;
+        Bool enable = false;
+        Bool epochMatches = false;
+        Bool modeAgrees = false;
+    };
+
     // Everything the two threads share. Every member is touched under `m`
     // except wakeFd, `count` and the seqlock, which are atomic so the pilot's
     // tick never takes this lock.
@@ -347,6 +364,9 @@ namespace viewfeed
 
         Mutex tallyM;
         Counters tally;
+
+        Mutex driveM;
+        DriveSeen driveSeen;
     };
 
     Shared sh;
@@ -632,7 +652,34 @@ namespace viewfeed
         return !haveBoard || assumed == lastBoard.pilotMode;
     }
 
-    [[nodiscard]] bibowire::deadman::Output deadmanNow()
+    // What the deadman reads, as this thread sees it now.
+    [[nodiscard]] DriveSeen seenNow()
+    {
+        DriveSeen s;
+        s.at = monoNow();
+        s.haveHolder = haveHolder;
+        s.estopLatched = estopLatched;
+        s.controlGone = holderGone || !everControl;
+        s.lastControlAt = lastControlAt;
+
+        const UInt32 seq = sh.ctlSeq.load(std::memory_order_acquire);
+        if(seq != 0u)
+        {
+            const bibowire::Control& c = sh.ctlSlot[seq & 1u];
+            s.enable = (c.buttons & bibowire::BUTTON_ENABLE) != 0u;
+            s.epochMatches = c.armEpoch == static_cast<UInt8>(armEpoch);
+            // WAS HARD-CODED true, which made deadman::step's mode branch
+            // unreachable - REFUSE_MODE could not fire however wrong the
+            // viewer's belief was. The pure function was right and tested all
+            // along; this caller was the part measuring nothing.
+            s.modeAgrees = modeAgreesWith(c.assumedMode);
+        }
+        return s;
+    }
+
+    // The deadman at this moment, from s and the clock alone, so any thread may
+    // call it.
+    [[nodiscard]] bibowire::deadman::Output deadmanOf(const DriveSeen& s)
     {
         bibowire::deadman::Inputs in;
         in.nowMs = static_cast<Int64>(elapsedMs(startedAt));
@@ -642,25 +689,28 @@ namespace viewfeed
         // viewer that is provably not there, so the age is forced past DEAD
         // rather than allowed to run down.
         const Int64 gone = in.nowMs - static_cast<Int64>(bibowire::CONTROL_DEAD_MS);
-        in.lastControlMs = holderGone || !everControl
+        in.lastControlMs = s.controlGone
             ? gone
-            : static_cast<Int64>(elapsedMs(startedAt) - elapsedMs(lastControlAt));
-        in.haveHolder = haveHolder;
-        in.estopLatched = estopLatched;
-
-        UInt32 seq = sh.ctlSeq.load(std::memory_order_acquire);
-        if(seq != 0u)
-        {
-            const bibowire::Control& c = sh.ctlSlot[seq & 1u];
-            in.enable = (c.buttons & bibowire::BUTTON_ENABLE) != 0u;
-            in.epochMatches = c.armEpoch == static_cast<UInt8>(armEpoch);
-            // WAS HARD-CODED true, which made deadman::step's mode branch
-            // unreachable - REFUSE_MODE could not fire however wrong the
-            // viewer's belief was. The pure function was right and tested all
-            // along; this caller was the part measuring nothing.
-            in.modeAgrees = modeAgreesWith(c.assumedMode);
-        }
+            : static_cast<Int64>(elapsedMs(startedAt) - elapsedMs(s.lastControlAt));
+        in.haveHolder = s.haveHolder;
+        in.estopLatched = s.estopLatched;
+        in.enable = s.enable;
+        in.epochMatches = s.epochMatches;
+        in.modeAgrees = s.modeAgrees;
         return bibowire::deadman::step(in);
+    }
+
+    [[nodiscard]] bibowire::deadman::Output deadmanNow()
+    {
+        return deadmanOf(seenNow());
+    }
+
+    // Copies what the deadman reads for drive(), which runs on another thread.
+    Void shareDrive()
+    {
+        const DriveSeen s = seenNow();
+        LockGuard<Mutex> lock(sh.driveM);
+        sh.driveSeen = s;
     }
 
     [[nodiscard]] UInt16 outFlags()
@@ -678,9 +728,8 @@ namespace viewfeed
         return flags;
     }
 
-    [[nodiscard]] UInt8 deadmanByte()
+    [[nodiscard]] UInt8 deadmanByteOf(const bibowire::deadman::Output& d)
     {
-        const bibowire::deadman::Output d = deadmanNow();
         switch(d.state)
         {
         case bibowire::deadman::State::STATE_LIVE:
@@ -692,6 +741,11 @@ namespace viewfeed
         default:
             return 3;
         }
+    }
+
+    [[nodiscard]] UInt8 deadmanByte()
+    {
+        return deadmanByteOf(deadmanNow());
     }
 
     // The epoch is bumped on a deadman disarm, an e-stop, a Pico link loss, a
@@ -1343,6 +1397,15 @@ namespace viewfeed
         return haveBoard && lastBoard.picoLink == 0u;
     }
 
+    // POSITIVE EVIDENCE, like picoDown(): the pilot said it is not in MANUAL, so
+    // a car program or the autonomy writes steer and throttle and a viewer only
+    // watches. Touched on this thread alone, like lastBoard itself.
+    [[nodiscard]] Bool notManual()
+    {
+        const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+        return haveBoard && lastBoard.pilotMode != manual;
+    }
+
     [[nodiscard]] Bool within(UInt16 v, UInt16 lo, UInt16 hi)
     {
         return v >= lo && v <= hi;
@@ -1375,9 +1438,15 @@ namespace viewfeed
     // Fills `ack` for one tuning verb, and queues the request when it is taken.
     Void onTune(const bibowire::Command& cmd, bibowire::CmdAck* ack)
     {
-        // ARMED IS CHECKED FIRST, before any talk of ranges. An operator told
-        // "1000..2000 us" by a car that was never going to accept the number
-        // has been answered a question they did not ask.
+        // The mode and the arm are checked before any talk of ranges. An
+        // operator told "1000..2000 us" by a car that was never going to accept
+        // the number has been answered a question they did not ask.
+        if(notManual())
+        {
+            ack->result = 3;
+            ack->text = "not in manual - trim is changed only while bibo-pilot runs in manual";
+            return;
+        }
         if(armedNow() && !idleTestAllows(cmd.verb))
         {
             ack->result = 3;
@@ -1617,7 +1686,7 @@ namespace viewfeed
             ack->text = "the pilot has not reported the car yet - ARM again in a moment";
             return;
         }
-        if(lastBoard.pilotMode != static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL))
+        if(notManual())
         {
             ack->result = 3;
             ack->text = "this pilot is not in manual - a viewer arms only a car it is driving";
@@ -1701,10 +1770,19 @@ namespace viewfeed
             // make the car safer is not a privilege. Moving the epoch is the
             // disarm; the tick sends ESC DISARM when it sees the flag fall.
             bumpEpoch();
-            if(picoDown())
+            if(notManual())
+            {
+                // A car program arms the car itself, so the epoch never reaches
+                // it. The estop latch does: the program sends STOP and ends.
+                estopLatched = true;
+                ack.result = 0;
+                ack.text = "estop latched - outside manual, DISARM stops the car as ESTOP does";
+            }
+            else if(picoDown())
             {
                 ack.result = 4;
-                ack.text = "disarmed locally; the Pico did not answer, its own 200 ms watchdog will stop the car";
+                ack.text = "disarmed locally; the Pico did not answer, its own watchdog"
+                           " will stop the car";
             }
             else
             {
@@ -1747,6 +1825,8 @@ namespace viewfeed
             ack.text = "this board does not act on that verb yet";
         }
         ack.armEpoch = static_cast<UInt8>(armEpoch);
+        // Before the printf below, which can block on a stalled console.
+        shareDrive();
         if(linkLog)
         {
             // EVERY COMMAND AND ITS ANSWER. A refusal the operator only saw as a
@@ -2141,6 +2221,7 @@ namespace viewfeed
         {
             estopLatched = true;
             bumpEpoch();
+            shareDrive();
         }
 
         appliedSeq = o.highestSeq;
@@ -3714,6 +3795,10 @@ namespace viewfeed
                 bumpEpoch();
             }
 
+            // Before the flush, so an answer a viewer reads is already what
+            // drive() reports.
+            shareDrive();
+
             for(Client& c : clients)
             {
                 if(!c.dropWhy.empty())
@@ -3899,6 +3984,11 @@ namespace viewfeed
       armEpoch = 0;
       estopLatched = false;
       haveHolder = false;
+      {
+          LockGuard<Mutex> lock(sh.driveM);
+          sh.driveSeen = DriveSeen();
+          sh.driveSeen.at = monoNow();
+      }
       // A new start is a new car as far as any viewer is concerned, and an ARM
       // from the previous run standing across it would be exactly the stale
       // consent the epoch exists to prevent.
@@ -4079,10 +4169,16 @@ namespace viewfeed
           // under its own blind and silence rules, which is correct here.
           return d;
       }
-      const bibowire::deadman::Output o = deadmanNow();
-      d.haveHolder = haveHolder;
-      d.estopLatched = estopLatched;
-      d.deadman = deadmanByte();
+      DriveSeen seen;
+      {
+          LockGuard<Mutex> lock(sh.driveM);
+          seen = sh.driveSeen;
+      }
+      const bibowire::deadman::Output o = deadmanOf(seen);
+      d.seenAgeMs = static_cast<Int32>(std::min(elapsedMs(seen.at), 1.0e6));
+      d.haveHolder = seen.haveHolder;
+      d.estopLatched = seen.estopLatched;
+      d.deadman = deadmanByteOf(o);
       d.refuse = o.refuse;
       d.neutralInMs = o.neutralInMs;
       d.disarmInMs = o.disarmInMs;

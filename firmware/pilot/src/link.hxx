@@ -141,6 +141,12 @@ namespace carlink
   // went, because "STOP ok" followed by an unplug is a sequence worth seeing.
   [[nodiscard]] Result drain(Vec<Str>& out);
 
+  // Writes "\nSTOP\n" to the open port with one write(2) and does nothing else:
+  // no lock, no allocation, no counter, errno left as it was. Safe inside a
+  // signal handler, which is what it is for. Nothing happens with no link. The
+  // leading newline ends any line a send() was interrupted in the middle of.
+  Void stopFromSignal();
+
   // Milliseconds since the last line arrived, or -1 with no link.
   //
   // Counted from open() until the board's first line, not from the first line:

@@ -6,8 +6,9 @@
 #   cmake -S firmware/pilot -B build-pilot && cmake --build build-pilot -j
 #   ctest --test-dir build-pilot --output-on-failure
 #
-# That builds the pilot too, but its lidar refuses at run time. With the lidar
-# SDK (see PILOT_RPLIDAR_SDK below) it can see, and the probe is built:
+# That builds the pilot and the car programs too, but their lidar refuses at
+# run time. With the lidar SDK (see PILOT_RPLIDAR_SDK below) they can see, and
+# the probe is built:
 #
 #   cmake -S firmware/pilot -B build-pilot -DPILOT_RPLIDAR_SDK=$HOME/rplidar_sdk
 #   cmake --build build-pilot -j
@@ -35,7 +36,7 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/bibowire.cxx src/viewfeed.cxx
-    src/trimfile.cxx src/carrules.cxx
+    src/trimfile.cxx src/carrules.cxx src/car.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -90,8 +91,22 @@ enable_testing()
 # test_viewfeed is here and NOT in tools\test.bat: its real half is Linux
 # sockets, and on MSVC every call refuses, so a .bat could only prove that
 # start() returns false. On Linux it exercises bibowire's frames over loopback.
-foreach(t proto pilot reactive bibowire viewfeed trimfile carrules)
+foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})
+endforeach()
+
+# Car programs: every programs/<name>.cxx is an executable called <name>. Built
+# with or without the lidar SDK, so CI compiles every program; without the SDK
+# the Car refuses at run time. After the targets above, so a clash is caught.
+set(RESERVED_NAMES pilot pilotlib lidar_probe)
+file(GLOB CAR_PROGRAMS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/programs/*.cxx)
+foreach(src ${CAR_PROGRAMS})
+    get_filename_component(name ${src} NAME_WE)
+    if(TARGET ${name} OR name IN_LIST RESERVED_NAMES)
+        message(FATAL_ERROR "programs/${name}.cxx: ${name} is taken - rename the file")
+    endif()
+    add_executable(${name} ${src})
+    target_link_libraries(${name} PRIVATE pilotlib)
 endforeach()
