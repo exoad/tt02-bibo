@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 
-# Two boards, one firmware.
+# Two boards, one firmware; pico2_w is the default.
 #   pico2_w  the desk board. RP2350 + CYW43439; the user LED hangs off that
 #            chip, so pico_cyw43_arch_none is linked just to light it.
 #   pico2    the board in the car. Same RP2350 and pinout, no wireless chip:
 #            the LED is a plain GPIO and cyw43 must NOT be linked.
-# pico2_w is the default. Car image: firmware\build.bat pico2
 if(NOT DEFINED PICO_BOARD)
     set(PICO_BOARD pico2_w)
 endif()
@@ -15,7 +14,7 @@ include(pico_sdk_import.cmake)
 project(bibo_firmware C CXX ASM)
 
 # C stays listed: the SDK, TinyUSB and the cyw43 driver are C and compile as
-# part of this target. Everything in app/ and lib/ is C++.
+# part of this target.
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,8 +31,7 @@ else()
     message(STATUS "bibo: ${PICO_BOARD} - LED on a plain GPIO, no cyw43")
 endif()
 
-# The library is header-only; the headers are listed so they show as part of
-# the target.
+# Header-only; listed so the headers show as part of the target.
 set(BIBO_LIB
     lib/bibo.hxx
     lib/shared.hxx
@@ -48,7 +46,6 @@ set(BIBO_LIB
 # app/ is the car: every .cxx in it is built, and CONFIGURE_DEPENDS picks up a
 # new file without a manual reconfigure.
 file(GLOB BIBO_APP CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/*.cxx")
-
 if(NOT BIBO_APP)
     message(FATAL_ERROR "bibo: firmware/app is empty - nothing to build")
 endif()

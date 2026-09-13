@@ -1,19 +1,11 @@
 /*
- * ---------------------------------------------------------------------------
- * text - the string handling this project actually does, spelled our way.
- *
- * Not a string library: no allocation, no growth, no ownership - everything
- * works on a caller's buffer. It exists because <string.h> is snake_case with
- * hand-counted lengths that go stale on a rename, and because atoi() CANNOT
- * FAIL - it returns 0 for "0", for "banana" and for "", so every caller tested
- * `if(us == 0)` and called that an error until a command legitimately accepts
- * 0. text::toInt() returns Bool. Stateless: include it anywhere.
- * -------------------------------------------------------------------------
+ * text - the string handling this project does, spelled our way, on a caller's
+ * buffer: no allocation, no ownership, no state. The parsers return Bool because
+ * atoi() cannot fail - it returns 0 for "0", for "banana" and for "" alike.
  */
 #pragma once
 
 #include "shared.hxx"
-
 #include <ctype.h>
 #include <float.h>
 #include <stdarg.h>
@@ -23,44 +15,17 @@
 
 namespace bibo::text
 {
-
-    /* ---- inspecting ---------------------------------------------------------- */
-
-    /**
-     * @brief The length of a string, in bytes.
-     *
-     * @param s the string to measure
-     * @return the number of bytes before the terminating null, or 0
-     *
-     * @note Returns 0 for a null `s` rather than dereferencing it, so a
-     *       caller need not check for null before asking how long something is.
-     */
+    /** 0 for a null s. */
     inline Size len(const CharSeq s)
     {
         return s == nullptr ? 0 : strlen(s);
     }
 
-    /**
-     * @brief Whether a string has no characters.
-     *
-     * @param s the string to test
-     * @return true when `s` is null or its first byte is the terminator
-     */
     inline Bool empty(const CharSeq s)
     {
         return s == nullptr || s[0] == '\0';
     }
 
-    /**
-     * @brief Whole-string equality.
-     *
-     * The name says what it tests, unlike `strcmp(a,b)==0` where the
-     * interesting part is the `== 0` and reads as an accident.
-     *
-     * @param a one string to compare
-     * @param b the other string to compare
-     * @return true when both are null, or both are non-null and byte-identical
-     */
     inline Bool eq(const CharSeq a, const CharSeq b)
     {
         if(a == nullptr || b == nullptr)
@@ -71,18 +36,8 @@ namespace bibo::text
     }
 
     /**
-     * @brief Whether `s` begins with `prefix`.
-     *
-     * The length comes from the prefix rather than from the caller, which is
-     * the whole point: strncmp(line, "SERVOLIMITS ", 12) carries a
-     * hand-counted 12 that silently stops matching the day the command is
-     * renamed, and the failure is a command that quietly does nothing.
-     *
-     * @param s the string to test
-     * @param prefix the prefix to look for
-     * @return true when `s` starts with every byte of `prefix`
-     *
-     * @note Returns false, rather than crashing, when either argument is null.
+     * The length comes from the prefix: a hand-counted strncmp length silently
+     * stops matching the day a command is renamed.
      */
     inline Bool starts(const CharSeq s, const CharSeq prefix)
     {
@@ -94,19 +49,7 @@ namespace bibo::text
         return strncmp(s, prefix, n) == 0;
     }
 
-    /**
-     * @brief What follows `prefix` in `s`.
-     *
-     * Pairs with text::starts so the offset is never written out by hand twice.
-     *
-     * @param s the string to search
-     * @param prefix the prefix expected at the start of `s`
-     * @return a pointer into `s` just past `prefix`, or nullptr if `s` does
-     *         not start with it
-     *
-     * @note The returned pointer aliases `s` rather than copying it, and is
-     *       only valid as long as `s` is.
-     */
+    /** A pointer into s just past prefix, or nullptr when s does not start with it. */
     inline CharSeq after(const CharSeq s, const CharSeq prefix)
     {
         if(!starts(s, prefix))
@@ -117,26 +60,13 @@ namespace bibo::text
     }
 
     /**
-     * @brief Matches `word` as a WHOLE word at the start of `s`.
+     * Matches word as a WHOLE word at the start of s, and returns what follows it
+     * with the spaces skipped, or nullptr. starts("SERVOTRIM 1500", "SERVO") is
+     * true, so a command table matched with starts() depends on its row order;
+     * with this it does not.
      *
-     * The difference from text::starts() is the whole word, and it is the
-     * difference between a command table that works and one that works by
-     * accident: text::starts("SERVOTRIM 1500", "SERVO") is TRUE, so a table
-     * matched with it answers SERVOTRIM with the SERVO handler unless
-     * SERVOTRIM happens to be listed first. Requiring a space or the end of
-     * the string after the word means the order of the rows carries no
-     * meaning at all, which is the property that makes a table safe to add to.
-     *
-     * @param s the string to match against
-     * @param word the whole word to look for at the start of `s`
-     * @return a pointer to whatever follows `word`, with the separating
-     *         spaces skipped, or nullptr if `s` does not start with `word`
-     *         as a whole word
-     *
-     * @note A command with no argument returns a pointer to the empty string
-     *       at the end of `s`, NOT nullptr. "matched, nothing after it" and
-     *       "did not match" are different answers and a dispatcher has to
-     *       tell them apart.
+     * A bare command returns the empty string at the end of s, NOT nullptr:
+     * "matched, nothing after it" and "did not match" must stay apart.
      */
     inline CharSeq word(const CharSeq s, const CharSeq word)
     {
@@ -144,7 +74,6 @@ namespace bibo::text
         {
             return nullptr;
         }
-
         const Size n = strlen(word);
         if(strncmp(s, word, n) != 0)
         {
@@ -154,7 +83,6 @@ namespace bibo::text
         {
             return nullptr;
         }
-
         CharSeq arg = s + n;
         while(*arg == ' ')
         {
@@ -163,21 +91,9 @@ namespace bibo::text
         return arg;
     }
 
-    /* ---- editing in place ---------------------------------------------------- */
-
     /**
-     * @brief Strips trailing CR, LF, space and tab from `s`, in place.
-     *
-     * A terminal decides on its own what to put at the end of a line, and the
-     * four it might choose are exactly these. Without this, "PING\r" is not
-     * "PING" and the reply is "unknown command" for a command that was typed
-     * correctly.
-     *
-     * @param s the buffer to trim; trailing bytes are overwritten with the
-     *          terminator
-     * @return the new length of `s`, or 0 if `s` is null
-     *
-     * @note Mutates `s` in place; nothing is reallocated or copied.
+     * Strips trailing CR, LF, space and tab in place, returning the new length: a
+     * terminal picks its own line ending, and "PING\r" is not "PING".
      */
     inline Size trimEnd(Utf8* s)
     {
@@ -194,13 +110,6 @@ namespace bibo::text
         return n;
     }
 
-    /**
-     * @brief Uppercases a string, in place.
-     *
-     * @param s the buffer to uppercase; each byte is rewritten in place
-     *
-     * @note Does nothing if `s` is null.
-     */
     inline Void upper(Utf8* s)
     {
         if(s == nullptr)
@@ -216,23 +125,9 @@ namespace bibo::text
         }
     }
 
-    /* ---- parsing ------------------------------------------------------------- */
-
     /**
-     * @brief Parses `s` as a whole integer.
-     *
-     * STRICT on purpose: leading and trailing space are allowed, anything
-     * else is a refusal. atoi("12abc") is 12 and atoi("abc") is 0, and a
-     * console that accepts "SERVO 12abc" as 12 is a console that will one
-     * day accept something worse.
-     *
-     * @param s the text to parse
-     * @param out where the parsed value is written; untouched on failure
-     * @return true when all of `s`, aside from surrounding space, was
-     *         consumed as one integer
-     *
-     * @note Returns false without writing to `out` if `s` is empty/null or
-     *       `out` is null.
+     * STRICT: surrounding space is allowed and anything else is a refusal, where
+     * atoi("12abc") is 12. out is untouched on failure.
      */
     inline Bool toInt(const CharSeq s, Int32* out)
     {
@@ -240,13 +135,11 @@ namespace bibo::text
         {
             return false;
         }
-
         Utf8* end = nullptr;
         const Int64 v = strtol(s, &end, 10);
-
         if(end == s)
         {
-            return false;          /* nothing numeric at all */
+            return false;
         }
         while(*end == ' ' || *end == '\t')
         {
@@ -254,27 +147,16 @@ namespace bibo::text
         }
         if(*end != '\0')
         {
-            return false;          /* trailing rubbish */
+            return false;
         }
-
         *out = static_cast<Int32>(v);
         return true;
     }
 
     /**
-     * @brief Parses `s` as a fraction, under the same contract as toInt().
-     *
-     * Accepts "1", "-0.5", ".25". Refuses NAN, INF and anything a Float32
-     * cannot hold: strtod accepts those words, and "STEER NAN" would otherwise
-     * reach an Int32 cast.
-     *
-     * @param s the text to parse
-     * @param out where the parsed value is written; untouched on failure
-     * @return true when all of `s`, aside from surrounding space, was
-     *         consumed as one finite number
-     *
-     * @note Returns false without writing to `out` if `s` is empty/null or
-     *       `out` is null.
+     * toInt()'s contract for a fraction such as "-0.5" or ".25". Refuses NAN, INF
+     * and anything a Float32 cannot hold: strtod accepts those words, and
+     * "STEER NAN" would otherwise reach an Int32 cast.
      */
     inline Bool toFloat(const CharSeq s, Float32* out)
     {
@@ -282,10 +164,8 @@ namespace bibo::text
         {
             return false;
         }
-
         Utf8* end = nullptr;
         const Float64 v = strtod(s, &end);
-
         if(end == s)
         {
             return false;
@@ -298,31 +178,18 @@ namespace bibo::text
         {
             return false;
         }
-
         /* Written so NaN fails too: every comparison with NaN is false. */
         if(!(v >= -FLT_MAX && v <= FLT_MAX))
         {
             return false;
         }
-
         *out = static_cast<Float32>(v);
         return true;
     }
 
     /**
-     * @brief Parses `s` as two integers separated by whitespace.
-     *
-     * sscanf(arg, "%d %d", &a, &b) != 2 does this and also silently accepts
-     * "1 2 3 banana", because sscanf stops looking the moment it has what it
-     * was asked for. Every argument being consumed is part of the contract.
-     *
-     * @param s the text to parse
-     * @param a where the first integer is written; untouched on failure
-     * @param b where the second integer is written; untouched on failure
-     * @return true when all of `s` was consumed as exactly two integers
-     *
-     * @note Returns false without writing to `a` or `b` if `s` is empty/null
-     *       or either output pointer is null.
+     * Exactly two integers, a and b untouched on failure; sscanf's "%d %d" would
+     * also accept "1 2 3 banana".
      */
     inline Bool twoInts(const CharSeq s, Int32* a, Int32* b)
     {
@@ -330,14 +197,12 @@ namespace bibo::text
         {
             return false;
         }
-
         Utf8* end = nullptr;
         const Int64 first = strtol(s, &end, 10);
         if(end == s)
         {
             return false;
         }
-
         CharSeq rest = end;
         while(*rest == ' ' || *rest == '\t')
         {
@@ -345,46 +210,22 @@ namespace bibo::text
         }
         if(*rest == '\0')
         {
-            return false;          /* only one number */
+            return false;
         }
-
         Int32 second = 0;
         if(!toInt(rest, &second))
         {
             return false;
         }
-
         *a = static_cast<Int32>(first);
         *b = second;
         return true;
     }
 
-
     /**
-     * @brief Bounded formatted write into the CALLER's buffer.
-     *
-     * The wrapper snprintf never had, and the reason app/ was still naming a
-     * libc function directly: serial::printf formats and SENDS, which is the
-     * wrong shape for a caller assembling a string it means to keep. There
-     * was nothing here to call instead, so two call sites reached past the
-     * library - and the audit could not see them, because its lookbehind is
-     * defeated by the leading `s` in snprintf.
-     *
-     * Deliberately a PASSTHROUGH: it returns exactly what snprintf returns -
-     * the length the output WANTED, which is how a caller detects
-     * truncation. A wrapper that improved on that return would be a second
-     * thing to learn, and the point of the seam is that it costs nothing to
-     * cross.
-     *
-     * @param buf the caller's buffer to write into
-     * @param cap the size of `buf`, in bytes, including room for the terminator
-     * @param fmt a printf-style format string
-     * @param ...
-     * @return the length the formatted output WANTED to be, which may exceed
-     *         `cap` - the same convention as snprintf
-     *
-     * @note If the wanted length is >= `cap`, the output was truncated;
-     *       `buf` is still null-terminated within `cap` bytes.
+     * Bounded formatted write into the caller's buffer, for a string it means to
+     * keep (serial::printf formats and SENDS). A deliberate passthrough: it
+     * returns the length the output WANTED, so a result >= cap means truncated.
      */
     inline Int32 format(Utf8* buf, const Size cap, const CharSeq fmt, ...)
     {
@@ -394,5 +235,4 @@ namespace bibo::text
         va_end(ap);
         return n;
     }
-
 }

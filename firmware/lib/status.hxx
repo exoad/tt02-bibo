@@ -1,15 +1,8 @@
 /*
- * ---------------------------------------------------------------------------
  * status - the onboard LED as a heartbeat: a few flashes at power-on, then a
- * steady blink while the main loop runs.
- *
- *     status::open();                    once, at startup
- *     status::blink(0.5f);               one cycle every two seconds
- *     for(;;) { status::tick(); }        often, from the main loop
- *
- * tick() is polled rather than run from an interrupt, so the LED's bus is never
- * re-entered. File-scope state, so this belongs to a single translation unit.
- * -------------------------------------------------------------------------
+ * steady blink. tick() is polled from the main loop rather than run from an
+ * interrupt, so the LED's bus is never re-entered. File-scope state, so this
+ * belongs to a single translation unit.
  */
 #pragma once
 
@@ -17,28 +10,20 @@
 
 namespace bibo::status
 {
-
     /* 0 means not blinking. */
     inline Float32 hzNow = 0.0f;
     inline Bool    lit = false;
     inline UInt64  nextUs = 0;
 
-    /**
-     * @brief Microseconds the lamp holds each state at a given blink rate.
-     *
-     * @param hz full on-off cycles per second; must be greater than zero
-     * @return microseconds to hold the lamp before the next toggle
-     */
+    /** hz is full on-off cycles per second and must be above zero. */
     inline UInt64 halfPeriodUs(const Float32 hz)
     {
         return 500000.0f / hz;
     }
 
     /**
-     * @brief Brings up the status LED and parks it dark.
-     *
-     * @return true when the lamp is usable; false when the Pico 2 W's wireless
-     *         chip did not start, which led::present() reports from then on
+     * Parks the lamp dark. False when the Pico 2 W's wireless chip did not start,
+     * which led::present() then reports.
      */
     inline Bool open(Void)
     {
@@ -50,14 +35,7 @@ namespace bibo::status
         return ok;
     }
 
-    /**
-     * @brief Starts the lamp blinking at a rate.
-     *
-     * @param hz full on-off cycles per second; zero or less parks it dark
-     *
-     * @note Only arms the next toggle. Nothing blinks unless tick() is called
-     *       from the program's loop.
-     */
+    /** Zero or less parks it dark. Only arms the next toggle: nothing blinks unless tick() runs. */
     inline Void blink(const Float32 hz)
     {
         if(hz <= 0.0f)
@@ -71,11 +49,6 @@ namespace bibo::status
         nextUs = timing::nowUs() + halfPeriodUs(hz);
     }
 
-    /**
-     * @brief Advances the blink, toggling the lamp when its half-period expires.
-     *
-     * Cheap when there is nothing to do, so it can run on every loop pass.
-     */
     inline Void tick(Void)
     {
         if(hzNow <= 0.0f)
@@ -86,20 +59,14 @@ namespace bibo::status
         {
             return;
         }
-
         lit = !lit;
         led::write(lit);
         nextUs = timing::nowUs() + halfPeriodUs(hzNow);
     }
 
     /**
-     * @brief A short burst of flashes, for power-on.
-     *
-     * @param flashes how many on-off flashes to give
-     * @param msEach milliseconds the lamp holds each half of a flash
-     *
-     * @warning BLOCKS for `flashes * msEach * 2` milliseconds, so it belongs
-     *          before the main loop and nowhere the car can be moving.
+     * BLOCKS for flashes * msEach * 2 ms, so it belongs before the main loop and
+     * nowhere the car can be moving.
      */
     inline Void hello(const Int32 flashes, const UInt32 msEach)
     {
@@ -112,5 +79,4 @@ namespace bibo::status
         }
         lit = false;
     }
-
 }

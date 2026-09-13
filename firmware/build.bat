@@ -9,20 +9,16 @@ REM
 REM  Each board has its own build directory: changing PICO_BOARD invalidates
 REM  most of a tree, so sharing one would mean a full rebuild at every switch.
 REM
-REM  Toolchain traps on this machine:
-REM   * arm-none-eabi-gcc is MSYS2's (mingw64), a native Windows binary. CMake and
-REM     Ninja are Visual Studio's, NOT MSYS2's: usr/bin's cmake is Cygwin-style
-REM     and cannot drive a native ARM toolchain, and mingw64's dies with
-REM     0xC0000135 (DLL not found) on this partially-updated install.
-REM   * PATH is NOT modified: mingw64\bin ahead of msys64\usr\bin makes usr/bin
-REM     binaries fail with 0xC0000139, the two runtimes shadowing.
-
+REM  arm-none-eabi-gcc is MSYS2's mingw64, a native Windows binary. CMake and
+REM  Ninja are Visual Studio's, NOT MSYS2's: usr/bin's cmake is Cygwin-style and
+REM  cannot drive a native ARM toolchain, and mingw64's dies with 0xC0000135 on
+REM  this partially-updated install.
 setlocal EnableDelayedExpansion
 set "HERE=%~dp0"
 set "ROOT=%HERE%.."
 
-REM An unknown argument is an error rather than ignored: silently building the
-REM wrong board yields an image for the wrong chip, which flashes without complaint.
+REM An unknown argument is an error: building the wrong board silently yields an
+REM image for the wrong chip, which flashes without complaint.
 set "BOARD=pico2_w"
 set "DOCLEAN="
 
@@ -72,10 +68,10 @@ if not exist "%CMAKE%" (
     exit /b 1
 )
 
-REM PATH deliberately NOT touched: the SDK builds its host tools (pioasm,
-REM picotool) with the first native g++ it finds - ucrt64's - and prepending
-REM mingw64\bin shadows ucrt64's DLLs, so they die silently mid-build.
-REM PICO_TOOLCHAIN_PATH points the SDK at the cross-compiler instead.
+REM PATH is NOT touched: the SDK builds its host tools, pioasm and picotool, with
+REM the first native g++ it finds, ucrt64's, and prepending mingw64\bin shadows
+REM ucrt64's DLLs so they die silently mid-build; ahead of msys64\usr\bin it makes
+REM those binaries fail with 0xC0000139. PICO_TOOLCHAIN_PATH names the compiler.
 set "PICO_TOOLCHAIN_PATH=C:/msys64/mingw64"
 
 if defined DOCLEAN (
@@ -84,10 +80,9 @@ if defined DOCLEAN (
 )
 
 echo [conf ] cmake configure for %BOARD%
-REM picotool_DIR: Raspberry Pi's OFFICIAL prebuilt picotool, pinned at v2.3.0-1.
-REM The one the SDK builds here (ucrt64 gcc) crashes with 0xC0000005 in every
-REM subcommand that touches an ELF. Downloaded once into vendor/ (gitignored):
-REM   https://github.com/raspberrypi/pico-sdk-tools/releases  (v2.3.0-1)
+REM picotool_DIR: Raspberry Pi's OFFICIAL prebuilt picotool, pinned at v2.3.0-1 in
+REM the gitignored vendor/. The one the SDK builds here with ucrt64 gcc crashes
+REM with 0xC0000005 in every subcommand that touches an ELF.
 set "PICOTOOL_DIR=%ROOT%\vendor\picotool-2.3.0\picotool"
 
 if not exist "%PICOTOOL_DIR%\picotool.exe" (

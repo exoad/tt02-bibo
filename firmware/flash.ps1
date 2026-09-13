@@ -7,12 +7,10 @@
 # Back up BEFORE flashing anything you cannot rebuild from source, and restore
 # with firmware\flash.bat <the-backup>.uf2.
 #
-# Both start the same way. The Pico SDK's USB stack exposes a reset interface:
-# opening its CDC port at 1200 baud and dropping DTR reboots the board into the
-# UF2 bootloader, which mounts as a removable drive. Copying a .uf2 there flashes
-# it and the board reboots itself; picotool reads the flash while it waits there.
-#
-# Usage:  powershell -ExecutionPolicy Bypass -File firmware\flash.ps1 [backup] [path]
+# Both start the same way: opening the Pico's CDC port at 1200 baud and dropping
+# DTR reboots it into the UF2 bootloader, which mounts as a removable drive.
+# Copying a .uf2 there flashes it and the board reboots itself; picotool reads
+# the flash while it waits there.
 
 param(
     [string]$Verb = 'flash',
