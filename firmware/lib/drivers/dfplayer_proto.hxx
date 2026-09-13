@@ -19,7 +19,7 @@
  * one that cannot be told apart from the others by looking, so it is the one
  * that has to be settled off the bench.
  *
- *     firmware\tests\build_dfplayer_test.bat run
+ *     tools\test.bat dfplayer run
  *
  * ---------------------------------------------------------------------------
  * THE FRAME

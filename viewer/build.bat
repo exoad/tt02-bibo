@@ -7,12 +7,7 @@ rem
 rem  Usage:  build.bat          incremental; the Dear ImGui objects are cached
 rem          build.bat clean    wipe build\ first
 rem
-rem  /MT rather than /MD. It used to be mandatory, because rplidar_driver.lib is
-rem  built against the static CRT and a mismatch is a wall of LNK2038. That
-rem  library is GONE - under the new protocol the board owns the lidar and this
-rem  program only ever receives scans over the network - so /MT is now a choice
-rem  rather than a constraint, and it is kept for the reason that outlives the
-rem  SDK: the exe runs on a machine with no redistributable installed.
+rem  The compiler flags are tools\find_vs.bat's, shared with tools\test.bat.
 
 set "ROOT=%~dp0"
 set "BUILD=%ROOT%build"
@@ -53,21 +48,14 @@ if not exist "%STB%\stb_image.h" (
     exit /b 1
 )
 
-rem --- MSVC x64 env. find_vs.bat puts the VS Installer directory on PATH, which
-rem  is what stops vcvarsall printing "vswhere.exe is not recognized" first.
 echo [env] Visual Studio x64
-call "%ROOT%..\tools\find_vs.bat"
+call "%ROOT%..\tools\find_vs.bat" cl
 if errorlevel 1 exit /b 1
-call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x64
-if errorlevel 1 (
-    echo [error] vcvarsall.bat failed
-    exit /b 1
-)
 
 if not exist "%BUILD%" mkdir "%BUILD%"
 if not exist "%OBJ%"   mkdir "%OBJ%"
 
-set "CFLAGS=/nologo /c /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS"
+set "CFLAGS=%CLFLAGS% /c"
 set "INC=/I"%IMGUI%" /I"%IMGUI%\backends" /I"%STB%" /I"%ROOT%src" /I"%ROOT%..\shared" /I"%PILOT%""
 
 rem --- Dear ImGui core + the win32/dx11 backends, compiled once and cached.
@@ -121,9 +109,7 @@ rem --- link.
 rem  No d3dcompiler.lib: there are no shaders in this program - the 3D view is a
 rem  perspective divide feeding ImGui's draw list, and the only HLSL in the
 rem  binary is the backend's, which ships precompiled.
-rem  ws2_32.lib IS linked, ahead of its first caller: the protocol client that
-rem  receives scans is being written now, and finding out at link time that the
-rem  build never named a socket library is a minute nobody needs to spend.
+rem  ws2_32.lib for link.cxx's sockets.
 echo [link] %EXE%
 link /nologo /OUT:"%EXE%" /SUBSYSTEM:WINDOWS /ENTRY:WinMainCRTStartup ^
     "%OBJ%\*.obj" ^

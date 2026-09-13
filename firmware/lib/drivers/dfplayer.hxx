@@ -64,7 +64,7 @@
 /*
  * The protocol itself lives next door and needs NOTHING from the SDK, so the
  * checksum - the one part of this driver that fails silently - can be tested
- * on the host: firmware\tests\build_dfplayer_test.bat run
+ * on the host: tools\test.bat dfplayer run
  */
 #include "dfplayer_proto.hxx"
 

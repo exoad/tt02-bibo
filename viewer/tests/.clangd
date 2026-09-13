@@ -8,8 +8,8 @@
 # resolving a different link.hxx than the compiler does is worse than either one
 # being wrong on its own, because then the two disagree and neither says so.
 #
-# Mirrors viewer/tests/build_link_test.bat. When that file's include list moves,
-# this one moves with it.
+# Mirrors the link suite in tools/test.bat. When its include list moves, this
+# one moves with it.
 #
 # RELATIVE, not absolute: a path naming a home directory names the machine it
 # was written on, and tools/style_audit.py fails the build for exactly that.

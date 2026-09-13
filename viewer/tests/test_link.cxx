@@ -1,12 +1,11 @@
 // The viewer's bibowire client, held to what it promises - WITHOUT A BOARD.
 //
-//   viewer\tests\build_link_test.bat run
+//   tools\test.bat link run
 //
 // WHY THIS FILE EXISTS AND WHAT IT CANNOT DO.
 //
-// The pilot that serves port 8020 is being written in parallel and has never
-// run, so there is nothing to point this viewer at and nothing on the far end
-// of a socket to prove anything against. What CAN be proved offline is the half
+// A suite has no board to point this viewer at and nothing on the far end of a
+// socket to prove anything against. What CAN be proved offline is the half
 // that decides what gets drawn: bytes in, decoded state out, and the question
 // "is this still true" answered the same way every time. So link.cxx is split
 // with that seam in it - `Session` is pure, takes the caller's clock, and never
@@ -16,26 +15,22 @@
 //   - connect, resolve, the 3000 ms deadline, TCP_NODELAY / SO_RCVBUF /
 //     keepalive, the UDP bind and its peer filter, the select loop, and the
 //     reconnect loop's use of the backoff numbers below. Those need a socket
-//     and a peer, and one end of the pair does not exist yet.
+//     and a peer.
 //   - CONTROL'S SOCKET HALF. This viewer DOES send CONTROL now - the seq rule,
 //     the encoding, the key mapping and the enable bit are all held to an
 //     answer below - but nothing here puts a datagram on a wire. sendControl,
 //     the UDP sendto, the TCP fallback and its latch, and the reverse-path
-//     probe are compiled and reasoned about only. NO CONTROL DATAGRAM HAS EVER
-//     REACHED A BOARD, no wheel has moved, and the deadman, the arm sequence
-//     and REFUSE_MODE are shapes matched to docs/bibowire.md section 6 rather
-//     than behaviours anyone has observed.
+//     probe are not exercised here, and the deadman, the arm sequence and
+//     REFUSE_MODE are held only as shapes matched to docs/bibowire.md section 6.
 //   - THE HEADING ARROW AND THE BENDING GUIDES AS DRAWN. Their SIGNS are held
 //     to an answer below, which is the part that cannot be eyeballed: positive
 //     steer is right (chassis.hxx's steerToUs toward servoMax, which cal.hxx
 //     names STEER_CAL_RIGHT) and +X is right (scene.hxx's frame note), so an
 //     inversion of either draws a confident arrow the wrong way and compiles
 //     perfectly. What is NOT proved is any pixel of either: the drawing lives
-//     behind an ImDrawList and NEITHER HAS EVER BEEN SEEN ON SCREEN.
+//     behind an ImDrawList.
 //   - THE CAMERA'S SOCKET HALF. The decode path below is driven with
-//     hand-built CAMERA frames and a real JPEG. The board DOES send CAMERA now
-//     and a real one has been watched for hours - that sentence used to say no
-//     board had ever sent one, and it went stale. What is proved here is that
+//     hand-built CAMERA frames and a real JPEG. What is proved here is that
 //     the bytes survive the codec, become pixels, and that a dropout is
 //     classified onto the right clock; what is NOT proved is the subscription
 //     handshake itself, that the board stops sending when one is withdrawn, or
@@ -48,9 +43,7 @@
 //     cmdId rule, the encoding and the slew arithmetic are all held to an answer
 //     below, and trim.hxx keeps that arithmetic inline in the header precisely
 //     so this suite can reach it without linking a file that names ImGui. What
-//     is NOT proved is any of it against a car: NO COMMAND HAS EVER BEEN PUT ON
-//     A WIRE. The board-side handler for verbs 8-11 is being written in
-//     parallel, the Pico is not connected, and so "refused while armed" is a
+//     is NOT proved is any of it against a car, so "refused while armed" is a
 //     sentence this suite can only check the SHAPE of, never the behaviour.
 //   - THE ALIGNMENT OVERLAYS. They are placed in the window's frame - a scale
 //     and an offset onto the drawn picture, ignoring rotate and flip by the
@@ -2450,22 +2443,16 @@ static Void testSteerSigns()
     );
 }
 
-static Void testControlIsOptIn()
+static Void testControlDefaults()
 {
-    std::printf("\n-- control is opt-in, and a fresh viewer asks for nothing --\n");
+    std::printf("\n-- a fresh viewer asks for the slot, and drives nothing --\n");
 
     link::Client c;
 
-    // THE SAFETY PROPERTY, pinned. Section 6: the moment a viewer takes the
-    // slot its cadence becomes the consent the deadman watches, and losing it
-    // stops the car - so merely opening this program must not arm a deadman
-    // over somebody else's autonomous run.
-    //
-    // THAT WAS THE DEFAULT UNTIL 2026-09-12. The cost was measured - tick,
-    // Reconnect, enable, ARM, and a car ignoring its keys whenever one step was
-    // missed - and the operator chose connect-then-ARM with the trade in front
-    // of them. Held here so the default cannot drift back without somebody
-    // reading why it changed.
+    // Section 6: the moment a viewer takes the slot its cadence becomes the
+    // consent the deadman watches. Asking by default is the operator's choice
+    // of connect-then-ARM (Client::wantSlot has the trade), held here so the
+    // default cannot drift without somebody reading why it is what it is.
     check(link::controlSlotWanted(c), "a fresh client asks for the control slot, by the operator's choice");
 
     const link::Intent idle = link::controlIntent(c);
@@ -2545,7 +2532,7 @@ int main()
     testEnableOnEveryDatagram();
     testAssumedModeIsTheOperatorsOwn();
     testControlSlotAndCadence();
-    testControlIsOptIn();
+    testControlDefaults();
     testCameraCaptureGaps();
     testSteerSigns();
     testSettingsText();

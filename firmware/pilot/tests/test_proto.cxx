@@ -1,6 +1,6 @@
 // The car's line protocol, as read and written by the companion board.
 //
-//   tests\build_proto_test.bat run
+//   tools\test.bat proto run
 //
 // Pure string work, so all of it is testable on a laptop months before the
 // Orange Pi is plugged in - which is the point of writing this layer first.

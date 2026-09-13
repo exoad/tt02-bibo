@@ -8,8 +8,8 @@
 // invariant `sends == tx + dropped` is the same fact on both.
 //
 // One file rather than link_posix.cxx beside a link_stub.cxx because both
-// build scripts - the CMake for g++ and tests/build_pilot_test.bat for MSVC -
-// name link.cxx, and a second file is a second place for them to disagree.
+// builds - the CMake for g++ and tools\test.bat pilot for MSVC - name link.cxx,
+// and a second file is a second place for them to disagree.
 
 #include "link.hxx"
 

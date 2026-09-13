@@ -1,7 +1,7 @@
 /*
  * PID, feedforward and odometry - lib/control.hxx and lib/chassis/odom.hxx.
  *
- *   firmware\tests\build_control_test.bat run
+ *   tools\test.bat control run
  *
  * ALL OF THIS IS ARITHMETIC, which is exactly why it is testable and exactly
  * why it is worth testing. A control loop that is subtly wrong does not throw:

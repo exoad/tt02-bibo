@@ -1,6 +1,6 @@
 // Reactive driving from a lidar scan.
 //
-//   tests\build_reactive_test.bat run
+//   tools\test.bat reactive run
 //
 // Pure arithmetic over a plain array, so the whole behaviour is exercised here
 // with synthetic scans - no lidar, no car, no clock, and no wall to drive into

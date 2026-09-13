@@ -1,15 +1,18 @@
 @echo off
 REM find_vs.bat - sets VSROOT to a Visual Studio with the C++ toolset.
 REM
-REM     call "<repo>\tools\find_vs.bat"
+REM     call "<repo>\tools\find_vs.bat"       VSROOT only
+REM     call "<repo>\tools\find_vs.bat" cl    also the x64 cl environment and CLFLAGS
 REM     if errorlevel 1 exit /b 1
-REM     call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x64
 REM
-REM Twenty-two scripts hardcoded ...\2022\Community. GitHub's runners carry
-REM Enterprise, so all of them failed there with "vcvarsall.bat is not
+REM The cl form is the one place the MSVC host builds get their flags from:
+REM tools\test.bat and viewer\build.bat both use it.
+REM
+REM Not a hardcoded ...\2022\Community path: GitHub's runners carry Enterprise,
+REM and every script that hardcoded it failed there with "vcvarsall.bat is not
 REM recognized" - a wrong path wearing the costume of a broken build.
 REM
-REM No setlocal: this sets a variable in its CALLER.
+REM No setlocal: this sets variables in its CALLER.
 REM goto, not if(...): the path holds %ProgramFiles(x86)%, and the `)` in (x86)
 REM closes a parenthesised block early - "\Microsoft was unexpected at this time".
 
@@ -44,7 +47,21 @@ if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\B
 :check
 REM A path is not a compiler. Check the file every caller is about to run.
 if not defined VSROOT goto :nope
-if exist "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" exit /b 0
+if not exist "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" goto :gone
+if not "%~1"=="cl" exit /b 0
+
+call "%VSROOT%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
+if errorlevel 1 goto :novcvars
+
+REM /MT: the programs run on a machine with no redistributable installed.
+set "CLFLAGS=/nologo /EHsc /MT /O2 /std:c++20 /W4 /D_CRT_SECURE_NO_WARNINGS"
+exit /b 0
+
+:novcvars
+echo [error] vcvarsall.bat x64 failed in %VSROOT%
+exit /b 1
+
+:gone
 set "VSROOT="
 
 :nope

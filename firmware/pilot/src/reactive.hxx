@@ -7,12 +7,6 @@
 // where it has been. It looks at what is in front of the car right now and
 // decides how fast to go and which way to point. That is the whole idea.
 //
-// autonomy.hxx is the other thing - pure pursuit along a planned path, needing
-// a pose and an encoder. The two are separate files because they fail in
-// different ways and are useful at different times: this one drives a car
-// around a room today with nothing but a lidar, and keeps working on the day
-// the encoder breaks.
-//
 // ---------------------------------------------------------------------------
 // PURE, IN THE proto.hxx SENSE
 //
@@ -73,9 +67,8 @@ namespace reactive
 
   // One measurement, in the units the C1 already produces.
   //
-  // Same shape as hub/src/lidar_source.hxx's LidarPoint minus the quality byte,
-  // so the binding is a copy rather than a conversion. Quality is left out
-  // because filtering on it is the driver's decision, not this file's.
+  // The quality byte is left out because filtering on it is the driver's
+  // decision, not this file's.
   struct Ray
   {
       Float32 angleDeg = 0.0f;  // 0..360, raw, as the device reports it
@@ -232,9 +225,8 @@ namespace reactive
   // from a clock so the whole behaviour is reproducible in a test.
   //
   // ALWAYS writes `out`, including on STATUS_BLIND, where it writes a full
-  // stop. A caller that ignores the Status still gets a safe command, which is
-  // the opposite of the convention in autonomy.hxx and is deliberate: there,
-  // not driving is the safe default; here, the car is already moving.
+  // stop. A caller that ignores the Status still gets a safe command, because
+  // the car is already moving.
   Status step(const Ray* rays, Size count, Int32 dtMs, State* st, Outputs* out);
 
 }

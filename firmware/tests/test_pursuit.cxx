@@ -1,7 +1,7 @@
 /*
  * geom, the bicycle model and pure pursuit.
  *
- *   firmware\tests\build_pursuit_test.bat run
+ *   tools\test.bat pursuit run
  *
  * EVERY FAILURE IN THIS FILE IS SILENT ON A CAR. A rotation with the wrong sign
  * steers away from the path and reads as an unstable gain. A lookahead that

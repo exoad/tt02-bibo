@@ -12,8 +12,8 @@ REM       never reached the file, so "0 warnings" was true and meaningless.
 REM       => errors are counted FIRST; warnings are reported only when errors=0.
 REM    2. Results read from printed text while the exit code was always 0:
 REM       `exit /b %errorlevel%` inside an if-block expands when cmd PARSES the
-REM       block, before the test runs. All eleven scripts had it. => check EXIT
-REM       CODES, never output, and use an early return rather than a block.
+REM       block, before the test runs. => check EXIT CODES, never output, and
+REM       use an early return rather than a block.
 REM    3. A count taken twice against a moving branch => the commit is pinned at
 REM       the top and compared at the bottom.
 REM    4. An incremental build reporting 0 warnings because it never recompiled
@@ -38,27 +38,11 @@ call :board pico2_w ""
 call :board pico2   "pico2"
 
 REM ---- 2. the host tests, by EXIT CODE --------------------------------------
-call :suite text     "%HERE%tests\build_text_test.bat"
-call :suite pins     "%HERE%tests\build_pins_test.bat"
-call :suite dfplayer "%HERE%tests\build_dfplayer_test.bat"
-call :suite chassis  "%HERE%tests\build_chassis_test.bat"
-
-REM control, pursuit and sfx were WRITTEN AND NEVER GATED - 71 checks sitting in
-REM tests\ that nothing ran, so the day one broke the gate would still say PASS.
-REM A test suite that is not in this list is a suite that does not exist.
-call :suite control  "%HERE%tests\build_control_test.bat"
-call :suite pursuit  "%HERE%tests\build_pursuit_test.bat"
-call :suite sfx      "%HERE%tests\build_sfx_test.bat"
-
-REM pilot\ is under firmware\ and this gate claims to answer for firmware\, so
-REM the companion-board suites belong here too. Same story as the three above:
-REM written in pilot\tests, listed nowhere, run by nobody.
-call :suite proto    "%HERE%pilot\tests\build_proto_test.bat"
-call :suite pilot    "%HERE%pilot\tests\build_pilot_test.bat"
-call :suite reactive "%HERE%pilot\tests\build_reactive_test.bat"
-call :suite scanwire "%HERE%pilot\tests\build_scanwire_test.bat"
-call :suite bibowire "%HERE%pilot\tests\build_bibowire_test.bat"
-call :suite archive  "%HERE%pilot\tests\build_archive_test.bat"
+REM Every suite tools\test.bat knows: firmware\tests, pilot\tests and the viewer's
+REM link suite, which compiles pilot\src\bibowire.cxx. A suite missing from this
+REM list is one nothing runs, and the gate still says PASS the day it breaks.
+for %%s in (text pins dfplayer chassis control pursuit sfx) do call :suite %%s
+for %%s in (proto pilot reactive scanwire bibowire trimfile link) do call :suite %%s
 
 REM ---- 3. the style audit --------------------------------------------------
 python "%ROOT%\tools\style_audit.py" >nul 2>&1
@@ -133,14 +117,15 @@ if not "%WARNS%"=="0" (
 echo   [ ok ] %LABEL%  0 errors, 0 warnings, %IMGS% image^(s^)
 exit /b 0
 
-REM  :suite <name> <script>
+REM  :suite <name>
 REM
-REM  Reads the EXIT CODE, not the output: until 2026-08-31 every one of these
-REM  scripts printed OVERALL: FAIL while exiting 0.
+REM  Reads the EXIT CODE, not the output: until 2026-08-31 every test script
+REM  printed OVERALL: FAIL while exiting 0.
 :suite
-call %2 run >nul 2>&1
-if errorlevel 1 (
-  echo   [FAIL] suite %~1     exit 1
+call "%ROOT%\tools\test.bat" %1 run >nul 2>&1
+set RC=%errorlevel%
+if not "%RC%"=="0" (
+  echo   [FAIL] suite %~1     exit %RC% - tools\test.bat %~1 run
   set FAIL=1
   exit /b 0
 )

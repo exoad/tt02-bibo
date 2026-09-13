@@ -11,12 +11,10 @@
 // SDK is dropped for a hand-written parser of the C1's serial protocol, this
 // header does not move.
 //
-// It is the same idea as hub/src/lidar_source.hxx, minus the thread. The hub
-// wraps grabScanDataHq() in a worker because a UI thread cannot block; the
-// autonomy loop CAN, and wants to - a driving tick with nothing new to look at
-// has nothing to do, so the blocking grab is the tick's clock. Wrapping it in
-// a second thread here would add a mutex and a stale-frame hazard to gain
-// nothing.
+// It has no thread of its own. The driving loop CAN block on grabScanDataHq(),
+// and wants to - a driving tick with nothing new to look at has nothing to do,
+// so the blocking grab is the tick's clock. Wrapping it in a second thread here
+// would add a mutex and a stale-frame hazard to gain nothing.
 //
 // ---------------------------------------------------------------------------
 // THE SDK IS LINUX-ONLY HERE, AND THAT IS SAID OUT LOUD
@@ -28,7 +26,7 @@
 // reported an empty room rather than a missing sensor would be trap 1 of
 // reactive.hxx built into the program on purpose.
 //
-// The refusing path is what tests/build_pilot_test.bat compiles on the laptop,
+// The refusing path is what tools\test.bat pilot compiles on the laptop,
 // and what CMake compiles anywhere the option is unset. tests/test_pilot.cxx
 // holds it to the promises below in both builds - it is the only place that
 // does, since nothing else ever runs this program without a lidar SDK.

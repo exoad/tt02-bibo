@@ -1,7 +1,7 @@
 /*
  * The DFPlayer Mini wire format, in lib/drivers/dfplayer_proto.hxx.
  *
- *   firmware\tests\build_dfplayer_test.bat run
+ *   tools\test.bat dfplayer run
  *
  * THIS TEST EXISTS BECAUSE THE FAILURE IS SILENT. A frame whose checksum is
  * wrong is discarded by the module without a reply, an error or a sound - which

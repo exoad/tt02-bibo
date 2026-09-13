@@ -1,17 +1,15 @@
-// The companion board's link and autonomy stubs.
+// The companion board's link and lidar.
 //
-//   tests\build_pilot_test.bat run          MSVC, the refusing link
+//   tools\test.bat pilot run                MSVC, the refusing link
 //   ctest --test-dir build-pilot            g++ on Linux, the termios link
 //
 // THREE THINGS ARE BEING CHECKED.
 //
-//   1. What refuses, refuses rather than fabricates. autonomy::step() returning
-//      a plausible steering angle would be indistinguishable from a working
-//      controller until the car was moving; carlink::open() returning OK on a
-//      platform with no transport would mean a STOP command silently going
-//      nowhere. On Linux, where there IS a transport, the same rule reads: a
-//      missing device is NO_PORT, a device that is not a serial line is
-//      OPEN_FAILED, and a send with no link is a counted drop. The lidar is
+//   1. What refuses, refuses rather than fabricates. carlink::open() returning
+//      OK on a platform with no transport would mean a STOP command silently
+//      going nowhere. On Linux, where there IS a transport, the same rule
+//      reads: a missing device is NO_PORT, a device that is not a serial line
+//      is OPEN_FAILED, and a send with no link is a counted drop. The lidar is
 //      held to the same rule: built without its SDK, open() refuses naming
 //      the SDK rather than a cable, and grab() empties the caller's vector
 //      rather than leaving a stale revolution for reactive::step to drive on.
@@ -32,9 +30,14 @@
 
 #include "shared.hxx"
 
-#include "autonomy.hxx"
 #include "lidar.hxx"
 #include "link.hxx"
+
+#include "control.hxx"
+#include "geom.hxx"
+#include "kinematics.hxx"
+#include "plan.hxx"
+#include "pursuit.hxx"
 
 #include <cstdio>
 #include <cstring>
@@ -111,7 +114,7 @@ static carlink::Result drainUntil(Vec<Str>& lines, const Size want, const Int32 
 
 Int32 main()
 {
-    std::printf("\npilot - the companion board's link and loop\n\n");
+    std::printf("\npilot - the companion board's link and lidar\n\n");
 
     // Every send() in this file is tallied here, so the last check can hold
     // the link to `sends == tx + dropped` across everything that happened.
@@ -129,7 +132,7 @@ Int32 main()
         );
         check(
             carlink::dropped() == droppedBefore + 1,
-            "and it was counted as dropped - sends == tx + dropped, as the hub's link keeps it"
+            "and it was counted as dropped - sends == tx + dropped"
         );
         check(carlink::txLines() == 0, "and not as transmitted");
 
@@ -440,42 +443,6 @@ Int32 main()
 #else
         check(lidar::available(), "an SDK is built into this program, and it says so");
 #endif
-    }
-
-    // ---- the loop refuses too, and touches nothing -------------------------
-    {
-        autonomy::Outputs out;
-        out.steer = 0.375f;          // a value only the caller could have set
-        out.escUs = 1234;
-
-        autonomy::Inputs in;
-        const autonomy::Status s = autonomy::step(in, nullptr, &out);
-
-        check(s == autonomy::Status::STATUS_NOT_IMPLEMENTED, "step() reports NOT_IMPLEMENTED");
-        check(
-            out.steer > 0.374f && out.steer < 0.376f && out.escUs == 1234,
-            "and left the outputs exactly as the caller set them"
-        );
-        std::printf("        \"%s\"\n", autonomy::why(s));
-    }
-
-    // ---- the tunings are real, and refuse what cannot be run ---------------
-    {
-        autonomy::Config c;
-        check(autonomy::configure(c), "the defaults are accepted");
-        check(
-            autonomy::tuning().tickHz > 49.0f && autonomy::tuning().tickHz < 51.0f,
-            "and read back"
-        );
-
-        c.tickHz = 0.0f;
-        check(!autonomy::configure(c), "a tick rate of zero is refused");
-
-        c.tickHz = 50.0f;
-        c.silenceMs = 0;
-        check(!autonomy::configure(c), "a silence window of zero is refused");
-
-        check(autonomy::tuning().silenceMs == 500, "and a refused config did not partially apply");
     }
 
     // ---- the firmware's maths, running off the Pico -------------------------

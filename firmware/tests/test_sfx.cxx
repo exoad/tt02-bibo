@@ -1,7 +1,7 @@
 /*
  * The clip table in lib/sfx.hxx.
  *
- *   firmware\tests\build_sfx_test.bat run
+ *   tools\test.bat sfx run
  *
  * A table of names and numbers cannot be wrong in an interesting way - which is
  * exactly why it is worth a test. The failures it CAN have are all quiet ones:

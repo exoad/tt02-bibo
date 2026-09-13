@@ -1,7 +1,7 @@
 /*
  * The parsers in lib/text.h.
  *
- *   firmware\tests\build_text_test.bat run
+ *   tools\test.bat text run
  *
  * These exist because text.h CHANGED THE SEMANTICS of parsing, and a stricter
  * parser is only an improvement if it still accepts everything valid. The old

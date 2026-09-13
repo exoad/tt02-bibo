@@ -22,7 +22,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-# -Wno-unused-function for the same reason build_pilot_test.bat passes /wd4505:
+# -Wno-unused-function for the same reason tools\test.bat pilot passes /wd4505:
 # firmware/lib's headers define their functions `static`, so a consumer using a
 # subset of a header trips it on every function it does not call.
 add_compile_options(-Wall -Wextra -Wno-unused-function)
@@ -35,8 +35,8 @@ set(FWLIB  ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 # Everything else here - the tests, the probe - links this.
 add_library(
     pilotlib STATIC
-    src/proto.cxx src/link.cxx src/autonomy.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx
-    src/feed.cxx src/bibowire.cxx src/viewfeed.cxx src/archive.cxx src/trimfile.cxx
+    src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/scanwire.cxx src/feed.cxx
+    src/bibowire.cxx src/viewfeed.cxx src/trimfile.cxx
 )
 target_include_directories(pilotlib PUBLIC ${SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -104,7 +104,7 @@ enable_testing()
 # only prove that start() returns false - which test_pilot already proves for
 # the lidar and the link. On the board they exercise the feeds over loopback:
 # feed the hub's lines on 8011, viewfeed bibowire's frames on 8020.
-foreach(t proto pilot reactive scanwire feed bibowire viewfeed archive trimfile)
+foreach(t proto pilot reactive scanwire feed bibowire viewfeed trimfile)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})
