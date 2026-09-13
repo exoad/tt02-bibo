@@ -188,6 +188,17 @@ static Void testFloat(Void)
     check(!bibo::text::toFloat("0.5x", &f), "trailing rubbish is refused");
     check(!bibo::text::toFloat("", &f), "empty is refused");
     check(!bibo::text::toFloat(nullptr, &f), "nullptr is refused");
+
+    /* strtod reads these as numbers; STEER must not. */
+    f = -99.0f;
+    check(!bibo::text::toFloat("NAN", &f), "NAN is refused");
+    check(!bibo::text::toFloat("nan", &f), "nan is refused");
+    check(!bibo::text::toFloat("inf", &f), "inf is refused");
+    check(!bibo::text::toFloat("-INF", &f), "-INF is refused");
+    check(!bibo::text::toFloat("INFINITY", &f), "INFINITY is refused");
+    check(!bibo::text::toFloat("1e39", &f), "a number past Float32's range is refused");
+    check(near(f, -99.0f), "  and the caller's variable is untouched");
+    check(bibo::text::toFloat("0.25", &f) && near(f, 0.25f), "0.25 still parses");
 }
 
 /**

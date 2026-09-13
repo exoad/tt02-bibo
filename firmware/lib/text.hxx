@@ -15,6 +15,7 @@
 #include "shared.hxx"
 
 #include <ctype.h>
+#include <float.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -263,12 +264,14 @@ namespace bibo::text
     /**
      * @brief Parses `s` as a fraction, under the same contract as toInt().
      *
-     * Accepts "1", "-0.5", ".25".
+     * Accepts "1", "-0.5", ".25". Refuses NAN, INF and anything a Float32
+     * cannot hold: strtod accepts those words, and "STEER NAN" would otherwise
+     * reach an Int32 cast.
      *
      * @param s the text to parse
      * @param out where the parsed value is written; untouched on failure
      * @return true when all of `s`, aside from surrounding space, was
-     *         consumed as one number
+     *         consumed as one finite number
      *
      * @note Returns false without writing to `out` if `s` is empty/null or
      *       `out` is null.
@@ -292,6 +295,12 @@ namespace bibo::text
             ++end;
         }
         if(*end != '\0')
+        {
+            return false;
+        }
+
+        /* Written so NaN fails too: every comparison with NaN is false. */
+        if(!(v >= -FLT_MAX && v <= FLT_MAX))
         {
             return false;
         }
