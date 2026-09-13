@@ -116,9 +116,9 @@ namespace lidar
     // exclusive once the SDK has its own.
     //
     // This exists because the SDK cannot be trusted to report an unopenable
-    // port: hub/src/lidar_source.cxx documents the shadowed `ans` in the SDK's
-    // openChannelAndBind() that turns a failed channel open into a successful
-    // connect(). Without this probe a missing /dev/ttyUSB0 is reported two
+    // port: a shadowed `ans` in its openChannelAndBind() turns a failed channel
+    // open into a successful connect() - "The C1" in firmware/pilot/README.md.
+    // Without this probe a missing /dev/ttyUSB0 is reported two
     // seconds later as "nothing answered at 460800 baud", pointing whoever
     // reads it at the baud rate when the cable is the problem.
     //
@@ -519,7 +519,7 @@ namespace lidar
           reactive::Ray ray;
           // angle_z_q14 is q14 fixed point scaled so that 1.0 == 90 degrees;
           // dist_mm_q2 is q2 millimetres. Both conversions are the SDK
-          // sample's, and hub/src/lidar_source.cxx's, to the constant.
+          // sample's, to the constant.
           ray.angleDeg = static_cast<Float32>(n.angle_z_q14) * 90.0f / 16384.0f;
           ray.distMm = static_cast<Float32>(n.dist_mm_q2) / 4.0f;
           out.push_back(ray);

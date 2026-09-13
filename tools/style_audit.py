@@ -10,13 +10,6 @@ file is full of prose describing the rules it enforces.
 import io, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-# ONE level up, not two. This file lived at hub/tools/ until 2026-09-08, where
-# two was right; it now lives at tools/. The moment it moved, every path in
-# DIRS resolved to a directory ABOVE the repo, and the audit scanned nothing at
-# all while still being perfectly runnable - the exact shape of bug this repo
-# keeps finding. The missing-directory check below turned it into twelve loud
-# failures instead of a silent pass, which is what that check is for.
 ROOT = os.path.join(HERE, '..')
 
 
@@ -24,14 +17,11 @@ def at(*parts):
     return os.path.join(ROOT, *parts)
 
 
-# Everything in this repo that is OURS. vendor/ (and hub/vendor's imgui copy)
-# is upstream and is not audited. The list is explicit rather than a walk so
-# that adding a directory is a decision somebody makes - a walk hides the
-# interesting mistake, a directory nobody remembered.
+# Everything in this repo that is OURS. vendor/ and third_party/ are upstream
+# and are not audited. The list is explicit rather than a walk so that adding a
+# directory is a decision somebody makes - a walk hides the interesting mistake,
+# a directory nobody remembered.
 DIRS = [
-    # hub/ was deleted on 2026-09-08 and replaced by a much smaller viewer.
-    # Its entries lived here; viewer/ took their place the moment it had
-    # sources, which it now does - one window, one 3D view, three panels.
     at('viewer', 'src'),
     # The viewer's own suite, added 2026-09-10 when it first had sources. It was
     # format-gated from the moment it existed - format.py reads untracked files
@@ -39,7 +29,6 @@ DIRS = [
     # long as this line was missing. A directory that compiles and is checked by
     # one gate and not the other is the quietest kind of gap.
     at('viewer', 'tests'),
-    at('lidar', 'bridge'),
     at('firmware', 'lib'),
     at('firmware', 'lib', 'drivers'),
     at('firmware', 'lib', 'chassis'),
@@ -56,21 +45,6 @@ DIRS = [
     at('firmware', 'pilot', 'tools'),
     at('shared'),
 ]
-
-# Listed in DIRS, and allowed to be ABSENT: reserved for what lands there
-# tomorrow rather than describing something that exists today.
-#
-# board_preview holds an untracked build/ and no sources, and git does not track
-# an empty directory - so it is here on the machine that made it and nowhere in
-# a fresh checkout. Without this set the missing-directory error below fired on
-# every CI run while passing on every laptop, which is the worst shape a gate
-# can have: green where it is written, red where it is read.
-#
-# Keep this set SMALL. Every name in it is a directory the audit is not really
-# auditing; the moment sources land there, delete the line.
-RESERVED = {
-    at('hub', 'tests', 'board_preview'),
-}
 
 # Rules C cannot follow, so they are not applied to it:
 #   - named casts. C has no static_cast; `(Int64) x` is the only spelling there
@@ -375,10 +349,8 @@ missing = []
 for d in DIRS:
     if not os.path.isdir(d):
         # Not skipped silently: that is how firmware/pilot fell out of the audit
-        # for weeks. A path in DIRS that matches nothing is a broken promise -
-        # unless it is one this file made on purpose, see RESERVED.
-        if d not in RESERVED:
-            missing.append(os.path.relpath(d, ROOT))
+        # for weeks. A path in DIRS that matches nothing is a broken promise.
+        missing.append(os.path.relpath(d, ROOT))
         continue
     for f in sorted(os.listdir(d)):
         if f.endswith(('.cxx', '.hxx', '.h', '.c')):
@@ -912,7 +884,7 @@ for path in files:
 #
 # NOT LISTED: hal.hxx (deliberately many namespaces - it is THE BOARD - checked
 # as a set below), shared.hxx (the vocabulary itself, not a module), cal.hxx
-# (hub-generated, and macros besides), bibo.hxx (the umbrella, declares nothing).
+# (macros), bibo.hxx (the umbrella, declares nothing).
 MODULE_NAMESPACE = {
     'boot.hxx':     'boot',
     'lights.hxx':   'lights',
@@ -934,8 +906,8 @@ HAL_NAMESPACES = {'gpio', 'timing', 'serial', 'board', 'pwm', 'servo', 'led',
 print('\n--- namespaces ---')
 ns_bad = 0
 for path in files:
-    # By PATH, not just by name: hub/src/lights.hxx is the hub's own model of
-    # the same lamps and reported itself missing a namespace it never had.
+    # By PATH, not just by name: a header outside firmware/lib may share a
+    # module's file name without being that module.
     if '/firmware/lib' not in path.replace('\\', '/'):
         continue
 
