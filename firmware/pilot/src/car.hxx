@@ -48,12 +48,16 @@
 //     again as each throttle line goes out - or the viewer's feed stuck for
 //     VIEWER_STUCK_MS, so its ESTOP could no longer arrive.
 //   - Sends STOP on every way out: finish(), ~Car(), exit(), an uncaught
-//     exception, and a crash (SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT), a stack
-//     overflow included on the thread that made the Car or on the Car's own.
-//     After a Ctrl-C, a second Ctrl-C kills the program outright. Only SIGKILL
-//     and a power cut are left to the Pico's own watchdog: throttle neutral
-//     after bibowire::PICO_DEADMAN_MS, steering held, still armed until the next
-//     run's opening STOP.
+//     exception, and a crash (SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT). A stack
+//     overflow is covered on the threads that have a signal stack: the one that
+//     made the Car, and the minder, lidar and printer threads - not the viewer
+//     feed's or the Pico reader's. After a Ctrl-C, a second Ctrl-C kills the
+//     program outright.
+//   - Left to the Pico's own watchdog (bibowire::PICO_DEADMAN_MS: throttle
+//     neutral, steering held, still armed until the next run's opening STOP):
+//     SIGKILL, a hung Orange Pi, and a stack overflow on a thread without a
+//     signal stack. A power cut or a pulled USB cable turns the Pico off too, so
+//     no watchdog runs and the ESC's own reaction to a lost signal decides.
 //   - Stopping is not instant: the Pico slews the throttle back to neutral
 //     rather than cutting it, and the lidar is up to one revolution behind.
 //     Leave room for both in your distances.

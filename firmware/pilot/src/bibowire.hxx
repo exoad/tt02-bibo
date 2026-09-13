@@ -839,11 +839,10 @@ namespace bibowire
       // ask" and is what every viewer written before this field sends, so the
       // board's own default stands and nothing changes for them.
       //
-      // This occupies what section 5 calls `reserved0`, which is what a
-      // reserved field is for: the length is still 12, an older board ignores
-      // it exactly as it always ignored those two bytes, and a newer board
-      // reading an older viewer sees 0 and keeps its default. No version bump,
-      // and no frame changes size.
+      // It sits in two bytes that used to be reserved, which is what reserved
+      // bytes are for: the length is still 12, an older board ignores them
+      // exactly as it always did, and a newer board reading an older viewer sees
+      // 0 and keeps its default. No version bump, and no frame changes size.
       UInt16 camFps = 0;
   };
 
