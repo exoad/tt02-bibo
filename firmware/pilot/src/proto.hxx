@@ -1,54 +1,29 @@
-// The car's line protocol, read and written from the companion board.
-//
-// The Pico speaks newline-terminated ASCII in both directions and has done
-// since long before there was anything but a person typing at it. Nothing here
-// invents a wire format - it reads the one that already exists.
-//
-// ---------------------------------------------------------------------------
-// WHY THE COMPANION SPEAKS THE HUMAN PROTOCOL
-//
-// A binary protocol between two computers is the obvious choice and it is the
-// wrong one here. The text protocol is already implemented on the board, is
-// already carried over both USB CDC and UDP, and can be driven by hand when
-// something is wrong. A second format
-// would mean a second parser in the firmware, on a board whose flash is the
-// scarce resource, to save bytes on a link that carries a few hundred a second.
-//
-// The cost is real and worth naming: parsing text is where the bugs live. That
-// is what this file is for.
-//
-// ---------------------------------------------------------------------------
-// WHAT THE BOARD SAYS
+// The car's line protocol, read and written from the companion board: the
+// Pico's newline-terminated ASCII. Text rather than binary because the firmware
+// already parses it and a person can drive it by hand; a second format would
+// need a second parser in the Pico's scarce flash. Parsing text is where the
+// bugs live, and this file is where that parsing is held to account.
 //
 //     OK <verb> [key=value ...]      it did the thing
 //     ERR <reason>                   it did not, and why
 //     INFO <topic> [key=value ...]   telemetry, solicited or not
 //
-// Fields are read BY NAME rather than by position, so a field added to the
-// firmware later is ignored by an older reader instead of shifting everything
-// after it. What that needs is a reader that respects token boundaries - see
-// field().
-//
-// ---------------------------------------------------------------------------
-// Pure: no sockets, no serial, no clock. That is what makes it testable on a
-// laptop today, months before the board it is for is plugged in.
+// Fields are read BY NAME, so a field the firmware adds later is ignored by an
+// older reader instead of shifting the rest. Pure: no sockets, serial or clock.
 #pragma once
 
 #include "shared.hxx"
 
 namespace proto
 {
-
   enum class Kind
   {
       KIND_OK = 0,
       KIND_ERR,
       KIND_INFO,
 
-      // A line that is none of the above. NOT an error: the board prints banner
-      // text at boot and a person may be typing into the same port. A companion
-      // that treats every unrecognized line as a fault is a companion that stops
-      // when somebody opens a terminal.
+      // None of the above, and NOT an error: the board prints banner text at
+      // boot, and a person may be typing into the same port.
       KIND_OTHER,
 
       // Nothing but whitespace.
@@ -64,12 +39,10 @@ namespace proto
       // whose remainder is prose rather than a topic, and for OTHER.
       Str topic;
 
-      // Everything after the topic, which is where the key=value pairs live.
-      // For ERR this is the whole reason.
+      // Everything after the topic: the key=value pairs, or ERR's whole reason.
       Str rest;
 
-      // The line as received, minus the line ending. Kept because a log of what
-      // the board actually said is worth more than a log of what we made of it.
+      // The line as received, minus the line ending, for logs.
       Str line;
   };
 
@@ -78,33 +51,22 @@ namespace proto
 
   // The value of `key` in `text`, or false if it is not there.
   //
-  // MATCHES ON TOKEN BOUNDARIES, and that is the whole reason this function
-  // exists rather than a strstr at each call site. `strstr(line, "esc=")` finds
-  // the "esc=" inside "desc=" and returns a number from the wrong field, having
-  // reported success. The key here must start the text or follow a space.
+  // MATCHES ON TOKEN BOUNDARIES: the key must start the text or follow a space.
+  // A plain substring search finds "esc=" inside "desc=" and reports success
+  // with a number from the wrong field.
   //
   // The value runs to the next space. No quoting: nothing the firmware emits
-  // has a space in a value, and inventing an escape convention for a case that
-  // does not arise would be a second format to keep in step.
+  // has a space in a value.
   [[nodiscard]] Bool field(const Str& text, const Char* key, Str& out);
 
   // The same, converted. False when the key is absent OR the value is not a
-  // number - a field that is present and unparseable is a change in the
-  // firmware, not a default worth guessing at.
+  // number: an unparseable value is a firmware change, not a default to guess.
   [[nodiscard]] Bool fieldInt(const Str& text, const Char* key, Int32& out);
   [[nodiscard]] Bool fieldFloat(const Str& text, const Char* key, Float32& out);
 
-  // ---- what the companion sends -----------------------------------------
-  //
-  // Formatted here rather than at the call sites so there is one place where
-  // the number formatting is decided. printf("%f") is locale-sensitive and a
-  // machine set to a comma decimal separator would send `STEER 0,25`, which the
-  // board's parser reads as 0 - a silent hard-left at the first corner on a
-  // developer's laptop in the wrong locale.
-
-  // A steering command, as a fraction of this car's travel. Clamped to -1..1,
-  // because the board clamps anyway and a companion that sends 4.0 has a bug
-  // worth seeing at the point it happens.
+  // A steering command, as a fraction of this car's travel, clamped to -1..1.
+  // Never formatted with printf("%f"), which is locale-sensitive: see fixed3 in
+  // proto.cxx.
   [[nodiscard]] Str steer(Float32 fraction);
 
   // A throttle pulse in microseconds.
@@ -115,5 +77,4 @@ namespace proto
 
   // Any other command, assembled without a format string.
   [[nodiscard]] Str command(const Char* verb, const Char* args = "");
-
 }

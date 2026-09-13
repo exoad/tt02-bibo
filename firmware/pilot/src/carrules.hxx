@@ -2,8 +2,7 @@
 // flags, lidar rays to a Scan, the Pico's replies, the ESC and STEER lines, the
 // Governor that picks what the minder sends each pass, and the Sender that holds
 // a throttle line to the send gap as it goes out. Times arrive as numbers and the
-// port as a function, so tests/test_carrules.cxx holds all of it to an answer on
-// any compiler.
+// port as a function, so tests/test_carrules.cxx runs all of it on any compiler.
 #pragma once
 
 #include "shared.hxx"
@@ -14,9 +13,6 @@
 
 namespace carrules
 {
-
-  // ---- flags --------------------------------------------------------------------
-
   struct Options
   {
       Bool drive = false;                              // --drive; otherwise a dry run
@@ -36,14 +32,10 @@ namespace carrules
   // LIDAR_FORWARD_MEASURED) is false and no --forward was given.
   [[nodiscard]] Bool parseArgs(Int32 argc, Char** argv, Bool measured, Options& out, Str& why);
 
-  // ---- the lidar ----------------------------------------------------------------
-
   // Revolution number rev from lidar::grab, in the car's frame. Rays with no
   // return (distMm not above 0) are dropped, millimetres become metres, and each
   // raw angle becomes its bearing from forwardDeg, folded to -180..180.
   [[nodiscard]] bibo::Scan toScan(const Vec<reactive::Ray>& rays, Float32 forwardDeg, UInt32 rev);
-
-  // ---- the Pico -----------------------------------------------------------------
 
   // What the Pico last said about itself. The Int32 fields come from the latest
   // OK drive line (firmware/app/main.cxx printDrive); -1 is "that line did not
@@ -76,8 +68,7 @@ namespace carrules
   // The pulse in an "ESC <us>" line, or -1 for any other line.
   [[nodiscard]] Int32 pulseIn(const Str& line);
 
-  // ---- how a run ends -----------------------------------------------------------
-
+  // How a run ends.
   enum class End
   {
       END_NONE = 0,         // still running
@@ -102,8 +93,6 @@ namespace carrules
 
   // finish()'s exit code, as car.hxx lists it.
   [[nodiscard]] Int32 exitCode(End e, UInt64 goodRevolutions);
-
-  // ---- the Governor -------------------------------------------------------------
 
   enum class Arm
   {
@@ -167,8 +156,6 @@ namespace carrules
       Int64 heardMs = -1;
   };
 
-  // ---- sending --------------------------------------------------------------------
-
   // How long a forward pulse's write may still take at nowMs and finish within
   // SEND_GAP_STOP_MS of sentMs, when the port last accepted a line. 0 or less -
   // and always while nothing has been accepted (sentMs -1) - is too late to send.
@@ -191,9 +178,9 @@ namespace carrules
       // One pass's lines, in order. A forward pulse goes only if every line this
       // pass sent before it, the first included, went within SEND_GAP_STOP_MS of
       // the line before it, and only with the wait pulseWaitMs leaves, judged as
-      // it goes. Otherwise a line may have reached the Pico after its watchdog
+      // it goes: otherwise a line may have reached the Pico after its watchdog
       // fired, and the pulse would put throttle back. A pulse that cannot go, or
-      // does not, is replaced by STOP and ends the pass, and ended is set:
+      // does not, is replaced by STOP, which ends the pass and sets ended to
       // END_LINK_LOST when the port had closed, END_SEND_GAP otherwise. Returns
       // the lines sent or tried, that STOP included.
       [[nodiscard]] Vec<Str> pass(const Vec<Str>& lines, End& ended);
@@ -215,5 +202,4 @@ namespace carrules
       Int64 recentMs = 0;
       Int64 passMs = 0;      // the longest gap within the pass being sent
   };
-
 }

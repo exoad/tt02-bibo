@@ -7,7 +7,6 @@
 //                                    step 2), or with --forward DEG.
 //
 // Ctrl-C, or the ESTOP button in the viewer, stops it at any moment.
-
 #include "car.hxx"
 
 #include <algorithm>
@@ -31,15 +30,12 @@ Int32 main(Int32 argc, Char** argv)
     while(car.ok())
     {
         const bibo::Scan scan = car.scan();
-
         // Negative bearings are LEFT and positive are RIGHT - the same sign as steer.
         const Float32 left = std::min(scan.nearest(-80.0f, -15.0f), PLENTY_M);
         const Float32 right = std::min(scan.nearest(15.0f, 80.0f), PLENTY_M);
-
         // More room on the right gives a positive value, which steers right.
         // Always -1..1, and 0 when blind (both sides read 0).
         const Float32 steer = (right - left) / PLENTY_M;
-
         const Bool clear = scan.ahead() > STOP_AT_M;
         car.drive(clear ? CRUISE : 0.0f, steer);
     }

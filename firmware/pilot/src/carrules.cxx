@@ -1,5 +1,3 @@
-// See carrules.hxx.
-
 #include "carrules.hxx"
 
 #include <algorithm>
@@ -11,7 +9,6 @@
 
 namespace
 {
-
   constexpr Float32 DEG_TO_RAD = 3.14159265358979323846f / 180.0f;
   constexpr Int32 NEUTRAL_US = bibowire::ESC_NEUTRAL_US;
 
@@ -99,12 +96,10 @@ namespace
       return b.stopAnswered && b.armed == 1 && b.servoOn == 1
              && b.escMaxUs > std::max(b.escMinUs, NEUTRAL_US);
   }
-
 }
 
 namespace bibo
 {
-
   Bool Scan::blind() const
   {
       return revolution == 0 || points.size() < static_cast<Size>(SCAN_MIN_POINTS);
@@ -148,12 +143,10 @@ namespace bibo
       }
       return nth.result();
   }
-
 }
 
 namespace carrules
 {
-
   Str usage()
   {
       return Str("flags:\n")
@@ -172,7 +165,6 @@ namespace carrules
       out = Options();
       why.clear();
       Bool forwardGiven = false;
-
       for(Int32 i = 1; i < argc; ++i)
       {
           const Str flag = argv[i] != nullptr ? argv[i] : "";
@@ -191,7 +183,6 @@ namespace carrules
               out.help = true;
               continue;
           }
-
           const Bool takesValue = flag == "--seconds" || flag == "--forward"
                                   || flag == "--lidar" || flag == "--pico";
           if(!takesValue)
@@ -205,7 +196,6 @@ namespace carrules
               return false;
           }
           const Str value = argv[++i];
-
           if(flag == "--seconds")
           {
               Int64 n = 0;
@@ -242,7 +232,6 @@ namespace carrules
               out.picoPort = value;
           }
       }
-
       if(out.drive && !out.help && !measured && !forwardGiven)
       {
           why = "--drive needs the lidar's forward angle: measure it with a dry run and set"
@@ -290,7 +279,6 @@ namespace carrules
       {
           return false;
       }
-
       // The '=' is part of each key, and proto::field matches whole keys, so
       // esc= is never read out of esc_min=.
       b.armed = keyOr(r.rest, "armed=");
@@ -425,7 +413,6 @@ namespace carrules
   Vec<Str> Governor::pass(const Inputs& in)
   {
       const Int64 now = in.nowMs;
-
       // First, so that the Pico disarming in answer to a signal handler's own
       // STOP reads as the signal.
       if(in.signal)
@@ -440,7 +427,6 @@ namespace carrules
       {
           end(End::END_VIEWER_STUCK);
       }
-
       if(!in.replies.empty())
       {
           heardMs = now;
@@ -468,7 +454,6 @@ namespace carrules
               armedMs = now;
           }
       }
-
       const Bool arming = arm == Arm::ARM_PENDING || arm == Arm::ARM_CONFIRMED;
       if(!dry && in.linkLost)
       {
@@ -492,7 +477,6 @@ namespace carrules
       {
           end(End::END_SEND_GAP);
       }
-
       if(reason != End::END_NONE)
       {
           return dry ? Vec<Str>() : Vec<Str>{proto::stop()};
@@ -517,7 +501,6 @@ namespace carrules
       {
           return {neutralLine()};
       }
-
       // The steering is sent every pass, so it holds while the throttle is neutral.
       const Bool fresh = in.driveMs >= 0 && now - in.driveMs <= bibo::DRIVE_FRESH_MS
                          && in.scanMs >= 0 && now - in.scanMs <= bibo::SCAN_FRESH_MS
@@ -617,5 +600,4 @@ namespace carrules
       recentMs = 0;
       return gap;
   }
-
 }

@@ -4,43 +4,19 @@
 
 namespace bibowire
 {
-
-  // Both ends are little-endian forever - aarch64 Linux on the board, x86-64
-  // Windows in the viewer - and byte-swapping every field to buy a portability
-  // nobody will use costs the Pi cycles it has better uses for. Asserted rather
-  // than assumed, so the day somebody builds this for a big-endian target they
-  // get a compile error instead of a scan drawn inside out.
+  // Both ends are little-endian (aarch64 board, x86-64 viewer), so no field is
+  // byte-swapped. A big-endian build fails here instead of drawing a scan
+  // inside out.
   static_assert(
       std::endian::native == std::endian::little,
       "bibowire is little-endian on the wire; this target is not"
   );
 
-  // The single cheapest safety artifact in this protocol. Every design that led
-  // here confessed its deadman will make the car stutter outdoors and that
-  // someone will eventually raise the constant because they were right that it
-  // felt bad. This is the only thing standing in the way of that edit, and what
-  // it protects is not the stop - it is the DIAGNOSABILITY of the stop.
-  //
-  // WHAT THIS ASSERTED UNTIL 2026-09-13, and why it does not any more:
-  //
-  //     CONTROL_DEAD_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS
-  //
-  // 300 + 100 <= 400, read as "the Pi's stop must beat the Pico's". It was
-  // comparing two different clocks. CONTROL_DEAD_MS measures VIEWER->PI
-  // silence; PICO_DEADMAN_MS measures PI->PICO silence. A viewer that goes
-  // quiet never trips the board at all, whatever these numbers are, because
-  // the pilot keeps sending every tick throughout - which is exactly what the
-  // tick's own comment calls load-bearing. The ordering was protecting against
-  // a case the sender already rules out, and the price was a 400 ms floor
-  // under the only layer that covers the Pi hanging.
-  //
-  // The real invariant is about the SENDER's cadence: the board must not trip
-  // while the pilot is alive and ticking. The gap between two lines reaching
-  // it is one keepalive period plus one hop, so that is what is asserted, and
-  // it is asserted where the keepalive is defined - firmware/pilot/app/main.cxx,
-  // beside REV_WAIT_MS, because the two together are what bound the gap. This
-  // header cannot see that constant; the pilot cannot see PICO_HOP_BUDGET_MS
-  // without this one.
+  // The Pico's watchdog must not trip while the pilot is ticking. The
+  // keepalive gap is asserted beside PICO_KEEPALIVE_MS in
+  // firmware/pilot/app/main.cxx. CONTROL_DEAD_MS is deliberately not compared
+  // with PICO_DEADMAN_MS: it measures viewer->Pi silence, and the pilot keeps
+  // sending to the Pico throughout one.
   static_assert(
       TICK_MS + PICO_HOP_BUDGET_MS <= PICO_DEADMAN_MS,
       "a pilot ticking normally must never trip the board's watchdog, or the blunt layer fires routinely and prints ERR watchdog onto a cable nobody is watching"
@@ -48,14 +24,8 @@ namespace bibowire
 
   namespace
   {
-
-    // ---- body lengths ------------------------------------------------------
-    //
-    // The constant term of each type's size expression: the body with every
-    // variable tail empty. The catalog carries the same numbers and the test
-    // suite checks them against what writeX actually produces, so a layout that
-    // moves without its row moving is a failure rather than a stale document.
-
+    // Each body with every variable tail empty. The catalog carries the same
+    // numbers, and the tests check them against what writeX produces.
     constexpr Size HELLO_FIXED = 20;
     constexpr Size WELCOME_FIXED = 40;
     constexpr Size BYE_FIXED = 4;
@@ -92,10 +62,8 @@ namespace bibowire
         return PATH_FIXED + 8u * count;
     }
 
-    // A body is acceptable when it is EXACTLY what this version promises. A
-    // HIGHER ver may carry a tail this build has no name for, and the tail is
-    // ignored - which works precisely because `len` is authoritative and every
-    // body is fixed-width up to the point a new field would begin.
+    // EXACTLY this version's length. A HIGHER ver may carry a tail, ignored:
+    // `len` is authoritative and every body is fixed-width up to a new field.
     [[nodiscard]] Bool lenOk(const Body& b, UInt8 ver, Size need)
     {
         if(ver > 1)
@@ -110,12 +78,8 @@ namespace bibowire
         return b.bytes != nullptr && ver != 0 && b.len >= fixed;
     }
 
-    // ---- CRC32C ------------------------------------------------------------
-    //
-    // Castagnoli reflected, 0x82F63B78. Built at compile time so the module has
-    // no mutable state to initialize and nothing to race on: `constexpr` data
-    // is not a global in the sense that matters, it is a constant in the image.
-
+    // Castagnoli reflected, 0x82F63B78, built at compile time: no mutable state
+    // to initialise or race on.
     [[nodiscard]] constexpr Array<UInt32, 256> buildCrcTable()
     {
         Array<UInt32, 256> t{};
@@ -134,14 +98,8 @@ namespace bibowire
 
     constexpr Array<UInt32, 256> CRC_TABLE = buildCrcTable();
 
-    // ---- text, built from integers by hand ---------------------------------
-    //
-    // NOT through the C library. snprintf's integer conversions happen to be
-    // locale-independent today, but the whole point of a wire with no floats on
-    // it is that there is no formatting step a locale can reach - and a
-    // renderer that reaches for %f the day somebody adds a float would put the
-    // bug straight back. Digits assembled here cannot.
-
+    // Digits built by hand, NOT through the C library: no formatting step a
+    // locale can reach, and no %f waiting for the day somebody adds a float.
     [[nodiscard]] Str decU(UInt64 v)
     {
         if(v == 0u)
@@ -164,7 +122,7 @@ namespace bibowire
         if(v < 0)
         {
             // Through UInt64 rather than -v: negating the most negative Int64
-            // overflows, and a renderer is not where that should be discovered.
+            // overflows.
             const UInt64 mag = static_cast<UInt64>(-(v + 1)) + 1u;
             return Str("-") + decU(mag);
         }
@@ -199,9 +157,8 @@ namespace bibowire
         return s;
     }
 
-    // Centi-units as a decimal a person reads, assembled from integers. The
-    // point of this file is that this dot is arithmetic and not a radix
-    // character somebody's locale chose.
+    // Centi-units as a decimal; the dot is arithmetic, not a locale's radix
+    // character.
     [[nodiscard]] Str centi(Int32 v)
     {
         const Bool neg = v < 0;
@@ -214,9 +171,9 @@ namespace bibowire
         return s;
     }
 
-    // A sentence on the wire is bytes a stranger wrote. It is rendered between
-    // quotes with its control characters flattened, so a log line stays one
-    // line and a terminal escape in an EVENT cannot repaint somebody's screen.
+    // Wire text is a stranger's bytes: quoted, with control characters
+    // flattened, so a log line stays one line and a terminal escape cannot
+    // repaint somebody's screen.
     [[nodiscard]] Str quoteText(const Str& text)
     {
         Str s = "\"";
@@ -254,8 +211,6 @@ namespace bibowire
             std::memcpy(p, text.data(), text.size());
         }
     }
-
-    // ---- names -------------------------------------------------------------
 
     [[nodiscard]] CharSeq healthName(UInt8 v)
     {
@@ -404,8 +359,6 @@ namespace bibowire
         }
     }
 
-    // ---- the catalog -------------------------------------------------------
-
     constexpr Array<Type, TYPE_COUNT> ALL_TYPES = {
         Type::TYPE_HELLO, Type::TYPE_WELCOME, Type::TYPE_BYE, Type::TYPE_PING,
         Type::TYPE_PONG, Type::TYPE_LEAVE, Type::TYPE_SCAN, Type::TYPE_DECIDE,
@@ -500,14 +453,10 @@ namespace bibowire
         }
         return true;
     }
-
   }
 
-  // knownType is a HAND-WRITTEN switch and not a lookup in the table, on
-  // purpose: it is the second opinion. The static_asserts below require the two
-  // to agree for all 256 tags, so a type added to one and forgotten in the
-  // other does not compile. What no C++20 check can catch is an enumerator
-  // added to Type and to NEITHER - written down rather than left to be found.
+  // A hand-written switch, not a table lookup, on purpose: it is the second
+  // opinion, and the static_asserts below require the two to agree.
   Bool knownType(UInt8 tag)
   {
       switch(tag)
@@ -542,7 +491,6 @@ namespace bibowire
 
   namespace
   {
-
     [[nodiscard]] constexpr Bool knownTypeAgreesWithCatalog()
     {
         for(Size i = 0; i < 256u; ++i)
@@ -594,7 +542,6 @@ namespace bibowire
         }
         return true;
     }
-
   }
 
   static_assert(
@@ -642,13 +589,10 @@ namespace bibowire
   Class classOf(Type t)
   {
       const Desc* d = descOf(t);
-      // An unknown tag is skipped by `len` and counted, never queued - so the
-      // class it would have had never comes up. VITAL is the answer that cannot
-      // silently drop something, which is the right way to be wrong here.
+      // An unknown tag is never queued; VITAL is the answer that cannot
+      // silently drop something.
       return d != nullptr ? d->cls : Class::CLASS_VITAL;
   }
-
-  // ---- framing ---------------------------------------------------------------
 
   UInt32 crc32c(const UInt8* data, Size len)
   {
@@ -675,7 +619,6 @@ namespace bibowire
       {
           return Take::TAKE_NEED_MORE;
       }
-
       Size at = 0;
       for(;;)
       {
@@ -686,10 +629,8 @@ namespace bibowire
           }
           if(p + 2u > len)
           {
-              // Nothing that could still become a frame. A lone trailing 0x42
-              // is KEPT - it may be the first half of a magic whose second byte
-              // has not arrived - and everything before it is junk that is
-              // reported rather than dropped in silence.
+              // No magic left. A trailing 0x42 is KEPT as the possible first
+              // half of one; everything before it is reported as junk.
               Size keep = 0;
               if(len > 0u && buf[len - 1u] == MAGIC_LO)
               {
@@ -707,7 +648,6 @@ namespace bibowire
               }
               return Take::TAKE_NEED_MORE;
           }
-
           at = p;
           const Size avail = len - at;
           if(avail < HEAD_BYTES)
@@ -719,41 +659,24 @@ namespace bibowire
               }
               return Take::TAKE_NEED_MORE;
           }
-
           const UInt8 tag = rd8(buf + at + 2u);
           const UInt8 ver = rd8(buf + at + 3u);
           const UInt16 flags = rd16(buf + at + 4u);
           const UInt16 seq = rd16(buf + at + 6u);
           const UInt32 plen = rd32(buf + at + 8u);
-
-          // THE KNOWN-TYPE TEST IS A RESYNC FILTER, NOT AN ACCEPTANCE TEST, and
-          // the document is in two minds about it: section 3 lists "type is a
-          // known tag" among the things a resync candidate must satisfy, while
-          // sections 5 and 7 promise that an unknown type is "skipped by exactly
-          // len and counted, never fatal" - which is what lets an older viewer
-          // keep driving a newer board. Both hold only if the tag is judged
-          // where it matters and not where it does not.
-          //
-          // At the stream position (at == 0) we are already on a boundary the
-          // previous frame proved, so the CRC alone is enough and a tag this
-          // build has no name for is handed up with its length honoured. Deeper
-          // in, we are guessing where a frame starts, and requiring a known tag
-          // is most of what keeps a false lock near 2^-48.
+          // The known-type test is a resync filter, not an acceptance test. At
+          // the stream position (at == 0) the previous frame proved the
+          // boundary, so the CRC suffices and an unknown tag is handed up to be
+          // skipped by its `len` (sections 5 and 7). Deeper in, requiring a
+          // known tag is most of what keeps a false lock near 2^-48.
           const Bool atBoundary = at == 0u;
           const Bool shaped = ver != 0u && (plen % 4u) == 0u && (atBoundary || knownType(tag));
-
           if(shaped && plen > MAX_PAYLOAD)
           {
-              // A peer whose TAG WE KNOW, at the stream position, telling us how
-              // much memory to find: that is the hostile-or-broken case, and it
-              // is answered rather than skipped past. Nothing is allocated for
-              // the claim either way.
-              //
-              // The known-tag half is load-bearing and was learned the hard way:
-              // without it, four bytes of junk that happen to spell the magic
-              // and a nonzero ver close a healthy connection instead of being
-              // resynced past. An unknown tag here is only junk wearing a
-              // header, so it is rejected like any other bad candidate.
+              // A known tag at the stream position claiming too much is a
+              // hostile or broken peer, answered rather than skipped. The
+              // known-tag test is load-bearing: without it, junk that spells
+              // the magic with a nonzero ver would close a healthy connection.
               if(atBoundary && knownType(tag))
               {
                   return Take::TAKE_TOO_BIG;
@@ -768,13 +691,8 @@ namespace bibowire
           }
           if((flags & FLAG_MORE) != 0u)
           {
-              // A flag that changes FRAMING may not be ignored by a reader that
-              // cannot honour it. FLAG_MORE is reserved for fragmenting a
-              // future camera frame and must be 0 in v1.
-              //
-              // Guarded by the known tag for the same reason TAKE_TOO_BIG is:
-              // refusing a connection because junk set a bit is a worse failure
-              // than the one the refusal exists to catch.
+              // A framing flag may not be ignored: FLAG_MORE must be 0 in v1.
+              // Guarded by the known tag for TAKE_TOO_BIG's reason.
               if(atBoundary && knownType(tag))
               {
                   return Take::TAKE_BAD_FLAG;
@@ -782,7 +700,6 @@ namespace bibowire
               ++at;
               continue;
           }
-
           const Size total = FRAME_OVERHEAD + static_cast<Size>(plen);
           if(avail < total)
           {
@@ -793,23 +710,18 @@ namespace bibowire
               }
               return Take::TAKE_NEED_MORE;
           }
-
           const UInt32 want = rd32(buf + at + HEAD_BYTES + plen);
           if(crc32c(buf + at, HEAD_BYTES + plen) != want)
           {
               ++at;
               continue;
           }
-
-          // Junk first, frame next call. One answer per call is what keeps
-          // `consumed` unambiguous, and an ambiguous consumed count is how a
-          // ring buffer loses a frame nobody can account for.
+          // Junk first; the frame comes on the next call.
           if(at > 0u)
           {
               *consumed = at;
               return Take::TAKE_RESYNC;
           }
-
           out->head.type = static_cast<Type>(tag);
           out->head.ver = ver;
           out->head.flags = flags;
@@ -835,10 +747,8 @@ namespace bibowire
       {
           return 0;
       }
-      // A v1 sender never sets FLAG_MORE, and building a frame every v1 reader
-      // is required to refuse is a bug worth failing at the encoder. The tests
-      // reach past this by patching the byte, which is also how they prove
-      // take()'s check is real rather than a mirror of this one.
+      // A v1 sender never sets FLAG_MORE. The tests patch the byte to prove
+      // take()'s own check.
       if((h.flags & FLAG_MORE) != 0u)
       {
           return 0;
@@ -855,8 +765,6 @@ namespace bibowire
       wr16(out + 4u, h.flags);
       wr16(out + 6u, h.seq);
       wr32(out + 8u, static_cast<UInt32>(b.len));
-      // An encoder may build its body straight into the frame buffer and hand
-      // that pointer back, in which case there is nothing to copy.
       if(b.len > 0u && b.bytes != out + HEAD_BYTES)
       {
           std::memcpy(out + HEAD_BYTES, b.bytes, b.len);
@@ -864,8 +772,6 @@ namespace bibowire
       wr32(out + HEAD_BYTES + b.len, crc32c(out, HEAD_BYTES + b.len));
       return total;
   }
-
-  // ---- HELLO -----------------------------------------------------------------
 
   Size writeHello(const Hello& m, UInt8* out, Size cap)
   {
@@ -919,17 +825,13 @@ namespace bibowire
       return true;
   }
 
-  // ---- WELCOME ---------------------------------------------------------------
-
   Size writeWelcome(const Welcome& m, UInt8* out, Size cap)
   {
       if(out == nullptr || m.boardName.size() > MAX_NAME || m.text.size() > MAX_BOARD_TEXT)
       {
           return 0;
       }
-      // sessionId is NEVER 0: every CONTROL datagram carries it and the board
-      // drops any whose id is not the current one, so 0 has to stay available
-      // as "no session" on the receiving side.
+      // sessionId is NEVER 0, which means "no session" to the receiver.
       if(m.sessionId == 0u)
       {
           return 0;
@@ -951,10 +853,7 @@ namespace bibowire
       wr16(out + 22u, m.deadMs);
       wr16(out + 24u, m.accepted);
       wr16(out + 26u, m.refusal);
-      // Offset 28 for a u64 is the document's own layout and is NOT 8-aligned.
-      // It is correct here only because every field goes through memcpy; a
-      // struct laid over this payload would be undefined on a machine that
-      // faults. See the note at the top of the header.
+      // Offset 28 is NOT 8-aligned; correct only because wr64 uses memcpy.
       wr64(out + 28u, m.boardMonoUs);
       wr8(out + 36u, m.armEpoch);
       wr8(out + 37u, m.capabilities);
@@ -1014,8 +913,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- BYE -------------------------------------------------------------------
-
   Size writeBye(const Bye& m, UInt8* out, Size cap)
   {
       if(out == nullptr || m.text.size() > 0xFFFFu)
@@ -1051,8 +948,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- PING / PONG -----------------------------------------------------------
-
   Size writePing(const Ping& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < PING_LEN)
@@ -1076,8 +971,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- LEAVE -----------------------------------------------------------------
 
   Size writeLeave(const Leave& m, UInt8* out, Size cap)
   {
@@ -1103,14 +996,9 @@ namespace bibowire
       return true;
   }
 
-  // ---- SCAN ------------------------------------------------------------------
-
   Size writeScan(const Scan& m, UInt8* out, Size cap)
   {
       const Size count = m.points.size();
-      // A count is a promise about the frame, and the two arrays are that
-      // promise made twice. A quality array of a different length is a bug in
-      // the caller, not a shorter revolution.
       if(out == nullptr || count > MAX_SCAN_POINTS || m.quality.size() != count)
       {
           return 0;
@@ -1121,7 +1009,7 @@ namespace bibowire
           return 0;
       }
       // Validated whole before a byte is written, so a refused encode leaves
-      // the caller's buffer exactly as it found it.
+      // the buffer untouched.
       for(Size i = 0; i < count; ++i)
       {
           if(m.points[i].angleCentiDeg >= CENTI_PER_TURN || m.quality[i] > QUALITY_MAX)
@@ -1163,8 +1051,7 @@ namespace bibowire
       {
           return false;
       }
-      // A SCAN whose count disagrees with its len is refused OUTRIGHT. A frame
-      // with the wrong count is not a shorter frame.
+      // A count that disagrees with len is refused, not read as a shorter scan.
       if(!lenOk(b, ver, scanBodyLen(count)))
       {
           return false;
@@ -1196,8 +1083,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- DECIDE ----------------------------------------------------------------
 
   Size writeDecide(const Decide& m, UInt8* out, Size cap)
   {
@@ -1252,8 +1137,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- BOARD -----------------------------------------------------------------
 
   Size writeBoard(const BoardState& m, UInt8* out, Size cap)
   {
@@ -1341,8 +1224,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- LIDAR_INFO ------------------------------------------------------------
-
   Size writeLidarInfo(const LidarInfo& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < LIDAR_INFO_LEN)
@@ -1376,8 +1257,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- EVENT -----------------------------------------------------------------
 
   Size writeEvent(const Event& m, UInt8* out, Size cap)
   {
@@ -1429,8 +1308,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- CTLSTATE --------------------------------------------------------------
 
   Size writeCtlState(const CtlState& m, UInt8* out, Size cap)
   {
@@ -1491,8 +1368,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- CMDACK ----------------------------------------------------------------
-
   Size writeCmdAck(const CmdAck& m, UInt8* out, Size cap)
   {
       if(out == nullptr || m.text.size() > 0xFFFFu)
@@ -1535,8 +1410,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- CAMERA ----------------------------------------------------------------
 
   Size writeCamera(const Camera& m, UInt8* out, Size cap)
   {
@@ -1592,8 +1465,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- POSE ------------------------------------------------------------------
-
   Size writePose(const Pose& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < POSE_LEN)
@@ -1630,8 +1501,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- PATH ------------------------------------------------------------------
 
   Size writePath(const Path& m, UInt8* out, Size cap)
   {
@@ -1681,8 +1550,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- WAYPOINT --------------------------------------------------------------
-
   Size writeWaypoint(const Waypoint& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < WAYPOINT_LEN)
@@ -1718,8 +1585,6 @@ namespace bibowire
       *out = m;
       return true;
   }
-
-  // ---- CONTROL ---------------------------------------------------------------
 
   Size writeControl(const Control& m, UInt8* out, Size cap)
   {
@@ -1771,8 +1636,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- COMMAND ---------------------------------------------------------------
-
   Size writeCommand(const Command& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < COMMAND_LEN)
@@ -1808,8 +1671,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- SUBSCRIBE -------------------------------------------------------------
-
   Size writeSubscribe(const Subscribe& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < SUBSCRIBE_LEN || m.scanDivisor == 0u)
@@ -1819,9 +1680,6 @@ namespace bibowire
       wr32(out, m.sessionId);
       wr32(out + 4u, m.typeMask);
       wr16(out + 8u, m.scanDivisor);
-      // What section 5 reserved, now spent on the camera rate. 0 keeps its old
-      // meaning exactly - "nothing asked" - so this byte pair reads the same to
-      // a board that has never heard of the field.
       wr16(out + 10u, m.camFps);
       return SUBSCRIBE_LEN;
   }
@@ -1833,8 +1691,7 @@ namespace bibowire
           return false;
       }
       const UInt16 divisor = rd16(b.bytes + 8u);
-      // A divisor of 0 would mean "every zeroth revolution", which is a
-      // division by zero wearing a subscription's clothes.
+      // A divisor of 0 would divide by zero.
       if(divisor == 0u)
       {
           return false;
@@ -1843,16 +1700,12 @@ namespace bibowire
       m.sessionId = rd32(b.bytes);
       m.typeMask = rd32(b.bytes + 4u);
       m.scanDivisor = divisor;
-      // NOT clamped here. The codec's job is to carry what was said, and a
-      // reader that quietly rewrote the number would make the board's own
-      // ceiling invisible to anything reading this frame - the log, the schema
-      // dump, a capture. viewfeed clamps it where the decision belongs.
+      // NOT clamped here: the codec carries what was said, and viewfeed clamps
+      // it where the decision belongs.
       m.camFps = rd16(b.bytes + 10u);
       *out = m;
       return true;
   }
-
-  // ---- DESCRIBE / SCHEMA -----------------------------------------------------
 
   Size writeDescribe(const Describe& m, UInt8* out, Size cap)
   {
@@ -1912,8 +1765,6 @@ namespace bibowire
       return true;
   }
 
-  // ---- the schema text -------------------------------------------------------
-
   Str schemaLine(Type t)
   {
       const Desc* d = descOf(t);
@@ -1944,11 +1795,8 @@ namespace bibowire
       return s;
   }
 
-  // ---- describe --------------------------------------------------------------
-
   namespace
   {
-
     [[nodiscard]] Str flagText(UInt16 flags)
     {
         if(flags == 0u)
@@ -1960,9 +1808,8 @@ namespace bibowire
         if((flags & FLAG_ESTOP) != 0u)
         {
             inner += "estop";
-            // XOR rather than AND-NOT: the bit is known set on this branch, so
-            // this clears exactly it, and there is no `~` to promote a UInt16
-            // to a signed int on the way.
+            // XOR, not AND-NOT: the bit is known set, and no `~` promotes the
+            // UInt16 to a signed int.
             rest = static_cast<UInt16>(rest ^ FLAG_ESTOP);
         }
         if((flags & FLAG_DEADMAN) != 0u)
@@ -1994,9 +1841,6 @@ namespace bibowire
         return Str(" [") + inner + "]";
     }
 
-    // Sentinels are rendered as `n/a`, never as the number they are made of. A
-    // 65535 mV battery printed as a reading is the same species of lie as a
-    // stale picture drawn as live.
     [[nodiscard]] Str battText(UInt16 v)
     {
         return v == BATT_ABSENT ? Str("n/a") : decU(v) + "mV";
@@ -2397,7 +2241,6 @@ namespace bibowire
                 return Str();
         }
     }
-
   }
 
   Str describe(const Frame& f)
@@ -2420,9 +2263,7 @@ namespace bibowire
       s += " : ";
       if(d == nullptr)
       {
-          // Skipped by exactly `len` and counted, never fatal - the whole
-          // extensibility story in one line, and the renderer says so rather
-          // than pretending it understood.
+          // Skipped by `len`, never fatal, and the renderer says so.
           s += "skipped, " + decU(f.body.len) + " bytes";
           return s;
       }
@@ -2436,8 +2277,6 @@ namespace bibowire
       return s;
   }
 
-  // ---- the version rule ------------------------------------------------------
-
   Bool versionOk(UInt16 protoMajor)
   {
       return protoMajor == PROTO_MAJOR;
@@ -2447,9 +2286,6 @@ namespace bibowire
   {
       Bye m;
       m.reason = Reason::REASON_VERSION;
-      // Not decoration. A refusal that says only "incompatible" sends a person
-      // to read source in a field; the two version numbers and the build stamp
-      // are what turn it into an action they can take standing up.
       Str text = "board speaks bibowire ";
       text += decU(PROTO_MAJOR);
       text += ".";
@@ -2528,11 +2364,8 @@ namespace bibowire
       }
   }
 
-  // ---- applying a CONTROL ----------------------------------------------------
-
   namespace control
   {
-
     Bool newer(UInt32 a, UInt32 b)
     {
         return static_cast<Int32>(a - b) > 0;
@@ -2542,48 +2375,35 @@ namespace bibowire
     {
         Outcome o;
         o.highestSeq = g.highestSeq;
-
-        // After a hotspot blip the viewer reconnects and datagrams from the
-        // previous session may still be in flight in a buffer somewhere.
-        // Without this test they would drive the car with a second-old stick
-        // position, and the socket would look perfect while they did it.
+        // Datagrams from before a reconnect may still be in flight; they must
+        // not drive the car with an old stick position.
         if(g.sessionId == 0u || c.sessionId != g.sessionId)
         {
             o.verdict = Verdict::VERDICT_BAD_SESSION;
             return o;
         }
-
-        // An observer's datagrams and a second viewer's datagrams are counted
-        // and DISCARDED, never blended - and above all they do not feed the
-        // timer. Without that, viewer B's stream keeps the deadman alive while
-        // viewer A, whose laptop just slept, is protected by nothing.
+        // An observer's or a second viewer's datagrams are DISCARDED, never
+        // blended, and do not feed the timer.
         if(!g.haveHolder || !g.fromHolder)
         {
             o.verdict = Verdict::VERDICT_NOT_HOLDER;
             o.refuse = Refuse::REFUSE_NOT_HOLDER;
             return o;
         }
-
         // Newest wins. Retransmitting a stale command is worse than dropping it.
         if(!newer(c.seq, g.highestSeq))
         {
             o.verdict = Verdict::VERDICT_STALE_SEQ;
             return o;
         }
-
         o.verdict = Verdict::VERDICT_APPLIED;
         o.feedsDeadman = true;
         o.highestSeq = c.seq;
         o.steerMilli = c.steerMilli;
-
-        // The epoch is the one byte that closes the case seq cannot: a
-        // four-second stall, the board disarms at 300 ms, the link returns, and
-        // the viewer is still sending throttle 400 twenty times a second
-        // because the operator's finger never left the key. Those datagrams
-        // carry HIGHER seqs and look perfectly valid.
-        //
-        // Steering is still applied in every one of these cases. A refusal is
-        // about who may add energy, not about where the wheels point.
+        // The epoch closes what seq cannot: after a stall the board has
+        // disarmed, but the viewer's datagrams still carry throttle under
+        // higher, valid seqs. Steering is still applied: a refusal is about who
+        // may add energy, not where the wheels point.
         if(c.armEpoch != g.armEpoch)
         {
             o.throttleMilli = 0;
@@ -2600,17 +2420,12 @@ namespace bibowire
         o.refuse = Refuse::REFUSE_NONE;
         return o;
     }
-
   }
-
-  // ---- the deadman -----------------------------------------------------------
 
   namespace deadman
   {
-
     namespace
     {
-
       [[nodiscard]] Int32 countdown(Int64 age, Int32 budget)
       {
           const Int64 left = static_cast<Int64>(budget) - age;
@@ -2620,17 +2435,14 @@ namespace bibowire
           }
           return static_cast<Int32>(left);
       }
-
     }
 
     Output step(const Inputs& in)
     {
         Output o;
-
-        // The latch outranks everything, including a link that is perfectly
-        // healthy. It clears only through COMMAND CLEAR_ESTOP while disarmed
-        // and then a deliberate ARM: three steps, because a stop that can be
-        // undone by releasing a key is a stop that will be undone by accident.
+        // The latch outranks everything, including a healthy link. It clears
+        // only through CLEAR_ESTOP while disarmed and then a deliberate ARM, so
+        // releasing a key cannot undo a stop.
         if(in.estopLatched)
         {
             o.state = State::STATE_ESTOP;
@@ -2639,11 +2451,9 @@ namespace bibowire
             o.disarmInMs = 0;
             return o;
         }
-
-        // With NO viewer holding the slot this timer does not apply at all -
-        // the pilot runs under its own blind and silence rules exactly as it
-        // does today with nobody watching. STATE_LIVE here means "this timer is
-        // not the thing stopping the car", not "somebody is driving".
+        // With NO viewer holding the slot this timer does not apply: the pilot
+        // runs under its own blind and silence rules. STATE_LIVE here means
+        // "this timer is not stopping the car", not "somebody is driving".
         if(!in.haveHolder)
         {
             o.state = State::STATE_LIVE;
@@ -2652,10 +2462,7 @@ namespace bibowire
             o.disarmInMs = CONTROL_DEAD_MS;
             return o;
         }
-
-        // A negative age is a bug somewhere upstream, and the safe reading of a
-        // bug is "stopped". Treating it as freshness is how a sign error
-        // becomes a car that will not stop.
+        // A negative age is an upstream bug, read as stopped, never as fresh.
         const Int64 age = in.nowMs - in.lastControlMs;
         if(age < 0 || age >= CONTROL_DEAD_MS)
         {
@@ -2676,10 +2483,8 @@ namespace bibowire
             return o;
         }
 
-        // The link is fresh, so anything refusing throttle now is about consent
-        // rather than about silence. Reported most fundamental first: whether
-        // the operator is asking at all, then the arm generation they claim,
-        // then the mode they believe is running.
+        // The link is fresh, so a refusal now is about consent, reported most
+        // fundamental first: enable, then epoch, then mode.
         o.state = State::STATE_SOFT;
         if(!in.enable)
         {
@@ -2717,7 +2522,5 @@ namespace bibowire
                 return "?";
         }
     }
-
   }
-
 }

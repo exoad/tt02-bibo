@@ -1,42 +1,16 @@
-// The companion board's lidar: Slamtec's C1 over USB serial, one revolution at
-// a time, in the units reactive.hxx already speaks.
+// The companion board's lidar: Slamtec's C1 over USB serial, one revolution at a
+// time, as reactive::Ray. Nothing above this header names an sl_lidar_sdk type.
+// Free functions and file-local state, because the car has one lidar.
 //
-// ---------------------------------------------------------------------------
-// WHAT THIS IS
+// No thread of its own: the blocking grab() is the caller's tick clock, and a
+// thread here would add a lock and a stale-frame hazard for nothing.
 //
-// The seam between Slamtec's sl_lidar_sdk and the rest of this program. On
-// one side is the SDK's vocabulary - ILidarDriver, sl_result, q14 angles and
-// q2 millimetres; on the other is a Vec<reactive::Ray>. Nothing above this
-// header names an SDK type, so the day the lidar is a different one, or the
-// SDK is dropped for a hand-written parser of the C1's serial protocol, this
-// header does not move.
-//
-// It has no thread of its own. The driving loop CAN block on grabScanDataHq(),
-// and wants to - a driving tick with nothing new to look at has nothing to do,
-// so the blocking grab is the tick's clock. Wrapping it in a second thread here
-// would add a mutex and a stale-frame hazard to gain nothing.
-//
-// ---------------------------------------------------------------------------
-// THE SDK IS LINUX-ONLY HERE, AND THAT IS SAID OUT LOUD
-//
-// The library is built on the Orange Pi at a path CMake is told about with
-// -DPILOT_RPLIDAR_SDK. Without it, or on MSVC, every function below REFUSES:
-// open() returns false with a reason that names the missing SDK, and grab()
-// returns false having emptied the vector. Same rule as link.hxx - a stub that
-// reported an empty room rather than a missing sensor would be trap 1 of
-// reactive.hxx built into the program on purpose.
-//
-// The refusing path is what tools\test.bat pilot compiles on the laptop,
-// and what CMake compiles anywhere the option is unset. tests/test_pilot.cxx
-// holds it to the promises below in both builds - it is the only place that
-// does, since nothing else ever runs this program without a lidar SDK.
-//
-// ---------------------------------------------------------------------------
-// ONE DEVICE, NOT A CLASS
-//
-// Free functions and file-local state, the way carlink and reactive are laid
-// out, because there is one lidar on the car and one serial port it lives on.
-// A second lidar would be a second design decision, not a second instance.
+// The SDK is built on the Orange Pi and given to CMake with -DPILOT_RPLIDAR_SDK.
+// Without it, or on MSVC, every function REFUSES: open() returns false with a
+// reason naming the missing SDK, and grab() returns false with the vector
+// emptied. A stub reporting an empty room instead of a missing sensor would be
+// trap 1 of reactive.hxx. tests/test_pilot.cxx holds the refusing half to the
+// promises below, in both builds.
 #pragma once
 
 #include "shared.hxx"
@@ -45,45 +19,35 @@
 
 namespace lidar
 {
-
-  // Whether an SDK is compiled into this program at all. False on MSVC and on
-  // any Linux build without -DPILOT_RPLIDAR_SDK; a caller that gets false from
-  // open() can ask this to tell "no lidar" from "no code to talk to one".
+  // Whether an SDK is compiled in: false on MSVC and on any Linux build without
+  // -DPILOT_RPLIDAR_SDK. Tells "no lidar" from "no code to talk to one".
   [[nodiscard]] Bool available();
 
   // Opens the port, talks to the device, and remembers what it said. The motor
-  // is NOT started: a lidar spinning before anyone has asked for a scan is a
-  // lidar spinning on a bench while somebody reads its serial number.
+  // is NOT started, so reading a serial number does not spin the lidar. The
+  // default baud is the C1's; the A-series units use other rates.
   //
-  // 460800 is what the C1 enumerates at; the A-series units use 115200 or
-  // 256000 and are not what is bolted to this car.
-  //
-  // The port is held EXCLUSIVELY while open (TIOCEXCL on Linux), so a second
+  // The port is held EXCLUSIVELY while open (TIOCEXCL on Linux): a second
   // program - a car program against bibo-pilot, or the reverse - is refused
-  // here with "another program has <port>" rather than quietly sharing one
-  // byte stream and breaking both. See guardFd in lidar.cxx.
+  // with "another program has <port>" rather than sharing one byte stream and
+  // breaking both.
   //
   // Idempotent: a second call while open is true. false is explained by
-  // reason().
+  // reason(). A device that a killed session left spinning is parked here.
   [[nodiscard]] Bool open(const Str& port, Int32 baud = 460800);
 
   // Stops the scan, stops the motor, releases the port. Safe with nothing open.
-  // Called for you by a successful open() when a previous session was killed
-  // rather than closed - see the note in lidar.cxx.
   Void close();
 
   [[nodiscard]] Bool isOpen();
 
   // Why the most recent call that returned false did so. Empty after a call
-  // that succeeded. A Str rather than a CharSeq because the useful reasons
-  // carry the port name and the SDK's hex code, neither of which is a literal.
+  // that succeeded.
   [[nodiscard]] const Str& reason();
 
-  // WHY the most recent open() refused, as a value a program can branch on.
-  // reason() is the sentence for a person; this is the same fact for code,
-  // because matching on the sentence would tie a caller to its wording.
-  // A caller can branch on REFUSAL_HELD: a port held by another program is
-  // usually the pilot service, which has to be stopped first.
+  // Why the most recent open() refused, for code to branch on instead of
+  // matching reason()'s wording. REFUSAL_HELD usually means the pilot service
+  // holds the port and has to be stopped first.
   enum class Refusal
   {
       REFUSAL_NONE,            // the last open() succeeded, or none was tried
@@ -96,8 +60,8 @@ namespace lidar
       REFUSAL_SDK,             // the SDK failed between the port and the device
   };
 
-  // Set by every open(); untouched by every other call, so it describes the
-  // last open() even after a later grab() has written its own reason().
+  // Set by every open() and by nothing else, so it still describes the last
+  // open() after a later grab() has written its own reason().
   [[nodiscard]] Refusal refusal();
 
   // Spins the motor up and starts the scan the SDK considers typical for the
@@ -111,49 +75,36 @@ namespace lidar
 
   [[nodiscard]] Bool isSpinning();
 
-  // Blocks until one full revolution has arrived, and REPLACES `out` with it.
-  // The C1's q14 angle becomes degrees and its q2 distance becomes millimetres;
-  // a distance of 0 is carried through unchanged and means what reactive.hxx
-  // says it means - no return in that direction.
+  // Blocks until one full revolution has arrived, and REPLACES `out` with it:
+  // the C1's q14 angle as degrees and its q2 distance as millimetres. A distance
+  // of 0 is carried through and means no return in that direction.
   //
-  // Returns false, with `out` EMPTIED, when no revolution arrives within
-  // `timeoutMs`, when the motor is off, or when nothing is open. Emptied rather
-  // than left alone, and this is the opposite of carlink::drain's rule for a
-  // reason: a caller that ignores the Bool and hands `out` to reactive::step
-  // gets STATUS_BLIND and a stopped car, where a stale revolution would get a
-  // car confidently driving on what the room looked like a second ago.
+  // false, with `out` EMPTIED, when no revolution arrives within `timeoutMs`,
+  // when the motor is off, or when nothing is open. Emptied, unlike
+  // carlink::drain: a caller that ignores the Bool hands reactive::step a blind
+  // scan and stops the car, rather than driving on a stale revolution.
   //
   // Quality is not filtered. The C1 pairs a zero distance with a zero quality,
-  // so the "no return" rule already drops those, and reactive::Config::minHits
-  // is the defence against the isolated spurious point that survives it.
+  // so the no-return rule drops those, and reactive::Config::minHits handles
+  // the isolated spurious point that survives.
   //
-  // One revolution is a single grab; timing out on one of them is routine and
-  // not a fault. A long unbroken run of them is the cable coming out, and that
-  // judgement belongs to whoever is counting.
+  // One timeout is routine; a long unbroken run of them is the cable coming
+  // out, and judging that belongs to whoever is counting. The FIRST grab after
+  // motorOn() times out at the default every time: the C1 takes over two
+  // seconds to reach a steady speed, and motorOn() leaves that wait to the
+  // caller.
   //
-  // In particular the FIRST grab after motorOn() times out at the default,
-  // every time: measured on the C1 on 2026-09-06, the motor takes over two
-  // seconds to come up to speed and the SDK will not hand over a revolution
-  // until it has one at a steady rate. motorOn() does not wait that out for
-  // you, because the time is better spent by a caller that has other things to
-  // set up - and a caller that has not should expect one blind tick.
-  //
-  // `quality` is optional and PARALLEL to `out`: when it is given, quality[i]
-  // is the C1's 0..63 return strength for out[i], and it is emptied on every
-  // path that empties `out`, so the two can never disagree in length. A
-  // pointer rather than a second overload because reactive::step does not want
-  // it and the viewer's scan does, and a Ray carries no quality on purpose - the
-  // driver reads distances, and a field it must ignore is a field it will one
-  // day read by mistake.
+  // `quality` is optional and PARALLEL to `out`: quality[i] is the C1's 0..63
+  // return strength for out[i], emptied on every path that empties `out`. A
+  // pointer rather than a Ray field, so the driving code never holds a value it
+  // must ignore.
   [[nodiscard]] Bool grab(Vec<reactive::Ray>& out, Int32 timeoutMs = 2000, Vec<UInt8>* quality = nullptr);
 
   // The device's identity as it reported it at open(): model, firmware,
   // hardware revision, serial. Empty when nothing is open.
   [[nodiscard]] Str info();
 
-  // The same identity, as numbers, for a program that has to WRITE it rather
-  // than print it - viewfeed puts these on the wire one field at a time.
-  // info() is the sentence; this is the record.
+  // The same identity as numbers, for viewfeed to put on the wire.
   //
   // model, fwMajor, fwMinor, hwRev and serial are captured at open() and do
   // not change while it is open. health is the SDK's status - 0 good, 1
@@ -173,10 +124,8 @@ namespace lidar
   // A default Device (health -1, serial empty) when nothing is open.
   [[nodiscard]] Device device();
 
-  // The device's self-report, re-read from the device when the motor is off
-  // and repeated from the last reading when it is spinning - the SDK serialises
-  // commands against the scan stream, and a health query mid-scan is a stall
-  // in the middle of a revolution. Empty when nothing is open.
+  // The device's self-report: re-read when the motor is off, and repeated from
+  // the last reading while it spins, because a health query mid-scan stalls a
+  // revolution. Empty when nothing is open.
   [[nodiscard]] Str health();
-
 }

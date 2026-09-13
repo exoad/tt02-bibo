@@ -1,5 +1,3 @@
-// See proto.hxx.
-
 #include "proto.hxx"
 
 #include <cstdio>
@@ -10,7 +8,6 @@ namespace proto
 {
   namespace
   {
-
     Bool isSpace(Char c) noexcept
     {
         return c == ' ' || c == '\t';
@@ -51,14 +48,12 @@ namespace proto
         }
         return s.substr(0, n);
     }
-
   }
 
   Reply read(const Str& line)
   {
       Reply out;
       out.line = trimEnd(line);
-
       Size b = 0;
       Size e = 0;
       wordAt(out.line, 0, b, e);
@@ -67,23 +62,18 @@ namespace proto
           out.kind = Kind::KIND_EMPTY;
           return out;
       }
-
       const Str head = out.line.substr(b, e - b);
-
       if(head == "ERR")
       {
-          // No topic: the remainder of an ERR is a sentence, and splitting a
-          // word off the front of it would produce a "topic" that is really
-          // just the first word of the reason.
+          // No topic: an ERR's remainder is a sentence, whose first word is not
+          // a topic.
           out.kind = Kind::KIND_ERR;
           out.rest = tailFrom(out.line, e);
           return out;
       }
-
       if(head == "OK" || head == "INFO")
       {
           out.kind = (head == "OK") ? Kind::KIND_OK : Kind::KIND_INFO;
-
           Size tb = 0;
           Size te = 0;
           wordAt(out.line, e, tb, te);
@@ -94,7 +84,6 @@ namespace proto
           }
           return out;
       }
-
       out.kind = Kind::KIND_OTHER;
       out.rest = out.line;
       return out;
@@ -106,13 +95,9 @@ namespace proto
       {
           return false;
       }
-
       const Size klen = std::strlen(key);
-
       for(Size i = 0; i + klen <= text.size(); ++i)
       {
-          // The boundary test. Without it `esc=` matches inside `desc=` and
-          // this returns a number from a field nobody asked for.
           if(i != 0 && !isSpace(text[i - 1]))
           {
               continue;
@@ -121,7 +106,6 @@ namespace proto
           {
               continue;
           }
-
           Size at = i + klen;
           Size to = at;
           while(to < text.size() && !isSpace(text[to]))
@@ -141,13 +125,10 @@ namespace proto
       {
           return false;
       }
-
       Char*       stop = nullptr;
       const Int64 v = std::strtol(raw.c_str(), &stop, 10);
-
-      // The WHOLE value has to be a number. strtol stopping early means the
-      // field holds something else - `esc=off` is not 0, it is a different kind
-      // of answer, and returning 0 for it would read as neutral throttle.
+      // The WHOLE value must be a number: `esc=off` returned as 0 would read as
+      // neutral throttle.
       if(stop == nullptr || *stop != '\0')
       {
           return false;
@@ -163,7 +144,6 @@ namespace proto
       {
           return false;
       }
-
       Char*         stop = nullptr;
       const Float64 v = std::strtod(raw.c_str(), &stop);
       if(stop == nullptr || *stop != '\0')
@@ -174,20 +154,12 @@ namespace proto
       return true;
   }
 
-  // ---- outbound ----------------------------------------------------------
-
   namespace
   {
-
-    // A fixed-point float, written without printf.
-    //
-    // NOT snprintf("%.3f"). That honors the C locale, and on a machine set to
-    // a comma decimal separator it emits `0,250` - which the board's parser
-    // reads as 0, so the car goes straight when it was told to turn. The bug
-    // appears only on somebody else's laptop and only in the field.
-    //
-    // Three decimals: the steering resolution is 430 us over the full range, so
-    // a thousandth of the range is well under one microsecond of pulse.
+    // Three decimals built from integers, NOT snprintf("%.3f"): that honours
+    // the C locale, and with a comma decimal separator emits `0,250`, which the
+    // board reads as 0, so the car goes straight when told to turn. A
+    // thousandth of the steering range is well under a microsecond of pulse.
     Str fixed3(Float32 v)
     {
         Bool neg = (v < 0.0f);
@@ -195,17 +167,14 @@ namespace proto
         {
             v = -v;
         }
-
-        // +0.0005 so the truncation below rounds instead of always going down.
+        // Rounds rather than truncating.
         const Int32 scaled = static_cast<Int32>(v * 1000.0f + 0.5f);
         const Int32 whole = scaled / 1000;
         const Int32 frac = scaled % 1000;
-
         Array<Char, 32> buf;
         std::snprintf(buf.data(), buf.size(), "%s%d.%03d", neg ? "-" : "", whole, frac);
         return Str(buf.data());
     }
-
   }
 
   Str steer(Float32 fraction)
@@ -247,5 +216,4 @@ namespace proto
       }
       return out;
   }
-
 }

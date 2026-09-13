@@ -15,10 +15,8 @@
 
 namespace trimfile
 {
-
   namespace
   {
-
     [[nodiscard]] Vec<Str> words(const Str& line)
     {
         Vec<Str> out;
@@ -112,7 +110,6 @@ namespace trimfile
 #endif
         }
     }
-
   }
 
   Bool remember(Store& s, const Str& line)
@@ -122,14 +119,12 @@ namespace trimfile
       {
           return false;
       }
-
       const Int32 servoLo = static_cast<Int32>(bibowire::SERVO_US_HARD_MIN);
       const Int32 servoHi = static_cast<Int32>(bibowire::SERVO_US_HARD_MAX);
       const Int32 escLo = static_cast<Int32>(bibowire::ESC_US_HARD_MIN);
       const Int32 escHi = static_cast<Int32>(bibowire::ESC_US_HARD_MAX);
       const Int32 slewLo = static_cast<Int32>(bibowire::SLEW_US_MIN);
       const Int32 slewHi = static_cast<Int32>(bibowire::SLEW_US_MAX);
-
       Int32 a = 0;
       Int32 b = 0;
       if(w[0] == "SERVOLIMITS" && w.size() == 3u)
@@ -168,9 +163,8 @@ namespace trimfile
       }
       if(w[0] == "SLEW")
       {
-          // The axis-less form sets BOTH, because that is what the Pico does
-          // with it - storing it as its own key would replay a rate that the
-          // per-axis lines stored after it silently contradict.
+          // The axis-less form sets BOTH, as the Pico does: stored as its own key
+          // it would replay a rate the per-axis lines after it contradict.
           if(w.size() == 2u && number(w[1], slewLo, slewHi, a))
           {
               const Bool steer = set(s.steerSlew, one("SLEW STEER", a));
@@ -331,5 +325,4 @@ namespace trimfile
       }
       return true;
   }
-
 }

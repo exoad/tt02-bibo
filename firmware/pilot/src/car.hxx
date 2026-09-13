@@ -1,22 +1,22 @@
 // car.hxx - the one header a car program includes.
 //
-// A car program runs on the Orange Pi (bibobox), because that is where the
-// lidar is plugged in. The Car talks to the Pico for you, and the Pico moves the
-// steering servo and the ESC. Start by copying programs/forward.cxx.
+// A car program runs on the Orange Pi (bibobox), where the lidar is plugged in.
+// The Car talks to the Pico, which moves the steering servo and the ESC. Start by
+// copying programs/forward.cxx.
 //
 //   DECLARE   bibo::Car car(argc, argv);            what this run may do, from its flags
 //   BIND      if(!car.arm()) return car.finish();   lidar seen, ESC armed, steering engaged
 //   RUN       while(car.ok()) { bibo::Scan s = car.scan(); ...; car.drive(throttle, steer); }
 //             return car.finish();
 //
-// ---- UNITS AND DIRECTIONS, EVERYWHERE IN THIS HEADER --------------------------
+// UNITS AND DIRECTIONS, everywhere in this header
 //   distance  metres, measured from the lidar's spin axis - NOT from the bumper
 //   bearing   degrees, -180..180. 0 is straight ahead, POSITIVE IS RIGHT
 //   steer     -1..1. NEGATIVE IS LEFT, 0 is the car's trimmed centre
 //   throttle  0..1 of THIS car's forward range as trimmed (the Pico's
 //             esc_min..esc_max). 0 is neutral. There is no reverse: below 0 is 0.
 //
-// ---- FLAGS, read by the constructor. Anything else is refused. ----------------
+// FLAGS, read by the constructor; anything else is refused
 //   (none)          DRY RUN. The Pico is never opened, so the car cannot move.
 //                   Everything else runs; the status line shows what would be sent.
 //   --drive         really drive
@@ -27,7 +27,7 @@
 //   --no-viewer     do not serve the Windows viewer on bibowire::PORT
 //   --help          print this list
 //
-// ---- WHAT THE CAR DOES WITHOUT BEING ASKED ------------------------------------
+// WHAT THE CAR DOES WITHOUT BEING ASKED
 //   - Opens the Pico with STOP (in case an earlier run died armed), then PING,
 //     then the saved trim from ~/.config/bibo/trim.txt. Nothing is armed yet.
 //   - Arms only inside arm(), only after the lidar has delivered a revolution,
@@ -78,7 +78,6 @@
 
 namespace bibo
 {
-
   // The raw lidar angle (the C1's own 0..360, clockwise seen from above) that
   // points straight ahead. Measure it once with a dry run - docs/start.md,
   // step 2 - set both lines, and commit. While LIDAR_FORWARD_MEASURED is false,
@@ -106,8 +105,6 @@ namespace bibo
   // nearest is used, so one speck of dust is not a wall.
   constexpr Int32 SCAN_MIN_HITS = 3;
 
-  // ---- timing, in milliseconds --------------------------------------------------
-
   // How often the Car sends the Pico your latest drive().
   constexpr Int32 MINDER_MS = 40;
 
@@ -130,9 +127,8 @@ namespace bibo
   // No good revolution for this long after arm() ends the run with STOP.
   constexpr Int32 LIDAR_LOST_MS = 2000;
 
-  // The viewer's feed refreshes what viewfeed::drive() reads on every pass. A copy
-  // older than this means that thread is stuck, on a stalled console say, so a
-  // viewer's ESTOP could no longer arrive, and the run ends with STOP.
+  // The viewer's feed refreshes viewfeed::drive() every pass; a copy older than
+  // this means that thread is stuck (a stalled console, say).
   constexpr Int32 VIEWER_STUCK_MS = 500;
 
   // How long arm() waits for the first good revolution (spin-up alone is over
@@ -190,14 +186,13 @@ namespace bibo
       // Waits up to FIRST_REVOLUTION_MS for the lidar's first good revolution,
       // then arms the ESC and engages the steering, and waits up to
       // ARM_CONFIRM_MS for the Pico to confirm both. Prints the forward range the
-      // Pico is using and where it came from. false, with the reason printed,
-      // otherwise - and STOP has been sent by then. In a dry run: waits for the lidar
-      // the same way, then returns true without arming anything.
+      // Pico is using and where it came from. Otherwise false, with the reason
+      // printed and STOP already sent. A dry run waits for the lidar the same way,
+      // then returns true without arming anything.
       [[nodiscard]] Bool arm();
 
       // Keep looping. false when opening or arming failed, and false for good
-      // once the run has been stopped (see above). The car has already been
-      // sent STOP by the time this is false.
+      // once the run has been stopped (see above), by which time STOP has gone.
       [[nodiscard]] Bool ok() const;
 
       // Blocks until a revolution newer than the last one returned, at most
@@ -224,5 +219,4 @@ namespace bibo
       struct Inner;
       UniqPtr<Inner> inner;
   };
-
 }

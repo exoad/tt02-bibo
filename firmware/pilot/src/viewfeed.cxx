@@ -21,10 +21,8 @@
 
 namespace viewfeed
 {
-
   namespace
   {
-
     // A client whose oldest unsent VITAL byte is older than this has gone,
     // whatever its socket says.
     constexpr Int64 BEHIND_MS = 500;
@@ -34,117 +32,79 @@ namespace viewfeed
     // reports the deadman late.
     constexpr Int32 POLL_MS = 20;
 
-    // The bounded ring, per client: 96 KiB or 12 frames, whichever fills first.
+    // Per client; whichever fills first.
     constexpr Size RING_BYTES = 96u * 1024u;
     constexpr Size RING_FRAMES = 12;
 
-    // A revolution older than this at SEND time is dropped before it is ever
-    // queued. Sending it would spend the bandwidth the current revolution needs
-    // in order to show something already wrong.
+    // A revolution older than this at SEND time is dropped before it is
+    // queued: sending it spends the bandwidth the current one needs.
     constexpr Int64 LIVE_STALE_MS = 200;
 
-    // Half-open connections, covered a second and a third time over: the
-    // board's own PING, and SO_KEEPALIVE below. A phone that walks out of range
-    // stops ACKing without ever sending a FIN.
+    // A phone that walks out of range stops ACKing without sending a FIN. The
+    // board's PING catches that, as does SO_KEEPALIVE.
     constexpr Int64 PING_EVERY_MS = 1000;
     constexpr Int64 PONG_WAIT_MS = 4000;
 
-    // A camera frame is NOT QUEUED for a client whose PING has gone unanswered
-    // this long. See the camera send loop for why the keepalive has to be the
-    // clock: against a proxy the ring never fills, so nothing else can tell the
-    // path is backed up. 300 ms is far past a LAN's 2 ms and a hotspot's worst
-    // measured round trip, and far short of PONG_WAIT_MS, so it trips only on a
-    // path that is genuinely queueing and long before that path is dropped.
+    // No camera frame is queued for a client whose PING is this late (see
+    // offerCamera). Far past any healthy round trip and far short of
+    // PONG_WAIT_MS, so it trips only on a path that is really queueing.
     constexpr Int64 CAM_HOLD_PONG_MS = 300;
 
     constexpr Int64 CTLSTATE_EVERY_MS = 50;
     constexpr Int64 BOARD_EVERY_MS = 200;
 
-    // 10 events a second, with the suppressed count carried in the next one.
+    // One event per window; the suppressed count rides the next one.
     constexpr Int64 EVENT_WINDOW_MS = 100;
 
-    // Per TCP client. A header claiming more than MAX_INBOUND_PAYLOAD never
-    // gets this far - see consume() - so nothing sizes an allocation from a
-    // number a stranger on a hotspot wrote.
+    // Per TCP client. A header claiming more than MAX_INBOUND_PAYLOAD is
+    // refused before this fills (consume()).
     constexpr Size INBUF_BYTES = 1024;
 
-    // Deliberately SMALL. A deep queue of control datagrams is a queue of stale
-    // steering commands, and the board wants the newest, not the most.
+    // Deliberately SMALL: a deep queue of control datagrams is a queue of stale
+    // steering, and the board wants the newest.
     constexpr Int32 UDP_RCVBUF = 64 * 1024;
 
-    // The largest frame the SCAN path ever builds: a 1024-point revolution.
-    // MAX_PAYLOAD is 256 KiB and is sized for a JPEG, which this file now does
-    // send - but a camera frame is NOT built here. It gets its own buffer,
-    // allocated when the device opens and released when it closes, so a board
-    // nobody has subscribed a camera on still holds exactly these 5 KiB and not
-    // a quarter of a megabyte for a frame that is not occurring.
+    // The largest SCAN body. A camera frame gets its own buffer, held only
+    // while the device is open, so an unwatched board holds just this.
     constexpr Size SCAN_BODY_MAX = 24u + 5u * bibowire::MAX_SCAN_POINTS;
     constexpr Size ENCODE_BYTES = bibowire::FRAME_OVERHEAD + SCAN_BODY_MAX;
     constexpr Size BODY_CAP = ENCODE_BYTES - bibowire::FRAME_OVERHEAD;
 
-    // ---- the camera's numbers ----------------------------------------------
-
-    // JPEG start-of-image. THE ONLY FRAME BOUNDARY MJPEG GIVES: a JPEG's own
-    // end marker can occur inside its payload, so a frame is whole only once
-    // the NEXT one has begun. Costs exactly one frame of latency and is the
-    // reason a viewer is never handed half a picture.
+    // JPEG start-of-image, the only frame boundary MJPEG gives: an end marker
+    // can occur inside a payload, so a frame is whole only once the next one
+    // has begun. One frame of latency, and never half a picture.
     constexpr Array<UInt8, 3> CAM_SOI = { 0xFFu, 0xD8u, 0xFFu };
 
-    // Bytes with no boundary in them are not a picture. Rather than grow
-    // without bound, the reader drops back to hunting for the next marker.
+    // Past this with no boundary, the bytes are dropped and the reader hunts
+    // for the next marker.
     constexpr Size CAM_MAX_PARTIAL = 4u * 1024u * 1024u;
 
-    // The CAMERA body is a 24-byte fixed header, then the bytes, padded to 4.
-    // 32 is that rounded up past its padding: writeCamera REFUSES rather than
-    // overruns when the buffer is short, so this only has to have slack, and
-    // CAMERA_FIXED itself is private to bibowire.cxx and stays that way.
+    // CAMERA's 24-byte fixed header with slack for padding. writeCamera refuses
+    // rather than overruns, and CAMERA_FIXED stays private to bibowire.cxx.
     constexpr Size CAM_BODY_OVERHEAD = 32;
 
-    // A frame fits WHOLE or it is not sent. MAX_PAYLOAD is 262128 and a 640x480
-    // MJPEG frame measured ~45 KB, so this is five times the headroom actually
-    // needed - and section 5's FLAG_MORE stays unused, because v1 refuses it.
+    // A frame fits whole or is not sent: v1 refuses FLAG_MORE.
     constexpr Size CAM_MAX_JPEG = bibowire::MAX_PAYLOAD - CAM_BODY_OVERHEAD;
 
-    // A capture that dies inside a second earns a longer wait, to a ceiling of
-    // four: retrying twice a second for as long as somebody leaves a
-    // subscription open is thousands of spawns an hour against a board whose
-    // whole job is elsewhere.
+    // A capture that keeps dying waits longer each time, up to
+    // CAM_RETRY_MAX_MS, rather than spawning thousands of times an hour.
     constexpr Int32 CAM_FAIL_CEILING = 8;
     constexpr Float64 CAM_RETRY_STEP_MS = 500.0;
     constexpr Float64 CAM_RETRY_MAX_MS = 4000.0;
 
-    // How much of v4l2-ctl's stderr is kept to explain a failure with. The
-    // sentence that matters - "VIDIOC_REQBUFS returned -1 (Device or resource
-    // busy)" - is the first thing it says.
+    // v4l2-ctl's stderr kept to explain a failure; what matters comes first.
     constexpr Size CAM_DIAG_BYTES = 512;
 
-    // THE DEFAULT RATE, AND WHY IT IS THIS LOW.
-    //
-    // Measured on this board: 640x480 MJPG comes off /dev/video0 at 25 fps and
-    // 1121 KB/s, about 45 KB a frame. viewfeed.hxx sizes the whole design
-    // against a 220 kbit/s link, which is 27 KB/s - less than ONE frame a
-    // second.
-    //
-    // So no cap makes this fit, and that is not what the cap is for. CLASS_BULK
-    // is what decides what the link actually carries: camera frames are
-    // discarded before any scan or state frame, so whatever cannot get through
-    // is dropped at the ring rather than delaying the car's picture. The cap
-    // decides what the board OFFERS. Offering 25 fps would spend capture,
-    // encode and CRC on twenty-three frames in twenty-five that the ring throws
-    // away unread - real CPU out of the same core the control loop runs on, to
-    // produce nothing a viewer ever sees.
-    //
-    // Two frames a second is ~90 KB/s offered: a small multiple of what a good
-    // hotspot moment absorbs, so the picture updates when the link allows and
-    // degrades to a slideshow when it does not, with nothing wasted either way.
-    // BIBO_CAM_FPS raises it on a link that can take it - a bench cable will -
-    // and the number is deliberately NOT tuned for the bench.
+    // The rate offered when no subscriber asks. 640x480 MJPG is ~45 KB a frame
+    // and a hotspot carries less than one a second, so no cap makes it fit:
+    // CLASS_BULK decides what the link carries. The cap decides what the board
+    // OFFERS, because a frame the ring throws away still costs capture, encode
+    // and CRC on the control loop's core. BIBO_CAM_FPS raises it.
     constexpr Float64 CAM_FPS_DEFAULT = 2.0;
     constexpr UInt16 CAM_WIDTH_DEFAULT = 640;
     constexpr UInt16 CAM_HEIGHT_DEFAULT = 480;
 
-    // The last NOTE_RING frame headers PER DIRECTION, dumped on any abnormal close
-    // so a disconnect can be post-mortemed from a phone over ssh.
+    // Frame headers kept per direction, dumped on an abnormal close.
     constexpr Size NOTE_RING = 256;
 
     struct Note
@@ -160,14 +120,13 @@ namespace viewfeed
     constexpr UInt8 NOTE_JUNK = 1;
     constexpr UInt8 NOTE_REFUSED = 2;
 
-    // What a client is: a socket that has not said HELLO yet, or a viewer.
     enum class Stage
     {
         STAGE_WAIT_HELLO = 0,
         STAGE_LIVE,
     };
 
-    // One encoded frame, waiting for a socket that would not take it yet.
+    // An encoded frame the socket has not taken yet.
     struct Queued
     {
         Vec<UInt8> bytes;
@@ -183,7 +142,7 @@ namespace viewfeed
         Str peerIp;   // ip alone, for the CTLSTATE datagram and the refusal sentence
         Stage stage = Stage::STAGE_WAIT_HELLO;
 
-        // Fixed, never grown: the receive path has no heap in it at all.
+        // Fixed: the receive path has no heap in it.
         Array<UInt8, INBUF_BYTES> in{};
         Size inLen = 0;
 
@@ -200,8 +159,7 @@ namespace viewfeed
         UInt16 txSeq = 0;
         UInt16 droppedLive = 0;   // revolutions discarded for THIS client
 
-        // The reverse-path probe: at least REVERSE_PROBE_MIN datagrams within
-        // REVERSE_PROBE_MS of WELCOME, or the board says so in words.
+        // For the reverse-path probe (bibowire::REVERSE_PROBE_MS).
         TimePoint welcomedAt;
         UInt32 datagrams = 0;
         Bool probeSaid = false;
@@ -210,24 +168,16 @@ namespace viewfeed
         // there as well.
         Bool tcpControl = false;
 
-        // What the viewer asked for. A zero mask is "never asked", which is
-        // everything - a viewer that never subscribes is not a viewer that
-        // wants nothing.
+        // A zero mask is "never asked", which means everything but CAMERA.
         UInt32 typeMask = 0;
         UInt16 scanDivisor = 1;
         UInt32 revSeen = 0;
 
-        // The camera rate THIS viewer asked for, already clamped to
-        // bibowire::CAM_FPS_MAX when it was read off the wire. 0 means it did
-        // not ask, which is every viewer written before the field existed, and
-        // leaves the board's own conservative default standing.
+        // Clamped to bibowire::CAM_FPS_MAX on receipt; 0 did not ask.
         UInt16 camFps = 0;
 
-        // What the viewer said it understands. ADVISORY, and recorded for the
-        // log rather than acted on - see bibowire::typeBit. An unknown bit here is
-        // ignored, never refused: the whole point of the length prefix is that
-        // a type a reader has no name for is skipped, so a viewer claiming one
-        // this board has never heard of costs nothing.
+        // What the viewer says it understands: logged, never acted on, and an
+        // unknown bit is never refused.
         UInt32 features = 0;
 
         TimePoint lastPingAt;
@@ -235,13 +185,12 @@ namespace viewfeed
         UInt64 pingToken = 0;
         Bool pingOut = false;
 
-        // Camera frames not queued for this client because its PING was late -
-        // counted, and said once, because a picture that thins out for a
-        // reason nobody can see reads as a broken camera.
+        // Camera frames held back for a late PING, counted and said once, so a
+        // thinning picture does not read as a broken camera.
         UInt64 camHeld = 0;
         Bool camHoldSaid = false;
 
-        // ---- the link log's window, reset every line - see logLink ----
+        // The link log's window, reset every line (logLink).
         TimePoint linkLogAt;
         TimePoint lastRxAt;
         Float64 winRxGapMs = 0.0;     // longest wait between two reads that got bytes
@@ -286,18 +235,14 @@ namespace viewfeed
         TimePoint at;
     };
 
-    // How many accepted tuning requests may wait for the tick. A slider dragged
-    // across its range is a burst of discrete COMMANDs and the tick takes only
-    // a couple a pass, so there has to be SOME slack - but this filling up does
-    // not mean a fast viewer, it means the tick stopped draining, and an
-    // unbounded queue would answer a dead control loop by growing until the
-    // board ran out of memory.
+    // Tuning requests waiting for the tick. A dragged slider is a burst, so
+    // there is slack; a full queue means the tick stopped draining, and an
+    // unbounded one would grow until the board ran out of memory.
     constexpr Size TUNE_MAX = 32;
 
-    // What drive() computes the deadman from. The loop copies it under
-    // Shared::driveM before it flushes, so an answer a viewer has read is what
-    // the pilot's tick, or a Car's minder, sees too. drive() reads nothing else
-    // of this thread's state.
+    // What drive() computes the deadman from, and all it reads of this thread.
+    // The loop copies it under Shared::driveM before it flushes, so an answer a
+    // viewer has read is what the tick, or a Car's minder, sees too.
     struct DriveSeen
     {
         TimePoint at;                  // when this thread took the copy
@@ -321,32 +266,22 @@ namespace viewfeed
         Int32 wakeFd = -1;
         Atomic<Size> count{ 0 };
 
-        // The seqlock over two slots. The UDP receive path writes
-        // slot[seq & 1] and then STORES seq with release; control() loads with
-        // acquire, reads, re-loads, and retries if it moved.
+        // The seqlock over two slots: the writer fills slot[seq & 1] FIRST and
+        // then stores seq with release; control() loads with acquire, reads,
+        // re-loads, and retries if it moved.
         Atomic<UInt32> ctlSeq{ 0 };
         Array<bibowire::Control, 2> ctlSlot{};
 
         Mutex appliedM;
         Applied applied;
 
-        // Whether a viewer's COMMAND ARM stands. Written on this thread by
-        // onArm and bumpEpoch, read by the tick through drive() - atomic for
-        // ctlSeq's reason, which is that the tick never takes a lock.
+        // Whether a viewer's COMMAND ARM stands. Written by onArm and
+        // bumpEpoch, read by the tick through drive(); atomic so the tick
+        // never takes a lock.
         Atomic<Bool> operatorArmed{ false };
 
-        // The tuning handoff: a mutex and a QUEUE, where control above is a
-        // seqlock. The difference is the whole reason both exist. CONTROL is a
-        // 20 Hz stream whose old values are worthless, so keeping only the
-        // newest is correct. A tuning request is a discrete act that has
-        // already been acknowledged to the operator by name and value, so
-        // keeping only the newest would silently lose one of two sliders moved
-        // together and make that acknowledgement a lie.
-        //
-        // Drop-OLDEST if it ever fills, for the same reason: the newest value
-        // is the operator's current intent and the one their slider is showing
-        // them. Counted, because a drop here is a promise broken and a silent
-        // one would be this repo's recurring failure with a slider on it.
+        // The tuning queue (see tune()). Drop-OLDEST when full, because the
+        // newest is the operator's current intent; every drop is counted.
         Mutex tuneM;
         Deque<Tune> tunes;
         UInt64 tuneDropped = 0;
@@ -369,9 +304,8 @@ namespace viewfeed
     Thread worker;
     TimePoint startedAt;
 
-    // The link log - see logLink. On unless BIBO_LINK_LOG=0, and the loop's
-    // longest pass is kept per one-second window so a stall on THIS side shows
-    // up in the same line as a stall on the path.
+    // The link log (logLink). The loop's longest pass is kept per second so a
+    // stall on THIS side shows in the same line as a stall on the path.
     Bool linkLog = true;
     TimePoint loopWindowAt;
     Float64 loopWorstMs = 0.0;
@@ -388,24 +322,20 @@ namespace viewfeed
     UInt32 appliedSeq = 0;
     Bool holderGone = false;   // positive evidence the driver left
 
-    // The newest state a client accepted a moment from now is owed BEFORE it is
-    // shown a single point. State before scan, always.
+    // The newest state, owed to a newly welcomed client before its first scan.
     bibowire::BoardState lastBoard;
     Bool haveBoard = false;
     bibowire::LidarInfo lastLidar;
     Bool haveLidar = false;
 
-    // The trim the board has saved, as trimfile::report writes it. Remembered
-    // for the board state's reason: a viewer welcomed a moment from now is owed
-    // it at once, not at the next save, which may never come.
+    // The saved trim, owed to a viewer at WELCOME rather than at the next save.
     Str lastTrim;
     Bool haveTrim = false;
     TimePoint lastBoardAt;
     Bool boardSent = false;
 
-    // When the last revolution reached this module. THE BOARD MEASURING ITSELF,
-    // which is what catches a healthy link carrying dead data - the one lie a
-    // viewer cannot detect from its own clock.
+    // When the last revolution reached this module: the board measuring itself
+    // catches a healthy link carrying dead data, which a viewer cannot.
     TimePoint lastScanAt;
     Bool haveScan = false;
 
@@ -420,36 +350,13 @@ namespace viewfeed
 
     Array<UInt8, ENCODE_BYTES> scratch{};
 
-    // One read off the capture's pipe. At file scope rather than on the stack
-    // because a 64 KiB local zero-initialised on every read, fifty times a
-    // second, is a memset nobody asked for.
+    // One read off the capture's pipe, at file scope so a 64 KiB local is not
+    // zero-initialised on every read.
     Array<UInt8, 65536> camChunk{};
 
-    // ---- the camera's configuration ----------------------------------------
-    //
-    // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS override the device, the
-    // requested format and the rate cap, so a board can be pointed at another
-    // camera, and a test at no camera at all, without a rebuild.
-    //
-    // BY ID, NOT BY MINOR NUMBER. /dev/videoN is assigned in enumeration order
-    // and is NOT stable: this camera fell off the bus mid-stream on 2026-09-10
-    // (uvcvideo "Failed to resubmit video URB (-19)", which is ENODEV), came
-    // back as USB device 6, and took /dev/video1 - so /dev/video0 ceased to
-    // exist and this module reported a dead camera that was sitting right
-    // there working. It had re-enumerated THREE times in
-    // four minutes, with twelve URB failures, all while streaming: a recurring
-    // fact about the hardware rather than a one-off.
-    //
-    // The by-id path is built from the device's own strings and survives that -
-    // the same answer the lidar has always used through /dev/serial/by-id
-    // rather than ttyUSB0. Falls back to the old name so a board without the
-    // symlink, or a different camera, still works.
-    //
-    // A FUNCTION, not an initialiser with a branch in it: the first version of
-    // this put an `if` directly in CamCfg's member initialiser, which is a type
-    // definition where no statement may appear. MSVC never said so, because
-    // every line here is inside the __linux__ half it does not compile - so
-    // firmware\verify.bat passed and only g++ on the board caught it.
+    // By id, not /dev/videoN: this camera re-enumerates while streaming and
+    // comes back under another minor number, and the by-id path survives that.
+    // Falls back to /dev/video0 for a board without the symlink.
     [[nodiscard]] inline Str cameraDevDefault()
     {
         const Str byId =
@@ -459,17 +366,10 @@ namespace viewfeed
 
     struct CamCfg
     {
-        // RESOLVED PER ATTEMPT, not once. startCamera fills `dev` in on every
-        // open, because this camera re-enumerates WHILE STREAMING and the by-id
-        // symlink exists only while the device does. A path resolved once at
-        // boot latches whatever was true then: start the board with the camera
-        // absent and the retry loop below would ask for /dev/video0 forever,
-        // never looking again when the symlink appeared. The retry was never the
-        // broken part - retrying a name that stopped existing is.
-        //
-        // `devOverride` is BIBO_CAM_DEV when somebody set it and empty
-        // otherwise. An override is never re-derived: a device path that moved
-        // behind the operator's back would be worse than the bug it replaced.
+        // Resolved on every open (startCamera), not once: the by-id symlink
+        // exists only while the device does, so a path resolved at boot would
+        // latch whatever was true then. `devOverride` is BIBO_CAM_DEV, or
+        // empty, and is never re-derived.
         Str dev;
         Str devOverride;
         UInt16 width = CAM_WIDTH_DEFAULT;
@@ -479,8 +379,8 @@ namespace viewfeed
 
     CamCfg camCfg;
 
-    // The capture, owned entirely by this module's thread. Every buffer here is
-    // empty and every fd is -1 while nobody subscribes.
+    // The capture, owned by this module's thread. Every buffer is empty and
+    // every fd -1 while nobody subscribes.
     struct Cam
     {
         Int32 pid = -1;
@@ -503,8 +403,6 @@ namespace viewfeed
 
     Cam cam;
 
-    // ---- small helpers -----------------------------------------------------
-
     [[nodiscard]] UInt64 monoUs()
     {
         return static_cast<UInt64>(elapsedMs(startedAt) * 1000.0);
@@ -515,8 +413,7 @@ namespace viewfeed
         const Char one = 1;
         if(::write(sh.wakeFd, &one, 1) < 0)
         {
-            // Deliberately nothing: a full pipe means the loop is awake
-            // already.
+            // A full pipe means the loop is awake already.
         }
     }
 
@@ -546,9 +443,7 @@ namespace viewfeed
     {
         LockGuard<Mutex> lock(sh.tallyM);
         const UInt32 was = sh.tally.encodeAvgNs;
-        // A running mean that costs one multiply and never allocates. The exact
-        // average of every frame ever sent is not the useful number; what this
-        // viewer is costing now is.
+        // A running mean: what serving costs now, not since start.
         sh.tally.encodeAvgNs = was == 0
             ? static_cast<UInt32>(ns)
             : static_cast<UInt32>((static_cast<Float64>(was) * 7.0 + ns) / 8.0);
@@ -558,8 +453,8 @@ namespace viewfeed
         }
     }
 
-    // A session id that is random enough that a datagram from a previous
-    // session cannot be mistaken for this one, and NEVER 0.
+    // Random enough that a previous session's datagram is not mistaken for
+    // this one, and NEVER 0.
     [[nodiscard]] UInt32 freshSession()
     {
         static UInt32 state = 0;
@@ -580,7 +475,6 @@ namespace viewfeed
         DIR_OUT,
     };
 
-    // The ring and its cursor were two parameters saying one thing: which direction.
     Void note(Dir dir, const bibowire::Head& h, Size len, UInt8 verdict)
     {
         Note n;
@@ -595,9 +489,8 @@ namespace viewfeed
         at = (at + 1u) % NOTE_RING;
     }
 
-    // Written to the journal on any abnormal close, which is what makes a
-    // disconnect something a person can post-mortem with journalctl from a
-    // phone rather than something they have to reproduce.
+    // Written to the journal on any abnormal close, so a disconnect can be
+    // examined with journalctl rather than reproduced.
     Void dumpNotes(const Client& c)
     {
         std::printf("viewfeed: frame ring for %s (%s)\n", c.peer.c_str(), c.dropWhy.c_str());
@@ -625,16 +518,9 @@ namespace viewfeed
         }
     }
 
-    // ---- the deadman, and who is holding the wheel -------------------------
-
-    // Does the mode this viewer BELIEVES is running match the one that actually
-    // is? The pilot's mode arrives every tick on the BOARD frame; this module
-    // never had to ask for it, and never did.
-    //
-    // POSITIVE EVIDENCE ONLY, exactly like picoDown(). Before the first BOARD
-    // frame nothing is known about the mode, and "has not said yet" must not be
-    // refused on - so an unknown mode agrees. Touched on this thread alone, like
-    // lastBoard itself, so there is no lock here for the same reason.
+    // Whether the mode a viewer BELIEVES is running is the pilot's, from BOARD.
+    // Positive evidence only: before the first BOARD an unknown mode agrees.
+    // This thread alone touches lastBoard, so there is no lock.
     [[nodiscard]] Bool modeAgreesWith(UInt8 assumed)
     {
         return !haveBoard || assumed == lastBoard.pilotMode;
@@ -649,17 +535,12 @@ namespace viewfeed
         s.estopLatched = estopLatched;
         s.controlGone = holderGone || !everControl;
         s.lastControlAt = lastControlAt;
-
         const UInt32 seq = sh.ctlSeq.load(std::memory_order_acquire);
         if(seq != 0u)
         {
             const bibowire::Control& c = sh.ctlSlot[seq & 1u];
             s.enable = (c.buttons & bibowire::BUTTON_ENABLE) != 0u;
             s.epochMatches = c.armEpoch == static_cast<UInt8>(armEpoch);
-            // WAS HARD-CODED true, which made deadman::step's mode branch
-            // unreachable - REFUSE_MODE could not fire however wrong the
-            // viewer's belief was. The pure function was right and tested all
-            // along; this caller was the part measuring nothing.
             s.modeAgrees = modeAgreesWith(c.assumedMode);
         }
         return s;
@@ -671,11 +552,8 @@ namespace viewfeed
     {
         bibowire::deadman::Inputs in;
         in.nowMs = static_cast<Int64>(elapsedMs(startedAt));
-        // A LEAVE, a FIN or an RST from the holder is POSITIVE EVIDENCE the
-        // driver is gone. Spending a sixth of a second rediscovering that by
-        // timeout is a sixth of a second of a car driving on a command from a
-        // viewer that is provably not there, so the age is forced past DEAD
-        // rather than allowed to run down.
+        // A LEAVE, FIN or RST from the holder is positive evidence the driver
+        // is gone, so the age is forced past DEAD rather than left to time out.
         const Int64 gone = in.nowMs - static_cast<Int64>(bibowire::CONTROL_DEAD_MS);
         in.lastControlMs = s.controlGone
             ? gone
@@ -736,28 +614,19 @@ namespace viewfeed
         return deadmanByteOf(deadmanNow());
     }
 
-    // The epoch is bumped on a deadman disarm, an e-stop, a Pico link loss, a
-    // DISARM and a CONTROL-SLOT CHANGE - which is what disarms a displaced
-    // viewer for free, and why handing the wheel over cannot leave the old
-    // holder's throttle believed.
-    //
-    // AND THE ARM GOES WITH IT. A COMMAND ARM is granted under the epoch in
-    // force, so moving the epoch IS disarming - there is no second list of
-    // "things that disarm" to fall out of step with this one.
+    // Bumped on a deadman trip, an estop, a Pico link loss, a DISARM and a
+    // control-slot change, which disarms a displaced holder for free. The ARM
+    // goes with it: moving the epoch IS disarming, so there is no second list
+    // of things that disarm to fall out of step.
     Void bumpEpoch()
     {
         armEpoch = (armEpoch + 1u) & 0xFFu;
         sh.operatorArmed.store(false, std::memory_order_release);
     }
 
-    // ---- encoding, framing and the drop classes ----------------------------
-
-    // The body is expected to be sitting at `buf + HEAD_BYTES` already, so
-    // put() has nothing to copy and the framing costs a header and a CRC. That
-    // matters most for the camera, where the body is 45 KB and this is called
-    // once PER CLIENT - the seq and the flags differ per client, so the header
-    // and CRC are rewritten in place over one body rather than the body being
-    // re-encoded four times.
+    // Frames a body already sitting at `at + HEAD_BYTES`, so put() copies
+    // nothing. The camera relies on it: one body, with only the per-client
+    // header and CRC rewritten over it.
     [[nodiscard]] Size framedIn(UInt8* at, Size cap, const bibowire::Head& h, Size len)
     {
         bibowire::Body b;
@@ -781,9 +650,8 @@ namespace viewfeed
         return scratch.data() + bibowire::HEAD_BYTES;
     }
 
-    // The newest BULK, else the oldest LIVE. Never the head when the socket has
-    // already taken part of it - half a frame followed by a different frame is
-    // a stream the far end cannot resynchronise without help.
+    // The newest BULK, else the oldest LIVE. Never a head the socket has partly
+    // taken: half a frame followed by another frame breaks the stream.
     [[nodiscard]] Bool discardOne(Client& c)
     {
         const Size first = c.sentOfHead > 0u ? 1u : 0u;
@@ -814,9 +682,8 @@ namespace viewfeed
         return false;
     }
 
-    // Puts a built frame on this client's ring, under the classes of section 7.
-    // `bytes` is whichever buffer it was framed in: `scratch` for everything the
-    // pilot publishes, the camera's own buffer for a JPEG too big to live there.
+    // Puts a built frame on this client's ring under the drop classes. `bytes`
+    // is `scratch`, or the camera's own buffer.
     Void enqueueFrom(Client& c, bibowire::Type type, const UInt8* bytes, Size total)
     {
         if(!c.dropWhy.empty() || total == 0u)
@@ -824,10 +691,7 @@ namespace viewfeed
             return;
         }
         const bibowire::Class cls = bibowire::classOf(type);
-
-        // LIVE is drop-oldest, DEPTH 1: the newest revolution wins, and the
-        // count travels in the next SCAN's droppedSinceLast so the viewer knows
-        // what it missed rather than believing it saw everything.
+        // LIVE is drop-oldest, depth 1.
         if(cls == bibowire::Class::CLASS_LIVE)
         {
             const Size first = c.sentOfHead > 0u ? 1u : 0u;
@@ -846,7 +710,6 @@ namespace viewfeed
                 countFrame(true);
             }
         }
-
         while(c.outBytes + total > RING_BYTES || c.out.size() + 1u > RING_FRAMES)
         {
             if(!discardOne(c))
@@ -854,12 +717,9 @@ namespace viewfeed
                 break;
             }
         }
-
         if(c.outBytes + total > RING_BYTES || c.out.size() + 1u > RING_FRAMES)
         {
-            // A viewer that cannot absorb 120 bytes of state has gone, whatever
-            // its socket says. VITAL is never dropped, so the client is what
-            // gives way.
+            // VITAL is never dropped, so the client gives way.
             if(cls == bibowire::Class::CLASS_VITAL)
             {
                 c.dropWhy = "the vital ring filled";
@@ -873,7 +733,6 @@ namespace viewfeed
             countFrame(true);
             return;
         }
-
         Queued q;
         q.bytes.assign(bytes, bytes + total);
         q.cls = cls;
@@ -881,7 +740,6 @@ namespace viewfeed
         q.at = monoNow();
         c.outBytes += total;
         c.out.push_back(std::move(q));
-
         bibowire::Head h;
         h.type = type;
         h.seq = c.txSeq;
@@ -895,10 +753,8 @@ namespace viewfeed
         enqueueFrom(c, type, scratch.data(), total);
     }
 
-    // Builds one frame for one client and queues it. `write` fills the body and
-    // returns its length, or 0 when the message could not be represented - a
-    // board that emitted a frame its own reader would refuse would have moved a
-    // bug from the encoder into somebody else's decoder.
+    // Builds one frame for one client and queues it. `fill` writes the body and
+    // returns its length, or 0 when the message cannot be represented.
     template<typename Fill>
     Void emit(Client& c, bibowire::Type type, Fill fill)
     {
@@ -913,17 +769,10 @@ namespace viewfeed
         enqueue(c, type, total);
     }
 
-    // What this board actually sends, for WELCOME.featureMask - which section 4
-    // defines as "what this board will send", and which is therefore a fact
-    // about the build rather than an echo of what the viewer asked for.
-    //
-    // CAMERA is in here, and it is the one bit that is ADVERTISED BUT NOT ON.
-    // featureMask is "what this board will send", not "what this board is
-    // sending" - and a viewer has no other way to discover that asking for bit
-    // 16 would get it a picture. Leaving it out would make the camera a thing
-    // you have to read this source to find. Whether the DEVICE is there is a
-    // different question, answered by an EVENT when a subscription actually
-    // tries to open it, because that is the moment it can be answered honestly.
+    // WELCOME.featureMask: what this build will send (section 4), not an echo
+    // of the request. CAMERA is advertised though off until subscribed, or no
+    // viewer could discover it; whether the device is there is answered by an
+    // EVENT when a subscription opens it.
     [[nodiscard]] UInt32 boardFeatures()
     {
         return bibowire::typeBit(bibowire::Type::TYPE_SCAN)
@@ -947,22 +796,9 @@ namespace viewfeed
         {
             return true;
         }
-        // THE ONE EXCEPTION TO THE ZERO MASK, AND THE REASON IT EXISTS.
-        //
-        // Every other type follows the rule below: a viewer that never
-        // subscribed is not a viewer that wants nothing, so it gets everything.
-        // That is right for a 2.5 KB revolution and it is WRONG for a camera.
-        // A megabyte a second is not a sensible thing to hand somebody who
-        // never mentioned it - it would arrive at every viewer written before
-        // this producer existed, take the bandwidth the scan needs, and spin up
-        // a capture on a board nobody is watching a picture on.
-        //
-        // So CAMERA is sent ONLY on an explicit bit: docs/bibowire.md section 11
-        // has a new type arrive switched off, and a viewer that wants it asks.
-        // The bit is `tag - 0x10` like every other, so
-        // CAMERA (0x20) is bit 16 - nothing new to learn, just the one default
-        // that is off. test_viewfeed asserts a zero-mask subscriber gets scan
-        // and state and NOT camera.
+        // CAMERA only on its explicit bit, even for a zero mask: a new type
+        // arrives switched off (section 11), and a megabyte a second must not
+        // reach a viewer that never asked or start a capture nobody watches.
         if(type == bibowire::Type::TYPE_CAMERA)
         {
             return (c.typeMask & bit) != 0u;
@@ -974,8 +810,6 @@ namespace viewfeed
         }
         return (c.typeMask & bit) != 0u;
     }
-
-    // ---- the socket ends ---------------------------------------------------
 
     [[nodiscard]] Bool flush(Client& c)
     {
@@ -995,10 +829,9 @@ namespace viewfeed
                 ++c.winSends;
                 if(c.sentOfHead >= q.bytes.size())
                 {
-                    // Cleared only now, because only now has the viewer been
-                    // TOLD. A count cleared at encode time is a count the
-                    // viewer never receives, and the whole purpose of the field
-                    // is that gaps are counted rather than smoothed over.
+                    // droppedLive is cleared only now, when the SCAN carrying
+                    // it has gone: coalescing in enqueue() counts drops after
+                    // the frame is built, so clearing earlier would lose them.
                     const bibowire::Type sent = q.type;
                     c.outBytes -= q.bytes.size();
                     c.sentOfHead = 0;
@@ -1022,8 +855,8 @@ namespace viewfeed
         return true;
     }
 
-    // The oldest VITAL frame still owed, and how long it has been owed. This is
-    // the test that closes a viewer which is up, connected, and not reading.
+    // Closes a viewer that is connected and not reading: its oldest owed VITAL
+    // frame is older than BEHIND_MS.
     Void checkBehind(Client& c)
     {
         for(const Queued& q : c.out)
@@ -1056,8 +889,8 @@ namespace viewfeed
         emit(c, bibowire::Type::TYPE_BYE, [&m](UInt8* out, Size cap) {
             return bibowire::writeBye(m, out, cap);
         });
-        // Pushed as far as the socket will take it now, because the next thing
-        // that happens to this client is a close.
+        // Pushed now, because the next thing that happens to this client is a
+        // close.
         static_cast<Void>(flush(c));
     }
 
@@ -1069,8 +902,6 @@ namespace viewfeed
         LockGuard<Mutex> lock(sh.tallyM);
         ++sh.tally.refused;
     }
-
-    // ---- the handshake -----------------------------------------------------
 
     [[nodiscard]] Size liveClients(const Vec<Client>& clients)
     {
@@ -1097,11 +928,8 @@ namespace viewfeed
         return Str("nobody");
     }
 
-    // The pilot fills the CAR's state; these are the fields only this module
-    // can know - the deadman it computes, the epoch it owns, who is holding the
-    // wheel, and what serving this viewer cost. The pilot's console line prints
-    // none of them, so section 5's "one struct, one tick" rule is untouched:
-    // the pilot still fills what the console and the viewer both read.
+    // The pilot's BOARD with the fields only this module knows: the deadman,
+    // the epoch, the holder, and what serving this viewer cost.
     [[nodiscard]] bibowire::BoardState boardFor(const Client& c)
     {
         bibowire::BoardState b = lastBoard;
@@ -1118,10 +946,7 @@ namespace viewfeed
         return b;
     }
 
-    // THE SAVED TRIM, as an EVENT under bibowire::EVENT_CODE_TRIM. Never through
-    // the event rate limiter: it is state rather than news, it goes out only on
-    // a welcome and on a save, and a report the limiter swallowed would leave a
-    // Trim pane showing its laptop's numbers as though they were the car's.
+    // The saved trim (publishTrim), never through the event rate limiter.
     Void emitTrim(Client& c)
     {
         bibowire::Event e;
@@ -1136,9 +961,8 @@ namespace viewfeed
 
     Void sendState(Client& c)
     {
-        // LIDAR_INFO then BOARD, then the next SCAN. State before scan, always,
-        // so the viewer has something TRUE to draw the moment the picture
-        // appears rather than a corridor overlay with no board behind it.
+        // State before scan, always: LIDAR_INFO, BOARD and the trim, then the
+        // next SCAN.
         if(haveLidar)
         {
             emit(c, bibowire::Type::TYPE_LIDAR_INFO, [](UInt8* out, Size cap) {
@@ -1160,9 +984,7 @@ namespace viewfeed
 
     Void onHello(Client& c, const bibowire::Body& body, UInt8 ver, Vec<Client>& clients)
     {
-        // A second HELLO on a live connection is a protocol error and closes
-        // it. There is one handshake per socket; a second one is either a
-        // confused viewer or somebody else's bytes.
+        // One handshake per socket.
         if(c.stage != Stage::STAGE_WAIT_HELLO)
         {
             refuse(
@@ -1173,7 +995,6 @@ namespace viewfeed
             );
             return;
         }
-
         bibowire::Hello h;
         if(!bibowire::readHello(body, ver, &h))
         {
@@ -1183,25 +1004,16 @@ namespace viewfeed
         c.name = h.name;
         c.udpPort = h.viewerUdpPort;
         c.wantedControl = h.wantControl != 0u;
-        // Recorded, and every bit of it accepted. A viewer with no convention
-        // to follow sends all ones, which is the only value that cannot be
-        // misread as "understands nothing" - so refusing an unrecognised bit
-        // would refuse the most sensible thing a viewer can say.
+        // Every bit accepted: a viewer with no convention sends all ones.
         c.features = h.featureMask;
-
-        // protoMajor must be EQUAL. Not >=, not "compatible" - and the answer
-        // names both numbers and the board's build, because a refusal that says
-        // only "incompatible" sends a person to read source in a field.
         if(!bibowire::versionOk(h.protoMajor))
         {
             const bibowire::Bye m = bibowire::versionRefusal(h, policy.boardBuild.c_str());
             refuse(c, m.reason, m.text, "version");
             return;
         }
-
-        // The board answers EVERY well-formed HELLO, including one it refuses.
-        // Silence is never an answer, because on this link silence already
-        // means four other things.
+        // Every well-formed HELLO is answered, even a refused one: on this link
+        // silence already means too many other things.
         bibowire::Welcome w;
         w.sessionId = freshSession();
         w.bootId = policy.bootId;
@@ -1210,7 +1022,6 @@ namespace viewfeed
         w.capabilities = policy.capabilities;
         w.featureMask = boardFeatures();
         w.boardName = policy.boardName;
-
         if(liveClients(clients) >= bibowire::MAX_CLIENTS)
         {
             Str said = "four viewers already: ";
@@ -1231,7 +1042,6 @@ namespace viewfeed
             refuse(c, bibowire::Reason::REASON_REFUSED, said, "too many viewers");
             return;
         }
-
         if(c.wantedControl && !haveHolder)
         {
             c.holder = true;
@@ -1240,8 +1050,6 @@ namespace viewfeed
             holderGone = false;
             everControl = false;
             appliedSeq = 0;
-            // A control-slot change bumps the epoch, which disarms whoever held
-            // it before without a second mechanism.
             bumpEpoch();
             w.armEpoch = static_cast<UInt8>(armEpoch);
             w.accepted = 1;
@@ -1258,27 +1066,19 @@ namespace viewfeed
             w.accepted = 2;
             w.text = "observing";
         }
-
         c.sessionId = w.sessionId;
         c.stage = Stage::STAGE_LIVE;
         c.welcomedAt = monoNow();
         c.lastPingAt = monoNow();
         c.lastCtlAt = monoNow();
-
-        // COUNTED THE MOMENT IT IS WELCOMED, not at the end of this pass. The
-        // count is what publish() checks before it takes the lock, and what the
-        // BOARD frame reports as `clients` - so a client counted a pass late is
-        // a client whose own first BOARD says it is not there, and a
-        // revolution published in that window is dropped at the door of a feed
-        // that does have a viewer. Both were found on the board: the BOARD
-        // frame said 0 clients to the very viewer reading it.
+        // Counted now, not at the end of the pass: publish() checks the count
+        // before it takes the lock, and this client's own first BOARD reports
+        // it as `clients`.
         sh.count.store(liveClients(clients));
-
         emit(c, bibowire::Type::TYPE_WELCOME, [&w](UInt8* out, Size cap) {
             return bibowire::writeWelcome(w, out, cap);
         });
         sendState(c);
-
         std::printf(
             "viewfeed: %s welcomed as %s, session %08x\n",
             c.peer.c_str(),
@@ -1289,11 +1089,8 @@ namespace viewfeed
         ++sh.tally.accepted;
     }
 
-    // The slot is released by LEAVE, by close, or by CONTROL_SLOT_MS of
-    // silence. 1000 ms and not 300: the car has ALREADY been stopped by the
-    // deadman at 300, and handing the wheel to somebody else 300 ms into a
-    // stall - while the first operator is still holding the throttle and about
-    // to come back - would be worse than the stall.
+    // The slot is released by LEAVE, by a close, or by
+    // bibowire::CONTROL_SLOT_MS of silence.
     Void releaseSlot(Client& c, CharSeq why)
     {
         if(!c.holder)
@@ -1308,22 +1105,12 @@ namespace viewfeed
         std::printf("viewfeed: control released by %s (%s)\n", c.peer.c_str(), why);
     }
 
-    // ---- what a viewer sends -----------------------------------------------
-
     Void onControlFrame(Client& c, const bibowire::Control& m);
 
-    // ---- tuning ------------------------------------------------------------
-    //
-    // Four verbs that reach the car's TRIM rather than its motion: the servo's
-    // end stops, its centre, the throttle's working range, and how fast either
-    // output may move. docs/bibowire.md section 5 is the contract they arrive
-    // under.
-    //
-    // NOTHING HERE TOUCHES THE SERIAL PORT. This thread validates, answers the
-    // operator with a CMDACK naming the value that was taken, and queues the
-    // request for the pilot's tick - the same split every other message in this
-    // file keeps, and the reason a stalled Pico cannot stall the socket.
-
+    // Tuning verbs change the car's trim, not its motion (section 5). This
+    // thread validates, answers with a CMDACK naming the value taken, and
+    // queues the request for the tick: nothing here touches the serial port, so
+    // a stalled Pico cannot stall the socket.
     [[nodiscard]] Bool isTuningVerb(bibowire::Verb v)
     {
         return v == bibowire::Verb::VERB_SET_ESC_LIMITS
@@ -1333,27 +1120,16 @@ namespace viewfeed
             || v == bibowire::Verb::VERB_SET_ESC_REVERSE;
     }
 
-    // The car's arm state as the PILOT last reported it, which is the only
-    // channel the board has for the fact.
-    //
-    // READ THE HONESTY NOTE ON Applied IN THE HEADER BEFORE TRUSTING THIS. The
-    // pilot does not drive from CONTROL in this build and nothing calls
-    // applied(), so this reads 0 - disarmed - for the whole run, and the
-    // refusal below never fires today. That makes it a guard that is CORRECT
-    // and not yet LOAD-BEARING, and it must not be the only thing standing
-    // between a live throttle and a new limit: the Pico re-clamps and refuses
-    // on its own side, which is the check that is actually running.
+    // The car's arm state as the pilot last reported it through applied().
     [[nodiscard]] Bool armedNow()
     {
         LockGuard<Mutex> lock(sh.appliedM);
         return sh.applied.armed != 0u;
     }
 
-    // THE ONE EXCEPTION TO "NOT WHILE ARMED": ESC limits, while the holder's own
-    // newest CONTROL - still fresh - carries ENABLE and BUTTON_IDLE_TEST. The
-    // pilot then holds the ESC at exactly the idle pulse and ignores the
-    // throttle field, so the only throttle a new limit can change is the idle
-    // somebody is watching. A stale stream or a departed holder allows nothing.
+    // The one exception to "not while armed" (bibowire::BUTTON_IDLE_TEST): ESC
+    // limits, while the holder's fresh newest CONTROL carries ENABLE and
+    // BUTTON_IDLE_TEST. A stale stream or a departed holder allows nothing.
     [[nodiscard]] Bool idleTestAllows(bibowire::Verb v)
     {
         if(v != bibowire::Verb::VERB_SET_ESC_LIMITS || !everControl || holderGone)
@@ -1374,20 +1150,15 @@ namespace viewfeed
         return (c.buttons & both) == both;
     }
 
-    // POSITIVE EVIDENCE ONLY. haveBoard is false until the pilot's first
-    // publishBoard, and "has not said yet" is not "there is no Pico" - refusing
-    // then would be this module inventing a fact it does not have. picoLink 0
-    // IS the pilot saying the port is closed or that this run is --dry, and
-    // that is a fact worth refusing on. Touched on this thread alone, like
-    // lastBoard itself, so there is no lock here for a reason.
+    // Positive evidence only: "has not reported yet" is not "no Pico". picoLink
+    // 0 is the pilot saying the port is closed or the run is --dry.
     [[nodiscard]] Bool picoDown()
     {
         return haveBoard && lastBoard.picoLink == 0u;
     }
 
-    // POSITIVE EVIDENCE, like picoDown(): the pilot said it is not in MANUAL, so
-    // a car program or the autonomy writes steer and throttle and a viewer only
-    // watches. Touched on this thread alone, like lastBoard itself.
+    // Positive evidence, like picoDown(): the pilot said it is not in MANUAL, so
+    // a car program or the autonomy drives and a viewer only watches.
     [[nodiscard]] Bool notManual()
     {
         const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
@@ -1408,9 +1179,7 @@ namespace viewfeed
             ++sh.tuneDropped;
             if(!sh.tuneDropSaid)
             {
-                // Once, not per drop: a tick that has stopped draining will
-                // drop every request after this one, and a line each would bury
-                // the one line that says why.
+                // Once, not per drop, so the line that says why is not buried.
                 sh.tuneDropSaid = true;
                 std::printf("viewfeed: tuning queue full - the tick is not draining it\n");
             }
@@ -1426,9 +1195,8 @@ namespace viewfeed
     // Fills `ack` for one tuning verb, and queues the request when it is taken.
     Void onTune(const bibowire::Command& cmd, bibowire::CmdAck* ack)
     {
-        // The mode and the arm are checked before any talk of ranges. An
-        // operator told "1000..2000 us" by a car that was never going to accept
-        // the number has been answered a question they did not ask.
+        // Mode, arm and Pico before ranges: a range is no answer from a car that
+        // would refuse any number.
         if(notManual())
         {
             ack->result = 3;
@@ -1447,11 +1215,9 @@ namespace viewfeed
             ack->text = "no Pico - trim lives in its RAM and there is nothing to send this to";
             return;
         }
-
         Array<Char, 160> buf{};
         const unsigned a1 = static_cast<unsigned>(cmd.arg1);
         const unsigned a2 = static_cast<unsigned>(cmd.arg2);
-
         if(cmd.verb == bibowire::Verb::VERB_SET_SERVO_LIMITS
             || cmd.verb == bibowire::Verb::VERB_SET_ESC_LIMITS)
         {
@@ -1461,9 +1227,7 @@ namespace viewfeed
             const Char* what = esc ? "esc" : "servo";
             if(!within(cmd.arg1, lo, hi) || !within(cmd.arg2, lo, hi))
             {
-                // The accepted range is NAMED. "Out of range" alone sends
-                // somebody to read source in a field; two numbers turn the
-                // refusal into the next thing to type.
+                // The accepted range is named, so the refusal says what to type.
                 std::snprintf(
                     buf.data(),
                     buf.size(),
@@ -1476,14 +1240,9 @@ namespace viewfeed
                 ack->text = Str(buf.data());
                 return;
             }
-            // min BELOW max, tested on the values that will actually be sent.
-            // THIS BOARD REFUSES RATHER THAN CLAMPS, and the range test above
-            // has already turned every out-of-range endpoint into a result = 1,
-            // so the pair cannot be collapsed into equality between there and
-            // here - the relation that holds now is the relation the Pico is
-            // handed. The day a clamp is added above, this test runs again
-            // AFTER it, because a clamp is exactly what can make two accepted
-            // numbers equal.
+            // min below max, on the values the Pico is handed. Should a clamp
+            // ever be added above, this test must run after it: a clamp can
+            // make two accepted numbers equal.
             if(cmd.arg1 >= cmd.arg2)
             {
                 std::snprintf(
@@ -1514,9 +1273,8 @@ namespace viewfeed
 
         if(cmd.verb == bibowire::Verb::VERB_SET_ESC_REVERSE)
         {
-            // NEUTRAL IS IN RANGE - it is how reverse is turned off - and above
-            // it is refused rather than clamped: a "reverse limit" of 1600 is a
-            // forward pulse, and nothing named reverse may produce one.
+            // Neutral is in range and turns reverse off. Above it is refused,
+            // not clamped: nothing named reverse may produce a forward pulse.
             if(!within(cmd.arg1, bibowire::ESC_US_HARD_MIN, bibowire::ESC_NEUTRAL_US))
             {
                 std::snprintf(
@@ -1602,9 +1360,7 @@ namespace viewfeed
                 ? "steer"
                 : (cmd.arg0 == bibowire::SLEW_AXIS_THROTTLE ? "throttle" : "steer and throttle");
             queueTune(cmd);
-            // BOTH UNITS. us-per-tick is what the wire carries; us-per-second
-            // is what an operator thinks in, and nobody should have to know
-            // that a tick is 20 ms to read their own acknowledgement.
+            // Both units: the wire's us per tick and an operator's us per second.
             std::snprintf(
                 buf.data(),
                 buf.size(),
@@ -1619,32 +1375,17 @@ namespace viewfeed
             return;
         }
 
-        // Unreachable while isTuningVerb and the branches above agree about
-        // which verbs are tuning verbs. Answered rather than left silent for
-        // the day they stop agreeing: a COMMAND with no CMDACK is the one thing
-        // this protocol promises cannot happen.
+        // Unreachable while isTuningVerb and these branches agree; answered
+        // anyway, because every COMMAND gets a CMDACK.
         ack->result = 2;
         ack->text = "that is not a verb this board tunes";
     }
 
-    // ---- arming ------------------------------------------------------------
-    //
-    // docs/bibowire.md section 6 specified this long before anything did it.
-    // The viewer's ARM button sent the verb from the day it was drawn and this
-    // board answered "does not take bibowire commands yet", so the only way to
-    // arm a car driven from the viewer was --arm on the pilot's command line -
-    // which meant a pilot started at boot either armed itself with nobody there
-    // or could never be armed at all, and an estop could not be recovered from
-    // without restarting the process.
-    //
-    // Refused unless the estop is clear, the request comes from the holder, the
-    // pilot is in MANUAL, the Pico is up and answering, the viewer is looking
-    // at the current epoch, and its CONTROL stream has been live for
-    // REARM_STREAM_MS. Each refusal says which, because "refused" alone sends
-    // an operator to guess.
-    //
-    // THIS THREAD ONLY DECIDES. The tick sends ESC ARM when it sees the flag
-    // rise, for the reason tuning is queued: nothing here touches the port.
+    // ARM (section 6). Refused unless the estop is clear, the request comes
+    // from the holder, the pilot is in MANUAL, the Pico is up and answering, the
+    // viewer has the current epoch, and its CONTROL stream has been live for
+    // REARM_STREAM_MS; each refusal says which. This thread only decides: the
+    // tick sends ESC ARM when it sees the flag rise.
     Void onArm(const Client& c, const bibowire::Command& cmd, bibowire::CmdAck* ack)
     {
         Array<Char, 160> buf{};
@@ -1654,20 +1395,15 @@ namespace viewfeed
             ack->text = "estop is latched - CLEAR_ESTOP first, then ARM";
             return;
         }
-        // RESULT 1, NOT 2. CmdAck's 2 means "unknown verb" and the viewer labels
-        // it exactly that, so the first cut of this told an operator the board
-        // did not know what ARM was when it was really saying "not yours".
+        // Result 1, not 2: the viewer labels 2 "unknown verb".
         if(!(c.holder && c.sessionId == holderSession))
         {
             ack->result = 1;
             ack->text = "you cannot arm a car you are not holding - connect as the driver";
             return;
         }
-
-        // POSITIVE EVIDENCE, the other way round from picoDown(). Refusing a
-        // TUNE because the pilot has not said yet would be inventing a fault;
-        // ARMING because it has not said yet would be sending an arm into a port
-        // nobody has seen open.
+        // The reverse of picoDown(): arming before the pilot has reported would
+        // send an arm into a port nobody has seen open.
         if(!haveBoard)
         {
             ack->result = 4;
@@ -1701,9 +1437,7 @@ namespace viewfeed
             ack->text = Str(buf.data());
             return;
         }
-
-        // A stream that has gone stale is no stream at all, whatever it did
-        // before - the half-second has to be CURRENT.
+        // The stream must be live now, not merely once.
         const Bool streaming = everControl && !holderGone
             && elapsedMs(lastControlAt) <= static_cast<Float64>(bibowire::CONTROL_STALE_MS);
         const Int32 liveMs = streaming ? static_cast<Int32>(elapsedMs(streamSince)) : 0;
@@ -1720,7 +1454,6 @@ namespace viewfeed
             ack->text = Str(buf.data());
             return;
         }
-
         sh.operatorArmed.store(true, std::memory_order_release);
         std::snprintf(
             buf.data(),
@@ -1742,7 +1475,6 @@ namespace viewfeed
         bibowire::CmdAck ack;
         ack.cmdId = cmd.cmdId;
         ack.verb = cmd.verb;
-
         if(cmd.sessionId != c.sessionId)
         {
             ack.result = 1;
@@ -1754,9 +1486,8 @@ namespace viewfeed
         }
         else if(cmd.verb == bibowire::Verb::VERB_DISARM)
         {
-            // ALWAYS SUCCEEDS, from any session, holder or observer: a way to
-            // make the car safer is not a privilege. Moving the epoch is the
-            // disarm; the tick sends ESC DISARM when it sees the flag fall.
+            // Always succeeds, from any session: making the car safer is not a
+            // privilege. The tick sends ESC DISARM when it sees the flag fall.
             bumpEpoch();
             if(notManual())
             {
@@ -1780,9 +1511,8 @@ namespace viewfeed
         }
         else if(cmd.verb == bibowire::Verb::VERB_ESTOP)
         {
-            // Emergency stop has two paths on purpose, and either LATCHES. This
-            // one rides TCP and is acknowledged; the CONTROL button bit rides
-            // UDP and needs no round trip.
+            // Two estop paths, and either LATCHES: this one over TCP,
+            // acknowledged; CONTROL's button bit over UDP, with no round trip.
             estopLatched = true;
             bumpEpoch();
             ack.result = 0;
@@ -1797,18 +1527,12 @@ namespace viewfeed
         }
         else if(isTuningVerb(cmd.verb))
         {
-            // Trim is the ONE family of verbs this board really does forward,
-            // and it is safe to forward for the reason the refusal below is not:
-            // it changes what the outputs are allowed to do, not what they are
-            // doing, and it is refused outright while the car is armed.
             onTune(cmd, &ack);
         }
         else
         {
-            // MOTOR and SET_MODE are refused rather than answered with an OK
-            // nothing acted on. A board that reported success for a verb it
-            // never carried out is the failure this whole protocol is shaped
-            // against.
+            // MOTOR and SET_MODE are refused, never answered with an OK nothing
+            // acted on.
             ack.result = 3;
             ack.text = "this board does not act on that verb yet";
         }
@@ -1817,8 +1541,8 @@ namespace viewfeed
         shareDrive();
         if(linkLog)
         {
-            // EVERY COMMAND AND ITS ANSWER. A refusal the operator only saw as a
-            // coloured line in a window is otherwise gone the moment they close it.
+            // Every command and its answer, so a refusal outlives the viewer's
+            // window.
             std::printf(
                 "viewfeed: cmd %s id=%u verb=%u args=%u,%u,%u epoch=%u -> result=%u epoch=%u \"%s\"\n",
                 c.peer.c_str(),
@@ -1858,7 +1582,6 @@ namespace viewfeed
         default:
             break;
         }
-
         // Nothing but HELLO is read from a socket that has not been welcomed.
         if(c.stage == Stage::STAGE_WAIT_HELLO && f.head.type != bibowire::Type::TYPE_HELLO)
         {
@@ -1870,7 +1593,6 @@ namespace viewfeed
             );
             return;
         }
-
         switch(f.head.type)
         {
         case bibowire::Type::TYPE_HELLO:
@@ -1893,21 +1615,12 @@ namespace viewfeed
             {
                 break;
             }
-            // THE TOKEN IS ECHOED VERBATIM - `m.token` is not touched. It is
-            // the viewer's only correlator, and a PONG that regenerated it
-            // would silently destroy the round-trip time the viewer computes
-            // its clock offset and its staleness floor from.
-            //
-            // senderMonoUs is REPLACED, and deliberately: the field is the
-            // SENDER's clock, the board is this frame's sender, and section 7's
-            // clock-offset rule needs the board's own timestamp to work
-            // against. Only `token` is marked "echoed verbatim" in section 5,
-            // and it is the field that carries the correlation.
+            // The token is echoed verbatim: it is the viewer's only correlator
+            // for its round-trip time. senderMonoUs is replaced, because the
+            // board is this frame's sender (section 7's clock-offset rule).
             m.senderMonoUs = monoUs();
-            // Answered HERE, in the same pass the PING arrived, rather than
-            // from the periodic work below: a reply delayed behind a queue is a
-            // round-trip time that measures this board's scheduler instead of
-            // the link.
+            // Answered in this pass, so the round trip measures the link and
+            // not this board's queue.
             emit(c, bibowire::Type::TYPE_PONG, [&m](UInt8* out, Size cap) {
                 return bibowire::writePing(m, out, cap);
             });
@@ -1918,8 +1631,7 @@ namespace viewfeed
             bibowire::Ping m;
             if(bibowire::readPing(f.body, f.head.ver, &m) && m.token == c.pingToken)
             {
-                // This is also what lets a held camera resume - see the camera
-                // send loop's CAM_HOLD_PONG_MS.
+                // Clearing pingOut also resumes a held camera (CAM_HOLD_PONG_MS).
                 c.lastRttMs = static_cast<Int64>(elapsedMs(c.pingSentAt));
                 ++c.winPongMatched;
                 c.pingOut = false;
@@ -1928,10 +1640,8 @@ namespace viewfeed
         }
         case bibowire::Type::TYPE_CONTROL:
         {
-            // The board accepts CONTROL on TCP ALWAYS, with identical rules,
-            // identical deadman and identical session and seq checks. It is the
-            // same frame on a different socket, so there is nothing to
-            // negotiate and no second code path.
+            // Accepted on TCP always, under identical rules: the same frame on
+            // another socket.
             bibowire::Control m;
             if(bibowire::readControl(f.body, f.head.ver, &m))
             {
@@ -1950,10 +1660,7 @@ namespace viewfeed
             {
                 c.typeMask = m.typeMask;
                 c.scanDivisor = m.scanDivisor == 0u ? 1u : m.scanDivisor;
-                // CLAMPED, NEVER REFUSED. A viewer asking for more than this
-                // board will give gets the most it will give, because the
-                // alternative - dropping the whole SUBSCRIBE - would turn a
-                // request for a faster picture into no picture at all.
+                // Clamped, never refused (bibowire::CAM_FPS_MAX).
                 c.camFps = m.camFps > bibowire::CAM_FPS_MAX
                     ? bibowire::CAM_FPS_MAX
                     : m.camFps;
@@ -1981,15 +1688,13 @@ namespace viewfeed
             releaseSlot(c, "BYE");
             break;
         default:
-            // An unknown type was skipped by exactly `len` before it reached
-            // here. That is what the length prefix is FOR, and it is the whole
-            // extensibility story: an older board keeps serving a newer viewer.
+            // An unknown type was skipped by its `len`, so an older board keeps
+            // serving a newer viewer.
             break;
         }
     }
 
-    // The one case that answers in words. The moment a person is most confused
-    // by a binary port is the moment they connect to it by hand.
+    // The one refusal in plain text, for a person connecting by hand.
     Void wrongService(Client& c)
     {
         const Str line = "ERR bibowire v1 binary on 8020; connect with the bibo viewer\n";
@@ -2009,12 +1714,9 @@ namespace viewfeed
                     return;
                 }
             }
-
-            // THE SINGLE MOST IMPORTANT BOUND IN THE DESIGN, and it is checked
-            // on the HEADER rather than after a frame arrives: a claim of
-            // 200000 bytes would never fit the 1024-byte ring, so take() would
-            // answer NEED_MORE forever while the peer said nothing more.
-            // Nothing is allocated for the claim, here or anywhere.
+            // MAX_INBOUND_PAYLOAD, checked on the HEADER: a claim larger than
+            // the ring would leave take() answering NEED_MORE forever. Nothing
+            // is allocated for the claim.
             if(c.inLen >= bibowire::HEAD_BYTES && c.in[0] == bibowire::MAGIC_LO
                && c.in[1] == bibowire::MAGIC_HI)
             {
@@ -2041,15 +1743,12 @@ namespace viewfeed
                     return;
                 }
             }
-
             bibowire::Frame f;
             Size used = 0;
             const bibowire::Take t = bibowire::take(c.in.data(), c.inLen, &f, &used);
             if(t == bibowire::Take::TAKE_NEED_MORE)
             {
-                // A viewer that fills the ring without ever completing a frame
-                // is not speaking this protocol, whatever its first two bytes
-                // said.
+                // A full ring with no whole frame is not this protocol.
                 if(c.inLen >= c.in.size())
                 {
                     refuse(
@@ -2081,24 +1780,8 @@ namespace viewfeed
                 );
                 return;
             }
-
-            // HANDLED FIRST, COMPACTED SECOND - and the order is the whole fix.
-            //
-            // f.body points INTO c.in. This used to memmove the rest of the ring
-            // down over the frame and only then call onFrame, so whenever a
-            // second frame had arrived in the same read, the first frame's body
-            // had already been overwritten by the second's by the time it was
-            // read. The CRC had passed, so nothing looked wrong: the handler
-            // simply read the wrong bytes. The comment here said the body was
-            // read "before anything refills the ring", and the memmove on the
-            // line above it was the refill.
-            //
-            // Found from the round-trip logs on 2026-09-12. A viewer that sent a
-            // PONG and its own PING back to back had the PONG read with the
-            // PING's token, so it never matched, the board's PING stayed
-            // outstanding, and the driver was dropped "no PONG" about six seconds
-            // into every session - with COMMANDs and TCP CONTROL exposed to the
-            // same corruption whenever anything followed them in one read.
+            // Handled FIRST, compacted SECOND: f.body points into c.in, and the
+            // memmove would overwrite it with the next frame from the same read.
             if(t == bibowire::Take::TAKE_FRAME)
             {
                 onFrame(c, f, clients);
@@ -2107,8 +1790,7 @@ namespace viewfeed
             {
                 if(t == bibowire::Take::TAKE_RESYNC)
                 {
-                    // Junk on a checksummed stream that is never counted is a
-                    // fault nobody discovers.
+                    // Counted: uncounted junk is a fault nobody discovers.
                     bibowire::Head h;
                     note(Dir::DIR_IN, h, used, NOTE_JUNK);
                     LockGuard<Mutex> lock(sh.tallyM);
@@ -2153,8 +1835,7 @@ namespace viewfeed
         }
         c.inLen += static_cast<Size>(n);
         c.winRxBytes += static_cast<UInt64>(n);
-        // The first read has nothing to be a gap FROM - an unset TimePoint is
-        // the clock's epoch, and the line would report a wait of days.
+        // An unset TimePoint is the clock's epoch, so the first read has no gap.
         const Float64 gap = c.lastRxAt == TimePoint() ? 0.0 : elapsedMs(c.lastRxAt);
         if(gap > c.winRxGapMs)
         {
@@ -2164,8 +1845,7 @@ namespace viewfeed
         consume(c, clients);
     }
 
-    // ---- CONTROL, from either transport ------------------------------------
-
+    // CONTROL, from either transport.
     Void onControlFrame(Client& c, const bibowire::Control& m)
     {
         {
@@ -2174,63 +1854,44 @@ namespace viewfeed
         }
         ++c.datagrams;
         ++c.winControl;
-
         bibowire::control::Gate g;
         g.sessionId = c.sessionId;
         g.highestSeq = appliedSeq;
         g.haveHolder = haveHolder;
         g.fromHolder = c.holder && c.sessionId == holderSession;
         g.armEpoch = static_cast<UInt8>(armEpoch);
-        // THE BOARD'S MODE, not the datagram's. This read `m.assumedMode`, and
-        // control::apply then tested `c.assumedMode != g.pilotMode` - both sides
-        // of that comparison came from the SAME datagram, so it could never be
-        // false and REFUSE_MODE never fired once. The case it exists to catch is
-        // a viewer holding W believing it is in MANUAL while the pilot is
-        // actually in DRIVE: its throttle must be ignored, and was not.
-        //
-        // Unknown agrees, for picoDown()'s reason: before the first BOARD frame
-        // this module has no mode to compare against and must not invent one.
+        // The BOARD's mode, not the datagram's: comparing the datagram with
+        // itself could never refuse. Before the first BOARD an unknown mode
+        // agrees.
         g.pilotMode = haveBoard ? lastBoard.pilotMode : m.assumedMode;
-
         const bibowire::control::Outcome o = bibowire::control::apply(g, m);
         if(o.verdict != bibowire::control::Verdict::VERDICT_APPLIED)
         {
-            // An observer's datagrams, a stale session's datagrams and a second
-            // viewer's datagrams are counted and DISCARDED, and above all they
-            // do NOT feed the timer.
+            // Counted and discarded, and it does NOT feed the timer.
             LockGuard<Mutex> lock(sh.tallyM);
             ++sh.tally.rxControlStale;
             return;
         }
-
-        // The ESTOP bit rides the 20 Hz stream so it lands within one 50 ms
-        // window and needs no round trip. It latches, like its TCP twin.
+        // The ESTOP bit needs no round trip, and latches like its TCP twin.
         if((m.buttons & bibowire::BUTTON_ESTOP) != 0u && !estopLatched)
         {
             estopLatched = true;
             bumpEpoch();
             shareDrive();
         }
-
         appliedSeq = o.highestSeq;
-
-        // WHEN THIS STREAM BEGAN, for ARM's "live for REARM_STREAM_MS". A gap
-        // the deadman would call dead starts a new one: a stream that stalled
-        // and resumed is exactly the one that has to earn its half-second again.
+        // When this stream began, for ARM's REARM_STREAM_MS. A gap the deadman
+        // calls dead starts a new stream, which has to earn it again.
         const Bool deadGap = everControl
             && elapsedMs(lastControlAt) > static_cast<Float64>(bibowire::CONTROL_DEAD_MS);
         if(!everControl || holderGone || deadGap)
         {
             streamSince = monoNow();
         }
-
-        // AND THAT GAP DISARMS, HERE, BEFORE lastControlAt MOVES. The loop's own
-        // check below catches a stream that never comes back, but it runs after
-        // the reads - so a datagram landing after a 300 ms gap would make the
-        // deadman LIVE again before the loop ever saw it DEAD. The tick had sent
-        // STOP and would then have seen an arm still standing, and sent ESC ARM:
-        // a car re-arming itself off a stall, which is the one recovery section
-        // 6 says must never happen on its own.
+        // That gap disarms HERE, before lastControlAt moves. The loop's check
+        // runs after the reads, so a datagram after a dead gap would make the
+        // deadman LIVE before the loop saw it DEAD, and the tick would re-arm a
+        // car off a stall - which must never happen on its own (section 6).
         if(deadGap && sh.operatorArmed.load(std::memory_order_acquire))
         {
             bumpEpoch();
@@ -2238,26 +1899,12 @@ namespace viewfeed
         lastControlAt = monoNow();
         everControl = true;
         holderGone = false;
-
-        // WHAT IS STORED IS WHAT THE GATE ALLOWED, not what arrived.
-        //
-        // control::apply has already decided this datagram's fate: on an epoch
-        // or a mode disagreement it zeroes the throttle and keeps the steering,
-        // because a refusal is about who may add energy and not about where the
-        // wheels point. Until now only the RAW message was stored and the
-        // Outcome was dropped on the floor - so the first caller of control()
-        // would have read a throttle the board had already refused, and driven
-        // on it, with CTLSTATE truthfully reporting REFUSE_EPOCH beside it.
-        //
-        // The opportunity is removed rather than documented: the ungated
-        // throttle is not reachable from this module at all.
+        // What is stored is what the gate ALLOWED, not what arrived, so the
+        // ungated throttle is unreachable from control().
         bibowire::Control gated = m;
         gated.steerMilli = o.steerMilli;
         gated.throttleMilli = o.throttleMilli;
-
-        // The seqlock: the slot is written FIRST and the seq stored with
-        // release, so the tick either sees the old command whole or the new one
-        // whole and never a mixture of the two.
+        // Slot first, then seq (Shared::ctlSeq).
         const UInt32 slot = o.highestSeq & 1u;
         sh.ctlSlot[slot] = gated;
         sh.ctlSeq.store(o.highestSeq, std::memory_order_release);
@@ -2265,9 +1912,7 @@ namespace viewfeed
 
     Void serveUdp(Vec<Client>& clients)
     {
-        // DRAINED TO EMPTY every pass, keeping only the newest seq. There is no
-        // backlog of stale steering to apply when a stall clears, because there
-        // is no queue.
+        // Drained to empty every pass.
         for(;;)
         {
             Array<UInt8, bibowire::MAX_DATAGRAM> buf{};
@@ -2285,7 +1930,6 @@ namespace viewfeed
             {
                 return;
             }
-
             bibowire::Frame f;
             Size used = 0;
             const bibowire::Take t = bibowire::take(buf.data(), static_cast<Size>(n), &f, &used);
@@ -2302,12 +1946,7 @@ namespace viewfeed
                 ++sh.tally.rxControlStale;
                 continue;
             }
-
-            // The session id is what makes a datagram from BEFORE a reconnect
-            // harmless: after a hotspot blip the viewer comes back with a new
-            // one, and anything still in flight from the old session is counted
-            // and thrown away rather than driving the car with a second-old
-            // stick position.
+            // A datagram from before a reconnect has no live session to own it.
             Client* owner = nullptr;
             for(Client& c : clients)
             {
@@ -2324,9 +1963,9 @@ namespace viewfeed
                 ++sh.tally.rxControlStale;
                 continue;
             }
-            // Where CTLSTATE goes back, learned from the datagram that arrived
-            // rather than trusted from HELLO alone: a viewer behind a NAT is
-            // reachable at the port its packets came from.
+            // Where CTLSTATE goes, learned from the datagram when HELLO gave no
+            // port: a viewer behind a NAT is reachable where its packets came
+            // from.
             if(owner->udpPort == 0u)
             {
                 owner->udpPort = ntohs(from.sin_port);
@@ -2343,7 +1982,6 @@ namespace viewfeed
             LockGuard<Mutex> lock(sh.appliedM);
             a = sh.applied;
         }
-
         bibowire::CtlState s;
         s.tMonoUs = monoUs();
         s.ackSeq = c.holder ? appliedSeq : 0u;
@@ -2360,41 +1998,24 @@ namespace viewfeed
         s.deadman = deadmanByte();
         s.refuse = d.refuse;
         s.holder = c.holder ? 1u : (haveHolder ? 2u : 0u);
-
-        // ---- the three ages, MEASURED ------------------------------------
-        //
-        // These are what catch the second lie of section 7: the link is
-        // perfect and the data behind it is dead. They are the board measuring
-        // itself rather than the viewer inferring, and the one value none of
-        // them may take is 0-when-unknown, because 0 reads as PERFECTLY FRESH.
-        //
-        // With no revolution yet the age is how long this feed has been up:
-        // true, large, and growing, so the viewer's own rule renders "no scan
-        // for 3.2 s" on an empty background instead of a confident wall that is
-        // no longer there. scanAgeMs has no ABSENT sentinel in the wire format,
-        // which is why it is an honest elapsed time rather than an invented one.
+        // The board's own measured ages, which catch a perfect link carrying
+        // dead data. None may read 0 when unknown, because 0 means perfectly
+        // fresh: scanAgeMs has no ABSENT sentinel, so before any revolution it
+        // is how long the feed has been up.
         s.scanAgeMs = haveScan
             ? static_cast<UInt32>(elapsedMs(lastScanAt))
             : static_cast<UInt32>(elapsedMs(startedAt));
-
-        // The pilot measures the Pico's silence every tick and it rides BOARD,
-        // so it is reused here rather than measured a second time - two
-        // measurements of one fact are two things that can disagree. Falling
-        // back to the ABSENT sentinel and never to 0: "0 ms silent" is a board
-        // that just spoke, which is the opposite of what is known about one
-        // nobody has heard from.
+        // The pilot's measurement from BOARD, not a second one that could
+        // disagree; the ABSENT sentinel, never 0, before there is one.
         s.picoSilentMs = haveBoard ? lastBoard.picoSilentMs : a.picoSilentMs;
         s.pilotMode = haveBoard ? lastBoard.pilotMode : a.pilotMode;
         s.lastCmdId = a.lastCmdId;
-
-        // The reverse-path probe's verdict, on the wire twenty times a second
-        // rather than in a log nobody in a field can read.
+        // The reverse-path probe's verdict, on the wire and not only in a log.
         if(c.wantedControl && c.holder && c.datagrams < bibowire::REVERSE_PROBE_MIN
            && elapsedMs(c.welcomedAt) > static_cast<Float64>(bibowire::REVERSE_PROBE_MS))
         {
             s.refuse = bibowire::Refuse::REFUSE_NO_UDP;
         }
-
         const Size bodyLen = bibowire::writeCtlState(s, bodyAt(), BODY_CAP);
         if(bodyLen == 0u)
         {
@@ -2405,7 +2026,6 @@ namespace viewfeed
         {
             return;
         }
-
         if(c.udpPort != 0u)
         {
             sockaddr_in to{};
@@ -2423,19 +2043,12 @@ namespace viewfeed
                 ));
             }
         }
-
-        // Each datagram is its own frame in this direction's sequence, so the
-        // counter advances rather than repeating - a header ring in which every
-        // CTLSTATE carries the same seq is a ring that cannot order itself.
+        // Each datagram is its own frame, so the seq advances and the header
+        // ring can order itself.
         ++c.txSeq;
-
-        // Mirrored onto TCP while the viewer is falling back to TCP control.
-        //
-        // The mirror is queued as LIVE rather than VITAL. CTLSTATE at 20 Hz that can never be
-        // dropped would turn a two-second stall into a closed connection - the
-        // exact moment the operator most needs the link - and the newest
-        // CTLSTATE is the only one worth having anyway, which is what LIVE
-        // means.
+        // Mirrored onto TCP while the viewer falls back to TCP control, as LIVE
+        // rather than VITAL: an undroppable 20 Hz stream would turn a stall into
+        // a closed connection, and only the newest CTLSTATE matters.
         if(c.tcpControl)
         {
             const Size mirrored = framed(bibowire::Type::TYPE_CTLSTATE, bodyLen, c.txSeq, outFlags());
@@ -2466,31 +2079,12 @@ namespace viewfeed
         }
     }
 
-    // ---- the camera --------------------------------------------------------
-    //
-    // THE FIRST AND ONLY BULK PRODUCER. v1 had none: CAMERA was a reserved tag,
-    // classOf answered CLASS_BULK, and nothing ever queued one. Everything
-    // below exists because the device and the link are each already spoken for.
-    //
-    // /dev/video0 IS SINGLE-OPENER, MEASURED. A second streamer gets
-    // "VIDIOC_REQBUFS returned -1 (Device or resource busy)" and writes zero
-    // bytes. The open() itself SUCCEEDS - the refusal arrives later, at buffer
-    // setup - which is why this cannot be answered by probing the node first.
-    // So a second pilot started beside this one, or a v4l2-ctl left running by
-    // a pilot that died, CANNOT hold it alongside this capture, and whichever
-    // loses has to say that it lost.
-    //
-    // NOTHING RE-ENCODES, and nothing here could: there is no ffmpeg, no cv2,
-    // no v4l2 binding, no PIL and no numpy on this board. One long-lived
-    // v4l2-ctl streams mmap'd buffers into a pipe and this module looks for
-    // frame boundaries, so the JPEGs the sensor produced are the JPEGs the
-    // viewer renders.
-    //
-    // AND IT IS CLASS_BULK, which is what makes it safe to add at all: section
-    // 7's drop machinery discards a camera frame before any scan or state
-    // frame, so on a stalling hotspot the picture degrades and the car's
-    // picture of the world does not.
-
+    // The camera, the only BULK producer. One long-lived v4l2-ctl streams
+    // MJPEG into a pipe and this module finds the frame boundaries; nothing
+    // re-encodes, and the board has nothing to re-encode with. The device is
+    // single-opener, and a second opener's open() succeeds and fails later at
+    // buffer setup, so a busy device cannot be probed for: whichever capture
+    // loses has to say so.
     [[nodiscard]] Str envOr(CharSeq name, const Str& fallback)
     {
         const Char* v = std::getenv(name);
@@ -2501,10 +2095,8 @@ namespace viewfeed
     {
         camCfg = CamCfg();
         camCfg.devOverride = envOr("BIBO_CAM_DEV", "");
-        // Seeded so the "absent" sentence has a name to print before the first
-        // open; startCamera re-resolves it on every attempt regardless.
+        // Seeded so the "absent" sentence has a name before the first open.
         camCfg.dev = camCfg.devOverride.empty() ? cameraDevDefault() : camCfg.devOverride;
-
         const Str size = envOr("BIBO_CAM_SIZE", "640x480");
         const Size x = size.find('x');
         if(x != Str::npos)
@@ -2517,15 +2109,12 @@ namespace viewfeed
                 camCfg.height = static_cast<UInt16>(h);
             }
         }
-
         const Str fps = envOr("BIBO_CAM_FPS", "");
         if(!fps.empty())
         {
             const Float64 v = std::strtod(fps.c_str(), nullptr);
-            // 0 is UNCAPPED, and is a deliberate thing to be able to ask for on
-            // a bench cable. A negative or unreadable value is not, and falls
-            // back to the default rather than becoming a division by something
-            // absurd.
+            // 0 is UNCAPPED, on purpose; a negative or unreadable value keeps
+            // the default.
             if(v >= 0.0 && v <= 240.0)
             {
                 camCfg.periodMs = v > 0.0 ? 1000.0 / v : 0.0;
@@ -2533,14 +2122,9 @@ namespace viewfeed
         }
     }
 
-    // The picture's OWN dimensions, off its SOF marker.
-    //
-    // v4l2-ctl NEGOTIATES the format: a device is free to answer a 640x480
-    // request with something else, and there is nothing in the bytes that would
-    // make that visible. A header repeating what was ASKED FOR would then
-    // describe a picture that is not the one attached - this repo's named
-    // failure with a resolution on it - so the size is read off the frame and
-    // the request is only the fallback for a frame with no SOF in it.
+    // The picture's OWN dimensions, off its SOF marker: v4l2-ctl negotiates the
+    // format and a device may deliver other than what was asked, so the
+    // request is only the fallback.
     [[nodiscard]] Bool jpegSize(const UInt8* d, Size n, UInt16* w, UInt16* h)
     {
         if(d == nullptr || w == nullptr || h == nullptr || n < 4u)
@@ -2627,25 +2211,11 @@ namespace viewfeed
         return false;
     }
 
-    // How often a picture is offered, from what the SUBSCRIBERS asked for.
-    //
-    // THE FASTEST REQUEST WINS AND EVERY SUBSCRIBER GETS EVERY OFFERED FRAME.
-    // That is a deliberate choice over pacing each viewer separately, and the
-    // reason is frameIndex: it is monotonic and the viewer counts its gaps as
-    // dropped pictures, so a viewer held to a slower rate than the capture
-    // would be shown "frames 91-94 missing" for frames the board decided on
-    // purpose not to send it - a made-up fault, which is worse than the thing
-    // it would be reporting.
-    //
-    // The cost is stated rather than hidden: two viewers asking for different
-    // rates both get the higher one. That is safe here and nowhere else,
-    // because CAMERA is CLASS_BULK - a link that cannot carry the rate discards
-    // pictures ahead of every scan and state frame, so the viewer that wanted
-    // less loses camera frames and never the car's view of the room.
-    //
-    // 0 is UNCAPPED and propagates as such: it is the one value that must not
-    // be treated as "slowest", since a bench cable asking for everything the
-    // device produces is a deliberate thing to be able to ask for.
+    // How often a picture is offered: the fastest subscriber's rate, and every
+    // subscriber gets every offered frame. Pacing viewers separately would
+    // leave frameIndex gaps that a viewer reports as missing pictures the board
+    // withheld on purpose. Safe only because CAMERA is CLASS_BULK. 0 is
+    // uncapped and wins, never "slowest".
     [[nodiscard]] Float64 offeredCamPeriodMs(const Vec<Client>& clients)
     {
         Bool asked = false;
@@ -2656,8 +2226,7 @@ namespace viewfeed
             {
                 continue;
             }
-            // A subscriber that named no rate is content with the board's
-            // default, so it is the default that enters the comparison for it.
+            // A subscriber that named no rate enters with the board's default.
             const Float64 per = c.camFps == 0u
                 ? camCfg.periodMs
                 : 1000.0 / static_cast<Float64>(c.camFps);
@@ -2674,10 +2243,7 @@ namespace viewfeed
         return asked ? best : camCfg.periodMs;
     }
 
-    // Said to THE CAMERA'S SUBSCRIBERS, which is who is looking at the blank
-    // panel. An absence with a reason beats a silent nothing, and a viewer that
-    // asked for a picture and got neither picture nor sentence is the exact
-    // failure this repo is named after.
+    // Said to the camera's subscribers, who are looking at the blank panel.
     Void sayCamera(Vec<Client>& clients, bibowire::Severity severity, const Str& text)
     {
         bibowire::Event e;
@@ -2699,24 +2265,13 @@ namespace viewfeed
         std::printf("viewfeed: %s\n", e.text.c_str());
     }
 
-    // EBUSY IS SAID IN WORDS, AND IT NAMES THE LIKELY HOLDER - a second pilot,
-    // or a capture a dead one left behind, because nothing else on this board
-    // opens the device.
+    // Why the capture ended, in words. A v4l2-ctl that loses the device usually
+    // writes nothing at all and exits non-zero, so the EXIT STATUS, not the
+    // stderr text, is the busy signal.
     [[nodiscard]] Str cameraWhy(const Str& diag, Int32 status)
     {
-        // THE REAL EBUSY SIGNATURE, MEASURED ON THIS BOARD RATHER THAN ASSUMED.
-        //
-        // This was written expecting a losing v4l2-ctl to say "VIDIOC_REQBUFS
-        // returned -1 (Device or resource busy)" on stderr, and to key off that
-        // text. IT DOES NOT. Held against a second streamer on this board it
-        // writes ZERO bytes to stdout, ZERO to stderr, and exits 255 - so the
-        // stderr text is a bonus that usually is not there, and the EXIT STATUS
-        // is the signal that is. A capture that produced no picture and exited
-        // non-zero is the device being held by somebody else, and it is said in
-        // words rather than left as a blank panel.
         const Bool exited = status >= 0 && WIFEXITED(status);
         const Int32 code = exited ? static_cast<Int32>(WEXITSTATUS(status)) : -1;
-
         if(code == 127)
         {
             // The child's own "exec failed" exit, from startCamera below.
@@ -2724,16 +2279,14 @@ namespace viewfeed
         }
         if(code > 0 || diag.find("busy") != Str::npos || diag.find("Busy") != Str::npos)
         {
-            // The likely holders named: a second pilot, or the v4l2-ctl a
-            // killed one could not take with it (a child outlives its parent),
-            // are the only other things on this board that open the device,
-            // and /dev/video0 is single-opener.
+            // The only other openers on this board: a second pilot, or the
+            // v4l2-ctl a killed one left behind (a child outlives its parent).
             return "camera stream ended - is something else holding " + camCfg.dev
                  + "? a second pilot, or a v4l2-ctl left running by one that died";
         }
         if(!diag.empty())
         {
-            // One line of it. v4l2-ctl is chatty and EVENT carries a sentence.
+            // One line: EVENT carries a sentence.
             Str said = diag;
             const Size nl = said.find('\n');
             if(nl != Str::npos)
@@ -2746,10 +2299,6 @@ namespace viewfeed
                "holding " + camCfg.dev + "?";
     }
 
-    // A capture that dies inside a second, over and over, is a device that is
-    // not going to work this second. Retrying twice a second for as long as
-    // somebody leaves a subscription open is thousands of spawns an hour
-    // against a board whose whole job is elsewhere.
     Void backOff()
     {
         cam.fails = cam.fails + 1 > CAM_FAIL_CEILING ? CAM_FAIL_CEILING : cam.fails + 1;
@@ -2759,25 +2308,13 @@ namespace viewfeed
         cam.waiting = true;
     }
 
-    // Ends the capture and hands back the child's exit status, or -1.
+    // Ends the capture and returns the child's exit status, or -1.
     //
-    // SIGKILL AND NOT SIGTERM, deliberately. v4l2-ctl has nothing to flush: the
-    // kernel releases the V4L2 buffers and the device when the process exits,
-    // however it exits. A polite signal would buy nothing and cost a wait, and
-    // the wait is the problem - this thread owes every viewer a CTLSTATE every
-    // 50 ms, so a loop spinning on a courteous exit trades the control clock for
-    // a courtesy nobody receives. SIGKILL cannot be caught, so the waitpid
-    // returns promptly.
-    //
-    // Killing a child that has ALREADY exited is harmless and does not destroy
-    // the answer: a process that has exited keeps its status until it is reaped,
-    // so the code below still reports why it stopped.
-    //
-    // AND IT IS REAPED. A killed child is not a gone child: it holds a
-    // process-table slot until its parent waits on it, and this parent is a
-    // long-lived service that starts a capture every time somebody subscribes,
-    // and a board that cannot fork - including the child sshd needs to answer a
-    // connection - locks you out of the machine.
+    // SIGKILL, not SIGTERM: v4l2-ctl has nothing to flush, and waiting on a
+    // polite exit would stall the CTLSTATE clock. An already-exited child
+    // keeps its status until reaped. And it is always reaped: every zombie
+    // holds a process-table slot, and a board that cannot fork cannot even
+    // answer ssh.
     [[nodiscard]] Int32 killCamera()
     {
         if(cam.pid < 0)
@@ -2811,10 +2348,8 @@ namespace viewfeed
             ::close(cam.errFd);
             cam.errFd = -1;
         }
-        // RELEASED, not merely cleared. An unwatched camera must cost the board
-        // nothing, and a 45 KB partial frame plus an encode buffer held against
-        // a subscription that ended is precisely the cost this gate exists to
-        // avoid. clear() would keep every byte of both.
+        // Released, not cleared: clear() keeps the capacity, and an unwatched
+        // camera must cost nothing.
         Vec<UInt8>().swap(cam.partial);
         Vec<UInt8>().swap(cam.encode);
         cam.diag.clear();
@@ -2829,16 +2364,8 @@ namespace viewfeed
     Void offerCamera(Vec<Client>& clients, const UInt8* jpeg, Size len)
     {
         cam.everFrame = true;
-
-        // THE CAP IS APPLIED HERE AND NOT AT THE DEVICE. A device asked for a
-        // lower rate with --set-parm may simply ignore the request and leave
-        // the rate unchanged, and nothing in the picture would say so. Dropping
-        // on this side cannot fail silently: what is not sent is not sent.
-        // THE RATE THE SUBSCRIBERS ASKED FOR, and this board's own default only
-        // when nobody asked. The viewer is the end that knows whether it is on
-        // a LAN or a phone hotspot; this end knows only that it has a camera
-        // and a socket, which is why the number could never be chosen well from
-        // here alone.
+        // The cap is applied here, not at the device, which may silently ignore
+        // a lower rate. The rate is the subscribers': the viewer knows its link.
         const Float64 offerMs = offeredCamPeriodMs(clients);
         if(cam.everSent && offerMs > 0.0 && elapsedMs(cam.lastSentAt) < offerMs)
         {
@@ -2848,28 +2375,22 @@ namespace viewfeed
         {
             return;
         }
-
         const Size need = bibowire::FRAME_OVERHEAD + CAM_BODY_OVERHEAD + len;
         if(cam.encode.size() < need)
         {
             cam.encode.resize(need);
         }
-
         UInt16 w = camCfg.width;
         UInt16 h = camCfg.height;
         static_cast<Void>(jpegSize(jpeg, len, &w, &h));
-
         bibowire::Camera m;
         m.tMonoUs = monoUs();
         m.frameIndex = cam.frameIndex;
         m.width = w;
         m.height = h;
-        // Echoed on every frame so a capture is self-describing, the rule
-        // section 5 gives scanDivisor and the camera's codec.
         m.codec = 1;
         m.flags = 0;
         m.data.assign(jpeg, jpeg + len);
-
         const TimePoint before = monoNow();
         const Size bodyLen = bibowire::writeCamera(
             m,
@@ -2881,10 +2402,6 @@ namespace viewfeed
             return;
         }
         countEncode(elapsedMs(before) * 1000000.0);
-
-        // The BODY is built once; only the header and the CRC are rewritten per
-        // client, because seq and flags are per client and 45 KB is too much to
-        // re-encode four times for the sake of two fields.
         Bool any = false;
         for(Client& c : clients)
         {
@@ -2892,24 +2409,12 @@ namespace viewfeed
             {
                 continue;
             }
-
-            // PACED BY THE KEEPALIVE, because nothing else on this board can see
-            // the path. CLASS_BULK only drops a picture when THIS client's ring
-            // is full, and the ring only fills when the socket stops taking
-            // bytes. Behind Tailscale in userspace-networking mode - the only
-            // mode this board's kernel allows, it has no TUN - the socket is
-            // loopback to tailscaled and never stops taking bytes: the pictures
-            // queue inside the proxy instead, the PING queues behind them, and
-            // the viewer was dropped "no PONG" every 8 to 21 seconds, releasing
-            // the control slot each time. Measured on 2026-09-12, and it is what
-            // "I cannot drive" was.
-            //
-            // A late PONG is the one signal that survives any proxy, so it is
-            // the clock: while this client's PING is overdue it gets no new
-            // pictures, the backlog drains, the PONG lands and the camera
-            // resumes. The picture thins out on a slow path - and the viewer
-            // counts the gap honestly as missed frames - rather than the
-            // connection, and the car with it, being lost.
+            // Paced by the keepalive. Behind Tailscale's userspace networking,
+            // the only mode this board allows, the socket never stops taking
+            // bytes, so the ring never fills and pictures queue inside the proxy
+            // with the PING behind them until the viewer is dropped. While this
+            // client's PING is overdue it gets no new pictures; the backlog
+            // drains, the PONG lands, and the camera resumes.
             if(c.pingOut && elapsedMs(c.pingSentAt) > static_cast<Float64>(CAM_HOLD_PONG_MS))
             {
                 ++c.camHeld;
@@ -2925,7 +2430,6 @@ namespace viewfeed
                 }
                 continue;
             }
-
             bibowire::Head h;
             h.type = bibowire::Type::TYPE_CAMERA;
             h.ver = 1;
@@ -2943,10 +2447,8 @@ namespace viewfeed
         {
             cam.lastSentAt = monoNow();
             cam.everSent = true;
-            // MONOTONIC, and never rewound across a capture restart. A viewer
-            // that sees the number JUMP has missed frames and can say so; one
-            // that sees it go backwards is being shown pictures it already has,
-            // labelled as new.
+            // Monotonic, never rewound across a capture restart: a jump reads as
+            // missed frames, going backwards as old pictures labelled new.
             ++cam.frameIndex;
             cam.said = false;
         }
@@ -2958,14 +2460,10 @@ namespace viewfeed
         const Float64 ran = elapsedMs(cam.startedAt);
         const Bool delivered = cam.everFrame;
         const Str diag = cam.diag;
-        // Reaped HERE, before closeCamera, because the exit status is the thing
-        // that says WHY the capture stopped and closeCamera would discard it.
+        // Reaped here: the exit status says why, and closeCamera discards it.
         const Int32 status = killCamera();
-
-        // Explained ONCE per failure episode, and only when the capture
-        // produced no picture at all. A capture that ran, delivered frames and
-        // then ended is a cable moving or a device resetting, and the backoff
-        // handles it without a sentence per retry.
+        // Explained once per failure episode, and only when no picture came: a
+        // capture that delivered and then ended is left to the backoff.
         if(!delivered && !cam.said)
         {
             cam.said = true;
@@ -2984,8 +2482,7 @@ namespace viewfeed
 
     Void pumpCamera(Vec<Client>& clients)
     {
-        // stderr FIRST: it is where the answer lives on the run where stdout
-        // stays empty, which is exactly the run this has to explain.
+        // stderr first: when stdout stays empty, it holds the answer.
         for(;;)
         {
             Array<Char, 256> chunk{};
@@ -2999,7 +2496,6 @@ namespace viewfeed
                 cam.diag.append(chunk.data(), static_cast<Size>(n));
             }
         }
-
         Bool ended = false;
         for(;;)
         {
@@ -3025,11 +2521,7 @@ namespace viewfeed
             ended = true;
             break;
         }
-
-        // A frame is whole only once the NEXT one has begun - start-of-image is
-        // the only boundary MJPEG gives, because a JPEG's own end marker can
-        // occur inside its payload. This costs exactly one frame of latency and
-        // is the reason a viewer is never handed half a picture.
+        // A frame is whole once the next one has begun (CAM_SOI).
         for(;;)
         {
             const Size start = findSoi(cam.partial, 0);
@@ -3053,15 +2545,11 @@ namespace viewfeed
             offerCamera(clients, cam.partial.data() + start, next - start);
             cam.partial.erase(cam.partial.begin(), cam.partial.begin() + static_cast<ISize>(next));
         }
-
         if(cam.partial.size() > CAM_MAX_PARTIAL)
         {
-            // Not a picture. Rather than grow without bound, drop back to
-            // hunting for the next marker.
             cam.partial.clear();
             std::printf("viewfeed: camera resyncing - no frame boundary in 4 MiB\n");
         }
-
         if(ended)
         {
             endCamera(clients);
@@ -3070,14 +2558,11 @@ namespace viewfeed
 
     Void startCamera(Vec<Client>& clients)
     {
-        // RE-RESOLVE ON EVERY ATTEMPT. See CamCfg for why: the device renames
-        // itself when it re-enumerates, so a name resolved at boot goes stale
-        // the first time the cable twitches.
+        // Re-resolved on every attempt (CamCfg::dev).
         if(camCfg.devOverride.empty())
         {
             camCfg.dev = cameraDevDefault();
         }
-
         if(::access(camCfg.dev.c_str(), F_OK) != 0)
         {
             if(!cam.said)
@@ -3092,7 +2577,6 @@ namespace viewfeed
             backOff();
             return;
         }
-
         Array<Int32, 2> outPipe{ -1, -1 };
         Array<Int32, 2> errPipe{ -1, -1 };
         if(::pipe2(outPipe.data(), O_CLOEXEC) < 0)
@@ -3107,7 +2591,6 @@ namespace viewfeed
             backOff();
             return;
         }
-
         Array<Char, 128> fmt{};
         std::snprintf(
             fmt.data(),
@@ -3116,10 +2599,8 @@ namespace viewfeed
             static_cast<unsigned>(camCfg.width),
             static_cast<unsigned>(camCfg.height)
         );
-
-        // Built BEFORE the fork, because building it after would allocate, and
-        // between fork and exec this process may not allocate. Str::data() is
-        // non-const in C++20, so execvp's char*const* needs no cast.
+        // Built BEFORE the fork: nothing may allocate between fork and exec.
+        // Str::data() is non-const in C++20, so execvp needs no cast.
         Vec<Str> args;
         args.push_back("v4l2-ctl");
         args.push_back("-d");
@@ -3134,7 +2615,6 @@ namespace viewfeed
             argv.push_back(a.data());
         }
         argv.push_back(nullptr);
-
         const pid_t pid = ::fork();
         if(pid < 0)
         {
@@ -3153,26 +2633,17 @@ namespace viewfeed
         }
         if(pid == 0)
         {
-            // BETWEEN fork AND exec, NOTHING BUT ASYNC-SIGNAL-SAFE CALLS. This
-            // process has other threads - the pilot's control tick among them -
-            // and a lock any of them held at the instant of the fork is held
-            // forever in this child. dup2, execvp and _exit are the whole list
-            // used here, and no allocation happens on this path.
-            //
-            // Every other descriptor this process owns - both listening
-            // sockets, the UDP socket, the wake pipe and every client - was
-            // opened CLOEXEC, so execvp closes them. A capture holding a copy of
-            // the listening socket would keep port 8020 bound after the pilot
-            // exited.
+            // Between fork and exec, only async-signal-safe calls: a lock another
+            // thread held at the fork is held forever in this child. Every
+            // other descriptor was opened CLOEXEC, so the capture cannot keep
+            // port 8020 bound after the pilot exits.
             if(::dup2(outPipe[1], STDOUT_FILENO) >= 0 && ::dup2(errPipe[1], STDERR_FILENO) >= 0)
             {
                 ::execvp("v4l2-ctl", argv.data());
             }
-            // Only reached when exec failed. The parent diagnoses it from the
-            // empty pipe rather than from anything written here.
+            // Only when exec failed; cameraWhy reads the 127.
             ::_exit(127);
         }
-
         ::close(outPipe[1]);
         ::close(errPipe[1]);
         cam.pid = static_cast<Int32>(pid);
@@ -3193,10 +2664,9 @@ namespace viewfeed
         );
     }
 
-    // Opened while at least one viewer subscribes to CAMERA, released when the
-    // last one stops, so an unwatched camera costs the board nothing: no
-    // process, no pipes, no buffers, and the device handed straight back to
-    // whoever wants it next.
+    // Opened while at least one viewer subscribes to CAMERA and released when
+    // the last one stops: an unwatched camera costs no process, pipe or buffer,
+    // and leaves the device free.
     Void tendCamera(Vec<Client>& clients)
     {
         if(!anyWantsCamera(clients))
@@ -3205,8 +2675,7 @@ namespace viewfeed
             {
                 closeCamera("the last subscriber went");
             }
-            // A fresh slate for the next person to look, rather than serving
-            // out a backoff earned by a camera that was unplugged an hour ago.
+            // A fresh slate, with no backoff left from an old failure.
             cam.fails = 0;
             cam.waiting = false;
             cam.said = false;
@@ -3225,24 +2694,17 @@ namespace viewfeed
         startCamera(clients);
     }
 
-    // ---- what the owner published ------------------------------------------
-
+    // What the pilot published.
     Void deliver(Vec<Client>& clients, const Item& item)
     {
         switch(item.what)
         {
         case What::WHAT_SCAN:
-            // A revolution REACHED THE BOARD, which is what scanAgeMs is the
-            // age of - so it is stamped before the staleness rule below can
-            // discard the frame. A dropped revolution is still a revolution
-            // the sensor produced, and saying otherwise would make a working
-            // lidar look dead every time a viewer fell behind.
+            // Stamped before the staleness rule can drop the frame: a dropped
+            // revolution is still one the sensor produced.
             lastScanAt = item.at;
             haveScan = true;
-            // A revolution more than 200 ms old at SEND time is dropped before
-            // it is ever queued. This is measured HERE, on the thread that
-            // would do the sending, because the age that matters is the one at
-            // the moment the bytes would go out.
+            // LIVE_STALE_MS, measured on the thread that would send it.
             if(elapsedMs(item.at) > static_cast<Float64>(LIVE_STALE_MS))
             {
                 for(Client& c : clients)
@@ -3266,17 +2728,8 @@ namespace viewfeed
                 {
                     continue;
                 }
-                // droppedSinceLast is per CLIENT, and it is zeroed only once
-                // the frame carrying it has been built - a count that is
-                // cleared before it is reported is a count nobody ever sees.
-                // The count is stamped from what has accumulated SO FAR and is
-                // NOT cleared here. Clearing it after emit() was a bug the
-                // board found and no amount of reading had: the drop happens
-                // INSIDE emit(), when enqueue() coalesces this frame over the
-                // one already queued, so zeroing the counter on the next line
-                // destroyed every increment the instant it was made and
-                // droppedSinceLast could never be anything but 0. It is cleared
-                // in flush(), when the frame carrying it has actually gone.
+                // Per client, stamped from what has accumulated so far, and NOT
+                // cleared here: flush() clears it once this frame has gone.
                 bibowire::Scan s = item.scan;
                 s.droppedSinceLast = c.droppedLive;
                 s.scanDivisor = c.scanDivisor;
@@ -3297,21 +2750,16 @@ namespace viewfeed
             }
             break;
         case What::WHAT_BOARD:
-            // A PICO LINK THAT WENT DOWN moves the epoch, which disarms. The
-            // Pico that comes back was replugged or rebooted and is disarmed on
-            // its own side, and an arm left standing here would push throttle
-            // straight into its refusal. Section 6 lists it; until now nothing
-            // did it.
+            // A Pico link that went down moves the epoch, which disarms: the
+            // Pico that comes back is disarmed on its own side.
             if(haveBoard && lastBoard.picoLink != 0u && item.board.picoLink == 0u)
             {
                 bumpEpoch();
             }
             lastBoard = item.board;
             haveBoard = true;
-            // 5 Hz on the wire from a pilot that fills the struct every tick.
-            // The RATE is this module's business; the CONTENT is one struct the
-            // pilot filled once, which is what keeps the console and the viewer
-            // from disagreeing about what the car thinks.
+            // The rate is this module's; the content is the pilot's one struct,
+            // so the console and the viewer agree.
             if(boardSent && elapsedMs(lastBoardAt) < static_cast<Float64>(BOARD_EVERY_MS))
             {
                 return;
@@ -3344,9 +2792,6 @@ namespace viewfeed
             break;
         case What::WHAT_EVENT:
         {
-            // Rate-limited to 10/s, with the suppressed count carried in the
-            // next one - so the viewer knows events were dropped rather than
-            // believing it saw them all.
             if(eventWindowOpen && elapsedMs(lastEventAt) < static_cast<Float64>(EVENT_WINDOW_MS))
             {
                 ++eventsSuppressed;
@@ -3381,8 +2826,6 @@ namespace viewfeed
             break;
         }
     }
-
-    // ---- the clients -------------------------------------------------------
 
     Void reap(Vec<Client>& clients)
     {
@@ -3429,8 +2872,7 @@ namespace viewfeed
             {
                 return;
             }
-            // Unconditionally: a 40-byte CMDACK must not sit in Nagle's queue
-            // behind the 2540-byte SCAN it follows.
+            // No Nagle: a small CMDACK must not wait behind the SCAN it follows.
             const Int32 yes = 1;
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)));
             // A phone that walks out of range stops ACKing without a FIN, and
@@ -3442,24 +2884,12 @@ namespace viewfeed
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)));
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl)));
             static_cast<Void>(::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt)));
-
-            // THE KERNEL'S SEND BUFFER HAS TO BE SMALL OR THE RING IS NOT THE
-            // BOUND. Section 7 promises that a stalled viewer's pending bytes
-            // stay at about one SCAN plus one of each vital frame, "regardless
-            // of how long the stall lasts". That is only true if send() starts
-            // refusing while the queue is still ours to manage: with the
-            // default socket buffer - megabytes on loopback, and autotuned
-            // upward on a real link - send() keeps succeeding and revolutions
-            // pile up INSIDE THE KERNEL, where the drop classes cannot coalesce
-            // them, BEHIND_MS cannot age them and a viewer is handed seconds of
-            // stale pictures in order. Found on the board: a viewer that read
-            // nothing for five seconds was killed by the PING timeout with the
-            // ring empty the whole time, because 2.5 MB had gone into the
-            // socket. 32 KiB is about six revolutions, so what is beyond this
-            // module's reach stays under a second even at full rate.
+            // The kernel's send buffer must be small or the ring is not the
+            // bound: with the default, send() keeps succeeding and revolutions
+            // pile up in the kernel, out of reach of the drop classes and
+            // BEHIND_MS. 32 KiB is about six revolutions.
             const Int32 sndBuf = 32 * 1024;
             static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndBuf, sizeof(sndBuf)));
-
             Array<Char, INET_ADDRSTRLEN> ip{};
             static_cast<Void>(::inet_ntop(AF_INET, &peer.sin_addr, ip.data(), ip.size()));
             Array<Char, 64> name{};
@@ -3470,7 +2900,6 @@ namespace viewfeed
                 ip.data(),
                 static_cast<unsigned>(ntohs(peer.sin_port))
             );
-
             Client c;
             c.fd = fd;
             c.peer = name.data();
@@ -3482,9 +2911,8 @@ namespace viewfeed
         }
     }
 
-    // PING every second, and BYE(TIMEOUT) when no PONG comes back inside four.
-    // The car stopped 2700 ms before any of that mattered; this is about not
-    // leaving a dead socket believed.
+    // PING every PING_EVERY_MS; BYE(TIMEOUT) after PONG_WAIT_MS without a PONG.
+    // The deadman stopped the car long before; this closes a dead socket.
     Void keepLive(Client& c)
     {
         if(c.stage != Stage::STAGE_LIVE)
@@ -3516,9 +2944,8 @@ namespace viewfeed
         });
     }
 
-    // The reverse path, MEASURED rather than assumed because the other
-    // direction is fine. This is the nastiest failure the two-transport shape
-    // creates, and it is the one a viewer cannot diagnose on its own.
+    // The reverse-path probe (bibowire::REVERSE_PROBE_MS): the failure a viewer
+    // cannot diagnose on its own.
     Void probeReversePath(Client& c)
     {
         if(!c.wantedControl || !c.holder || c.probeSaid)
@@ -3553,17 +2980,9 @@ namespace viewfeed
         std::printf("viewfeed: %s\n", text.data());
     }
 
-    // ---- the link log ------------------------------------------------------
-    //
-    // ONE LINE A SECOND PER VIEWER, on unless BIBO_LINK_LOG=0.
-    //
-    // Written because "dropped: no PONG" was the only sentence this board had
-    // about a link that failed a dozen times an hour, and the frame ring dumped
-    // after it records what was QUEUED - not what the socket took, not what is
-    // still waiting, not how late the keepalive was when things started to go.
-    // Every number here is one of those. Read left to right it is the round
-    // trip: what came in, what went out and what is stuck on this side, the
-    // keepalive, and what the deadman made of it.
+    // The link log: one line a second per viewer, on unless BIBO_LINK_LOG=0.
+    // Left to right it is the round trip: what came in, what went out and what
+    // is stuck on this side, the keepalive, and what the deadman made of it.
     //
     //   rx        bytes read this second, frames by type, and quiet = the longest
     //             wait between two reads that returned bytes
@@ -3589,7 +3008,6 @@ namespace viewfeed
             return false;
         }
         c.linkLogAt = monoNow();
-
         Int32 kernel = -1;
         if(::ioctl(c.fd, TIOCOUTQ, &kernel) != 0)
         {
@@ -3598,11 +3016,8 @@ namespace viewfeed
         const Int64 oldestMs = c.out.empty() ? 0 : static_cast<Int64>(elapsedMs(c.out.front().at));
         const Int64 pingOutMs = c.pingOut ? static_cast<Int64>(elapsedMs(c.pingSentAt)) : -1;
         const bibowire::deadman::Output d = deadmanNow();
-
-        // quiet only closes when bytes ARRIVE, so a second in which nothing did
-        // would not show in it until the next read. lastrx is measured now.
+        // quiet only closes when bytes arrive; lastrx is measured now.
         const Int64 lastRxMs = c.lastRxAt == TimePoint() ? -1 : static_cast<Int64>(elapsedMs(c.lastRxAt));
-
         std::printf(
             "viewfeed: link %s s=%08x %s rx=%lluB lastrx=%lldms ping=%u pong=%u/%u ctl=%u(tcp %u) cmd=%u quiet=%lldms"
             " | tx=%lluB sends=%u eagain=%u queued=%lluB/%lluf oldest=%lldms kernel=%dB"
@@ -3637,7 +3052,6 @@ namespace viewfeed
             static_cast<unsigned long long>(c.camHeld),
             static_cast<long long>(loopWorstShown)
         );
-
         c.winRxGapMs = 0.0;
         c.winRxBytes = 0;
         c.winTxBytes = 0;
@@ -3652,12 +3066,9 @@ namespace viewfeed
         return true;
     }
 
-    // ---- the thread --------------------------------------------------------
-
     Void loop()
     {
         Vec<Client> clients;
-
         for(;;)
         {
             Vec<pollfd> fds;
@@ -3670,25 +3081,20 @@ namespace viewfeed
                 const Int16 want = static_cast<Int16>(POLLIN | (c.out.empty() ? 0 : POLLOUT));
                 fds.push_back(pollfd{ c.fd, want, 0 });
             }
-
-            // The capture's pipe, appended AFTER the clients so nothing
-            // disturbs the c.at indices just taken. Its revents are never
-            // examined: tendCamera drains this fd to EAGAIN every pass anyway,
-            // so the entry exists only to wake the loop promptly rather than
-            // leave 45 KB sitting in a pipe for the rest of the 20 ms timeout.
+            // After the clients, so the c.at indices stand. Its revents are
+            // never read: it only wakes the loop, and tendCamera drains the
+            // pipe every pass.
             if(cam.outFd >= 0)
             {
                 fds.push_back(pollfd{ cam.outFd, POLLIN, 0 });
             }
-
             if(::poll(fds.data(), fds.size(), POLL_MS) < 0 && errno != EINTR)
             {
                 std::printf("viewfeed: poll failed: %s\n", std::strerror(errno));
                 break;
             }
-
-            // The pass's WORK, timed from after poll() so the 20 ms sleep is not
-            // counted as a stall. Rolled into a one-second window for logLink.
+            // The pass's work, timed from after poll() so the sleep is not a
+            // stall, and kept per second for logLink.
             const TimePoint workStart = monoNow();
             if(elapsedMs(loopWindowAt) >= 1000.0)
             {
@@ -3696,7 +3102,6 @@ namespace viewfeed
                 loopWorstMs = 0.0;
                 loopWindowAt = workStart;
             }
-
             const Size before = clients.size();
             if((fds[0].revents & POLLIN) != 0)
             {
@@ -3713,7 +3118,6 @@ namespace viewfeed
             {
                 serveUdp(clients);
             }
-
             Deque<Item> items;
             Bool quit = false;
             {
@@ -3725,11 +3129,9 @@ namespace viewfeed
             {
                 break;
             }
-
-            // Client sockets first, in the order the pollfds were built, so a
-            // HELLO that arrived this pass is welcomed before the revolution
-            // published this pass is handed out. Only the clients that existed
-            // before accept() have an entry.
+            // Client sockets before the published items, so a HELLO from this
+            // pass is welcomed before this pass's revolution goes out. Only the
+            // clients from before accept() have a pollfd.
             for(Size i = 0; i < before && i < clients.size(); ++i)
             {
                 Client& c = clients[i];
@@ -3749,17 +3151,13 @@ namespace viewfeed
                     readFrom(c, clients);
                 }
             }
-
             for(const Item& item : items)
             {
                 deliver(clients, item);
             }
-
-            // AFTER the reads, so a SUBSCRIBE that arrived this pass opens the
-            // device this pass, and BEFORE the flush below, so a frame read out
-            // of the pipe this pass goes out on this pass's send().
+            // After the reads, so a SUBSCRIBE opens the device this pass, and
+            // before the flush, so a frame read this pass is sent this pass.
             tendCamera(clients);
-
             // The control slot, released by silence rather than by a close.
             if(haveHolder && everControl
                && elapsedMs(lastControlAt) > static_cast<Float64>(bibowire::CONTROL_SLOT_MS))
@@ -3769,20 +3167,16 @@ namespace viewfeed
                     releaseSlot(c, "1000 ms of control silence");
                 }
             }
-
-            // THE DEADMAN TRIPPING DISARMS. The tick has already sent STOP -
-            // neutral, disarm, release - so the Pico is disarmed on its side;
-            // this is the board's arm following it, so the operator ARMs again
-            // rather than finding throttle back the moment the stream resumes.
+            // The deadman tripping disarms. The tick has already sent STOP, so
+            // the operator ARMs again rather than finding throttle back the
+            // moment the stream resumes.
             if(sh.operatorArmed.load(std::memory_order_acquire) && deadmanByte() >= 2u)
             {
                 bumpEpoch();
             }
-
             // Before the flush, so an answer a viewer reads is already what
             // drive() reports.
             shareDrive();
-
             for(Client& c : clients)
             {
                 if(!c.dropWhy.empty())
@@ -3814,10 +3208,8 @@ namespace viewfeed
             }
 
             reap(clients);
-
             sh.count.store(liveClients(clients));
         }
-
         for(Client& c : clients)
         {
             sayBye(c, bibowire::Reason::REASON_SHUTDOWN, "the pilot is stopping");
@@ -3836,7 +3228,6 @@ namespace viewfeed
         }
         const Int32 yes = 1;
         static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)));
-
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -3870,11 +3261,8 @@ namespace viewfeed
         }
         const Int32 yes = 1;
         static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)));
-        // Deliberately small. A deep queue of control datagrams is a queue of
-        // STALE STEERING COMMANDS, and the board wants the newest, not the most.
         const Int32 rcv = UDP_RCVBUF;
         static_cast<Void>(::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv, sizeof(rcv)));
-
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -3891,7 +3279,6 @@ namespace viewfeed
         }
         return fd;
     }
-
   }
 
   Bool start(UInt16 port, const Policy& p)
@@ -3915,7 +3302,6 @@ namespace viewfeed
           wake = { -1, -1 };
           return false;
       }
-
       sockaddr_in bound{};
       socklen_t len = sizeof(bound);
       if(::getsockname(listenFd, reinterpret_cast<sockaddr*>(&bound), &len) == 0)
@@ -3926,10 +3312,7 @@ namespace viewfeed
       {
           boundPort = port;
       }
-
-      // The SAME NUMBER for both, always. A UDP socket that quietly landed
-      // somewhere else would make the control path's address a thing a viewer
-      // has to discover rather than a thing it knows.
+      // The same port for both, so a viewer knows where control goes.
       udpFd = bindUdp(boundPort);
       if(udpFd < 0)
       {
@@ -3941,7 +3324,6 @@ namespace viewfeed
           boundPort = 0;
           return false;
       }
-
       policy = p;
       {
           LockGuard<Mutex> lock(sh.m);
@@ -3954,10 +3336,7 @@ namespace viewfeed
           sh.tally = Counters();
       }
       {
-          // A previous run's trim is not this run's. The Pico was rebooted or
-          // reopened between the two as often as not, and forwarding a value
-          // the operator asked for before the restart would be this module
-          // acting on an intent that has expired.
+          // A previous run's tuning requests are intents that have expired.
           LockGuard<Mutex> lock(sh.tuneM);
           sh.tunes.clear();
           sh.tuneDropped = 0;
@@ -3973,9 +3352,7 @@ namespace viewfeed
           sh.driveSeen = DriveSeen();
           sh.driveSeen.at = monoNow();
       }
-      // A new start is a new car as far as any viewer is concerned, and an ARM
-      // from the previous run standing across it would be exactly the stale
-      // consent the epoch exists to prevent.
+      // A new start is a new car: no ARM survives from the previous run.
       sh.operatorArmed.store(false, std::memory_order_release);
       linkLog = envOr("BIBO_LINK_LOG", "1") != "0";
       holderSession = 0;
@@ -4019,8 +3396,7 @@ namespace viewfeed
 
   Void publishScan(bibowire::Scan s)
   {
-      // Nobody to be live for: not even the lock. This is what keeps an
-      // unwatched pilot's tick the price it was before this module existed.
+      // Nobody connected: not even the lock.
       if(!running || sh.count.load() == 0)
       {
           return;
@@ -4047,10 +3423,7 @@ namespace viewfeed
 
   Void publishBoard(const bibowire::BoardState& b)
   {
-      // NOT gated on a client being connected, unlike the rest: the newest
-      // BOARD is what the NEXT viewer is owed before it is shown a point, and a
-      // board state dropped at the door is a viewer that connects into silence
-      // until the pilot's next second comes round.
+      // NOT gated on a client: the next viewer is owed the newest BOARD.
       if(!running)
       {
           return;
@@ -4081,10 +3454,8 @@ namespace viewfeed
       {
           return;
       }
-      // WHOLE LINES OR NOTHING. A report cut at the EVENT's text limit could end
-      // "SLEW THROTTLE 2" where the setting is 200, and the viewer would take
-      // that as a number. The five settings are about 100 characters, so this
-      // never runs - and if it ever does, it drops lines rather than digits.
+      // Cut at whole lines, never mid-number: "SLEW THROTTLE 2" cut from 200
+      // would read as a setting.
       Str text = report;
       while(text.size() > bibowire::MAX_EVENT_TEXT)
       {
@@ -4136,9 +3507,8 @@ namespace viewfeed
               return true;
           }
       }
-      // Eight consecutive writes during one read is a control stream running
-      // far faster than 20 Hz, which is not a thing this protocol produces.
-      // Reporting nothing is the safe answer: no command beats half of one.
+      // Eight writes during one read is no stream this protocol produces; no
+      // command beats half of one.
       return false;
   }
 
@@ -4147,10 +3517,8 @@ namespace viewfeed
       Drive d;
       if(!running)
       {
-          // Not started is not "live with nobody holding": it is a module that
-          // cannot see anything at all, and the caller must not read the
-          // defaults as a verdict. haveHolder false is what makes the pilot run
-          // under its own blind and silence rules, which is correct here.
+          // haveHolder false: the pilot runs under its own blind and silence
+          // rules.
           return d;
       }
       DriveSeen seen;
@@ -4181,9 +3549,7 @@ namespace viewfeed
       {
           return false;
       }
-      // FRONT, not back. These come out in the order the operator performed
-      // them, because two limits set a moment apart are two acts and the second
-      // is not a correction of the first.
+      // Oldest first, in the order the operator acted.
       *out = sh.tunes.front();
       sh.tunes.pop_front();
       return true;
@@ -4217,11 +3583,9 @@ namespace viewfeed
       }
       wakeLoop();
       worker.join();
-      // Nothing may outlive this call holding the camera open. The capture is a
-      // CHILD PROCESS, so it survives its parent unless something says
-      // otherwise, and a v4l2-ctl still on /dev/video0 is exactly why the next
-      // pilot would find the device busy after this one exited. Safe here
-      // because the thread that owns `cam` has been joined.
+      // The capture is a child process and would outlive this one, leaving the
+      // device busy for the next pilot. Safe here: the thread that owns `cam`
+      // has been joined.
       closeCamera("the feed is stopping");
       running = false;
       ::close(listenFd);
@@ -4234,18 +3598,14 @@ namespace viewfeed
       boundPort = 0;
       policy = Policy();
   }
-
 }
 
 #else
 
-// Not a stub that listens and reports an empty room: a module that says it
-// cannot do the job here. bibowire's socket half needs Linux sockets, and every
-// call behaves as it would with no viewer connected - which is to say, does
-// nothing, and says so from start().
+// No Linux sockets: start() refuses, saying so, and every other call does
+// nothing, as with no viewer connected.
 namespace viewfeed
 {
-
   Bool start(UInt16 port, const Policy& p)
   {
       static_cast<Void>(p);
@@ -4310,11 +3670,8 @@ namespace viewfeed
       return false;
   }
 
-  // Defaults, which say haveHolder = false - and that is the honest answer on a
-  // platform with no sockets, not a convenient one. With no holder the deadman
-  // does not apply at all (section 6) and the pilot runs under its own blind and
-  // silence rules, which is exactly what a board that cannot accept a viewer
-  // should do.
+  // haveHolder false: with no holder the deadman does not apply and the pilot
+  // runs under its own blind and silence rules.
   Drive drive()
   {
       return Drive();
@@ -4333,7 +3690,6 @@ namespace viewfeed
   Void stop()
   {
   }
-
 }
 
 #endif

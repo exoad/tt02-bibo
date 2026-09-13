@@ -1,9 +1,6 @@
-// See lidar.hxx. Two implementations in one file: the real one, behind the SDK
-// and Linux, and the refusing one everywhere else. One file rather than two so
-// the two cannot drift apart in what they promise - the same header, the same
-// reason() string carrying the same kind of answer, and a build that picks a
-// half rather than a file.
-
+// The SDK half, on Linux with PILOT_HAVE_RPLIDAR, and the refusing half
+// everywhere else, in one file so both answer through the same reason() and
+// refusal().
 #include "lidar.hxx"
 
 #include <cstdio>
@@ -12,16 +9,9 @@ namespace lidar
 {
   namespace
   {
-
-    // Why the last refusing call refused. Shared by both halves below so that
-    // reason() has one definition, and so a caller on the laptop reads the
-    // same shape of answer it will read on the board.
+    // Written by both halves.
     Str why;
-
-    // The last open()'s verdict as a value. Set beside `why` on every path out
-    // of open(), and by nothing else - see the header.
     Refusal refused = Refusal::REFUSAL_NONE;
-
   }
 
   const Str& reason()
@@ -33,7 +23,6 @@ namespace lidar
   {
       return refused;
   }
-
 }
 
 #if defined(__linux__) && defined(PILOT_HAVE_RPLIDAR)
@@ -51,17 +40,12 @@ namespace lidar
 {
   namespace
   {
-
-    // One revolution never comes close to this, but grabScanDataHq() wants an
-    // upper bound and the SDK's own samples use the same figure. Allocated at
-    // open() rather than declared as an Array: 8192 nodes is 64 KiB, which is
-    // nothing on the Pi but is not something a program that never opens a lidar
-    // should carry in .bss for the whole of its life.
+    // grabScanDataHq() wants an upper bound; the SDK samples use this one.
+    // Allocated at open(), not an Array, so a program that never opens a lidar
+    // does not carry it in .bss.
     constexpr Size MAX_NODES = 8192;
 
-    // How long stop() is given to be acted on before the motor is cut. Cutting
-    // the motor first can leave the scan running, and the next startScan then
-    // meets a device already mid-stream. The figure is the SDK sample's.
+    // The SDK sample's wait between stop() and cutting the motor (see motorOff()).
     constexpr Int64 STOP_SETTLE_MS = 200;
 
     sl::ILidarDriver* drv = nullptr;
@@ -74,23 +58,16 @@ namespace lidar
     Str healthStr;
     Int32 healthStatus = -1;
 
-    // The identity as numbers, filled at open() and cleared at close(). Its
-    // `health` member is NOT kept here - device() copies healthStatus into it
-    // on the way out, so there is one place the status lives and the record
-    // cannot lag a reading that readHealth() just took.
+    // Filled at open(), cleared at close(). Its health is NOT kept here:
+    // device() copies healthStatus in, so the record never lags a reading.
     Device dev;
 
-    // A second descriptor on the port, held for as long as the SDK's is, with
-    // the tty marked EXCLUSIVE (TIOCEXCL) - so that every later open() of the
-    // device by any other unprivileged process fails with EBUSY, which is the
-    // answer probePort() below already knew how to read.
-    //
-    // Without it that branch could never fire. Linux lets any number of
-    // processes open one tty, and the SDK takes no lock, so a second program
-    // on the port reads the first one's bytes: it reports "nothing answered at
-    // 460800 baud", and the first loses revolutions to its probe commands. The
-    // flag is cleared by the kernel when the last descriptor on the tty
-    // closes, so a crash releases it as surely as close() does.
+    // A second descriptor on the port, held as long as the SDK's, with the tty
+    // marked EXCLUSIVE (TIOCEXCL), so any later unprivileged open() fails with
+    // EBUSY and probePort() reports REFUSAL_HELD. Linux lets any number of
+    // processes open a tty and the SDK takes no lock: without the guard a second
+    // program reads the first one's bytes and both fail. The kernel clears the
+    // flag when the last descriptor closes, so a crash releases it too.
     Int32 guardFd = -1;
 
     Void dropGuard()
@@ -109,31 +86,22 @@ namespace lidar
         return Str(buf.data());
     }
 
-    // Opens the port, to find out whether it CAN be opened before the SDK
-    // touches it, and keeps the descriptor as guardFd for open() to mark
-    // exclusive once the SDK has its own.
-    //
-    // This exists because the SDK cannot be trusted to report an unopenable
-    // port: a shadowed `ans` in its openChannelAndBind() turns a failed channel
-    // open into a successful connect() - "The lidar" in docs/hardware.md.
-    // Without this probe a missing /dev/ttyUSB0 is reported two
-    // seconds later as "nothing answered at 460800 baud", pointing whoever
-    // reads it at the baud rate when the cable is the problem.
-    //
-    // errno is turned into words HERE, because the three causes want three
-    // different actions from the person reading them: plug it in, add yourself
-    // to dialout, or find the other program.
+    // Opens the port before the SDK touches it, keeping the descriptor as
+    // guardFd. The SDK cannot report an unopenable port: a shadowed `ans` in its
+    // openChannelAndBind() turns a failed open into a successful connect()
+    // ("The lidar" in docs/hardware.md), so a missing port would read seconds
+    // later as "nothing answered", blaming the baud. errno becomes words here
+    // because each cause wants a different fix: plug it in, join dialout, or
+    // stop the other program.
     [[nodiscard]] Bool probePort(const Str& port)
     {
-        // ::open, not open - the unqualified name inside this namespace is
-        // lidar::open, which is the function calling this.
+        // ::open, because the bare name here is lidar::open.
         const Int32 fd = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
         if(fd >= 0)
         {
             guardFd = fd;
             return true;
         }
-
         switch(errno)
         {
         case ENOENT:
@@ -156,9 +124,8 @@ namespace lidar
         return false;
     }
 
-    // Reads the device's self-report into healthStr, and returns whether the
-    // READ worked - not whether the device is healthy. A device that answers
-    // "error" has answered; a device that does not answer is a different fact.
+    // Reads the device's self-report into healthStr. Returns whether the READ
+    // worked, not whether the device is healthy.
     [[nodiscard]] Bool readHealth()
     {
         sl_lidar_response_device_health_t h{};
@@ -170,7 +137,6 @@ namespace lidar
             why = "the lidar did not answer a health query (SDK code " + hex(r) + ")";
             return false;
         }
-
         healthStatus = h.status;
         switch(h.status)
         {
@@ -190,8 +156,8 @@ namespace lidar
         return true;
     }
 
-    // The SDK's packed reply as this header's record. firmware_version is one
-    // 16-bit word, major in the high byte - the split is the SDK sample's.
+    // firmware_version is one 16-bit word, major in the high byte, as the SDK
+    // sample splits it.
     [[nodiscard]] Device record(const sl_lidar_response_device_info_t& di)
     {
         Device d;
@@ -208,8 +174,7 @@ namespace lidar
         return d;
     }
 
-    // The sentence info() returns, built from the record so the two cannot
-    // disagree about a field.
+    // info()'s sentence, built from the record so the two cannot disagree.
     [[nodiscard]] Str describe(const Device& d)
     {
         Array<Char, 96> buf{};
@@ -225,20 +190,16 @@ namespace lidar
         return Str(buf.data()) + d.serial;
     }
 
-    // stop, settle, motor off - in that order, and BOTH halves run whatever the
-    // first one said. A failed stop with the motor still spinning is a lidar
-    // running on a desk with no program attached, which is the outcome this
-    // sequence exists to prevent; see the hardware-sequence rule under
-    // Language in docs/conventions.md.
+    // stop, settle, motor off, and the motor is cut whatever stop returned: a
+    // failed stop must not leave the lidar spinning with no program attached
+    // (the hardware-sequence rule in docs/conventions.md).
     [[nodiscard]] Bool stopAndPark()
     {
         const sl_result stopped = drv->stop();
         sleepMs(STOP_SETTLE_MS);
         const sl_result parked = drv->setMotorSpeed(0);
-
         // Whatever the device did, grab() must not believe there is a scan.
         spinning = false;
-
         if(SL_IS_FAIL(stopped))
         {
             why = "the lidar did not acknowledge stop (SDK code " + hex(stopped) + ")";
@@ -251,7 +212,6 @@ namespace lidar
         }
         return true;
     }
-
   }
 
   Bool available()
@@ -267,12 +227,10 @@ namespace lidar
       {
           return true;
       }
-
       if(!probePort(port))
       {
           return false;
       }
-
       sl::Result<sl::ILidarDriver*> d = sl::createLidarDriver();
       if(!d || *d == nullptr)
       {
@@ -281,7 +239,6 @@ namespace lidar
           refused = Refusal::REFUSAL_SDK;
           return false;
       }
-
       sl::Result<sl::IChannel*> ch = sl::createSerialPortChannel(port, baud);
       if(!ch || *ch == nullptr)
       {
@@ -292,7 +249,6 @@ namespace lidar
           refused = Refusal::REFUSAL_SDK;
           return false;
       }
-
       sl_result r = (*d)->connect(*ch);
       if(SL_IS_FAIL(r))
       {
@@ -303,16 +259,11 @@ namespace lidar
           refused = Refusal::REFUSAL_SDK;
           return false;
       }
-
-      // Only NOW, with the SDK's own descriptor open: TIOCEXCL refuses every
-      // open() that comes after it, and the SDK's would have been one of
-      // them. Best effort - a tty that will not take the flag is still a
-      // working lidar, just an unguarded one.
+      // Only now, after the SDK's own open, which TIOCEXCL would have refused.
+      // Best effort: an unguarded lidar still works.
       static_cast<Void>(::ioctl(guardFd, TIOCEXCL));
-
-      // The first real exchange. The probe above proved the port opens, so a
-      // silence here is the device end: the wrong baud, or a serial adapter
-      // with nothing behind it.
+      // The port opened, so silence here is the device end: the wrong baud, or
+      // a serial adapter with nothing behind it.
       sl_lidar_response_device_info_t di{};
       r = (*d)->getDeviceInfo(di);
       if(SL_IS_FAIL(r))
@@ -326,24 +277,16 @@ namespace lidar
           refused = Refusal::REFUSAL_NOT_A_LIDAR;
           return false;
       }
-
       drv = *d;
       channel = *ch;
       nodes.assign(MAX_NODES, sl_lidar_response_measurement_node_hq_t{});
       dev = record(di);
       infoStr = describe(dev);
-
-      // A previous session that was TERMINATED rather than closed - a crash,
-      // a kill, a lost SSH session - leaves the C1 spinning and streaming,
-      // because nothing ever sent the stop. Park it now so that `spinning ==
-      // false` is a fact about the device and not a guess about history. The
-      // result is not a failure of open(): the device has already answered,
-      // and motorOn() will report the next thing it refuses.
+      // A session that was killed rather than closed left the C1 spinning and
+      // streaming. Parked, so spinning == false is true of the device. Not a
+      // failure of open(): motorOn() reports what it refuses.
       static_cast<Void>(stopAndPark());
-
-      // Recorded, not judged: a device answering "error" has still opened, and
-      // the caller can print info() and health() side by side before deciding.
-      // motorOn() is where an error refuses.
+      // Recorded, not judged: a health error refuses in motorOn(), not here.
       static_cast<Void>(readHealth());
       why.clear();
       return true;
@@ -355,24 +298,18 @@ namespace lidar
       {
           return;
       }
-
-      // Unconditional, not guarded by `spinning`: the cost of telling a stopped
-      // device to stop is nothing, and the cost of skipping it is the lidar the
-      // note in open() describes.
+      // Unconditional, not guarded by spinning: stopping a stopped device costs
+      // nothing, and a skipped stop can leave it spinning.
       static_cast<Void>(stopAndPark());
-
       drv->disconnect();
       delete drv;
       drv = nullptr;
-
-      // The driver only closes the channel on teardown, it never frees it, so
-      // ownership comes back here. Must follow `delete drv`, which still uses it.
+      // The driver closes the channel on teardown but never frees it. Must
+      // follow `delete drv`, which still uses it.
       delete channel;
       channel = nullptr;
-
       // Last, so the port is never unguarded while the SDK still has it.
       dropGuard();
-
       nodes.clear();
       nodes.shrink_to_fit();
       infoStr.clear();
@@ -398,11 +335,8 @@ namespace lidar
       {
           return true;
       }
-
-      // A hard health error means the unit will not produce usable data until
-      // it is power cycled; starting the motor anyway just makes noise. Read
-      // fresh rather than trusting open()'s copy - the whole point of the
-      // status is that it can change.
+      // Read fresh, not open()'s copy: a health ERROR means no usable data
+      // until a power cycle, so the motor stays off.
       if(!readHealth())
       {
           return false;
@@ -412,31 +346,24 @@ namespace lidar
           why = "the lidar reports " + healthStr;
           return false;
       }
-
-      // DEFAULT_MOTOR_SPEED asks the device for the speed IT wants, which on a
-      // C1 is an RPM figure the firmware knows and this file does not.
+      // The default argument asks the device for its own speed.
       sl_result r = drv->setMotorSpeed();
       if(SL_IS_FAIL(r))
       {
           why = "the lidar did not accept motor on (SDK code " + hex(r) + ")";
           return false;
       }
-
-      // force = false: no scan while the health says not to. useTypicalScan =
-      // true: the mode the device recommends for itself, which for the C1 is
-      // the only one worth having, rather than a mode id copied from a
-      // datasheet for a different unit.
+      // force false: no scan against the health. useTypicalScan true: the mode
+      // the device recommends for itself.
       sl::LidarScanMode mode{};
       r = drv->startScan(false, true, 0, &mode);
       if(SL_IS_FAIL(r))
       {
-          // The motor was told to spin and the scan did not start, so the two
-          // disagree; put the motor back where a failed motorOn() leaves things.
+          // The scan did not start, so the motor is stopped again.
           static_cast<Void>(drv->setMotorSpeed(0));
           why = "the lidar did not start scanning (SDK code " + hex(r) + ")";
           return false;
       }
-
       spinning = true;
       return true;
   }
@@ -463,16 +390,12 @@ namespace lidar
 
   Bool grab(Vec<reactive::Ray>& out, const Int32 timeoutMs, Vec<UInt8>* quality)
   {
-      // Emptied FIRST, so that every path out of here that is not a fresh
-      // revolution leaves nothing stale behind - see the header for why an
-      // empty scan is the safe thing to hand to reactive::step. The quality
-      // vector follows the same rule, so it is never longer than `out`.
+      // Emptied first, so no path out leaves a stale revolution behind.
       out.clear();
       if(quality != nullptr)
       {
           quality->clear();
       }
-
       if(drv == nullptr)
       {
           why = "the lidar is not open";
@@ -483,7 +406,6 @@ namespace lidar
           why = "the motor is off - call motorOn() first";
           return false;
       }
-
       Size count = nodes.size();
       const sl_u32 timeout = timeoutMs < 0 ? 0u : static_cast<sl_u32>(timeoutMs);
       const sl_result r = drv->grabScanDataHq(nodes.data(), count, timeout);
@@ -499,13 +421,9 @@ namespace lidar
           }
           return false;
       }
-
-      // Sorted by angle so a consumer walking the vector sees the room in
-      // order. Its one failure is "every node invalid", and that is not hidden
-      // by ignoring it: the loop below then produces a revolution of zero
-      // distances, which reactive::step reads as blind and stops the car.
+      // Sorted by angle. Its only failure, every node invalid, becomes a
+      // revolution of zero distances below, which reads as blind.
       static_cast<Void>(drv->ascendScanData(nodes.data(), count));
-
       out.reserve(count);
       if(quality != nullptr)
       {
@@ -515,20 +433,17 @@ namespace lidar
       {
           const sl_lidar_response_measurement_node_hq_t& n = nodes[i];
           reactive::Ray ray;
-          // angle_z_q14 is q14 fixed point scaled so that 1.0 == 90 degrees;
-          // dist_mm_q2 is q2 millimetres. Both conversions are the SDK
-          // sample's, to the constant.
+          // angle_z_q14: q14 fixed point where 1.0 is 90 degrees. dist_mm_q2:
+          // q2 millimetres. Both conversions are the SDK sample's.
           ray.angleDeg = static_cast<Float32>(n.angle_z_q14) * 90.0f / 16384.0f;
           ray.distMm = static_cast<Float32>(n.dist_mm_q2) / 4.0f;
           out.push_back(ray);
           if(quality != nullptr)
           {
-              // The low two bits of the byte are flags; the strength is the
-              // six above them, which is where the wire's 0..63 comes from.
+              // The low two bits are flags; the six above are the 0..63 strength.
               quality->push_back(static_cast<UInt8>(n.quality >> SL_LIDAR_RESP_MEASUREMENT_QUALITY_SHIFT));
           }
       }
-
       why.clear();
       return true;
   }
@@ -557,31 +472,25 @@ namespace lidar
       }
       if(!spinning)
       {
-          // The result is deliberately dropped: a failed read writes its own
-          // account into healthStr, and that account IS the answer.
+          // A failed read writes its own account into healthStr, which is the
+          // answer either way.
           static_cast<Void>(readHealth());
       }
       return healthStr;
   }
-
 }
 
 #else
 
-// The refusing half. Every entry point says that there is no SDK here, in
-// those words, rather than "no such port" - which would send somebody to check
-// a cable when the truth is that this program was built without the code to
-// talk to one.
-
+// The refusing half says there is no SDK, never "no such port", which would send
+// someone to check a cable.
 namespace lidar
 {
   namespace
   {
-
     constexpr CharSeq NO_SDK =
         "no lidar SDK is built into this program"
         " - configure with -DPILOT_RPLIDAR_SDK=<path> on Linux";
-
   }
 
   Bool available()
@@ -627,8 +536,6 @@ namespace lidar
   Bool grab(Vec<reactive::Ray>& out, const Int32 timeoutMs, Vec<UInt8>* quality)
   {
       static_cast<Void>(timeoutMs);
-      // Emptied, as the header promises, so a caller that ignores the Bool
-      // hands reactive::step a blind scan and not whatever was there before.
       out.clear();
       if(quality != nullptr)
       {
@@ -652,7 +559,6 @@ namespace lidar
   {
       return Str();
   }
-
 }
 
 #endif

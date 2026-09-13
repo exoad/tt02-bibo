@@ -1,76 +1,32 @@
-// bibowire's socket half on the board: a TCP server and a UDP socket on 8020,
-// on a thread of its own, serving the Windows viewer.
+// bibowire's socket half on the board: TCP and UDP on one port, on a thread of
+// its own, serving the viewer. bibowire.hxx decides every byte's layout; this
+// file owns the sockets, the per-client queues, the session and the handshake.
 //
-// ---------------------------------------------------------------------------
-// WHAT THIS IS, AND WHAT IT IS NOT
+// publish() never blocks and never encodes: it pushes under a mutex and wakes
+// poll() through a self-pipe, and the encode, CRC and send() run on this
+// module's thread.
 //
-// bibowire.hxx is the codec - pure, no sockets, no clock, compiled into both
-// the pilot and the viewer. This file is the other half: the sockets, the
-// per-client queues, the drop classes, the session, the handshake and the
-// frame-header ring. Nothing here decides a byte's LAYOUT; every frame is
-// built by a bibowire writeX and framed by bibowire::put, so the board and the
-// viewer cannot disagree about a field's offset while both still compile.
+// Each client has a bounded ring (RING_BYTES or RING_FRAMES, whichever fills
+// first), and a slow viewer degrades by class:
+//   CLASS_BULK   discarded first.
+//   CLASS_LIVE   drop-oldest, depth 1; the count rides the next SCAN's
+//                droppedSinceLast. A revolution older than LIVE_STALE_MS at
+//                send time is never queued.
+//   CLASS_VITAL  never dropped. A client whose vital frame cannot be queued, or
+//                whose oldest vital frame is older than BEHIND_MS, is closed.
 //
-// ---------------------------------------------------------------------------
-// publish() NEVER BLOCKS THE CALLER, AND THE TICK NEVER ENCODES
+// Telemetry rides TCP. Control rides UDP, drained to empty every pass keeping
+// only the newest seq, so a stall leaves no backlog of stale steering.
 //
-// Every publish below takes a mutex for a push, writes one byte to a self-pipe
-// to wake poll(), and returns. The ENCODE, the CRC and the send() all happen on
-// this module's thread, so the pilot's tick pays a queue push whether the
-// viewer is fast, slow or absent - and with nobody connected it pays nothing at
-// all, because the message is dropped at the door before the lock is taken.
+// The camera has no publish(): this module runs v4l2-ctl itself while a viewer
+// subscribes to CAMERA by its explicit typeMask bit, which a zero mask never
+// includes. BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS override the device,
+// the format and the rate cap, read at start().
 //
-// The one thing the tick does pay for is filling the message struct: a Scan
-// carries 500 points converted from reactive::Ray's two Float32 to the wire's
-// centi-degrees and whole millimetres. That loop is the pilot's, the framing is
-// this thread's, and section 7's rule - "the tick never encodes, never CRCs,
-// never calls send(), and never waits for a viewer" - is what that split is for.
-//
-// ---------------------------------------------------------------------------
-// A SLOW VIEWER DEGRADES IN A FIXED ORDER, AND NEVER THE CAR'S PICTURE FIRST
-//
-// Each client owns a bounded ring - 96 KiB or 12 frames, whichever fills first
-// - and every telemetry type has a class:
-//
-//   CLASS_BULK   discarded FIRST, always. A camera, the day there is one.
-//   CLASS_LIVE   drop-oldest, depth 1. The newest revolution wins and the count
-//                travels in the next SCAN's droppedSinceLast, so the viewer
-//                knows what it missed rather than believing it saw everything.
-//                A revolution more than 200 ms old at send time is dropped
-//                BEFORE it is ever queued - sending it would spend the
-//                bandwidth the current revolution needs, to show something
-//                already wrong.
-//   CLASS_VITAL  never dropped. If the vital ring fills, the CLIENT IS CLOSED:
-//                a viewer that cannot absorb 120 bytes of state has gone,
-//                whatever its socket says. So is one whose oldest unsent vital
-//                byte is more than BEHIND_MS old.
-//
-// That ordering is the reason a camera is safe to add to a 220 kbit/s link at
-// all: what degrades is the camera, not the car's picture of the world.
-//
-// ---------------------------------------------------------------------------
-// TWO TRANSPORTS, BECAUSE THEY FAIL IN OPPOSITE DIRECTIONS
-//
-// Telemetry rides TCP, where a 2.5 KB revolution arrives whole or not at all.
-// Control rides UDP, where this module drains the socket to EMPTY every pass
-// and keeps only the newest sequence number - so a five-second hotspot stall
-// leaves no backlog of stale steering to apply when it clears. There is no
-// queue to drain, which is the whole point.
-//
-// The handoff to the pilot's tick is a seqlock over two slots: this thread
-// writes the decoded CONTROL and stores its seq with release ordering, and
-// control() below loads with acquire, reads, re-loads and retries if it moved.
-// The tick never takes this module's mutex and can never read half a command.
-//
-// ---------------------------------------------------------------------------
-// LINUX ONLY, LIKE link
-//
-// The real half is accept4, pipe2, poll, recvfrom and MSG_NOSIGNAL. Elsewhere
-// start() REFUSES, saying so, and every other call does nothing: a stub that
-// listened and reported an empty room would be this repo's named recurring bug
-// with a socket on it. tests/test_viewfeed.cxx is a ctest run on Linux for that
-// reason and is deliberately NOT in tools\test.bat, where it could only ever
-// prove that start() returns false.
+// Linux only. Elsewhere start() refuses, saying so, and every other call does
+// nothing - never a stub that listens and reports an empty room. That is why
+// tests/test_viewfeed.cxx is a CMake test and not a tools\test.bat suite,
+// where it could only prove that start() refuses.
 #pragma once
 
 #include "shared.hxx"
@@ -79,46 +35,26 @@
 
 namespace viewfeed
 {
-
-  // What the board says about itself in WELCOME, and how it names itself in a
-  // refusal a person has to act on.
+  // What the board says about itself in WELCOME.
   struct Policy
   {
-      // The name the viewer shows in its connection banner.
       Str boardName;
 
-      // This build's git short hash. It goes into the version-refusal sentence
-      // verbatim, because "incompatible" alone sends somebody to read source in
-      // a field and two build stamps turn it into an action.
+      // This build's git short hash, quoted in the version refusal.
       Str boardBuild;
 
-      // New for every pilot PROCESS, and carried in every WELCOME. A viewer
-      // that reconnects and sees a different one throws away everything it knew
-      // before drawing a point - which is the defence against the most
-      // convincing stale picture there is, a healthy new socket to a restarted
-      // car still showing the previous run.
+      // New for every pilot process. A viewer that sees it change discards
+      // everything it knew, so a restarted car never shows the previous run.
       UInt32 bootId = 0;
 
       // b0 canDrive, b1 hasLidar, b2 hasPico, b3 hasBattery.
       UInt8 capabilities = 0;
   };
 
-  // What the PILOT did with the newest CONTROL, for CTLSTATE's honesty line.
-  // Every field here is what the board DID, never what it was asked.
-  //
-  // The pilot does not drive from CONTROL yet, so nothing calls applied() in
-  // this build and CTLSTATE carries the absent sentinels for the fields below.
-  // That is deliberate and is the opposite of the failure this repo keeps
-  // finding: an unmeasured quantity reads as `n/a` on the wire rather than as a
-  // zero somebody would draw as a measurement.
-  // There is deliberately NO scanAgeMs here. This module sees every
-  // publishScan, so it measures that age ITSELF - and a field the pilot could
-  // forget to set is a field that would default to 0, which on this wire reads
-  // as "the picture is perfectly fresh". That is the most dangerous value the
-  // protocol can carry and this repo's named recurring failure with a steering
-  // wheel attached, so the opportunity to make the mistake is removed rather
-  // than documented. Every remaining field here defaults to its ABSENT
-  // sentinel for the same reason.
+  // What the pilot DID with the newest CONTROL, for CTLSTATE - never what it
+  // was asked. Optional fields default to their ABSENT sentinels. There is no
+  // scanAgeMs: this module measures that itself, because a field the pilot
+  // forgot would read 0, which on the wire means perfectly fresh.
   struct Applied
   {
       Int16 steerNowMilli = 0;                                  // where the wheels ACTUALLY are
@@ -130,9 +66,7 @@ namespace viewfeed
       UInt32 lastCmdId = 0;
   };
 
-  // What this module measured about itself, for BOARD and for the exit summary.
-  // A performance claim nobody can read off the running system is the same
-  // species of bug as a test that measures nothing.
+  // What this module measured about itself, for BOARD and the exit summary.
   struct Counters
   {
       UInt64 accepted = 0;
@@ -146,147 +80,85 @@ namespace viewfeed
       UInt32 encodeMaxNs = 0;
   };
 
-  // Binds TCP and UDP on 0.0.0.0:port and starts the thread. There is NO
-  // fallback port: a feed that quietly moves next door is one no viewer can
-  // find. false, with the reason printed, when either socket could not be made,
-  // bound or listened on, and false when called twice without a stop().
+  // Binds TCP and UDP on 0.0.0.0:port, with no fallback port, and starts the
+  // thread. false, with the reason printed, when a socket cannot be made, bound
+  // or listened on, and when already started.
   [[nodiscard]] Bool start(UInt16 port, const Policy& p);
 
-  // The port actually bound; 0 when not started. 0 asks the system for one,
-  // which is what the test does.
+  // The port bound; 0 when not started. start(0) lets the system choose.
   [[nodiscard]] UInt16 port();
 
-  // Viewers connected and past their handshake, right now.
+  // Viewers past their handshake.
   [[nodiscard]] Size clients();
 
-  // One revolution, to every client that has been welcomed. By value so a
-  // caller that is done with it moves it in. Dropped without a trace when
-  // nobody is connected.
+  // One revolution to every welcomed client; dropped when nobody is connected.
   Void publishScan(bibowire::Scan s);
 
-  // The decision for the revolution just published. Sent immediately after the
-  // SCAN it describes, so a viewer that has the one has the other.
+  // Sent immediately after the SCAN it describes.
   Void publishDecide(const bibowire::Decide& d);
 
-  // The board's own state. Rate-limited to 5 Hz on the wire, and REMEMBERED:
-  // the newest one is what a client accepted a moment from now is told before
-  // it is shown a single point.
+  // Rate-limited to 5 Hz on the wire, and remembered: a newly welcomed client
+  // is sent the newest before any scan.
   Void publishBoard(const bibowire::BoardState& b);
 
-  // The device's identity. Remembered for the same reason, and re-sent on
-  // change. State before scan, always.
+  // Remembered like the board state, and re-sent on change.
   Void publishLidarInfo(const bibowire::LidarInfo& i);
 
-  // The trim the board has saved, as trimfile::report writes it - empty when
-  // nothing is saved. Remembered like the board state and the device: every
-  // viewer is told it straight after WELCOME, and every viewer is told again on
-  // each call, as an EVENT under bibowire::EVENT_CODE_TRIM that bypasses the
-  // event rate limiter. A report that reached only the viewers connected at the
-  // moment of a save would leave every later one showing its own laptop's copy
-  // as though it were the car's.
+  // The saved trim as trimfile::report writes it, empty when nothing is saved.
+  // Remembered: sent to each viewer after WELCOME and to every viewer on each
+  // call, as an EVENT under bibowire::EVENT_CODE_TRIM that bypasses the event
+  // rate limiter.
   Void publishTrim(const Str& report);
 
-  // The prose channel: every lidar::reason(), every carlink::detail(), every
-  // refusal sentence the board already writes for a person, verbatim.
-  // Rate-limited to 10/s, with the suppressed count carried in the next one so
-  // a viewer knows events were dropped rather than believing it saw them all.
+  // The prose channel (bibowire::Event). Rate-limited to 10/s; the suppressed
+  // count rides the next one.
   Void publishEvent(bibowire::Severity severity, UInt8 code, const Str& text);
 
-  // ---------------------------------------------------------------------------
-  // THE CAMERA HAS NO publish() AND THAT IS DELIBERATE
-  //
-  // Every other telemetry type above arrives here from the pilot's tick. The
-  // camera does not: this module opens /dev/video0 itself, through one
-  // long-lived v4l2-ctl streaming MJPEG into a pipe, and only while at least one
-  // viewer has explicitly subscribed to CAMERA. There is nothing for the pilot
-  // to call and nothing for it to forget to stop.
-  //
-  // IT IS OFF UNLESS ASKED FOR, BY AN EXPLICIT BIT. A zero typeMask means
-  // "never asked", which everywhere else means everything - and for a camera
-  // that would hand a megabyte a second to every viewer written before this
-  // existed. CAMERA is the one type excluded from that default: bit 16
-  // (`tag - 0x10`, tag 0x20), set by SUBSCRIBE, or no pictures.
-  //
-  // THE DEVICE IS SINGLE-OPENER, so a second pilot, or a v4l2-ctl left running
-  // by one that died, can never hold it alongside this one. When the capture
-  // cannot start or produces nothing, the
-  // subscribers are told in an EVENT that names the likely holder rather than
-  // being left with a blank panel - an absence with a reason.
-  //
-  // CAMERA is CLASS_BULK, so it is discarded before any scan or state frame.
-  // That is what makes it safe to add to this link: what degrades is the
-  // picture, never the car's picture of the world.
-  //
-  // BIBO_CAM_DEV, BIBO_CAM_SIZE and BIBO_CAM_FPS override the device, the
-  // requested format and the rate cap, read once per start(). The default rate
-  // is deliberately low - see
-  // CAM_FPS_DEFAULT in viewfeed.cxx for the measured numbers behind it.
-
-  // The newest CONTROL the holder has sent, or false when there is none. Reads
-  // a seqlock: no mutex, no allocation, and it cannot return a half-written
-  // command.
-  //
-  // STEER AND THROTTLE ARE ALREADY GATED. What comes back is what
-  // control::apply allowed, not what the datagram carried: on an epoch or mode
-  // disagreement the throttle is 0 here and the steering is untouched. A caller
-  // cannot reach the refused value, which is deliberate - the alternative is a
-  // pilot driving on a throttle its own CTLSTATE is simultaneously reporting as
-  // refused.
+  // The newest CONTROL from the holder, or false when there is none. A seqlock:
+  // no mutex, and never a half-written command. Steer and throttle are what
+  // control::apply allowed - on an epoch or mode disagreement the throttle is
+  // 0 - so a caller cannot drive on a value CTLSTATE reports as refused.
   [[nodiscard]] Bool control(bibowire::Control* out);
 
-  // Whether anyone is holding the wheel, and what the deadman makes of them.
-  //
-  // control() alone is not enough to drive from and must not be treated as if
-  // it were: it answers "here is the newest command" and says nothing about
-  // whether that command may be obeyed. The deadman lives on this side - it
-  // needs haveHolder, the estop latch and the age of the last APPLIED datagram,
-  // none of which the pilot can see - so the verdict is computed here, by the
-  // same pure function that fills CTLSTATE, and handed over whole.
-  //
-  // There is always an answer, so this returns by value rather than the
-  // out-parameter-and-bool that control() needs for "nothing yet".
+  // Whether anyone holds the wheel, and the deadman's verdict. control() says
+  // nothing about whether a command may be obeyed; the deadman needs state
+  // only this module has, so it is computed here by the function that fills
+  // CTLSTATE.
   struct Drive
   {
       Bool haveHolder = false;
 
-      // A viewer's ESTOP - or, while the pilot is not in MANUAL, its DISARM -
-      // until CLEAR_ESTOP. What a car program obeys.
+      // A viewer's ESTOP - or, outside MANUAL, its DISARM - until CLEAR_ESTOP.
+      // What a car program obeys.
       Bool estopLatched = false;
 
-      // 0 live, 1 soft, 2 dead, 3 estop latched - the same byte CTLSTATE
-      // carries, from the same mapping, so the pilot and the viewer cannot
-      // disagree about what a 2 means.
+      // 0 live, 1 soft, 2 dead, 3 estop latched: CTLSTATE's byte, from the same
+      // mapping.
       UInt8 deadman = 0;
       bibowire::Refuse refuse = bibowire::Refuse::REFUSE_NONE;
 
-      // The deadman's own countdown, from the function that will do the
-      // tripping. Section 6: the number a viewer renders and the number that
-      // trips must not be able to disagree.
+      // The deadman's own countdown, so what a viewer shows is what trips.
       Int32 neutralInMs = 0;
       Int32 disarmInMs = 0;
 
-      // A viewer's COMMAND ARM, standing. Granted under one arm epoch and gone
-      // the moment the epoch moves - an estop, the deadman tripping, a lost Pico
-      // link, the slot changing hands, or a DISARM. The pilot sends ESC ARM when
-      // this rises and ESC DISARM when it falls, and in MANUAL no throttle
-      // passes without it.
+      // A viewer's COMMAND ARM. Granted under one arm epoch and gone when the
+      // epoch moves: an estop, the deadman tripping, a lost Pico link, the slot
+      // changing hands, or a DISARM. The pilot sends ESC ARM when this rises and
+      // ESC DISARM when it falls, and in MANUAL no throttle passes without it.
       Bool armed = false;
 
-      // The age of the copy this was computed from. The feed's thread refreshes it
-      // every pass, so a large age means that thread is stuck and no ESTOP can
-      // arrive. 0 while the feed is not running.
+      // The age of the copy this was computed from. The feed's thread refreshes
+      // it every pass, so a large age means that thread is stuck and no ESTOP
+      // can arrive. 0 while the feed is not running.
       Int32 seenAgeMs = 0;
   };
 
-  // Safe from any thread: it reads a copy the feed's thread takes under a mutex
-  // before it answers a viewer, so an ESTOP a viewer has been told is latched is
-  // latched here too.
+  // Safe from any thread. Reads a copy the feed's thread takes before it
+  // answers a viewer, so an ESTOP a viewer was told is latched is latched here.
   [[nodiscard]] Drive drive();
 
-  // One accepted tuning request, on its way to the Pico: the verb and its args
-  // exactly as COMMAND carried them. NOT translated into a Pico line here -
-  // this header is compiled into the Windows viewer too, and the viewer has no
-  // serial port to send text down.
+  // One accepted tuning request, as COMMAND carried it. Not translated into a
+  // Pico line here: the pilot's tick owns the serial port.
   struct Tune
   {
       bibowire::Verb verb = bibowire::Verb::VERB_NONE;
@@ -295,25 +167,20 @@ namespace viewfeed
       UInt16 arg2 = 0;
   };
 
-  // The OLDEST tuning request not yet taken, or false when there is none. Pops
-  // it, so the tick calls this until it answers false. While the pilot's BOARD
-  // says it is not in MANUAL, tuning is refused and nothing is queued.
+  // Pops the OLDEST tuning request, or false when there is none; the tick calls
+  // it until false. Outside MANUAL tuning is refused and nothing is queued.
   //
-  // A MUTEX AND A QUEUE, deliberately, where control() above is a seqlock. A
-  // seqlock keeps only the newest, which is exactly right for a 20 Hz stream
-  // whose old values are worthless - and exactly wrong here: two sliders moved
-  // together are two DISCRETE acts, and the second overwriting the first would
-  // silently lose one. Each has already been answered with a CMDACK naming the
-  // value the car took, so dropping one would make that acknowledgement a lie.
+  // A queue, where control() is a seqlock: two sliders moved together are two
+  // acts, each already acknowledged by a CMDACK, and keeping only the newest
+  // would silently lose one.
   [[nodiscard]] Bool tune(Tune* out);
 
-  // What the pilot did with it, for the next CTLSTATE. See Applied.
+  // What the pilot did with the newest CONTROL, for the next CTLSTATE.
   Void applied(const Applied& a);
 
   [[nodiscard]] Counters counters();
 
-  // BYE(SHUTDOWN) to every client, then closes them and both sockets and joins
-  // the thread. Safe when not started.
+  // BYE(SHUTDOWN) to every client, closes every socket and joins the thread.
+  // Safe when not started.
   Void stop();
-
 }

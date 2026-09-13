@@ -10,11 +10,10 @@
 //
 // To end the run at the first obstacle instead, replace `blocked = true;` inside the loop
 // with `break;`.
-
 #include "car.hxx"
 
 // ---- DECLARE -------------------------------------------------------------------
-constexpr Float32 CREEP = 0.10f;       // a tenth of the car's forward range
+constexpr Float32 CREEP = 0.10f;       // 0..1 of the car's forward range
 constexpr Float32 STOP_AT_M = 0.60f;   // something nearer than this ahead: stop
 constexpr Float32 GO_AT_M = 0.80f;     // move again only once it is farther than this
 
@@ -29,14 +28,13 @@ Int32 main(Int32 argc, Char** argv)
     }
 
     // ---- RUN ---------------------------------------------------------------------
-    // The 0.2 m between STOP_AT_M and GO_AT_M stops the car twitching at the
+    // The gap between STOP_AT_M and GO_AT_M stops the car twitching at the
     // edge. A blind scan reads ahead() == 0, so it stops too.
     Bool blocked = true;
     while(car.ok())
     {
         const bibo::Scan scan = car.scan();
         const Float32 ahead = scan.ahead();
-
         if(ahead < STOP_AT_M)
         {
             blocked = true;
@@ -45,7 +43,6 @@ Int32 main(Int32 argc, Char** argv)
         {
             blocked = false;
         }
-
         car.drive(blocked ? 0.0f : CREEP, 0.0f);
     }
     return car.finish();

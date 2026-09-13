@@ -1,71 +1,27 @@
 // bibowire v1: the wire between the Windows viewer and the pilot on the Pi.
+// docs/bibowire.md is the specification; "section N" means its sections.
 //
-// ---------------------------------------------------------------------------
-// WHY THIS EXISTS, AND WHY IT IS ONE FILE COMPILED TWICE
+// The board and the viewer compile this same codec, so the encoder and the
+// decoder cannot disagree about a field's offset. Pure: no sockets, no clock,
+// no device, no globals, so the frame codec and the deadman are tested on a
+// laptop.
 //
-// The viewer draws a picture of a car it cannot see, over a phone hotspot that
-// stalls for seconds and drops when the phone moves. This file is the whole
-// agreement about what crosses that link: one 16-byte frame shape, one body
-// layout per message, one deadman, one renderer. The board's program and the
-// Windows viewer compile the SAME OBJECT FILE, so the encoder and the decoder
-// cannot drift into disagreeing about a field's offset while both still compile.
+// Telemetry rides TCP with drop-oldest queues; control rides UDP, where the
+// board keeps only the newest seq, because a late command is dangerous where a
+// late picture is only worthless. Both use the one frame shape here.
 //
-// Pure, in the proto.hxx sense: no sockets, no clock, no device, no globals.
-// Everything here is a function of its arguments. That is what lets the frame
-// codec and the SAFETY TIMER be exercised on a laptop, in microseconds, with
-// no car anywhere near a wall - and a deadman that is only testable with
-// hardware is a deadman that gets tested once.
+// No floating point on the wire: every quantity is a fixed-point integer with
+// its unit in its name, so no formatting step can meet the locale trap (a comma
+// decimal sends `0,250` and the far end reads `0`). describe() builds its
+// digits by hand for the same reason.
 //
-// ---------------------------------------------------------------------------
-// THE ASYMMETRY THE SHAPE FOLLOWS FROM
+// Fields go through the rd/wr memcpy helpers, never a struct cast over the
+// payload: the payload starts at frame offset 12, so a u64 in it is not
+// 8-aligned. Both ends are little-endian, asserted in the .cxx.
 //
-// Telemetry is a picture and control is a command, and they fail in OPPOSITE
-// directions. A late picture is worthless but harmless - drop the old one. A
-// late command is dangerous: a three-second stall on an ordered stream delivers
-// sixty queued steering commands when it clears, and the car applies a
-// three-second-old throttle before it can reach the fresh one, at the moment
-// the operator has started walking toward it. So telemetry rides TCP with a
-// drop-oldest queue and control rides UDP where the board drains to empty and
-// keeps only the newest seq. This file carries the ONE frame shape both use.
-//
-// ---------------------------------------------------------------------------
-// NO FLOATING POINT ANYWHERE ON THE WIRE
-//
-// Every quantity is a fixed-point integer with its unit in its name. That is
-// not compactness - it is the locale bug proto.cxx already met
-// (printf("%.3f") honours the locale, a machine set to a comma
-// decimal emits `0,250`, the far end reads `0`, and that is a silent hard-left
-// at the first corner on somebody else's laptop) deleted at the root. There is
-// no formatting step to be locale-sensitive, no NaN, no denormal, and every
-// round-trip test is byte-exact rather than approximately equal.
-//
-// The same rule binds describe() below: it builds its digits by hand rather
-// than through the C library, so the one decimal point it ever prints comes
-// from integer arithmetic and not from a locale's idea of a radix character.
-//
-// ---------------------------------------------------------------------------
-// FIELD ACCESS IS BY memcpy HELPER, NEVER BY CASTING A STRUCT AT THE PAYLOAD
-//
-// rd16/rd32/rd64 and wr16/wr32/wr64 below. On little-endian both compile to a
-// single load or store, and the helper version cannot be silently broken by a
-// compiler's padding decision or by an aarch64 alignment fault on a field
-// somebody adds next year. Both ends are LE forever (aarch64 Linux, x86-64
-// Windows) and that is static_assert-ed in the .cxx.
-//
-// The payload starts at frame offset 12, so a u64 at body offset 0 is NOT
-// 8-aligned within the frame. Reading it through a struct pointer would be
-// undefined on the day this runs on something that cares. Through memcpy it is
-// simply correct, everywhere, forever.
-//
-// ---------------------------------------------------------------------------
-// THE ABSENT SENTINELS, AND WHY EVERY OPTIONAL FIELD HAS ONE
-//
-// battMilliV 0xFFFF, health 255, cpuCentiC -32768, picoSilentMs 0xFFFFFFFF,
-// escUs 0xFFFF, controlAgeMs 0xFFFFFFFF. Absence is REPRESENTABLE everywhere,
-// so a field that is not measured never has to be faked by a zero - and 0 is a
-// real reading of a dead battery pack, which is exactly why the sentinel is
-// not 0. A reader given a `ver` it does not know must mark the fields that
-// version did not carry with these rather than inventing them.
+// Every optional field has an ABSENT sentinel, because 0 is a real reading. A
+// reader given an older `ver` stamps the fields that version lacked with them
+// rather than inventing values.
 #pragma once
 
 #include "shared.hxx"
@@ -76,31 +32,23 @@
 
 namespace bibowire
 {
-
-  // ---- the wire's fixed numbers ---------------------------------------------
-
-  // 8020, TCP and UDP, the same number for both. There is no fallback port: a
-  // feed that quietly moves next door is one no viewer can find.
+  // TCP and UDP both. No fallback port: a feed that moves is one no viewer can
+  // find.
   constexpr UInt16 PORT = 8020;
 
   constexpr UInt16 PROTO_MAJOR = 1;
   constexpr UInt16 PROTO_MINOR = 0;
 
-  // Frame <= 256 KiB, sized for a JPEG that does not exist yet.
+  // 256 KiB less FRAME_OVERHEAD, sized for a camera JPEG.
   constexpr Size MAX_PAYLOAD = 262128;
 
-  // What the BOARD accepts from a viewer. A header claiming more than this is
-  // not a big frame, it is a hostile or broken peer: the socket half answers
-  // BYE(TOO_BIG) and closes WITHOUT EVER ALLOCATING FOR THE CLAIM. This is the
-  // single most important bound in the design, and it is a constant here so
-  // that both halves read it from the same line.
+  // What the board accepts from a viewer. A header claiming more is answered
+  // BYE(TOO_BIG) and closed without ever allocating for the claim.
   constexpr Size MAX_INBOUND_PAYLOAD = 256;
 
-  // 1400 and not 1472: the board is also reachable over Tailscale, and
-  // WireGuard's ~60 bytes of overhead would fragment a 1472-byte datagram
-  // INSIDE the tunnel. No v1 UDP message exceeds 60 bytes; the bound exists so
-  // the receive buffer is a fixed array and nothing sizes an allocation from a
-  // claim a stranger on a hotspot wrote.
+  // 1400, not 1472: over Tailscale, WireGuard's overhead would fragment a
+  // 1472-byte datagram inside the tunnel. A fixed bound, so the receive buffer
+  // is a fixed array and nothing sizes an allocation from a stranger's claim.
   constexpr Size MAX_DATAGRAM = 1400;
 
   constexpr Size MAX_SCAN_POINTS = 1024;
@@ -110,33 +58,23 @@ namespace bibowire
   constexpr Size MAX_WIFI_NAME = 32;
   constexpr Size MAX_CLIENTS = 4;
 
-  // 12 header + 4 trailer. Written as three names because every length
-  // arithmetic below reads better for saying which part it means.
   constexpr Size HEAD_BYTES = 12;
   constexpr Size TRAILER_BYTES = 4;
   constexpr Size FRAME_OVERHEAD = HEAD_BYTES + TRAILER_BYTES;
 
-  // 0x5742 little-endian puts the bytes 0x42 0x57 - 'B','W' - on the wire in
-  // that order. The two spellings are the same number; MAGIC_LO and MAGIC_HI
-  // exist because the resync scan looks at BYTES and should not have to
-  // reconstruct a u16 to know where to start.
+  // 0x5742 little-endian puts 'B','W' (0x42 0x57) on the wire. The resync scan
+  // matches MAGIC_LO and MAGIC_HI as bytes.
   constexpr UInt16 MAGIC = 0x5742;
   constexpr UInt8 MAGIC_LO = 0x42;
   constexpr UInt8 MAGIC_HI = 0x57;
 
-  // Flags. Bits 0 and 1 are set on EVERY board->viewer frame, so "the car is
-  // stopped" is derivable from any frame that arrives - even one whose body
-  // this reader has no name for.
-  //
-  // The asymmetry is the rule that makes minor versions safe: a flag that
-  // changes FRAMING must be refused by a reader that cannot honour it, and a
-  // flag that only ANNOTATES may be ignored. Bits 3..15 are annotating and
-  // reserved, so v1.1 may define one.
+  // FLAG_ESTOP and FLAG_DEADMAN are set on every board->viewer frame, so a
+  // stopped car shows on any frame, even one of an unknown type. A reader must
+  // refuse a flag that changes framing and may ignore one that only annotates;
+  // bits 3..15 are reserved annotating flags.
   constexpr UInt16 FLAG_ESTOP = 0x0001;
   constexpr UInt16 FLAG_DEADMAN = 0x0002;
   constexpr UInt16 FLAG_MORE = 0x0004;
-
-  // ---- the absent sentinels --------------------------------------------------
 
   constexpr UInt16 BATT_ABSENT = 0xFFFF;
   constexpr UInt8 HEALTH_ABSENT = 255;
@@ -145,17 +83,13 @@ namespace bibowire
   constexpr UInt16 ESC_ABSENT = 0xFFFF;
   constexpr UInt32 CONTROL_AGE_NEVER = 0xFFFFFFFFu;
 
-  // ---- the deadman chain, timings and owners --------------------------------
+  // The deadman chain: L0 the viewer sends every CONTROL_PERIOD_MS, L1 the Pi
+  // goes to neutral after CONTROL_STALE_MS, L2 to a full stop after
+  // CONTROL_DEAD_MS, L3 the pilot's own blind and silence rules, L4 the Pico's
+  // PICO_DEADMAN_MS.
   //
-  // L0 the viewer (CONTROL_PERIOD_MS), L1 the Pi to neutral (CONTROL_STALE_MS),
-  // L2 the Pi to a full stop (CONTROL_DEAD_MS), L3 the pilot's own
-  // blind/silence rules, L4 the Pico (PICO_DEADMAN_MS). The static_assert that
-  // orders L2 against L4 lives in the .cxx beside the function that trips.
-  //
-  // 150 because ONE lost datagram must not cut the throttle: Wi-Fi drops single
-  // frames routinely and a car that stutters on every lost packet is a car
-  // nobody will drive. Three consecutive losses at 20 Hz is no longer a lossy
-  // link, it is a link that has stopped.
+  // CONTROL_STALE_MS is three periods because one lost datagram must not cut
+  // the throttle: Wi-Fi drops single frames routinely.
   constexpr Int32 CONTROL_PERIOD_MS = 50;
   constexpr Int32 CONTROL_STALE_MS = 150;
   constexpr Int32 CONTROL_DEAD_MS = 300;
@@ -165,32 +99,21 @@ namespace bibowire
   // Pi -> USB CDC -> Pico, measured worst case.
   constexpr Int32 PICO_HOP_BUDGET_MS = 100;
 
-  // The Pico's own watchdog: BIBO_WATCHDOG_MS in firmware/lib/chassis/cal.hxx,
-  // which firmware/app/main.cxx enforces. The board owns the number. It is the
-  // only layer that covers the Orange Pi itself hanging.
-  //
-  // The pilot sends something every TICK_MS in every state, and during a long
-  // lidar wait it re-sends the held command every PICO_KEEPALIVE_MS (see
-  // firmware/pilot/app/main.cxx), so the gap between two lines reaching the
-  // board is bounded by that keepalive, not by how long a revolution takes.
+  // The Pico's watchdog, owned by BIBO_WATCHDOG_MS in firmware/lib/chassis/
+  // cal.hxx: the only layer that covers the Orange Pi itself hanging. The pilot
+  // sends every TICK_MS in every state and re-sends the held command every
+  // PICO_KEEPALIVE_MS during a lidar wait (firmware/pilot/app/main.cxx), so the
+  // gap between two lines reaching the Pico is bounded by that keepalive.
   constexpr Int32 PICO_DEADMAN_MS = BIBO_WATCHDOG_MS;
 
-  // The control slot is released by 1000 ms of silence, not by 300: the car has
-  // ALREADY been stopped by the deadman at 300, and handing the wheel to
-  // somebody else 300 ms into a stall - while the first operator is still
-  // holding the throttle and about to come back - would be worse than the
-  // stall.
+  // Longer than CONTROL_DEAD_MS on purpose: the deadman has already stopped
+  // the car, and handing the wheel to somebody else mid-stall, while the first
+  // operator is still holding the throttle, would be worse than the stall.
   constexpr Int32 CONTROL_SLOT_MS = 1000;
 
-  // ---------------------------------------------------------------------------
-  // WHO WRITES steer and throttle - section 6's three modes.
-  //
-  // THIS IS NOT Decide::mode. That one is the autonomy's cruise / slow / stop /
-  // reverse / blind, and both are small integers called "mode" in the same
-  // program. Render one through the other's names and MANUAL prints as "cruise"
-  // and DRIVE as "stop" - wrong in the most plausible-looking way, on the panel
-  // somebody reads before pressing a key. pilotModeName() spells THIS
-  // vocabulary; driveModeName() spells Decide::mode.
+  // Who writes steer and throttle (section 6). NOT Decide::mode, the autonomy's
+  // cruise..blind: rendered through the other's names, MANUAL prints as
+  // "cruise". pilotModeName() spells this; driveModeName() spells Decide::mode.
   enum class PilotMode : UInt8
   {
       PILOT_MODE_MANUAL = 0,   // CONTROL's stick values go to the Pico
@@ -198,20 +121,14 @@ namespace bibowire
       PILOT_MODE_DRIVE = 2,    // the autonomy drives; CONTROL is consent, not input
   };
 
-  // Within this long of WELCOME the board must have seen at least
+  // Within REVERSE_PROBE_MS of WELCOME the board must have seen
   // REVERSE_PROBE_MIN datagrams from a viewer that asked for control, or it
-  // says so in words. Measuring the reverse path rather than assuming it
-  // because the other direction is fine is this repo's recurring bug class
-  // applied to the link itself.
+  // says so in words: the reverse path is measured, not assumed.
   constexpr Int32 REVERSE_PROBE_MS = 1000;
   constexpr Int32 REVERSE_PROBE_MIN = 5;
 
-  // ---- types -----------------------------------------------------------------
-
-  // Grouped so a reader can classify by range: 0x00-0x0F session, 0x10-0x3F
-  // board->viewer, 0x40-0x4F viewer->board, 0xF0+ introspection. A tag is never
-  // reused and a field never moves; that is the whole of the compatibility
-  // promise, and the length prefix is what enforces it.
+  // 0x00-0x0F session, 0x10-0x3F board->viewer, 0x40-0x4F viewer->board,
+  // 0xF0+ introspection. A tag is never reused and a field never moves.
   enum class Type : UInt8
   {
       TYPE_HELLO = 0x01,
@@ -240,11 +157,9 @@ namespace bibowire
 
   constexpr Size TYPE_COUNT = 22;
 
-  // The drop priority the socket half enforces against its bounded ring. This
-  // is the reason a camera is safe to add to a 220 kbit/s link at all: BULK is
-  // discarded before any LIVE or VITAL frame, so the day someone points a JPEG
-  // stream down this socket the thing that degrades is the camera and not the
-  // car's picture of the world.
+  // The drop priority of the socket half's bounded ring: BULK is discarded
+  // first, then LIVE, and VITAL never, so the camera degrades before the car's
+  // picture of the world.
   enum class Class
   {
       CLASS_VITAL = 0,
@@ -252,10 +167,8 @@ namespace bibowire
       CLASS_BULK,
   };
 
-  // What take() found. TAKE_NEED_MORE is the ONLY non-error partial answer and
-  // it consumes nothing; TAKE_RESYNC reports the junk it skipped so a count of
-  // it can be kept, because junk on a checksummed stream that is never counted
-  // is a fault nobody discovers.
+  // What take() found. TAKE_NEED_MORE is the only non-error partial answer and
+  // consumes nothing; TAKE_RESYNC reports the junk it skipped so it is counted.
   enum class Take
   {
       TAKE_FRAME = 0,
@@ -265,13 +178,8 @@ namespace bibowire
       TAKE_BAD_FLAG,
   };
 
-  // WHY throttle is not being applied, on the wire twenty times a second.
-  //
-  // This is the fix for the "one wrong byte bricks a healthy car" problem: an
-  // epoch or mode disagreement correctly refuses throttle, but a refusal whose
-  // only symptom is "throttle dead, steering fine" looks like an ESC or Pico
-  // fault - and the ESC and the Pico are where a person goes looking first. So
-  // the reason is a named field rather than a deduction.
+  // Why throttle is not being applied, carried in CTLSTATE. Without a named
+  // reason, an epoch or mode refusal looks like an ESC or Pico fault.
   enum class Refuse : UInt8
   {
       REFUSE_NONE = 0,
@@ -286,9 +194,8 @@ namespace bibowire
       REFUSE_NO_UDP,
   };
 
-  // The BYE reasons of section 4. Named REASON_ so they do not collide with the
-  // `Bye` message struct below. The WIRE VALUES are the document's, which is the
-  // part that has to match.
+  // BYE reasons (section 4), named REASON_ so they do not collide with struct
+  // Bye. The wire values are the specification's.
   enum class Reason : UInt16
   {
       REASON_NONE = 0,
@@ -315,83 +222,52 @@ namespace bibowire
       VERB_SET_MODE = 7,
       VERB_SET_ESC_LIMITS = 8,
 
-      // ---- tuning ---------------------------------------------------------
-      //
-      // The viewer's Trim pane. These fit
-      // arg0/arg1/arg2 exactly as they already are, so COMMAND's 16 bytes do
-      // not change and a board built before these verbs existed answers them
-      // with result = 2 (unknown verb) rather than misreading a field.
-      //
-      // REFUSED WHILE ARMED, all three, with result = 3. Re-tuning the limits
-      // a throttle is being clamped to, while that throttle is live, is the
-      // one way this pane could hurt somebody - and the car is disarmed by
-      // default, so the rule costs an operator nothing.
+      // Tuning, from the viewer's Trim pane. They fit arg0/arg1/arg2 as they
+      // are, so a board without them answers result 2 (unknown verb) rather
+      // than misreading a field. Every tuning verb is refused while armed, with
+      // result 3, except SET_ESC_LIMITS during BUTTON_IDLE_TEST: re-tuning the
+      // limits a live throttle is clamped to could hurt somebody.
       VERB_SET_SERVO_LIMITS = 9,   // arg1 = min us, arg2 = max us
       VERB_SET_SERVO_TRIM = 10,    // arg1 = centre us
       VERB_SET_SLEW = 11,          // arg0 = axis, arg1 = us per 20 ms tick
 
       // The lowest pulse brake and reverse may reach. ESC_NEUTRAL_US is valid
-      // and turns reverse OFF; above it is refused. Refused while armed, like
-      // every tuning verb.
+      // and turns reverse off; above it is refused.
       VERB_SET_ESC_REVERSE = 12,   // arg1 = us
   };
 
-  // Which output VERB_SET_SLEW is talking about. "Both" is the bare `SLEW <us>`
-  // the Pico has always accepted and is what the single shared rate used to
-  // mean, kept because it is the common case on a bench.
+  // Which output VERB_SET_SLEW sets. BOTH is the Pico's bare `SLEW <us>`.
   constexpr UInt8 SLEW_AXIS_BOTH = 0;
   constexpr UInt8 SLEW_AXIS_STEER = 1;
   constexpr UInt8 SLEW_AXIS_THROTTLE = 2;
 
-  // ---------------------------------------------------------------------------
-  // THE BOARD'S SAVED TRIM, TOLD TO EVERY VIEWER
-  //
   // An EVENT under this code is state, not news: the trim the board has saved
-  // and replays to the Pico, as the Pico's own lines joined by "; " -
-  // "SERVOLIMITS 1230 1660; SERVOTRIM 1480" - or an EMPTY text when nothing is
-  // saved, which is an answer too. The board sends it straight after WELCOME
-  // and again once a tuning burst it saved has drained, never through the event
-  // rate limiter, so a Trim pane can show the car's numbers rather than only
-  // its own laptop's. Both halves read the code from this line.
+  // and replays to the Pico, as the Pico's lines joined by "; " -
+  // "SERVOLIMITS 1230 1660; SERVOTRIM 1480" - or an empty text when nothing is
+  // saved. Sent after WELCOME and after each save, never through the event rate
+  // limiter.
   constexpr UInt8 EVENT_CODE_TRIM = 84;   // 'T'
 
-  // ---------------------------------------------------------------------------
-  // THE TUNING BOUNDS ARE MIRRORED HERE, AND THEY MUST AGREE WITH THE PICO
-  //
-  // The authority is firmware/lib/chassis/chassis.hxx - SLEW_MIN_STEP,
-  // SLEW_MAX_STEP, and the hard servo and ESC clamps - and the Pico re-clamps
-  // everything it is sent regardless of what arrives here. These copies exist
-  // so a viewer can refuse an impossible number at the slider instead of
-  // watching a command travel the length of the link to be rejected by a board
-  // that then has to explain itself.
-  //
-  // That makes them a cross-boundary constant, which is this repo's named way
-  // of shipping two halves that are each correct and broken as a pair. If the
-  // chassis numbers ever move, THESE MOVE WITH THEM: the Pico is the one that
-  // decides, and a viewer whose slider stops short of what the car can do is a
-  // viewer lying about the car.
+  // The tuning bounds, mirrored from firmware/lib/chassis/chassis.hxx
+  // (SLEW_MIN_STEP, SLEW_MAX_STEP and the hard servo and ESC clamps) so a
+  // viewer can refuse an impossible number at the slider. The Pico re-clamps
+  // regardless. A cross-boundary constant: if the chassis numbers move, these
+  // move with them.
   constexpr UInt16 SLEW_US_MIN = 1;
   constexpr UInt16 SLEW_US_MAX = 200;
 
-  // Ticks a second, so a viewer can turn us-per-tick into us-per-second and
-  // into a lock-to-lock TIME, which is the unit an operator actually thinks in.
-  // SLEW_TICK_MS is 20 in chassis.hxx; this is the same fact divided into 1000.
+  // 1000 / SLEW_TICK_MS, so a viewer can turn us per tick into us per second
+  // and a lock-to-lock time.
   constexpr UInt16 SLEW_TICKS_PER_S = 50;
 
-  // The widest pulse a hobby servo is driven with. WIDENED 2026-09-12 from the
-  // 1000..2000 datasheet range at the operator's request - "I should be able to
-  // set this myself". What a TT-02's steering can REACH is far narrower and
-  // off-centre (cal.hxx); the working limits are what protect the linkage, and
-  // SET_SERVO_LIMITS is how they are found.
+  // The widest pulse a hobby servo is driven with. What a TT-02's steering can
+  // reach is far narrower and off-centre (cal.hxx); the working limits found
+  // with SET_SERVO_LIMITS are what protect the linkage.
   constexpr UInt16 SERVO_US_HARD_MIN = 500;
   constexpr UInt16 SERVO_US_HARD_MAX = 2500;
 
-  // The whole RC pulse range, WIDENED 2026-09-12 from 1500..1700, which held the
-  // 10BL160 to under half of the 1500..2000 it maps. Forward-only is no longer
-  // enforced by this bound: below 1500 is brake on this ESC in its Forward/Brake
-  // mode, and the pilot never maps W below neutral whatever the working minimum
-  // is (carrules::forwardPulse). An ESC reprogrammed to Forward/Reverse would
-  // make an idle below 1500 mean reverse - that is the thing to know first.
+  // The whole RC pulse range. It does not enforce forward-only: the pilot never
+  // maps W below neutral, whatever the working minimum (carrules::forwardPulse).
   constexpr UInt16 ESC_US_HARD_MIN = 1000;
   constexpr UInt16 ESC_US_HARD_MAX = 2000;
 
@@ -414,10 +290,8 @@ namespace bibowire
       UInt16 seq = 0;
   };
 
-  // Borrowed, not owned: `bytes` points INTO the caller's buffer and is valid
-  // only until that buffer is refilled. There is no allocation anywhere in
-  // take(), which is what lets the board decode on a fixed 1024-byte ring with
-  // no heap in the receive path at all.
+  // Borrowed: `bytes` points into the caller's buffer and is valid only until
+  // that buffer is refilled. take() never allocates.
   struct Body
   {
       const UInt8* bytes = nullptr;
@@ -430,12 +304,8 @@ namespace bibowire
       Body body;
   };
 
-  // ---- byte access -----------------------------------------------------------
-  //
-  // Signed fields go through the unsigned reader and a named cast: in C++20 the
-  // conversion is defined for every value, and one pair of helpers per width is
-  // fewer things to get wrong than two.
-
+  // Signed fields go through the unsigned reader and a cast, which C++20
+  // defines for every value.
   [[nodiscard]] inline UInt8 rd8(const UInt8* p)
   {
       return *p;
@@ -488,38 +358,25 @@ namespace bibowire
       return (n + 3u) & ~static_cast<Size>(3u);
   }
 
-  // ---- framing ---------------------------------------------------------------
-
-  // Castagnoli, reflected, init and final xor 0xFFFFFFFF - the CRC32C the
-  // RK3588 has an instruction for. No payload is ever exempted from it: 40 KB
-  // at 30 fps is 1.2 MB/s, which at ~8 B/cycle is 0.006 % of one core, so the
-  // special case is not worth its own branch.
+  // CRC32C: Castagnoli, reflected, init and final xor 0xFFFFFFFF. No payload is
+  // exempt; even the camera's cost is a negligible fraction of a core.
   [[nodiscard]] UInt32 crc32c(const UInt8* data, Size len);
 
-  // Takes ONE frame from the front of `buf`.
+  // Takes ONE frame from the front of `buf`. `*consumed` is always written: the
+  // whole frame on TAKE_FRAME, the junk skipped on TAKE_RESYNC, 0 otherwise.
   //
-  // `*consumed` is always written and is the number of bytes the caller should
-  // retire from its ring: the whole frame on TAKE_FRAME, the junk skipped on
-  // TAKE_RESYNC, and ZERO on every other answer.
+  // Resync scans for 0x42 0x57 and rejects a candidate unless `ver` is nonzero,
+  // `len` is a multiple of 4 within MAX_PAYLOAD, the type is known (anywhere
+  // but offset 0), and the CRC verifies; otherwise it advances ONE byte. Magic
+  // plus CRC put a false frame lock near 2^-48 per candidate.
   //
-  // RESYNC IS DETERMINISTIC. Scan forward for the pair 0x42 0x57; reject the
-  // candidate unless the type is known, `ver` is nonzero, `len` is a multiple
-  // of 4 and within MAX_PAYLOAD, and the CRC over the whole candidate verifies.
-  // Otherwise advance EXACTLY ONE BYTE and try again. Magic plus CRC together
-  // put a false frame lock near 2^-48 per candidate rather than the 2^-16 a
-  // magic alone would give.
-  //
-  // On TAKE_RESYNC the frame that was found is NOT returned - the junk is
-  // reported first and the caller's next call returns the frame. One answer per
-  // call keeps `consumed` unambiguous, which is the whole point of it.
+  // On TAKE_RESYNC the frame found is not returned; the next call returns it,
+  // so `consumed` is never ambiguous.
   [[nodiscard]] Take take(const UInt8* buf, Size len, Frame* out, Size* consumed);
 
   // Writes head + body + CRC. Returns the frame length, or 0 when it would not
-  // fit or the body is not a legal payload.
-  //
-  // `b.bytes` may point at `out + HEAD_BYTES`, in which case the body copy is
-  // skipped - so an encoder can build its body straight into the frame buffer
-  // and pay nothing for the framing.
+  // fit or the body is not a legal payload. `b.bytes` may point at
+  // `out + HEAD_BYTES`, and then the body is not copied.
   [[nodiscard]] Size put(const Head& h, const Body& b, UInt8* out, Size cap);
 
   [[nodiscard]] Class classOf(Type t);
@@ -537,26 +394,16 @@ namespace bibowire
       return tag >= 0x10u && tag <= 0x2Fu ? (1u << (tag - 0x10u)) : 0u;
   }
 
-  // ---- one struct and one typed pair per Type --------------------------------
+  // One struct and one write/read pair per Type.
   //
-  // Each writeX returns the BODY bytes written, or 0 when it would not fit or
-  // the message could not be represented on the wire (a count over the bound, a
-  // quality over 63, an angle at 36000 which the device spells 0). Refusing to
-  // encode is deliberate: a board that emits a frame its own reader would
-  // refuse has moved a bug from the encoder into somebody else's decoder.
+  // writeX returns the BODY bytes written, or 0 when it would not fit or cannot
+  // be represented (a count over its bound, a quality over 63, an angle of
+  // 36000): a board must not emit a frame its own reader would refuse.
   //
-  // Each readX returns false on a wrong length or an out-of-range field and
-  // NEVER PARTIALLY FILLS `out`. A frame with the wrong count is not a shorter
-  // frame.
-  //
-  // `ver` HIGHER than this module knows: the known prefix is read and the tail
-  // ignored, which is why every readX accepts a body LONGER than it needs.
-  // `ver` LOWER: the fields that version did not carry are stamped with their
-  // absent sentinels and never fabricated. Every type in v1.0 is at version 1
-  // and every field exists at version 1, so the lower-ver half of that rule has
-  // no instance on today's wire; it is written and reachable so that the day a
-  // type reaches v2 the mechanism is already the tested one.
-
+  // readX returns false on a wrong length or an out-of-range field and never
+  // partially fills `out`. A HIGHER `ver` is read for its known prefix and the
+  // tail ignored; a LOWER one gets the absent sentinels for the fields it
+  // lacks. Every v1.0 type is at version 1, so that has no case yet.
   struct Hello
   {
       UInt16 protoMajor = PROTO_MAJOR;
@@ -623,10 +470,8 @@ namespace bibowire
       UInt16 droppedSinceLast = 0;
       UInt16 scanDivisor = 1;
 
-      // Two parallel arrays rather than one 6-byte interleaved record, because
-      // the quality array is then a straight copy from the Vec<UInt8> that
-      // lidar::grab already fills. `quality` must be the same length as
-      // `points` or writeScan refuses: a count is a promise about the frame.
+      // Parallel arrays, so `quality` is a straight copy of what lidar::grab
+      // fills. It must be as long as `points` or writeScan refuses.
       Vec<ScanPoint> points;
       Vec<UInt8> quality;
   };
@@ -671,8 +516,7 @@ namespace bibowire
       UInt32 encodeMaxNs = 0;
       UInt8 clients = 0;
 
-      // NetworkManager's connection name. The PASSPHRASE IS NOT A FIELD AND
-      // NEVER WILL BE.
+      // NetworkManager's connection name. The passphrase is never a field.
       Str wifiName;
   };
 
@@ -692,14 +536,12 @@ namespace bibowire
       Severity severity = Severity::SEVERITY_INFO;
       UInt8 code = 0;
 
-      // How many events the rate limiter suppressed since the last one, so the
-      // viewer knows events were dropped rather than believing it saw them all.
+      // Events the rate limiter suppressed since the last one.
       UInt16 droppedSince = 0;
 
-      // Every lidar::reason(), every carlink::detail(), every refusal sentence
-      // the board already writes for a person travels here VERBATIM. A binary
-      // protocol that keeps only the codes is how a project loses the one thing
-      // that makes a fault diagnosable.
+      // Every lidar::reason(), carlink::detail() and refusal sentence the board
+      // writes for a person, VERBATIM: the codes alone do not make a fault
+      // diagnosable.
       Str text;
   };
 
@@ -769,9 +611,8 @@ namespace bibowire
       Vec<PathPoint> points;
   };
 
-  // One waypoint, INDEXED - not PATH with a kind byte. The operation a person
-  // actually performs on waypoints is nudging one, and folding them into PATH
-  // makes editing waypoint 7 a resend of the whole set.
+  // One waypoint, indexed rather than a PATH with a kind byte, so nudging one
+  // waypoint does not resend the whole set.
   struct Waypoint
   {
       UInt64 tMonoUs = 0;
@@ -786,7 +627,7 @@ namespace bibowire
   struct Control
   {
       UInt32 sessionId = 0;
-      UInt32 seq = 0;      // strictly increasing from 1; at 20 Hz a u32 lasts 6.8 years
+      UInt32 seq = 0;      // strictly increasing from 1
       UInt64 tMonoUs = 0;  // the VIEWER's clock, only ever compared with itself
       Int16 steerMilli = 0;
       Int16 throttleMilli = 0;
@@ -799,11 +640,10 @@ namespace bibowire
   constexpr UInt16 BUTTON_ENABLE = 0x0002;
   constexpr UInt16 BUTTON_MOTOR_WANTED = 0x0004;
 
-  // THE IDLE TEST, from the Trim pane. With ENABLE, while armed and live, the
-  // pilot holds the ESC at exactly the Pico's idle pulse and ignores the
-  // throttle field, and the board accepts SET_ESC_LIMITS despite the arm - the
-  // one tuning verb that makes sense while the motor is being watched, and the
-  // only throttle it can change is that idle.
+  // The Trim pane's idle test. With ENABLE, while armed and live, the pilot
+  // holds the ESC at exactly the Pico's idle pulse and ignores the throttle
+  // field, and the board accepts SET_ESC_LIMITS despite the arm: the only
+  // throttle it can change is that idle.
   constexpr UInt16 BUTTON_IDLE_TEST = 0x0008;
 
   struct Command
@@ -817,16 +657,10 @@ namespace bibowire
       UInt8 armEpoch = 0;
   };
 
-  // The ceiling the board will honour on a camera request. 640x480 MJPEG is
-  // about 45 KB a frame measured, so 15 fps is ~675 KB/s - which a LAN absorbs
-  // and a phone hotspot does not. The viewer asks, the BOARD decides, and this
-  // is where "decides" is written down: a request above this is clamped to it
-  // rather than refused, because a viewer asking for too much should get the
-  // most this board will give rather than nothing at all.
-  //
-  // It is safe to OFFER a rate this high only because CAMERA is CLASS_BULK:
-  // pictures are discarded ahead of any scan or state frame, so a link that
-  // cannot carry the rate loses camera frames and never the car's view.
+  // The highest camera rate the board honours. A request above it is clamped,
+  // not refused, so asking for too much still gets a picture. 640x480 MJPEG at
+  // this rate is more than a hotspot carries; it is safe to offer only because
+  // CAMERA is CLASS_BULK.
   constexpr UInt16 CAM_FPS_MAX = 15;
 
   struct Subscribe
@@ -835,14 +669,9 @@ namespace bibowire
       UInt32 typeMask = 0;
       UInt16 scanDivisor = 1;   // 1 = every revolution, 3 = every third
 
-      // Frames per second the VIEWER is asking the camera for. 0 is "did not
-      // ask" and is what every viewer written before this field sends, so the
-      // board's own default stands and nothing changes for them.
-      //
-      // It sits in two bytes that used to be reserved, which is what reserved
-      // bytes are for: the length is still 12, an older board ignores them
-      // exactly as it always did, and a newer board reading an older viewer sees
-      // 0 and keeps its default. No version bump, and no frame changes size.
+      // The camera rate the viewer asks for; 0 is "did not ask" and keeps the
+      // board's default. These two bytes were reserved, so the length is still
+      // 12 and an older peer reads or sends 0.
       UInt16 camFps = 0;
   };
 
@@ -899,19 +728,12 @@ namespace bibowire
   [[nodiscard]] Size writeSchema(const Schema& m, UInt8* out, Size cap);
   [[nodiscard]] Bool readSchema(const Body& b, UInt8 ver, Schema* out);
 
-  // ---- the catalog -----------------------------------------------------------
-  //
-  // One row per Type: the tag, the name, the version, the drop class, the body
-  // length with every variable tail EMPTY, the size expression a person reads,
-  // and the field list. Both the SCHEMA answer and the tests' completeness
-  // check are generated from it, so a message whose layout changed without its
-  // catalog row changing is a test failure rather than a document that quietly
-  // stopped describing the build.
-  //
-  // The .cxx static_asserts that the table covers every enumerator in ALL_TYPES
-  // and that knownType() agrees with it for all 256 tags. What that CANNOT
-  // catch, and nothing in C++20 can without reflection, is a Type added to the
-  // enum and to neither list - said out loud rather than left to be discovered.
+  // The catalog: one row per Type with its tag, name, version, drop class, body
+  // length with every variable tail empty, size expression and field list.
+  // SCHEMA and the tests' completeness check are generated from it. The .cxx
+  // static_asserts that it covers ALL_TYPES and agrees with knownType() for all
+  // 256 tags; a Type added to the enum and to neither list is the one case no
+  // C++20 check can catch.
   struct Desc
   {
       Type type = Type::TYPE_PING;
@@ -933,33 +755,20 @@ namespace bibowire
   [[nodiscard]] Str schemaLine(Type t);
   [[nodiscard]] Str schemaAll();
 
-  // ---- the one shared renderer -----------------------------------------------
-  //
-  // Used by the viewer's log pane, the pilot's console and the tests'
-  // failure output, so a frame is printed the same way everywhere and the
-  // printer cannot drift from the codec it sits beside.
-  //
-  // Sentinels render as `n/a`, never as 65535 or -32768. A number that means
-  // "not measured" printed as a measurement is the same bug as a stale picture
-  // drawn as live.
+  // The one renderer, used by the viewer's log pane, the pilot's console and
+  // the tests, so a frame prints the same everywhere. Sentinels render as
+  // `n/a`, never as 65535 or -32768.
   [[nodiscard]] Str describe(const Frame& f);
-
-  // ---- the version rule ------------------------------------------------------
 
   // protoMajor must be EQUAL. Not >=, not "compatible".
   [[nodiscard]] Bool versionOk(UInt16 protoMajor);
 
-  // The refusal a person can act on. An explanation that says only
-  // "incompatible" sends somebody to read source in a field; the two build
-  // stamps are what turn it into an action, which is why the sentence is part
-  // of the protocol and not part of the log.
+  // The refusal names both versions and the board's build stamp, so a person
+  // in a field can act on it instead of reading source.
   [[nodiscard]] Bye versionRefusal(const Hello& h, CharSeq boardBuild);
-
-  // ---- applying a CONTROL ----------------------------------------------------
 
   namespace control
   {
-
     enum class Verdict
     {
         VERDICT_APPLIED = 0,
@@ -982,9 +791,8 @@ namespace bibowire
     {
         Verdict verdict = Verdict::VERDICT_BAD_SESSION;
 
-        // "Parsed", not "received". Bytes half-read in an accumulator are not a
-        // command, and counting them as liveness is this repo's recurring bug
-        // class applied to the safety timer.
+        // "Parsed", not "received": bytes half-read in an accumulator are not a
+        // command and must not count as liveness.
         Bool feedsDeadman = false;
 
         Int16 steerMilli = 0;
@@ -994,27 +802,20 @@ namespace bibowire
     };
 
     // static_cast<Int32>(a - b) > 0 on the UInt32s, so a viewer that restarted
-    // and began again at seq 1 compares correctly rather than freezing the
-    // board on a huge stale seq. THE HIGH-WATER MARK IS RESET BY THE HANDSHAKE,
-    // per session - the obvious implementation is the bug: a board that kept it
-    // across a reconnect would silently ignore every command from a restarted
-    // viewer while the socket looked perfect.
+    // at seq 1 is not frozen out by a huge old seq. The high-water mark is reset
+    // by the handshake, per session: kept across a reconnect, it would ignore
+    // every command from a restarted viewer while the socket looked perfect.
     [[nodiscard]] Bool newer(UInt32 a, UInt32 b);
 
-    // Pure. Decides what this datagram is allowed to do, and whether it feeds
-    // the deadman - it does so only when it carries the current session AND
-    // came from the current holder AND was actually applied. Without that last
-    // rule a second viewer's stream keeps the timer alive while the first
-    // operator, whose laptop just slept, is protected by nothing.
+    // Pure. Decides what this datagram may do, and whether it feeds the
+    // deadman: only when it carries the current session AND came from the
+    // current holder AND was applied. Otherwise a second viewer's stream would
+    // keep the timer alive for a holder whose laptop just slept.
     [[nodiscard]] Outcome apply(const Gate& g, const Control& c);
-
   }
-
-  // ---- the deadman -----------------------------------------------------------
 
   namespace deadman
   {
-
     enum class State
     {
         STATE_LIVE = 0,
@@ -1042,16 +843,13 @@ namespace bibowire
         Int32 disarmInMs = 0;
     };
 
-    // No clock inside it - the shape reactive::step already uses. Two
-    // consequences: the safety property is exercised on a laptop in
-    // microseconds rather than by sleeping, and THE VIEWER RUNS THE IDENTICAL
-    // FUNCTION on its own copy of the numbers, so an operator watching
-    // "neutral in 90 ms" during a hiccup is watching the same arithmetic that
-    // will do the tripping.
+    // No clock inside it, so the safety property is tested without sleeping,
+    // and the viewer runs this identical function on its own copy of the
+    // numbers: the "neutral in 90 ms" an operator watches is the arithmetic
+    // that trips.
     [[nodiscard]] Output step(const Inputs& in);
 
     [[nodiscard]] CharSeq stateName(State s);
-
   }
 
   // Names for a person, the same on the board and in the viewer.
@@ -1061,5 +859,4 @@ namespace bibowire
   [[nodiscard]] CharSeq pilotModeName(UInt8 mode);
 
   [[nodiscard]] CharSeq refuseName(Refuse r);
-
 }

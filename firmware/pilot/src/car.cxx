@@ -1,12 +1,11 @@
-// See car.hxx. The Car's threads, ports, hooks and printing; what it decides is
-// carrules. Four threads touch the car: the program's, the lidar's (the only
+// The Car's threads, ports, hooks and printing; what it decides is carrules.
+// Four threads touch the car: the program's, the lidar's (the only
 // caller of lidar:: once open() is done), the minder (the only sender to the
 // Pico until finish() has joined it) and the printer, which writes the Car's
 // console lines so the minder never waits on the console.
 //
 // The signal hooks are Linux-only. Everywhere else carlink cannot open a port
 // and lidar refuses, so a Car there refuses at lidar::open and nothing can move.
-
 #include "car.hxx"
 
 #include <algorithm>
@@ -30,7 +29,6 @@
 
 namespace
 {
-
   using carrules::Arm;
   using carrules::End;
 
@@ -148,7 +146,7 @@ namespace
       Bool mine = false;
   };
 
-  // Gives the calling thread an AltStack, which lasts until the thread ends.
+  // The calling thread's AltStack, which lasts until the thread ends.
   Void useAltStack()
   {
       thread_local const AltStack stack;
@@ -163,10 +161,8 @@ namespace
           return;
       }
       hooksInstalled = true;
-
       // A status line a second, even into a pipe.
       std::setvbuf(stdout, nullptr, _IOLBF, BUFSIZ);
-
       // One-shot, so a second Ctrl-C meets the default action and kills a
       // program that is stuck.
       for(const Int32 sig : { SIGINT, SIGTERM, SIGHUP })
@@ -273,12 +269,10 @@ namespace
       Float32 nearestM = 0.0f;
       Float32 nearestRawDeg = 0.0f;
   };
-
 }
 
 namespace bibo
 {
-
   struct Car::Inner
   {
       carrules::Options opt;
@@ -415,7 +409,6 @@ namespace bibo
           return;
       }
       owner = true;
-
       Str why;
       if(!carrules::parseArgs(argc, argv, LIDAR_FORWARD_MEASURED, opt, why))
       {
@@ -438,7 +431,6 @@ namespace bibo
       // The thread that makes the Car runs the program's loop, so a stack
       // overflow there must still reach the crash handler.
       useAltStack();
-
       // The lidar before the Pico: a car that cannot see is never opened.
       if(!lidar::open(opt.lidarPort, LIDAR_BAUD))
       {
@@ -458,7 +450,6 @@ namespace bibo
           return;
       }
       spinning = true;
-
       const Str trimPath = trimfile::defaultPath();
       if(!trimfile::load(trimPath, trim, why))
       {
@@ -468,7 +459,6 @@ namespace bibo
               why.c_str()
           );
       }
-
       if(opt.viewer)
       {
           viewfeed::Policy policy;
@@ -491,7 +481,6 @@ namespace bibo
               viewfeed::publishTrim(trimfile::report(trim));
           }
       }
-
       if(!opt.drive)
       {
           std::printf("car: dry run - the Pico is never opened, nothing will move\n");
@@ -528,7 +517,6 @@ namespace bibo
               static_cast<unsigned>(trimLines.size())
           );
       }
-
       {
           LockGuard<Mutex> lock(printMu);
           printing = true;
@@ -699,7 +687,6 @@ namespace bibo
       in.viewerStuck = viewer && vd.seenAgeMs > VIEWER_STUCK_MS;
       in.sentMs = sender.sentMs();
       in.gapMs = sender.takeGapMs();
-
       Vec<Str> lines;
       {
           LockGuard<Mutex> lock(mu);
@@ -722,7 +709,6 @@ namespace bibo
           p.nearestRawDeg = nearestRawDeg;
       }
       wake.notify_all();
-
       // The throttle's line is always the last of a pass. One that cannot reach
       // the port in time is replaced by STOP, which ends the run here.
       End late = End::END_NONE;
@@ -738,7 +724,6 @@ namespace bibo
           lastOrder = sent.back();
       }
       pulsing = !sent.empty() && carrules::pulseIn(sent.back()) > NEUTRAL_US;
-
       sayErrors(in.replies);
       if(p.ended != End::END_NONE)
       {
@@ -754,7 +739,6 @@ namespace bibo
           }
           wake.notify_all();
       }
-
       if(viewer)
       {
           const bibowire::BoardState b = boardState(p);
@@ -767,7 +751,6 @@ namespace bibo
           ap.picoSilentMs = b.picoSilentMs;
           viewfeed::applied(ap);
       }
-
       if(p.nowMs - statusMs >= STATUS_MS)
       {
           printStatus(p);
@@ -781,7 +764,6 @@ namespace bibo
       const Float64 rate = static_cast<Float64>(revs - statusRevolutions) / windowS;
       statusRevolutions = revs;
       statusMs = p.nowMs;
-
       Array<Char, 128> seen{};
       std::snprintf(
           seen.data(),
@@ -795,7 +777,6 @@ namespace bibo
       );
       const Float64 shownThrottle = milli(p.throttle) / 1000.0;
       const Float64 shownSteer = milli(p.steer) / 1000.0;
-
       Array<Char, 320> line{};
       if(!picoOpen)
       {
@@ -810,7 +791,6 @@ namespace bibo
           say(line.data());
           return;
       }
-
       CharSeq armWord = "not armed";
       if(p.ended != End::END_NONE)
       {
@@ -874,11 +854,9 @@ namespace bibo
           const Int64 now = nowMs();
           revolutions = ++rev;
           lidarHealth = lidar::device().health;
-
           Scan s = carrules::toScan(rays, opt.forwardDeg, rev);
           const Bool good = !s.blind();
           const Float32 ahead = s.ahead();
-
           // The single nearest return and its raw angle: a box held straight
           // ahead reads LIDAR_FORWARD_DEG off the status line.
           Float32 closestMm = 0.0f;
@@ -891,7 +869,6 @@ namespace bibo
                   closestDeg = r.angleDeg;
               }
           }
-
           Float32 askedThrottle = 0.0f;
           Float32 askedSteer = 0.0f;
           {
@@ -909,7 +886,6 @@ namespace bibo
               askedSteer = steer;
           }
           wake.notify_all();
-
           if(viewer)
           {
               bibowire::Scan w = wireScan(rays, quality);
@@ -921,7 +897,6 @@ namespace bibo
               w.health = healthByte(lidarHealth.load());
               w.motor = 1;
               viewfeed::publishScan(std::move(w));
-
               // What the program asked for, and what the Car made of it.
               const reactive::Mode mode = !good
                   ? reactive::Mode::MODE_BLIND
@@ -983,7 +958,6 @@ namespace bibo
       }
       lock.unlock();
       wake.notify_all();
-
       if(!armed)
       {
           if(wasRunning)
@@ -1067,7 +1041,6 @@ namespace bibo
       {
           minder.join();
       }
-
       // The minder's last pass sent STOP. This one is finish()'s own, and the
       // answer is read so a last ERR is printed.
       if(picoOpen)
@@ -1091,7 +1064,6 @@ namespace bibo
           lidarThread.join();
       }
       stopPrinter();
-
       if(spinning && !lidar::motorOff())
       {
           std::printf("lidar motor off: %s\n", lidar::reason().c_str());
@@ -1109,7 +1081,6 @@ namespace bibo
       {
           viewfeed::stop();
       }
-
       End why = End::END_NONE;
       UInt64 good = 0;
       UInt32 errors = 0;
@@ -1192,5 +1163,4 @@ namespace bibo
   {
       return inner->finish();
   }
-
 }
