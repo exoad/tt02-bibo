@@ -233,6 +233,8 @@ namespace link
             return "set_servo_trim";
         case bibowire::Verb::VERB_SET_SLEW:
             return "set_slew";
+        case bibowire::Verb::VERB_SET_ESC_REVERSE:
+            return "set_esc_reverse";
         default:
             break;
         }

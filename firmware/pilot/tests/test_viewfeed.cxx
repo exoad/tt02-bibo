@@ -1470,6 +1470,43 @@ Int32 main()
             check(!viewfeed::tune(&t), "and nothing was queued");
         }
 
+        // ---- the reverse limit: neutral is in range, above it is not ----
+        //
+        // 1500 is how reverse is turned OFF, so it must be taken; 1600 would be
+        // a forward pulse wearing the name reverse, so it must not.
+        {
+            bibowire::Command m;
+            m.sessionId = session;
+            m.cmdId = 11;
+            m.verb = bibowire::Verb::VERB_SET_ESC_REVERSE;
+            m.arg1 = 1350;
+            Size len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 24);
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a reverse limit is answered");
+            bibowire::CmdAck ack;
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 0, "and 1350 is taken");
+            check(
+                viewfeed::tune(&t) && t.verb == bibowire::Verb::VERB_SET_ESC_REVERSE && t.arg1 == 1350,
+                "and reaches the tick intact"
+            );
+
+            m.cmdId = 12;
+            m.arg1 = bibowire::ESC_NEUTRAL_US;
+            len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 25);
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "neutral as a reverse limit is answered");
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 0, "and taken - it is reverse off");
+            check(viewfeed::tune(&t) && t.arg1 == bibowire::ESC_NEUTRAL_US, "and queued as neutral");
+
+            m.cmdId = 13;
+            m.arg1 = 1600;
+            len = bibowire::writeCommand(m, body.data(), body.size());
+            w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 26);
+            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a reverse limit above neutral is answered");
+            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 1, "and refused");
+            check(!viewfeed::tune(&t), "and nothing was queued");
+        }
+
         viewfeed::stop();
         check(!viewfeed::tune(&t), "a stopped feed has no trim waiting for the tick");
     }

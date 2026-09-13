@@ -85,6 +85,10 @@ namespace trimview
   constexpr Int32 ESC_MIN_DEFAULT = 1541;      // cal.hxx THROTTLE_CAL_MIN
   constexpr Int32 ESC_MAX_DEFAULT = 1600;      // cal.hxx THROTTLE_CAL_MAX
 
+  // Neutral, which is reverse OFF: chassis.hxx ESC_REVERSE_DEFAULT, retyped for
+  // the reason above.
+  constexpr Int32 ESC_REVERSE_DEFAULT = 1500;
+
   constexpr Int32 STEER_SLEW_DEFAULT = 8;      // cal.hxx SLEW_CAL_STEER
   constexpr Int32 THROTTLE_SLEW_DEFAULT = 8;   // cal.hxx SLEW_CAL_THROTTLE
 
@@ -149,6 +153,10 @@ namespace trimview
       Int32 escMinUs = ESC_MIN_DEFAULT;
       Int32 escMaxUs = ESC_MAX_DEFAULT;
 
+      // The lowest pulse brake and reverse may reach. Neutral turns reverse OFF
+      // and is the default, so S stays a plain stop until this is set on purpose.
+      Int32 escReverseUs = ESC_REVERSE_DEFAULT;
+
       // µs per 20 ms tick, SLEW_US_MIN..SLEW_US_MAX. Logarithmic on the slider,
       // because the interesting end is 1..20 and a linear 1..200 spends nine
       // tenths of its travel on rates that are all "immediately".
@@ -211,6 +219,8 @@ namespace trimview
       const Int32 hardHi = static_cast<Int32>(bibowire::ESC_US_HARD_MAX);
       v.escMinUs = clampTo(v.escMinUs, hardLo, hardHi - 1);
       v.escMaxUs = clampTo(v.escMaxUs, v.escMinUs + 1, hardHi);
+      // Down to the hard minimum, and up to neutral itself - which is reverse off.
+      v.escReverseUs = clampTo(v.escReverseUs, hardLo, static_cast<Int32>(bibowire::ESC_NEUTRAL_US));
   }
 
   inline Void settleSlew(View& v)
@@ -307,6 +317,15 @@ namespace trimview
                   v.escMaxUs = *hi;
               }
               ++taken;
+          }
+          else if(count == 2 && w[0] == "ESCREVERSE")
+          {
+              const Opt<Int32> lowest = reportNumber(w[1]);
+              if(lowest.has_value())
+              {
+                  v.escReverseUs = *lowest;
+                  ++taken;
+              }
           }
           else if(count == 2 && w[0] == "SERVOTRIM")
           {

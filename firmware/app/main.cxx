@@ -460,7 +460,7 @@ static Void printDrive(Void)
 {
     const bibo::drive::State d = bibo::drive::read();
     bibo::serial::printf(
-        "OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d " "servo_on=%d servo_c=%d steer_m=%d steer_now=%d " "slew=%d slew_esc=%d " "servo_min=%d servo_max=%d esc_min=%d esc_max=%d\n",
+        "OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d " "servo_on=%d servo_c=%d steer_m=%d steer_now=%d " "slew=%d slew_esc=%d " "servo_min=%d servo_max=%d esc_min=%d esc_max=%d esc_rev=%d\n",
         d.servoUs,
         d.servoTargetUs,
         d.escUs,
@@ -475,7 +475,8 @@ static Void printDrive(Void)
         d.servoMinUs,
         d.servoMaxUs,
         d.escMinUs,
-        d.escMaxUs
+        d.escMaxUs,
+        d.escReverseUs
     );
 }
 
@@ -659,6 +660,27 @@ static Void handleLimits(const CharSeq arg)
 static Void handleEscLimits(const CharSeq arg)
 {
     limitsCommand(arg, "esclimits", bibo::drive::setThrottleLimits);
+}
+
+/**
+ * @brief Runs ESCREVERSE: sets the lowest pulse brake and reverse may reach.
+ *
+ * @param arg "<us>", from ESC_HARD_MIN up to DRIVE_NEUTRAL_US. Neutral itself is
+ *            reverse OFF, which is also where it starts at boot.
+ *
+ * @warning On this car's Forward/Reverse/Brake ESC a pulse below neutral
+ *          brakes, and after a return to neutral reverses. Setting this is what
+ *          makes that reachable.
+ */
+static Void handleEscReverse(const CharSeq arg)
+{
+    Int32 us = 0;
+    if(!bibo::text::toInt(arg, &us) || !bibo::drive::setReverseLimit(us))
+    {
+        bibo::serial::printf("ERR escreverse wants microseconds, %d-%d\n", ESC_HARD_MIN, DRIVE_NEUTRAL_US);
+        return;
+    }
+    printDrive();
 }
 
 /**
@@ -1615,6 +1637,7 @@ static const Command COMMANDS[] =
     { .name = "SERVOLIMITS", .usage = " <min> <max>",            .what = "widen to find the real end stops",         .run = handleLimits },
     { .name = "ESC",         .usage = " ARM|DISARM|NEUTRAL|<us>", .what = "throttle",                                .run = handleEsc },
     { .name = "ESCLIMITS",   .usage = " <min> <max>",            .what = "widen the throttle range",                 .run = handleEscLimits },
+    { .name = "ESCREVERSE",  .usage = " <us>",                   .what = "lowest brake/reverse pulse; 1500 is off",  .run = handleEscReverse },
 
     { .name = "WIFI",        .usage = " [JOIN <ssid> <password>]", .what = "the wireless command link",           .run = cmdWifi },
     { .name = "CUE",         .usage = " [LIST|STOP|<name> [OFF]]",     .what = "what the car says, and saying it",      .run = cmdCue },
@@ -1831,7 +1854,8 @@ int main(Void)
         {
             const bibo::drive::State dm = bibo::drive::read();
 
-            if(const Bool driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs); driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
+            /* Below neutral is brake and reverse: a car reversing on a dead link is as driven as one going forward. */
+            if(const Bool driving = dm.escArmed && (dm.escTargetUs > dm.escMinUs || dm.escTargetUs < DRIVE_NEUTRAL_US); driving && !deadmanTripped && (bibo::timing::nowMs() - lastCmdMs) > DEADMAN_MS)
             {
                 bibo::drive::stop();
                 bibo::lights::forceLamp(bibo::lights::LAMP_COUNT);

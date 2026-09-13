@@ -17,7 +17,7 @@
 //
 // One per line - "SERVOTRIM 1480" - so what is replayed is exactly what is
 // stored and a person can read it, fix it or delete it with a text editor.
-// Anything that does not parse as one of the five known settings, inside
+// Anything that does not parse as one of the six known settings, inside
 // bibowire's hard limits, is ignored on load rather than sent: the file is
 // hand-editable, and a hand-edited typo must not reach the steering.
 #pragma once
@@ -34,6 +34,7 @@ namespace trimfile
       Str servoLimits;    // "SERVOLIMITS <min> <max>"
       Str servoTrim;      // "SERVOTRIM <us>"
       Str escLimits;      // "ESCLIMITS <min> <max>"
+      Str escReverse;     // "ESCREVERSE <us>", 1500 being reverse off
       Str steerSlew;      // "SLEW STEER <us>"
       Str throttleSlew;   // "SLEW THROTTLE <us>"
   };

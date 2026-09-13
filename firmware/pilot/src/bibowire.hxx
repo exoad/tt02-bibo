@@ -332,6 +332,11 @@ namespace bibowire
       VERB_SET_SERVO_LIMITS = 9,   // arg1 = min us, arg2 = max us
       VERB_SET_SERVO_TRIM = 10,    // arg1 = centre us
       VERB_SET_SLEW = 11,          // arg0 = axis, arg1 = us per 20 ms tick
+
+      // The lowest pulse brake and reverse may reach. ESC_NEUTRAL_US is valid
+      // and turns reverse OFF; above it is refused. Refused while armed, like
+      // every tuning verb.
+      VERB_SET_ESC_REVERSE = 12,   // arg1 = us
   };
 
   // Which output VERB_SET_SLEW is talking about. "Both" is the bare `SLEW <us>`
@@ -392,6 +397,10 @@ namespace bibowire
   // make an idle below 1500 mean reverse - that is the thing to know first.
   constexpr UInt16 ESC_US_HARD_MIN = 1000;
   constexpr UInt16 ESC_US_HARD_MAX = 2000;
+
+  // Neutral on every RC ESC. Below it is brake and then reverse on this car's
+  // Forward/Reverse/Brake ESC, and VERB_SET_ESC_REVERSE bounds how far.
+  constexpr UInt16 ESC_NEUTRAL_US = 1500;
 
   enum class Severity : UInt8
   {

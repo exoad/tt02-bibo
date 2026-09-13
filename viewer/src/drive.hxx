@@ -211,24 +211,32 @@ namespace driveview
       return (static_cast<Int32>(STEER_FULL) * 1000) / rateMilliPerS;
   }
 
+  // S IS THE TRIGGER PUSHED FORWARD: brake, then reverse. Held, it asks for
+  // minus the cap. This car's ESC is in Forward/Reverse/Brake mode, so the
+  // first push below neutral BRAKES and, once S has been let go and the pulse
+  // is back at neutral, the next press REVERSES - the transmitter's own double
+  // tap, done with the key the same way. How far below neutral that reaches
+  // is the Trim pane's reverse limit, which is off until it is set, so until
+  // then S is the plain stop it always was.
+  //
   // S BEATS W, ALWAYS. A brake that W can override is not a brake - and W is
   // already held when somebody reaches for S, so "both down" is precisely the
   // moment the rule is for.
-  //
-  // Zero rather than negative: the band this project commands is forward-only
-  // (bibowire::ESC_US_HARD_MIN is 1500 and the board refuses below it), so
-  // there is no reverse to ask for and asking would be refused at the far end.
   [[nodiscard]] inline Int16 throttleFrom(const Keys& k, Int32 capMilli)
   {
-      if(k.brake || !k.forward)
-      {
-          return 0;
-      }
       if(capMilli <= 0)
       {
           return 0;
       }
       const Int32 held = capMilli > THROTTLE_CAP_MAX ? THROTTLE_CAP_MAX : capMilli;
+      if(k.brake)
+      {
+          return static_cast<Int16>(-held);
+      }
+      if(!k.forward)
+      {
+          return 0;
+      }
       return static_cast<Int16>(held);
   }
 
@@ -282,8 +290,17 @@ namespace driveview
 
       // THE OPERATOR'S HAND ON THE WHEEL. Off at startup and off again whenever
       // the pane is disabled for any reason, because this is the bit the
-      // deadman treats as consent.
+      // deadman treats as consent. TICKED BY ARM: when the board confirms the
+      // car armed, ARM was the consent, and a second click on a checkbox was
+      // a step the operator reported forgetting (2026-09-12). Cleared when the
+      // board says the car is no longer armed. Unticking it by hand is still a
+      // soft stop that stays stopped until the next ARM.
       Bool enabled = false;
+
+      // The armed state the board last reported, so ARM's confirmation is taken
+      // as an EDGE. As a level it would re-tick an enable the operator had
+      // unticked on purpose. State, never saved.
+      Bool boardArmed = false;
 
       // These outlive the window being closed and reopened - camera.hxx's rule,
       // and the same reason: they describe how this operator drives, and

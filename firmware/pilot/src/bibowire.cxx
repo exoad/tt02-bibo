@@ -381,6 +381,8 @@ namespace bibowire
                 return "set_servo_trim";
             case Verb::VERB_SET_SLEW:
                 return "set_slew";
+            case Verb::VERB_SET_ESC_REVERSE:
+                return "set_esc_reverse";
             default:
                 return "?";
         }

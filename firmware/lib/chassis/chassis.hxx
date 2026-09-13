@@ -91,29 +91,33 @@ namespace bibo::drive
      * same band is real motion now. THROTTLE_CAL_MIN/MAX in cal.hxx are the
      * brushed numbers and must be re-measured before anything widens.
      *
-     * The reverse half is still not offered. The G2 in Forward/Reverse/Brake
-     * mode needs a brake-then-reverse from a stop and in Forward/Reverse mode
-     * reverses at once; the ESC is kept in Forward/Brake, where a pulse below
-     * 1500 only brakes, so a sign error here cannot back the car off a stand.
-     * Reverse stays unreachable even by widening: finding a steering end stop is
-     * careful work, discovering reverse by accident is not the same kind of
-     * experiment.
+     * BELOW NEUTRAL IS ITS OWN RANGE, bounded by escReverse. This ESC is in
+     * Forward/Reverse/Brake mode, not the Forward/Brake these comments used to
+     * assume - the operator confirmed it on 2026-09-12: the first pulse below
+     * 1500 brakes, and once the stick is back at neutral the next one reverses,
+     * the double tap the transmitter needs too. So below neutral IS reverse on
+     * this car, and it is clamped into [escReverse, 1500] - never pulled up into
+     * the forward [escMin, escMax], which is what the old single clamp did to
+     * it. escReverse starts AT neutral, so nothing below 1500 is reachable
+     * until ESCREVERSE sets a limit on purpose.
      *
      * @warning ESC_HARD_MIN/ESC_HARD_MAX are the absolute ceiling; nothing
      *          above this file can command the ESC outside them.
      *
      * @note WIDENED 2026-09-12 from 1500..1700 to the whole RC pulse range, at
      *       the operator's request - 1700 held the 10BL160 to under half of
-     *       the 1500..2000 it maps. So this bound NO LONGER keeps the car out
-     *       of reverse. Below 1500 is BRAKE in the Forward/Brake mode this ESC
-     *       is kept in, and the pilot never maps W below neutral whatever the
-     *       working minimum is - but an ESC reprogrammed to Forward/Reverse
-     *       would make an idle below 1500 mean reverse. Know that first.
+     *       the 1500..2000 it maps.
      */
 #define ESC_DEFAULT_MIN THROTTLE_CAL_MIN
 #define ESC_DEFAULT_MAX THROTTLE_CAL_MAX
 #define ESC_HARD_MIN    1000
 #define ESC_HARD_MAX    2000
+
+    /**
+     * @brief The lowest pulse brake and reverse may reach at boot: neutral
+     *        itself, which is reverse OFF until ESCREVERSE sets a limit.
+     */
+#define ESC_REVERSE_DEFAULT 1500
 
     /**
      * @brief The neutral ESC pulse, in microseconds.
@@ -226,6 +230,7 @@ namespace bibo::drive
         Int32 servoMaxUs;      ///< Working upper steering bound, microseconds.
         Int32 escMinUs;        ///< Working lower throttle bound, microseconds.
         Int32 escMaxUs;        ///< Working upper throttle bound, microseconds.
+        Int32 escReverseUs;    ///< Lowest brake/reverse pulse; neutral is reverse off.
         Int32 steerSlewUs;    ///< us of pulse per 20 ms tick, steering.
         Int32 throttleSlewUs; ///< ...and throttle. They are separate settings.
     };
@@ -245,6 +250,9 @@ namespace bibo::drive
     inline Int32 servoMax = SERVO_DEFAULT_MAX;
     inline Int32 escMin = ESC_DEFAULT_MIN;
     inline Int32 escMax = ESC_DEFAULT_MAX;
+
+    /* The lowest brake/reverse pulse. At neutral, nothing below 1500 is reachable. */
+    inline Int32 escReverse = ESC_REVERSE_DEFAULT;
 
     /*
      * Where the wheels actually point straight. DRIVE_NEUTRAL_US is the middle of
@@ -493,6 +501,7 @@ namespace bibo::drive
         s.servoMaxUs = servoMax;
         s.escMinUs = escMin;
         s.escMaxUs = escMax;
+        s.escReverseUs = escReverse;
         s.steerSlewUs = steerSlewUs;
         s.throttleSlewUs = throttleSlewUs;
         return s;
@@ -732,8 +741,11 @@ namespace bibo::drive
      * False when the ESC is not armed. Rule 2, and it lives here so no caller can
      * forget it.
      *
-     * @param us the target pulse width, in microseconds; clamped into
-     *           [escMin, escMax]
+     * @param us the target pulse width, in microseconds. At or above neutral
+     *           it is clamped into [escMin, escMax]; BELOW neutral it is brake
+     *           and reverse, clamped into [escReverse, DRIVE_NEUTRAL_US] - so
+     *           with reverse off it becomes neutral, never the forward idle
+     *           the old single clamp used to pull it up to
      * @return false when the ESC is not armed; the target is left unchanged
      * @warning Sets the throttle target the car will accelerate toward as
      *          pump() runs. Requires arm(true) first.
@@ -744,7 +756,7 @@ namespace bibo::drive
         {
             return false;
         }
-        escTarget = clamp(us, escMin, escMax);
+        escTarget = us < DRIVE_NEUTRAL_US ? clamp(us, escReverse, DRIVE_NEUTRAL_US) : clamp(us, escMin, escMax);
         return true;
     }
 
@@ -788,7 +800,34 @@ namespace bibo::drive
 
         escMin = lo2;
         escMax = hi2;
-        escTarget = clamp(escTarget, escMin, escMax);
+        /* Only a FORWARD target is re-clamped: neutral or a brake pulled up into [escMin, escMax] is a creep nobody asked for. */
+        if(escTarget > DRIVE_NEUTRAL_US)
+        {
+            escTarget = clamp(escTarget, escMin, escMax);
+        }
+        return true;
+    }
+
+    /**
+     * @brief Sets the lowest pulse brake and reverse may reach.
+     *
+     * @param us from ESC_HARD_MIN up to DRIVE_NEUTRAL_US; neutral itself turns
+     *           reverse off
+     * @return false when us is outside that range; nothing changes
+     * @warning Re-clamps a brake or reverse target already set, which can change
+     *          the ESC pulse the next time pump() runs.
+     */
+    [[nodiscard]] static Bool setReverseLimit(const Int32 us)
+    {
+        if(us < ESC_HARD_MIN || us > DRIVE_NEUTRAL_US)
+        {
+            return false;
+        }
+        escReverse = us;
+        if(escTarget < DRIVE_NEUTRAL_US)
+        {
+            escTarget = clamp(escTarget, escReverse, DRIVE_NEUTRAL_US);
+        }
         return true;
     }
 }

@@ -149,6 +149,16 @@ namespace trimfile
           }
           return false;
       }
+      if(w[0] == "ESCREVERSE" && w.size() == 2u)
+      {
+          // Neutral itself is valid - it is reverse OFF. Above neutral is not a
+          // reverse limit at all.
+          if(number(w[1], escLo, static_cast<Int32>(bibowire::ESC_NEUTRAL_US), a))
+          {
+              return set(s.escReverse, one("ESCREVERSE", a));
+          }
+          return false;
+      }
       if(w[0] == "SLEW")
       {
           // The axis-less form sets BOTH, because that is what the Pico does
@@ -179,7 +189,7 @@ namespace trimfile
   Vec<Str> lines(const Store& s)
   {
       Vec<Str> out;
-      for(const Str* slot : { &s.servoLimits, &s.escLimits, &s.servoTrim, &s.steerSlew, &s.throttleSlew })
+      for(const Str* slot : { &s.servoLimits, &s.escLimits, &s.escReverse, &s.servoTrim, &s.steerSlew, &s.throttleSlew })
       {
           if(!slot->empty())
           {

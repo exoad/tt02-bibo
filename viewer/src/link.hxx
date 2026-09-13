@@ -855,12 +855,17 @@ namespace link
       // nothing until the next one. The pane says that in words rather than
       // leaving a checkbox that appears to do nothing.
       //
-      // DEFAULT FALSE, and that is a safety property rather than a default.
-      // Section 6: the moment a viewer takes the slot, in ANY mode including
-      // drive, its cadence becomes the consent the deadman watches and losing
-      // it stops the car. Merely opening this viewer must not arm a deadman
-      // over somebody else's autonomous run.
-      Atomic<Bool> wantSlot = false;
+      // DEFAULT TRUE SINCE 2026-09-12, by the operator's decision. It was false
+      // as a safety property: section 6 says the moment a viewer takes the slot,
+      // in ANY mode including drive, its cadence becomes the consent the
+      // deadman watches, and losing it stops the car - so opening a viewer
+      // arms a deadman over whatever the car is doing, an autonomous run
+      // included. The cost of false was measured instead: tick, Reconnect,
+      // enable, ARM, and a car that ignored its keys when one was missed. The
+      // trade was put to the operator and they chose connect-then-ARM. Taking
+      // the slot moves nothing - the car is disarmed until ARM - and a second
+      // viewer still only observes. The checkbox turns it off.
+      Atomic<Bool> wantSlot = true;
   };
 
   // Starts the worker. Returns false when one is already running.

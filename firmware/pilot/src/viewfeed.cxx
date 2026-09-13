@@ -1309,7 +1309,8 @@ namespace viewfeed
         return v == bibowire::Verb::VERB_SET_ESC_LIMITS
             || v == bibowire::Verb::VERB_SET_SERVO_LIMITS
             || v == bibowire::Verb::VERB_SET_SERVO_TRIM
-            || v == bibowire::Verb::VERB_SET_SLEW;
+            || v == bibowire::Verb::VERB_SET_SLEW
+            || v == bibowire::Verb::VERB_SET_ESC_REVERSE;
     }
 
     // The car's arm state as the PILOT last reported it, which is the only
@@ -1448,6 +1449,44 @@ namespace viewfeed
             );
             ack->result = 0;
             ack->text = Str(buf.data());
+            return;
+        }
+
+        if(cmd.verb == bibowire::Verb::VERB_SET_ESC_REVERSE)
+        {
+            // NEUTRAL IS IN RANGE - it is how reverse is turned off - and above
+            // it is refused rather than clamped: a "reverse limit" of 1600 is a
+            // forward pulse, and nothing named reverse may produce one.
+            if(!within(cmd.arg1, bibowire::ESC_US_HARD_MIN, bibowire::ESC_NEUTRAL_US))
+            {
+                std::snprintf(
+                    buf.data(),
+                    buf.size(),
+                    "the reverse limit must be %u..%u us - %u is reverse off",
+                    static_cast<unsigned>(bibowire::ESC_US_HARD_MIN),
+                    static_cast<unsigned>(bibowire::ESC_NEUTRAL_US),
+                    static_cast<unsigned>(bibowire::ESC_NEUTRAL_US)
+                );
+                ack->result = 1;
+                ack->text = Str(buf.data());
+                return;
+            }
+            queueTune(cmd);
+            if(cmd.arg1 == bibowire::ESC_NEUTRAL_US)
+            {
+                ack->text = "reverse is off - S stops at neutral and goes no further - saved on the board";
+            }
+            else
+            {
+                std::snprintf(
+                    buf.data(),
+                    buf.size(),
+                    "reverse limit set to %u us - S brakes, then reverses down to it - saved on the board",
+                    a1
+                );
+                ack->text = Str(buf.data());
+            }
+            ack->result = 0;
             return;
         }
 

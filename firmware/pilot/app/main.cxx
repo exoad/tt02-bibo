@@ -50,10 +50,10 @@
 // onto the Drive view's live idle..full, this maps onto the numbers in
 // cal.hxx, and the two programs must be allowed to differ in exactly that.
 //
-// Reverse is sent as NEUTRAL. The board is forward-only - it refuses anything
-// below 1500 us, and reverse on the QuicRun is a brake-then-reverse sequence
-// nobody has written - so the module's MODE_REVERSE is a stop here and its
-// reverse commitment becomes a pause. A known gap, stated: a car that stops at
+// The AUTONOMY's reverse is sent as NEUTRAL. Reverse on this ESC is a brake, a
+// return to neutral and a second push - which the operator's S key does by
+// hand (escReversePulse) and nothing here sequences for the module - so its
+// MODE_REVERSE is a stop here and its reverse commitment becomes a pause. A known gap, stated: a car that stops at
 // a wall is the honest version of a car that was told to back up and did not.
 //
 // The pulse range is THROTTLE_CAL_MIN..THROTTLE_CAL_MAX from
@@ -400,6 +400,36 @@ namespace
       return lo + static_cast<Int32>(throttle * span + 0.5f);
   }
 
+  // S's pulse: `amount` 0..1 of the way from just below neutral down to the
+  // Pico's reverse limit. BRAKE OR REVERSE IS THE ESC'S CHOICE, made the way it
+  // makes it for the transmitter - the first push below neutral brakes, a push
+  // after a return to neutral reverses - so this only says how hard.
+  //
+  // THE BAND STARTS AT THE IDLE MIRRORED BELOW NEUTRAL. Forward starts at the
+  // idle because the first microseconds past neutral are the ESC's dead band,
+  // and the same dead band sits below it: a reverse starting at 1499 would
+  // spend a small cap inside it and do nothing. NEUTRAL when the Pico has not
+  // reported a limit or reports neutral itself - reverse is off.
+  [[nodiscard]] Int32 escReversePulse(Float32 amount, Int32 carIdle, Int32 reverseLimit)
+  {
+      constexpr Int32 ESC_NEUTRAL_US = 1500;
+      if(reverseLimit <= 0 || reverseLimit >= ESC_NEUTRAL_US)
+      {
+          return ESC_NEUTRAL_US;
+      }
+      const Int32 mirrored = carIdle > ESC_NEUTRAL_US ? ESC_NEUTRAL_US - (carIdle - ESC_NEUTRAL_US) : ESC_NEUTRAL_US - 1;
+      const Int32 start = mirrored > reverseLimit ? mirrored : reverseLimit;
+      if(amount > 1.0f)
+      {
+          amount = 1.0f;
+      }
+      if(amount < 0.0f)
+      {
+          amount = 0.0f;
+      }
+      return start - static_cast<Int32>(amount * static_cast<Float32>(start - reverseLimit) + 0.5f);
+  }
+
   // The throttle line: a pulse for a forward decision from a scan the module
   // trusted, NEUTRAL for everything else - blind, stop, reverse. The steering
   // line needs no such function; it is proto::steer(out.steer) every tick.
@@ -470,6 +500,10 @@ namespace
       // is what W is mapped onto in MANUAL - see escPulseWithin.
       Int32 escMinUs = -1;
       Int32 escMaxUs = -1;
+
+      // The lowest pulse brake and reverse may reach (esc_rev=). 1500, or
+      // absent - a Pico built before reverse - means reverse is off.
+      Int32 escRevUs = -1;
   };
 
   // What this program knows about the link that the transport does not.
@@ -552,6 +586,10 @@ namespace
                   if(proto::fieldInt(reply.rest, "esc_max=", v))
                   {
                       tally.escMaxUs = v;
+                  }
+                  if(proto::fieldInt(reply.rest, "esc_rev=", v))
+                  {
+                      tally.escRevUs = v;
                   }
               }
               break;
@@ -885,6 +923,9 @@ namespace
           case bibowire::Verb::VERB_SET_SERVO_TRIM:
               std::snprintf(args.data(), args.size(), "%u", a1);
               return proto::command("SERVOTRIM", args.data());
+          case bibowire::Verb::VERB_SET_ESC_REVERSE:
+              std::snprintf(args.data(), args.size(), "%u", a1);
+              return proto::command("ESCREVERSE", args.data());
           case bibowire::Verb::VERB_SET_SLEW:
               // The bare `SLEW <us>` is the axis-less form the board has always
               // taken and is what one shared rate used to mean, so "both" is
@@ -1609,9 +1650,24 @@ Int32 main(Int32 argc, Char** argv)
                 else
                 {
                     const Float32 wanted = static_cast<Float32>(cmd.throttleMilli) / 1000.0f;
-                    escLine = mayPush && cmd.throttleMilli > 0
-                        ? proto::escUs(escPulseWithin(wanted, replies.escMinUs, replies.escMaxUs))
-                        : proto::command("ESC", "NEUTRAL");
+                    // S IS NEGATIVE: brake, then reverse, down to the Pico's own
+                    // reverse limit - see escReversePulse. With reverse off that
+                    // is neutral, which is the plain stop S always was.
+                    const Int32 backUs = cmd.throttleMilli < 0
+                        ? escReversePulse(-wanted, replies.escMinUs, replies.escRevUs)
+                        : static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
+                    if(mayPush && cmd.throttleMilli > 0)
+                    {
+                        escLine = proto::escUs(escPulseWithin(wanted, replies.escMinUs, replies.escMaxUs));
+                    }
+                    else if(mayPush && backUs < static_cast<Int32>(bibowire::ESC_NEUTRAL_US))
+                    {
+                        escLine = proto::escUs(backUs);
+                    }
+                    else
+                    {
+                        escLine = proto::command("ESC", "NEUTRAL");
+                    }
                 }
 
                 sentSteerMilli = heldSteerMilli;

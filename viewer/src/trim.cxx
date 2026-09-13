@@ -139,6 +139,14 @@ namespace trimview
         ++v.sent;
     }
 
+    // Neutral is a valid reverse limit, and is how reverse is turned off.
+    Void sendEscReverse(View& v, link::Client& lk)
+    {
+        const UInt16 lowest = static_cast<UInt16>(v.escReverseUs);
+        link::sendCommand(lk, bibowire::Verb::VERB_SET_ESC_REVERSE, 0, lowest, 0);
+        ++v.sent;
+    }
+
     // THE WHOLE SET, in the order the board needs it: limits before the centre
     // that must sit inside them. Settled first, so what goes out is exactly what
     // the sliders show and what settings.cxx saves. clampTo, settleSteer and
@@ -147,18 +155,20 @@ namespace trimview
     {
         settleAll(v);
         vlog::line(
-            "trim: send all to the car - servo %d..%d centre %d, esc %d..%d, slew %d/%d",
+            "trim: send all to the car - servo %d..%d centre %d, esc %d..%d reverse %d, slew %d/%d",
             v.steerMinUs,
             v.steerMaxUs,
             v.steerTrimUs,
             v.escMinUs,
             v.escMaxUs,
+            v.escReverseUs,
             v.steerSlewUs,
             v.throttleSlewUs
         );
         sendServoLimits(v, lk);
         sendServoTrim(v, lk);
         sendEscLimits(v, lk);
+        sendEscReverse(v, lk);
         sendSlew(v, lk, bibowire::SLEW_AXIS_STEER, v.steerSlewUs);
         sendSlew(v, lk, bibowire::SLEW_AXIS_THROTTLE, v.throttleSlewUs);
     }
@@ -458,7 +468,34 @@ namespace trimview
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("forward only - the board refuses anything below 1500");
+          ImGui::SetTooltip("W at a full cap reaches this - the forward end of the range");
+      }
+
+      // REVERSE, bounded below neutral. Its own slider rather than a lower idle,
+      // because below neutral is a different act on this ESC: the first pulse
+      // brakes, and after a return to neutral the next one reverses.
+      const Int32 neutral = static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
+      ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);
+      ImGui::SliderInt(
+          "reverse us",
+          &v.escReverseUs,
+          escLo,
+          neutral,
+          v.escReverseUs >= neutral ? "off (%d us)" : "%d us"
+      );
+      if(ImGui::IsItemDeactivatedAfterEdit())
+      {
+          settleEsc(v);
+          sendEscReverse(v, lk);
+      }
+      if(ImGui::IsItemHovered())
+      {
+          ImGui::SetTooltip(
+              "how far below neutral S may go. At 1500 reverse is OFF and S\n"
+              "only stops. Lower it and S brakes on the first press, then -\n"
+              "after you let go - reverses on the next, the way the\n"
+              "transmitter does. Try it with the wheels off the ground first."
+          );
       }
 
       // THE NUMBERS ABOVE WERE MEASURED ON A MOTOR THAT NO LONGER EXISTS, and the
@@ -546,9 +583,9 @@ namespace trimview
       {
           ImGui::SetTooltip(
               "sends every value above: servo limits, centre, ESC limits,\n"
-              "and both slews - five commands, each answered on its own.\n"
-              "For when this laptop's copy and the car's have drifted,\n"
-              "such as after a change made from another viewer."
+              "the reverse limit and both slews - six commands, each\n"
+              "answered on its own. For a car with nothing saved yet, or\n"
+              "when this laptop's copy and the car's have drifted."
           );
       }
 

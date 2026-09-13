@@ -59,7 +59,7 @@
 namespace settings
 {
 
-  constexpr Size VALUE_COUNT = 10;
+  constexpr Size VALUE_COUNT = 11;
 
   // A FLAT COPY rather than pointers into the panes, so "has anything changed
   // since the last save" is one comparison of two values.
@@ -70,6 +70,7 @@ namespace settings
       Int32 steerTrimUs = trimview::STEER_CENTRE_DEFAULT;
       Int32 escMinUs = trimview::ESC_MIN_DEFAULT;
       Int32 escMaxUs = trimview::ESC_MAX_DEFAULT;
+      Int32 escReverseUs = trimview::ESC_REVERSE_DEFAULT;
       Int32 steerSlewUs = trimview::STEER_SLEW_DEFAULT;
       Int32 throttleSlewUs = trimview::THROTTLE_SLEW_DEFAULT;
       Int32 throttleCapMilli = driveview::THROTTLE_CAP_DEFAULT;
@@ -83,7 +84,7 @@ namespace settings
   // written out of range.
   [[nodiscard]] Values capture(const trimview::View& trim, const driveview::View& drive);
 
-  // Into the panes, settled. Touches the ten fields and nothing else: the
+  // Into the panes, settled. Touches the saved fields and nothing else: the
   // windows' open flags, the enable, the held steering and the counters stay.
   Void apply(const Values& from, trimview::View& trim, driveview::View& drive);
 

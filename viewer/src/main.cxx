@@ -889,6 +889,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     driveview::View drive;
     driveview::init(uiScale);
 
+    // OPEN AT STARTUP since 2026-09-12: the operator's drive is connect, then
+    // ARM, and the ARM button lives in this window. Opening it moves nothing -
+    // the enable is off and the car disarmed until ARM is pressed and
+    // confirmed.
+    drive.open = true;
+
     // THE OPERATOR'S NUMBERS FROM LAST TIME, before the first frame draws a
     // slider. Into the panes ONLY: nothing is sent to the car here, because the
     // board keeps its own saved copy and re-sends it to the Pico itself. Pushing

@@ -714,8 +714,40 @@ namespace driveview
           // would mean the first datagram of the NEXT connection carried an
           // operator's consent that they gave to a different session.
           v.enabled = false;
+          v.boardArmed = false;
           resetSteer(v, "the pane is blocked");
           noteEnabled(false, "the pane is blocked");
+      }
+
+      // ARM TICKS THE ENABLE, AND A DISARM CLEARS IT - on the BOARD's word, not
+      // on the button press, so a refused ARM ticks nothing. CTLSTATE is the
+      // authority, and BOARD's picoArmed stands in when it is absent (its 2 is
+      // UNKNOWN and says nothing). A frame with neither is not a disarm: a
+      // dropped datagram must not cut the throttle. Edges only - see
+      // View::boardArmed.
+      if(!blocked)
+      {
+          Opt<Bool> armedNow;
+          const Opt<link::Control> ctlNow = snap.state.controlState(nowMs);
+          const Opt<link::Board> boardNow = snap.state.boardState(nowMs);
+          if(ctlNow.has_value())
+          {
+              armedNow = ctlNow->state.armed != 0u;
+          }
+          else if(boardNow.has_value() && boardNow->state.picoArmed != 2u)
+          {
+              armedNow = boardNow->state.picoArmed == 1u;
+          }
+          if(armedNow.has_value() && *armedNow != v.boardArmed)
+          {
+              v.boardArmed = *armedNow;
+              v.enabled = *armedNow;
+              if(!*armedNow)
+              {
+                  resetSteer(v, "the board is no longer armed");
+              }
+              noteEnabled(*armedNow, *armedNow ? "the board confirmed ARM" : "the board is no longer armed");
+          }
       }
 
       // READ BEFORE ANYTHING IS DRAWN, so IsAnyItemActive describes the widget
@@ -760,9 +792,10 @@ namespace driveview
               "HELLO carries this and nothing else can: the board grants the\n"
               "slot when it answers the handshake and has no message for\n"
               "taking it later. Changing this affects the NEXT connection.\n\n"
-              "Off by default on purpose - holding the slot arms the board's\n"
-              "deadman over whatever the car is doing, including a run\n"
-              "somebody else started."
+              "On by default, so driving is connect then ARM. Holding the\n"
+              "slot arms the board's deadman over whatever the car is\n"
+              "doing, a run somebody else started included - untick it\n"
+              "and Reconnect to only watch."
           );
       }
 
@@ -815,7 +848,7 @@ namespace driveview
       }
 
       ImGui::TextDisabled(
-          accept ? "keys are live: A/D steer (springs back)  C centre  W throttle  S stop  Space ESTOP"
+          accept ? "keys are live: A/D steer (springs back)  C centre  W throttle  S brake, tap again to reverse  Space ESTOP"
                  : "keys are ignored - click this window, and stop typing (steering returns to centre)"
       );
 

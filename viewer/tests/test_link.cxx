@@ -1281,6 +1281,16 @@ static Void testBoardTrim()
     check(v.escMinUs == 1564 && v.escMaxUs == 1700, "the throttle limits");
     check(v.steerSlewUs == 22 && v.throttleSlewUs == 14, "and both rates, each on its own axis");
 
+    trimview::View rev;
+    check(
+        trimview::adoptReport(rev, "ESCLIMITS 1541 1700; ESCREVERSE 1350") == 2,
+        "a reverse limit is taken beside the throttle limits"
+    );
+    check(rev.escReverseUs == 1350, "at the pulse the board saved");
+    trimview::View revHigh;
+    check(trimview::adoptReport(revHigh, "ESCREVERSE 1600") == 1, "a reverse limit above neutral is still read");
+    check(revHigh.escReverseUs == trimview::ESC_REVERSE_DEFAULT, "and settled back to off, never a forward pulse");
+
     trimview::View part;
     check(trimview::adoptReport(part, "SERVOTRIM 1490") == 1, "a board that saved only a centre gives one setting");
     check(
@@ -1830,19 +1840,20 @@ static Void testDriveKeys()
     check(driveview::throttleFrom(w, 0) == 0, "a cap of zero is a key that does nothing");
     check(driveview::throttleFrom(w, -5) == 0, "and a negative cap is not reverse");
 
+    // S IS THE TRIGGER PUSHED FORWARD: minus the cap, which this ESC takes as a
+    // brake and then, after a return to neutral, as reverse.
+    check(driveview::throttleFrom(s, 300) == -300, "S alone is minus the cap - brake, then reverse");
+    check(driveview::throttleFrom(s, 5000) == -1000, "clamped to full scale like W");
+    check(driveview::throttleFrom(s, 0) == 0, "and with a cap of zero S is a plain stop");
+
     // S BEATS W. A brake W can override is not a brake - and W is already held
     // when somebody reaches for S, so "both down" is precisely the moment the
     // rule exists for. Inverted, the assertion below would read 300.
-    check(driveview::throttleFrom(s, 300) == 0, "S alone is zero throttle");
-    check(driveview::throttleFrom(ws, 300) == 0, "and S BEATS W when both are down");
+    check(driveview::throttleFrom(ws, 300) == -300, "and S BEATS W when both are down");
     check(
         driveview::throttleFrom(ws, 300) != driveview::throttleFrom(w, 300),
         "which is a different answer from W alone, so the precedence is real"
     );
-
-    // Zero and not negative: the band this project commands is forward-only, so
-    // there is no reverse to ask for.
-    check(driveview::throttleFrom(ws, 300) >= 0, "a brake is never negative throttle");
 }
 
 // steerHeldStep at the default rate, named short so each case reads as one line.
@@ -1959,7 +1970,7 @@ static Void testSettingsText()
     settings::Values back;
     back.steerMinUs = 1;
     back.assumedMode = 2;
-    check(settings::fromText(text, back) == settings::VALUE_COUNT, "all ten are read back");
+    check(settings::fromText(text, back) == settings::VALUE_COUNT, "every one is read back");
     check(back == defaults, "as the values that were written");
 
     settings::Values tuned;
@@ -1974,7 +1985,7 @@ static Void testSettingsText()
     tuned.steerRateMilliPerS = 900;
     tuned.assumedMode = 1;
     settings::Values read;
-    check(settings::fromText(settings::toText(tuned), read) == 10u, "a tuned set round-trips");
+    check(settings::fromText(settings::toText(tuned), read) == settings::VALUE_COUNT, "a tuned set round-trips");
     check(read == tuned, "unchanged");
     check(settings::settle(tuned) == tuned, "and a set inside its ranges is left alone by settle");
 
@@ -2021,7 +2032,7 @@ static Void testSettingsText()
     check(tame.steerRateMilliPerS == driveview::STEER_RATE_MIN, "a slow rate clamps to the slider");
     check(tame.assumedMode == 0, "and an impossible mode folds to MANUAL, not up to DRIVE");
 
-    // APPLY TOUCHES THE TEN AND NOTHING ELSE.
+    // APPLY TOUCHES THE SAVED FIELDS AND NOTHING ELSE.
     trimview::View trim;
     driveview::View drive;
     drive.open = true;
@@ -2419,7 +2430,13 @@ static Void testControlIsOptIn()
     // slot its cadence becomes the consent the deadman watches, and losing it
     // stops the car - so merely opening this program must not arm a deadman
     // over somebody else's autonomous run.
-    check(!link::controlSlotWanted(c), "a fresh client does NOT ask for the control slot");
+    //
+    // THAT WAS THE DEFAULT UNTIL 2026-09-12. The cost was measured - tick,
+    // Reconnect, enable, ARM, and a car ignoring its keys whenever one step was
+    // missed - and the operator chose connect-then-ARM with the trade in front
+    // of them. Held here so the default cannot drift back without somebody
+    // reading why it changed.
+    check(link::controlSlotWanted(c), "a fresh client asks for the control slot, by the operator's choice");
 
     const link::Intent idle = link::controlIntent(c);
     check(!idle.driving, "and is not driving");

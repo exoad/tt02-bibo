@@ -62,6 +62,10 @@ static Void testRemember()
     checkStr(s.steerSlew, "SLEW STEER 9", "as the steering rate");
     checkStr(s.throttleSlew, "SLEW THROTTLE 9", "AND the throttle rate, as the Pico reads it");
 
+    check(trimfile::remember(s, "ESCREVERSE 1350"), "a reverse limit is stored");
+    checkStr(s.escReverse, "ESCREVERSE 1350", "as the line itself");
+    check(trimfile::remember(s, "ESCREVERSE 1500"), "neutral is a reverse limit too - it is reverse off");
+
     std::printf("\n-- which lines are refused --\n");
     trimfile::Store r;
     check(!trimfile::remember(r, "SERVOTRIM 400"), "a centre below the servo's hard range");
@@ -71,6 +75,8 @@ static Void testRemember()
     check(!trimfile::remember(r, "ESCLIMITS 900 1600"), "and one below the hard minimum");
     check(!trimfile::remember(r, "SERVOLIMITS 400 1600"), "and a servo limit below its hard minimum");
     check(!trimfile::remember(r, "SLEW 0"), "a slew of zero");
+    check(!trimfile::remember(r, "ESCREVERSE 1600"), "a reverse limit above neutral, which would be a forward pulse");
+    check(!trimfile::remember(r, "ESCREVERSE 900"), "and one below the hard minimum");
     check(!trimfile::remember(r, "SLEW SIDEWAYS 10"), "a slew for no axis the Pico has");
     check(!trimfile::remember(r, "STEER 0.500"), "a motion command, which is not trim");
     check(!trimfile::remember(r, "ESC ARM"), "and arming, which above all is not");

@@ -51,6 +51,7 @@ namespace settings
         { "trim.steerTrimUs", &Values::steerTrimUs },
         { "trim.escMinUs", &Values::escMinUs },
         { "trim.escMaxUs", &Values::escMaxUs },
+        { "trim.escReverseUs", &Values::escReverseUs },
         { "trim.steerSlewUs", &Values::steerSlewUs },
         { "trim.throttleSlewUs", &Values::throttleSlewUs },
         { "drive.throttleCapMilli", &Values::throttleCapMilli },
@@ -116,6 +117,7 @@ namespace settings
         trim.steerTrimUs = from.steerTrimUs;
         trim.escMinUs = from.escMinUs;
         trim.escMaxUs = from.escMaxUs;
+        trim.escReverseUs = from.escReverseUs;
         trim.steerSlewUs = from.steerSlewUs;
         trim.throttleSlewUs = from.throttleSlewUs;
         drive.throttleCapMilli = from.throttleCapMilli;
@@ -131,6 +133,7 @@ namespace settings
         v.steerTrimUs = trim.steerTrimUs;
         v.escMinUs = trim.escMinUs;
         v.escMaxUs = trim.escMaxUs;
+        v.escReverseUs = trim.escReverseUs;
         v.steerSlewUs = trim.steerSlewUs;
         v.throttleSlewUs = trim.throttleSlewUs;
         v.throttleCapMilli = drive.throttleCapMilli;
