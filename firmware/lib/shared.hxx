@@ -31,15 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The firmware's vocabulary and idiom. From manbox (github.com/exoad/manbox),
  * C_STYLE_GUIDE.md.
  *
- * ONE NAME, TWO FILES, ON PURPOSE. shared/shared.hxx is the hub's; this is the
- * firmware's. Same name because they are the same idea - an Int32 in the hub is
- * an Int32 on the board - and separate files because the firmware is
- * FREESTANDING: no heap, no exceptions, no STL, so the hub's templates are
- * unusable here. Nothing ever includes both, and nothing can: firmware targets
- * put only firmware/lib on the include path, the hub only ../shared.
+ * ONE NAME, TWO FILES, ON PURPOSE. shared/shared.hxx is the viewer's and the
+ * pilot's; this is the firmware's. Same name because they are the same idea -
+ * an Int32 on the laptop is an Int32 on the board - and separate files because
+ * the firmware is FREESTANDING: no heap, no exceptions, no STL, so the
+ * templates over there are unusable here.
  *
- * They are kept in step by hand, and only where it makes sense to. The hub has
- * ISize; this has the idiom macros below, which the hub has no use for.
+ * A pilot source that includes a firmware/lib header gets BOTH: shared/shared.hxx
+ * through the pilot's include path, and this one beside the header it named.
+ * An alias may be redeclared only as the type it already names, so every name
+ * the two files share must name the same type in each, or the pilot stops
+ * compiling.
+ *
+ * They are kept in step by hand, and only where it makes sense to.
+ * shared/shared.hxx has ISize; this has the idiom macros below.
  *
  * Utf16/Utf32 are a LOCAL ADDITION - upstream names them in CharSeq16/CharSeq32
  * without defining them, so the header does not compile as it stands.

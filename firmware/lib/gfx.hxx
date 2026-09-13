@@ -3,8 +3,8 @@
  * @brief A 2D drawing API over a tft::Screen: shapes, text, color and
  *        clipping.
  *
- * st77xx.h is the DRIVER - chip selects, command bytes, address windows - and
- * it hands back a tft::Screen. This is what you draw with, and every call takes the
+ * drivers/display.hxx is the DRIVER - chip selects, command bytes, address
+ * windows - and it hands back a tft::Screen. This is what you draw with, and every call takes the
  * screen it draws into, wrapped in a gfx::Canvas:
  *
  *     tft::Screen screen;
@@ -1308,8 +1308,8 @@ namespace bibo::gfx
        * @param xoff the panel's column offset into the controller's RAM
        * @param yoff the panel's row offset into the controller's RAM
        * @return what tft::open returns, which can only tell you the SPI pins
-       *         were valid - see the note in st77xx.h about the panel being
-       *         write-only
+       *         were valid - see the note in drivers/display.hxx about the
+       *         panel being write-only
        */
       [[nodiscard]] static Bool open(Canvas* cv, tft::Screen* panel, const Int32 w, const Int32 h, const Int32 xoff, const Int32 yoff)
       {

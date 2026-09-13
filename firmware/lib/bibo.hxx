@@ -17,12 +17,16 @@
  *
  * ---- the layers ------------------------------------------------------------
  *
- *   shared.hxx            the vocabulary: Int32, Bool, Void, Utf8, CharSeq.
+ *   shared.hxx           the vocabulary: Int32, Bool, Void, Utf8, CharSeq.
  *                        NOT in namespace bibo - it is the spelling the whole
- *                        project uses, the hub included.
- *   hal.hxx              the board: gpio, pwm, i2c, spi, serial, led, radio,
- *                        adc, watchdog, timing, board. Nothing above knows
- *                        which pins exist.
+ *                        project uses.
+ *   hal.hxx              the board: gpio, uart, pwm, servo, i2c, spi, serial,
+ *                        led, radio, adc, watchdog, timing, board. Nothing
+ *                        above knows which pins exist.
+ *   pins.hxx             pins:: - the car's pin map, which fails the build
+ *                        when two roles claim one pad.
+ *   boot.hxx             boot:: - opens the console and installs the pin map,
+ *                        or stops, visibly.
  *   text.hxx             text:: - the string handling this project does.
  *                        Stateless.
  *   status.hxx           status:: - the onboard LED as something readable
@@ -32,6 +36,20 @@
  *   cue.hxx              cue:: - what the car SAYS: indicating, braking, a
  *                        headlight flash. Decides; lights emits.
  *   net.hxx              net:: - the same command link, over Wi-Fi.
+ *
+ *   sfx.hxx              sfx:: - which numbered clip on the card is which.
+ *   drivers/dfplayer.hxx dfplayer:: - the DFPlayer Mini over UART.
+ *   sound.hxx            sound:: - the car's voice, asked for by name.
+ *
+ *   geom.hxx             geom:: - poses and angles.
+ *   kinematics.hxx       kin:: - the wheelbase and the steering lock.
+ *   pursuit.hxx          pursuit:: - pure pursuit along a path.
+ *   plan.hxx             plan:: - speed and acceleration limits along a route.
+ *   control.hxx          control:: - PID and feedforward.
+ *   chassis/odom.hxx     odom:: - sensor ticks to meters.
+ *                        Pure arithmetic with no SDK, so they compile off the
+ *                        board too - in the host tests, and all but odom in
+ *                        the pilot.
  *
  *   drivers/display.hxx  tft:: - an ST7789 / ST7735 panel over SPI. THE PANEL:
  *                        its size, its pads, and the things that are true of
@@ -47,10 +65,9 @@
  *   drivers/range.hxx    tof:: - a VL53L1X time-of-flight sensor over I2C.
  *   drivers/storage.hxx  sd:: - an SD card over SPI.
  *
- *   chassis/cal.hxx      this car's measured numbers. GENERATED - written by
- *                        the hub's Drive view, not by hand. Macros, so not in
- *                        a namespace: the preprocessor has finished before C++
- *                        has heard of one.
+ *   chassis/cal.hxx      this car's measured numbers, the ones the Pico boots
+ *                        with. Macros, so not in a namespace: the preprocessor
+ *                        has finished before C++ has heard of one.
  *   chassis/chassis.hxx  drive:: - steering and throttle, in fractions rather
  *                        than microseconds. The only thing that reads cal.
  *
@@ -62,9 +79,8 @@
  * ---- naming ----------------------------------------------------------------
  *
  * Everything is in namespace bibo, and inside it every module is a namespace of
- * its own - gpio, pwm, i2c, spi, serial, led, radio, adc, watchdog, timing,
- * board, text, status, lights, cue, net, tft, gfx, tof, sd, drive. So a call
- * site says which layer it reaches into without anyone having to look it up:
+ * its own, named in the list above. So a call site says which layer it reaches
+ * into without anyone having to look it up:
  *
  *     bibo::gpio::write(28, true);
  *     bibo::drive::stop();
@@ -77,15 +93,15 @@
  * file at a time, which is exactly how the prefixes decayed before anything
  * checked them.
  *
- * A SKETCH may open it - `using namespace bibo;` - and firmware/scratch does.
- * One file, linking nothing else, whose whole purpose is to be the easy thing.
+ * A SKETCH may open it - `using namespace bibo;` - and every file in
+ * firmware/sketches does: one file whose whole purpose is to be the easy thing.
  * app/main.cxx does not.
  * -------------------------------------------------------------------------
  */
 /*
  * EVERY PROJECT INCLUDE IN THIS LIBRARY IS RELATIVE TO THE FILE THAT WRITES IT.
  *
- * "../hal.h" from lib/drivers/, not "hal.h". Uglier, and it resolves for a tool
+ * "../hal.hxx" from lib/drivers/, not "hal.hxx". Uglier, and it resolves for a tool
  * that has loaded nothing: a quoted include is searched next to the including
  * file first, so a driver naming a header one directory up must say so. The
  * bare spelling needs -Ifirmware/lib, which comes from the CMake project - and

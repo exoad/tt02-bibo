@@ -3,8 +3,8 @@
  * net - the same command link, over Wi-Fi.
  *
  * One UDP datagram is one command line, in exactly the text the USB console
- * already speaks, so the command table, the console and the hub keep working
- * without knowing which way a line arrived.
+ * already speaks, so the command table and the console keep working without
+ * knowing which way a line arrived.
  *
  * It JOINS a network rather than making one: access-point mode needs a DHCP
  * server and lwIP ships a client only. Credentials never live in this
@@ -40,7 +40,7 @@ namespace bibo
   namespace net
   {
 
-    /* Arbitrary, above the registered range, and the same number hub/src/pico_link.hxx uses. */
+    /* Arbitrary, above the registered range. */
 #define NET_PORT 4242
 
     /* One line's worth. The same 128 as main.c's LINE_CAP. */

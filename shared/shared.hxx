@@ -37,14 +37,14 @@
 //
 // The counterpart is firmware/lib/shared.hxx - same name on purpose, because it
 // is the same idea for the other side. They are kept in step by hand and
-// deliberately do not share a file - not because one is C any more (the firmware
-// is C++ now too), but because the firmware is freestanding: no heap, no
-// exceptions, no STL. Every template below would be unusable there, and a header
-// that tried to serve both would be mostly #ifdef.
+// deliberately do not share a file, because the firmware is freestanding: no
+// heap, no exceptions, no STL. Every template below would be unusable there, and
+// a header that tried to serve both would be mostly #ifdef.
 //
-// Nothing includes both, and nothing can: the hub puts only ../shared on its
-// include path and firmware targets only firmware/lib, so `#include
-// "shared.hxx"` resolves to exactly one file on each side.
+// The pilot includes both: this one through its include path, and the
+// firmware's beside any firmware/lib header it names. An alias may be
+// redeclared only as the type it already names, so every name the two files
+// share must name the same type in each, or the pilot stops compiling.
 // ---------------------------------------------------------------------------
 #pragma once
 

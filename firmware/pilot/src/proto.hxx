@@ -1,18 +1,16 @@
 // The car's line protocol, read and written from the companion board.
 //
 // The Pico speaks newline-terminated ASCII in both directions and has done
-// since long before there was anything but a person typing at it. The hub is
-// one client of that protocol; the Orange Pi is about to be a second. Nothing
-// here invents a wire format - it reads the one that already exists.
+// since long before there was anything but a person typing at it. Nothing here
+// invents a wire format - it reads the one that already exists.
 //
 // ---------------------------------------------------------------------------
 // WHY THE COMPANION SPEAKS THE HUMAN PROTOCOL
 //
 // A binary protocol between two computers is the obvious choice and it is the
 // wrong one here. The text protocol is already implemented on the board, is
-// already carried over both USB CDC and UDP (see hub/src/pico_link.hxx, which
-// swaps transports under one send()/drain() precisely because the payload is
-// text), and can be driven by hand when something is wrong. A second format
+// already carried over both USB CDC and UDP, and can be driven by hand when
+// something is wrong. A second format
 // would mean a second parser in the firmware, on a board whose flash is the
 // scarce resource, to save bytes on a link that carries a few hundred a second.
 //
@@ -28,8 +26,8 @@
 //
 // Fields are read BY NAME rather than by position, so a field added to the
 // firmware later is ignored by an older reader instead of shifting everything
-// after it. That convention already exists in the hub; what does not exist
-// there is a reader that respects token boundaries - see field().
+// after it. What that needs is a reader that respects token boundaries - see
+// field().
 //
 // ---------------------------------------------------------------------------
 // Pure: no sockets, no serial, no clock. That is what makes it testable on a

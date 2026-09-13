@@ -1,8 +1,5 @@
 // The companion board's link to the car.
 //
-// Same lines as hub/src/pico_link.hxx moves, from the other side of the cable.
-// The hub is a person's client; this is the autonomy's.
-//
 // ---------------------------------------------------------------------------
 // WHAT IMPLEMENTS IT
 //
@@ -22,10 +19,10 @@
 // ---------------------------------------------------------------------------
 // THE TRANSPORTS
 //
-//   USB CDC   the Pico appears as /dev/ttyACM0. Same cable the hub uses, moved
-//             from the laptop to the Pi. This is the one written first: it is
-//             the link that exists on a bench with no network. The Pico's CDC
-//             ignores the baud rate; 115200 is convention, not protocol.
+//   USB CDC   the Pico appears as /dev/ttyACM0. This is the one written first:
+//             it is the link that exists on a bench with no network. The
+//             Pico's CDC ignores the baud rate; 115200 is convention, not
+//             protocol.
 //   UDP       the firmware's WIFI JOIN already carries the same text lines, so
 //             a Pi on the same network could drive a car it is not wired to.
 //             Not written. Untested end to end - the laptop here is on 5 GHz
@@ -49,8 +46,7 @@ namespace carlink
       RESULT_NO_PLATFORM,
 
       // Three different absences at open(), told apart because each sends a
-      // person to a different place - the same rule hub/src/devlink.hxx
-      // states for the hub. "Unplugged" is not "broken".
+      // person to a different place. "Unplugged" is not "broken".
       RESULT_NO_PORT,        // the named device is not there: check the cable
       RESULT_DENIED,         // it is there and we may not open it: check groups
       RESULT_BUSY,           // it is there and another program holds it: close that
@@ -125,7 +121,7 @@ namespace carlink
   //
   // Every call is counted exactly once, as transmitted or as dropped, so
   //     calls to send() == txLines() + dropped()
-  // holds whenever anyone looks - the invariant hub/src/pico_link.hxx keeps.
+  // holds whenever anyone looks.
   // A line sent with no link is dropped, not skipped: a stop that went nowhere
   // has to show up in a number somewhere.
   [[nodiscard]] Result send(const Str& line);

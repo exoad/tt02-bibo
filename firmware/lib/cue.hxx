@@ -24,8 +24,7 @@
  *
  * Everything the rules read is passed IN rather than reached for. Feed it the
  * ACTUAL servo and ESC output, not the targets: the slew limiter means the two
- * differ for about a second after every command. The CONTINUOUS rules are
- * mirrored in hub/src/lights.hxx with deliberately identical constants.
+ * differ for about a second after every command.
  * -------------------------------------------------------------------------
  */
 #pragma once
@@ -66,7 +65,7 @@ namespace bibo::cue
 
     /* ---- the continuous rules' constants ------------------------------------ */
 
-    /* Milli-units of travel. 450/280 are the hub's 0.45/0.28, on purpose. */
+    /* Milli-units of travel. */
 #define CUE_TURN_ON_MILLI  450
 #define CUE_TURN_OFF_MILLI 280
 
