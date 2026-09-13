@@ -171,12 +171,7 @@ namespace camview
             ++v.decodeFailures;
             Array<Char, 96> t = {};
             const UInt32 codec = shot.codec;
-            std::snprintf(
-                t.data(),
-                t.size(),
-                "codec %u is not JPEG",
-                codec
-            );
+            std::snprintf(t.data(), t.size(), "codec %u is not JPEG", codec);
             v.decodeWhy = Str(t.data());
             releaseTexture(v);
             // Marked shown AFTER the release, and that order is load-bearing:
@@ -339,7 +334,11 @@ namespace camview
         // t*t, not t: a reversing camera's guides barely move at the bumper and
         // sweep hardest at the far end, because that is where a given steering
         // angle has had the most distance to act.
-        return screenOf(p, nearX + ((farX - nearX) * t) + (bend * t * t), r.nearY + ((r.farY - r.nearY) * t));
+        return screenOf(
+            p,
+            nearX + ((farX - nearX) * t) + (bend * t * t),
+            r.nearY + ((r.farY - r.nearY) * t)
+        );
     }
 
     // THE REVERSING GUIDES: two rails converging toward a far end the operator
@@ -801,12 +800,7 @@ namespace camview
       if(shot->worstGapMs > 0)
       {
           Array<Char, 96> band = {};
-          std::snprintf(
-              band.data(),
-              band.size(),
-              "%lld ms",
-              shot->staleAtMs
-          );
+          std::snprintf(band.data(), band.size(), "%lld ms", shot->staleAtMs);
           readout("stale after", band.data());
       }
 

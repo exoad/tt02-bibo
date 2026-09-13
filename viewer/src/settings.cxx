@@ -286,7 +286,14 @@ namespace settings
           return legacyPath();
       }
       WidePath full = {};
-      if(std::swprintf(full.data(), full.size(), L"%ls\\%ls\\%ls", appData.data(), DIR_NAME, FILE_NAME) < 0)
+      if(std::swprintf(
+          full.data(),
+          full.size(),
+          L"%ls\\%ls\\%ls",
+          appData.data(),
+          DIR_NAME,
+          FILE_NAME
+      ) < 0)
       {
           return legacyPath();
       }

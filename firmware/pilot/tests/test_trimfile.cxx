@@ -64,7 +64,10 @@ static Void testRemember()
 
     check(trimfile::remember(s, "ESCREVERSE 1350"), "a reverse limit is stored");
     checkStr(s.escReverse, "ESCREVERSE 1350", "as the line itself");
-    check(trimfile::remember(s, "ESCREVERSE 1500"), "neutral is a reverse limit too - it is reverse off");
+    check(
+        trimfile::remember(s, "ESCREVERSE 1500"),
+        "neutral is a reverse limit too - it is reverse off"
+    );
 
     std::printf("\n-- which lines are refused --\n");
     trimfile::Store r;
@@ -73,9 +76,15 @@ static Void testRemember()
     check(!trimfile::remember(r, "SERVOLIMITS 1660 1230"), "servo limits in the wrong order");
     check(!trimfile::remember(r, "ESCLIMITS 1500 2100"), "an ESC limit past the hard maximum");
     check(!trimfile::remember(r, "ESCLIMITS 900 1600"), "and one below the hard minimum");
-    check(!trimfile::remember(r, "SERVOLIMITS 400 1600"), "and a servo limit below its hard minimum");
+    check(
+        !trimfile::remember(r, "SERVOLIMITS 400 1600"),
+        "and a servo limit below its hard minimum"
+    );
     check(!trimfile::remember(r, "SLEW 0"), "a slew of zero");
-    check(!trimfile::remember(r, "ESCREVERSE 1600"), "a reverse limit above neutral, which would be a forward pulse");
+    check(
+        !trimfile::remember(r, "ESCREVERSE 1600"),
+        "a reverse limit above neutral, which would be a forward pulse"
+    );
     check(!trimfile::remember(r, "ESCREVERSE 900"), "and one below the hard minimum");
     check(!trimfile::remember(r, "SLEW SIDEWAYS 10"), "a slew for no axis the Pico has");
     check(!trimfile::remember(r, "STEER 0.500"), "a motion command, which is not trim");
@@ -114,7 +123,10 @@ static Void testOrderAndText()
         "SERVOLIMITS 1230 1660; ESCLIMITS 1564 1700; SERVOTRIM 1480; SLEW STEER 22; SLEW THROTTLE 14",
         "the report a viewer is told is the same lines in the same order, on one line"
     );
-    check(trimfile::report(trimfile::Store()).empty(), "and a car nobody has tuned reports nothing");
+    check(
+        trimfile::report(trimfile::Store()).empty(),
+        "and a car nobody has tuned reports nothing"
+    );
 
     const Str edited =
         "# a comment\n"
@@ -124,7 +136,11 @@ static Void testOrderAndText()
         "SERVOTRIM banana\n"
         "ESCLIMITS 1550 1690";
     const trimfile::Store hand = trimfile::parse(edited);
-    checkStr(hand.servoTrim, "SERVOTRIM 1470", "a hand-edited file keeps its valid lines, CRLF and all");
+    checkStr(
+        hand.servoTrim,
+        "SERVOTRIM 1470",
+        "a hand-edited file keeps its valid lines, CRLF and all"
+    );
     checkStr(hand.escLimits, "ESCLIMITS 1550 1690", "including a last line with no newline");
     check(trimfile::lines(hand).size() == 2u, "and nothing else - not the ARM, not the typo");
 }

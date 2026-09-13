@@ -1448,7 +1448,10 @@ Int32 main()
             const Size len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 22);
 
-            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "reversed servo limits are answered");
+            check(
+                w.nextOf(bibowire::Type::TYPE_CMDACK, 1000),
+                "reversed servo limits are answered"
+            );
             bibowire::CmdAck ack;
             check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "the ack decodes");
             check(ack.result == 1, "and refused - both ends are in range, the ORDER is not");
@@ -1486,7 +1489,10 @@ Int32 main()
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 24);
             check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a reverse limit is answered");
             bibowire::CmdAck ack;
-            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 0, "and 1350 is taken");
+            check(
+                bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 0,
+                "and 1350 is taken"
+            );
             check(
                 viewfeed::tune(&t) && t.verb == bibowire::Verb::VERB_SET_ESC_REVERSE && t.arg1 == 1350,
                 "and reaches the tick intact"
@@ -1496,16 +1502,31 @@ Int32 main()
             m.arg1 = bibowire::ESC_NEUTRAL_US;
             len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 25);
-            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "neutral as a reverse limit is answered");
-            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 0, "and taken - it is reverse off");
-            check(viewfeed::tune(&t) && t.arg1 == bibowire::ESC_NEUTRAL_US, "and queued as neutral");
+            check(
+                w.nextOf(bibowire::Type::TYPE_CMDACK, 1000),
+                "neutral as a reverse limit is answered"
+            );
+            check(
+                bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 0,
+                "and taken - it is reverse off"
+            );
+            check(
+                viewfeed::tune(&t) && t.arg1 == bibowire::ESC_NEUTRAL_US,
+                "and queued as neutral"
+            );
 
             m.cmdId = 13;
             m.arg1 = 1600;
             len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 26);
-            check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a reverse limit above neutral is answered");
-            check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 1, "and refused");
+            check(
+                w.nextOf(bibowire::Type::TYPE_CMDACK, 1000),
+                "a reverse limit above neutral is answered"
+            );
+            check(
+                bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack) && ack.result == 1,
+                "and refused"
+            );
             check(!viewfeed::tune(&t), "and nothing was queued");
         }
 
@@ -1574,7 +1595,15 @@ Int32 main()
             for(Int32 i = 0; i < 40; ++i)
             {
                 const UInt32 seq = first + static_cast<UInt32>(i);
-                udp.controlAs(port, session, seq, bibowire::BUTTON_ENABLE, mode, 400, epoch);
+                udp.controlAs(
+                    port,
+                    session,
+                    seq,
+                    bibowire::BUTTON_ENABLE,
+                    mode,
+                    400,
+                    epoch
+                );
                 sleepMs(50);
                 if(udp.newest(&st) && st.ackSeq >= first && st.refuse == want)
                 {
@@ -1661,7 +1690,15 @@ Int32 main()
             for(Int32 t = 0; t < ms; t += 40)
             {
                 static_cast<Void>(udp.newest(&st));
-                udp.controlAs(port, session, ++seq, bibowire::BUTTON_ENABLE, manual, 0, st.armEpoch);
+                udp.controlAs(
+                    port,
+                    session,
+                    ++seq,
+                    bibowire::BUTTON_ENABLE,
+                    manual,
+                    0,
+                    st.armEpoch
+                );
                 sleepMs(40);
             }
             static_cast<Void>(udp.newest(&st));
@@ -1692,7 +1729,15 @@ Int32 main()
                 }
                 if(streaming)
                 {
-                    udp.controlAs(port, session, ++seq, bibowire::BUTTON_ENABLE, manual, 0, st.armEpoch);
+                    udp.controlAs(
+                        port,
+                        session,
+                        ++seq,
+                        bibowire::BUTTON_ENABLE,
+                        manual,
+                        0,
+                        st.armEpoch
+                    );
                 }
                 sleepMs(20);
             }
@@ -1706,68 +1751,125 @@ Int32 main()
         bibowire::CmdAck ack;
 
         // ---- the refusals ----
-        check(command(obs, watcher, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an observer's ARM is answered");
-        check(ack.result == 1 && has(ack.text, "holding"), "and refused - you cannot arm a car you are not holding");
+        check(
+            command(obs, watcher, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "an observer's ARM is answered"
+        );
+        check(
+            ack.result == 1 && has(ack.text, "holding"),
+            "and refused - you cannot arm a car you are not holding"
+        );
         check(!viewfeed::drive().armed, "and nothing is armed");
 
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "the driver's ARM with no stream is answered");
-        check(ack.result == 1 && has(ack.text, "live"), "and refused for the stream, in those words");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "the driver's ARM with no stream is answered"
+        );
+        check(
+            ack.result == 1 && has(ack.text, "live"),
+            "and refused for the stream, in those words"
+        );
 
         stream(200);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM 200 ms into the stream is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "an ARM 200 ms into the stream is answered"
+        );
         check(ack.result == 1 && !viewfeed::drive().armed, "and refused - REARM_STREAM_MS is 500");
 
         stream(450);
         const UInt8 wrong = static_cast<UInt8>(st.armEpoch + 1u);
-        check(command(w, session, bibowire::Verb::VERB_ARM, wrong, &ack), "an ARM under a stale epoch is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, wrong, &ack),
+            "an ARM under a stale epoch is answered"
+        );
         check(ack.result == 1 && has(ack.text, "epoch"), "and refused, naming the epoch");
 
         // ---- granted ----
         stream(80);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "a proper ARM is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "a proper ARM is answered"
+        );
         check(ack.result == 0, "and GRANTED");
         check(viewfeed::drive().armed, "and drive() says so to the tick");
 
         // ---- estop takes it, and recovery is three deliberate steps ----
-        check(command(w, session, bibowire::Verb::VERB_ESTOP, st.armEpoch, &ack), "ESTOP is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ESTOP, st.armEpoch, &ack),
+            "ESTOP is answered"
+        );
         check(!viewfeed::drive().armed, "and the ARM is gone the moment it latches");
         stream(120);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM while latched is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "an ARM while latched is answered"
+        );
         check(ack.result == 1 && has(ack.text, "estop"), "and refused until CLEAR_ESTOP");
-        check(command(w, session, bibowire::Verb::VERB_CLEAR_ESTOP, st.armEpoch, &ack), "CLEAR_ESTOP is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_CLEAR_ESTOP, st.armEpoch, &ack),
+            "CLEAR_ESTOP is answered"
+        );
         check(!viewfeed::drive().armed, "and it does NOT re-arm the car");
         stream(120);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM after clearing is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "an ARM after clearing is answered"
+        );
         check(ack.result == 0 && viewfeed::drive().armed, "and granted - the third step");
 
         // ---- DISARM from anybody ----
-        check(command(obs, watcher, bibowire::Verb::VERB_DISARM, 0, &ack), "an OBSERVER's DISARM is answered");
-        check(ack.result == 0 && !viewfeed::drive().armed, "and it disarms - making the car safer is not a privilege");
+        check(
+            command(obs, watcher, bibowire::Verb::VERB_DISARM, 0, &ack),
+            "an OBSERVER's DISARM is answered"
+        );
+        check(
+            ack.result == 0 && !viewfeed::drive().armed,
+            "and it disarms - making the car safer is not a privilege"
+        );
 
         // ---- a Pico link going down takes it ----
         stream(120);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "re-armed for the link test");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "re-armed for the link test"
+        );
         check(ack.result == 0, "and granted");
         bibowire::BoardState noPico = board;
         noPico.picoLink = 0u;
         viewfeed::publishBoard(noPico);
         check(settles(false, 500, true), "a BOARD saying the Pico link is down takes the ARM");
         stream(120);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM with no Pico is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "an ARM with no Pico is answered"
+        );
         check(ack.result == 4, "and refused - no arm into a closed port");
-        check(command(w, session, bibowire::Verb::VERB_DISARM, st.armEpoch, &ack), "a DISARM with no Pico is answered");
-        check(ack.result == 4, "with result 4: disarmed here, the Pico's own deadman does the rest");
+        check(
+            command(w, session, bibowire::Verb::VERB_DISARM, st.armEpoch, &ack),
+            "a DISARM with no Pico is answered"
+        );
+        check(
+            ack.result == 4,
+            "with result 4: disarmed here, the Pico's own deadman does the rest"
+        );
         viewfeed::publishBoard(board);
         sleepMs(60);
 
         // ---- the deadman takes it, and a resumed stream does NOT give it back ----
         stream(120);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "re-armed for the deadman test");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "re-armed for the deadman test"
+        );
         check(ack.result == 0, "and granted");
         check(settles(false, 800, false), "a stream that stops past CONTROL_DEAD_MS takes the ARM");
         stream(600);
         check(!viewfeed::drive().armed, "and the stream RESUMING does not give it back");
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "only a fresh ARM does");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "only a fresh ARM does"
+        );
         check(ack.result == 0 && viewfeed::drive().armed, "and it is granted");
 
         // ---- not manual ----
@@ -1775,7 +1877,10 @@ Int32 main()
         driving.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
         viewfeed::publishBoard(driving);
         stream(120);
-        check(command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack), "an ARM while the autonomy drives is answered");
+        check(
+            command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
+            "an ARM while the autonomy drives is answered"
+        );
         check(ack.result == 3, "and refused - a viewer arms only a car it is driving");
         viewfeed::publishBoard(board);
         sleepMs(60);
@@ -1885,7 +1990,10 @@ Int32 main()
         check(later.connect(port), "a second viewer connects after that");
         check(handshake(later, 0, 0) != 0u, "and is welcomed");
         text.clear();
-        check(nextTrim(later, text), "and is told it too, on WELCOME - not left waiting for the next save");
+        check(
+            nextTrim(later, text),
+            "and is told it too, on WELCOME - not left waiting for the next save"
+        );
         checkStr(text, "SERVOTRIM 1485", "the same report");
 
         viewfeed::publishTrim("SERVOLIMITS 1230 1660; SERVOTRIM 1490");

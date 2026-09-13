@@ -706,7 +706,10 @@ namespace driveview
               {
                   resetSteer(v, "the board is no longer armed");
               }
-              noteEnabled(*armedNow, *armedNow ? "the board confirmed ARM" : "the board is no longer armed");
+              noteEnabled(
+                  *armedNow,
+                  *armedNow ? "the board confirmed ARM" : "the board is no longer armed"
+              );
           }
       }
 

@@ -1244,7 +1244,10 @@ static Void testIdleTestIntent()
 
     v.idleTest = true;
     const link::Intent off = driveview::intentFrom(w, v);
-    check((off.buttons & bibowire::BUTTON_IDLE_TEST) == 0u, "without the enable there is no idle test on the wire");
+    check(
+        (off.buttons & bibowire::BUTTON_IDLE_TEST) == 0u,
+        "without the enable there is no idle test on the wire"
+    );
 
     v.enabled = true;
     const link::Intent on = driveview::intentFrom(w, v);
@@ -1277,7 +1280,10 @@ static Void testBoardTrim()
     static_cast<Void>(feed(s, wire, 1000));
     check(s.haveBoardTrim, "an EVENT under EVENT_CODE_TRIM is kept as the board's saved trim");
     checkStr(s.boardTrimText, FULL, "verbatim");
-    check(s.boardTrimCount == 1u && s.boardTrimAtMs == 1000, "counted and stamped, so the pane takes it once");
+    check(
+        s.boardTrimCount == 1u && s.boardTrimAtMs == 1000,
+        "counted and stamped, so the pane takes it once"
+    );
     check(
         s.notes.size() == 1 && s.notes[0].text.rfind("trim saved on the board: ", 0) == 0,
         "and listed in words as a note"
@@ -1288,19 +1294,29 @@ static Void testBoardTrim()
     Vec<UInt8> other;
     static_cast<Void>(pushEvent(other, "SERVOTRIM 1500", 0));
     static_cast<Void>(feed(s, other, 1010));
-    checkStr(s.boardTrimText, FULL, "an EVENT under another code is not taken as trim, whatever its text");
+    checkStr(
+        s.boardTrimText,
+        FULL,
+        "an EVENT under another code is not taken as trim, whatever its text"
+    );
     check(s.boardTrimCount == 1u, "and is not counted as a report");
 
     Vec<UInt8> none;
     static_cast<Void>(pushEvent(none, "", 0, bibowire::EVENT_CODE_TRIM));
     static_cast<Void>(feed(s, none, 1020));
-    check(s.haveBoardTrim && s.boardTrimText.empty(), "an empty report says the board has nothing saved");
+    check(
+        s.haveBoardTrim && s.boardTrimText.empty(),
+        "an empty report says the board has nothing saved"
+    );
     check(s.boardTrimCount == 2u, "and is a report of its own");
 
     // ---- into the sliders ----
     trimview::View v;
     check(trimview::adoptReport(v, FULL) == 5, "all five settings are taken");
-    check(v.steerMinUs == 1200 && v.steerMaxUs == 1700 && v.steerTrimUs == 1470, "the steering limits and centre");
+    check(
+        v.steerMinUs == 1200 && v.steerMaxUs == 1700 && v.steerTrimUs == 1470,
+        "the steering limits and centre"
+    );
     check(v.escMinUs == 1564 && v.escMaxUs == 1700, "the throttle limits");
     check(v.steerSlewUs == 22 && v.throttleSlewUs == 14, "and both rates, each on its own axis");
 
@@ -1311,11 +1327,20 @@ static Void testBoardTrim()
     );
     check(rev.escReverseUs == 1350, "at the pulse the board saved");
     trimview::View revHigh;
-    check(trimview::adoptReport(revHigh, "ESCREVERSE 1600") == 1, "a reverse limit above neutral is still read");
-    check(revHigh.escReverseUs == trimview::ESC_REVERSE_DEFAULT, "and settled back to off, never a forward pulse");
+    check(
+        trimview::adoptReport(revHigh, "ESCREVERSE 1600") == 1,
+        "a reverse limit above neutral is still read"
+    );
+    check(
+        revHigh.escReverseUs == trimview::ESC_REVERSE_DEFAULT,
+        "and settled back to off, never a forward pulse"
+    );
 
     trimview::View part;
-    check(trimview::adoptReport(part, "SERVOTRIM 1490") == 1, "a board that saved only a centre gives one setting");
+    check(
+        trimview::adoptReport(part, "SERVOTRIM 1490") == 1,
+        "a board that saved only a centre gives one setting"
+    );
     check(
         part.steerTrimUs == 1490
             && part.steerMinUs == trimview::STEER_MIN_DEFAULT
@@ -1338,7 +1363,10 @@ static Void testBoardTrim()
     );
 
     trimview::View wild;
-    check(trimview::adoptReport(wild, "ESCLIMITS 900 3000") == 1, "limits past the hard range are taken");
+    check(
+        trimview::adoptReport(wild, "ESCLIMITS 900 3000") == 1,
+        "limits past the hard range are taken"
+    );
     check(
         wild.escMinUs == static_cast<Int32>(bibowire::ESC_US_HARD_MIN)
             && wild.escMaxUs == static_cast<Int32>(bibowire::ESC_US_HARD_MAX),
@@ -1347,7 +1375,10 @@ static Void testBoardTrim()
 
     trimview::View blank;
     check(trimview::adoptReport(blank, "") == 0, "an empty report takes nothing");
-    check(blank.steerTrimUs == trimview::STEER_CENTRE_DEFAULT, "and leaves the laptop's copy standing");
+    check(
+        blank.steerTrimUs == trimview::STEER_CENTRE_DEFAULT,
+        "and leaves the laptop's copy standing"
+    );
 }
 
 static Void testSubscriptionMask()
@@ -1852,7 +1883,10 @@ static Void testDriveKeys()
 
     // S IS THE TRIGGER PUSHED FORWARD: minus the cap, which this ESC takes as a
     // brake and then, after a return to neutral, as reverse.
-    check(driveview::throttleFrom(s, 300) == -300, "S alone is minus the cap - brake, then reverse");
+    check(
+        driveview::throttleFrom(s, 300) == -300,
+        "S alone is minus the cap - brake, then reverse"
+    );
     check(driveview::throttleFrom(s, 5000) == -1000, "clamped to full scale like W");
     check(driveview::throttleFrom(s, 0) == 0, "and with a cap of zero S is a plain stop");
 
@@ -1920,14 +1954,23 @@ static Void testSteerHeld()
     check(frames == 42, "in 42 frames of 16 ms - the rate's 666 ms plus one partial frame");
     check(heldAfter(1000, d, 100) == 1000, "D held at full right stays there");
     check(heldAfter(-990, a, 100) == -1000, "A near full left clamps to it rather than past it");
-    check(heldAfter(3000, none, 16) == 976, "a value out of range is clamped first, then springs back");
+    check(
+        heldAfter(3000, none, 16) == 976,
+        "a value out of range is clamped first, then springs back"
+    );
 
     // SPRINGS BACK ON RELEASE, at the same rate. Asked for in as many words -
     // "once A or D are released the steering should go back to centre" - after
     // a held steering that stayed put was tried and was the wrong answer.
-    check(heldAfter(-420, none, 100) == -270, "releasing both keys moves the wheel back toward centre at the rate");
+    check(
+        heldAfter(-420, none, 100) == -270,
+        "releasing both keys moves the wheel back toward centre at the rate"
+    );
     check(heldAfter(-420, none, 16) == -396, "a 16 ms frame at a time, the way a game's does");
-    check(heldAfter(420, both, 100) == 270, "A and D together return toward centre too, rather than picking one");
+    check(
+        heldAfter(420, both, 100) == 270,
+        "A and D together return toward centre too, rather than picking one"
+    );
     check(heldAfter(100, none, 100) == 0, "and it stops AT centre rather than swinging past it");
     check(heldAfter(-5, none, 100) == 0, "from the other side as well");
     check(heldAfter(0, none, 100) == 0, "and centre with no key stays centre");
@@ -1995,7 +2038,10 @@ static Void testSettingsText()
     tuned.steerRateMilliPerS = 900;
     tuned.assumedMode = 1;
     settings::Values read;
-    check(settings::fromText(settings::toText(tuned), read) == settings::VALUE_COUNT, "a tuned set round-trips");
+    check(
+        settings::fromText(settings::toText(tuned), read) == settings::VALUE_COUNT,
+        "a tuned set round-trips"
+    );
     check(read == tuned, "unchanged");
     check(settings::settle(tuned) == tuned, "and a set inside its ranges is left alone by settle");
 
@@ -2440,7 +2486,10 @@ static Void testControlDefaults()
     // consent the deadman watches. Asking by default is the operator's choice
     // of connect-then-ARM (Client::wantSlot has the trade), held here so the
     // default cannot drift without somebody reading why it is what it is.
-    check(link::controlSlotWanted(c), "a fresh client asks for the control slot, by the operator's choice");
+    check(
+        link::controlSlotWanted(c),
+        "a fresh client asks for the control slot, by the operator's choice"
+    );
 
     const link::Intent idle = link::controlIntent(c);
     check(!idle.driving, "and is not driving");

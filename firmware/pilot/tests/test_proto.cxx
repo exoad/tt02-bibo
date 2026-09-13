@@ -163,8 +163,14 @@ Int32 main()
 
         Int32 v = 0;
         check(proto::fieldInt(r.rest, "armed=", v) && v == 1, "armed= reads the arm state");
-        check(proto::fieldInt(r.rest, "esc=", v) && v == 1560, "esc= is not esc_t=, esc_min= or esc_max=");
-        check(proto::fieldInt(r.rest, "steer_now=", v) && v == -250, "steer_now= is negative and is not steer_m=");
+        check(
+            proto::fieldInt(r.rest, "esc=", v) && v == 1560,
+            "esc= is not esc_t=, esc_min= or esc_max="
+        );
+        check(
+            proto::fieldInt(r.rest, "steer_now=", v) && v == -250,
+            "steer_now= is negative and is not steer_m="
+        );
         check(proto::fieldInt(r.rest, "slew=", v) && v == 8, "slew= is not slew_esc=");
 
         // THE BUG THIS PINS, which shipped green once. The '=' belongs to the
@@ -173,7 +179,10 @@ Int32 main()
         // every time, leaving the caller's variable at whatever it already was.
         // A guard fed by that reads as protection and measures nothing.
         v = 0;
-        check(!proto::fieldInt(r.rest, "armed", v), "a key missing its = is refused, not silently empty");
+        check(
+            !proto::fieldInt(r.rest, "armed", v),
+            "a key missing its = is refused, not silently empty"
+        );
         check(v == 0, "and it leaves the out parameter alone");
     }
     {

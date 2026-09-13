@@ -72,7 +72,14 @@ namespace trimfile
     [[nodiscard]] Str two(const Char* verb, Int32 a, Int32 b)
     {
         Array<Char, 48> t{};
-        std::snprintf(t.data(), t.size(), "%s %d %d", verb, static_cast<int>(a), static_cast<int>(b));
+        std::snprintf(
+            t.data(),
+            t.size(),
+            "%s %d %d",
+            verb,
+            static_cast<int>(a),
+            static_cast<int>(b)
+        );
         return Str(t.data());
     }
 

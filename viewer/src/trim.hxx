@@ -236,7 +236,11 @@ namespace trimview
       v.escMinUs = clampTo(v.escMinUs, hardLo, hardHi - 1);
       v.escMaxUs = clampTo(v.escMaxUs, v.escMinUs + 1, hardHi);
       // Down to the hard minimum, and up to neutral itself - which is reverse off.
-      v.escReverseUs = clampTo(v.escReverseUs, hardLo, static_cast<Int32>(bibowire::ESC_NEUTRAL_US));
+      v.escReverseUs = clampTo(
+          v.escReverseUs,
+          hardLo,
+          static_cast<Int32>(bibowire::ESC_NEUTRAL_US)
+      );
   }
 
   inline Void settleSlew(View& v)

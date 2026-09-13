@@ -472,7 +472,10 @@ namespace trimview
       if(ImGui::Checkbox("test idle", &v.idleTest))
       {
           v.idleTestSinceMs = nowMs;
-          vlog::line("trim: idle test %s", v.idleTest ? "ON - the motor is held at the idle pulse" : "OFF - unticked");
+          vlog::line(
+              "trim: idle test %s",
+              v.idleTest ? "ON - the motor is held at the idle pulse" : "OFF - unticked"
+          );
       }
       ImGui::EndDisabled();
       if(v.idleTest)
