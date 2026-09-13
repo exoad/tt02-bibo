@@ -246,8 +246,11 @@ static Void testWord(Void)
     check(bibo::text::word("PING", "PING") != nullptr, "a bare command matches");
     check(bibo::text::eq(bibo::text::word("PING", "PING"), ""), "and its argument is empty");
 
-    check(bibo::text::eq(bibo::text::word("LED ON", "LED"), "ON"), "the argument follows");
-    check(bibo::text::eq(bibo::text::word("LED   ON", "LED"), "ON"), "extra spaces are skipped");
+    check(bibo::text::eq(bibo::text::word("SERVO ON", "SERVO"), "ON"), "the argument follows");
+    check(
+        bibo::text::eq(bibo::text::word("SERVO   ON", "SERVO"), "ON"),
+        "extra spaces are skipped"
+    );
     check(bibo::text::eq(bibo::text::word("SLEW 8", "SLEW"), "8"), "a number argument");
 
     /* The whole point. */
@@ -273,9 +276,9 @@ static Void testWord(Void)
     check(bibo::text::word(nullptr, "PING") == nullptr, "nullptr input is refused");
     check(bibo::text::word("PING", nullptr) == nullptr, "nullptr word is refused");
 
-    /* TOF's subcommand goes through the same function a second time. */
+    /* A subcommand goes through the same function a second time. */
     check(
-        bibo::text::eq(bibo::text::word(bibo::text::word("TOF MODE LONG", "TOF"), "MODE"), "LONG"),
+        bibo::text::eq(bibo::text::word(bibo::text::word("SLEW STEER 4", "SLEW"), "STEER"), "4"),
         "a subcommand nests"
     );
 }

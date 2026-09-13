@@ -60,7 +60,7 @@ namespace proto
   {
       Kind kind = Kind::KIND_EMPTY;
 
-      // The word after OK or INFO - "drive", "status", "sound". Empty for ERR,
+      // The word after OK or INFO - "drive", "stop", "esc". Empty for ERR,
       // whose remainder is prose rather than a topic, and for OTHER.
       Str topic;
 

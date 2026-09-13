@@ -40,8 +40,8 @@
 //
 // There is not one Float32 slider in this file. ImGui prints a float through a
 // printf format whose decimal point honours the locale; a machine set to a comma
-// decimal writes "1,07", and this project has been bitten by exactly that three
-// times (proto.cxx, scanwire.cxx, and the guide percentages in camera.hxx). The
+// decimal writes "1,07", and this project has been bitten by exactly that
+// (proto.cxx, and the guide percentages in camera.hxx). The
 // wire has no floating point on it either - bibowire carries µs as UInt16 - so an
 // integer here is also the value that actually travels, with no conversion step
 // to be wrong in.

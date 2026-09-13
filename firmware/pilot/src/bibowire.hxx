@@ -185,10 +185,6 @@ namespace bibowire
   // ---------------------------------------------------------------------------
   // WHO WRITES steer and throttle - section 6's three modes.
   //
-  // They existed only as bare literals until now: `opt.dry ? 1u : 2u` in the
-  // pilot, `0/1/2` in the spec, and nothing anywhere that spelled MANUAL. So no
-  // pilot could report mode 0 and a viewer had no legitimate mode to drive in.
-  //
   // THIS IS NOT Decide::mode. That one is the autonomy's cruise / slow / stop /
   // reverse / blind, and both are small integers called "mode" in the same
   // program. Render one through the other's names and MANUAL prints as "cruise"
@@ -323,7 +319,7 @@ namespace bibowire
 
       // ---- tuning ---------------------------------------------------------
       //
-      // These carry the old hub's Drive-view trim onto this wire. They fit
+      // The viewer's Trim pane. These fit
       // arg0/arg1/arg2 exactly as they already are, so COMMAND's 16 bytes do
       // not change and a board built before these verbs existed answers them
       // with result = 2 (unknown verb) rather than misreading a field.
@@ -942,7 +938,7 @@ namespace bibowire
 
   // ---- the one shared renderer -----------------------------------------------
   //
-  // Used by biboctl, the viewer's log pane, the pilot's console and the tests'
+  // Used by the viewer's log pane, the pilot's console and the tests'
   // failure output, so a frame is printed the same way everywhere and the
   // printer cannot drift from the codec it sits beside.
   //

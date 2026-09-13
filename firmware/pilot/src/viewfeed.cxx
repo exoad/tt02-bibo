@@ -87,8 +87,7 @@ namespace viewfeed
     // JPEG start-of-image. THE ONLY FRAME BOUNDARY MJPEG GIVES: a JPEG's own
     // end marker can occur inside its payload, so a frame is whole only once
     // the NEXT one has begun. Costs exactly one frame of latency and is the
-    // reason a viewer is never handed half a picture. Lifted, with its
-    // comment, from the old status dashboard's capture code.
+    // reason a viewer is never handed half a picture.
     constexpr Array<UInt8, 3> CAM_SOI = { 0xFFu, 0xD8u, 0xFFu };
 
     // Bytes with no boundary in them are not a picture. Rather than grow
@@ -107,9 +106,9 @@ namespace viewfeed
     constexpr Size CAM_MAX_JPEG = bibowire::MAX_PAYLOAD - CAM_BODY_OVERHEAD;
 
     // A capture that dies inside a second earns a longer wait, to a ceiling of
-    // four. The old dashboard's backoff and its reason: retrying twice a second
-    // for as long as somebody leaves a subscription open is thousands of spawns
-    // an hour against a board whose whole job is elsewhere.
+    // four: retrying twice a second for as long as somebody leaves a
+    // subscription open is thousands of spawns an hour against a board whose
+    // whole job is elsewhere.
     constexpr Int32 CAM_FAIL_CEILING = 8;
     constexpr Float64 CAM_RETRY_STEP_MS = 500.0;
     constexpr Float64 CAM_RETRY_MAX_MS = 4000.0;
@@ -122,9 +121,7 @@ namespace viewfeed
     // THE DEFAULT RATE, AND WHY IT IS THIS LOW.
     //
     // Measured on this board: 640x480 MJPG comes off /dev/video0 at 25 fps and
-    // 1121 KB/s, about 45 KB a frame. docs/bibowire.md section 10 assumes a
-    // camera costs ~200 KB/s and says plainly that even that "does not fit
-    // alongside the scan on this hotspot"; viewfeed.hxx sizes the whole design
+    // 1121 KB/s, about 45 KB a frame. viewfeed.hxx sizes the whole design
     // against a 220 kbit/s link, which is 27 KB/s - less than ONE frame a
     // second.
     //
@@ -146,15 +143,8 @@ namespace viewfeed
     constexpr UInt16 CAM_WIDTH_DEFAULT = 640;
     constexpr UInt16 CAM_HEIGHT_DEFAULT = 480;
 
-    // The last 256 frame headers PER DIRECTION, dumped on any abnormal close so
-    // a disconnect can be post-mortemed from a phone over ssh.
-    //
-    // Section 8 asks for these in "a fixed 4 KiB array", which does not divide:
-    // 512 entries carrying type, len, seq, tMonoUs and a CRC verdict is 16 bytes
-    // each however they are packed, and 4 KiB buys 8-byte entries. The DEPTH and
-    // the FIELDS are what a post-mortem reads, so they are what is kept; the
-    // array is 8 KiB and this comment is the correction rather than a silently
-    // shortened ring.
+    // The last NOTE_RING frame headers PER DIRECTION, dumped on any abnormal close
+    // so a disconnect can be post-mortemed from a phone over ssh.
     constexpr Size NOTE_RING = 256;
 
     struct Note
@@ -590,9 +580,7 @@ namespace viewfeed
         DIR_OUT,
     };
 
-    // The ring and its cursor were two parameters saying one thing - which
-    // direction - in a 103-column signature. docs/conventions.md is right that
-    // the length was the symptom rather than the problem.
+    // The ring and its cursor were two parameters saying one thing: which direction.
     Void note(Dir dir, const bibowire::Head& h, Size len, UInt8 verdict)
     {
         Note n;
@@ -1328,8 +1316,8 @@ namespace viewfeed
     //
     // Four verbs that reach the car's TRIM rather than its motion: the servo's
     // end stops, its centre, the throttle's working range, and how fast either
-    // output may move. They used to live in a hub that is gone, and
-    // docs/bibowire.md section 5 is the contract they arrive under.
+    // output may move. docs/bibowire.md section 5 is the contract they arrive
+    // under.
     //
     // NOTHING HERE TOUCHES THE SERIAL PORT. This thread validates, answers the
     // operator with a CMDACK naming the value that was taken, and queues the
@@ -2443,8 +2431,7 @@ namespace viewfeed
 
         // Mirrored onto TCP while the viewer is falling back to TCP control.
         //
-        // Section 12.6 leaves this open, and it is answered here: the mirror is
-        // queued as LIVE rather than VITAL. CTLSTATE at 20 Hz that can never be
+        // The mirror is queued as LIVE rather than VITAL. CTLSTATE at 20 Hz that can never be
         // dropped would turn a two-second stall into a closed connection - the
         // exact moment the operator most needs the link - and the newest
         // CTLSTATE is the only one worth having anyway, which is what LIVE
@@ -2496,8 +2483,8 @@ namespace viewfeed
     // NOTHING RE-ENCODES, and nothing here could: there is no ffmpeg, no cv2,
     // no v4l2 binding, no PIL and no numpy on this board. One long-lived
     // v4l2-ctl streams mmap'd buffers into a pipe and this module looks for
-    // frame boundaries - the path the old dashboard's capture proved first - so
-    // the JPEGs the sensor produced are the JPEGs the viewer renders.
+    // frame boundaries, so the JPEGs the sensor produced are the JPEGs the
+    // viewer renders.
     //
     // AND IT IS CLASS_BULK, which is what makes it safe to add at all: section
     // 7's drop machinery discards a camera frame before any scan or state
@@ -2788,10 +2775,9 @@ namespace viewfeed
     //
     // AND IT IS REAPED. A killed child is not a gone child: it holds a
     // process-table slot until its parent waits on it, and this parent is a
-    // long-lived service that starts a capture every time somebody subscribes.
-    // The old dashboard's kill() carried the same one-line fix, because the
-    // failure it prevents - a board that cannot fork, including the child sshd
-    // needs to answer a connection - locks you out of the machine.
+    // long-lived service that starts a capture every time somebody subscribes,
+    // and a board that cannot fork - including the child sshd needs to answer a
+    // connection - locks you out of the machine.
     [[nodiscard]] Int32 killCamera()
     {
         if(cam.pid < 0)
@@ -2960,9 +2946,7 @@ namespace viewfeed
             // MONOTONIC, and never rewound across a capture restart. A viewer
             // that sees the number JUMP has missed frames and can say so; one
             // that sees it go backwards is being shown pictures it already has,
-            // labelled as new. The old dashboard's capture met the same hazard
-            // from the other side - a sequence that did not rewind while the
-            // frame behind it did.
+            // labelled as new.
             ++cam.frameIndex;
             cam.said = false;
         }

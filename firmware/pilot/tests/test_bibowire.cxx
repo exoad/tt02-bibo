@@ -1,6 +1,6 @@
 // bibowire's wire format and its deadman, held to their header.
 //
-//   tests\build_bibowire_test.bat run
+//   tools\test.bat bibowire run
 //
 // Pure byte work and pure arithmetic, like proto: the same object
 // file goes into the board's pilot and the Windows viewer, so what is proved

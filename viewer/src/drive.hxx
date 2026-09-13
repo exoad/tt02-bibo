@@ -68,13 +68,13 @@ namespace driveview
   // idle. So the cap is the whole of the throttle's resolution, and the useful
   // default is a crawl.
   //
-  // 100, and the arithmetic behind it: the old hub's forward key sent 1547 us
-  // absolute, and against the committed 1541..1600 band (cal.hxx, mirrored in
-  // trim.hxx) 1547 is (1547-1541)/59 of the way up, which is 102 milli. The
-  // default is the round number beside it. THE MAPPING IS THE BOARD'S, not
-  // this file's: the Pico turns throttleMilli into microseconds between the
-  // limits the Trim pane set, so moving those limits moves what 100 means. That
-  // is why the number here is a fraction and not a microsecond count.
+  // 100, and the arithmetic behind it: against the committed 1541..1600 band
+  // (cal.hxx, mirrored in trim.hxx) a 1547 us crawl is (1547-1541)/59 of the
+  // way up, which is 102 milli. The default is the round number beside it. THE
+  // MAPPING IS THE BOARD'S, not this file's: the pilot turns throttleMilli into
+  // microseconds between the forward limits the Pico reports, which the Trim
+  // pane sets, so moving those limits moves what 100 means. That is why the
+  // number here is a fraction and not a microsecond count.
   constexpr Int32 THROTTLE_CAP_DEFAULT = 100;
 
   // Full scale on this wire. bibowire refuses anything outside +-1000.

@@ -51,7 +51,7 @@ DIRS = [
 #     firmware/ is expected to become C++ and a waiver nobody can see grows.
 #   - static inline. In C that is the idiom for a header definition, not
 #     redundancy; C++ gets internal linkage from `static` alone.
-#   - .hpp: a header that must compile as C is a .h (docs/conventions.md).
+#   - .hpp: a header that must compile as C is a .h.
 C_ONLY_WAIVES = {'c-style cast', 'static inline'}
 
 # shared.hxx and shared.hxx are WHERE the aliasing happens, so they are exempt

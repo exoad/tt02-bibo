@@ -2564,9 +2564,7 @@ namespace bibowire
             return o;
         }
 
-        // Newest wins. Retransmitting a stale command is worse than dropping
-        // it, which is the conclusion docs/conventions.md already reached for
-        // the Pico link.
+        // Newest wins. Retransmitting a stale command is worse than dropping it.
         if(!newer(c.seq, g.highestSeq))
         {
             o.verdict = Verdict::VERDICT_STALE_SEQ;

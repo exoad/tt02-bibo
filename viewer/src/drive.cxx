@@ -130,10 +130,10 @@ namespace driveview
 
     // ---- the keyboard --------------------------------------------------------
 
-    // SUPPRESSED UNLESS THIS WINDOW HAS FOCUS AND NOTHING IS BEING TYPED. The
-    // old hub did this and it is not a nicety: `bibobox` typed into the host
-    // field contains an `o`, an `x` and a `b`, and one careless mapping later a
-    // hostname is a throttle command. `WantTextInput` covers a text field with a
+    // SUPPRESSED UNLESS THIS WINDOW HAS FOCUS AND NOTHING IS BEING TYPED. This
+    // is not a nicety: `bibobox` typed into the host field contains an `o`, an
+    // `x` and a `b`, and one careless mapping later a hostname is a throttle
+    // command. `WantTextInput` covers a text field with a
     // caret in it, `IsAnyItemActive` covers a slider mid-drag, and the focus
     // test covers the whole rest of the program - including the 3D view, whose
     // R key is read the same way one file over.

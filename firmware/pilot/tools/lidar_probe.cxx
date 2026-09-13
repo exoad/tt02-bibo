@@ -8,9 +8,8 @@
 // Opens the port, prints what the device says about itself, then for five
 // seconds prints one line per revolution: how many points came back, how many
 // carried a return, the nearest return and where it was, and the rotation
-// rate. Then stops the motor - also on Ctrl-C, because a lidar left spinning
-// on a desk by a program that was interrupted is the specific mess this
-// project has already made once with the hub.
+// rate. Then stops the motor - also on Ctrl-C, so an interrupted run does not
+// leave the lidar spinning on a desk.
 //
 // The rotation rate is MEASURED, from the wall clock between one revolution
 // arriving and the next, rather than asked of the SDK. The SDK's figure is

@@ -59,10 +59,9 @@ namespace lidar
   // 256000 and are not what is bolted to this car.
   //
   // The port is held EXCLUSIVELY while open (TIOCEXCL on Linux), so a second
-  // program - the pilot against the scan feed, or the reverse - is refused
+  // program - a car program against bibo-pilot, or the reverse - is refused
   // here with "another program has <port>" rather than quietly sharing one
-  // byte stream and breaking both. See guardFd in lidar.cxx for the day that
-  // was measured.
+  // byte stream and breaking both. See guardFd in lidar.cxx.
   //
   // Idempotent: a second call while open is true. false is explained by
   // reason().
@@ -83,8 +82,8 @@ namespace lidar
   // WHY the most recent open() refused, as a value a program can branch on.
   // reason() is the sentence for a person; this is the same fact for code,
   // because matching on the sentence would tie a caller to its wording.
-  // scanfeed branches on REFUSAL_HELD: a port held by another program is the
-  // pilot driving, and the right answer is to relay to it, not to say no.
+  // A caller can branch on REFUSAL_HELD: a port held by another program is
+  // usually the pilot service, which has to be stopped first.
   enum class Refusal
   {
       REFUSAL_NONE,            // the last open() succeeded, or none was tried
@@ -143,7 +142,7 @@ namespace lidar
   // is the C1's 0..63 return strength for out[i], and it is emptied on every
   // path that empties `out`, so the two can never disagree in length. A
   // pointer rather than a second overload because reactive::step does not want
-  // it and the scan feed does, and a Ray carries no quality on purpose - the
+  // it and the viewer's scan does, and a Ray carries no quality on purpose - the
   // driver reads distances, and a field it must ignore is a field it will one
   // day read by mistake.
   [[nodiscard]] Bool grab(Vec<reactive::Ray>& out, Int32 timeoutMs = 2000, Vec<UInt8>* quality = nullptr);
@@ -153,8 +152,8 @@ namespace lidar
   [[nodiscard]] Str info();
 
   // The same identity, as numbers, for a program that has to WRITE it rather
-  // than print it - the scan feed puts these on the wire one field at a time
-  // and a hub parses them back. info() is the sentence; this is the record.
+  // than print it - viewfeed puts these on the wire one field at a time.
+  // info() is the sentence; this is the record.
   //
   // model, fwMajor, fwMinor, hwRev and serial are captured at open() and do
   // not change while it is open. health is the SDK's status - 0 good, 1

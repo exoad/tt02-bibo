@@ -14,10 +14,10 @@ THE RULE
   column the call's own line starts at.
 
       bibo::serial::printf(
-          "OK sensors i2c=%d tof=%d addr=0x%02X\\n",
-          i2c,
-          tof,
-          addr
+          "INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\\n",
+          d.throttleSlewUs,
+          escPerSec,
+          fullMs
       );
 
   Not paren-alignment. Aligning to the open paren pushes arguments far to the
@@ -499,11 +499,6 @@ def sources():
     # "format 0 violations" having measured nothing at all about the one file
     # somebody is actually writing.
     #
-    # Found 2026-09-10: src/archive.cxx and tests/test_archive.cxx were clean by
-    # that reckoning and had 66 call-wrapping violations the moment they were
-    # named on the command line. The gate would have gone red on the commit that
-    # introduced them, which is the worst possible moment to learn it.
-    #
     # --others adds the untracked ones; --exclude-standard keeps .gitignore's
     # word, so build trees and vendor/ do not arrive through the back door. The
     # two lists are disjoint by definition, so nothing is checked twice.
@@ -516,10 +511,9 @@ def sources():
 
 
 def run():
-  # Named files on the command line restrict the run to those - the hub's
-  # :format hands over the one file on screen, and reformatting the whole tree
-  # for one buffer would touch files the person is not looking at. Anything on
-  # the command line that is not an existing file is a flag and is ignored here.
+  # Named files on the command line restrict the run to those, so formatting one
+  # file does not touch files the person is not looking at. Anything on the
+  # command line that is not an existing file is a flag and is ignored here.
   named = [os.path.relpath(os.path.abspath(a), os.path.abspath(ROOT))
            for a in sys.argv[1:] if os.path.isfile(a)]
   files = [f.replace(os.sep, '/') for f in named] if named else sources()
@@ -606,10 +600,8 @@ def run():
 
   if APPLY:
       print('%d file(s) rewritten' % rewritten)
-      # Non-zero when a file was REFUSED, so a caller - the hub's :format - can
-      # tell "formatted" from "left alone because the token check failed". It
-      # returned 0 either way, and the editor reported success for a file it
-      # had not touched.
+      # Non-zero when a file was REFUSED, so a caller can tell "formatted" from
+      # "left alone because the token check failed".
       return 1 if refused else 0
 
   # ---- the report --------------------------------------------------------

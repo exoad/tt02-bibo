@@ -1,32 +1,15 @@
-// The companion board's link to the car.
+// The companion board's link to the car: the Pico's USB CDC port, /dev/ttyACM0.
 //
 // ---------------------------------------------------------------------------
 // WHAT IMPLEMENTS IT
 //
 //   Linux     link.cxx, behind `#if defined(__linux__)`: POSIX termios on a
 //             serial device, raw 8N1, a reader thread that splits the byte
-//             stream into lines. Built and tested on the Orange Pi against a
-//             pseudo-terminal, because the Pico was not attached to the Pi yet.
-//             NOT yet exercised against the real board; that is the first thing
-//             to do when the cable moves.
+//             stream into lines. The Pico's CDC ignores the baud rate; 115200
+//             is convention, not protocol.
 //   others    the refusing path. open() returns RESULT_NO_PLATFORM and every
-//             other call refuses. The alternative was a stub that returns
-//             RESULT_OK and pretends the car is listening - the failure this
-//             project keeps finding in its own code, something that reports
-//             success while doing nothing - and it is far worse here than
-//             usual, because the thing silently not happening would be a STOP.
-//
-// ---------------------------------------------------------------------------
-// THE TRANSPORTS
-//
-//   USB CDC   the Pico appears as /dev/ttyACM0. This is the one written first:
-//             it is the link that exists on a bench with no network. The
-//             Pico's CDC ignores the baud rate; 115200 is convention, not
-//             protocol.
-//   UDP       the firmware's WIFI JOIN already carries the same text lines, so
-//             a Pi on the same network could drive a car it is not wired to.
-//             Not written. Untested end to end - the laptop here is on 5 GHz
-//             and the CYW43439 is 2.4 GHz only.
+//             other call refuses, rather than a stub that reports success while
+//             a STOP silently goes nowhere.
 #pragma once
 
 #include "shared.hxx"
@@ -69,11 +52,11 @@ namespace carlink
   // numbers outlive whichever transport ends up carrying them.
   struct Config
   {
-      // The device, or the car's address for UDP. "/dev/ttyACM0" on the Pi.
+      // The device. "/dev/ttyACM0" on the Pi.
       Str where;
 
-      // 115200 is what the firmware's USB CDC enumerates at. Ignored by UDP.
-      // Must be a rate termios has a name for, or open() is RESULT_OPEN_FAILED.
+      // 115200 is what the firmware's USB CDC enumerates at. Must be a rate
+      // termios has a name for, or open() is RESULT_OPEN_FAILED.
       Int32 baud = 115200;
 
       // How long a command may go unanswered before the link is called dead.

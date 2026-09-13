@@ -86,13 +86,11 @@ namespace lidar
     // answer probePort() below already knew how to read.
     //
     // Without it that branch could never fire. Linux lets any number of
-    // processes open one tty, and the SDK takes no lock, so on 2026-09-07
-    // `pilot --dry` opened /dev/ttyUSB0 WHILE the scan feed was streaming
-    // from it: the pilot reported "nothing answered at 460800 baud" (the
-    // feed had the bytes), and the feed lost five revolutions in a row to
-    // the pilot's probe commands. Two programs each convinced the other did
-    // not exist. The flag is cleared by the kernel when the last descriptor
-    // on the tty closes, so a crash releases it as surely as close() does.
+    // processes open one tty, and the SDK takes no lock, so a second program
+    // on the port reads the first one's bytes: it reports "nothing answered at
+    // 460800 baud", and the first loses revolutions to its probe commands. The
+    // flag is cleared by the kernel when the last descriptor on the tty
+    // closes, so a crash releases it as surely as close() does.
     Int32 guardFd = -1;
 
     Void dropGuard()
