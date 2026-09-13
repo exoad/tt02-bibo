@@ -4,22 +4,18 @@ After=network.target
 
 [Service]
 User=jack
-# install.sh rewrites this line with this board's build directory and the lidar
-# and the Pico by their /dev/serial/by-id names.
-# --manual and not --arm: started at boot with nobody at the car, it is armed
-# only by a viewer's COMMAND ARM (docs/bibowire.md section 6).
+# install.sh rewrites this line with the build directory and the lidar and Pico by
+# their /dev/serial/by-id names. --manual, not --arm: nobody is at the car at boot,
+# so only a viewer's ARM arms it.
 ExecStart=/home/jack/build-pilot-app/pilot --manual --lidar /dev/ttyUSB0 --pico /dev/ttyACM0
-# The pilot exits 1 when the lidar or the Pico will not open (unplugged, or held
-# by a car program) and 0 when asked to stop, so a failure retries and a
-# `systemctl stop` stays stopped. RestartSec outlasts lidar::open's own wait and
-# keeps retries under systemd's default start limit.
-#
+# Exit 1 (the lidar or Pico will not open) retries; exit 0 (asked to stop) stays
+# stopped. RestartSec outlasts lidar::open's wait and keeps under the start limit.
 # A car program needs both devices:
 #   sudo systemctl stop bibo-pilot    before it
 #   sudo systemctl start bibo-pilot   after it
 Restart=on-failure
 RestartSec=5
-# SIGTERM ends through the pilot's shutdown, which sends the Pico STOP.
+# SIGTERM runs the pilot's shutdown, which sends the Pico STOP.
 TimeoutStopSec=10
 # dialout and video are the user's own groups; no capability is granted.
 NoNewPrivileges=yes

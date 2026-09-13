@@ -2,35 +2,9 @@
 //
 //   tools\test.bat bibowire run
 //
-// Pure byte work and pure arithmetic, like proto: the same object
-// file goes into the board's pilot and the Windows viewer, so what is proved
-// here is proved for both ends at once - and the deadman is a pure function, so
-// the safety property is exercised in microseconds on a laptop rather than by
-// sleeping next to a car. That is the only way a deadman gets tested more than
-// once.
-//
-// The cases that carry the weight, and why each is here:
-//
-//   - The TRUNCATION SWEEP. Every frame cut at every length must say
-//     NEED_MORE and consume nothing. There is no path that yields a short
-//     message, because a short message is a frame with the wrong count wearing
-//     a valid frame's clothes.
-//   - The CORRUPTION SWEEP. Every byte of a 500-point SCAN flipped in turn,
-//     2540 of them, every one caught. None may come back as a valid-looking
-//     scan with a different count - a wrong-but-plausible picture is the most
-//     expensive failure available to a car that steers by what it sees.
-//   - The FUZZ LOOP. 200,000 pseudo-random sequences through take(), from a
-//     generator written here rather than rand(), because a fuzz failure nobody
-//     can reproduce is a fuzz failure nobody will fix.
-//   - The DEADMAN TABLE. The exact millisecond boundaries, and a negative age
-//     reading as DEAD rather than as freshness.
-//   - The LOCALE TEST. Nothing on this wire is a float, and this is the line
-//     that catches the day somebody adds one.
-//
-// The socket cases belong to test_viewfeed.cxx, which is ctest on Linux only.
-//
-// Exits 0 on PASS, 1 on FAIL.
-
+// The same object file goes into the board's pilot and the Windows viewer, so this
+// proves both ends; the deadman is a pure function, so its boundaries are checked
+// in microseconds rather than beside a car. The socket half is test_viewfeed.cxx.
 #include "shared.hxx"
 #include "bibowire.hxx"
 
@@ -66,9 +40,7 @@ static Void checkStr(const Str& got, const Char* want, const Char* what)
 
 using namespace bibowire;
 
-// A scratch pair of buffers plus the frame that came back out of them. One
-// object rather than five locals at every call site, and the reason the helper
-// below takes two parameters instead of eight.
+// Scratch buffers and the frame decoded back out of them.
 struct Wire
 {
     Vec<UInt8> body = Vec<UInt8>(24000, 0);
@@ -119,9 +91,7 @@ static Void push(Vec<Str>* out, Wire* w, Type t, UInt16 seq)
     return s;
 }
 
-// A seeded xorshift, written here on purpose. rand() differs between libraries
-// and srand(time(0)) differs between runs, and a fuzz case that cannot be
-// reproduced from the source alone is a fuzz case nobody can fix.
+// A seeded xorshift, not rand(): a fuzz failure must reproduce from the source alone.
 struct Rng
 {
     UInt32 state = 0x2545F491u;
@@ -135,13 +105,11 @@ struct Rng
     }
 };
 
-// One frame of every type, rendered. Built in one place so the describe cases
-// and the locale case are looking at exactly the same bytes.
+// One frame of every type, rendered, so the describe and locale cases see the same bytes.
 [[nodiscard]] static Vec<Str> buildAll()
 {
     Vec<Str> out;
     Wire w;
-
     {
         Hello m;
         m.featureMask = 0x0000000Fu;
@@ -382,15 +350,13 @@ struct Rng
         push(&out, &w, Type::TYPE_SCHEMA, 22);
     }
     {
-        // Every optional field ABSENT. This is the row that proves a sentinel
-        // renders as absence rather than as a measurement.
+        // Every optional field absent.
         BoardState m;
         w.bodyLen = writeBoard(m, w.body.data(), w.body.size());
         push(&out, &w, Type::TYPE_BOARD, 40);
     }
     {
-        // A negative centi-Celsius, so the hand-built decimal is exercised on
-        // the side of zero where a sign is easy to lose.
+        // A negative centi-Celsius, where the hand-built decimal could lose its sign.
         BoardState m;
         m.cpuCentiC = -55;
         w.bodyLen = writeBoard(m, w.body.data(), w.body.size());
@@ -399,8 +365,7 @@ struct Rng
     return out;
 }
 
-// Feeds `stream` through take() `chunk` bytes at a time and logs what came out,
-// so the same three-frame stream can be compared across every chunk size.
+// Feeds `stream` through take() `chunk` bytes at a time and logs the frames it gives.
 [[nodiscard]] static Str drain(const UInt8* stream, Size total, Size chunk)
 {
     Vec<UInt8> ring;
@@ -442,7 +407,7 @@ struct Rng
         case Type::TYPE_WELCOME:
         {
             Welcome m;
-            m.sessionId = 1;   // never 0 on the wire; see writeWelcome
+            m.sessionId = 1;   // writeWelcome refuses 0
             return writeWelcome(m, out, cap);
         }
         case Type::TYPE_BYE:
@@ -530,8 +495,7 @@ struct Rng
 Int32 main()
 {
     std::printf("\nbibowire - the viewer wire, its framing and its deadman\n\n");
-
-    // ---- 1. round trips, every type, at its extremes --------------------------
+    // Round trips, every type at its extremes.
     {
         Wire w;
         Scan s = makeScan(0);
@@ -543,7 +507,6 @@ Int32 main()
         w.bodyLen = writeScan(s, w.body.data(), w.body.size());
         check(w.bodyLen == 24 + 8 + 4, "a 2-point SCAN body is 24 + 4n + pad(n)");
         check(wrap(&w, Type::TYPE_SCAN, 1), "it frames and comes back as a frame");
-
         Scan back;
         check(readScan(w.frame.body, 1, &back), "and reads back");
         check(back.points.size() == 2, "with both points");
@@ -569,7 +532,6 @@ Int32 main()
         Scan back;
         check(readScan(w.frame.body, 1, &back), "and reads back");
         check(back.points.size() == 1024, "with all 1024 points");
-
         Scan tooMany = makeScan(1025);
         check(
             writeScan(tooMany, w.body.data(), w.body.size()) == 0,
@@ -601,7 +563,6 @@ Int32 main()
             "steer -1000 and throttle +1000 survive"
         );
         check(back.revIndex == 0, "revIndex 0 survives as 0 - it means BLIND, not missing");
-
         m.steerMilli = -1001;
         check(
             writeDecide(m, w.body.data(), w.body.size()) == 0,
@@ -626,7 +587,6 @@ Int32 main()
         check(back.cpuCentiC == CPU_ABSENT, "cpuCentiC comes back -32768");
         check(back.picoSilentMs == PICO_SILENT_ABSENT, "picoSilentMs comes back 0xFFFFFFFF");
         check(back.lidarHealth == HEALTH_ABSENT, "lidarHealth comes back 255");
-
         m.wifiName = "FieldPhone";
         m.battMilliV = 7412;
         m.cpuCentiC = -55;
@@ -637,7 +597,6 @@ Int32 main()
         checkStr(back.wifiName, "FieldPhone", "the connection name survives");
         check(back.battMilliV == 7412, "a real battery reading survives");
         check(back.cpuCentiC == -55, "and a negative temperature survives its sign");
-
         BoardState tooLong;
         tooLong.wifiName = Str(33, 'x');
         check(
@@ -821,12 +780,8 @@ Int32 main()
             "and the divisor survives"
         );
         check(back.camFps == 0, "a viewer that named no camera rate asks for none");
-
-        // THE CAMERA RATE RIDES IN WHAT SECTION 5 CALLED reserved0. The body is
-        // still 12 bytes and the version is unchanged, which is the whole point
-        // of spending a reserved field rather than growing the frame: an older
-        // board ignores those two bytes exactly as it always did, and a newer
-        // board reading an older viewer sees 0 and keeps its own default.
+        // camFps rides in what was reserved0, so the body stays 12 bytes and v1: an
+        // older board ignores it, and an older viewer's 0 keeps the board's default.
         m.camFps = 12;
         w.bodyLen = writeSubscribe(m, w.body.data(), w.body.size());
         check(
@@ -840,8 +795,6 @@ Int32 main()
         );
         check(rate.scanDivisor == 3, "beside the divisor it shares the frame with");
     }
-
-    // ---- 2 and 3. the edges the device itself defines -------------------------
     {
         Wire w;
         Scan s;
@@ -851,10 +804,8 @@ Int32 main()
             writeScan(s, w.body.data(), w.body.size()) == 0,
             "an angle of exactly 36000 is refused - the device says 0"
         );
-
         s.points[0].angleCentiDeg = 35999;
         check(writeScan(s, w.body.data(), w.body.size()) != 0, "and 35999 is fine");
-
         s.quality[0] = 64;
         check(
             writeScan(s, w.body.data(), w.body.size()) == 0,
@@ -862,8 +813,7 @@ Int32 main()
         );
         s.quality[0] = 63;
         check(writeScan(s, w.body.data(), w.body.size()) != 0, "and 63 is fine");
-
-        // The same two rules on the way IN, where a stranger writes the bytes.
+        // The same two rules on the way in, where a stranger writes the bytes.
         w.bodyLen = writeScan(s, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_SCAN, 17), "a good one-point SCAN frames");
         w.buf[12 + 24] = 0xA0;
@@ -873,7 +823,6 @@ Int32 main()
             !readScan(Body{ w.buf.data() + 12, w.bodyLen }, 1, &back),
             "an angle of 36000 on the wire is refused by the reader"
         );
-
         w.bodyLen = writeScan(s, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_SCAN, 18), "and again");
         w.buf[12 + 28] = 64;
@@ -882,8 +831,6 @@ Int32 main()
             "a quality of 64 on the wire is refused by the reader"
         );
     }
-
-    // ---- 4. describe(), one frame of every type ------------------------------
     const Vec<Str> rendered = buildAll();
     check(rendered.size() == 24, "one rendered frame per type, plus two BOARDs of sentinels");
     {
@@ -997,17 +944,12 @@ Int32 main()
             "describe: a negative centi-Celsius keeps its sign through the hand-built decimal"
         );
     }
-
-    // ---- 5. the truncation sweep ---------------------------------------------
-    //
-    // Every frame cut at every length from 0 to len-1 must say NEED_MORE and
-    // consume NOTHING. There is no path that yields a short message.
+    // No truncation may yield a short message: that is a frame with the wrong count.
     {
         Wire w;
         Int32 cuts = 0;
         Int32 wrong = 0;
         Int32 consumedSomething = 0;
-
         const Array<Size, 4> counts = { 0, 1, 3, 500 };
         for(const Size n : counts)
         {
@@ -1034,9 +976,7 @@ Int32 main()
                 }
             }
         }
-
-        // The same sweep on a frame that is not a SCAN, so the rule is about
-        // framing rather than about one body.
+        // The same sweep on a PING, so the rule is about framing, not one body.
         {
             Ping p;
             p.token = 0x0102030405060708u;
@@ -1060,10 +1000,8 @@ Int32 main()
                 }
             }
         }
-
-        // 40 + 48 + 56 + 2540 for the four SCANs, 32 for the PING: every cut of
-        // every one of them. Spelled out so a sweep that quietly stopped
-        // sweeping cannot report success.
+        // Every cut of the four SCANs and the PING, spelled out so a sweep that
+        // stopped early fails.
         check(
             cuts == 40 + 48 + 56 + 2540 + 32,
             "the truncation sweep covered every cut of five frames"
@@ -1071,8 +1009,7 @@ Int32 main()
         check(wrong == 0, "every truncated frame is NEED_MORE, never a short message");
         check(consumedSomething == 0, "and every one of them consumed nothing at all");
     }
-
-    // ---- 6. the corruption sweep ---------------------------------------------
+    // A wrong-but-plausible SCAN is the costliest failure for a car that steers by it.
     {
         Wire w;
         const Scan s = makeScan(500);
@@ -1080,7 +1017,6 @@ Int32 main()
         check(w.bodyLen == 2524, "a 500-point SCAN body is 2524 bytes");
         check(wrap(&w, Type::TYPE_SCAN, 22), "it frames and decodes");
         check(w.frameLen == 2540, "and a 500-point SCAN frame is 2540 bytes, as section 5 states");
-
         const Vec<UInt8> good(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
         Int32 caught = 0;
         Int32 slipped = 0;
@@ -1108,8 +1044,6 @@ Int32 main()
         check(slipped == 0, "not one of them decodes as a frame");
         check(wrongCount == 0, "and none yields a valid-looking SCAN with a different count");
     }
-
-    // ---- 7. resync, and the junk counted exactly -----------------------------
     {
         Wire w;
         Ping p;
@@ -1117,7 +1051,6 @@ Int32 main()
         w.bodyLen = writePing(p, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_PING, 23), "a PING frames");
         const Vec<UInt8> frame(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
-
         Int32 wrongSkip = 0;
         Int32 notFound = 0;
         for(Size junk = 0; junk <= 64; ++junk)
@@ -1125,14 +1058,12 @@ Int32 main()
             Vec<UInt8> stream;
             for(Size i = 0; i < junk; ++i)
             {
-                // Deliberately includes the pair 0x42 0x57, so the scan has to
-                // reject a candidate rather than lock onto the first magic.
+                // Includes the pair 0x42 0x57, so the scan must reject a false magic.
                 stream.push_back(
                     static_cast<UInt8>((i % 3u) == 0u ? 0x42u : ((i % 3u) == 1u ? 0x57u : 0x99u))
                 );
             }
             stream.insert(stream.end(), frame.begin(), frame.end());
-
             Frame f;
             Size used = 0;
             Take got = take(stream.data(), stream.size(), &f, &used);
@@ -1158,14 +1089,11 @@ Int32 main()
         );
     }
     {
-        // Junk with no frame behind it at all: everything is consumed except a
-        // trailing lone 0x42, which might still become a magic.
         const Array<UInt8, 5> junk = { 0x00, 0x11, 0x22, 0x33, 0x42 };
         Frame f;
         Size used = 0;
         check(take(junk.data(), junk.size(), &f, &used) == Take::TAKE_RESYNC, "pure junk resyncs");
         check(used == 4, "consuming everything but the trailing 0x42, which may yet be a magic");
-
         const Array<UInt8, 1> lone = { 0x42 };
         check(
             take(lone.data(), lone.size(), &f, &used) == Take::TAKE_NEED_MORE,
@@ -1178,16 +1106,12 @@ Int32 main()
         );
         check(used == 0, "and consumes nothing");
     }
-
-    // ---- 8. headers that are refused rather than believed --------------------
     {
         Wire w;
         Ping p;
         w.bodyLen = writePing(p, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_PING, 24), "a PING frames");
-
-        // A multiple of 4, beyond the bound, under a tag the reader knows: the
-        // case the whole no-allocation rule exists for.
+        // A multiple of 4, past the bound, under a known tag: nothing may be sized from it.
         Vec<UInt8> huge(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
         wr32(huge.data() + 8, 0xFFFFFFFCu);
         Frame f;
@@ -1197,32 +1121,25 @@ Int32 main()
             "a len of 0xFFFFFFFC under a known tag is TAKE_TOO_BIG"
         );
         check(used == 0, "and nothing is consumed, so nothing was ever sized from the claim");
-
-        // 0xFFFFFFFF is NOT a multiple of 4, so it fails the shape test before
-        // the size bound is ever consulted. Rejected either way, and still
-        // without allocating - but by a different rule, which is worth pinning
-        // separately rather than assuming one covers the other.
+        // Refused by the multiple-of-4 rule before the size bound: a separate rule.
         Vec<UInt8> odder(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
         wr32(odder.data() + 8, 0xFFFFFFFFu);
         check(
             take(odder.data(), odder.size(), &f, &used) != Take::TAKE_FRAME,
             "a len of 0xFFFFFFFF is refused as well - it is not a multiple of 4"
         );
-
         Vec<UInt8> odd(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
         wr32(odd.data() + 8, 17);
         check(
             take(odd.data(), odd.size(), &f, &used) != Take::TAKE_FRAME,
             "a len that is not a multiple of 4 is not a frame"
         );
-
         Vec<UInt8> zeroVer(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
         zeroVer[3] = 0;
         check(
             take(zeroVer.data(), zeroVer.size(), &f, &used) != Take::TAKE_FRAME,
             "ver 0 is not a frame - versions start at 1"
         );
-
         check(
             put(Head{}, Body{ w.body.data(), 3 }, w.buf.data(), w.buf.size()) == 0,
             "put refuses a body that is not a multiple of 4"
@@ -1234,8 +1151,6 @@ Int32 main()
             "and refuses a buffer it would overrun"
         );
     }
-
-    // ---- 9. the same three frames, fed at every chunk size -------------------
     {
         Wire w;
         Vec<UInt8> stream;
@@ -1244,18 +1159,15 @@ Int32 main()
         w.bodyLen = writePing(p, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_PING, 30), "frame one");
         stream.insert(stream.end(), w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
-
         const Scan s = makeScan(7);
         w.bodyLen = writeScan(s, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_SCAN, 31), "frame two");
         stream.insert(stream.end(), w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
-
         Decide d;
         d.revIndex = 41;
         w.bodyLen = writeDecide(d, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_DECIDE, 32), "frame three");
         stream.insert(stream.end(), w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
-
         const Str whole = drain(stream.data(), stream.size(), stream.size());
         Int32 differed = 0;
         for(Size chunk = 1; chunk <= stream.size(); ++chunk)
@@ -1271,14 +1183,11 @@ Int32 main()
             "and every chunk size from 1 byte to the whole stream gives identical output"
         );
     }
-
-    // ---- 10. a SCAN whose count disagrees with its len -----------------------
     {
         Wire w;
         const Scan s = makeScan(8);
         w.bodyLen = writeScan(s, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_SCAN, 33), "an 8-point SCAN frames");
-
         Scan back;
         back.revIndex = 999;
         wr16(w.buf.data() + 12 + 14, 7);
@@ -1296,8 +1205,6 @@ Int32 main()
             "and so is a count of 9 - it is not a shorter revolution"
         );
     }
-
-    // ---- 11. an unknown type is skipped by exactly len -----------------------
     {
         Wire w;
         Head h;
@@ -1309,20 +1216,17 @@ Int32 main()
         }
         const Size one = put(h, Body{ w.body.data(), 8 }, w.buf.data(), w.buf.size());
         check(one == 24, "a frame of an unknown type 0x7E is 16 + 8");
-
         Ping p;
         p.token = 7;
         Wire w2;
         w2.bodyLen = writePing(p, w2.body.data(), w2.body.size());
         check(wrap(&w2, Type::TYPE_PING, 35), "and a PING follows it");
-
         Vec<UInt8> stream(w.buf.begin(), w.buf.begin() + static_cast<ISize>(one));
         stream.insert(
             stream.end(),
             w2.buf.begin(),
             w2.buf.begin() + static_cast<ISize>(w2.frameLen)
         );
-
         Frame f;
         Size used = 0;
         check(
@@ -1344,14 +1248,11 @@ Int32 main()
         );
         check(f.head.type == Type::TYPE_PING, "and it is the PING");
     }
-
-    // ---- 12. flags: one is ignored, one is refused ---------------------------
     {
         Wire w;
         Ping p;
         p.token = 3;
         w.bodyLen = writePing(p, w.body.data(), w.body.size());
-
         Head h;
         h.type = Type::TYPE_PING;
         h.seq = 36;
@@ -1369,7 +1270,6 @@ Int32 main()
             "PING v1 seq=36 len=16 [0x0008] : token=0x0000000000000003 mono=0",
             "the renderer shows the bit it ignored rather than dropping it silently"
         );
-
         h.flags = FLAG_ESTOP | FLAG_DEADMAN;
         const Size n2 = put(h, Body{ w.body.data(), w.bodyLen }, w.buf.data(), w.buf.size());
         check(
@@ -1381,9 +1281,7 @@ Int32 main()
             "PING v1 seq=36 len=16 [estop,deadman] : token=0x0000000000000003 mono=0",
             "and both are named, so a stopped car is readable off any frame at all"
         );
-
-        // FLAG_MORE changes FRAMING, so it may not be ignored - and put()
-        // refuses to build one, which is why the byte is patched by hand here.
+        // put() refuses to build FLAG_MORE, so the byte is patched in by hand.
         h.flags = FLAG_MORE;
         check(
             put(h, Body{ w.body.data(), w.bodyLen }, w.buf.data(), w.buf.size()) == 0,
@@ -1399,8 +1297,6 @@ Int32 main()
             "and take refuses it - a framing flag may not be ignored"
         );
     }
-
-    // ---- 13. a ver HIGHER than this build knows ------------------------------
     {
         Wire w;
         Decide d;
@@ -1408,7 +1304,6 @@ Int32 main()
         d.clearanceMm = 3410;
         d.steerMilli = -120;
         w.bodyLen = writeDecide(d, w.body.data(), w.body.size());
-
         // A v2 sender appends four bytes this build has no name for.
         w.body[24] = 0xDE;
         w.body[25] = 0xAD;
@@ -1426,13 +1321,10 @@ Int32 main()
             "a v2 DECIDE with a longer body still frames"
         );
         check(f.head.ver == 2, "and carries its version");
-
         Decide back;
         check(readDecide(f.body, f.head.ver, &back), "a v1 reader reads the prefix it understands");
         check(back.revIndex == 41 && back.clearanceMm == 3410, "with every known field exact");
         check(back.steerMilli == -120, "including the signed ones");
-
-        // The same bytes claiming v1 are a wrong length and are refused.
         Decide untouched;
         untouched.revIndex = 777;
         check(
@@ -1441,15 +1333,12 @@ Int32 main()
         );
         check(untouched.revIndex == 777, "and the caller's Decide is untouched");
     }
-
-    // ---- 14. absence is read, never fabricated -------------------------------
     {
         Wire w;
         BoardState m;
         m.upS = 5;
         w.bodyLen = writeBoard(m, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_BOARD, 38), "a BOARD with nothing measured frames");
-
         BoardState back;
         back.battMilliV = 1234;
         back.cpuCentiC = 99;
@@ -1462,9 +1351,6 @@ Int32 main()
         check(back.picoSilentMs == PICO_SILENT_ABSENT, "picoSilentMs is ABSENT");
         check(back.lidarHealth == HEALTH_ABSENT, "lidarHealth is ABSENT");
         check(back.upS == 5, "and the one field that WAS measured came through");
-
-        // A body one byte short is a wrong length, and a wrong length never
-        // half-fills the answer.
         BoardState guard;
         guard.upS = 4242;
         check(
@@ -1473,8 +1359,6 @@ Int32 main()
         );
         check(guard.upS == 4242, "and leaves the caller's BoardState exactly as it was");
     }
-
-    // ---- 15. a major version mismatch, with a sentence -----------------------
     {
         Hello h;
         h.protoMajor = 2;
@@ -1482,7 +1366,6 @@ Int32 main()
         h.name = "viewer";
         check(!versionOk(h.protoMajor), "protoMajor 2 into a v1 board is refused - EQUAL, not >=");
         check(versionOk(PROTO_MAJOR), "and the board's own major is accepted");
-
         const Bye b = versionRefusal(h, "3f9a1c2");
         check(b.reason == Reason::REASON_VERSION, "the answer is BYE(VERSION)");
         check(
@@ -1495,7 +1378,6 @@ Int32 main()
             b.text.find("3f9a1c2") != Str::npos,
             "and the board build, which is what turns it into an action"
         );
-
         Wire w;
         w.bodyLen = writeBye(b, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_BYE, 39), "and the refusal itself frames and decodes");
@@ -1503,11 +1385,8 @@ Int32 main()
         check(readBye(w.frame.body, 1, &back), "it reads back");
         checkStr(back.text, b.text.c_str(), "with the sentence intact");
     }
-
-    // ---- 16. the catalog cannot drift from the codec -------------------------
     {
         check(catalogCount() == TYPE_COUNT, "the catalog has one row per Type");
-
         Vec<UInt8> body(24000, 0);
         Int32 lenMismatch = 0;
         Int32 nameless = 0;
@@ -1539,7 +1418,6 @@ Int32 main()
         check(nameless == 0, "every catalog row is named");
         check(unwritable == 0, "every Type in the catalog can be encoded from its defaults");
         check(lenMismatch == 0, "and every row's declared body length agrees with its own writeX");
-
         Int32 disagreed = 0;
         for(Size tag = 0; tag < 256u; ++tag)
         {
@@ -1561,8 +1439,6 @@ Int32 main()
         );
         check(classOf(Type::TYPE_BOARD) == Class::CLASS_VITAL, "BOARD is VITAL - never dropped");
     }
-
-    // ---- 17. the SCHEMA line for SCAN ----------------------------------------
     {
         checkStr(
             schemaLine(Type::TYPE_SCAN),
@@ -1578,8 +1454,7 @@ Int32 main()
             "an unknown tag has no schema line to give"
         );
     }
-
-    // ---- 18 to 23. applying a CONTROL ----------------------------------------
+    // Applying a CONTROL.
     {
         const control::Gate g = freshGate();
         const control::Outcome first = control::apply(g, freshControl(10));
@@ -1590,7 +1465,6 @@ Int32 main()
             "with both stick values reaching the car"
         );
         check(first.feedsDeadman, "and it feeds the deadman");
-
         control::Gate g2 = g;
         g2.highestSeq = 10;
         const control::Outcome same = control::apply(g2, freshControl(10));
@@ -1604,7 +1478,6 @@ Int32 main()
         );
         check(same.highestSeq == 10, "the high-water mark does not move");
         check(!same.feedsDeadman, "and a stale datagram does NOT feed the deadman");
-
         const control::Outcome older = control::apply(g2, freshControl(5));
         check(
             older.verdict == control::Verdict::VERDICT_STALE_SEQ,
@@ -1617,7 +1490,6 @@ Int32 main()
         check(control::newer(1, 4294967295u), "1 is newer than 0xFFFFFFFF - the comparison wraps");
         check(!control::newer(4294967295u, 1), "and 0xFFFFFFFF is not newer than 1");
         check(!control::newer(7, 7), "and a seq is never newer than itself");
-
         control::Gate stuck = freshGate();
         stuck.highestSeq = 5000;
         const control::Outcome refused = control::apply(stuck, freshControl(1));
@@ -1625,7 +1497,6 @@ Int32 main()
             refused.verdict == control::Verdict::VERDICT_STALE_SEQ,
             "a viewer restarting at seq 1 is refused while the old mark stands"
         );
-
         control::Gate reset = freshGate();   // the handshake resets it, per session
         const control::Outcome accepted = control::apply(reset, freshControl(1));
         check(
@@ -1671,7 +1542,6 @@ Int32 main()
         );
         check(!o.feedsDeadman, "and DOES NOT FEED THE DEADMAN - the fatal flaw, pinned here");
         check(o.refuse == Refuse::REFUSE_NOT_HOLDER, "with a named reason");
-
         control::Gate none = freshGate();
         none.haveHolder = false;
         none.fromHolder = false;
@@ -1691,8 +1561,7 @@ Int32 main()
         check(o.throttleMilli == 0, "throttle is dropped");
         check(o.steerMilli == -120, "and steering is still applied");
     }
-
-    // ---- 24 to 32. the deadman -----------------------------------------------
+    // The deadman.
     {
         check(
             deadman::step(held(0)).state == deadman::State::STATE_LIVE,
@@ -1758,7 +1627,6 @@ Int32 main()
         );
         check(o.refuse == Refuse::REFUSE_NOT_ARMED, "named REFUSE_NOT_ARMED");
         check(o.neutralInMs == 150, "and the link's own countdown keeps running underneath it");
-
         deadman::Inputs late = held(200);
         late.enable = false;
         check(
@@ -1830,7 +1698,6 @@ Int32 main()
             deadman::step(in).state == deadman::State::STATE_LIVE,
             "and only the explicit re-arm path brings LIVE back"
         );
-
         deadman::Inputs mode = held(0);
         mode.modeAgrees = false;
         check(
@@ -1840,8 +1707,7 @@ Int32 main()
         check(deadman::step(mode).state == deadman::State::STATE_SOFT, "and is SOFT");
     }
     {
-        // The constants themselves, so raising one is a visible diff rather
-        // than a quiet change of a safety margin.
+        // Pinned, so changing a safety margin is a visible diff.
         check(CONTROL_PERIOD_MS == 50, "CONTROL_PERIOD_MS is 50");
         check(CONTROL_STALE_MS == 150, "CONTROL_STALE_MS is 150");
         check(CONTROL_DEAD_MS == 300, "CONTROL_DEAD_MS is 300");
@@ -1869,22 +1735,16 @@ Int32 main()
         checkStr(Str(driveModeName(4)), "blind", "Decide::mode has names");
         checkStr(Str(pilotModeName(0)), "manual", "and PilotMode has its own, not the same list");
         checkStr(Str(pilotModeName(9)), "?", "and an unknown mode says so");
-
-        // tag - 0x10. CAMERA (0x20) is bit 16, not the bit 0 that the naive
-        // `1u << (tag & 0x1F)` gives it - the same bug that puts DECIDE and
-        // SCHEMA on one bit.
+        // The mask bit is tag - 0x10. The naive 1u << (tag & 0x1F) puts CAMERA on bit 0,
+        // and DECIDE and SCHEMA on one bit.
         check(typeBit(Type::TYPE_SCAN) == 1u, "SCAN is mask bit 0");
         check(typeBit(Type::TYPE_DECIDE) == 2u, "DECIDE is bit 1");
         check(typeBit(Type::TYPE_CAMERA) == 65536u, "CAMERA is bit 16");
         check(typeBit(Type::TYPE_SCHEMA) == 0u, "SCHEMA has no bit, so it cannot share DECIDE's");
         static_assert(typeBit(Type::TYPE_WELCOME) == 0u, "the session frames are never masked off");
     }
-
-    // ---- 33. the locale trap -------------------------------------------------
-    //
-    // Nothing on this wire is a float and describe() builds its digits by hand,
-    // so a comma-decimal machine must produce byte-identical output. This is the
-    // line that catches the day somebody adds a float.
+    // The locale trap: nothing on this wire is a float and describe() builds its
+    // digits by hand, so a comma-decimal locale must give byte-identical output.
     {
         const Array<CharSeq, 6> names = {
             "German_Germany.1252", "de_DE.UTF-8", "de-DE",
@@ -1898,16 +1758,12 @@ Int32 main()
                 got = std::setlocale(LC_ALL, name);
             }
         }
-
-        // Whether the locale TOOK is measured, not assumed. A test that quietly
-        // runs under "C" would compare two identical things and prove nothing,
-        // which is this repo's named recurring bug.
+        // Whether the locale took is measured: under "C" this would prove nothing.
         Array<Char, 32> probe{};
         std::snprintf(probe.data(), probe.size(), "%.1f", 1.5);
         const Bool comma = Str(probe.data()).find(',') != Str::npos;
         check(got != nullptr, "a comma-decimal locale could be installed");
         check(comma, "and it really is comma-decimal, so this test measures something");
-
         const Vec<Str> after = buildAll();
         check(after.size() == rendered.size(), "the whole message set still renders");
         check(after == rendered, "and every byte of it is identical under a comma decimal");
@@ -1916,19 +1772,15 @@ Int32 main()
             after[23].find("cpu=-0.55") != Str::npos,
             "and a real one still has a DOT, not a comma"
         );
-
         got = std::setlocale(LC_ALL, "C");
         check(got != nullptr, "and the locale is put back for whatever runs next");
     }
-
-    // ---- 34. the fuzz loop ---------------------------------------------------
     {
         Wire w;
         const Scan s = makeScan(6);
         w.bodyLen = writeScan(s, w.body.data(), w.body.size());
         check(wrap(&w, Type::TYPE_SCAN, 44), "a seed frame for the fuzz to splice in");
         const Vec<UInt8> seed(w.buf.begin(), w.buf.begin() + static_cast<ISize>(w.frameLen));
-
         Rng rng;
         const Size room = 96;
         const Size guard = 16;
@@ -1937,7 +1789,6 @@ Int32 main()
         Int32 badConsumed = 0;
         Int32 frames = 0;
         Int32 resyncs = 0;
-
         for(Int32 iter = 0; iter < 200000; ++iter)
         {
             Array<UInt8, 128> arena{};
@@ -1947,7 +1798,6 @@ Int32 main()
             }
             UInt8* buf = arena.data() + guard;
             const Size n = static_cast<Size>(rng.next() % (room + 1u));
-
             // Every fourth case starts from real frame bytes, so the fuzz
             // spends time near valid headers instead of only in noise.
             Size copied = 0;
@@ -1967,7 +1817,6 @@ Int32 main()
             {
                 buf[i] = static_cast<UInt8>(rng.next());
             }
-
             Size at = 0;
             Int32 steps = 0;
             for(;;)
@@ -2007,7 +1856,6 @@ Int32 main()
                     break;
                 }
             }
-
             for(Size i = 0; i < guard; ++i)
             {
                 if(arena[i] != 0xA5 || arena[arena.size() - 1u - i] != 0xA5)
@@ -2016,7 +1864,6 @@ Int32 main()
                 }
             }
         }
-
         check(
             badConsumed == 0,
             "200,000 fuzz cases: take() never claims more bytes than it was given"
@@ -2028,15 +1875,8 @@ Int32 main()
             "and the loop really did reach the decoder, not just the empty case"
         );
     }
-
-    // ---- the tuning verbs, argument by argument -------------------------------
-    //
-    // Verbs 9, 10 and 11 carry their payload in arg0/arg1/arg2 rather than in
-    // any new field, so COMMAND's 16 bytes did not change - which is exactly the
-    // arrangement in which a dropped argument costs nothing at encode time and
-    // shows up as a car trimmed to zero. Every check below asserts the VALUE
-    // that came back, never that the decode merely succeeded: a readCommand
-    // that forgot arg2 would still return true.
+    // The tuning verbs carry their payload in arg0..arg2, so a dropped argument still
+    // decodes: every check asserts the value that came back.
     {
         Wire w;
         {
@@ -2049,7 +1889,6 @@ Int32 main()
             m.armEpoch = 5;
             w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
             check(wrap(&w, Type::TYPE_COMMAND, 50), "SET_SERVO_LIMITS frames and comes back");
-
             Command back;
             check(readCommand(w.frame.body, 1, &back), "and reads back");
             check(back.verb == Verb::VERB_SET_SERVO_LIMITS, "verb 9 survives");
@@ -2067,23 +1906,18 @@ Int32 main()
             m.arg2 = ESC_US_HARD_MAX;
             w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
             check(wrap(&w, Type::TYPE_COMMAND, 51), "SET_ESC_LIMITS frames and comes back");
-
             Command back;
             check(readCommand(w.frame.body, 1, &back), "and reads back");
             check(back.arg1 == ESC_US_HARD_MIN, "the throttle's min us survives in arg1");
             check(back.arg2 == ESC_US_HARD_MAX, "and its max us in arg2");
-            // Widened to the whole RC range on 2026-09-12. Forward-only moved out
-            // of this bound and into the pilot's W mapping, which never goes
-            // below neutral - so this pins the range, and says where the floor is.
             check(
                 ESC_US_HARD_MIN == 1000 && ESC_US_HARD_MAX == 2000,
                 "and the ESC range is the whole RC pulse range - W's neutral floor is the pilot's"
             );
         }
         {
-            // A centre that is NOT the midpoint, and not any default. A trim of
-            // 1500 would pass a test that had dropped the field entirely on a
-            // build whose sentinel happened to be the midpoint; 1487 cannot.
+            // Not 1500, which a dropped field could read as on a build whose default
+            // is the midpoint.
             Command m;
             m.sessionId = 0x0BADC0DEu;
             m.cmdId = 79;
@@ -2091,7 +1925,6 @@ Int32 main()
             m.arg1 = 1487;
             w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
             check(wrap(&w, Type::TYPE_COMMAND, 52), "SET_SERVO_TRIM frames and comes back");
-
             Command back;
             check(readCommand(w.frame.body, 1, &back), "and reads back");
             check(back.verb == Verb::VERB_SET_SERVO_TRIM, "verb 10 survives");
@@ -2100,9 +1933,7 @@ Int32 main()
             check(back.arg2 == 0, "so does arg2");
         }
         {
-            // Every field of SET_SLEW different from every other, so a decoder
-            // that read arg0 out of arg1's offset fails rather than passing by
-            // coincidence.
+            // Every field differs, so reading one out of another's offset fails.
             Command m;
             m.sessionId = 0x0BADC0DEu;
             m.cmdId = 80;
@@ -2112,7 +1943,6 @@ Int32 main()
             m.armEpoch = 6;
             w.bodyLen = writeCommand(m, w.body.data(), w.body.size());
             check(wrap(&w, Type::TYPE_COMMAND, 53), "SET_SLEW frames and comes back");
-
             Command back;
             check(readCommand(w.frame.body, 1, &back), "and reads back");
             check(back.verb == Verb::VERB_SET_SLEW, "verb 11 survives");
@@ -2124,11 +1954,8 @@ Int32 main()
                 "and us-per-tick becomes us-per-second at 50 ticks a second"
             );
         }
-
-        // The names, through the only public path that renders them: verbName
-        // has internal linkage in bibowire.cxx, and describe() of a CMDACK is
-        // where a person actually reads a verb's name back. A new verb missing
-        // from that switch renders as "?" and fails here.
+        // verbName is internal to bibowire.cxx, so the names are read back through
+        // describe() of a CMDACK; a verb missing from it renders as "?".
         {
             CmdAck a;
             a.cmdId = 77;
@@ -2158,9 +1985,7 @@ Int32 main()
             );
         }
         {
-            // result = 3 as well as the name: refused-while-armed is the state
-            // this verb spends most of its life in, and the number a viewer
-            // branches on to say so.
+            // result 3, refused while armed, is what a viewer branches on.
             CmdAck a;
             a.cmdId = 80;
             a.verb = Verb::VERB_SET_SLEW;
@@ -2176,7 +2001,6 @@ Int32 main()
             );
         }
     }
-
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

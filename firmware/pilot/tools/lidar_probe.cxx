@@ -1,26 +1,16 @@
-// Is the lidar there, and what does it see? The first program to run on the
-// Pi after the C1 is plugged in, and the one to run again when the autonomy
-// does something strange and the question is whether the sensor or the
-// controller is at fault.
+// Is the lidar there, and what does it see?
 //
 //   lidar_probe [port] [baud]        default /dev/ttyUSB0 460800
 //
-// Opens the port, prints what the device says about itself, then for five
-// seconds prints one line per revolution: how many points came back, how many
-// carried a return, the nearest return and where it was, and the rotation
-// rate. Then stops the motor - also on Ctrl-C, so an interrupted run does not
-// leave the lidar spinning on a desk.
+// Prints the device's info and health, then for RUN_S one line per revolution:
+// points, returns, the nearest return and its bearing, and the rotation rate.
+// Then stops the motor, also on Ctrl-C.
 //
-// The rotation rate is MEASURED, from the wall clock between one revolution
-// arriving and the next, rather than asked of the SDK. The SDK's figure is
-// derived from the scan mode's nominal sample period; the wall clock is what
-// the autonomy loop will actually be paced by, and the two disagreeing is
-// worth seeing.
+// The rate is timed between revolutions as they arrive, not taken from the SDK,
+// whose figure comes from the scan mode's nominal sample period.
 //
-// Exits 0 only when at least one revolution was seen. A probe that opens a
-// port, times out five times and reports success has measured nothing, and
-// this project has written that bug before.
-
+// Exits 0 only when at least one revolution was seen: a run that only timed out
+// has measured nothing.
 #include "shared.hxx"
 
 #include "lidar.hxx"
@@ -31,16 +21,14 @@
 
 namespace
 {
-
   constexpr Float64 RUN_S = 5.0;
 
-  // Written from the signal handler, read from the loop. volatile sig_atomic_t
-  // is the one type the standard promises is safe to touch in a handler; the
-  // Atomic<> alias is not guaranteed lock-free and so is not.
+  // Set by the signal handler. volatile sig_atomic_t, not Atomic<>: it is the one
+  // type the standard makes safe to write from a handler.
   volatile std::sig_atomic_t interrupted = 0;
 
-  // Int32 is int32_t, which is int on every host this builds for, so the
-  // signature still matches std::signal's handler type.
+  // Int32 is int on every host this builds for, so this matches std::signal's
+  // handler type.
   Void onInterrupt(Int32)
   {
       interrupted = 1;
@@ -60,7 +48,7 @@ namespace
       r.points = rays.size();
       for(const reactive::Ray& ray : rays)
       {
-          // A zero is no return, not a hit on the bumper - reactive.hxx, trap 2.
+          // 0 mm is no return, not a hit on the bumper.
           if(ray.distMm <= 0.0f)
           {
               continue;
@@ -74,23 +62,16 @@ namespace
       }
       return r;
   }
-
 }
 
 Int32 main(Int32 argc, Char** argv)
 {
     const Str port = argc > 1 ? argv[1] : "/dev/ttyUSB0";
     const Int32 baud = argc > 2 ? static_cast<Int32>(std::strtol(argv[2], nullptr, 10)) : 460800;
-
-    // Installed before the motor can start, or the header's "also on Ctrl-C"
-    // is a promise with a hole in it: a signal between motorOn() and a later
-    // std::signal() takes the default action and leaves the lidar spinning.
-    // The handlers only store a flag, so going in first costs nothing.
+    // Installed before the motor can start, so a Ctrl-C never leaves it spinning.
     std::signal(SIGINT, onInterrupt);
     std::signal(SIGTERM, onInterrupt);
-
-    // No lidar::available() check first: a build without the SDK refuses at
-    // open() with a reason that says so, and printing that is the whole job.
+    // No lidar::available() check: without the SDK, open() refuses and reason() says so.
     std::printf("opening %s at %d baud\n", port.c_str(), baud);
     if(!lidar::open(port, baud))
     {
@@ -99,17 +80,13 @@ Int32 main(Int32 argc, Char** argv)
     }
     std::printf("device  %s\n", lidar::info().c_str());
     std::printf("health  %s\n", lidar::health().c_str());
-
-    // A Ctrl-C that landed during open(), which blocks for a while. Nothing
-    // is spinning yet, and starting the motor now would be doing exactly what
-    // the person asked not to happen. 1, not 0: no revolution was seen.
+    // A Ctrl-C during open(), which blocks: the motor never starts. 1: no revolution.
     if(interrupted != 0)
     {
         std::printf("interrupted before the motor started\n");
         lidar::close();
         return 1;
     }
-
     if(!lidar::motorOn())
     {
         std::printf("motor on failed: %s\n", lidar::reason().c_str());
@@ -123,7 +100,6 @@ Int32 main(Int32 argc, Char** argv)
     const TimePoint start = monoNow();
     TimePoint last = start;
     Bool haveLast = false;
-
     while(elapsedS(start) < RUN_S && interrupted == 0)
     {
         if(!lidar::grab(rays))
@@ -132,13 +108,10 @@ Int32 main(Int32 argc, Char** argv)
             std::printf("no revolution: %s\n", lidar::reason().c_str());
             continue;
         }
-
         const TimePoint now = monoNow();
         const Revolution r = summarise(rays);
         ++revolutions;
-
-        // The first revolution has nothing to be measured against, and printing
-        // a rate for it would be printing the time since motorOn().
+        // The first revolution has no earlier one to take a rate from.
         Array<Char, 24> rate{};
         if(haveLast)
         {
@@ -151,7 +124,6 @@ Int32 main(Int32 argc, Char** argv)
         }
         last = now;
         haveLast = true;
-
         if(r.valid > 0)
         {
             std::printf(
@@ -166,9 +138,7 @@ Int32 main(Int32 argc, Char** argv)
         }
         else
         {
-            // Said in words rather than as "min 0 mm": a revolution with no
-            // returns at all is the blind case, and a zero here would look like
-            // an obstacle against the lens.
+            // In words: "min 0 mm" would read as an obstacle against the lens.
             std::printf(
                 "rev %3d  points %4zu  valid    0  no returns                  %s\n",
                 revolutions,
@@ -187,12 +157,10 @@ Int32 main(Int32 argc, Char** argv)
         ran,
         ran > 0.0 ? revolutions / ran : 0.0
     );
-
     if(!lidar::motorOff())
     {
         std::printf("motor off failed: %s\n", lidar::reason().c_str());
     }
     lidar::close();
-
     return revolutions > 0 ? 0 : 1;
 }

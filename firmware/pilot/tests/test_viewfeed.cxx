@@ -1,81 +1,18 @@
-// bibowire's socket half, held to viewfeed.hxx over real sockets.
+// viewfeed: bibowire's socket half, held to viewfeed.hxx over loopback.
 //
-//   ctest --test-dir build-pilot -R viewfeed     g++ on Linux, loopback
+//   ctest --test-dir build-pilot -R viewfeed     g++ on Linux
 //
-// NOT IN firmware\verify.bat, AND NOT IN A .bat AT ALL: viewfeed.cxx's real
-// half is Linux-only - accept4, pipe2, poll, recvfrom, MSG_NOSIGNAL - and on
-// MSVC every function refuses. A laptop run could prove nothing but that
-// start() returns false, which is what the #else half below checks and all it
-// claims to check. docs/bibowire.md section 12 says this out loud rather than
-// leaving it to be discovered, and pilot/CMakeLists.txt keeps it a ctest.
+// Not in a .bat: the real half is Linux-only (accept4, pipe2, poll, recvfrom,
+// MSG_NOSIGNAL) and on MSVC every call refuses, which is all the #else half checks.
 //
-// WHAT IS CHECKED, in order.
-//
-//   1.  start/stop, the port, and publish() with nobody connected.
-//   1b. THE BOARD'S OWN AGES. scanAgeMs, controlAgeMs and picoSilentMs are
-//       measurements, and with nothing measured yet they carry a real elapsed
-//       time or their ABSENT sentinel - never 0, which would read as
-//       "perfectly fresh" and is the most dangerous value on this wire.
-//   2.  The handshake: HELLO is answered by WELCOME, then LIDAR_INFO, then
-//       BOARD, then the first SCAN. STATE BEFORE SCAN, ALWAYS - the ordering
-//       the viewer needs to have something true to draw the moment a picture
-//       appears.
-//   3.  A person with nc: a connection whose first bytes are not the magic
-//       gets one plain ASCII line before its BYE.
-//   4.  An inbound frame claiming more than MAX_INBOUND_PAYLOAD is closed
-//       with BYE(TOO_BIG), and nothing is allocated for the claim.
-//   5.  A second HELLO on a live connection closes it.
-//   6.  A second viewer asking for control is accepted as an OBSERVER
-//       with refusal 2, and its CONTROL datagrams are counted and discarded.
-//   7.  A datagram carrying the PREVIOUS session's id is rejected after a
-//       reconnect - the case that would otherwise drive the car with a
-//       second-old stick position while the socket looked perfect.
-//   8.  The reverse-path probe says so in words when no CONTROL datagram
-//       arrives within 1000 ms of WELCOME.
-//   9.  A client that stops reading is coalesced to ONE queued SCAN and
-//       then dropped, WHILE ANOTHER KEEPS RECEIVING - the property the pilot's
-//       tick depends on, and the one a shared queue would break.
-//   10. The drop ORDER: BULK before LIVE before VITAL, and a client the
-//       vital frames cannot reach is closed rather than waited for.
-//   11. A fifth viewer is refused by name, with the four already connected in
-//       the sentence.
-//   12. PING/PONG: the board pings once a second, and a viewer that never
-//       answers is closed with BYE(TIMEOUT).
-//   13. LEAVE releases the control slot on that tick.
-//   14. THE ZERO-MASK TRAP. `typeMask = 0` means "never asked", which this
-//       board reads as EVERYTHING - and CAMERA is the one type excluded from
-//       that default, because ~45 KB a frame handed to a viewer that never
-//       mentioned it would take the bandwidth the scan needs.
-//   15. Asking for the camera is ANSWERED - a picture, or a sentence saying
-//       why there is none. Never a blank panel and silence.
-//   22. A car program's run (LOOK or DRIVE): trim is refused and nothing is
-//       queued, and DISARM latches the estop the program reads. MANUAL is not.
-//       drive()'s copy stays younger than the Car's VIEWER_STUCK_MS.
-//
-// WHAT THIS SUITE DOES NOT PROVE, said out loud rather than left to be assumed.
-// /dev/video0 is SINGLE-OPENER - measured: a second streamer gets
-// "VIDIOC_REQBUFS returned -1 (Device or resource busy)" and writes zero bytes
-// - and the pilot already running on the board holds it whenever a viewer is
-// watching. A ctest that grabbed it would fight that pilot on the very board
-// it runs on and would pass or fail depending on whether somebody was
-// streaming. So BIBO_CAM_DEV is pointed at a device that does not exist for the
-// whole run, and what is checked is the BOARD's behaviour: the subscription
-// gate, and that an absence arrives with a reason. That a JPEG actually comes
-// off the sensor and reaches a viewer is NOT checked here.
-//
-// It can be, by hand, against real hardware - the setenv below does not
-// overwrite, so
+// Not proved: that a JPEG comes off a real sensor. /dev/video0 has one opener and
+// the pilot on the board holds it while a viewer watches, so BIBO_CAM_DEV points at
+// a missing device and the camera check accepts a reason. To use the real device:
 //
 //   BIBO_CAM_DEV=/dev/video0 ./test_viewfeed
 //
-// runs this same suite against the real device, where check 15 accepts either
-// the picture or the reason.
-//
-// Every socket read here has a deadline, so a feed that sends nothing fails the
-// check rather than hanging the test.
-//
-// Exits 0 on PASS, 1 on FAIL.
-
+// Every socket read has a deadline, so a feed that sends nothing fails rather than
+// hangs.
 #include "shared.hxx"
 
 #include "car.hxx"
@@ -123,9 +60,8 @@ static Void checkStr(const Str& got, const Char* want, const Char* what)
 
 #if defined(__linux__)
 
-// A bibowire client on loopback, with every read under a deadline. It speaks
-// the protocol through the SAME codec the board does, so a disagreement about
-// a field's offset cannot hide inside this file.
+// A loopback bibowire client on the board's own codec, so no second copy of an
+// offset can disagree with it.
 struct Wire
 {
     Int32 fd = -1;
@@ -133,10 +69,9 @@ struct Wire
     Vec<UInt8> held;        // the frame most recently taken, kept alive
     bibowire::Frame f;      // points INTO `held`
 
-    // `rcvBuf` non-zero caps this end's receive buffer, BEFORE connect so the
-    // window scale is negotiated with it. That is what makes backpressure a
-    // thing this test can create on demand: loopback otherwise autotunes to
-    // megabytes and swallows everything a stalled viewer is sent.
+    // A non-zero rcvBuf caps the receive buffer before connect, so the window scale
+    // is negotiated with it. Without it loopback autotunes to megabytes and a
+    // stalled viewer never pushes back.
     [[nodiscard]] Bool connect(UInt16 port, Int32 rcvBuf = 0)
     {
         fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -256,9 +191,7 @@ struct Wire
         }
     }
 
-    // The next frame of `type`, skipping anything else that arrives first -
-    // PING and CTLSTATE turn up on their own schedule and are not what a
-    // particular check is asking about.
+    // The next frame of `type`, skipping others, such as the board's PINGs.
     [[nodiscard]] Bool nextOf(bibowire::Type type, Int32 ms)
     {
         const TimePoint start = monoNow();
@@ -377,13 +310,8 @@ struct Datagram
         return true;
     }
 
-    // A CONTROL that states what mode the viewer BELIEVES is running, and asks
-    // for throttle. A sibling of control() rather than more parameters on it:
-    // six call sites use that one, and widening a shared helper to serve one
-    // test is how the other five acquire arguments nobody reads.
-    //
-    // control() leaves assumedMode at Control's default of 0 - MANUAL - which
-    // is precisely why nothing in this suite ever exercised the mode gate.
+    // A CONTROL carrying the mode the viewer believes and a throttle. control()
+    // leaves assumedMode at 0, MANUAL.
     Void controlAs(UInt16 to, UInt32 session, UInt32 seq, UInt16 buttons, UInt8 mode, Int16 throttle, UInt8 epoch)
     {
         bibowire::Control m;
@@ -413,9 +341,6 @@ struct Datagram
         bibowire::Head h;
         h.type = bibowire::Type::TYPE_CONTROL;
         h.ver = 1;
-        // m.seq, not a `seq` parameter - this body was lifted out of control()
-        // when controlAs() was added, and the frame header's sequence comes from
-        // the message now rather than from an argument that no longer exists.
         h.seq = static_cast<UInt16>(m.seq);
         bibowire::Body b;
         b.bytes = body.data();
@@ -435,14 +360,8 @@ struct Datagram
         ));
     }
 
-    // Drains the socket to EMPTY and keeps the NEWEST CTLSTATE in it.
-    //
-    // THIS IS THE RULE THE BOARD ITSELF APPLIES TO CONTROL, and this suite got
-    // it wrong first time in exactly the way the protocol warns about. CTLSTATE
-    // arrives at 20 Hz, so by the time a check runs there is a queue of them;
-    // a reader that returns the FIRST is reading the past, and five assertions
-    // failed on the board asserting values the board had long since moved on
-    // from. A stale datagram read as current is this protocol's whole subject.
+    // Drains the socket and keeps the newest CTLSTATE: they queue up between
+    // checks, so the first one is the past.
     [[nodiscard]] Bool newest(bibowire::CtlState* out)
     {
         Bool any = false;
@@ -495,10 +414,8 @@ struct Datagram
         }
     }
 
-    // Keeps draining until the newest CTLSTATE satisfies `ok`, or `ms` passes.
-    // The board applies a CONTROL on its own thread, so a check that reads once
-    // and asserts is racing it; this waits for the state to arrive rather than
-    // sleeping a guessed interval and hoping.
+    // Drains until the newest CTLSTATE satisfies `ok` or `ms` pass. The board
+    // applies CONTROL on its own thread, so reading once would race it.
     template<typename Pred>
     [[nodiscard]] Bool stateWhere(Int32 ms, bibowire::CtlState* out, Pred ok)
     {
@@ -585,9 +502,7 @@ static Bool clientsReach(Size want, Int32 ms)
     return m.sessionId;
 }
 
-// The next EVENT carrying the board's saved trim, skipping any other EVENT, or
-// false when none arrives. A trim report is an EVENT by design, so a check that
-// took the first EVENT of any kind could be reading some other sentence.
+// The next EVENT carrying the board's saved trim, skipping other EVENTs, or false.
 [[nodiscard]] static Bool nextTrim(Wire& w, Str& text)
 {
     for(Int32 tries = 0; tries < 8; ++tries)
@@ -609,14 +524,8 @@ static Bool clientsReach(Size want, Int32 ms)
 Int32 main()
 {
     std::printf("\nviewfeed - bibowire's socket half, over loopback\n\n");
-
-    // The camera device, pointed somewhere that does not exist for the whole
-    // run - see "WHAT THIS SUITE DOES NOT PROVE" in the header for why, and for
-    // how to point it at the real one by hand. Overwrite is 0 on purpose: an
-    // operator who sets BIBO_CAM_DEV wins, and gets the real device.
+    // Overwrite 0, so an operator's own BIBO_CAM_DEV wins.
     static_cast<Void>(::setenv("BIBO_CAM_DEV", "/dev/bibo-no-such-video", 0));
-
-    // ---- 1. start, stop, and a publish with nobody there ---------------------------
     const viewfeed::Policy policy = aPolicy();
     check(viewfeed::start(0, policy), "the feed starts on an ephemeral port");
     check(viewfeed::port() != 0, "and says which");
@@ -625,15 +534,9 @@ Int32 main()
     viewfeed::publishScan(aScan(100, 1));
     viewfeed::publishDecide(bibowire::Decide());
     check(true, "publish() with nobody connected is harmless");
-
     const UInt16 port = viewfeed::port();
-
-    // ---- 1b. the board's own ages, MEASURED and never a placeholder ------------------
-    // A field left at 0 reads as PERFECTLY FRESH, which is the most dangerous
-    // value this protocol can carry: it turns "no revolution has ever arrived"
-    // into "the picture in front of you is current". scanAgeMs, controlAgeMs
-    // and picoSilentMs are the board measuring ITSELF, and this checks they say
-    // so BEFORE anything has happened rather than only once it is all working.
+    // The board's own ages before anything has happened: 0 would read as perfectly
+    // fresh, the most dangerous value on this wire.
     {
         Datagram udp;
         check(udp.open(), "a viewer binds its control socket");
@@ -641,7 +544,6 @@ Int32 main()
         check(fresh.connect(port), "and connects");
         const UInt32 session = handshake(fresh, udp.port, 1);
         check(session != 0u, "and takes control");
-
         bibowire::CtlState st;
         check(udp.state(2000, &st), "CTLSTATE arrives on UDP");
         check(st.scanAgeMs != 0u, "with NO revolution ever, scanAgeMs is NOT 0");
@@ -652,27 +554,22 @@ Int32 main()
         check(st.controlAgeMs == bibowire::CONTROL_AGE_NEVER, "controlAgeMs is NEVER, not 0");
         check(st.picoSilentMs == bibowire::PICO_SILENT_ABSENT, "picoSilentMs is ABSENT, not 0");
         check(st.escUs == bibowire::ESC_ABSENT, "and the ESC pulse is unknown, not 0");
-
-        // And once a revolution HAS reached the board the age becomes a real,
-        // small one - the field is a measurement in both directions.
         viewfeed::publishScan(aScan(120, 1));
         sleepMs(150);
         check(udp.state(2000, &st), "after a revolution CTLSTATE still arrives");
         check(st.scanAgeMs < 2000u, "and scanAgeMs is a real, recent age");
-
         udp.control(port, session, 1, bibowire::BUTTON_ENABLE);
         const Bool applied = udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
             return s.ackSeq == 1u;
         });
         check(applied, "CTLSTATE after a CONTROL names the seq the board applied");
         check(st.controlAgeMs != bibowire::CONTROL_AGE_NEVER, "controlAgeMs is a measurement now");
-
         fresh.close();
         udp.close();
         check(clientsReach(0, 2000), "the viewer leaves");
     }
-
-    // ---- 2. the handshake, and STATE BEFORE SCAN ------------------------------------
+    // The handshake sends state before any scan, so a viewer has something true to
+    // draw when the picture appears.
     {
         bibowire::LidarInfo info;
         info.model = 0x41;
@@ -683,13 +580,11 @@ Int32 main()
         board.revolutions = 7;
         viewfeed::publishBoard(board);
         sleepMs(60);
-
         Wire a;
         check(a.connect(port), "a viewer connects");
         a.hello(0, 0, "observer");
         check(a.next(1000), "and gets an answer");
         check(a.f.head.type == bibowire::Type::TYPE_WELCOME, "the first frame is WELCOME");
-
         bibowire::Welcome w;
         check(bibowire::readWelcome(a.f.body, a.f.head.ver, &w), "which reads whole");
         check(w.sessionId != 0u, "with a session id that is never 0");
@@ -697,17 +592,14 @@ Int32 main()
         check(w.accepted == 2u, "an observer is accepted as one");
         check(w.staleMs == 150u && w.deadMs == 300u, "the deadman numbers come from the board");
         checkStr(w.boardName, "bibobox", "and the board names itself");
-
         check(a.next(1000), "a second frame follows");
         check(a.f.head.type == bibowire::Type::TYPE_LIDAR_INFO, "LIDAR_INFO, before any scan");
         check(a.next(1000), "a third frame follows");
         check(a.f.head.type == bibowire::Type::TYPE_BOARD, "BOARD, still before any scan");
-
         bibowire::BoardState got;
         check(bibowire::readBoard(a.f.body, a.f.head.ver, &got), "the board state reads whole");
         check(got.upS == 12u && got.revolutions == 7u, "carrying what the pilot published");
         check(got.clients == 1u, "and what only the socket half can know");
-
         viewfeed::publishScan(aScan(500, 42));
         check(a.nextOf(bibowire::Type::TYPE_SCAN, 1000), "and THEN the scan arrives");
         bibowire::Scan s;
@@ -715,30 +607,17 @@ Int32 main()
         check(s.points.size() == 500u, "with every point");
         check(s.revIndex == 42u, "and the revolution it was");
         check(s.droppedSinceLast == 0u, "nothing dropped for a viewer that is reading");
-
-        // Bits 0 and 1 are MAINTAINED on every board->viewer frame, so "the car
-        // is stopped" is derivable from any frame that arrives - including one
-        // whose body a reader has no name for. Maintained is not the same as
-        // set: with NOBODY holding the control slot the deadman does not apply
-        // at all (section 6), so the honest value of the bit here is CLEAR.
-        // A board that set it anyway would be reporting a stop that is not
-        // happening, which is the same lie in the other direction.
+        // FLAG_ESTOP and FLAG_DEADMAN ride every board frame. With nobody holding the
+        // slot the deadman does not apply, so its bit is clear.
         check(
             (a.f.head.flags & bibowire::FLAG_DEADMAN) == 0u,
             "with no holder the deadman does not apply, and FLAG_DEADMAN is clear"
         );
         check((a.f.head.flags & bibowire::FLAG_ESTOP) == 0u, "and no e-stop is latched");
-
         a.close();
         check(clientsReach(0, 2000), "and the count goes back to nothing when it leaves");
     }
-
-    // ---- 2b. an OBSERVER is a first-class viewer ---------------------------------------
-    // wantControl = 0 is the common case today: control is out of scope until
-    // the Pico is wired, so the viewer connects to watch. Section 6, "When there
-    // is no holder at all", is explicit that with nobody holding the slot
-    // bibowire's deadman does not apply and the pilot runs under its own rules -
-    // so an observer must not arm a timer that would stop a car nobody is driving.
+    // An observer must not arm a deadman that would stop a car nobody is driving.
     {
         Datagram udp;
         check(udp.open(), "an observer binds a control socket it will not use");
@@ -753,33 +632,23 @@ Int32 main()
         );
         check(w.accepted == 2u, "as an observer");
         check(w.refusal == 0u, "with NO refusal - it never asked for the wheel");
-
-        // The featureMask convention, pinned so the next reader is not left
-        // guessing as the viewer's author was.
+        // featureMask uses bit = tag - 0x10.
         check(w.featureMask != 0u, "WELCOME names what this board will send");
         const UInt32 scanBit = 1u << (0x10u - 0x10u);
         const UInt32 decideBit = 1u << (0x11u - 0x10u);
         check((w.featureMask & scanBit) != 0u, "including SCAN");
         check((w.featureMask & decideBit) != 0u, "and DECIDE, which does not collide with SCHEMA");
-
         bibowire::CtlState st;
         check(udp.state(2000, &st), "the observer still gets CTLSTATE");
         check(st.holder == 0u, "which says the wheel is NOBODY's");
         check(st.deadman == 0u, "the deadman is not armed on an observer's account");
         check(st.refuse == bibowire::Refuse::REFUSE_NONE, "and nothing is being refused");
-
-        // And it is served the telemetry, which is the whole reason it is here.
         viewfeed::publishScan(aScan(200, 900));
         check(watcher.nextOf(bibowire::Type::TYPE_SCAN, 2000), "and it is served revolutions");
-
         watcher.close();
         udp.close();
         check(clientsReach(0, 2000), "the observer leaves");
     }
-
-    // ---- 2c. a HELLO with every feature bit set is ACCEPTED ------------------------------
-    // The value a viewer sends when the spec named no bit for it. Refusing an
-    // unrecognised bit would refuse the most sensible thing a viewer can say.
     {
         Wire loud;
         check(loud.connect(port), "a viewer connects");
@@ -804,8 +673,6 @@ Int32 main()
         loud.close();
         check(clientsReach(0, 2000), "it leaves");
     }
-
-    // ---- 3. a person with nc gets a sentence, not a hex dump -------------------------
     {
         Wire nc;
         check(nc.connect(port), "somebody dials the binary port by hand");
@@ -816,15 +683,11 @@ Int32 main()
         check(nc.closed(2000), "then closed");
         nc.close();
     }
-
-    // ---- 4. (37) an oversized claim is refused without allocating for it -------------
     {
         Wire big;
         check(big.connect(port), "a viewer connects");
-        // A header claiming 200000 payload bytes. It is a CLAIM, and the board
-        // must answer it from the header alone - the frame it describes could
-        // never fit the 1024-byte receive ring, so a board that waited for the
-        // body would wait forever.
+        // A header claiming more than MAX_INBOUND_PAYLOAD: the board must answer from
+        // the header alone, since the body would never fit its receive ring.
         Array<UInt8, bibowire::HEAD_BYTES> head{};
         bibowire::wr16(head.data(), bibowire::MAGIC);
         bibowire::wr8(head.data() + 2u, static_cast<UInt8>(bibowire::Type::TYPE_HELLO));
@@ -833,7 +696,6 @@ Int32 main()
         bibowire::wr16(head.data() + 6u, 0);
         bibowire::wr32(head.data() + 8u, 200000u);
         big.raw(head.data(), head.size());
-
         check(big.nextOf(bibowire::Type::TYPE_BYE, 1000), "the board answers BYE");
         bibowire::Bye m;
         check(bibowire::readBye(big.f.body, big.f.head.ver, &m), "which reads whole");
@@ -842,8 +704,6 @@ Int32 main()
         check(big.closed(2000), "and the connection is closed");
         big.close();
     }
-
-    // ---- 5. a second HELLO on a live connection is a protocol error ------------------
     {
         Wire twice;
         check(twice.connect(port), "a viewer connects");
@@ -853,18 +713,14 @@ Int32 main()
         twice.close();
         check(clientsReach(0, 2000), "and it is no longer counted");
     }
-
-    // ---- 6. (38) the second asker drives nothing -------------------------------------
     {
         Datagram udpA;
         Datagram udpB;
         check(udpA.open() && udpB.open(), "two viewers bind their control sockets");
-
         Wire driver;
         check(driver.connect(port), "the first viewer connects");
         const UInt32 sessionA = handshake(driver, udpA.port, 1);
         check(sessionA != 0u, "and asks for control");
-
         Wire second;
         check(second.connect(port), "a second viewer connects");
         second.hello(udpB.port, 1, "second");
@@ -880,8 +736,6 @@ Int32 main()
         std::printf("        (\"%s\")\n", w.text.c_str());
         const UInt32 sessionB = w.sessionId;
         check(sessionB != sessionA, "the two sessions are different");
-
-        // The holder's stream is applied and feeds the deadman.
         const viewfeed::Counters before = viewfeed::counters();
         for(UInt32 i = 1; i <= 8u; ++i)
         {
@@ -894,9 +748,7 @@ Int32 main()
         });
         check(eight, "the holder's CTLSTATE carries the seq the board APPLIED");
         check(st.holder == 1u, "and tells it the wheel is its own");
-
-        // The observer's are counted and discarded, and above all do not feed
-        // the timer. This is Design 3's fatal flaw, pinned by a test.
+        // An observer's CONTROL must not feed the holder's deadman.
         for(UInt32 i = 1; i <= 5u; ++i)
         {
             udpB.control(port, sessionB, i, bibowire::BUTTON_ENABLE);
@@ -909,8 +761,6 @@ Int32 main()
         check(st.ackSeq == 8u, "and the observer moved nothing");
         check(udpB.state(1000, &st), "the observer hears CTLSTATE too");
         check(st.holder == 2u, "which tells it another viewer is driving");
-
-        // ---- 13. LEAVE releases the slot on that tick -------------------------------
         bibowire::Leave leave;
         leave.sessionId = sessionA;
         Array<UInt8, 16> body{};
@@ -921,15 +771,12 @@ Int32 main()
             return s.holder == 0u;
         });
         check(released, "the observer hears that the wheel is nobody's again");
-
         driver.close();
         second.close();
         udpA.close();
         udpB.close();
         check(clientsReach(0, 2000), "both viewers are gone");
     }
-
-    // ---- 7. (39) a datagram from the PREVIOUS session ---------------------------------
     {
         Datagram udp;
         check(udp.open(), "a viewer binds its control socket");
@@ -945,17 +792,13 @@ Int32 main()
         check(first1, "its control is applied and acknowledged");
         first.close();
         check(clientsReach(0, 2000), "then the hotspot blips and it is gone");
-
         Wire again;
         check(again.connect(port), "it reconnects");
         const UInt32 fresh = handshake(again, udp.port, 1);
         check(fresh != 0u, "and is welcomed");
         check(fresh != old, "with a NEW session id - nothing is resumed");
-
-        // The datagram still in flight from before the blip. Its seq is higher
-        // than anything this session has applied, so seq alone would let it
-        // through; the session id is what stops it driving the car with a
-        // second-old stick position.
+        // Still in flight from before the blip, with a higher seq: only the session
+        // id stops it driving the car with a second-old stick position.
         const viewfeed::Counters before = viewfeed::counters();
         udp.control(port, old, 99, bibowire::BUTTON_ENABLE);
         sleepMs(200);
@@ -966,27 +809,19 @@ Int32 main()
         );
         check(udp.state(1000, &st), "CTLSTATE still arrives");
         check(st.ackSeq == 0u, "and NOTHING from the old session was applied");
-
-        // And the high-water mark was reset by the handshake, so a viewer that
-        // restarts at seq 1 is heard rather than frozen out.
         udp.control(port, fresh, 1, bibowire::BUTTON_ENABLE);
         const Bool reset = udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) {
             return s.ackSeq == 1u;
         });
         check(reset, "the new session's seq 1 is applied - the mark is reset per session");
-
         again.close();
         udp.close();
         check(clientsReach(0, 2000), "the viewer leaves");
     }
-
-    // ---- 8. (40) the reverse path is MEASURED, not assumed ----------------------------
     {
         Wire quiet;
         check(quiet.connect(port), "a viewer asks for control");
-        // It names a UDP port and then never sends a datagram - the asymmetric
-        // failure the two-transport shape creates, and the one a viewer cannot
-        // diagnose on its own.
+        // It names a UDP port and never sends: a failure the viewer cannot see itself.
         check(handshake(quiet, 40000, 1) != 0u, "and is given the wheel");
         check(
             quiet.nextOf(bibowire::Type::TYPE_EVENT, 3000),
@@ -1001,39 +836,22 @@ Int32 main()
         quiet.close();
         check(clientsReach(0, 2000), "the viewer leaves");
     }
-
-    // ---- 9. (35) one viewer stalls, the other keeps seeing the car ---------------------
-    //
-    // THE FIRST VERSION OF THIS TEST PROVED NOTHING, and how it failed is worth
-    // keeping. It published 2.5 MB at a viewer that never read, expecting the
-    // ring to coalesce - and loopback autotuned its buffers into the megabytes
-    // and swallowed every byte. The socket never pushed back, so the ring never
-    // filled, nothing was ever coalesced, droppedSinceLast stayed 0, and the
-    // stalled viewer was finally closed by the PING timeout at twelve seconds
-    // rather than by backpressure at five hundred milliseconds. Three
-    // assertions were green about a mechanism that had never once run.
-    //
-    // A small SO_RCVBUF set BEFORE connect is what makes the condition real:
-    // one 1024-point revolution is 5160 bytes and will not fit, so the board is
-    // pushing back within milliseconds and the drop classes have to decide.
+    // A stalled viewer is coalesced, then dropped, while another keeps receiving: the
+    // pilot's tick depends on it. TINY_RCVBUF holds less than one 1024-point
+    // revolution, so the board is pushed back at once.
     {
         constexpr Int32 TINY_RCVBUF = 2048;
-
-        // ---- 9a. a viewer that falls behind is COALESCED to the newest ----------
         Wire lag;
         check(lag.connect(port, TINY_RCVBUF), "a viewer with a tiny receive buffer connects");
         check(handshake(lag, 0, 0) != 0u, "and is welcomed");
         check(clientsReach(1, 2000), "and is counted");
-
-        // A burst it cannot absorb, with no reads at all. Kept short so this
-        // finishes well inside the first PING, whose own vital frame would
-        // otherwise close the client on BEHIND_MS before it can be read from.
+        // A burst it cannot absorb, short enough to finish before the first PING,
+        // whose vital frame would close the client on BEHIND_MS.
         for(UInt32 i = 0; i < 24u; ++i)
         {
             viewfeed::publishScan(aScan(1024, 200u + i));
         }
         sleepMs(120);
-
         UInt16 told = 0;
         UInt32 got = 0;
         while(got < 4u && lag.nextOf(bibowire::Type::TYPE_SCAN, 500))
@@ -1054,8 +872,6 @@ Int32 main()
         std::printf("        (droppedSinceLast reached %u)\n", static_cast<unsigned>(told));
         lag.close();
         check(clientsReach(0, 3000), "it leaves");
-
-        // ---- 9b. one stalls and is dropped, the other keeps receiving -----------
         Wire slow;
         Wire fast;
         check(slow.connect(port, TINY_RCVBUF), "a stalling viewer connects");
@@ -1063,7 +879,6 @@ Int32 main()
         check(fast.connect(port), "a reading viewer connects");
         check(handshake(fast, 0, 0) != 0u, "and is welcomed too");
         check(clientsReach(2, 2000), "two viewers");
-
         const TimePoint stall = monoNow();
         Bool slowGone = false;
         UInt32 seen = 0;
@@ -1084,10 +899,8 @@ Int32 main()
         }
         const Float64 tookMs = elapsedMs(stall);
         check(slowGone, "the viewer that stopped reading is dropped");
-        // The PING timeout cannot fire before 1000 + 4000 ms, so a drop sooner
-        // than that is BACKPRESSURE and not the half-open check doing this
-        // check's job by accident. Telling those two apart is the whole point:
-        // the first version could not, and passed anyway.
+        // The PING timeout cannot fire before 1000 + 4000 ms, so a sooner drop is
+        // backpressure.
         check(tookMs < 4000.0, "for being BEHIND, not by the PING timeout");
         check(seen > 0u, "while the reading viewer kept receiving revolutions");
         check(slow.closed(2000), "and the stalled socket is closed");
@@ -1096,19 +909,10 @@ Int32 main()
             tookMs,
             static_cast<unsigned>(seen)
         );
-
         slow.close();
         fast.close();
         check(clientsReach(0, 3000), "both are gone");
     }
-
-    // ---- 10. (36) the drop order, and the class ranks it comes from ---------------------
-    // The ordering itself is bibowire's: BULK is discarded before LIVE, and
-    // VITAL is never discarded at all. v1 has no BULK producer - CAMERA is
-    // reserved and nothing publishes one - so the socket half cannot be made to
-    // queue one from out here; what IS checked over the socket is the half that
-    // has a producer, which is that LIVE coalesces (above) and that a client the
-    // vital frames cannot reach is CLOSED rather than waited for (above).
     check(
         bibowire::classOf(bibowire::Type::TYPE_CAMERA) == bibowire::Class::CLASS_BULK,
         "CAMERA is BULK - discarded first, always"
@@ -1125,40 +929,23 @@ Int32 main()
         bibowire::classOf(bibowire::Type::TYPE_EVENT) == bibowire::Class::CLASS_VITAL,
         "and so is the sentence that says why"
     );
-
-    // ---- 14. THE ZERO-MASK TRAP -----------------------------------------------------
-    //
-    // A zero typeMask means "never asked", and this board reads that as
-    // EVERYTHING: a viewer that never subscribes is not a viewer that wants
-    // nothing. That is right for a 2.5 KB revolution and it would be a disaster
-    // for a camera - 45 KB a frame, measured, at whatever rate the device runs.
-    // EVERY viewer written before the producer existed sends a zero mask, so if
-    // CAMERA sat in that default they would all start receiving a megabyte a
-    // second they never asked for, out of the bandwidth the scan needs.
-    //
-    // So CAMERA is the one type excluded from the default, and this is the check
-    // that pins it. The mask convention is `bit = tag - 0x10`, so CAMERA (0x20)
-    // is bit 16.
+    // The zero-mask trap: a typeMask of 0 means "never asked" and is read as
+    // everything except CAMERA.
     {
         const UInt32 cameraBit = 1u << (0x20u - 0x10u);
         check(cameraBit == (1u << 16u), "CAMERA's subscription bit is bit 16");
-
         Wire zero;
         check(zero.connect(port), "a viewer that never subscribes connects");
         check(handshake(zero, 0, 0) != 0u, "and is welcomed");
         check(clientsReach(1, 2000), "and is counted");
-
-        // It IS served what a zero mask includes, so this is a check about the
-        // camera and not about a viewer that is being sent nothing at all.
+        // Served what a zero mask includes, so the camera check below is not vacuous.
         viewfeed::publishScan(aScan(64, 910));
         check(zero.nextOf(bibowire::Type::TYPE_SCAN, 2000), "a zero mask still receives SCAN");
         bibowire::BoardState state;
         state.upS = 21;
         viewfeed::publishBoard(state);
         check(zero.nextOf(bibowire::Type::TYPE_BOARD, 2000), "and still receives BOARD");
-
-        // And NOT the camera. Long enough that a capture would have been
-        // started, failed and explained several times over if the mask let it.
+        // Long enough for a capture to start, fail and be explained several times over.
         Bool sawCamera = false;
         const TimePoint watch = monoNow();
         while(elapsedMs(watch) < 1500.0 && !sawCamera)
@@ -1170,19 +957,11 @@ Int32 main()
             sawCamera = zero.f.head.type == bibowire::Type::TYPE_CAMERA;
         }
         check(!sawCamera, "but a zero mask receives NO CAMERA - it never asked for one");
-
         zero.close();
         check(clientsReach(0, 2000), "it leaves");
     }
-
-    // ---- 15. asking for the camera is ANSWERED --------------------------------------
-    //
-    // A picture, or a sentence saying why there is none. Never a blank panel and
-    // silence: an absence with a reason beats a silent nothing, and this repo is
-    // named after the failure of reporting success while measuring nothing.
     {
         const UInt32 cameraBit = 1u << (0x20u - 0x10u);
-
         Wire watcher;
         check(watcher.connect(port), "a viewer that wants pictures connects");
         watcher.hello(0, 0, "camera");
@@ -1192,17 +971,14 @@ Int32 main()
             bibowire::readWelcome(watcher.f.body, watcher.f.head.ver, &w),
             "the WELCOME reads whole"
         );
-        // featureMask is "what this board WILL send", so the camera belongs in
-        // it even though it is off: it is how a viewer discovers the bit is
-        // worth setting at all, rather than having to read this source.
+        // featureMask is what the board will send on request, so it includes the
+        // camera while it is off.
         check(
             (w.featureMask & cameraBit) != 0u,
             "the board ADVERTISES the camera it will send on request"
         );
         check(w.sessionId != 0u, "with a session id");
-
         watcher.subscribe(w.sessionId, cameraBit, 1, 1);
-
         Bool sawCamera = false;
         Bool sawWhy = false;
         Str why;
@@ -1262,12 +1038,9 @@ Int32 main()
             );
             std::printf("        (\"%s\")\n", why.c_str());
         }
-
         watcher.close();
         check(clientsReach(0, 2000), "the viewer leaves and the device is released");
     }
-
-    // ---- 11. a fifth viewer is refused BY NAME -------------------------------------------
     {
         Array<Wire, 4> four{};
         Bool allIn = true;
@@ -1277,7 +1050,6 @@ Int32 main()
         }
         check(allIn, "four viewers connect and are welcomed");
         check(clientsReach(4, 3000), "and all four are counted");
-
         Wire fifth;
         check(fifth.connect(port), "a fifth connects");
         fifth.hello(0, 0, "fifth");
@@ -1299,8 +1071,6 @@ Int32 main()
         }
         check(clientsReach(0, 3000), "and the room empties");
     }
-
-    // ---- 12. PING, and a viewer that never answers ------------------------------------
     {
         Wire ponger;
         check(ponger.connect(port), "a viewer connects");
@@ -1308,17 +1078,10 @@ Int32 main()
         check(ponger.nextOf(bibowire::Type::TYPE_PING, 2500), "the board pings it");
         bibowire::Ping p;
         check(bibowire::readPing(ponger.f.body, ponger.f.head.ver, &p), "the PING reads whole");
-
-        // Answered, so it stays. The 4000 ms timeout is the other half, and it
-        // is checked below on a viewer that says nothing at all.
         Array<UInt8, 32> body{};
         const Size len = bibowire::writePing(p, body.data(), body.size());
         ponger.put(bibowire::Type::TYPE_PONG, body.data(), len, 1);
-
-        // The other direction, and the field the viewer's latency readout is
-        // built on: the token must come back BYTE FOR BYTE. A board that
-        // regenerated it would leave the viewer measuring nothing while its
-        // display filled with plausible milliseconds.
+        // The viewer's latency readout needs its own token echoed byte for byte.
         bibowire::Ping mine;
         mine.token = 0xDEADBEEFCAFEF00Dull;
         mine.senderMonoUs = 12345u;
@@ -1330,13 +1093,9 @@ Int32 main()
         check(bibowire::readPing(ponger.f.body, ponger.f.head.ver, &back), "the PONG reads whole");
         check(back.token == 0xDEADBEEFCAFEF00Dull, "and the token is echoed VERBATIM");
         check(back.senderMonoUs != 12345u, "with the BOARD's own clock in senderMonoUs");
-
         sleepMs(1500);
         check(viewfeed::clients() == 1u, "a viewer that PONGs is kept");
-
-        // And one that does not: BYE(TIMEOUT) inside 4000 ms of the PING going
-        // out. A phone that walks out of range stops ACKing without a FIN, and
-        // nothing but this notices.
+        // A phone out of range stops ACKing without a FIN; only the PING timeout notices.
         const TimePoint waited = monoNow();
         const Bool timedOut = ponger.closed(7000);
         check(timedOut, "a viewer that stops answering PING is closed");
@@ -1344,8 +1103,6 @@ Int32 main()
         ponger.close();
         check(clientsReach(0, 2000), "and it is gone");
     }
-
-    // ---- stop() -----------------------------------------------------------------------
     {
         Wire last;
         check(last.connect(port), "one more viewer connects");
@@ -1363,33 +1120,18 @@ Int32 main()
         check(viewfeed::start(port, aPolicy()), "the same port can be taken again straight after");
         viewfeed::stop();
     }
-
-    // ---- 16. the tuning verbs, over a real socket ------------------------------------
-    //
-    // THIS SUITE WAS GREEN ABOUT THESE WITHOUT EVER SENDING ONE. test_bibowire
-    // proves a COMMAND carrying arg0/arg1/arg2 survives the codec, which says
-    // nothing at all about whether THIS server accepts it, refuses it, or queues
-    // it - and the queue is the only place an operator's trim can be silently
-    // swallowed. Eight suites passed while onCommand's tuning branch had never
-    // executed a single time.
-    //
-    // No BOARD is published here, so haveBoard is false and picoDown() is false
-    // with it - "the pilot has not said yet" is deliberately not "there is no
-    // Pico", so these are accepted rather than refused with result 4. Nothing
-    // calls applied() either, so the car reads as disarmed.
+    // Tuning COMMANDs over a real socket. No BOARD is published, so picoDown() is false
+    // ("not said yet" is not "no Pico") and nothing is refused with result 4; nothing
+    // calls applied(), so the car reads as disarmed.
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for the tuning tests");
         const UInt16 port = viewfeed::port();
-
         Wire w;
         check(w.connect(port), "a viewer connects to tune");
         const UInt32 session = handshake(w, 0, 0);
         check(session != 0, "and is welcomed - an OBSERVER, because tuning is not driving");
-
         Array<UInt8, 32> body{};
         viewfeed::Tune t;
-
-        // ---- accepted, and it reaches the tick intact ----
         {
             bibowire::Command m;
             m.sessionId = session;
@@ -1399,45 +1141,35 @@ Int32 main()
             m.arg1 = 37;
             const Size len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 20);
-
             check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a tuning COMMAND is answered");
             bibowire::CmdAck ack;
             check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "and the ack decodes");
             check(ack.cmdId == 7, "against the cmdId that was sent");
             check(ack.result == 0, "and the value was accepted");
             check(!ack.text.empty(), "with a sentence naming what the car took");
-
             check(viewfeed::tune(&t), "the pilot's tick finds it queued");
             check(t.verb == bibowire::Verb::VERB_SET_SLEW, "the verb survived");
             check(t.arg0 == bibowire::SLEW_AXIS_THROTTLE, "the AXIS survived - 2, not 1");
             check(t.arg1 == 37, "and the rate survived");
             check(!viewfeed::tune(&t), "and the queue is empty once taken");
         }
-
-        // ---- refused, AND NOT QUEUED ----
-        //
-        // The assertion that matters in this whole section. A board that answers
-        // "refused" and queues the value anyway would hand the car a number the
-        // operator was told it would not take - a lie told by the acknowledgement
-        // itself, and invisible from both ends.
+        // A refusal that still queued the value would hand the car a number the
+        // operator was told it would not take.
         {
             bibowire::Command m;
             m.sessionId = session;
             m.cmdId = 8;
             m.verb = bibowire::Verb::VERB_SET_SLEW;
             m.arg0 = bibowire::SLEW_AXIS_STEER;
-            m.arg1 = 500;   // SLEW_US_MAX is 200
+            m.arg1 = 500;   // past SLEW_US_MAX
             const Size len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 21);
-
             check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "an out-of-range slew is answered");
             bibowire::CmdAck ack;
             check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "the ack decodes");
             check(ack.result == 1, "and it is refused");
             check(!viewfeed::tune(&t), "and NOTHING was queued for the car");
         }
-
-        // ---- min and max the wrong way round ----
         {
             bibowire::Command m;
             m.sessionId = session;
@@ -1447,7 +1179,6 @@ Int32 main()
             m.arg2 = 1400;
             const Size len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 22);
-
             check(
                 w.nextOf(bibowire::Type::TYPE_CMDACK, 1000),
                 "reversed servo limits are answered"
@@ -1457,8 +1188,6 @@ Int32 main()
             check(ack.result == 1, "and refused - both ends are in range, the ORDER is not");
             check(!viewfeed::tune(&t), "and nothing was queued");
         }
-
-        // ---- somebody else's session ----
         {
             bibowire::Command m;
             m.sessionId = session ^ 0xFFFFFFFFu;
@@ -1467,18 +1196,12 @@ Int32 main()
             m.arg1 = 1487;
             const Size len = bibowire::writeCommand(m, body.data(), body.size());
             w.put(bibowire::Type::TYPE_COMMAND, body.data(), len, 23);
-
             check(w.nextOf(bibowire::Type::TYPE_CMDACK, 1000), "a foreign session is answered");
             bibowire::CmdAck ack;
             check(bibowire::readCmdAck(w.f.body, w.f.head.ver, &ack), "the ack decodes");
             check(ack.result != 0, "and refused before the trim is ever looked at");
             check(!viewfeed::tune(&t), "and nothing was queued");
         }
-
-        // ---- the reverse limit: neutral is in range, above it is not ----
-        //
-        // 1500 is how reverse is turned OFF, so it must be taken; 1600 would be
-        // a forward pulse wearing the name reverse, so it must not.
         {
             bibowire::Command m;
             m.sessionId = session;
@@ -1497,7 +1220,6 @@ Int32 main()
                 viewfeed::tune(&t) && t.verb == bibowire::Verb::VERB_SET_ESC_REVERSE && t.arg1 == 1350,
                 "and reaches the tick intact"
             );
-
             m.cmdId = 12;
             m.arg1 = bibowire::ESC_NEUTRAL_US;
             len = bibowire::writeCommand(m, body.data(), body.size());
@@ -1514,7 +1236,6 @@ Int32 main()
                 viewfeed::tune(&t) && t.arg1 == bibowire::ESC_NEUTRAL_US,
                 "and queued as neutral"
             );
-
             m.cmdId = 13;
             m.arg1 = 1600;
             len = bibowire::writeCommand(m, body.data(), body.size());
@@ -1529,68 +1250,33 @@ Int32 main()
             );
             check(!viewfeed::tune(&t), "and nothing was queued");
         }
-
         viewfeed::stop();
         check(!viewfeed::tune(&t), "a stopped feed has no trim waiting for the tick");
     }
-
-    // ---- 17. the mode gate, which could never fire ----------------------------------
-    //
-    // control::apply contains a correct test - `c.assumedMode != g.pilotMode`
-    // forces throttle to 0 and refuses with REFUSE_MODE - and test_bibowire
-    // asserts it directly and passes. It could never run. onControlFrame filled
-    // `g.pilotMode` from `m.assumedMode`, so BOTH SIDES of that comparison came
-    // out of the same datagram and the branch was unreachable. deadmanNow() had
-    // the other half of it: `in.modeAgrees = true`, hard-coded.
-    //
-    // A codec suite cannot catch this. It calls apply() with two values it chose
-    // itself, which is exactly the thing the caller was failing to do. Only a
-    // socket-level test, where the board supplies its own mode, can tell the
-    // difference - which is why this section exists and why the 211 checks above
-    // it were green about a gate that had never once fired.
-    //
-    // The case it guards: a viewer holding W, believing it is in MANUAL, while
-    // the pilot is actually in DRIVE running the autonomy. Its throttle must be
-    // ignored.
+    // The mode gate over a socket, where the board supplies its own mode; a codec test
+    // chooses both sides of the comparison itself. A viewer holding W that believes
+    // MANUAL while the pilot DRIVEs must have its throttle ignored.
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for the mode gate");
         const UInt16 port = viewfeed::port();
-
-        // The board's own mode, which it learns from the pilot's BOARD frame and
-        // never from the viewer. DRIVE: the autonomy is driving.
+        // The board learns its mode from the pilot's BOARD, never from the viewer.
         bibowire::BoardState board;
         board.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
         viewfeed::publishBoard(board);
         sleepMs(60);
-
         Datagram udp;
         check(udp.open(), "a viewer binds its control socket");
         Wire w;
         check(w.connect(port), "and connects");
         const UInt32 session = handshake(w, udp.port, 1);
         check(session != 0u, "and takes the control slot");
-
-        // THE EPOCH IS READ, NOT ASSUMED. The board bumps it on every holder
-        // change, so it is not 0 by now - and deadman::step tests enable, then
-        // epoch, then mode, in that order. A guessed epoch would be refused with
-        // REFUSE_EPOCH and this section would pass on the wrong refusal.
+        // The epoch is read, not guessed: it bumps on every holder change, and
+        // deadman::step checks enable, then epoch, then mode.
         bibowire::CtlState st;
         check(udp.state(2000, &st), "CTLSTATE arrives, carrying the board's epoch");
         const UInt8 epoch = st.armEpoch;
-
-        // KEEP THE STREAM RUNNING WHILE WAITING, and this is not tidiness.
-        //
-        // The slot is released after CONTROL_SLOT_MS of silence and releasing it
-        // BUMPS THE EPOCH. A test that sends one datagram and then waits three
-        // seconds loses the control slot half way through its own assertion: the
-        // next datagram comes from a viewer that is no longer the holder, is
-        // discarded as NOT_HOLDER, and ackSeq never advances - so the check
-        // fails for a reason that has nothing to do with modes.
-        //
-        // That is exactly what happened the first time this section was run
-        // against the restored bug: all three checks went red, and only one of
-        // them was about the gate. A real viewer sends at 20 Hz so this cannot
-        // arise; so does this.
+        // Streams while it waits: CONTROL_SLOT_MS of silence releases the slot and
+        // bumps the epoch, and the next datagram would be refused as NOT_HOLDER.
         const auto pump = [&](UInt8 mode, UInt32 first, bibowire::Refuse want) {
             for(Int32 i = 0; i < 40; ++i)
             {
@@ -1612,9 +1298,7 @@ Int32 main()
             }
             return false;
         };
-
-        // ENABLE is set on every one, or the refusal is REFUSE_NOT_ARMED and the
-        // mode branch is never reached either.
+        // ENABLE on every one, or REFUSE_NOT_ARMED comes before the mode.
         const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
         const Bool refused = pump(manual, 1u, bibowire::Refuse::REFUSE_MODE);
         check(refused, "a viewer that believes MANUAL while the pilot DRIVES is REFUSE_MODE");
@@ -1622,70 +1306,46 @@ Int32 main()
             st.deadman != static_cast<UInt8>(bibowire::deadman::State::STATE_LIVE),
             "and the deadman is not LIVE, so no throttle is consented to"
         );
-
-        // THE POSITIVE CASE, so this section cannot pass by being permanently
-        // red. The same viewer, believing the mode the pilot is actually in.
+        // The positive case, so a gate that refused everything would fail.
         const UInt8 drive = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
         const Bool agreed = pump(drive, 100u, bibowire::Refuse::REFUSE_NONE);
         check(agreed, "and agreeing about the mode is refused for no reason at all");
-
         w.close();
         udp.close();
         viewfeed::stop();
-
-        // lastBoard OUTLIVES stop() - start() does not clear it - so a mode left
-        // at DRIVE here would be inherited by whatever section is added next,
-        // and its CONTROL datagrams (which all say MANUAL) would start being
-        // refused for a reason nobody wrote. Put it back.
+        // lastBoard outlives stop() and start(), so the mode is put back for later
+        // sections.
         viewfeed::publishBoard(bibowire::BoardState());
     }
-
-    // ---- 18. ARM and DISARM, which this board refused outright until now ------------
-    //
-    // The viewer's ARM button sent VERB_ARM from the day it was drawn and was
-    // answered "the pilot does not take bibowire commands yet". The only way to
-    // arm a manual car was --arm on the pilot's command line, so a pilot started
-    // at boot either armed itself with nobody there or could never be armed, and
-    // an estop could not be recovered from without restarting the process.
-    //
-    // Every refusal section 6 lists is driven here, and so is every road that
-    // must take an ARM away - above all the deadman: a stream that stalls and
-    // then resumes must NOT find the car armed again on its own. That case is
-    // the one the first cut of this got wrong, and the reason it is asserted.
+    // ARM and DISARM: every refusal, and every road that takes an ARM away. Above all,
+    // a stream that stalls and resumes must not find the car armed again.
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for arming");
         const UInt16 port = viewfeed::port();
         const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
-
-        // A MANUAL pilot whose Pico answers. picoLink 1 is the only link an ARM
-        // is granted over: 2 is up-but-silent and 0 is down.
+        // An ARM is granted only over picoLink 1: 2 is up but silent and 0 is down.
         bibowire::BoardState board;
         board.pilotMode = manual;
         board.picoLink = 1u;
         viewfeed::publishBoard(board);
         sleepMs(60);
-
         Datagram udp;
         check(udp.open(), "a driver binds its control socket");
         Wire w;
         check(w.connect(port), "and connects");
         const UInt32 session = handshake(w, udp.port, 1);
         check(session != 0u, "and takes the control slot");
-
         Wire obs;
         check(obs.connect(port), "an observer connects beside it");
         const UInt32 watcher = handshake(obs, 0, 0);
         check(watcher != 0u, "and is welcomed as one");
-
         bibowire::CtlState st;
         check(udp.state(2000, &st), "CTLSTATE arrives, carrying the board's epoch");
-
         UInt32 seq = 0;
         UInt32 cmdId = 0;
         Array<UInt8, 32> body{};
-
-        // The driver's 20 Hz stream, stamped with the NEWEST epoch the board has
-        // said - read on every pass, so a bump is followed rather than refused.
+        // The driver's stream, stamped with the newest epoch the board has said, so a
+        // bump is followed rather than refused.
         const auto stream = [&](Int32 ms) {
             for(Int32 t = 0; t < ms; t += 40)
             {
@@ -1703,7 +1363,6 @@ Int32 main()
             }
             static_cast<Void>(udp.newest(&st));
         };
-
         const auto command = [&](Wire& on, UInt32 sess, bibowire::Verb verb, UInt8 epoch, bibowire::CmdAck* ack) {
             bibowire::Command m;
             m.sessionId = sess;
@@ -1716,10 +1375,8 @@ Int32 main()
                 && bibowire::readCmdAck(on.f.body, on.f.head.ver, ack)
                 && ack->cmdId == m.cmdId;
         };
-
-        // Polls drive() rather than sleeping a guessed interval, streaming while
-        // it waits when asked to - so a slot released by silence cannot be what
-        // made a check pass.
+        // Polls drive(), streaming while it waits when asked, so a slot released by
+        // silence cannot be what makes a check pass.
         const auto settles = [&](Bool want, Int32 ms, Bool streaming) {
             for(Int32 t = 0; t < ms; t += 20)
             {
@@ -1743,14 +1400,10 @@ Int32 main()
             }
             return viewfeed::drive().armed == want;
         };
-
         const auto has = [](const Str& text, CharSeq word) {
             return text.find(word) != Str::npos;
         };
-
         bibowire::CmdAck ack;
-
-        // ---- the refusals ----
         check(
             command(obs, watcher, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
             "an observer's ARM is answered"
@@ -1760,7 +1413,6 @@ Int32 main()
             "and refused - you cannot arm a car you are not holding"
         );
         check(!viewfeed::drive().armed, "and nothing is armed");
-
         check(
             command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
             "the driver's ARM with no stream is answered"
@@ -1769,14 +1421,12 @@ Int32 main()
             ack.result == 1 && has(ack.text, "live"),
             "and refused for the stream, in those words"
         );
-
         stream(200);
         check(
             command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
             "an ARM 200 ms into the stream is answered"
         );
         check(ack.result == 1 && !viewfeed::drive().armed, "and refused - REARM_STREAM_MS is 500");
-
         stream(450);
         const UInt8 wrong = static_cast<UInt8>(st.armEpoch + 1u);
         check(
@@ -1784,8 +1434,6 @@ Int32 main()
             "an ARM under a stale epoch is answered"
         );
         check(ack.result == 1 && has(ack.text, "epoch"), "and refused, naming the epoch");
-
-        // ---- granted ----
         stream(80);
         check(
             command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
@@ -1793,8 +1441,6 @@ Int32 main()
         );
         check(ack.result == 0, "and GRANTED");
         check(viewfeed::drive().armed, "and drive() says so to the tick");
-
-        // ---- estop takes it, and recovery is three deliberate steps ----
         check(
             command(w, session, bibowire::Verb::VERB_ESTOP, st.armEpoch, &ack),
             "ESTOP is answered"
@@ -1817,8 +1463,6 @@ Int32 main()
             "an ARM after clearing is answered"
         );
         check(ack.result == 0 && viewfeed::drive().armed, "and granted - the third step");
-
-        // ---- DISARM from anybody ----
         check(
             command(obs, watcher, bibowire::Verb::VERB_DISARM, 0, &ack),
             "an OBSERVER's DISARM is answered"
@@ -1827,8 +1471,6 @@ Int32 main()
             ack.result == 0 && !viewfeed::drive().armed,
             "and it disarms - making the car safer is not a privilege"
         );
-
-        // ---- a Pico link going down takes it ----
         stream(120);
         check(
             command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
@@ -1855,8 +1497,6 @@ Int32 main()
         );
         viewfeed::publishBoard(board);
         sleepMs(60);
-
-        // ---- the deadman takes it, and a resumed stream does NOT give it back ----
         stream(120);
         check(
             command(w, session, bibowire::Verb::VERB_ARM, st.armEpoch, &ack),
@@ -1871,8 +1511,6 @@ Int32 main()
             "only a fresh ARM does"
         );
         check(ack.result == 0 && viewfeed::drive().armed, "and it is granted");
-
-        // ---- not manual ----
         bibowire::BoardState driving = board;
         driving.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
         viewfeed::publishBoard(driving);
@@ -1884,45 +1522,27 @@ Int32 main()
         check(ack.result == 3, "and refused - a viewer arms only a car it is driving");
         viewfeed::publishBoard(board);
         sleepMs(60);
-
-        // ---- leaving the slot takes it ----
         stream(120);
         check(viewfeed::drive().armed, "still armed before the driver leaves");
         w.close();
         check(settles(false, 1500, false), "and the driver leaving takes the ARM with the slot");
-
         obs.close();
         udp.close();
         viewfeed::stop();
         check(!viewfeed::drive().armed, "a stopped feed reports nothing armed");
-
-        // lastBoard outlives stop(), as the section above notes.
         viewfeed::publishBoard(bibowire::BoardState());
     }
-
-    // ---- 19. two frames arriving in ONE read ----------------------------------------
-    //
-    // consume() used to memmove the rest of the ring down over a frame BEFORE
-    // handing that frame to onFrame, whose body points into the ring - so when
-    // a second frame had arrived in the same read, the first was handled with the
-    // second one's bytes. CRC-valid, and wrong. It was found on the car: a
-    // viewer's PONG followed by its own PING was read with the PING's token, never
-    // matched, and the driver was dropped "no PONG" six seconds into every session.
-    //
-    // Nothing above could see it. Every other section sends one frame per
-    // send(), so every read held exactly one frame and the memmove moved nothing.
-    // This sends two in ONE send() and requires each to be answered as itself.
+    // Two frames in one read, each answered as itself: a frame's body points into the
+    // receive ring, so moving the ring down before handling it would hand the first
+    // frame the second's bytes. Every other section sends one frame per send().
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for back-to-back frames");
         const UInt16 port = viewfeed::port();
-
         Wire w;
         check(w.connect(port), "a viewer connects");
         const UInt32 session = handshake(w, 0, 0);
         check(session != 0u, "and is welcomed");
-
-        // Two PINGs, framed into one buffer. Distinct tokens, so an answer that
-        // carries the wrong one cannot pass for the right one.
+        // Two PINGs in one buffer, with distinct tokens so a wrong echo cannot pass.
         const Array<UInt64, 2> tokens = { 0x1111111111111111ull, 0x2222222222222222ull };
         Array<UInt8, 128> both{};
         Size at = 0;
@@ -1944,7 +1564,6 @@ Int32 main()
         }
         check(at == 64u, "both PINGs fit one 64-byte write");
         w.raw(both.data(), at);
-
         Vec<UInt64> echoed;
         while(echoed.size() < 2u && w.nextOf(bibowire::Type::TYPE_PONG, 1500))
         {
@@ -1960,32 +1579,21 @@ Int32 main()
             "the FIRST is answered with its own token, not the second frame's"
         );
         check(echoed.size() == 2u && echoed[1] == tokens[1], "and the second with its own");
-
         w.close();
         viewfeed::stop();
     }
-
-    // ---- 20. the saved trim, told on WELCOME and again on every save ----------------
-    //
-    // The Trim pane can only show the car's numbers if the board says them, and a
-    // report that reached only the viewers connected at the moment of a save
-    // would leave every viewer that connects later showing its own laptop's copy
-    // as though it were the car's - the drift this exists to end. So the second
-    // viewer below connects AFTER the first has already been told, which means
-    // the publish has been taken by the server thread and WELCOME is the only
-    // path left that can reach it.
+    // The saved trim, told on WELCOME and on every save. The second viewer connects
+    // after the first was told, so only WELCOME can reach it.
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for the trim report");
         const UInt16 port = viewfeed::port();
         viewfeed::publishTrim("SERVOTRIM 1485");
-
         Wire first;
         check(first.connect(port), "a viewer connects");
         check(handshake(first, 0, 0) != 0u, "and is welcomed");
         Str text;
         check(nextTrim(first, text), "it is told the trim the board has saved");
         checkStr(text, "SERVOTRIM 1485", "as the Pico's own line");
-
         Wire later;
         check(later.connect(port), "a second viewer connects after that");
         check(handshake(later, 0, 0) != 0u, "and is welcomed");
@@ -1995,28 +1603,20 @@ Int32 main()
             "and is told it too, on WELCOME - not left waiting for the next save"
         );
         checkStr(text, "SERVOTRIM 1485", "the same report");
-
         viewfeed::publishTrim("SERVOLIMITS 1230 1660; SERVOTRIM 1490");
         check(nextTrim(first, text), "a save is told to a viewer already connected");
         checkStr(text, "SERVOLIMITS 1230 1660; SERVOTRIM 1490", "with the whole saved set");
         check(nextTrim(later, text), "and to every other viewer");
         checkStr(text, "SERVOLIMITS 1230 1660; SERVOTRIM 1490", "the same set");
-
         viewfeed::publishTrim("");
         check(nextTrim(first, text), "a board with nothing saved still says so");
         check(text.empty(), "as an empty report, which is an answer");
-
         first.close();
         later.close();
         viewfeed::stop();
     }
-
-    // ---- 21. ESC limits while armed: refused, except under the idle test ------------
-    //
-    // The one exception to "no trim while armed". It must hold only while the
-    // holder's own stream carries BUTTON_IDLE_TEST, only for the ESC limits, and
-    // it must end the moment the bit does - otherwise it is not an exception but
-    // a way round the rule.
+    // The one exception to no trim while armed: ESC limits, only while the holder's
+    // stream carries BUTTON_IDLE_TEST, ending the moment the bit does.
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for the idle test");
         const UInt16 port = viewfeed::port();
@@ -2026,18 +1626,15 @@ Int32 main()
         check(w.connect(port), "and connects");
         const UInt32 session = handshake(w, udp.port, 1);
         check(session != 0u, "and takes control");
-
         viewfeed::Applied ap;
         ap.armed = 1;
         viewfeed::applied(ap);
-
         Array<UInt8, 32> body{};
         bibowire::CtlState st;
         bibowire::CmdAck ack;
         viewfeed::Tune t;
         bibowire::Command m;
         m.sessionId = session;
-
         udp.control(port, session, 1, bibowire::BUTTON_ENABLE);
         check(
             udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) { return s.ackSeq == 1u; }),
@@ -2054,7 +1651,6 @@ Int32 main()
                 && ack.result == 3,
             "armed, ESC limits are refused"
         );
-
         const UInt16 idle = static_cast<UInt16>(bibowire::BUTTON_ENABLE | bibowire::BUTTON_IDLE_TEST);
         udp.control(port, session, 2, idle);
         check(
@@ -2073,7 +1669,6 @@ Int32 main()
             viewfeed::tune(&t) && t.verb == bibowire::Verb::VERB_SET_ESC_LIMITS && t.arg1 == 1550,
             "and queued for the pilot"
         );
-
         m.cmdId = 3;
         m.verb = bibowire::Verb::VERB_SET_SERVO_TRIM;
         m.arg1 = 1480;
@@ -2086,7 +1681,6 @@ Int32 main()
             "but nothing else is - the steering trim stays locked while armed"
         );
         check(!viewfeed::tune(&t), "and nothing else was queued");
-
         udp.control(port, session, 3, bibowire::BUTTON_ENABLE);
         check(
             udp.stateWhere(2000, &st, [](const bibowire::CtlState& s) { return s.ackSeq == 3u; }),
@@ -2103,32 +1697,25 @@ Int32 main()
                 && ack.result == 3,
             "and with it gone, ESC limits are refused again"
         );
-
         w.close();
         udp.close();
         viewfeed::stop();
     }
-
-    // ---- 22. a car program's run: the viewer watches, and DISARM is an estop -------
-    //
-    // A program publishes LOOK (a dry run) or DRIVE. Its trim is not a viewer's to
-    // change, and it arms through its own Car rather than a viewer's epoch, so the
-    // estop latch is the only thing a DISARM can reach it by.
+    // A car program's run publishes LOOK (a dry run) or DRIVE. Its trim is not a
+    // viewer's to change, and it arms through its own Car, not a viewer's epoch, so a
+    // DISARM reaches it only through the estop latch.
     {
         check(viewfeed::start(0, aPolicy()), "the feed starts for a program's run");
         const UInt16 port = viewfeed::port();
-
         bibowire::BoardState board;
         board.pilotMode = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_DRIVE);
         board.picoLink = 1u;
         viewfeed::publishBoard(board);
         sleepMs(60);
-
         Wire w;
         check(w.connect(port), "a viewer connects to a program's run");
         const UInt32 session = handshake(w, 0, 0);
         check(session != 0u, "and is welcomed");
-
         Array<UInt8, 32> body{};
         UInt32 cmdId = 0;
         const auto command = [&](bibowire::Verb verb, UInt16 arg1, bibowire::CmdAck* ack) {
@@ -2146,10 +1733,8 @@ Int32 main()
         const auto says = [](const bibowire::CmdAck& ack, CharSeq word) {
             return ack.text.find(word) != Str::npos;
         };
-
-        // Section 21 left the car reported armed, and start() does not clear that.
+        // The idle-test section left the car reported armed; start() does not clear it.
         viewfeed::applied(viewfeed::Applied());
-
         // A Car ends its run when this copy is older than VIEWER_STUCK_MS, so a
         // loop that is only polling must never let it get that old.
         Int32 oldest = 0;
@@ -2163,24 +1748,20 @@ Int32 main()
         }
         check(oldest < bibo::VIEWER_STUCK_MS, "drive()'s copy stays younger than VIEWER_STUCK_MS");
         check(aged, "and its age is measured, not left at 0");
-
         using Verb = bibowire::Verb;
         bibowire::CmdAck ack;
         viewfeed::Tune t;
         const UInt8 look = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_LOOK);
         const UInt8 manual = static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
-
         check(command(Verb::VERB_SET_SERVO_TRIM, 1487, &ack), "a program's trim is answered");
         check(ack.result == 3 && says(ack, "manual"), "and refused, naming manual");
         check(!viewfeed::tune(&t), "and nothing was queued");
-
         check(!viewfeed::drive().estopLatched, "no estop before the DISARM");
         check(command(Verb::VERB_DISARM, 0, &ack), "a program's DISARM is answered");
         check(ack.result == 0 && says(ack, "estop"), "and says it latched the estop");
         check(viewfeed::drive().estopLatched, "which drive() hands the program");
         check(command(Verb::VERB_CLEAR_ESTOP, 0, &ack), "CLEAR_ESTOP is answered");
         check(!viewfeed::drive().estopLatched, "and releases it");
-
         board.pilotMode = look;
         viewfeed::publishBoard(board);
         sleepMs(60);
@@ -2189,7 +1770,6 @@ Int32 main()
         check(command(Verb::VERB_DISARM, 0, &ack), "a dry run's DISARM is answered");
         check(viewfeed::drive().estopLatched, "and latches the estop too");
         check(command(Verb::VERB_CLEAR_ESTOP, 0, &ack), "CLEAR_ESTOP is answered again");
-
         board.pilotMode = manual;
         viewfeed::publishBoard(board);
         sleepMs(60);
@@ -2198,11 +1778,9 @@ Int32 main()
         check(command(Verb::VERB_SET_SERVO_TRIM, 1487, &ack), "in manual, trim is answered");
         check(ack.result == 0, "and taken");
         check(viewfeed::tune(&t) && t.arg1 == 1487, "and queued for the pilot");
-
         w.close();
         viewfeed::stop();
     }
-
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

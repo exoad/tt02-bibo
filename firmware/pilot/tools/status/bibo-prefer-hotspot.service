@@ -4,7 +4,6 @@ After=NetworkManager.service
 
 [Service]
 Type=oneshot
-# install.sh rewrites this path to wherever the checkout actually is.
+# install.sh rewrites this path to the checkout's location.
 ExecStart=/bin/sh /home/jack/tt02-bibo/firmware/pilot/tools/status/prefer-hotspot.sh
-
-# No [Install] section: the TIMER is what gets enabled, and it pulls this in.
+# No [Install] section: the timer is what gets enabled, and it starts this.
