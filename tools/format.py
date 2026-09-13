@@ -1,17 +1,16 @@
-"""Call-site wrapping, checked or fixed.
+"""Layout rules for .cxx and .hxx files, checked or fixed.
 
-    python tools/format.py                 report violations
-    python tools/format.py --apply         rewrite them
-    python tools/format.py --markdown OUT  write the report as a table
+    python tools/format.py [--apply] [--markdown OUT] [path ...]
 
-THE RULE
+With no paths every tracked and untracked source outside vendor/ is checked; a
+path limits the report and --apply to that file, or to the sources under that
+directory. --apply rewrites, --markdown writes the report as tables. Exit 1 when
+anything is found, or with --apply when a file was refused; exit 2 on bad usage.
 
-  A call's arguments stay on ONE LINE when they fit inside 100 columns and
-  there are no more than six of them.
-
-  Otherwise the call takes a HANGING INDENT: the `(` ends its line, every
-  argument gets its own line one indent level in, and the `)` returns to the
-  column the call's own line starts at.
+CALL WRAPPING. A call's arguments stay on one line when the call fits in LIMIT
+columns and has at most MAX_ARGS arguments. Otherwise the `(` ends its line,
+every argument gets its own line one indent in, and the `)` returns to the
+column the call's own line starts at:
 
       bibo::serial::printf(
           "INFO slew throttle %d us/tick = %d us/s, idle to full %d ms\\n",
@@ -20,22 +19,26 @@ THE RULE
           fullMs
       );
 
-  Not paren-alignment. Aligning to the open paren pushes arguments far to the
-  right for exactly the calls that are already too long - a qualified name like
-  bibo::serial::printf costs 21 columns before an argument is written - and the
-  indent then changes whenever the function is renamed.
+Not paren-alignment: that pushes the longest calls furthest right, and every
+argument moves when the function is renamed.
 
-WHY BOTH HALVES ARE NEEDED. "Do not wrap" alone forces 200-column lines onto
-printf calls with a long format string. "Wrap freely" alone is what the tree
-had: 296 calls that fit on one line and wrapped anyway, and 718 wrapped in a
-dozen different shapes.
+PADDED `=`. One space before `=`, never a run of them to line up a column: a
+padded column re-pads its whole block on every rename.
 
-SAFETY. This only ever moves whitespace, so the token stream must come out
-identical - --apply proves that per file with a comment- and string-aware
-tokenizer and refuses to write when it does not hold. A call whose arguments
-contain a nested call that ITSELF spans lines is reported and left alone:
-re-indenting the outer one would leave the inner hanging off a column that no
-longer exists.
+BLANK LINES.
+  B1  no two blank lines in a row;
+  B2  none directly after a line whose code ends with `{`;
+  B3  none directly before a line whose code starts with `}`;
+  B4  none between a comment-only line and the next non-blank line.
+A line's code is the line without its comments, so `{  // why` opens a block
+and `x = 1;  // why` is not a comment line. A blank line inside a block
+comment, a raw string or a continued string literal, or right after a line
+ending in a backslash, is never removed.
+
+SAFETY. Every rule only moves whitespace, so --apply compares a comment- and
+literal-aware token stream before and after and refuses to write a file where
+they differ. A call with an argument that spans lines, or with a nested call
+that does, is left for a person: re-indenting it would strand the inner lines.
 """
 import io
 import os
@@ -43,26 +46,33 @@ import re
 import subprocess
 import sys
 
-APPLY = '--apply' in sys.argv
 LIMIT = 100
 INDENT = 4
 MAX_ARGS = 6
+EXTS = ('.cxx', '.hxx')
+RAW_PREFIXES = ('R', 'u8R', 'uR', 'UR', 'LR')
 
-# Not calls. `if(`, `sizeof(` and the casts take parentheses and are not
-# argument lists; wrapping them by this rule would be nonsense.
+BLANK_RULES = {
+    'B1': 'two blank lines in a row',
+    'B2': 'blank line after a line ending in {',
+    'B3': 'blank line before a line starting with }',
+    'B4': 'blank line after a comment',
+}
+
+# Parenthesised, but not argument lists.
 KEYWORDS = {'if', 'while', 'for', 'switch', 'return', 'catch', 'sizeof',
             'static_cast', 'reinterpret_cast', 'const_cast', 'dynamic_cast',
             'defined', 'decltype', 'noexcept', 'alignof', 'and', 'or', 'not'}
 
-# A declaration head. Those are the style audit's 'wrapped parameter list'
-# rule, and having two rules disagree about one line helps nobody.
+# A declaration head. Parameter lists belong to style_audit.py's 'wrapped
+# parameter list' rule, and two rules must not disagree about one line.
 DECL = re.compile(
     r'^\s*(?:\[\[nodiscard\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+|const\s+|virtual\s+)*'
     r'(?:Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|'
     r'Float64|Size|Str|Char|Utf8|CharSeq|Pin|auto|void|bool|int)\b')
 
-# Words that can stand right before a call without making it a declaration.
-# `return foo(` is a call; `Commands foo(` is not.
+# Words that can stand right before a call without making it a declaration:
+# `return foo(` is a call, `Commands foo(` is not.
 STATEMENT_WORDS = {'return', 'co_return', 'co_yield', 'co_await', 'new', 'delete',
                    'throw', 'case', 'goto', 'else', 'do', 'operator'}
 
@@ -70,12 +80,9 @@ STATEMENT_WORDS = {'return', 'co_return', 'co_yield', 'co_await', 'new', 'delete
 def is_decl(code, before, line, name):
     """Is the parenthesis after `before` opening a parameter list, not a call?
 
-    The DECL regex knows the aliases in shared.hxx and nothing else, so a
-    declaration returning a project type - `Commands commandsFor(...)` - used to
-    read as a call and have its PARAMETERS wrapped, the one thing
-    docs/conventions.md says never happens. What actually marks a declaration
-    is the thing before the name: a type. A call is preceded by an operator, a
-    statement word, or nothing at all.
+    DECL knows only the shared.hxx aliases, so a declaration returning a project
+    type (`Commands commandsFor(...)`) is recognised by the type before its
+    name. A call is preceded by an operator, a statement word, or nothing.
     """
     if DECL.match(line):
         return True
@@ -83,8 +90,7 @@ def is_decl(code, before, line, name):
     while j >= 0 and code[j] in ' \t':
         j -= 1
     if j < 0 or code[j] == '\n':
-        # Nothing before the name on its line. A constructor has no return type
-        # and is written like a type - `Wide(` or `Wide::Wide(` - while a call
+        # A constructor is named like a type (`Wide(`, `Wide::Wide(`); a call
         # statement is a camelCase function and a macro is ALL CAPS.
         seg = name.split(':')[-1]
         return seg[:1].isupper() and not seg.isupper()
@@ -101,12 +107,21 @@ def is_decl(code, before, line, name):
     return False
 
 
-def blank_noise(text):
-    """Comment and string BODIES become spaces, offsets preserved.
+_noise = [None, None]
 
-    A `(` inside a literal is not a call and a comma inside one is not a
-    separator - and a naive scan finds both.
+
+def blank_noise(text):
+    """Comment and string bodies become spaces, offsets preserved.
+
+    A `(` or `,` inside a literal or a comment is not code. The last result is
+    cached: every call in a file asks again about the same text.
     """
+    if _noise[0] != text:
+        _noise[0], _noise[1] = text, _blank_noise(text)
+    return _noise[1]
+
+
+def _blank_noise(text):
     out = list(text)
     i, n, st = 0, len(text), 'code'
     while i < n:
@@ -161,16 +176,10 @@ def blank_noise(text):
 
 
 def collapse(text):
-    """Whitespace runs to one space - OUTSIDE string and char literals only.
+    """Whitespace runs to one space, outside string and char literals only.
 
-    THE BUG THIS EXISTS TO PREVENT, because it already happened once. A plain
-    re.sub(r'\\s+', ' ') over an argument list rewrites the CONTENTS of every
-    literal in it, so
-
-        std::printf("  FAIL  %s: got %.3f\\n", what, got)
-
-    came back as "` FAIL %s...`" - two spaces to one, in output that four test
-    suites assert on exactly. It reached 24 files before a test caught it.
+    Collapsing inside a literal changes printed text that tests assert on
+    exactly: "  FAIL  %s" must keep both of its double spaces.
     """
     out = []
     i = 0
@@ -198,7 +207,6 @@ def collapse(text):
             out.append(c)
             i += 1
             continue
-
         out.append(c)
         if c == '\\':
             if i + 1 < n:
@@ -211,13 +219,26 @@ def collapse(text):
     return ''.join(out)
 
 
-def tokens(text):
-    """A normal form that IGNORES layout and RESPECTS literals.
+def raw_end(text, quote):
+    """End offset of the raw string whose `"` is at `quote`, or None if it is not one."""
+    j = quote
+    while j > 0 and (text[j - 1].isalnum() or text[j - 1] == '_'):
+        j -= 1
+    if text[j:quote] not in RAW_PREFIXES:
+        return None
+    k = text.find('(', quote + 1)
+    delim = text[quote + 1:k]
+    if k < 0 or len(delim) > 16 or any(ch in delim for ch in ' \t\n\\)"'):
+        return None
+    end = text.find(')' + delim + '"', k + 1)
+    return len(text) if end < 0 else end + len(delim) + 2
 
-    The first version of this collapsed all whitespace including a literal's
-    contents, which made it blind to exactly the damage the formatter was
-    capable of doing. A check that cannot fail on the tool's own worst bug is
-    not a check.
+
+def tokens(text):
+    """A normal form that ignores layout and keeps every literal byte for byte.
+
+    It shares no code with the lexer the blank-line rules use, so a mistake in
+    one is caught by the other.
     """
     out = []
     i = 0
@@ -235,6 +256,21 @@ def tokens(text):
                 st = 'block'
                 i += 2
                 continue
+            if c == '"':
+                end = raw_end(text, i)
+                if end is not None:
+                    out.append(text[i:end])
+                    i = end
+                    continue
+            if c == "'":
+                # A digit separator (1'000) is part of a number, not a char literal.
+                j = i
+                while j > 0 and (text[j - 1].isalnum() or text[j - 1] in "_.'"):
+                    j -= 1
+                if j < i and text[j].isdigit():
+                    out.append(c)
+                    i += 1
+                    continue
             if c == '"' or c == "'":
                 st = 'str' if c == '"' else 'chr'
                 out.append(c)
@@ -246,7 +282,12 @@ def tokens(text):
             continue
         if st == 'line':
             if c == '\n':
-                st = 'code'
+                # A backslash carries the comment onto the next line.
+                j = i - 1
+                while j >= 0 and text[j] in ' \t':
+                    j -= 1
+                if j < 0 or text[j] != '\\':
+                    st = 'code'
             i += 1
             continue
         if st == 'block':
@@ -256,7 +297,6 @@ def tokens(text):
                 continue
             i += 1
             continue
-
         out.append(c)
         if c == '\\':
             if i + 1 < n:
@@ -273,7 +313,6 @@ def scan(text):
     """Every call in `text`, as (open, close, argStarts, line, indent)."""
     code = blank_noise(text)
     lines = text.split('\n')
-
     starts, at = [], 0
     for l in lines:
         starts.append(at)
@@ -295,7 +334,6 @@ def scan(text):
         if code[i] != '(':
             i += 1
             continue
-
         j = i - 1
         while j >= 0 and code[j] in ' \t':
             j -= 1
@@ -303,16 +341,13 @@ def scan(text):
         while j >= 0 and (code[j].isalnum() or code[j] in '_:'):
             j -= 1
         name = code[j + 1:e + 1]
-
         if not name or name.split(':')[-1] in KEYWORDS or name[0].isdigit():
             i += 1
             continue
-
         ln = line_of(i)
         if is_decl(code, j, lines[ln], name) or lines[ln].lstrip().startswith('#'):
             i += 1
             continue
-
         depth, k = 0, i
         seps = [i]
         while k < n:
@@ -329,7 +364,6 @@ def scan(text):
         if k >= n:
             i += 1
             continue
-
         found.append((i, k, seps, ln,
                       len(lines[ln]) - len(lines[ln].lstrip())))
         i += 1
@@ -343,23 +377,16 @@ def shape(text, call, line_of, starts):
     """
     op, cl, seps, ln, ind = call
     lines = text.split('\n')
-
     multi = line_of(cl) != ln
     args = len(seps)
-
     head = lines[ln][:op - starts[ln]]
     body = collapse(text[op + 1:cl]).strip()
     flat = head + '(' + body + ')'
     cols = len(flat) + 1                 # the ; that usually follows
-
     wants = args > MAX_ARGS or cols > LIMIT
-
     if not multi and not wants:
         return None
-    if not multi and wants:
-        pass                             # one line but should not be
     if multi and wants:
-        # Already wrapped - is it the right shape?
         pad = ' ' * (ind + INDENT)
         want_lines = []
         for a in range(len(seps)):
@@ -374,10 +401,8 @@ def shape(text, call, line_of, starts):
         if old == new:
             return None
         return ('reshape', new, ln + 1, cols, args)
-
     if multi and not wants:
         return ('unwrap', flat, ln + 1, cols, args)
-
     pad = ' ' * (ind + INDENT)
     parts = []
     for a in range(len(seps)):
@@ -400,25 +425,14 @@ def nested_multiline(call, calls, line_of):
 
 
 def multiline_argument(text, call, line_of):
-    """Does any single argument already span more than one line?
+    """Does an argument already span lines, or a // comment sit inside the call?
 
-    IF SO THE CALL IS LEFT ALONE, and this is not fussiness. Putting each
-    argument on "its own line" means collapsing whatever it currently spans,
-    and two shapes in this tree do not survive that:
-
-      a // comment inside the argument list - collapsed, it swallows the rest
-      of the line and the call stops compiling. lsp.cxx's initialize request is
-      exactly this, and it is why the token check refused five files.
-
-      a run of adjacent string literals split over eight lines - legal to
-      collapse, and it produces one 400-column line, which is the opposite of
-      what this rule is for.
-
-    Both are a person's decision, not a formatter's.
+    Either way the call is left alone. Collapsing an argument list lets a line
+    comment swallow the rest of the call, and joins a run of adjacent string
+    literals into one very long line.
     """
     op, cl, seps, _ln, _ind = call
     code = blank_noise(text)
-
     for a in range(len(seps)):
         s = seps[a] + 1
         e = seps[a + 1] if a + 1 < len(seps) else cl
@@ -430,10 +444,7 @@ def multiline_argument(text, call, line_of):
             continue
         if line_of(s) != line_of(e - 1):
             return True
-
-    # A line comment anywhere inside the parentheses. blank_noise turned its
-    # body to spaces, so a `//` in the original that is blank in the cleaned
-    # copy is a real comment rather than two characters inside a string.
+    # A `//` that blank_noise blanked is a comment, not two characters of a string.
     for i in range(op, min(cl, len(code) - 1)):
         if text[i] == '/' and text[i + 1] == '/' \
            and code[i] == ' ' and code[i + 1] == ' ':
@@ -441,22 +452,8 @@ def multiline_argument(text, call, line_of):
     return False
 
 
-# ---- padded `=` ------------------------------------------------------------
-#
-# THE RULE: one space before `=`, never a run of them to line a column up.
-#
-#     Int32   servoNow    = STEER_CAL_CENTER;      <- no
-#     Int32 servoNow = STEER_CAL_CENTER;           <- yes
-#
-# Column alignment looks tidy in the editor it was typed in and costs
-# something every time afterwards: renaming one field re-pads its whole block,
-# so a one-line change arrives as a twelve-line diff and the actual edit is
-# hidden among them. It also decays - the moment a longer name is added and
-# nobody re-pads, the column is a lie.
-#
-# Only the run BEFORE `=` is touched. Nothing after it moves, and `==`, `<=`,
-# `>=`, `!=`, `+=` and friends are left alone: this is about padding, not
-# about spacing around operators.
+# Only the run of spaces before `=` counts; `==`, `<=`, `+=` and the like are
+# operators, not padding.
 EQ_PAD = re.compile(r'^(.*?[^\s=<>!+\-*/%&|^~])(\s{2,})=(?!=)')
 
 
@@ -466,26 +463,186 @@ def unpad_equals(text):
     lines = text.split('\n')
     clean = code.split('\n')
     hits = 0
-
     for i, line in enumerate(lines):
         m = EQ_PAD.match(line)
         if not m:
             continue
-
-        # The `=` must be real code, not something inside a string or comment.
+        # The `=` must be code, not inside a string or comment.
         eq = len(m.group(1)) + len(m.group(2))
         if eq >= len(clean[i]) or clean[i][eq] != '=':
             continue
-
-        # A trailing `\` makes this a macro continuation, where the padding is
-        # sometimes load-bearing to the eye and always harmless to leave.
+        # A macro continuation line keeps its padding; it is harmless there.
         if line.rstrip().endswith('\\'):
             continue
-
         lines[i] = m.group(1) + ' =' + line[eq + 1:]
         hits += 1
-
     return '\n'.join(lines), hits
+
+
+CODE, COMMENT, LITERAL = ord('c'), ord('m'), ord('l')
+
+
+def spliced(text, i):
+    """Does a backslash end the line whose newline is at `i`?"""
+    j = i - 1
+    while j >= 0 and text[j] in ' \t':
+        j -= 1
+    return j >= 0 and text[j] == '\\'
+
+
+def char_classes(text):
+    """CODE, COMMENT or LITERAL for every character of `text`.
+
+    A newline takes the class of what it lies inside, so the newline before a
+    line says whether that line starts in code. A string or char literal left
+    open at a newline ends there, so a stray apostrophe in `#if 0` text cannot
+    swallow the rest of the file.
+    """
+    n = len(text)
+    cls = bytearray([CODE]) * n
+    i = 0
+    st = 'code'
+    while i < n:
+        c = text[i]
+        nx = text[i + 1] if i + 1 < n else ''
+        if st == 'code':
+            if c == '/' and nx in '/*' and nx:
+                st = 'line' if nx == '/' else 'block'
+                cls[i] = cls[i + 1] = COMMENT
+                i += 2
+            elif c.isalpha() or c == '_':
+                j = i + 1
+                while j < n and (text[j].isalnum() or text[j] == '_'):
+                    j += 1
+                if j < n and text[j] == '"' and text[i:j] in RAW_PREFIXES:
+                    k = text.find('(', j + 1)
+                    delim = text[j + 1:k]
+                    if k >= 0 and len(delim) <= 16 \
+                       and not any(ch in delim for ch in ' \t\n\\)"'):
+                        end = text.find(')' + delim + '"', k + 1)
+                        end = n if end < 0 else end + len(delim) + 2
+                        cls[j:end] = bytearray([LITERAL]) * (end - j)
+                        j = end
+                i = j
+            elif c.isdigit() or (c == '.' and nx.isdigit()):
+                # A pp-number, so the ' in 1'000 does not open a char literal.
+                j = i + 1
+                while j < n:
+                    d = text[j]
+                    if d.isalnum() or d in '_.':
+                        j += 1
+                    elif d in '+-' and text[j - 1] in 'eEpP':
+                        j += 1
+                    elif d == "'" and j + 1 < n and (text[j + 1].isalnum() or text[j + 1] == '_'):
+                        j += 2
+                    else:
+                        break
+                i = j
+            else:
+                if c == '"' or c == "'":
+                    st = 'str' if c == '"' else 'chr'
+                    cls[i] = LITERAL
+                i += 1
+        elif st == 'line':
+            if c == '\n' and not spliced(text, i):
+                st = 'code'
+            else:
+                cls[i] = COMMENT
+            i += 1
+        elif st == 'block':
+            cls[i] = COMMENT
+            if c == '*' and nx == '/':
+                cls[i + 1] = COMMENT
+                st = 'code'
+                i += 2
+            else:
+                i += 1
+        else:
+            cls[i] = LITERAL
+            if c == '\\':
+                if i + 1 < n:
+                    cls[i + 1] = LITERAL
+                i += 2
+                continue
+            if c == '\n':
+                cls[i] = CODE
+                st = 'code'
+            elif (st == 'str' and c == '"') or (st == 'chr' and c == "'"):
+                st = 'code'
+            i += 1
+    return cls
+
+
+def blank_lines(text):
+    """Drop the blank lines B1-B4 forbid. Returns (text, [(lineNo, rule)])."""
+    trail = text.endswith('\n')
+    lines = (text[:-1] if trail else text).split('\n')
+    cls = char_classes(text)
+    starts, at = [], 0
+    for l in lines:
+        starts.append(at)
+        at += len(l) + 1
+
+    def kinds(k):
+        """The classes of line k's non-space characters."""
+        s = starts[k]
+        return {cls[s + x] for x, ch in enumerate(lines[k]) if not ch.isspace()}
+
+    def ends_in_code(k):
+        e = starts[k] + len(lines[k])
+        return e >= len(text) or cls[e] == CODE
+
+    def code(k):
+        s = starts[k]
+        return ''.join(ch for x, ch in enumerate(lines[k]) if cls[s + x] == CODE).strip()
+
+    def protected(k):
+        inside = k > 0 and cls[starts[k] - 1] != CODE
+        return inside or (k > 0 and lines[k - 1].rstrip().endswith('\\'))
+
+    def opens(k):
+        return ends_in_code(k) and code(k).endswith('{')
+
+    def closes(k):
+        return code(k).startswith('}')
+
+    def comment_only(k):
+        return ends_in_code(k) and kinds(k) == {COMMENT}
+
+    drop = {}
+    k, count = 0, len(lines)
+    while k < count:
+        if lines[k].strip():
+            k += 1
+            continue
+        j = k
+        while j < count and not lines[j].strip():
+            j += 1
+        run = range(k, j)
+        if any(protected(r) for r in run):
+            # Only a first blank line can be protected by what precedes it; it
+            # stays, so the rest are just extra.
+            for r in run[1:]:
+                if not protected(r):
+                    drop[r] = 'B1'
+        else:
+            rule = None
+            if k > 0 and opens(k - 1):
+                rule = 'B2'
+            elif j < count and closes(j):
+                rule = 'B3'
+            elif k > 0 and comment_only(k - 1):
+                rule = 'B4'
+            if rule:
+                drop[k] = rule
+            for r in run[1:]:
+                drop[r] = 'B1'
+        k = j
+    if not drop:
+        return text, []
+    kept = [l for x, l in enumerate(lines) if x not in drop]
+    return '\n'.join(kept) + ('\n' if trail else ''), \
+        [(x + 1, drop[x]) for x in sorted(drop)]
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -493,158 +650,228 @@ ROOT = os.path.join(HERE, '..')
 
 
 def sources():
-    # TRACKED AND UNTRACKED BOTH. `git ls-files` on its own lists only what is
-    # already committed, so a brand-new .cxx is INVISIBLE to this gate until the
-    # very commit that adds it - and firmware\verify.bat happily prints
-    # "format 0 violations" having measured nothing at all about the one file
-    # somebody is actually writing.
-    #
-    # --others adds the untracked ones; --exclude-standard keeps .gitignore's
-    # word, so build trees and vendor/ do not arrive through the back door. The
-    # two lists are disjoint by definition, so nothing is checked twice.
+    # Untracked files too, so a new file is checked before the commit that adds
+    # it. --exclude-standard keeps build trees out.
     listed = subprocess.check_output(['git', 'ls-files'], cwd=ROOT).decode().split()
     listed += subprocess.check_output(
                   ['git', 'ls-files', '--others', '--exclude-standard'], cwd=ROOT).decode().split()
     return [f for f in listed
-            if f.endswith(('.cxx', '.hxx'))
+            if f.endswith(EXTS)
             and not f.startswith('vendor/') and 'third_party' not in f]
 
 
-def run():
-  # Named files on the command line restrict the run to those, so formatting one
-  # file does not touch files the person is not looking at. Anything on the
-  # command line that is not an existing file is a flag and is ignored here.
-  named = [os.path.relpath(os.path.abspath(a), os.path.abspath(ROOT))
-           for a in sys.argv[1:] if os.path.isfile(a)]
-  files = [f.replace(os.sep, '/') for f in named] if named else sources()
+def parse(argv):
+    """((apply, markdown, paths), None), or (None, what is wrong)."""
+    apply, markdown, paths = False, None, []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == '--apply':
+            apply = True
+        elif a == '--markdown':
+            if i + 1 >= len(argv):
+                return None, '--markdown needs a file name'
+            i += 1
+            markdown = argv[i]
+        elif a.startswith('--'):
+            return None, 'unknown option ' + a
+        else:
+            paths.append(a)
+        i += 1
+    return (apply, markdown, paths), None
 
-  violations = []
-  skipped = 0
-  rewritten = 0
-  refused = 0
-  eqfixed = 0
 
-  for rel in files:
-    path = os.path.join(ROOT, rel)
-    if not os.path.isfile(path):
-        continue
+def named(paths):
+    """The sources the paths cover, as (shown, path) pairs, or (None, what is wrong)."""
+    root = os.path.abspath(ROOT)
+    tree = None
+    out, seen = [], set()
+    for p in paths:
+        full = os.path.abspath(p)
+        try:
+            rel = os.path.relpath(full, root).replace(os.sep, '/')
+        except ValueError:
+            rel = '..'                   # another drive
+        inside = rel != '..' and not rel.startswith('../')
+        if os.path.isdir(full):
+            if inside:
+                if tree is None:
+                    tree = sources()
+                prefix = '' if rel == '.' else rel + '/'
+                found = [os.path.join(root, f) for f in tree if f.startswith(prefix)]
+            else:
+                found = sorted(os.path.join(d, f) for d, _s, fs in os.walk(full)
+                               for f in fs if f.endswith(EXTS))
+            if not found:
+                print('  %s: no .cxx or .hxx file here' % p)
+        elif os.path.isfile(full):
+            if not full.endswith(EXTS):
+                print('  %s: not a .cxx or .hxx file, left alone' % p)
+                continue
+            found = [full]
+        else:
+            return None, 'no such file or directory: ' + p
+        for f in found:
+            f = os.path.normpath(f)
+            if f in seen:
+                continue
+            seen.add(f)
+            try:
+                r = os.path.relpath(f, root).replace(os.sep, '/')
+            except ValueError:
+                r = '..'
+            out.append((f.replace(os.sep, '/') if r.startswith('..') else r, f))
+    return out, None
 
-    raw = io.open(path, encoding='utf-8', errors='surrogateescape',
-                  newline='').read()
-    nl = '\r\n' if '\r\n' in raw else '\n'
-    text = raw.replace('\r\n', '\n')
 
-    if APPLY:
-        # ONE SCAN PER ROUND, edits applied BACK TO FRONT.
-        #
-        # Rewriting one call and rescanning the whole file is O(file) per edit,
-        # and app_ui.cxx alone had 338 of them - the loop did not finish in
-        # seven minutes. Applying from the end means every earlier offset is
-        # still valid, so a round costs one scan.
-        #
-        # Overlapping edits are dropped rather than merged: a call nested
-        # inside another produces two spans covering the same text, and
-        # applying both would write the inner one into a region the outer had
-        # already replaced. The outer wins this round, the inner is found by
-        # the next.
-        for _round in range(6):
+def run(argv):
+    args, err = parse(argv)
+    if args is None:
+        print('format.py: ' + err, file=sys.stderr)
+        return 2
+    apply, markdown, paths = args
+    if paths:
+        files, err = named(paths)
+        if files is None:
+            print('format.py: ' + err, file=sys.stderr)
+            return 2
+    else:
+        files = [(f, os.path.join(ROOT, f)) for f in sources()]
+
+    violations = []
+    blanks = []
+    skipped = 0
+    rewritten = 0
+    refused = 0
+    eqfixed = 0
+
+    for rel, path in files:
+        if not os.path.isfile(path):
+            continue
+        raw = io.open(path, encoding='utf-8', errors='surrogateescape',
+                      newline='').read()
+        nl = '\r\n' if '\r\n' in raw else '\n'
+        text = raw.replace('\r\n', '\n')
+        original = text
+
+        if apply:
+            # One scan per round, edits applied back to front so every earlier
+            # offset stays valid; rescanning after each edit is far too slow on
+            # a large file. Overlapping edits (a call nested in another) are
+            # dropped, not merged: the outer wins, the next round finds the inner.
+            for _round in range(6):
+                calls, line_of, starts = scan(text)
+                edits = []
+                for c in calls:
+                    if nested_multiline(c, calls, line_of) \
+                       or multiline_argument(text, c, line_of):
+                        continue
+                    s = shape(text, c, line_of, starts)
+                    if s is None:
+                        continue
+                    op, cl, _seps, ln, _ind = c
+                    edits.append((starts[ln], cl + 1, s[1]))
+                if not edits:
+                    break
+                edits.sort(key=lambda e: e[0], reverse=True)
+                claimed = None
+                for (a, b, new) in edits:
+                    if claimed is not None and b > claimed:
+                        continue
+                    text = text[:a] + new + text[b:]
+                    claimed = a
+            text, eq = unpad_equals(text)
+            eqfixed += eq
+            text, _gone = blank_lines(text)
+            if text != original:
+                if tokens(text) != tokens(original):
+                    print('  !! %s  TOKENS DIFFER - not written' % rel)
+                    refused += 1
+                    continue
+                io.open(path, 'w', encoding='utf-8', errors='surrogateescape',
+                        newline='').write(
+                            text.replace('\n', nl) if nl == '\r\n' else text)
+                rewritten += 1
+        else:
+            _t2, eq = unpad_equals(text)
+            eqfixed += eq
             calls, line_of, starts = scan(text)
-
-            edits = []
             for c in calls:
                 if nested_multiline(c, calls, line_of) \
                    or multiline_argument(text, c, line_of):
+                    skipped += 1
                     continue
                 s = shape(text, c, line_of, starts)
-                if s is None:
-                    continue
-                op, cl, _seps, ln, _ind = c
-                edits.append((starts[ln], cl + 1, s[1]))
+                if s is not None:
+                    kind, _new, lineno, cols, args = s
+                    violations.append((rel, lineno, kind, args, cols))
+            blanks += [(rel, lineno, rule) for lineno, rule in blank_lines(text)[1]]
 
-            if not edits:
-                break
+    if apply:
+        print('%d file(s) rewritten' % rewritten)
+        # Non-zero when a file was refused: "formatted" and "left alone because
+        # the token check failed" must not look the same.
+        return 1 if refused else 0
 
-            edits.sort(key=lambda e: e[0], reverse=True)
-            claimed = None
-            for (a, b, new) in edits:
-                if claimed is not None and b > claimed:
-                    continue        # overlaps one already applied this round
-                text = text[:a] + new + text[b:]
-                claimed = a
+    by_kind = {}
+    for v in violations:
+        by_kind[v[2]] = by_kind.get(v[2], 0) + 1
+    by_rule = {}
+    for b in blanks:
+        by_rule[b[2]] = by_rule.get(b[2], 0) + 1
 
-        text, eq = unpad_equals(text)
-        eqfixed += eq
+    print('call wrapping: %d violation(s)' % len(violations))
+    print('padded `=`   : %d line(s)' % eqfixed)
+    for k in sorted(by_kind):
+        print('  %-10s %d' % (k, by_kind[k]))
+    if skipped:
+        print('  %-10s %d (nested multi-line call, left alone)' % ('skipped', skipped))
+    print('blank lines  : %d line(s)' % len(blanks))
+    for k in sorted(by_rule):
+        print('  %-10s %d (%s)' % (k, by_rule[k], BLANK_RULES[k]))
 
-        if text != raw.replace('\r\n', '\n'):
-            if tokens(text) != tokens(raw):
-                print('  !! %s  TOKENS DIFFER - not written' % rel)
-                refused += 1
-                continue
-            io.open(path, 'w', encoding='utf-8', errors='surrogateescape',
-                    newline='').write(
-                        text.replace('\n', nl) if nl == '\r\n' else text)
-            rewritten += 1
-    else:
-        _t2, eq = unpad_equals(text)
-        eqfixed += eq
+    if markdown:
+        with io.open(markdown, 'w', encoding='utf-8') as fh:
+            fh.write('# Call wrapping\n\n')
+            if not violations:
+                fh.write('No violations.\n')
+            else:
+                fh.write('%d violation(s). The rule: arguments stay on one line '
+                         'when they fit in %d columns and there are at most %d of '
+                         'them; otherwise the `(` ends its line, every argument '
+                         'takes its own line one indent in, and the `)` returns to '
+                         "the call's own column.\n\n"
+                         % (len(violations), LIMIT, MAX_ARGS))
+                fh.write('| File | Line | What | Args | Cols |\n')
+                fh.write('|---|---:|---|---:|---:|\n')
+                for rel, lineno, kind, args, cols in violations[:400]:
+                    what = ('fits - put it on one line' if kind == 'unwrap'
+                            else 'wrap it: one argument per line, hanging indent')
+                    fh.write('| `%s` | %d | %s | %d | %d |\n'
+                             % (rel, lineno, what, args, cols))
+                if len(violations) > 400:
+                    fh.write('\n_%d more not listed._\n' % (len(violations) - 400))
+            if skipped:
+                fh.write('\n%d call(s) skipped: a nested call spans lines, so the '
+                         'outer one is left for a person.\n' % skipped)
+            fh.write('\n# Blank lines\n\n')
+            if not blanks:
+                fh.write('No violations.\n')
+            else:
+                fh.write('%d blank line(s) to remove. No two blank lines in a row, '
+                         'and none after a line ending in `{`, before a line '
+                         'starting with `}`, or between a comment and the line '
+                         'after it.\n\n' % len(blanks))
+                fh.write('| File | Line | What |\n')
+                fh.write('|---|---:|---|\n')
+                for rel, lineno, rule in blanks[:400]:
+                    fh.write('| `%s` | %d | %s |\n' % (rel, lineno, BLANK_RULES[rule]))
+                if len(blanks) > 400:
+                    fh.write('\n_%d more not listed._\n' % (len(blanks) - 400))
+        print('wrote %s' % markdown)
 
-        calls, line_of, starts = scan(text)
-        for c in calls:
-            if nested_multiline(c, calls, line_of)                or multiline_argument(text, c, line_of):
-                skipped += 1
-                continue
-            s = shape(text, c, line_of, starts)
-            if s is not None:
-                kind, _new, lineno, cols, args = s
-                violations.append((rel, lineno, kind, args, cols))
-
-  if APPLY:
-      print('%d file(s) rewritten' % rewritten)
-      # Non-zero when a file was REFUSED, so a caller can tell "formatted" from
-      # "left alone because the token check failed".
-      return 1 if refused else 0
-
-  # ---- the report --------------------------------------------------------
-  by_kind = {}
-  for v in violations:
-      by_kind[v[2]] = by_kind.get(v[2], 0) + 1
-
-  print('call wrapping: %d violation(s)' % len(violations))
-  print('padded `=`   : %d line(s)' % eqfixed)
-  for k in sorted(by_kind):
-      print('  %-10s %d' % (k, by_kind[k]))
-  if skipped:
-      print('  %-10s %d (nested multi-line call, left alone)' % ('skipped', skipped))
-
-  if '--markdown' in sys.argv:
-      out = sys.argv[sys.argv.index('--markdown') + 1]
-      with io.open(out, 'w', encoding='utf-8') as fh:
-          fh.write('# Call wrapping\n\n')
-          if not violations:
-              fh.write('No violations.\n')
-          else:
-              fh.write('%d violation(s). The rule: arguments stay on one line '
-                       'when they fit in %d columns and there are at most %d of '
-                       'them; otherwise the `(` ends its line, every argument '
-                       'takes its own line one indent in, and the `)` returns to '
-                       "the call's own column.\n\n"
-                       % (len(violations), LIMIT, MAX_ARGS))
-              fh.write('| File | Line | What | Args | Cols |\n')
-              fh.write('|---|---:|---|---:|---:|\n')
-              for rel, lineno, kind, args, cols in violations[:400]:
-                  what = ('fits - put it on one line' if kind == 'unwrap'
-                          else 'wrap it: one argument per line, hanging indent')
-                  fh.write('| `%s` | %d | %s | %d | %d |\n'
-                           % (rel, lineno, what, args, cols))
-              if len(violations) > 400:
-                  fh.write('\n_%d more not listed._\n' % (len(violations) - 400))
-          if skipped:
-              fh.write('\n%d call(s) skipped: a nested call spans lines, so the '
-                       'outer one is left for a person.\n' % skipped)
-      print('wrote %s' % out)
-
-  return 1 if (violations or eqfixed) else 0
+    return 1 if (violations or eqfixed or blanks) else 0
 
 
 if __name__ == '__main__':
-    sys.exit(run())
+    sys.exit(run(sys.argv[1:]))
