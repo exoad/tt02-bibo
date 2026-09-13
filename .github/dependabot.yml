@@ -1,9 +1,10 @@
-# Dependabot. Two ecosystems, and neither is the C++ - there is no package
-# manager here. The SDKs (pico-sdk and picotool by tag in workflows/firmware.yml,
-# imgui by the copy in hub/third_party) are pinned by hand and invisible to
-# Dependabot, so raising one is a person's job. github-actions matters most: a
-# third-party action runs with this repository's token, and those pinned versions
-# are the only thing standing between a compromised action and it.
+# Dependabot. One ecosystem, and it is not the C++ - there is no package manager
+# here. The SDKs (pico-sdk and picotool by tag in workflows/firmware.yml, imgui
+# and stb by the clones in third_party/) are pinned by hand and invisible to
+# Dependabot, so raising one is a person's job. github-actions is what is left,
+# and it matters: a third-party action runs with this repository's token, and
+# those pinned versions are the only thing standing between a compromised action
+# and it.
 version: 2
 
 updates:
@@ -14,15 +15,3 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'ci'
-
-  # Docus/Nuxt pulls a large tree, so this is grouped - one PR a week, not thirty.
-  - package-ecosystem: npm
-    directory: /website
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      docs-site:
-        patterns: ['*']
-    commit-message:
-      prefix: 'website'
