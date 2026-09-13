@@ -183,7 +183,11 @@ namespace
   }
 
   /**
-   * @brief Proves throttle is clamped to the calibrated band rather than passed through unbounded.
+   * @brief Proves forward throttle is clamped to the calibrated band, and below neutral to the reverse limit.
+   *
+   * @note Below neutral is its own range, [escReverse, DRIVE_NEUTRAL_US], and
+   *       reverse is off until setReverseLimit() moves escReverse below
+   *       neutral. escReverse is not reset by open(), so this puts it back.
    */
   /* ---- limits ----------------------------------------------------------- */
   Void testThrottleClamping()
@@ -199,9 +203,20 @@ namespace
           "and clamped at or below the calibrated maximum"
       );
 
-      check(bibo::drive::throttleUs(0), "zero is accepted");
+      check(bibo::drive::throttleUs(DRIVE_NEUTRAL_US + 1), "just above neutral is accepted");
       settle();
       check(bibo::fake::lastUs(escPin()) >= THROTTLE_CAL_MIN, "and clamped at or above idle");
+
+      check(bibo::drive::throttleUs(0), "zero is accepted");
+      settle();
+      checkEq(bibo::fake::lastUs(escPin()), DRIVE_NEUTRAL_US, "with reverse off it is neutral");
+
+      check(bibo::drive::setReverseLimit(1350), "a reverse limit is accepted");
+      check(bibo::drive::throttleUs(0), "zero is accepted again");
+      settle();
+      checkEq(bibo::fake::lastUs(escPin()), 1350, "and clamped at the reverse limit, never below");
+
+      check(bibo::drive::setReverseLimit(DRIVE_NEUTRAL_US), "reverse is turned off again");
   }
 
   /**
@@ -215,6 +230,7 @@ namespace
       check(!bibo::drive::setThrottleLimits(1600, 1600), "lo == hi is refused");
       check(!bibo::drive::setThrottleLimits(1700, 1500), "lo > hi is refused");
       check(!bibo::drive::setSteerLimits(1500, 1500), "the same for steering");
+      check(!bibo::drive::setReverseLimit(1600), "a reverse limit above neutral is refused");
   }
 
   /**
