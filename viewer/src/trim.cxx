@@ -453,7 +453,7 @@ namespace trimview
       }
       if(ImGui::IsItemHovered())
       {
-          ImGui::SetTooltip("below 1500 turns reverse on: S brakes, S again reverses");
+          ImGui::SetTooltip("the pulse S sends - lower is stronger; 1500 is off");
       }
 
       ImGui::SetNextItemWidth(ITEM_WIDTH * uiScale);

@@ -215,9 +215,9 @@ namespace driveview
   // minus the cap. This car's ESC is in Forward/Reverse/Brake mode, so the
   // first push below neutral BRAKES and, once S has been let go and the pulse
   // is back at neutral, the next press REVERSES - the transmitter's own double
-  // tap, done with the key the same way. How far below neutral that reaches
-  // is the Trim pane's reverse limit, which is off until it is set, so until
-  // then S is the plain stop it always was.
+  // tap, done with the key the same way. Only the SIGN reaches the ESC: the
+  // pilot sends the Trim pane's reverse limit itself, which is the reverse
+  // strength, and is off until it is set - so until then S is a plain stop.
   //
   // S BEATS W, ALWAYS. A brake that W can override is not a brake - and W is
   // already held when somebody reaches for S, so "both down" is precisely the

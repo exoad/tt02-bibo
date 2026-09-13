@@ -400,36 +400,6 @@ namespace
       return lo + static_cast<Int32>(throttle * span + 0.5f);
   }
 
-  // S's pulse: `amount` 0..1 of the way from just below neutral down to the
-  // Pico's reverse limit. BRAKE OR REVERSE IS THE ESC'S CHOICE, made the way it
-  // makes it for the transmitter - the first push below neutral brakes, a push
-  // after a return to neutral reverses - so this only says how hard.
-  //
-  // THE BAND STARTS AT THE IDLE MIRRORED BELOW NEUTRAL. Forward starts at the
-  // idle because the first microseconds past neutral are the ESC's dead band,
-  // and the same dead band sits below it: a reverse starting at 1499 would
-  // spend a small cap inside it and do nothing. NEUTRAL when the Pico has not
-  // reported a limit or reports neutral itself - reverse is off.
-  [[nodiscard]] Int32 escReversePulse(Float32 amount, Int32 carIdle, Int32 reverseLimit)
-  {
-      constexpr Int32 ESC_NEUTRAL_US = 1500;
-      if(reverseLimit <= 0 || reverseLimit >= ESC_NEUTRAL_US)
-      {
-          return ESC_NEUTRAL_US;
-      }
-      const Int32 mirrored = carIdle > ESC_NEUTRAL_US ? ESC_NEUTRAL_US - (carIdle - ESC_NEUTRAL_US) : ESC_NEUTRAL_US - 1;
-      const Int32 start = mirrored > reverseLimit ? mirrored : reverseLimit;
-      if(amount > 1.0f)
-      {
-          amount = 1.0f;
-      }
-      if(amount < 0.0f)
-      {
-          amount = 0.0f;
-      }
-      return start - static_cast<Int32>(amount * static_cast<Float32>(start - reverseLimit) + 0.5f);
-  }
-
   // The throttle line: a pulse for a forward decision from a scan the module
   // trusted, NEUTRAL for everything else - blind, stop, reverse. The steering
   // line needs no such function; it is proto::steer(out.steer) every tick.
@@ -1671,12 +1641,19 @@ Int32 main(Int32 argc, Char** argv)
                 else
                 {
                     const Float32 wanted = static_cast<Float32>(cmd.throttleMilli) / 1000.0f;
-                    // S IS NEGATIVE: brake, then reverse, down to the Pico's own
-                    // reverse limit - see escReversePulse. With reverse off that
-                    // is neutral, which is the plain stop S always was.
-                    const Int32 backUs = cmd.throttleMilli < 0
-                        ? escReversePulse(-wanted, replies.escMinUs, replies.escRevUs)
-                        : static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
+                    // S IS NEGATIVE, AND ITS PULSE IS THE REVERSE LIMIT ITSELF - not
+                    // a fraction of the way to it. Brake or reverse is the ESC's
+                    // choice, made as it makes it for the transmitter: the first
+                    // push below neutral brakes, a push after a return to neutral
+                    // reverses. Scaled by the power cap it was measured useless
+                    // (2026-09-13): a 1000 limit at a 0.30 cap sent 1319 us, and
+                    // this ESC limits reverse force, so the motor whined and the
+                    // wheels did not turn. Now "reverse us" is the strength. A
+                    // limit at neutral, or none reported by an older Pico, is
+                    // reverse off, and S is the plain stop it always was.
+                    const Int32 neutralUs = static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
+                    const Bool reverseOn = replies.escRevUs > 0 && replies.escRevUs < neutralUs;
+                    const Int32 backUs = cmd.throttleMilli < 0 && reverseOn ? replies.escRevUs : neutralUs;
                     // THE IDLE TEST (bibowire::BUTTON_IDLE_TEST): exactly the idle
                     // the Pico reports, whatever the throttle field says, so the
                     // Trim pane's idle slider moves the motor it is tuning.
@@ -1872,11 +1849,15 @@ Int32 main(Int32 argc, Char** argv)
             // is only one place the numbers come from.
             const Str what = modeWord.empty() ? describe(status, out, got) : modeWord;
             std::printf(
-                "%6.1f s  %s  steer %+.2f  thr %.2f  %5.1f rev/s  timeouts %llu  %s\n",
+                "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s\n",
                 elapsedS(start),
                 what.c_str(),
                 static_cast<Float64>(sentSteerMilli) / 1000.0,
                 static_cast<Float64>(sentThrottleMilli) / 1000.0,
+                // THE PULSE ON THE ESC PIN, from the Pico's own reply - not the
+                // decision. "thr -0.30" said S was held and nothing about what
+                // the ESC was given, which is the number a whining motor asks for.
+                static_cast<int>(replies.escUs),
                 snap.revPerS,
                 static_cast<unsigned long long>(snap.timeouts),
                 snap.pico.c_str()
