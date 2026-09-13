@@ -3,7 +3,7 @@
  * chassis - the steering servo on GP0 and the ESC on GP1, the only two outputs
  * on this car that can break something, so the safety lives HERE and not in the
  * caller. Fractions, not microseconds: drive::steer(-1..+1) maps through the
- * measured calibration in cal.h, each side scaled separately. Anything that can
+ * measured calibration in cal.hxx, each side scaled separately. Anything that can
  * refuse returns Bool and never prints. The state below is file-scope; each
  * image is a single translation unit, which is why there is one chassis.
  * ---- the three rules ------------------------------------------------------
@@ -13,7 +13,7 @@
  * 2. THE ESC IS DISARMED UNTIL ASKED. Throttle is refused until drive::arm(true).
  * 3. NOTHING JUMPS. Calls set a TARGET and drive::pump() walks toward it at a
  *    bounded rate. drive::stop() is the exception, on purpose.
- * ---- before the ESC is ever armed, from docs/wiring.md --------------------
+ * ---- before the ESC is ever armed ----------------------------------------
  *   - Common ground between the Pico and the ESC is REQUIRED; without the shared
  *     return the servo and the ESC see noise, which presents as erratic behavior
  *     rather than as no behavior. The breadboard rails are split in the middle
@@ -38,15 +38,8 @@ namespace bibo::drive
      * @brief GPIO pin driving the steering servo, and the ESC, from the
      *        active pin map.
      *
-     * Read from the map THIS PROGRAM installed, not spelled here. These two
-     * were the last literal GPIO numbers in the chassis, and they had to move
-     * because "which pins are taken" was a question you answered by grepping -
-     * which is how the DFPlayer nearly landed on the tail lamps.
-     *
-     * A read rather than a constant, so a sketch driving a servo on a different
-     * pad is pins::begin() and nothing else. Both resolve to NONE until begin()
-     * has run, and drive::open() then binds nothing rather than binding pad 0
-     * because that is what an uninitialized map used to say.
+     * Read from the map the program installed, not spelled here. Both are NONE
+     * until pins::begin() has run, and drive::open() then binds nothing.
      */
 #define PIN_SERVO (pins::active().servo)
 #define PIN_ESC   (pins::active().esc)
@@ -56,8 +49,7 @@ namespace bibo::drive
     /**
      * @brief Startup steering limits, in microseconds of servo pulse.
      *
-     * Defaults come from the calibration, which is a measurement of THIS car.
-     * If nobody has calibrated yet, cal.h carries a guess and says so in its stamp.
+     * Defaults come from cal.hxx, a measurement of THIS car.
      */
 #define SERVO_DEFAULT_MIN STEER_CAL_LEFT
 #define SERVO_DEFAULT_MAX STEER_CAL_RIGHT
@@ -65,18 +57,12 @@ namespace bibo::drive
     /**
      * @brief The servo's absolute pulse-width limits, in microseconds.
      *
-     * The HARD bound. Nothing widens past this, whatever is asked - it is the
-     * servo's own specification, and beyond it the pulse means nothing at all.
+     * The HARD bound: the widest pulse a hobby servo is ever driven with.
+     * The WORKING limits (cal.hxx, then the Trim pane) are what keep this
+     * car's linkage off its end stops.
      *
      * @warning setSteerLimits() clamps into this range; nothing above this
      *          file can command the steering pulse outside it.
-     *
-     * @note WIDENED 2026-09-12 from 1000..2000, at the operator's request ("I
-     *       should be able to set this myself"). No longer the servo's
-     *       datasheet range but the widest pulse a hobby servo is ever driven
-     *       with; the WORKING limits (cal.hxx, then the Trim pane) keep this
-     *       car's linkage off its end stops, and they are unchanged until
-     *       somebody moves them.
      */
 #define SERVO_HARD_MIN 500
 #define SERVO_HARD_MAX 2500
@@ -85,28 +71,19 @@ namespace bibo::drive
      * @brief Startup and absolute throttle limits, in microseconds of ESC
      *        pulse.
      *
-     * Forward only, and barely. 1500 is neutral; 1600 was a crawl on a bench with
-     * the brushed 540 and is NOT one with the 21.5T brushless that replaced it on
-     * 2026-09-06 - a QuicRun 10BL160 G2 maps 1500..2000 almost linearly, so the
-     * same band is real motion now. THROTTLE_CAL_MIN/MAX in cal.hxx are the
-     * brushed numbers and must be re-measured before anything widens.
+     * DRIVE_NEUTRAL_US is neutral. The forward band starts at cal.hxx's
+     * THROTTLE_CAL_MIN/MAX, which predate the brushless motor and must be
+     * re-measured before anything widens.
      *
-     * BELOW NEUTRAL IS ITS OWN RANGE, bounded by escReverse. This ESC is in
-     * Forward/Reverse/Brake mode, not the Forward/Brake these comments used to
-     * assume - the operator confirmed it on 2026-09-12: the first pulse below
-     * 1500 brakes, and once the stick is back at neutral the next one reverses,
-     * the double tap the transmitter needs too. So below neutral IS reverse on
-     * this car, and it is clamped into [escReverse, 1500] - never pulled up into
-     * the forward [escMin, escMax], which is what the old single clamp did to
-     * it. escReverse starts AT neutral, so nothing below 1500 is reachable
-     * until ESCREVERSE sets a limit on purpose.
+     * BELOW NEUTRAL IS ITS OWN RANGE, bounded by escReverse. The ESC runs in
+     * Forward/Reverse/Brake mode: the first pulse below neutral brakes, and
+     * after a return to neutral the next one reverses. Such a pulse is clamped
+     * into [escReverse, DRIVE_NEUTRAL_US], never pulled up into the forward
+     * [escMin, escMax], and escReverse starts AT neutral, so nothing below it
+     * is reachable until ESCREVERSE sets a limit on purpose.
      *
      * @warning ESC_HARD_MIN/ESC_HARD_MAX are the absolute ceiling; nothing
      *          above this file can command the ESC outside them.
-     *
-     * @note WIDENED 2026-09-12 from 1500..1700 to the whole RC pulse range, at
-     *       the operator's request - 1700 held the 10BL160 to under half of
-     *       the 1500..2000 it maps.
      */
 #define ESC_DEFAULT_MIN THROTTLE_CAL_MIN
 #define ESC_DEFAULT_MAX THROTTLE_CAL_MAX
@@ -131,28 +108,14 @@ namespace bibo::drive
     /**
      * @brief How often the slew limiter takes a step, in milliseconds.
      *
-     * How fast an output is allowed to move: microseconds of pulse per tick.
-     *
-     * 8 us every 20 ms is 400 us per second. This car's steering travel is 430 us
-     * (1230 to 1660), so lock to lock takes 1.1 SECONDS.
-     *
-     * The comment here used to say "about half a second", which was wrong by a
-     * factor of two and had been wrong since it was written - 400 us of travel at
-     * 400 us per second is one second, not half of one.
-     *
-     * That is roughly a TENTH of what the servo can do. A Power HD 1501MG is
-     * 0.14 s per 60 degrees, and 430 us is around 43 degrees of shaft, so the
-     * hardware would place it in about 0.1 s.
-     *
-     * The limit is deliberate and it is right for a bench: a slider dragged end to
-     * end should sweep rather than fling a servo into a stop, and rule 3 above says
-     * so. It is WRONG FOR DRIVING. A car that needs 1.1 s to go lock to lock cannot
-     * make an avoidance correction, and the reactive layer will need this raised -
-     * probably to a value set at runtime rather than baked in here, since bench
-     * work and driving want different answers and neither is a bug.
+     * Rule 3's clock: each tick moves an output by at most its slew rate. At
+     * the default SLEW_CAL_STEER the steering takes about a second lock to
+     * lock, roughly a tenth of what the servo can do. That suits a bench, where
+     * a dragged slider should sweep rather than fling the servo into a stop,
+     * and is too slow for dodging anything; SLEW raises it at runtime.
      *
      * @warning Governs how fast the wheels and the throttle can physically
-     *          move; raising it makes the car respond faster to every
+     *          move; raising a slew rate makes the car respond faster to every
      *          command.
      */
 #define SLEW_TICK_MS 20
@@ -161,21 +124,10 @@ namespace bibo::drive
      * @brief Default slew rates, in microseconds of pulse per SLEW_TICK_MS
      *        tick.
      *
-     * TWO rates, not one. The steering and the throttle want different answers and
-     * always did.
-     *
-     * A servo should get where it is told promptly - a steering correction that
-     * arrives late is a correction applied to a car that has already moved past the
-     * thing it was avoiding. An ESC should not: throttle slammed on spins the
-     * wheels, throttle slammed off pitches the car onto its nose, and a motor
-     * asked for a step change draws a current spike that the BEC feels - more so
-     * with the brushless 21.5T, which pulls harder and sooner than the brushed
-     * 540 this rate was first tuned against.
-     *
-     * They shared one number until now, so tuning the steering to be quick made the
-     * throttle violent and gentling the throttle made the steering vague. Neither
-     * of those is a setting anybody would choose; it was just the only shape
-     * available.
+     * TWO rates, because the outputs want different answers. A steering
+     * correction that arrives late is applied to a car already past the thing
+     * it was avoiding. A throttle step spins the wheels or pitches the car onto
+     * its nose, and draws a current spike the BEC feels.
      */
 #define STEER_SLEW_US    SLEW_CAL_STEER
 #define THROTTLE_SLEW_US SLEW_CAL_THROTTLE
@@ -379,7 +331,7 @@ namespace bibo::drive
      * @note pins::begin() must have run first, or PIN_SERVO/PIN_ESC resolve
      *       to no pin at all and nothing is opened.
      * @warning Writes the ESC pulse immediately. Put the car on a stand
-     *          before calling this, per docs/wiring.md.
+     *          before calling this.
      */
     inline Void open(Void)
     {
@@ -745,7 +697,6 @@ namespace bibo::drive
      *           it is clamped into [escMin, escMax]; BELOW neutral it is brake
      *           and reverse, clamped into [escReverse, DRIVE_NEUTRAL_US] - so
      *           with reverse off it becomes neutral, never the forward idle
-     *           the old single clamp used to pull it up to
      * @return false when the ESC is not armed; the target is left unchanged
      * @warning Sets the throttle target the car will accelerate toward as
      *          pump() runs. Requires arm(true) first.
@@ -756,7 +707,14 @@ namespace bibo::drive
         {
             return false;
         }
-        escTarget = us < DRIVE_NEUTRAL_US ? clamp(us, escReverse, DRIVE_NEUTRAL_US) : clamp(us, escMin, escMax);
+        if(us < DRIVE_NEUTRAL_US)
+        {
+            escTarget = clamp(us, escReverse, DRIVE_NEUTRAL_US);
+        }
+        else
+        {
+            escTarget = clamp(us, escMin, escMax);
+        }
         return true;
     }
 
@@ -774,20 +732,15 @@ namespace bibo::drive
      * @brief Puts the ESC pulse AT neutral immediately, without disarming and
      *        without touching the steering.
      *
-     * The difference from throttleNeutral() is the slew limiter, and for a
-     * watchdog it is the whole point. throttleNeutral() moves the TARGET and
-     * lets pump() walk there at throttleSlewUs per SLEW_TICK_MS - 8 us per
-     * 20 ms by default, so 1600 reaches neutral in 250 ms and a widened
-     * 2000 takes 1.25 SECONDS. A stop that arrives a second after the link
-     * died is not a stop, and it would be slower than the 200 ms that decided
-     * to call it.
+     * Not throttleNeutral(), which moves the TARGET and lets pump() walk there
+     * at throttleSlewUs per SLEW_TICK_MS: a quarter of a second from 1600 at
+     * the default rate, over a second from a widened band - slower than the
+     * watchdog (BIBO_WATCHDOG_MS) that called for the stop.
      *
-     * The difference from stop() is what it leaves alone: the ESC stays ARMED
-     * and the steering keeps both its angle and its pulse. That is what the
-     * watchdog wants and stop() is wrong for - snapping the wheels straight
-     * (or limp) at the instant the link died changes the car's line at the
-     * worst possible moment, and re-arming afterward would be a second
-     * deliberate act nobody is there to make.
+     * Not stop(), which disarms and releases the steering: the wheels going
+     * limp at the instant the link died change the car's line at the worst
+     * moment, and re-arming afterward needs a person who is not there. Here
+     * the ESC stays ARMED and the steering keeps its angle and its pulse.
      *
      * @note Immediate, not slewed - it writes the pin. escTarget is moved too,
      *       so pump() holds it here rather than walking back to where the
@@ -812,9 +765,8 @@ namespace bibo::drive
      * @param hi the new upper bound, in microseconds; must be greater than lo
      * @return false when lo is not strictly less than hi, either before or
      *         after clamping to [ESC_HARD_MIN, ESC_HARD_MAX]
-     * @note The throttle's hard band is only 200 us wide (ESC_HARD_MIN to
-     *       ESC_HARD_MAX), so this collapses to a zero-width range more
-     *       easily than setSteerLimits() does - see the comment inside.
+     * @note Checked after clamping too, as setSteerLimits() is: a pair
+     *       entirely outside [ESC_HARD_MIN, ESC_HARD_MAX] clamps to one value.
      * @warning Also re-clamps the current throttle target, which can change
      *          the ESC pulse the next time pump() runs.
      */
@@ -825,7 +777,7 @@ namespace bibo::drive
             return false;
         }
 
-        /* The same collapse, worse: the band is 200 us, so any pair below 1500 lands on 1500/1500. */
+        /* The same collapse as setSteerLimits(): a pair outside the hard band lands on one value. */
         const Int32 lo2 = clamp(lo, ESC_HARD_MIN, ESC_HARD_MAX);
         const Int32 hi2 = clamp(hi, ESC_HARD_MIN, ESC_HARD_MAX);
         if(lo2 >= hi2)

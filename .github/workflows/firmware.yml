@@ -2,8 +2,9 @@
 # is Windows-only, so CI drives cmake directly with the flags build.bat passes -
 # keep the two in step.
 #
-# BOTH BOARDS: pico2_w has the CYW43 and pico2 does not, and BIBO_WIRELESS comes
-# from the board header, not the board's name. Clean build and no ccache: one
+# BOTH BOARDS: pico2_w has the CYW43 and pico2 does not, and whether the LED
+# needs cyw43 comes from the board header, not the board's name. Clean build and
+# no ccache: one
 # reporting zero warnings because it never recompiled the file that warns is how
 # this project has been told it was green when it was not.
 name: firmware

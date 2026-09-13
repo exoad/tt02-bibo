@@ -1,47 +1,23 @@
 # Fallback flags for the firmware, for any tool that parses these files WITHOUT
 # the CMake project loaded.
 #
-# WHY THIS EXISTS
-#
 # firmware/ is a separate CMake project - it cross-compiles for arm-none-eabi
-# while the root project is MSVC x64, and one CMake configure has one toolchain.
-# Until it is attached in the IDE, a file here belongs to no project, and the
-# parser falls back to searching only the file's own directory. The symptom is
-# every include underlined at once:
+# while the root project is MSVC x64 - so until it is attached in the IDE, a file
+# here belongs to no project and every include is underlined at once. Nothing is
+# wrong with the code: firmware/build/compile_commands.json has the full include
+# set, and build.bat writes it on every configure. CompilationDatabase points the
+# parser at it.
 #
-#     #include "tt02.h"          Cannot find file 'tt02.h' in search paths:
-#                                C:\...\firmware\app.
-#     #include "hardware/adc.h"  Cannot find directory 'hardware' ...
-#
-# Nothing is wrong with the code or the build - the build has every one of those
-# paths. See firmware/build/compile_commands.json, which lists 200-odd
-# translation units with the full include set, including -Ifirmware/lib.
-#
-# THAT FILE DID NOT EXIST until 2026-08-27. CMakePresets.json set
-# CMAKE_EXPORT_COMPILE_COMMANDS and build.bat did not, and build.bat is the one
-# that actually runs - and deletes build\ on a clean. So this fallback, whose
-# entire purpose is to work for an editor that has NOT loaded the project, only
-# worked if somebody had loaded the project. Both set it now.
-#
-# CompilationDatabase points the parser at exactly that file, so headers like
-# lib/hal.h resolve by inheriting the flags of a .c that includes them - and so
-# do the library's own "drivers/display.h" style includes, which need
-# firmware/lib on the include path and get it from the same database.
-#
-# THIS IS A FALLBACK, NOT THE FIX. Attaching the project is the fix, and it also
-# gets you building and flashing from the IDE:
+# THIS IS A FALLBACK. Attaching the project is the fix:
 #
 #     File | Attach Project...  ->  firmware/CMakeLists.txt
 #     then pick the "Pico 2 W (RP2350, arm-none-eabi)" preset
-#
-# See docs/clion.md.
 
 CompileFlags:
   CompilationDatabase: build
 
-  # Dropped because they are for the ARM cross-compiler and a host parser does
-  # not understand them. Keeping them produces a wall of "unknown argument"
-  # noise on top of the real diagnostics.
+  # For the ARM cross-compiler; a host parser does not understand them and
+  # reports each as an unknown argument.
   Remove:
     - -mcpu=*
     - -mthumb
@@ -49,28 +25,11 @@ CompileFlags:
     - -mfpu=*
     - --specs=*
 
-  # THE STANDARD LIBRARY, SPELLED OUT, and this is what made every sketch show
-  # `Int32` as an unknown type.
-  #
-  # The compile database names arm-none-eabi-g++, so clangd goes looking for
-  # ITS system headers - and guesses the layout of the LLVM embedded toolchain
-  # for Arm:
-  #
-  #     C:\msys64\mingw64\lib\clang-runtimes\arm-none-eabi\include
-  #
-  # That directory does not exist. This is GNU arm-none-eabi-gcc 13.3.0, whose
-  # headers live somewhere else entirely, so `#include <cstddef>` failed - and
-  # shared.hxx includes it before defining anything, so Int32, UInt32 and every
-  # other name in the vocabulary came back undefined. One missing directory,
-  # and the whole file reads as broken.
-  #
-  # clangd will not run the compiler to ask (--query-driver is a command-line
-  # flag and off by default), so the answer is written down. These are exactly
-  # what `arm-none-eabi-g++ -x c++ -E -v` prints, in its order.
-  #
-  # HARDCODED, including the 13.3.0. So is ARMBIN in build.bat, and this file
-  # already hardcodes the build directory - it is the fallback for an editor
-  # with no project loaded, not a portable toolchain description. If the MSYS2
+  # THE STANDARD LIBRARY, SPELLED OUT. The database names arm-none-eabi-g++, and
+  # clangd guesses the LLVM embedded toolchain's header layout for it, which does
+  # not exist here - so <cstddef> fails and every Int32 in shared.hxx reads as an
+  # unknown type. These are what `arm-none-eabi-g++ -x c++ -E -v` prints, in its
+  # order. HARDCODED, 13.3.0 included, like ARMBIN in build.bat: if the MSYS2
   # toolchain moves or updates, re-run that command and paste the new list.
   Add:
     - -isystem
@@ -87,34 +46,24 @@ CompileFlags:
     - C:/msys64/mingw64/arm-none-eabi/include
 
 Diagnostics:
-  # The SDK's own headers are not ours to fix, and every one of their warnings
-  # would sit in the same list as a genuine mistake in a sketch.
+  # The SDK's own headers are not ours to fix.
   Suppress:
     - pp_file_not_found_angled_include_not_fatal
 
-  # OFF, because this tree is built out of umbrella headers and clangd's check
-  # cannot see that. bibo.hxx includes twenty-two headers on purpose so a sketch
-  # can write one line; hal.hxx pulls in twelve SDK headers so nothing below it
-  # has to. Every one of those is "unused" by the file that lists it, which is
-  # exactly what an umbrella IS - so the warning fires on the design rather than
-  # on a mistake, and a sketch opens under a wall of yellow it should ignore.
-  # Advice you are meant to ignore trains you to ignore the ones you should not.
+  # OFF: bibo.hxx and hal.hxx are umbrella headers, so every include they list
+  # is "unused" by the file that lists it. The warning would fire on the design
+  # rather than on a mistake.
   UnusedIncludes: None
   MissingIncludes: None
 
-  # clangd reads every .clangd from the file's directory up to the root and
-  # MERGES them, so this ADDS to the root check list rather than replacing it.
-  # firmware/.clang-tidy carries the reasoning and has to be kept in step - the
-  # two formats do not see each other, and the hub's Code view reads this one.
+  # clangd MERGES every .clangd from the file's directory up to the root, so this
+  # adds to the root's check list. firmware/.clang-tidy says why the check is
+  # scoped here; keep the two in step, since neither format reads the other.
   ClangTidy:
     Add:
-      # Scoped to firmware/ because an unscoped int-backed enum counts as
-      # signed, so at the root every ImGui, Win32 and D3D11 flag OR reports.
-      # 26 of the 34 hits outside firmware/ are exactly that. firmware/ is all
-      # ours and is at zero.
       - hicpp-signed-bitwise
 
     CheckOptions:
       # Without this the literal 8 in `x >> 8` reports, which is a fact about
-      # C++ and not about the file. On display.hxx it was 16 of the 26 hits.
+      # C++ and not about the file.
       hicpp-signed-bitwise.IgnorePositiveIntegerLiterals: true

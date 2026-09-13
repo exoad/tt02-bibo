@@ -7,10 +7,8 @@
  * than printing. That is the rule the whole car rests on and it had no test,
  * because chassis.hxx includes hal.hxx and hal.hxx is the Pico SDK.
  *
- * It does now, through firmware/tests/fakes/hal.hxx. What that buys is not
- * coverage for its own sake: it is that these assertions are about what
- * reaches the PINS, not about what the module says it did. The difference
- * matters - lights::enable() spent weeks reporting a state it had not stored.
+ * It does now, through firmware/tests/fakes/hal.hxx, and these assertions are
+ * about what reaches the PINS, not about what the module says it did.
  * -------------------------------------------------------------------------
  */
 #include "../lib/chassis/chassis.hxx"
@@ -71,16 +69,6 @@ namespace
   Int32 escPin(Void)
   {
       return bibo::pins::active().esc;
-  }
-
-  /**
-   * @brief The servo pad of the currently installed pin map.
-   *
-   * @return the GPIO number bound to the servo, or pins::NONE
-   */
-  Int32 servoPin(Void)
-  {
-      return bibo::pins::active().servo;
   }
 
   /**

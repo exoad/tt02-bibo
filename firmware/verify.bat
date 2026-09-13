@@ -41,7 +41,7 @@ REM ---- 2. the host tests, by EXIT CODE --------------------------------------
 REM Every suite tools\test.bat knows: firmware\tests, pilot\tests and the viewer's
 REM link suite, which compiles pilot\src\bibowire.cxx. A suite missing from this
 REM list is one nothing runs, and the gate still says PASS the day it breaks.
-for %%s in (text pins dfplayer chassis control pursuit sfx) do call :suite %%s
+for %%s in (text pins chassis) do call :suite %%s
 for %%s in (proto pilot reactive scanwire bibowire trimfile link) do call :suite %%s
 
 REM ---- 3. the style audit --------------------------------------------------

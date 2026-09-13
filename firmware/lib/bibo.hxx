@@ -1,162 +1,30 @@
 /*
- * ---------------------------------------------------------------------------
- * bibo - the whole library, in one include.
+ * bibo - the firmware library, in one include.
  *
- * Application code includes THIS and nothing else from the library. Reaching
- * past it to a specific header still compiles, and it is still wrong: it makes
- * every file's dependencies a thing you have to read the top of the file to
- * know, and it means a header that moves breaks callers that had no business
- * naming it. tools/style_audit.py fails the build on it.
+ * app/main.cxx includes this and nothing else from lib/; tools/style_audit.py
+ * fails the build when it reaches past it. Everything is header-only, so a call
+ * such as bibo::drive::pump() compiles down to the stores it makes.
  *
- * Everything here is header-only. That is deliberate on a microcontroller: the
- * compiler sees through a call to bibo::gpio::write() and emits the single
- * store it actually is, where a real function call would be a branch, a
- * register spill and a return for the sake of tidiness nobody can measure. The
- * cost is that including two library headers in one translation unit costs
- * compile time rather than link time, which at this size is free.
+ *   shared.hxx           the vocabulary: Int32, Bool, Void, CharSeq. Global,
+ *                        not in namespace bibo.
+ *   hal.hxx              the board: timing, serial, board, pwm, servo, led.
+ *   text.hxx             text:: - parsing and formatting on a caller's buffer.
+ *   pins.hxx             pins:: - the car's pin map, checked at compile time.
+ *   status.hxx           status:: - the onboard LED as a heartbeat.
+ *   chassis/cal.hxx      the car's compiled-in defaults, as macros.
+ *   chassis/chassis.hxx  drive:: - steering and throttle, and their safety rules.
  *
- * ---- the layers ------------------------------------------------------------
- *
- *   shared.hxx           the vocabulary: Int32, Bool, Void, Utf8, CharSeq.
- *                        NOT in namespace bibo - it is the spelling the whole
- *                        project uses.
- *   hal.hxx              the board: gpio, uart, pwm, servo, i2c, spi, serial,
- *                        led, radio, adc, watchdog, timing, board. Nothing
- *                        above knows which pins exist.
- *   pins.hxx             pins:: - the car's pin map, which fails the build
- *                        when two roles claim one pad.
- *   boot.hxx             boot:: - opens the console and installs the pin map,
- *                        or stops, visibly.
- *   text.hxx             text:: - the string handling this project does.
- *                        Stateless.
- *   status.hxx           status:: - the onboard LED as something readable
- *                        across a room.
- *   lights.hxx           lights:: - the lamps, and which pin each is on.
- *                        Output only.
- *   cue.hxx              cue:: - what the car SAYS: indicating, braking, a
- *                        headlight flash. Decides; lights emits.
- *   net.hxx              net:: - the same command link, over Wi-Fi.
- *
- *   sfx.hxx              sfx:: - which numbered clip on the card is which.
- *   drivers/dfplayer.hxx dfplayer:: - the DFPlayer Mini over UART.
- *   sound.hxx            sound:: - the car's voice, asked for by name.
- *
- *   geom.hxx             geom:: - poses and angles.
- *   kinematics.hxx       kin:: - the wheelbase and the steering lock.
- *   pursuit.hxx          pursuit:: - pure pursuit along a path.
- *   plan.hxx             plan:: - speed and acceleration limits along a route.
- *   control.hxx          control:: - PID and feedforward.
- *   chassis/odom.hxx     odom:: - sensor ticks to meters.
- *                        Pure arithmetic with no SDK, so they compile off the
- *                        board too - in the host tests, and all but odom in
- *                        the pilot.
- *
- *   drivers/display.hxx  tft:: - an ST7789 / ST7735 panel over SPI. THE PANEL:
- *                        its size, its pads, and the things that are true of
- *                        glass - inversion, sleep, backlight brightness. Owns
- *                        a tft::Screen and nothing about drawing.
- *   gfx.hxx              gfx:: - the 2D layer. gfx::open() is handed a panel
- *                        and returns a gfx::Canvas, which owns the back
- *                        buffer, the clip and the text state, and which every
- *                        shape is drawn onto. Knows shapes, not panels.
- *
- *                        Use gfx to draw a frame; reach for tft when you want
- *                        the hardware itself.
- *   drivers/range.hxx    tof:: - a VL53L1X time-of-flight sensor over I2C.
- *   drivers/storage.hxx  sd:: - an SD card over SPI.
- *
- *   chassis/cal.hxx      this car's measured numbers, the ones the Pico boots
- *                        with. Macros, so not in a namespace: the preprocessor
- *                        has finished before C++ has heard of one.
- *   chassis/chassis.hxx  drive:: - steering and throttle, in fractions rather
- *                        than microseconds. The only thing that reads cal.
- *
- * The dependency direction is strictly downward: hal knows nothing, drivers
- * know hal, chassis knows hal and the calibration, and applications know only
- * this file. A driver that needed another driver would be two things wearing
- * one name.
- *
- * ---- naming ----------------------------------------------------------------
- *
- * Everything is in namespace bibo, and inside it every module is a namespace of
- * its own, named in the list above. So a call site says which layer it reaches
- * into without anyone having to look it up:
- *
- *     bibo::gpio::write(28, true);
- *     bibo::drive::stop();
- *
- * This was a PREFIX until the library became C++ - gpioWrite, driveStop - which
- * is the C answer to the same problem and reads as a prefix somebody remembered
- * rather than a boundary the compiler knows about. style_audit.py checks that
- * each module still declares its namespace, because a header that quietly stops
- * doing so still compiles: its symbols simply move to the global namespace, one
- * file at a time, which is exactly how the prefixes decayed before anything
- * checked them.
- *
- * A SKETCH may open it - `using namespace bibo;` - and every file in
- * firmware/sketches does: one file whose whole purpose is to be the easy thing.
- * app/main.cxx does not.
- * -------------------------------------------------------------------------
- */
-/*
- * EVERY PROJECT INCLUDE IN THIS LIBRARY IS RELATIVE TO THE FILE THAT WRITES IT.
- *
- * "../hal.hxx" from lib/drivers/, not "hal.hxx". Uglier, and it resolves for a tool
- * that has loaded nothing: a quoted include is searched next to the including
- * file first, so a driver naming a header one directory up must say so. The
- * bare spelling needs -Ifirmware/lib, which comes from the CMake project - and
- * an editor that has not attached the project then underlines every include in
- * the library at once, which reads as broken code rather than as unconfigured
- * tooling.
- *
- * The include path is still set for both targets, so either spelling compiles.
- * This one also parses.
+ * Includes point downward only: hal knows nothing above it, chassis knows hal,
+ * the pin map and cal, and the app knows only this file. Every include in lib/
+ * is relative to the file that writes it ("../hal.hxx" from chassis/), so an
+ * editor without the CMake project loaded still resolves it.
  */
 #pragma once
 
 #include "hal.hxx"
 #include "text.hxx"
-
-/*
- * The car's pin map. Included before anything that binds a pin, so a subsystem
- * can name pins::LAMP_HEAD_L rather than 11 - and so the conflict static_asserts in
- * it fire on every build rather than only when somebody happens to include it.
- */
 #include "pins.hxx"
-
-/*
- * What the sounds on the card mean. A leaf like pins - names and numbers,
- * no SDK - so it can be read and tested without a board.
- */
-#include "sfx.hxx"
-
-/*
- * The car's voice, asked for by name. Above the driver and above sfx, the way
- * cue sits above lights.
- */
-#include "sound.hxx"
-
-/*
- * Drivetrain maths - PID, feedforward, and ticks to meters. Pure arithmetic,
- * no SDK, so both are tested on the host.
- */
-#include "geom.hxx"
-#include "kinematics.hxx"
-#include "pursuit.hxx"
-#include "plan.hxx"
-#include "control.hxx"
-#include "chassis/odom.hxx"
-#include "boot.hxx"
-
-#include "drivers/dfplayer.hxx"
-#include "drivers/display.hxx"
-#include "gfx.hxx"
 #include "status.hxx"
-#include "lights.hxx"
-#include "cue.hxx"
-#include "net.hxx"
-#include "drivers/range.hxx"
-#include "drivers/storage.hxx"
 
 #include "chassis/cal.hxx"
 #include "chassis/chassis.hxx"

@@ -35,9 +35,8 @@ jobs:
       #                      - so each finding advises a header that is not there.
       # knownConditionTrueFalse
       #                      cppcheck explores #ifdef combinations the real build
-      #                      never has. It called `!bibo::net::present()` both
-      #                      "always false" AND "always true" on the SAME line,
-      #                      because BIBO_WIRELESS comes from the board header.
+      #                      never has, such as hal.hxx without the board header
+      #                      that defines CYW43_WL_GPIO_LED_PIN.
       # --inconclusive       removed, not suppressed: both findings it produced
       #                      were "this member could be static".
       - name: cppcheck

@@ -1,125 +1,48 @@
 /*
  * ---------------------------------------------------------------------------
- * Steering calibration - GENERATED.
+ * cal - the car's compiled-in defaults, maintained by hand.
  *
- * Written by the hub's Drive view. Edit it THERE, not here: the next "Write to
- * firmware" overwrites this file completely, and a number typed in by hand is
- * gone the first time anyone touches the calibration UI.
+ * The Pico boots on these. Every time the pilot opens the port it replays the
+ * operator's saved trim (trim.txt, set from the viewer's Trim pane) over them,
+ * so on the car they hold only until the pilot connects.
  *
- * These are measurements of one particular car, not a datasheet. A servo's own
- * range is 1000-2000 us; what a TT-02's steering can actually reach is narrower
- * and off-center, because the horn only fits the spline at whole-tooth
- * intervals and the linkage is whatever length it is. There is no way to know
- * these numbers except by moving the servo and watching.
- *
- * CENTER is the interesting one. 1500 us is the middle of the servo's range and
- * has nothing to say about where a car's wheels point straight - assuming it
- * does is how a servo ends up leaning on a frame at "neutral".
+ * The steering numbers are measurements of this TT-02, not a datasheet: the
+ * servo horn fits its spline only at whole teeth, so the wheels point straight
+ * wherever they point straight, which is not 1500 us.
  * -------------------------------------------------------------------------
  */
 #pragma once
 
-/* Full lock one way. */
+/* Steering pulse at full lock one way, straight ahead, and full lock the other. */
 #define STEER_CAL_LEFT 1230
-
-/* Wheels straight ahead. Not necessarily 1500, and usually not. */
 #define STEER_CAL_CENTER 1480
-
-/* Full lock the other way. */
 #define STEER_CAL_RIGHT 1660
+#define STEER_CAL_STAMP "measured 2026-08-29"
 
 /*
- * ---- throttle ------------------------------------------------------------
+ * The forward throttle band. MIN is idle: the last pulse before the motor turns.
  *
- * The working range for the ESC, and the reason this section exists: the
- * steering has been persisted here since it was measured, and the throttle was
- * not. Anything set with ESCLIMITS lived in RAM and was silently back to
- * 1500-1600 after the next reboot or reflash - which is not a calibration, it
- * is a setting you have to remember to make again.
- *
- * Still forward-only. The board refuses anything below 1500 whatever is written
- * here; reverse needs a brake-then-reverse sequence and is not something to
- * reach by editing a number.
- *
- * MIN is IDLE. Not the ESC's neutral and not a safety floor, but the pulse at
- * which this motor sits still and the next microsecond starts it turning. That
- * is a fact about this car's ESC and motor, found by winding it up until the
- * wheels moved - which is why it is not the round number anybody would guess.
- *
- * It matters that this is the floor the sliders are built from: a range
- * starting below idle spends its first stretch doing nothing at all, so the
- * control feels dead at one end for no reason a driver could work out.
- *
- * A GEAR CHANGE INVALIDATES THIS. Idle is where the motor overcomes the
- * drivetrain, so more reduction breaks static friction at a lower pulse and
- * this number goes down. The 17T pinion went on after this was measured at 19T,
- * and it has not been re-measured since - so 1541 is an upper bound on idle
- * rather than idle.
- *
- * That is not cosmetic. driveThrottleUs clamps UPWARD to escMin, and the
- * deadman calls the car driven when escTargetUs > escMinUs - so a car that
- * creeps at what this file calls idle is a car the deadman does not think is
- * moving.
- */
-/*
- * MEASURED ON THE BRUSHED 1060 AND THE 540, BOTH GONE. Since 2026-09-06 the
- * drivetrain is a QuicRun 10BL160 G2 with a 21.5T 3650 G2 brushless, which
- * maps 1500..2000 almost linearly instead of needing 41 us of dead zone before
- * the motor turns - so 1541 is probably already creeping and 1600 is no longer
- * a crawl. The numbers stay only because they are NARROW: a 59 us band cannot
- * launch the car. Re-measure both from the Drive view, on a stand, before
- * widening anything, and put the date in THROTTLE_CAL_STAMP when you do.
+ * Measured on the brushed 1060 and 540, both gone. The QuicRun 10BL160 G2 with
+ * the 21.5T brushless maps 1500..2000 almost linearly, so 1541 probably creeps
+ * and 1600 is no longer a crawl. The numbers stay because the band is too narrow
+ * to launch the car; re-measure on a stand before widening it.
  */
 #define THROTTLE_CAL_MIN 1541
 #define THROTTLE_CAL_MAX 1600
 #define THROTTLE_CAL_STAMP "1060 brushed, 2026-08 - superseded, re-measure"
 
 /*
- * ---- tuning, not measurement ---------------------------------------------
- *
- * Everything above is a fact about this car that was found by moving it. This
- * is not: it is a choice about how fast the outputs are allowed to move, and a
- * different answer is right for a bench than for driving.
- *
- * It lives here anyway for one reason - this is the file that survives a
- * reflash. The throttle range was runtime-only until 2026-08-27 and was
- * silently lost every time the board was rewritten, which is not a setting, it
- * is a setting you have to remember to make again.
- *
- * Microseconds of pulse per 20 ms tick. 8 is 400 us/s, which walks this car's
- * 430 us of steering travel in about a second - deliberate on a bench and far
- * too slow to steer around anything.
+ * How fast each output may move, in microseconds of pulse per SLEW_TICK_MS tick
+ * (chassis.hxx). A choice rather than a measurement: at this rate the steering
+ * takes about a second lock to lock, which suits a bench and is too slow to
+ * steer around anything.
  */
 #define SLEW_CAL_STEER    8
-
-/*
- * The throttle's own rate. Separate from the steering because the right answer
- * is different: a servo should arrive promptly, an ESC should be led there.
- * Starts equal to the steering, which is what the single shared rate used to
- * give - so nothing changes until it is tuned.
- */
 #define SLEW_CAL_THROTTLE 8
 
 /*
- * ---- when the tail lamps go out ------------------------------------------
- *
- * Microseconds ABOVE idle at which the car counts as being driven, and the
- * tails extinguish. Below it the motor is turning but barely, and a car
- * crawling is a car that has not really pulled away - the lamp should still be
- * on.
- *
- * Also used the other way for reverse: more than this BELOW neutral counts as
- * being driven backwards.
- *
- * Tuning, not measurement, like the slew step above - it is a judgment about
- * when "moving" starts, and the honest answer is whatever looks right on the
- * car. It lives here for the same reason: this is the file that survives a
- * reflash.
+ * The Pico's watchdog: how long it keeps obeying the last throttle with no
+ * valid command before it puts the ESC at neutral. The pilot's
+ * bibowire::PICO_DEADMAN_MS is this number.
  */
-#define LIGHT_CAL_OFF_US 10
-
-/*
- * When this car was last calibrated, so a stale set of numbers can be spotted
- * rather than trusted. "defaults" means nobody has calibrated this car yet.
- */
-#define STEER_CAL_STAMP "measured 2026-08-29"
+#define BIBO_WATCHDOG_MS 200

@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * compiling.
  *
  * They are kept in step by hand, and only where it makes sense to.
- * shared/shared.hxx has ISize; this has the idiom macros below.
+ * shared/shared.hxx has ISize; this has STRINGIFY.
  *
  * Utf16/Utf32 are a LOCAL ADDITION - upstream names them in CharSeq16/CharSeq32
  * without defining them, so the header does not compile as it stands.
@@ -121,36 +121,4 @@ using CharSeq32 = const Utf32*;
 #ifndef STRINGIFY
 #define STRINGIFY_INNER(x) #x
 #define STRINGIFY(x) STRINGIFY_INNER(x)
-#endif
-
-/*
- * ---- idiom ---------------------------------------------------------------
- *
- * Guarded like STRINGIFY: these are ordinary enough names that a vendor header
- * could claim one, and a redefinition warning in a build this quiet is noise
- * nobody reads.
- */
-
-/*
- * PROGRAM - an entry point, spelled the one way that is correct everywhere.
- *
- * `int`, NOT Int32, and that is the whole reason this exists. int32_t is
- * `long int` on arm-none-eabi and `int` on MSVC - same size, same
- * representation, a different type as far as the language cares - so
- * `Int32 main` compiles clean on the host and the board rejects it:
- *
- *     error: '::main' must return 'int'
- *
- * Host suites cannot catch that; only a board build can. It has been
- * rediscovered three times. main's signature is the C runtime's contract
- * rather than this project's vocabulary, so it is spelled the runtime's way,
- * once, here.
- */
-#ifndef PROGRAM
-#define PROGRAM int main(Void)
-#endif
-
-/* An intentional forever loop. Takes its own braces: FOREVER { ... } */
-#ifndef FOREVER
-#define FOREVER while(true)
 #endif

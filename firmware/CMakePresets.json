@@ -6,7 +6,7 @@
     {
       "name": "pico2w",
       "displayName": "Pico 2 W (RP2350, arm-none-eabi)",
-      "description": "Cross build for the car's board. Mirrors firmware/build.bat - change one, change the other. See that script's header for why each of these settings is what it is; they were all learned the hard way.",
+      "description": "Cross build for the Pico 2 W. Mirrors firmware/build.bat - change one, change the other. That script's header says why each of these settings is what it is.",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {

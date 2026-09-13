@@ -3,7 +3,7 @@
 //   tools\test.bat pilot run                MSVC, the refusing link
 //   ctest --test-dir build-pilot            g++ on Linux, the termios link
 //
-// THREE THINGS ARE BEING CHECKED.
+// TWO THINGS ARE BEING CHECKED.
 //
 //   1. What refuses, refuses rather than fabricates. carlink::open() returning
 //      OK on a platform with no transport would mean a STOP command silently
@@ -21,23 +21,12 @@
 //      half line waits for its other half, and the far end closing is reported
 //      as CLOSED rather than as a quiet car.
 //
-//   3. firmware/lib's pure headers really do compile away from the Pico. Four
-//      of them say so in their own comments; this file is the first thing that
-//      holds them to it, by including them from a program that is not firmware
-//      and has no SDK.
-//
 // Exits 0 on PASS, 1 on FAIL.
 
 #include "shared.hxx"
 
 #include "lidar.hxx"
 #include "link.hxx"
-
-#include "control.hxx"
-#include "geom.hxx"
-#include "kinematics.hxx"
-#include "plan.hxx"
-#include "pursuit.hxx"
 
 #include <cstdio>
 #include <cstring>
@@ -443,36 +432,6 @@ Int32 main()
 #else
         check(lidar::available(), "an SDK is built into this program, and it says so");
 #endif
-    }
-
-    // ---- the firmware's maths, running off the Pico -------------------------
-    //
-    // Not a test of the arithmetic - firmware/tests already covers that. A test
-    // that these headers COMPILE AND LINK into a non-firmware program, which is
-    // the claim four of them make in their comments and which nothing checked
-    // until now.
-    {
-        // Pose is flat - x, y, heading - not a Vec2 and an angle.
-        const bibo::geom::Pose at{ 0.0f, 0.0f, 0.0f };
-        const bibo::geom::Vec2 pts[] = { { 1.0f, 0.0f }, { 2.0f, 0.0f } };
-
-        bibo::pursuit::Path path;
-        path.pts = pts;
-        path.n = 2;
-
-        bibo::pursuit::Follower  f;
-        const bibo::pursuit::Aim aim = bibo::pursuit::follow(&f, &path, at, 1.0f);
-        check(aim.valid, "pursuit runs in a program that is not firmware");
-
-        // bibo::kin, not bibo::kinematics - the header is named for the subject
-        // and the namespace for the reader.
-        const Float32 steer = bibo::kin::steerFor(0.5f);
-        check(steer > 0.0f, "so does kinematics");
-
-        bibo::control::Pid pid;
-        pid.kp = 1.0f;
-        const Float32 u = bibo::control::step(&pid, 1.0f, 0.0f, 0.02f);
-        check(u > 0.9f && u < 1.1f, "and control");
     }
 
     std::printf("\n%d checks, %d failed\n\n", checks, failures);

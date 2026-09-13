@@ -22,9 +22,8 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-# -Wno-unused-function for the same reason tools\test.bat pilot passes /wd4505:
-# firmware/lib's headers define their functions `static`, so a consumer using a
-# subset of a header trips it on every function it does not call.
+# -Wno-unused-function: a header that defines its functions `static`, as
+# firmware/lib's do, trips it on every function a consumer does not call.
 add_compile_options(-Wall -Wextra -Wno-unused-function)
 
 set(SHARED ${CMAKE_CURRENT_SOURCE_DIR}/../../shared)

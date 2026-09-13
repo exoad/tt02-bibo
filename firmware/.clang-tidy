@@ -17,9 +17,8 @@
 # firmware/ is freestanding and every line of it is ours. It is at zero.
 #
 # IgnorePositiveIntegerLiterals is what makes the check usable at all. Without
-# it the literal 8 in `x >> 8` is a signed int and reports, which on
-# display.hxx alone was 16 of the 26 hits - noise about C++ rather than about
-# the file. With it, the 26 became the 10 that were real.
+# it the literal 8 in `x >> 8` is a signed int and reports - noise about C++
+# rather than about the file.
 
 InheritParentConfig: true
 

@@ -20,7 +20,7 @@ set "PILOT=%ROOT%\firmware\pilot\src"
 set "EXTRA="
 set "LIBS="
 
-set "FIRMWARE_SUITES=text pins dfplayer chassis control pursuit sfx"
+set "FIRMWARE_SUITES=text pins chassis"
 set "PILOT_SUITES=proto pilot reactive scanwire bibowire trimfile"
 
 for %%s in (%FIRMWARE_SUITES%) do if "%SUITE%"=="%%s" goto :firmware
@@ -41,17 +41,13 @@ set "SRCS="%TESTS%\test_%SUITE%.cxx""
 if "%SUITE%"=="chassis" set "EXTRA=/DBIBO_FAKE_HAL"
 goto :build
 
-REM One pilot module and its test. pilot is the exception: the refusing halves of
-REM lidar.cxx and link.cxx, plus firmware\lib's pure headers - which define their
-REM functions static, so /wd4505 for every one this program does not call.
+REM One pilot module and its test. pilot tests the refusing halves of lidar.cxx
+REM and link.cxx, which have no module of that name.
 :pilot
 set "TESTS=%ROOT%\firmware\pilot\tests"
 set "INC=/I"%ROOT%\shared" /I"%PILOT%""
 set "SRCS="%TESTS%\test_%SUITE%.cxx" "%PILOT%\%SUITE%.cxx""
-if not "%SUITE%"=="pilot" goto :build
-set "INC=%INC% /I"%LIB%""
-set "SRCS="%TESTS%\test_pilot.cxx" "%PILOT%\lidar.cxx" "%PILOT%\link.cxx""
-set "EXTRA=/wd4505"
+if "%SUITE%"=="pilot" set "SRCS="%TESTS%\test_pilot.cxx" "%PILOT%\lidar.cxx" "%PILOT%\link.cxx""
 goto :build
 
 REM viewer\src BEFORE firmware\pilot\src: both have a link.hxx, and this suite

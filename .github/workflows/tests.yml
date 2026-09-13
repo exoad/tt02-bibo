@@ -2,8 +2,8 @@
 # and the viewer's link suite on Windows.
 #
 # WHY LINUX for a Windows project: firmware/lib's suites are the half that needs
-# no board - text, pins, control, pursuit, the DFPlayer checksum, sfx, and
-# chassis with the fake HAL. None of it is MSVC-specific, and a Linux runner bills
+# no board - text, pins, and chassis with the fake HAL. None of it is
+# MSVC-specific, and a Linux runner bills
 # at 1x where a Windows runner bills at 2x. TWO COMPILERS because MSVC is what hid
 # `Int32 main()`: int32_t is `int` there and `long int` on arm-none-eabi, so
 # twenty entry points compiled clean on the host and the board rejected three.

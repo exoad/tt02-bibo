@@ -30,10 +30,8 @@ DIRS = [
     # one gate and not the other is the quietest kind of gap.
     at('viewer', 'tests'),
     at('firmware', 'lib'),
-    at('firmware', 'lib', 'drivers'),
     at('firmware', 'lib', 'chassis'),
     at('firmware', 'app'),
-    at('firmware', 'sketches'),
     at('firmware', 'tests'),
     # The companion board's program. It lived at the repo root until 2bde514
     # moved it under firmware/; the old paths stayed here and matched nothing,
@@ -378,93 +376,39 @@ for name in [r[0] for r in RULES]:
 # architecture decays one reasonable-looking include at a time.
 
 # Which layer a firmware file belongs to, and what that layer may include.
-# Strictly downward: hal knows nothing; drivers and chassis know hal; an app
-# knows only the umbrella.
+# Strictly downward: hal knows nothing; chassis knows hal; an app knows only
+# the umbrella.
 #
-# The SPELLING is part of the rule: "../hal.h" rather than "hal.h" from
-# lib/drivers/. The bare form compiles only because -Ifirmware/lib is set, and
+# The SPELLING is part of the rule: "../hal.hxx" rather than "hal.hxx" from
+# lib/chassis/. The bare form compiles only because -Ifirmware/lib is set, and
 # an editor without the project loaded underlines every include in the library.
 LAYERS = {
-    # hal.h is the floor everything stands on, so lib root may name it. pins.hxx
-    # sits beside shared.hxx: it declares facts and includes nothing but types,
-    # so naming pins::SERVO instead of 0 is reading downward, not sideways.
+    # hal.hxx is the floor everything stands on, so lib root may name it.
+    # pins.hxx sits beside shared.hxx: it declares facts, so naming pins::SERVO
+    # instead of 0 is reading downward, not sideways.
     'firmware/lib':          {'shared.hxx', 'hal.hxx', 'pins.hxx'},
-    # ../shared.hxx so a driver's PROTOCOL half can reach the vocabulary without
-    # the SDK - that is what makes dfplayer_proto.hxx testable off the bench.
-    # ../pins.hxx: a driver reads the pin map it was WIRED with rather than
-    # holding pad numbers, a downward read and not a reach at another driver.
-    'firmware/lib/drivers':  {'../hal.hxx', '../shared.hxx', '../pins.hxx',
-                              'dfplayer_proto.hxx'},
     'firmware/lib/chassis':  {'../hal.hxx', 'cal.hxx', '../pins.hxx'},
     'firmware/app':          {'../lib/bibo.hxx'},
-    # Renamed from scratch/. The key is matched by substring against the path,
-    # so the stale name matched nothing and silently took BOTH this check and
-    # the libc one below off sketches entirely.
-    'firmware/sketches':     {'../lib/bibo.hxx'},
     # A host test of ONE header includes that header, not the umbrella - the
-    # umbrella drags in the SDK and these compile with MSVC.
+    # umbrella drags in the SDK and these compile with MSVC. chassis.hxx is
+    # tested through tests/fakes/hal.hxx.
     'firmware/tests':        {'../lib/text.hxx',
                               '../lib/pins.hxx',
-                              '../lib/sfx.hxx',
-                              '../lib/control.hxx',
-                              '../lib/geom.hxx',
-                              '../lib/kinematics.hxx',
-                              '../lib/pursuit.hxx',
-                              '../lib/chassis/odom.hxx',
-                              # The safety property, tested on the host through
-                              # tests/fakes/hal.hxx - the first test of a module
-                              # that includes hal.hxx at all.
-                              '../lib/chassis/chassis.hxx',
-                              '../lib/drivers/dfplayer_proto.hxx'},
+                              '../lib/chassis/chassis.hxx'},
 }
 
-# gfx draws INTO a Screen, so it is the one file at lib root that legitimately
-# reaches sideways into a driver. Written down rather than special-cased in
-# silence - which is what every entry below is.
+# The files at lib root that reach sideways, each written down with its reason.
 LAYER_EXTRA = {
-    'firmware/lib/gfx.hxx':  {'drivers/display.hxx'},
     # pins.hxx formats its own conflict message, so it names text.hxx - a leaf,
     # so this is a sideways reach that cannot cycle.
     'firmware/lib/pins.hxx': {'shared.hxx', 'text.hxx'},
     # hal.hxx names the host-test fake behind #ifdef BIBO_FAKE_HAL, off in every
     # image this project flashes - the one place the library reaches into tests/.
     'firmware/lib/hal.hxx': {'shared.hxx', '../tests/fakes/hal.hxx'},
-    # boot.hxx is serial + the pin map + a visible refusal: the one lib-root
-    # file that legitimately needs pins.
-    'firmware/lib/boot.hxx': {'hal.hxx', 'pins.hxx'},
-    # sfx.hxx is names and numbers - what the clips on the card MEAN. No SDK, so
-    # its table can be tested without a board.
-    'firmware/lib/sfx.hxx': {'shared.hxx'},
-    # control.hxx is arithmetic - PID and feedforward - and odom.hxx turns ticks
-    # into meters. Neither touches hardware, which is what lets both be tested
-    # on the host against invented inputs.
-    'firmware/lib/control.hxx': {'shared.hxx'},
-    # The autonomy maths, pure and portable, a strict stack each naming only the
-    # one below: geom, kinematics, pursuit, then plan.
-    'firmware/lib/geom.hxx': {'shared.hxx'},
-    'firmware/lib/kinematics.hxx': {'geom.hxx'},
-    'firmware/lib/pursuit.hxx': {'geom.hxx', 'kinematics.hxx'},
-    'firmware/lib/plan.hxx': {'geom.hxx', 'pursuit.hxx'},
-    'firmware/lib/chassis/odom.hxx': {'../shared.hxx'},
-    # sound.hxx owns the speaker, so it reaches down to the driver and sideways
-    # to the clip table and the pin map.
-    'firmware/lib/sound.hxx': {'hal.hxx', 'pins.hxx', 'sfx.hxx',
-                               'drivers/dfplayer.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
-    'firmware/lib/lights.hxx': {'hal.hxx'},
-    'firmware/lib/net.hxx': {'hal.hxx'},
-    # cue.hxx DECIDES what the car expresses and lights.hxx emits it - one layer
-    # above naming the one below.
-    'firmware/lib/cue.hxx': {'hal.hxx', 'lights.hxx'},
-    'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'gfx.hxx', 'status.hxx',
-                            'pins.hxx', 'sfx.hxx', 'sound.hxx', 'boot.hxx',
-                            'control.hxx', 'chassis/odom.hxx',
-                            'geom.hxx', 'kinematics.hxx', 'pursuit.hxx',
-                            'plan.hxx',
-                            'drivers/dfplayer.hxx', 'drivers/display.hxx',
-                            'drivers/range.hxx', 'drivers/storage.hxx',
+    'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'pins.hxx', 'status.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
-                            'lights.hxx', 'cue.hxx', 'net.hxx'},
+                            'shared.hxx'},
 }
 
 def layer_of(path):
@@ -496,10 +440,10 @@ for path in files:
         if not t.startswith('#include "'):
             continue
         what = t.split('"')[1]
-        # The Pico SDK and lwIP are not ours and are not layers. hal.h and net.h
-        # exist precisely to be the files that reach into somebody else's code.
-        # This pass is about the direction OUR headers point.
-        if what.startswith(('pico/', 'hardware/', 'boards/', 'lwip/')):
+        # The Pico SDK is not ours and is not a layer. hal.hxx exists precisely
+        # to be the file that reaches into somebody else's code. This pass is
+        # about the direction OUR headers point.
+        if what.startswith(('pico/', 'hardware/', 'boards/')):
             continue
         if what in allowed:
             continue
@@ -552,8 +496,8 @@ else:
 # Application code uses the LIBRARY, not libc. firmware/lib wraps the C standard
 # library so the project has one vocabulary. The point is not speed, it is that
 # the seam is complete: a console calling printf() directly was sixty-two call
-# sites to find the day the transport is not stdio. Only app/ and sketches/ are
-# checked - lib/ is WHERE the wrapping happens.
+# sites to find the day the transport is not stdio. Only app/ is checked -
+# lib/ is WHERE the wrapping happens.
 print('\n--- application code reaching past the library ---')
 
 LIBC_DIRECT = [
@@ -576,7 +520,7 @@ LIBC_DIRECT = [
 libc_bad = 0
 for path in files:
     norm = path.replace('\\', '/')
-    if '/firmware/app/' not in norm and '/firmware/sketches/' not in norm:
+    if '/firmware/app/' not in norm:
         continue
     code = strip_noise(rd(path))
     for i, line in enumerate(code.split('\n')):
@@ -585,7 +529,7 @@ for path in files:
             # The ':' in the lookbehind is what the namespaces cost this rule:
             # serial::printf CONTAINS printf, so without it every corrected call
             # site reported itself - the rule accusing its own fix. `.` and `>`
-            # are there for gfx::Canvas's printf METHOD.
+            # keep a method called printf out.
             if re.search(r'(?<![A-Za-z0-9_:.>])' + name + r'\s*\(', line):
                 print('  %-22s %5d  %s( -> use %s('
                       % (os.path.basename(path), i + 1, name, instead))
@@ -642,7 +586,7 @@ print('\n--- signatures over 100 columns ---')
 # Where the figure came from: 2 columns are from indenting namespace bodies on
 # 2026-08-30, and 30 -> 51 on 2026-08-31 was a const-correctness pass across
 # firmware/lib - the same parameters spelled longer, 21 crossing the line.
-SIG_BUDGET = 51
+SIG_BUDGET = 9
 
 SIGNATURE = re.compile(
     r'^\s*(?:\[\[nodiscard\]\]\s*)?'
@@ -681,10 +625,8 @@ print('\n--- enum member prefixes ---')
 # prefix is what makes an unscoped enum safe to `using` and a grep for MAP_MODE
 # find the whole family.
 
-# Empty, and that is the point of having printed it. Lamp was the one enum whose
-# members did not carry their enum's name, waived on 2026-08-31 while the
-# speaker work was mid-flight across the same files. It landed, the rename
-# happened, and the waiver came out with it.
+# Enums whose members may skip their enum's name, each with the reason. Empty,
+# and printed anyway, so a waiver that is added cannot go unseen.
 ENUM_WAIVED = {}
 
 
@@ -751,7 +693,7 @@ total += enum_bad
 
 print('\n--- namespace layout ---')
 # Allman brace, and a body indented one level inside it. Two spaces per
-# namespace level - most of the firmware sits two deep (bibo::lights), and four
+# namespace level - most of the firmware sits two deep (bibo::drive), and four
 # would push every real line eight columns right before it said anything.
 #
 # The tree was split 45/46 on the brace before this rule, and NOTHING indented
@@ -861,11 +803,11 @@ for path in files:
         if not m:
             continue
         inc = m.group(1)
-        # The Pico SDK, lwIP and the rest keep whatever extension upstream gave
-        # them; hal.hxx and net.hxx exist to be the files that reach into them.
+        # The Pico SDK and the rest keep whatever extension upstream gave them;
+        # hal.hxx exists to be the file that reaches into the SDK.
         if inc in HEADER_EXEMPT or inc.startswith(
                 ('imgui', 'sl_lidar', 'stb_',
-                 'pico/', 'hardware/', 'boards/', 'lwip/')):
+                 'pico/', 'hardware/', 'boards/')):
             continue
         # C sources include C headers. shared.h and pico2w.h are .h because they
         # must be, so including them by that name is correct.
@@ -886,22 +828,13 @@ for path in files:
 # as a set below), shared.hxx (the vocabulary itself, not a module), cal.hxx
 # (macros), bibo.hxx (the umbrella, declares nothing).
 MODULE_NAMESPACE = {
-    'boot.hxx':     'boot',
-    'lights.hxx':   'lights',
-    'cue.hxx':      'cue',
-    'net.hxx':      'net',
     'status.hxx':   'status',
-    'gfx.hxx':      'gfx',
     'text.hxx':     'text',
     'chassis.hxx':  'drive',
-    'display.hxx':  'tft',
-    'range.hxx':    'tof',
-    'storage.hxx':  'sd',
 }
 
 # hal is the board, and these are the modules in it.
-HAL_NAMESPACES = {'gpio', 'timing', 'serial', 'board', 'pwm', 'servo', 'led',
-                  'radio', 'adc', 'watchdog', 'spi', 'i2c'}
+HAL_NAMESPACES = {'timing', 'serial', 'board', 'pwm', 'servo', 'led'}
 
 print('\n--- namespaces ---')
 ns_bad = 0
