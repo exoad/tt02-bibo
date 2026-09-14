@@ -222,6 +222,8 @@ namespace viewfeed
         WHAT_LIDAR,
         WHAT_EVENT,
         WHAT_TRIM,
+        WHAT_BUNDLES,
+        WHAT_BUNDLE_STATE,
     };
 
     struct Item
@@ -232,6 +234,9 @@ namespace viewfeed
         bibowire::BoardState board;
         bibowire::LidarInfo lidar;
         bibowire::Event event;
+        Vec<bibowire::Bundle> bundles;
+        UInt32 bundleGeneration = 0;
+        bibowire::BundleState bundleState;
         TimePoint at;
     };
 
@@ -239,6 +244,10 @@ namespace viewfeed
     // there is slack; a full queue means the tick stopped draining, and an
     // unbounded one would grow until the board ran out of memory.
     constexpr Size TUNE_MAX = 32;
+
+    // Loads a viewer may have outstanding. Far smaller than TUNE_MAX: a
+    // dragged slider makes requests in bursts, a person pressing Load does not.
+    constexpr Size BUNDLE_MAX = 8;
 
     // What drive() computes the deadman from, and all it reads of this thread.
     // The loop copies it under Shared::driveM before it flushes, so an answer a
@@ -287,6 +296,11 @@ namespace viewfeed
         UInt64 tuneDropped = 0;
         Bool tuneDropSaid = false;
 
+        // Loads and unloads waiting for the tick, drop-oldest like the above.
+        Mutex bundleM;
+        Deque<BundleRequest> bundleQ;
+        UInt64 bundleDropped = 0;
+
         Mutex tallyM;
         Counters tally;
 
@@ -327,6 +341,15 @@ namespace viewfeed
     Bool haveBoard = false;
     bibowire::LidarInfo lastLidar;
     Bool haveLidar = false;
+
+    // The bundles this board can run. Owed to a new client for the same reason
+    // the board state is: without it a viewer that connects mid-run has an
+    // empty master window and no way to tell that from a board with none.
+    Vec<bibowire::Bundle> lastBundles;
+    UInt32 lastBundleGeneration = 0;
+    Bool haveBundles = false;
+    bibowire::BundleState lastBundleState;
+    Bool haveBundleState = false;
 
     // The saved trim, owed to a viewer at WELCOME rather than at the next save.
     Str lastTrim;
@@ -782,6 +805,8 @@ namespace viewfeed
              | bibowire::typeBit(bibowire::Type::TYPE_EVENT)
              | bibowire::typeBit(bibowire::Type::TYPE_CTLSTATE)
              | bibowire::typeBit(bibowire::Type::TYPE_CMDACK)
+             | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)
+             | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE)
              | bibowire::typeBit(bibowire::Type::TYPE_CAMERA);
     }
 
@@ -959,6 +984,38 @@ namespace viewfeed
         });
     }
 
+    // The whole list to one client, one frame per bundle.
+    //
+    // generation, index and count are stamped HERE rather than trusted from the
+    // caller. A viewer has the list once it holds `count` frames carrying one
+    // generation, so if those three could disagree it would wait for a frame
+    // that never comes. An EMPTY list is still announced - one frame with count
+    // 0 - because "this board runs no bundles" and "this board has not said
+    // yet" are different answers and the master window shows different things.
+    Void sendBundles(Client& c)
+    {
+        const Size n = lastBundles.size();
+        if(n == 0u)
+        {
+            bibowire::Bundle empty;
+            empty.generation = lastBundleGeneration;
+            emit(c, bibowire::Type::TYPE_BUNDLE, [&empty](UInt8* out, Size cap) {
+                return bibowire::writeBundle(empty, out, cap);
+            });
+            return;
+        }
+        for(Size i = 0; i < n; ++i)
+        {
+            bibowire::Bundle b = lastBundles[i];
+            b.generation = lastBundleGeneration;
+            b.index = static_cast<UInt16>(i);
+            b.count = static_cast<UInt16>(n);
+            emit(c, bibowire::Type::TYPE_BUNDLE, [&b](UInt8* out, Size cap) {
+                return bibowire::writeBundle(b, out, cap);
+            });
+        }
+    }
+
     Void sendState(Client& c)
     {
         // State before scan, always: LIDAR_INFO, BOARD and the trim, then the
@@ -979,6 +1036,16 @@ namespace viewfeed
         if(haveTrim)
         {
             emitTrim(c);
+        }
+        if(haveBundles)
+        {
+            sendBundles(c);
+        }
+        if(haveBundleState)
+        {
+            emit(c, bibowire::Type::TYPE_BUNDLE_STATE, [](UInt8* out, Size cap) {
+                return bibowire::writeBundleState(lastBundleState, out, cap);
+            });
         }
     }
 
@@ -1190,6 +1257,77 @@ namespace viewfeed
         t.arg1 = cmd.arg1;
         t.arg2 = cmd.arg2;
         sh.tunes.push_back(t);
+    }
+
+    [[nodiscard]] Bool isBundleVerb(bibowire::Verb v)
+    {
+        return v == bibowire::Verb::VERB_LOAD_BUNDLE
+            || v == bibowire::Verb::VERB_STOP_BUNDLE;
+    }
+
+    Void queueBundle(const bibowire::Command& cmd)
+    {
+        LockGuard<Mutex> lock(sh.bundleM);
+        while(sh.bundleQ.size() >= BUNDLE_MAX)
+        {
+            sh.bundleQ.pop_front();
+            ++sh.bundleDropped;
+        }
+        BundleRequest r;
+        r.load = cmd.verb == bibowire::Verb::VERB_LOAD_BUNDLE;
+        r.index = cmd.arg0;
+        r.generation = cmd.arg1;
+        sh.bundleQ.push_back(r);
+    }
+
+    // Fills `ack` for a load or an unload, and queues it when it is taken.
+    //
+    // NOT GATED ON notManual(), where trim and ARM are. A bundle is what the
+    // board runs, so refusing a load while one drives would make the master
+    // window dead on the only host that has bundles (docs/bundles.md section
+    // 8). ESTOP is not consulted either: a load changes the chain, and the
+    // chain can only ever REDUCE authority, so no load moves a car that a
+    // latched estop is holding still.
+    //
+    // Reads lastBundles and lastBundleGeneration with no lock, exactly as
+    // notManual() reads lastBoard: onCommand and the deliver() that writes
+    // them both run on this module's one thread.
+    Void onBundle(const bibowire::Command& cmd, bibowire::CmdAck* ack)
+    {
+        if(!haveBundles)
+        {
+            ack->result = 4;
+            ack->text = "this board has not published its bundle list yet";
+            return;
+        }
+        // THE GENERATION IS WHAT MAKES AN INDEX SAFE: a list replaced while a
+        // viewer had its window open must not load whatever now sits there.
+        // Compared as 16 bits because COMMAND's arg1 is 16 bits wide.
+        if(cmd.arg1 != static_cast<UInt16>(lastBundleGeneration))
+        {
+            ack->result = 1;
+            ack->text = "that list is out of date - the board has published a newer one";
+            return;
+        }
+        if(static_cast<Size>(cmd.arg0) >= lastBundles.size())
+        {
+            ack->result = 1;
+            ack->text = "no bundle at that position in the list";
+            return;
+        }
+        const bibowire::Bundle& b = lastBundles[cmd.arg0];
+        const Bool loading = cmd.verb == bibowire::Verb::VERB_LOAD_BUNDLE;
+        // Ready is the board's own measurement of what this car has; a bundle
+        // never declares itself loadable.
+        if(loading && b.ready == 0u)
+        {
+            ack->result = 1;
+            ack->text = b.name + " cannot run on this car - something it needs is missing";
+            return;
+        }
+        queueBundle(cmd);
+        ack->result = 0;
+        ack->text = (loading ? "loading " : "unloading ") + b.name;
     }
 
     // Fills `ack` for one tuning verb, and queues the request when it is taken.
@@ -1528,6 +1666,10 @@ namespace viewfeed
         else if(isTuningVerb(cmd.verb))
         {
             onTune(cmd, &ack);
+        }
+        else if(isBundleVerb(cmd.verb))
+        {
+            onBundle(cmd, &ack);
         }
         else
         {
@@ -2790,6 +2932,31 @@ namespace viewfeed
                 }
             }
             break;
+        case What::WHAT_BUNDLES:
+            lastBundles = item.bundles;
+            lastBundleGeneration = item.bundleGeneration;
+            haveBundles = true;
+            for(Client& c : clients)
+            {
+                if(wants(c, bibowire::Type::TYPE_BUNDLE))
+                {
+                    sendBundles(c);
+                }
+            }
+            break;
+        case What::WHAT_BUNDLE_STATE:
+            lastBundleState = item.bundleState;
+            haveBundleState = true;
+            for(Client& c : clients)
+            {
+                if(wants(c, bibowire::Type::TYPE_BUNDLE_STATE))
+                {
+                    emit(c, bibowire::Type::TYPE_BUNDLE_STATE, [](UInt8* out, Size cap) {
+                        return bibowire::writeBundleState(lastBundleState, out, cap);
+                    });
+                }
+            }
+            break;
         case What::WHAT_EVENT:
         {
             if(eventWindowOpen && elapsedMs(lastEventAt) < static_cast<Float64>(EVENT_WINDOW_MS))
@@ -3342,6 +3509,12 @@ namespace viewfeed
           sh.tuneDropped = 0;
           sh.tuneDropSaid = false;
       }
+      {
+          // A previous run's loads are expired intents in the same way.
+          LockGuard<Mutex> lock(sh.bundleM);
+          sh.bundleQ.clear();
+          sh.bundleDropped = 0;
+      }
       sh.count.store(0);
       sh.ctlSeq.store(0, std::memory_order_release);
       armEpoch = 0;
@@ -3444,6 +3617,35 @@ namespace viewfeed
       Item item;
       item.what = What::WHAT_LIDAR;
       item.lidar = i;
+      item.at = monoNow();
+      post(std::move(item));
+  }
+
+  Void publishBundles(UInt32 generation, Vec<bibowire::Bundle> list)
+  {
+      // NOT gated on a client, like the board state: the next viewer is owed
+      // the newest list, and it is what its master window is made of.
+      if(!running)
+      {
+          return;
+      }
+      Item item;
+      item.what = What::WHAT_BUNDLES;
+      item.bundles = std::move(list);
+      item.bundleGeneration = generation;
+      item.at = monoNow();
+      post(std::move(item));
+  }
+
+  Void publishBundleState(const bibowire::BundleState& s)
+  {
+      if(!running)
+      {
+          return;
+      }
+      Item item;
+      item.what = What::WHAT_BUNDLE_STATE;
+      item.bundleState = s;
       item.at = monoNow();
       post(std::move(item));
   }
@@ -3555,6 +3757,22 @@ namespace viewfeed
       return true;
   }
 
+  Bool bundleRequest(BundleRequest* out)
+  {
+      if(out == nullptr || !running)
+      {
+          return false;
+      }
+      LockGuard<Mutex> lock(sh.bundleM);
+      if(sh.bundleQ.empty())
+      {
+          return false;
+      }
+      *out = sh.bundleQ.front();
+      sh.bundleQ.pop_front();
+      return true;
+  }
+
   Void applied(const Applied& a)
   {
       if(!running)
@@ -3658,6 +3876,17 @@ namespace viewfeed
       static_cast<Void>(text);
   }
 
+  Void publishBundles(UInt32 generation, Vec<bibowire::Bundle> list)
+  {
+      static_cast<Void>(generation);
+      static_cast<Void>(list);
+  }
+
+  Void publishBundleState(const bibowire::BundleState& s)
+  {
+      static_cast<Void>(s);
+  }
+
   Bool control(bibowire::Control* out)
   {
       static_cast<Void>(out);
@@ -3665,6 +3894,12 @@ namespace viewfeed
   }
 
   Bool tune(Tune* out)
+  {
+      static_cast<Void>(out);
+      return false;
+  }
+
+  Bool bundleRequest(BundleRequest* out)
   {
       static_cast<Void>(out);
       return false;

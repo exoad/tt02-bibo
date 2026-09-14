@@ -38,6 +38,8 @@ namespace bibowire
     constexpr Size EVENT_FIXED = 16;
     constexpr Size CTLSTATE_LEN = 44;
     constexpr Size CMDACK_FIXED = 12;
+    constexpr Size BUNDLE_FIXED = 16;
+    constexpr Size BUNDLE_STATE_FIXED = 20;
     constexpr Size CAMERA_FIXED = 24;
     constexpr Size POSE_LEN = 32;
     constexpr Size PATH_FIXED = 16;
@@ -325,6 +327,10 @@ namespace bibowire
                 return "set_slew";
             case Verb::VERB_SET_ESC_REVERSE:
                 return "set_esc_reverse";
+            case Verb::VERB_LOAD_BUNDLE:
+                return "load_bundle";
+            case Verb::VERB_STOP_BUNDLE:
+                return "stop_bundle";
             default:
                 return "?";
         }
@@ -363,7 +369,8 @@ namespace bibowire
         Type::TYPE_HELLO, Type::TYPE_WELCOME, Type::TYPE_BYE, Type::TYPE_PING,
         Type::TYPE_PONG, Type::TYPE_LEAVE, Type::TYPE_SCAN, Type::TYPE_DECIDE,
         Type::TYPE_BOARD, Type::TYPE_LIDAR_INFO, Type::TYPE_EVENT, Type::TYPE_CTLSTATE,
-        Type::TYPE_CMDACK, Type::TYPE_CAMERA, Type::TYPE_POSE, Type::TYPE_PATH,
+        Type::TYPE_CMDACK, Type::TYPE_BUNDLE, Type::TYPE_BUNDLE_STATE,
+        Type::TYPE_CAMERA, Type::TYPE_POSE, Type::TYPE_PATH,
         Type::TYPE_WAYPOINT, Type::TYPE_CONTROL, Type::TYPE_COMMAND, Type::TYPE_SUBSCRIBE,
         Type::TYPE_DESCRIBE, Type::TYPE_SCHEMA,
     };
@@ -395,6 +402,10 @@ namespace bibowire
               "u64 tMonoUs us ; u32 ackSeq ; u32 controlAgeMs ms ; i16 steerNowMilli ; i16 throttleMilli ; u16 escUs us ; u16 neutralInMs ms ; u16 disarmInMs ms ; u8 armed ; u8 armEpoch ; u8 deadman ; u8 refuse ; u8 holder ; u8 pilotMode ; u32 scanAgeMs ms ; u32 picoSilentMs ms ; u32 lastCmdId" },
         Desc{ Type::TYPE_CMDACK, "CMDACK", 1, Class::CLASS_VITAL, CMDACK_FIXED, true, "12+text",
               "u32 cmdId ; u8 verb ; u8 result ; u16 textLen ; u8 armEpoch ; u8 reserved0 ; u16 reserved1 ; u8 text[textLen]" },
+        Desc{ Type::TYPE_BUNDLE, "BUNDLE", 1, Class::CLASS_VITAL, BUNDLE_FIXED, true, "16+id+name+about",
+              "u32 generation ; u16 index ; u16 count ; u8 needs ; u8 ready ; u8 idLen ; u8 nameLen ; u8 aboutLen ; u8 reserved0 ; u16 reserved1 ; u8 id[idLen] ; u8 name[nameLen] ; u8 about[aboutLen]" },
+        Desc{ Type::TYPE_BUNDLE_STATE, "BUNDLE_STATE", 1, Class::CLASS_VITAL, BUNDLE_STATE_FIXED, true, "20+id+text",
+              "u64 tMonoUs us ; u32 upS s ; u32 exitCode ; u8 running ; u8 exitKind ; u8 idLen ; u8 textLen ; u8 id[idLen] ; u8 text[textLen]" },
         Desc{ Type::TYPE_CAMERA, "CAMERA", 1, Class::CLASS_BULK, CAMERA_FIXED, true, "24+bytes",
               "u64 tMonoUs us ; u32 frameIndex ; u16 width ; u16 height ; u8 codec ; u8 flags ; u16 reserved0 ; u32 byteLen ; u8 data[byteLen]" },
         Desc{ Type::TYPE_POSE, "POSE", 1, Class::CLASS_LIVE, POSE_LEN, false, "32",
@@ -474,6 +485,8 @@ namespace bibowire
           case 0x14:
           case 0x15:
           case 0x16:
+          case 0x17:
+          case 0x18:
           case 0x20:
           case 0x21:
           case 0x22:
@@ -520,6 +533,8 @@ namespace bibowire
                 case 0x14:
                 case 0x15:
                 case 0x16:
+                case 0x17:
+                case 0x18:
                 case 0x20:
                 case 0x21:
                 case 0x22:
@@ -1671,6 +1686,164 @@ namespace bibowire
       return true;
   }
 
+  Size writeBundle(const Bundle& m, UInt8* out, Size cap)
+  {
+      if(out == nullptr || m.id.size() > MAX_BUNDLE_ID || m.name.size() > MAX_BUNDLE_NAME
+         || m.about.size() > MAX_BUNDLE_ABOUT)
+      {
+          return 0;
+      }
+      const Size tail = m.id.size() + m.name.size() + m.about.size();
+      const Size need = BUNDLE_FIXED + padTo4(tail);
+      if(cap < need)
+      {
+          return 0;
+      }
+      wr32(out, m.generation);
+      wr16(out + 4u, m.index);
+      wr16(out + 6u, m.count);
+      wr8(out + 8u, m.needs);
+      wr8(out + 9u, m.ready);
+      wr8(out + 10u, static_cast<UInt8>(m.id.size()));
+      wr8(out + 11u, static_cast<UInt8>(m.name.size()));
+      wr8(out + 12u, static_cast<UInt8>(m.about.size()));
+      // reserved0 became `loaded` - see BundleState. A reserved byte turning
+      // meaningful is what reserved bytes are for, so no length and no ver move.
+      wr8(out + 13u, m.loaded);
+      wr16(out + 14u, 0);
+      std::memset(out + BUNDLE_FIXED, 0, padTo4(tail));
+      UInt8* at = out + BUNDLE_FIXED;
+      if(!m.id.empty())
+      {
+          std::memcpy(at, m.id.data(), m.id.size());
+      }
+      at += m.id.size();
+      if(!m.name.empty())
+      {
+          std::memcpy(at, m.name.data(), m.name.size());
+      }
+      at += m.name.size();
+      if(!m.about.empty())
+      {
+          std::memcpy(at, m.about.data(), m.about.size());
+      }
+      return need;
+  }
+
+  Bool readBundle(const Body& b, UInt8 ver, Bundle* out)
+  {
+      if(out == nullptr || !bodyUsable(b, ver, BUNDLE_FIXED))
+      {
+          return false;
+      }
+      const Size idLen = rd8(b.bytes + 10u);
+      const Size nameLen = rd8(b.bytes + 11u);
+      const Size aboutLen = rd8(b.bytes + 12u);
+      if(idLen > MAX_BUNDLE_ID || nameLen > MAX_BUNDLE_NAME || aboutLen > MAX_BUNDLE_ABOUT)
+      {
+          return false;
+      }
+      if(!lenOk(b, ver, BUNDLE_FIXED + padTo4(idLen + nameLen + aboutLen)))
+      {
+          return false;
+      }
+      const UInt16 index = rd16(b.bytes + 4u);
+      const UInt16 count = rd16(b.bytes + 6u);
+      // An index outside its own list cannot be placed, so it is not read.
+      if(count == 0u && index != 0u)
+      {
+          return false;
+      }
+      if(count != 0u && index >= count)
+      {
+          return false;
+      }
+      const UInt8 loaded = rd8(b.bytes + 13u);
+      if(loaded > 1u)
+      {
+          return false;
+      }
+      Bundle m;
+      m.generation = rd32(b.bytes);
+      m.index = index;
+      m.count = count;
+      m.needs = rd8(b.bytes + 8u);
+      m.ready = rd8(b.bytes + 9u);
+      m.loaded = loaded;
+      m.id = readText(b.bytes + BUNDLE_FIXED, idLen);
+      m.name = readText(b.bytes + BUNDLE_FIXED + idLen, nameLen);
+      m.about = readText(b.bytes + BUNDLE_FIXED + idLen + nameLen, aboutLen);
+      *out = m;
+      return true;
+  }
+
+  Size writeBundleState(const BundleState& m, UInt8* out, Size cap)
+  {
+      if(out == nullptr || m.id.size() > MAX_BUNDLE_ID || m.text.size() > MAX_BOARD_TEXT)
+      {
+          return 0;
+      }
+      const Size tail = m.id.size() + m.text.size();
+      const Size need = BUNDLE_STATE_FIXED + padTo4(tail);
+      if(cap < need)
+      {
+          return 0;
+      }
+      wr64(out, m.tMonoUs);
+      wr32(out + 8u, m.loadedCount);
+      wr32(out + 12u, m.lastCode);
+      wr8(out + 16u, m.anyLoaded);
+      wr8(out + 17u, m.lastKind);
+      wr8(out + 18u, static_cast<UInt8>(m.id.size()));
+      wr8(out + 19u, static_cast<UInt8>(m.text.size()));
+      std::memset(out + BUNDLE_STATE_FIXED, 0, padTo4(tail));
+      UInt8* at = out + BUNDLE_STATE_FIXED;
+      if(!m.id.empty())
+      {
+          std::memcpy(at, m.id.data(), m.id.size());
+      }
+      at += m.id.size();
+      if(!m.text.empty())
+      {
+          std::memcpy(at, m.text.data(), m.text.size());
+      }
+      return need;
+  }
+
+  Bool readBundleState(const Body& b, UInt8 ver, BundleState* out)
+  {
+      if(out == nullptr || !bodyUsable(b, ver, BUNDLE_STATE_FIXED))
+      {
+          return false;
+      }
+      const Size idLen = rd8(b.bytes + 18u);
+      const Size textLen = rd8(b.bytes + 19u);
+      if(idLen > MAX_BUNDLE_ID || textLen > MAX_BOARD_TEXT)
+      {
+          return false;
+      }
+      if(!lenOk(b, ver, BUNDLE_STATE_FIXED + padTo4(idLen + textLen)))
+      {
+          return false;
+      }
+      const UInt8 anyLoaded = rd8(b.bytes + 16u);
+      const UInt8 lastKind = rd8(b.bytes + 17u);
+      if(anyLoaded > 1u || lastKind > BUNDLE_EXIT_REFUSED)
+      {
+          return false;
+      }
+      BundleState m;
+      m.tMonoUs = rd64(b.bytes);
+      m.loadedCount = rd32(b.bytes + 8u);
+      m.lastCode = rd32(b.bytes + 12u);
+      m.anyLoaded = anyLoaded;
+      m.lastKind = lastKind;
+      m.id = readText(b.bytes + BUNDLE_STATE_FIXED, idLen);
+      m.text = readText(b.bytes + BUNDLE_STATE_FIXED + idLen, textLen);
+      *out = m;
+      return true;
+  }
+
   Size writeSubscribe(const Subscribe& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < SUBSCRIBE_LEN || m.scanDivisor == 0u)
@@ -2102,6 +2275,39 @@ namespace bibowire
                 s += verbName(m.verb);
                 s += " result=" + decU(m.result);
                 s += " epoch=" + decU(m.armEpoch);
+                s += " text=" + quoteText(m.text);
+                return s;
+            }
+            case Type::TYPE_BUNDLE:
+            {
+                Bundle m;
+                if(!readBundle(f.body, ver, &m))
+                {
+                    return Str();
+                }
+                Str s = "gen=" + decU(m.generation);
+                s += " " + decU(m.index) + "/" + decU(m.count);
+                s += " needs=" + hexN(m.needs, 2);
+                s += " ready=" + decU(m.ready);
+                s += " loaded=" + decU(m.loaded);
+                s += " id=" + quoteText(m.id);
+                s += " name=" + quoteText(m.name);
+                s += " about=" + quoteText(m.about);
+                return s;
+            }
+            case Type::TYPE_BUNDLE_STATE:
+            {
+                BundleState m;
+                if(!readBundleState(f.body, ver, &m))
+                {
+                    return Str();
+                }
+                Str s = "mono=" + decU(m.tMonoUs);
+                s += " loaded=" + decU(m.loadedCount);
+                s += " any=" + decU(m.anyLoaded);
+                s += " id=" + quoteText(m.id);
+                s += " lastKind=" + decU(m.lastKind);
+                s += " lastCode=" + decU(m.lastCode);
                 s += " text=" + quoteText(m.text);
                 return s;
             }

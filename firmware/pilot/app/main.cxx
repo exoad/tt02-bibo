@@ -34,6 +34,7 @@
 #include "shared.hxx"
 
 #include "carrules.hxx"
+#include "chain.hxx"
 #include "lidar.hxx"
 #include "link.hxx"
 #include "proto.hxx"
@@ -46,9 +47,12 @@
 // stand before widening it in cal.hxx.
 #include "chassis/cal.hxx"
 
+#include <algorithm>
+#include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace
 {
@@ -686,6 +690,189 @@ namespace
       }
       return i;
   }
+
+  // Where the loaded set lives, beside the trim: BIBO_BUNDLES_FILE, else
+  // ~/.config/bibo/bundles.txt.
+  [[nodiscard]] Str bundleSetPath()
+  {
+      const Char* explicitPath = std::getenv("BIBO_BUNDLES_FILE");
+      if(explicitPath != nullptr && explicitPath[0] != 0)
+      {
+          return Str(explicitPath);
+      }
+      const Char* home = std::getenv("HOME");
+      if(home != nullptr && home[0] != 0)
+      {
+          return Str(home) + "/.config/bibo/bundles.txt";
+      }
+      return Str("bibo-bundles.txt");
+  }
+
+  // Written on every change, so the set a restart comes up with is the set the
+  // board had. A failure is said once per attempt and changes nothing else.
+  Void saveBundleSet(const Str& path, const chain::Chain& live)
+  {
+      const Str text = chain::formatSet(live);
+      trimfile::makeParents(path);
+      std::FILE* f = std::fopen(path.c_str(), "wb");
+      if(f == nullptr)
+      {
+          std::printf("bundles: NOT saved to %s: %s\n", path.c_str(), std::strerror(errno));
+          return;
+      }
+      const Bool wrote = std::fwrite(text.data(), 1u, text.size(), f) == text.size();
+      const Bool closed = std::fclose(f) == 0;
+      if(!wrote || !closed)
+      {
+          std::printf("bundles: NOT saved to %s: %s\n", path.c_str(), std::strerror(errno));
+      }
+  }
+
+  // THE BOOT RULE: what was loaded when the board last changed its set is
+  // loaded again. That is safe to do blind because a load can only ever reduce
+  // authority and the car comes up disarmed, so no saved set can move it; and
+  // a saved set that clamps everything is undone from the viewer, whose Unload
+  // is refused in no state. A missing file is an empty set, not a fault.
+  Void loadBundleSet(const Str& path, chain::Chain& live)
+  {
+      std::FILE* f = std::fopen(path.c_str(), "rb");
+      if(f == nullptr)
+      {
+          if(errno != ENOENT)
+          {
+              std::printf("bundles: cannot read %s: %s\n", path.c_str(), std::strerror(errno));
+          }
+          return;
+      }
+      Str text;
+      Array<Char, 4096> buf{};
+      for(;;)
+      {
+          const Size n = std::fread(buf.data(), 1u, buf.size(), f);
+          if(n == 0u)
+          {
+              break;
+          }
+          text.append(buf.data(), n);
+      }
+      std::fclose(f);
+      Vec<Str> ids;
+      Str unknown;
+      if(!chain::parseSet(text, ids, unknown))
+      {
+          std::printf(
+              "bundles: %s names %s, which this build does not have\n",
+              path.c_str(),
+              unknown.c_str()
+          );
+      }
+      for(const Str& id : ids)
+      {
+          Str why;
+          if(!live.load(chain::make(id.c_str()), why))
+          {
+              std::printf("bundles: %s: %s\n", id.c_str(), why.c_str());
+          }
+      }
+      if(live.size() > 0)
+      {
+          std::printf("bundles: %zu loaded from %s\n", live.size(), path.c_str());
+      }
+  }
+
+  // The bundles this board can run, published to the viewer.
+  //
+  // THE CATALOG IS THE LIST, not the manifests on disk. chain::catalog() is
+  // exactly what the chain can load, so it is what a viewer may be offered;
+  // building the list from manifests instead would offer a Load button for a
+  // behaviour this build does not have, and hide the ones it does.
+  //
+  // READY IS DECIDED HERE, not by the bundle. What this board actually has is
+  // something only this program knows, and a bundle must never be able to
+  // declare itself loadable - that is the difference between a row a viewer
+  // greys out with a reason and a car that starts something it cannot run.
+  Void publishBundleList(const Options& opt, const chain::Chain& live)
+  {
+      // Bumped on every publish: a viewer keeps only frames of one generation,
+      // so a new list replaces the old rather than interleaving with it, and
+      // LOAD_BUNDLE quoting a stale generation is refused instead of acting on
+      // whatever now sits at that index.
+      static UInt32 generation = 0;
+      chain::Present have;
+      // main() has already returned if the lidar did not open, and the Pico is
+      // open unless this is a dry run - openPico failing ends the program too.
+      have.lidar = true;
+      have.pico = !opt.dry;
+      // The camera is viewfeed's v4l2 child, not something this program can
+      // see. Nothing in the catalog needs it yet; when something does, this
+      // wants a real check rather than an optimistic true.
+      have.camera = false;
+      Vec<bibowire::Bundle> list;
+      for(const chain::Entry& e : chain::catalog())
+      {
+          bibowire::Bundle b;
+          b.id = e.id;
+          b.name = e.name;
+          b.about = e.about;
+          b.needs = static_cast<UInt8>(
+              e.needs | (e.drives ? bibowire::BUNDLE_MAY_DRIVE : 0u)
+          );
+          // readyFor reads only the needs bits, never BUNDLE_MAY_DRIVE.
+          b.ready = chain::readyFor(e.needs, have) ? 1u : 0u;
+          b.loaded = live.has(e.id) ? 1u : 0u;
+          list.push_back(b);
+      }
+      ++generation;
+      std::printf("bundles: %zu in the catalog\n", list.size());
+      viewfeed::publishBundles(generation, std::move(list));
+  }
+
+  // What one load or unload did, so the tick reports once however many
+  // requests arrived together.
+  struct BundleOutcome
+  {
+      Bool acted = false;
+      Bool ok = false;
+      Str id;
+      Str text;
+  };
+
+  // One request from a viewer, applied to the chain. THE INDEX IS INTO
+  // chain::catalog(), because publishBundleList builds the list from it in
+  // order - that is what makes an index mean the same bundle on two runs.
+  // viewfeed has already checked the generation and the range against the list
+  // it published; this range-checks again rather than trusting it, because the
+  // catalog is this side's own truth.
+  [[nodiscard]] BundleOutcome applyBundle(const viewfeed::BundleRequest& req, chain::Chain& live)
+  {
+      BundleOutcome o;
+      const Vec<chain::Entry>& all = chain::catalog();
+      if(static_cast<Size>(req.index) >= all.size())
+      {
+          return o;
+      }
+      const chain::Entry& e = all[req.index];
+      o.acted = true;
+      o.id = e.id;
+      if(req.load)
+      {
+          Str why;
+          o.ok = live.load(chain::make(e.id), why);
+          o.text = o.ok ? (Str(e.name) + " loaded") : (Str(e.name) + ": " + why);
+      }
+      else
+      {
+          o.ok = live.unload(e.id);
+          o.text = o.ok ? (Str(e.name) + " unloaded") : (Str(e.name) + " was not loaded");
+      }
+      std::printf("bundles: %s\n", o.text.c_str());
+      viewfeed::publishEvent(
+          o.ok ? bibowire::Severity::SEVERITY_INFO : bibowire::Severity::SEVERITY_WARN,
+          bibowire::EVENT_CODE_BUNDLE,
+          o.text
+      );
+      return o;
+  }
 }
 
 Int32 main(Int32 argc, Char** argv)
@@ -795,6 +982,22 @@ Int32 main(Int32 argc, Char** argv)
             opt.seconds < 0.0 ? "" : ", timed"
         );
     }
+    // The behaviours loaded right now. Empty until a viewer loads one, and it
+    // is what BUNDLE::loaded reports, so the list a viewer sees is the chain
+    // this program actually holds rather than a second copy of the answer.
+    chain::Chain live;
+    const Str bundlePath = bundleSetPath();
+    loadBundleSet(bundlePath, live);
+    // --manual is the promise that a viewer drives, so wasd is loaded whether
+    // or not the file says so: it is the one bundle the flag means.
+    if(opt.manual && !live.has(chain::ID_WASD))
+    {
+        Str why;
+        if(!live.load(chain::makeWasd(), why))
+        {
+            std::printf("bundles: wasd: %s\n", why.c_str());
+        }
+    }
     // The viewers: never fatal, the car does not wait for them.
     Viewer viewer;
     if(interrupted == 0)
@@ -804,7 +1007,11 @@ Int32 main(Int32 argc, Char** argv)
         wire.boardBuild = BOARD_BUILD;
         // Per process: a viewer that sees a new one forgets what it knew.
         wire.bootId = static_cast<UInt32>(WallClock::now().time_since_epoch().count());
-        wire.capabilities = static_cast<UInt8>((opt.dry ? 0u : 1u) | 2u | (opt.dry ? 0u : 4u));
+        // b0 canDrive, b1 hasLidar, b2 hasPico, b4 canLoadBundles - the last so
+        // a viewer knows to show a master window at all, and an older board
+        // simply does not offer one.
+        wire.capabilities =
+            static_cast<UInt8>((opt.dry ? 0u : 1u) | 2u | (opt.dry ? 0u : 4u) | 16u);
         viewer.wire = viewfeed::start(bibowire::PORT, wire);
         if(!viewer.wire)
         {
@@ -816,6 +1023,7 @@ Int32 main(Int32 argc, Char** argv)
             // connects during spin-up knows what it is watching.
             viewfeed::publishLidarInfo(lidarInfoFrom(lidar::device()));
             viewfeed::publishTrim(trimfile::report(trim));
+            publishBundleList(opt, live);
         }
     }
     reactive::State   state;
@@ -852,6 +1060,8 @@ Int32 main(Int32 argc, Char** argv)
     // A viewer's ESTOP or DISARM outside MANUAL: STOP was sent and the run ends, as a
     // car program's does, so nothing re-arms the car on a later tick or reconnect.
     Bool estopped = false;
+    // The chain's newest refusal, said once per distinct sentence, not per tick.
+    Str chainRefusalSaid;
     while(interrupted == 0 && !estopped && (opt.seconds < 0.0 || elapsedS(start) < opt.seconds))
     {
         // Empty on a timeout, and handed to step() anyway: STATUS_BLIND is a stop.
@@ -966,6 +1176,42 @@ Int32 main(Int32 argc, Char** argv)
             ? bibowire::PICO_SILENT_ABSENT
             : static_cast<UInt32>(snap.picoSilentMs);
         viewfeed::applied(ap);
+        // LOADS AND UNLOADS TAKE EFFECT BETWEEN PASSES, never inside one, so
+        // no scan is half judged by two different sets of behaviours.
+        {
+            viewfeed::BundleRequest req;
+            Bool changed = false;
+            BundleOutcome last;
+            while(viewfeed::bundleRequest(&req))
+            {
+                const BundleOutcome did = applyBundle(req, live);
+                if(did.acted)
+                {
+                    last = did;
+                    changed = changed || did.ok;
+                }
+            }
+            if(last.acted)
+            {
+                // Only a change moves the list on: a refusal left every
+                // `loaded` flag as the viewer already has it.
+                if(changed)
+                {
+                    publishBundleList(opt, live);
+                    saveBundleSet(bundlePath, live);
+                }
+                bibowire::BundleState bs;
+                bs.tMonoUs = snap.monoUs;
+                bs.loadedCount = static_cast<UInt32>(live.size());
+                bs.anyLoaded = live.size() > 0 ? 1u : 0u;
+                bs.lastKind = last.ok
+                    ? bibowire::BUNDLE_EXIT_OK
+                    : bibowire::BUNDLE_EXIT_REFUSED;
+                bs.id = last.id;
+                bs.text = last.text;
+                viewfeed::publishBundleState(bs);
+            }
+        }
         // Who writes steer and throttle this tick. MANUAL follows section 6's
         // deadman chain:
         //   ESTOP / DEAD  STOP (neutral, disarm, release); only a new COMMAND ARM
@@ -975,6 +1221,39 @@ Int32 main(Int32 argc, Char** argv)
         //                 epoch or mode disagreement.
         // Something is sent every tick in every state, so the Pico's watchdog
         // fires only when this program has stopped.
+        // The viewer's control, read once, so the chain and the MANUAL rules
+        // below judge the same command.
+        const viewfeed::Drive dm = viewfeed::drive();
+        bibowire::Control cmd;
+        const Bool haveCmd = viewfeed::control(&cmd);
+        const Bool manualMode =
+            pilotModeOf(opt) == static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL);
+        // THE CHAIN RUNS EVERY TICK, whatever drives. Its proposal, when it
+        // makes one, is what the car is told; without one the mode's own
+        // source drives under the chain's ceiling, so a loaded clamp binds the
+        // autonomy and a hand on the keys alike (docs/bundles.md section 2).
+        const bibo::Scan chainScan = carrules::toScan(rays, opt.forwardDeg, rev);
+        chain::Pass pass;
+        pass.scan = &chainScan;
+        pass.dtMs = dtMs;
+        pass.nowMs = static_cast<Int64>(elapsedMs(start));
+        // A hand on the wheel only while the deadman is LIVE: a SOFT or DEAD
+        // command is one the rules below already refuse.
+        pass.haveHolder = manualMode && dm.haveHolder && haveCmd && dm.deadman == 0u;
+        pass.manualSteer = static_cast<Float32>(cmd.steerMilli) / 1000.0f;
+        pass.manualThrottle = static_cast<Float32>(cmd.throttleMilli) / 1000.0f;
+        const chain::Outcome chosen = live.run(pass);
+        if(chosen.refused > 0 && chosen.lastRefusal != chainRefusalSaid)
+        {
+            chainRefusalSaid = chosen.lastRefusal;
+            std::printf("bundles: %s\n", chosen.lastRefusal.c_str());
+            viewfeed::publishEvent(
+                bibowire::Severity::SEVERITY_WARN,
+                bibowire::EVENT_CODE_BUNDLE,
+                chosen.lastRefusal
+            );
+        }
+        const Int32 ceilingMilli = static_cast<Int32>(chosen.intent.ceiling * 1000.0f);
         Str steerLine;
         Str escLine;
         // SERVO ON or OFF on an arm edge, sent before the STEER: a released
@@ -985,11 +1264,8 @@ Int32 main(Int32 argc, Char** argv)
         Int32 sentSteerMilli = static_cast<Int32>(out.steer * 1000.0f);
         Int32 sentThrottleMilli = static_cast<Int32>(out.throttle * 1000.0f);
         Str modeWord;
-        if(pilotModeOf(opt) == static_cast<UInt8>(bibowire::PilotMode::PILOT_MODE_MANUAL))
+        if(manualMode)
         {
-            const viewfeed::Drive dm = viewfeed::drive();
-            bibowire::Control cmd;
-            const Bool haveCmd = viewfeed::control(&cmd);
             if(!dm.armed)
             {
                 staleArm = false;
@@ -1041,9 +1317,21 @@ Int32 main(Int32 argc, Char** argv)
             }
             else
             {
+                // FORWARD THROTTLE GOES THROUGH THE CHAIN: its proposal when it
+                // made one, else the viewer's own under the chain's ceiling, so
+                // a loaded clamp binds hand driving too. REVERSE DOES NOT: the
+                // stop clamp looks AHEAD, and backing away from what it sees is
+                // exactly the move it must never prevent. So a reverse asked for
+                // is the human's alone, steering included.
+                const Bool backingAsked = cmd.throttleMilli < 0;
+                const Int32 forwardMilli = chosen.drive
+                    ? static_cast<Int32>(milliOf(chosen.throttle))
+                    : std::min(static_cast<Int32>(cmd.throttleMilli), ceilingMilli);
                 if(dm.deadman == 0u)
                 {
-                    heldSteerMilli = cmd.steerMilli;
+                    heldSteerMilli = chosen.drive && !backingAsked
+                        ? milliOf(chosen.steer)
+                        : cmd.steerMilli;
                 }
                 steerLine = proto::steer(static_cast<Float32>(heldSteerMilli) / 1000.0f);
                 // Throttle only while LIVE, while a viewer's ARM stands and the Pico
@@ -1060,7 +1348,7 @@ Int32 main(Int32 argc, Char** argv)
                 }
                 else
                 {
-                    const Float32 wanted = static_cast<Float32>(cmd.throttleMilli) / 1000.0f;
+                    const Float32 wanted = static_cast<Float32>(forwardMilli) / 1000.0f;
                     const Int32 neutralUs = static_cast<Int32>(bibowire::ESC_NEUTRAL_US);
                     // S (negative throttle) sends the reverse limit itself, not a
                     // fraction of it; the ESC chooses brake or reverse as it does for
@@ -1077,7 +1365,7 @@ Int32 main(Int32 argc, Char** argv)
                             ? proto::escUs(car.escMinUs)
                             : proto::command("ESC", "NEUTRAL");
                     }
-                    else if(mayPush && cmd.throttleMilli > 0)
+                    else if(mayPush && forwardMilli > 0)
                     {
                         const Int32 us = carrules::forwardPulse(wanted, car.escMinUs, car.escMaxUs);
                         escLine = proto::escUs(us);
@@ -1092,7 +1380,8 @@ Int32 main(Int32 argc, Char** argv)
                     }
                 }
                 sentSteerMilli = heldSteerMilli;
-                sentThrottleMilli = mayPush ? cmd.throttleMilli : 0;
+                sentThrottleMilli = !mayPush ? 0
+                    : (backingAsked ? static_cast<Int32>(cmd.throttleMilli) : forwardMilli);
             }
             // THE TRIM PREVIEW: while nobody has armed, a steering trim change points
             // the wheels at what is being set, with the servo engaged, and releases
@@ -1135,8 +1424,25 @@ Int32 main(Int32 argc, Char** argv)
         }
         else
         {
-            steerLine = proto::steer(out.steer);
-            escLine = escLineFor(status, out, boardSilent, opt.arm);
+            // The chain's proposal replaces the autonomy's; without one the
+            // autonomy drives under the chain's ceiling.
+            reactive::Outputs d = out;
+            reactive::Status s = status;
+            if(chosen.drive)
+            {
+                d.steer = chosen.steer;
+                d.throttle = chosen.throttle;
+                d.stop = chosen.throttle <= 0.0f;
+                s = reactive::Status::STATUS_OK;
+            }
+            else
+            {
+                d.throttle = std::min(d.throttle, chosen.intent.ceiling);
+            }
+            steerLine = proto::steer(d.steer);
+            escLine = escLineFor(s, d, boardSilent, opt.arm);
+            sentSteerMilli = static_cast<Int32>(d.steer * 1000.0f);
+            sentThrottleMilli = static_cast<Int32>(d.throttle * 1000.0f);
         }
         if(opt.dry)
         {
@@ -1254,8 +1560,19 @@ Int32 main(Int32 argc, Char** argv)
         if(elapsedMs(lastStatus) >= STATUS_EVERY_MS)
         {
             const Str what = modeWord.empty() ? describe(status, out, got) : modeWord;
+            // The loaded bundles, in chain order, so the log says who decided.
+            Str chainWord;
+            for(Size i = 0; i < live.size(); ++i)
+            {
+                chainWord += i == 0 ? "  [" : "+";
+                chainWord += live.at(i)->name();
+            }
+            if(!chainWord.empty())
+            {
+                chainWord += "]";
+            }
             std::printf(
-                "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s%s\n",
+                "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s%s%s\n",
                 elapsedS(start),
                 what.c_str(),
                 static_cast<Float64>(sentSteerMilli) / 1000.0,
@@ -1264,6 +1581,7 @@ Int32 main(Int32 argc, Char** argv)
                 snap.revPerS,
                 static_cast<unsigned long long>(snap.timeouts),
                 snap.pico.c_str(),
+                chainWord.c_str(),
                 // The Pico's watchdog fired while this program believed it was sending.
                 replies.pico.stale > 0 ? "  <<< BOARD WATCHDOG STALE" : ""
             );

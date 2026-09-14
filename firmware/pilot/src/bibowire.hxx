@@ -58,6 +58,13 @@ namespace bibowire
   constexpr Size MAX_WIFI_NAME = 32;
   constexpr Size MAX_CLIENTS = 4;
 
+  // A bundle's id is reverse-DNS and stable - net.exoad.tt02bibo.forward. It is
+  // what a viewer keys its window on, so it must survive a rename of the
+  // human-facing name beside it.
+  constexpr Size MAX_BUNDLE_ID = 63;
+  constexpr Size MAX_BUNDLE_NAME = 31;
+  constexpr Size MAX_BUNDLE_ABOUT = 96;
+
   constexpr Size HEAD_BYTES = 12;
   constexpr Size TRAILER_BYTES = 4;
   constexpr Size FRAME_OVERHEAD = HEAD_BYTES + TRAILER_BYTES;
@@ -144,6 +151,8 @@ namespace bibowire
       TYPE_EVENT = 0x14,
       TYPE_CTLSTATE = 0x15,
       TYPE_CMDACK = 0x16,
+      TYPE_BUNDLE = 0x17,
+      TYPE_BUNDLE_STATE = 0x18,
       TYPE_CAMERA = 0x20,
       TYPE_POSE = 0x21,
       TYPE_PATH = 0x22,
@@ -155,7 +164,7 @@ namespace bibowire
       TYPE_SCHEMA = 0xF1,
   };
 
-  constexpr Size TYPE_COUNT = 22;
+  constexpr Size TYPE_COUNT = 24;
 
   // The drop priority of the socket half's bounded ring: BULK is discarded
   // first, then LIVE, and VITAL never, so the camera degrades before the car's
@@ -234,6 +243,17 @@ namespace bibowire
       // The lowest pulse brake and reverse may reach. ESC_NEUTRAL_US is valid
       // and turns reverse off; above it is refused.
       VERB_SET_ESC_REVERSE = 12,   // arg1 = us
+
+      // Which bundle runs. COMMAND has no string field, so a bundle is named
+      // here by its INDEX in the BUNDLE frames the board published, and arg1
+      // carries the generation those frames were stamped with. A load against a
+      // list the board has since replaced is refused rather than starting
+      // whatever now sits at that index - adding a bundle while a viewer has
+      // the panel open must not be able to launch the wrong program.
+      VERB_LOAD_BUNDLE = 13,   // arg0 = index, arg1 = generation
+      // Unload takes the same pair: several behaviours are loaded at once, so
+      // it has to name WHICH, and by index for the same reason LOAD does.
+      VERB_STOP_BUNDLE = 14,   // arg0 = index, arg1 = generation
   };
 
   // Which output VERB_SET_SLEW sets. BOTH is the Pico's bare `SLEW <us>`.
@@ -247,6 +267,11 @@ namespace bibowire
   // saved. Sent after WELCOME and after each save, never through the event rate
   // limiter.
   constexpr UInt8 EVENT_CODE_TRIM = 84;   // 'T'
+
+  // A bundle loaded, stopped, was refused, or a manifest would not parse. The
+  // last of those is why this exists: a typo in a .bundle must reach a person
+  // rather than leave a row quietly missing from the master window.
+  constexpr UInt8 EVENT_CODE_BUNDLE = 66;   // 'B'
 
   // The tuning bounds, mirrored from firmware/lib/chassis/chassis.hxx
   // (SLEW_MIN_STEP, SLEW_MAX_STEP and the hard servo and ESC clamps) so a
@@ -675,6 +700,61 @@ namespace bibowire
       UInt16 camFps = 0;
   };
 
+  // What a bundle needs before it may be loaded. The supervisor refuses a load
+  // whose needs are not met, and a viewer greys the row with the reason rather
+  // than hiding it: "no lidar" is the answer to why you cannot drive.
+  constexpr UInt8 BUNDLE_NEEDS_LIDAR = 0x01;
+  constexpr UInt8 BUNDLE_NEEDS_PICO = 0x02;
+  constexpr UInt8 BUNDLE_NEEDS_CAMERA = 0x04;
+  constexpr UInt8 BUNDLE_MAY_DRIVE = 0x08;
+
+  // How the last bundle ended, for BundleState::exitKind.
+  constexpr UInt8 BUNDLE_EXIT_NONE = 0;
+  constexpr UInt8 BUNDLE_EXIT_OK = 1;
+  constexpr UInt8 BUNDLE_EXIT_FAILED = 2;
+  constexpr UInt8 BUNDLE_EXIT_SIGNALLED = 3;
+  constexpr UInt8 BUNDLE_EXIT_REFUSED = 4;
+
+  // ONE BUNDLE PER FRAME, the way SCAN is one revolution per frame. A viewer
+  // collects `count` of them carrying the same `generation` to have the list;
+  // a frame from an older generation is discarded rather than merged, so a list
+  // is never half of one set and half of another.
+  //
+  // `count` 0 is the empty list, announced once with `index` 0, so a viewer can
+  // tell "this board has no bundles" from "this board has not said yet".
+  struct Bundle
+  {
+      UInt32 generation = 0;
+      UInt16 index = 0;
+      UInt16 count = 0;
+      UInt8 needs = 0;    // BUNDLE_NEEDS_*
+      UInt8 ready = 0;    // 0 when something in `needs` is missing
+      UInt8 loaded = 0;   // 1 while this behaviour is in the host's chain
+      Str id;             // reverse-DNS, stable; what a viewer keys its window on
+      Str name;           // for a person
+      Str about;          // one line
+  };
+
+  // The AGGREGATE: how many behaviours are loaded, and the last thing that
+  // happened to one. Published on change and on connect, so a viewer joining
+  // mid-run has both without waiting for an event it already missed.
+  //
+  // It used to describe ONE running bundle - upS, running, exitKind. Several
+  // load at once now, so per-bundle state moved into Bundle::loaded and this
+  // became the summary. Nothing moved on the wire: the offsets and widths are
+  // unchanged and `ver` stays 1, because only the meaning of two fields
+  // changed, on a type no reader has ever consumed.
+  struct BundleState
+  {
+      UInt64 tMonoUs = 0;
+      UInt32 loadedCount = 0;   // was upS
+      UInt32 lastCode = 0;
+      UInt8 anyLoaded = 0;      // was running; 1 while the chain is not empty
+      UInt8 lastKind = BUNDLE_EXIT_NONE;
+      Str id;                   // which bundle the last event concerned, or empty
+      Str text;                 // what happened, for a person
+  };
+
   struct Describe
   {
       UInt8 type = 0;   // 0 = all
@@ -685,6 +765,10 @@ namespace bibowire
       Str text;
   };
 
+  [[nodiscard]] Size writeBundle(const Bundle& m, UInt8* out, Size cap);
+  [[nodiscard]] Bool readBundle(const Body& b, UInt8 ver, Bundle* out);
+  [[nodiscard]] Size writeBundleState(const BundleState& m, UInt8* out, Size cap);
+  [[nodiscard]] Bool readBundleState(const Body& b, UInt8 ver, BundleState* out);
   [[nodiscard]] Size writeHello(const Hello& m, UInt8* out, Size cap);
   [[nodiscard]] Bool readHello(const Body& b, UInt8 ver, Hello* out);
   [[nodiscard]] Size writeWelcome(const Welcome& m, UInt8* out, Size cap);

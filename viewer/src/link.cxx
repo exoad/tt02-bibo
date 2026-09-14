@@ -2675,6 +2675,11 @@ namespace link
               s.cameraNoteText = note.text;
               s.cameraNoteAtMs = nowMs;
           }
+          if(m.code == bibowire::EVENT_CODE_BUNDLE)
+          {
+              s.haveBundleNote = true;
+              s.bundleNote = note;
+          }
           s.notes.push_back(note);
           while(s.notes.size() > MAX_EVENTS)
           {
@@ -2691,6 +2696,64 @@ namespace link
               return;
           }
           s.pongsDue.push_back(m);
+          return;
+      }
+      case bibowire::Type::TYPE_BUNDLE:
+      {
+          bibowire::Bundle m;
+          if(!bibowire::readBundle(f.body, ver, &m))
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          // count 0 is the empty list, announced whole in one frame.
+          if(m.count == 0u)
+          {
+              s.bundles.clear();
+              s.bundlesArriving.clear();
+              s.haveBundles = true;
+              s.bundleGeneration = m.generation;
+              s.bundlesAtMs = nowMs;
+              return;
+          }
+          if(m.index >= m.count)
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          if(s.bundlesArriving.size() != m.count || s.bundlesArrivingGeneration != m.generation)
+          {
+              s.bundlesArriving.assign(m.count, bibowire::Bundle());
+              s.bundlesArrivingGeneration = m.generation;
+          }
+          // By index, so a repeated or reordered frame cannot lengthen the list.
+          s.bundlesArriving[m.index] = m;
+          Bool whole = true;
+          for(const bibowire::Bundle& b : s.bundlesArriving)
+          {
+              whole = whole && b.generation == m.generation;
+          }
+          if(whole)
+          {
+              s.bundles = s.bundlesArriving;
+              s.bundlesArriving.clear();
+              s.haveBundles = true;
+              s.bundleGeneration = m.generation;
+              s.bundlesAtMs = nowMs;
+          }
+          return;
+      }
+      case bibowire::Type::TYPE_BUNDLE_STATE:
+      {
+          bibowire::BundleState m;
+          if(!bibowire::readBundleState(f.body, ver, &m))
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          s.haveBundleState = true;
+          s.bundleState = m;
+          s.bundleStateAtMs = nowMs;
           return;
       }
       case bibowire::Type::TYPE_BYE:
@@ -3017,7 +3080,9 @@ namespace link
                     | bibowire::typeBit(bibowire::Type::TYPE_LIDAR_INFO)
                     | bibowire::typeBit(bibowire::Type::TYPE_EVENT)
                     | bibowire::typeBit(bibowire::Type::TYPE_CTLSTATE)
-                    | bibowire::typeBit(bibowire::Type::TYPE_CMDACK);
+                    | bibowire::typeBit(bibowire::Type::TYPE_CMDACK)
+                    | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)
+                    | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE);
       if(withCamera)
       {
           mask |= bibowire::typeBit(bibowire::Type::TYPE_CAMERA);

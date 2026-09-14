@@ -300,6 +300,28 @@ namespace link
       Int64 boardTrimAtMs = 0;
       UInt32 boardTrimCount = 0;
 
+      // The board's bundle list, whole for one generation (docs/bundles.md
+      // section 5). Frames are placed by index into `bundlesArriving` until
+      // every slot carries one generation, then swapped in as one, so the
+      // master window never shows half of one list and half of another. A
+      // frame from a newer generation starts the collection over.
+      Bool haveBundles = false;
+      Vec<bibowire::Bundle> bundles;
+      UInt32 bundleGeneration = 0;
+      Int64 bundlesAtMs = 0;
+      Vec<bibowire::Bundle> bundlesArriving;
+      UInt32 bundlesArrivingGeneration = 0;
+
+      // The aggregate: how many are loaded and the last thing that happened.
+      Bool haveBundleState = false;
+      bibowire::BundleState bundleState;
+      Int64 bundleStateAtMs = 0;
+
+      // The board's last EVENT about a bundle (EVENT_CODE_BUNDLE), kept where
+      // the master window can show it after it has scrolled off the notes.
+      Bool haveBundleNote = false;
+      Note bundleNote;
+
       // One cadence per feed, so the camera and the scan are never held to each
       // other's rate. DECIDE shares its revolution's age, so it uses scanRate.
       Cadence scanRate;

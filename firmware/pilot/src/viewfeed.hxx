@@ -114,6 +114,25 @@ namespace viewfeed
   // count rides the next one.
   Void publishEvent(bibowire::Severity severity, UInt8 code, const Str& text);
 
+  // The bundles this board can run, as one list, one frame per bundle.
+  // Remembered like the board state and replayed to a newly welcomed client
+  // before its first scan, so a viewer joining mid-run has a master window
+  // rather than an empty one.
+  //
+  // GENERATION, INDEX AND COUNT ARE STAMPED HERE, not taken from the entries: a
+  // viewer holds the list once it has `count` frames carrying one generation,
+  // so if those three could disagree it would wait for a frame that never
+  // comes. Fill in id, name, about, needs and ready; the rest is this module's.
+  //
+  // An empty list is still announced, as a single frame with count 0 - "this
+  // board runs no bundles" and "this board has not said yet" are different
+  // answers, and the master window shows different things for them.
+  Void publishBundles(UInt32 generation, Vec<bibowire::Bundle> list);
+
+  // Which bundle is running, and how the last one ended. Remembered and
+  // replayed the same way.
+  Void publishBundleState(const bibowire::BundleState& s);
+
   // The newest CONTROL from the holder, or false when there is none. A seqlock:
   // no mutex, and never a half-written command. Steer and throttle are what
   // control::apply allowed - on an epoch or mode disagreement the throttle is
@@ -174,6 +193,25 @@ namespace viewfeed
   // acts, each already acknowledged by a CMDACK, and keeping only the newest
   // would silently lose one.
   [[nodiscard]] Bool tune(Tune* out);
+
+  // One accepted load or unload, as COMMAND carried it. The chain belongs to
+  // the pilot, not to this module, so nothing here touches it: this thread
+  // validates the request against the list it published and queues it for the
+  // tick, which applies it BETWEEN passes.
+  struct BundleRequest
+  {
+      Bool load = false;        // false: unload
+      UInt16 index = 0;         // into the BUNDLE list the board published
+      UInt32 generation = 0;    // the list the viewer was looking at
+  };
+
+  // Pops the OLDEST load or unload, or false when there is none; the tick
+  // calls it until false, as it does tune().
+  //
+  // PERMITTED OUTSIDE MANUAL, where trim and ARM are not. A bundle is what the
+  // board runs, so refusing a load while one drives would make the master
+  // window dead on the only host that has bundles - docs/bundles.md section 8.
+  [[nodiscard]] Bool bundleRequest(BundleRequest* out);
 
   // What the pilot did with the newest CONTROL, for the next CTLSTATE.
   Void applied(const Applied& a);

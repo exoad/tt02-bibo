@@ -48,6 +48,11 @@ namespace trimfile
   // bibo-trim.txt in the working directory.
   [[nodiscard]] Str defaultPath();
 
+  // Every directory above `path`, created in turn; EEXIST is the common case
+  // and not a failure. Shared with the bundle set, which lives beside the trim,
+  // so there is one mkdir idiom rather than two.
+  Void makeParents(const Str& path);
+
   // A file that does not exist is an empty store and TRUE: that is a car
   // nobody has tuned yet, not a failure.
   [[nodiscard]] Bool load(const Str& path, Store& out, Str& why);

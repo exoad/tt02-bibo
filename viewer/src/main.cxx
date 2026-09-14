@@ -30,6 +30,7 @@
 #include "camera.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
+#include "bundle.hxx"
 #include "settings.hxx"
 #include "vlog.hxx"
 
@@ -439,7 +440,7 @@ static Void drawConnectionWindow(Link& lk, const link::Snapshot& snap, Int64 now
     ImGui::End();
 }
 
-static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View& trim, driveview::View& drive)
+static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View& trim, driveview::View& drive, bundleview::View& bundles)
 {
     static constexpr Array<CharSeq, 2> COLOR_NAMES = { "uniform", "by distance" };
     ImGui::SetNextWindowPos(ImVec2(16.0f * uiScale, 176.0f * uiScale), ImGuiCond_FirstUseEver);
@@ -469,6 +470,11 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     ImGui::Checkbox("trim", &trim.open);
     // Only puts the pane on screen; it is not one of drive.hxx's three gates.
     ImGui::Checkbox("drive", &drive.open);
+    ImGui::Checkbox("bundles", &bundles.open);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("what the board can run, and what is loaded");
+    }
     ImGui::Separator();
     ImGui::SetNextItemWidth(-88.0f * uiScale);
     ImGui::SliderFloat("size", &sc.opt.pointSize, 1.0f, 10.0f, "%.1f px");
@@ -706,6 +712,14 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     // Opening moves nothing: the enable is off and the car disarmed until ARM
     // is pressed and confirmed.
     drive.open = true;
+    // The master window, open at startup like Drive: it is how the operator
+    // chooses what the car does. Its two known bundles' windows ARE the Trim
+    // and Drive panes, so it borrows both.
+    bundleview::View bundles;
+    bundleview::init(uiScale);
+    bundles.trim = &trim;
+    bundles.drive = &drive;
+    bundles.open = true;
     // Last run's numbers into the panes before the first frame. Nothing is sent
     // to the car: the board keeps its own saved copy, and once connected it
     // replaces these in the sliders (trimview::follow).
@@ -810,8 +824,11 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         const scene::Viewport where = { area->WorkPos, area->WorkSize };
         scene::draw(ImGui::GetBackgroundDrawList(), where, sc);
         drawConnectionWindow(net, snap, nowMs);
-        drawViewWindow(sc, cam, trim, drive);
+        drawViewWindow(sc, cam, trim, drive, bundles);
         drawCarWindow(snap, nowMs);
+        // Before the Trim and Drive panes, so a pane a load just opened draws
+        // this frame rather than next.
+        bundleview::drawWindow(bundles, net.client, snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
         // Before the sliders draw and before the settings check below.
         trimview::follow(trim, snap);

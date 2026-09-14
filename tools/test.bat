@@ -20,7 +20,7 @@ set "EXTRA="
 set "LIBS="
 
 set "FIRMWARE_SUITES=text pins chassis"
-set "PILOT_SUITES=proto pilot reactive bibowire trimfile carrules car"
+set "PILOT_SUITES=proto pilot reactive bibowire trimfile carrules car chain"
 
 for %%s in (%FIRMWARE_SUITES%) do if "%SUITE%"=="%%s" goto :firmware
 for %%s in (%PILOT_SUITES%) do if "%SUITE%"=="%%s" goto :pilot
@@ -46,6 +46,8 @@ set "INC=/I"%LIB%" /I"%PILOT%""
 set "SRCS="%TESTS%\test_%SUITE%.cxx" "%PILOT%\%SUITE%.cxx""
 if "%SUITE%"=="pilot" set "SRCS="%TESTS%\test_pilot.cxx" "%PILOT%\lidar.cxx" "%PILOT%\link.cxx""
 if "%SUITE%"=="carrules" set "SRCS=%SRCS% "%PILOT%\proto.cxx""
+REM chain calls Scan::ahead, which carrules.cxx defines; proto.cxx is its own dependency.
+if "%SUITE%"=="chain" set "SRCS=%SRCS% "%PILOT%\carrules.cxx" "%PILOT%\proto.cxx""
 if not "%SUITE%"=="car" goto :build
 set "SRCS=%SRCS% "%PILOT%\carrules.cxx" "%PILOT%\proto.cxx" "%PILOT%\lidar.cxx""
 set "SRCS=%SRCS% "%PILOT%\link.cxx" "%PILOT%\viewfeed.cxx" "%PILOT%\trimfile.cxx""

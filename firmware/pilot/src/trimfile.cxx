@@ -90,26 +90,26 @@ namespace trimfile
         slot = value;
         return true;
     }
+  }
 
-    // Every directory above `path`, created in turn. EEXIST is the common case
-    // and not a failure; anything else is left for the open that follows to
-    // report, with a reason that names the file rather than a component.
-    Void makeParents(const Str& path)
-    {
-        for(Size i = 1; i < path.size(); ++i)
-        {
-            if(path[i] != '/' && path[i] != '\\')
-            {
-                continue;
-            }
-            const Str dir = path.substr(0, i);
+  // Every directory above `path`, created in turn. EEXIST is the common case
+  // and not a failure; anything else is left for the open that follows to
+  // report, with a reason that names the file rather than a component.
+  Void makeParents(const Str& path)
+  {
+      for(Size i = 1; i < path.size(); ++i)
+      {
+          if(path[i] != '/' && path[i] != '\\')
+          {
+              continue;
+          }
+          const Str dir = path.substr(0, i);
 #if defined(_WIN32)
-            static_cast<Void>(::_mkdir(dir.c_str()));
+          static_cast<Void>(::_mkdir(dir.c_str()));
 #else
-            static_cast<Void>(::mkdir(dir.c_str(), 0755));
+          static_cast<Void>(::mkdir(dir.c_str(), 0755));
 #endif
-        }
-    }
+      }
   }
 
   Bool remember(Store& s, const Str& line)

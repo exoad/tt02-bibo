@@ -2071,6 +2071,86 @@ static Void testControlDefaults()
     check(!link::controlSlotWanted(c), "and withdrawing it is too");
 }
 
+static Size pushBundle(Vec<UInt8>& out, const bibowire::Bundle& m)
+{
+    Array<UInt8, 256> body = {};
+    const Size n = bibowire::writeBundle(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_BUNDLE, body.data(), n);
+}
+
+static bibowire::Bundle bundleAt(UInt32 gen, UInt16 index, UInt16 count, CharSeq id, Bool loaded)
+{
+    bibowire::Bundle b;
+    b.generation = gen;
+    b.index = index;
+    b.count = count;
+    b.id = id;
+    b.name = "x";
+    b.about = "about";
+    b.needs = bibowire::BUNDLE_NEEDS_LIDAR;
+    b.ready = 1;
+    b.loaded = loaded ? 1u : 0u;
+    return b;
+}
+
+// A list is shown whole or not at all: frames land by index, a newer generation
+// replaces the old only once it is complete, and count 0 is the empty list.
+static Void testBundles()
+{
+    std::printf("\n-- bundles: a list arrives whole or not at all --\n");
+    link::Session s;
+    Vec<UInt8> bytes;
+    static_cast<Void>(pushBundle(bytes, bundleAt(1, 1, 2, "net.exoad.test.b", false)));
+    static_cast<Void>(feed(s, bytes, 100));
+    check(!s.haveBundles, "one frame of two is not a list yet");
+    check(s.unknownFrames == 0u, "and BUNDLE is a known type, not counted as unknown");
+    bytes.clear();
+    static_cast<Void>(pushBundle(bytes, bundleAt(1, 0, 2, "net.exoad.test.a", true)));
+    static_cast<Void>(feed(s, bytes, 110));
+    check(s.haveBundles && s.bundles.size() == 2, "the second frame completes it, out of order");
+    const Bool byIndex = s.bundles.size() == 2 && s.bundles[0].id == "net.exoad.test.a"
+                      && s.bundles[1].id == "net.exoad.test.b";
+    check(byIndex, "placed by index, not by arrival");
+    check(s.bundles[0].loaded == 1u && s.bundleGeneration == 1u, "with loaded and the generation kept");
+    bytes.clear();
+    static_cast<Void>(pushBundle(bytes, bundleAt(2, 0, 1, "net.exoad.test.c", false)));
+    static_cast<Void>(feed(s, bytes, 120));
+    check(s.bundles.size() == 1 && s.bundleGeneration == 2u, "a newer generation replaces the list whole");
+    bytes.clear();
+    static_cast<Void>(pushBundle(bytes, bundleAt(1, 0, 2, "net.exoad.test.a", false)));
+    static_cast<Void>(feed(s, bytes, 130));
+    check(s.bundles.size() == 1 && s.bundleGeneration == 2u, "a late frame from an old generation shows nothing");
+    bytes.clear();
+    static_cast<Void>(pushBundle(bytes, bundleAt(3, 0, 0, "net.exoad.test.none", false)));
+    static_cast<Void>(feed(s, bytes, 140));
+    check(s.haveBundles && s.bundles.empty() && s.bundleGeneration == 3u, "count 0 is the empty list, known and empty");
+    bytes.clear();
+    static_cast<Void>(pushBundle(bytes, bundleAt(4, 3, 2, "net.exoad.test.z", false)));
+    const UInt32 refusedBefore = s.refusedFrames;
+    static_cast<Void>(feed(s, bytes, 150));
+    check(s.refusedFrames == refusedBefore + 1u, "an index past count is a refused body");
+    bibowire::BundleState st;
+    st.loadedCount = 2;
+    st.anyLoaded = 1;
+    st.id = "net.exoad.tt02bibo.stop";
+    st.text = "stop loaded";
+    Array<UInt8, 256> body = {};
+    const Size n = bibowire::writeBundleState(st, body.data(), body.size());
+    bytes.clear();
+    static_cast<Void>(framed(bytes, bibowire::Type::TYPE_BUNDLE_STATE, body.data(), n));
+    static_cast<Void>(feed(s, bytes, 160));
+    check(s.haveBundleState && s.bundleState.loadedCount == 2u, "BUNDLE_STATE is kept");
+    bytes.clear();
+    static_cast<Void>(pushEvent(bytes, "weave unloaded", 0, bibowire::EVENT_CODE_BUNDLE));
+    static_cast<Void>(feed(s, bytes, 170));
+    check(s.haveBundleNote && s.bundleNote.text == "weave unloaded", "an EVENT about a bundle is kept for the window");
+    check(!s.notes.empty() && s.notes.back().text == "weave unloaded", "and still listed as a note");
+    const UInt32 mask = link::subscriptionMask(false);
+    const Bool asks = (mask & bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)) != 0u
+                   && (mask & bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE)) != 0u;
+    check(asks, "and the viewer asks the board for both types");
+}
+
 int main()
 {
     std::printf("\nviewer link (bibowire client), no board attached\n");
@@ -2118,6 +2198,7 @@ int main()
     testCameraCaptureGaps();
     testSteerSigns();
     testSettingsText();
+    testBundles();
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

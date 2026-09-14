@@ -272,6 +272,32 @@ struct Rng
         push(&out, &w, Type::TYPE_CAMERA, 14);
     }
     {
+        Bundle m;
+        m.generation = 7;
+        m.index = 1;
+        m.count = 3;
+        m.needs = BUNDLE_NEEDS_LIDAR | BUNDLE_NEEDS_PICO | BUNDLE_MAY_DRIVE;
+        m.ready = 1;
+        m.loaded = 1;
+        m.id = "net.exoad.tt02bibo.forward";
+        m.name = "forward";
+        m.about = "creep ahead, stop while something is in front";
+        w.bodyLen = writeBundle(m, w.body.data(), w.body.size());
+        push(&out, &w, Type::TYPE_BUNDLE, 23);
+    }
+    {
+        BundleState m;
+        m.tMonoUs = 9;
+        m.loadedCount = 2;
+        m.lastCode = 0;
+        m.anyLoaded = 1;
+        m.lastKind = BUNDLE_EXIT_NONE;
+        m.id = "net.exoad.tt02bibo.forward";
+        m.text = "loaded";
+        w.bodyLen = writeBundleState(m, w.body.data(), w.body.size());
+        push(&out, &w, Type::TYPE_BUNDLE_STATE, 24);
+    }
+    {
         Pose m;
         m.tMonoUs = 1;
         m.xMm = 100;
@@ -439,6 +465,10 @@ struct Rng
             return writePath(Path{}, out, cap);
         case Type::TYPE_WAYPOINT:
             return writeWaypoint(Waypoint{}, out, cap);
+        case Type::TYPE_BUNDLE:
+            return writeBundle(Bundle{}, out, cap);
+        case Type::TYPE_BUNDLE_STATE:
+            return writeBundleState(BundleState{}, out, cap);
         case Type::TYPE_CONTROL:
             return writeControl(Control{}, out, cap);
         case Type::TYPE_COMMAND:
@@ -832,7 +862,7 @@ Int32 main()
         );
     }
     const Vec<Str> rendered = buildAll();
-    check(rendered.size() == 24, "one rendered frame per type, plus two BOARDs of sentinels");
+    check(rendered.size() == 26, "one rendered frame per type, plus two BOARDs of sentinels");
     {
         Size i = 0;
         checkStr(
@@ -900,6 +930,16 @@ Int32 main()
             rendered[i++],
             "CAMERA v1 seq=14 len=32 : mono=1 frame=9 size=640x480 codec=1 flags=0 bytes=8",
             "describe: CAMERA"
+        );
+        checkStr(
+            rendered[i++],
+            "BUNDLE v1 seq=23 len=96 : gen=7 1/3 needs=0x0b ready=1 loaded=1 id=\"net.exoad.tt02bibo.forward\" name=\"forward\" about=\"creep ahead, stop while something is in front\"",
+            "describe: BUNDLE"
+        );
+        checkStr(
+            rendered[i++],
+            "BUNDLE_STATE v1 seq=24 len=52 : mono=9 loaded=2 any=1 id=\"net.exoad.tt02bibo.forward\" lastKind=0 lastCode=0 text=\"loaded\"",
+            "describe: BUNDLE_STATE"
         );
         checkStr(
             rendered[i++],
@@ -1767,9 +1807,14 @@ Int32 main()
         const Vec<Str> after = buildAll();
         check(after.size() == rendered.size(), "the whole message set still renders");
         check(after == rendered, "and every byte of it is identical under a comma decimal");
-        check(after[22].find("cpu=n/a") != Str::npos, "an absent temperature is still n/a");
+        // FROM THE END, because that is what these two are: the extra BOARDs
+        // buildAll() pushes after one frame of every type. Absolute indices here
+        // said 22 and 23 and broke the moment a type was added in the middle,
+        // reporting a locale fault for a list that had simply moved.
+        const Size last = after.size() - 1u;
+        check(after[last - 1u].find("cpu=n/a") != Str::npos, "an absent temperature is still n/a");
         check(
-            after[23].find("cpu=-0.55") != Str::npos,
+            after[last].find("cpu=-0.55") != Str::npos,
             "and a real one still has a DOT, not a comma"
         );
         got = std::setlocale(LC_ALL, "C");
