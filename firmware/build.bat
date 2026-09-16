@@ -122,4 +122,5 @@ if not exist "%BUILD%\pico_debug.uf2" (
 
 echo.
 echo [ok] %BUILD%\pico_debug.uf2   (%BOARD%)
+echo [ok] %BUILD%\pico_encoder.uf2 (%BOARD%, the hall encoder node)
 echo      Flash it with:  firmware\flash.bat "%BUILD%\pico_debug.uf2"

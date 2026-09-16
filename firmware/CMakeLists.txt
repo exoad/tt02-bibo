@@ -72,3 +72,25 @@ target_include_directories(pico_debug PRIVATE
 )
 
 pico_add_extra_outputs(pico_debug)
+
+# encoder/ is the second Pico, the hall-sensor encoder node: the same SDK and
+# board target, its own image. Built beside the car's for whichever board is
+# configured, so `build.bat pico2` yields both.
+file(GLOB BIBO_ENCODER CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/encoder/*.cxx")
+add_executable(pico_encoder
+    ${BIBO_ENCODER}
+    lib/shared.hxx
+    lib/hal.hxx
+    lib/hall.hxx
+)
+target_link_libraries(pico_encoder
+    pico_stdlib
+    ${BIBO_LED_LIBS}
+    pico_unique_id
+    hardware_pwm
+    hardware_gpio
+)
+pico_enable_stdio_usb(pico_encoder 1)
+pico_enable_stdio_uart(pico_encoder 0)
+target_include_directories(pico_encoder PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+pico_add_extra_outputs(pico_encoder)

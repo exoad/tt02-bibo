@@ -280,7 +280,10 @@ LAYERS = {
     # SDK. chassis.hxx is tested through tests/fakes/hal.hxx.
     'firmware/tests':        {'../lib/text.hxx',
                               '../lib/pins.hxx',
+                              '../lib/hall.hxx',
                               '../lib/chassis/chassis.hxx'},
+    # The encoder node reaches the SDK through hal.hxx and nothing else of the car's.
+    'firmware/encoder':      {'../lib/hal.hxx', '../lib/hall.hxx'},
 }
 
 # Lib-root files that reach sideways, with the reason.
