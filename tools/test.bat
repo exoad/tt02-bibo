@@ -64,7 +64,7 @@ if not exist "%IMGUI%\imgui.h" goto :nothirdparty
 if not exist "%STB%\stb_image.h" goto :nothirdparty
 set "INC=/I"%VSRC%" /I"%LIB%" /I"%PILOT%" /I"%IMGUI%" /I"%STB%""
 set "SRCS="%TESTS%\test_link.cxx" "%VSRC%\link.cxx" "%VSRC%\vlog.cxx" "%VSRC%\jpeg.cxx""
-set "SRCS=%SRCS% "%VSRC%\orient.cxx" "%VSRC%\settings.cxx" "%PILOT%\bibowire.cxx""
+set "SRCS=%SRCS% "%VSRC%\orient.cxx" "%VSRC%\settings.cxx" "%VSRC%\carmesh.cxx" "%PILOT%\bibowire.cxx""
 set "LIBS=ws2_32.lib"
 goto :build
 

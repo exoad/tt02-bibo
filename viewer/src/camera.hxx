@@ -17,6 +17,7 @@
 
 #include "shared.hxx"
 
+#include "jpeg.hxx"
 #include "link.hxx"
 
 struct ID3D11Device;
@@ -141,6 +142,13 @@ namespace camview
   // The device the textures are created on, and the DPI multiplier the layout
   // uses. Called once, after the D3D11 device and ImGui both exist.
   Void init(ID3D11Device* device, ID3D11DeviceContext* context, Float32 scale);
+
+  // A texture that never changes, from a decoded picture, on the same device:
+  // the car model's skin. The handle is an ImTextureID as an integer, so this
+  // header still names no ImGui type; 0 when it could not be made. Released
+  // with releaseStaticTexture before the device goes.
+  [[nodiscard]] UPtr createStaticTexture(const jpeg::Picture& pic);
+  Void releaseStaticTexture(UPtr handle);
 
   // Releases the texture. Safe on a View that never had one, and safe to call
   // twice - it must run BEFORE the device is destroyed.

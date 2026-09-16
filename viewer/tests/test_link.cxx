@@ -24,6 +24,7 @@
 #include "bibowire.hxx"
 #include "link.hxx"
 #include "jpeg.hxx"
+#include "carmesh.hxx"
 #include "orient.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
@@ -2199,6 +2200,94 @@ static Void testTags()
     );
 }
 
+static Void testCarMesh()
+{
+    std::printf("\n-- the car model: OBJ text into the world frame --\n");
+    // A box 200 wide (x), 100 tall (y, up), 400 long (z), floor at y = -10, with
+    // one quad face carrying texture coordinates and one triangle without.
+    const Str obj = "o shell\n"
+                    "v -100 -10 -200\n"
+                    "v 100 -10 -200\n"
+                    "v 100 -10 200\n"
+                    "v -100 -10 200\n"
+                    "v 0 90 0\n"
+                    "vt 0 0\n"
+                    "vt 1 0\n"
+                    "vt 1 1\n"
+                    "vt 0 1\n"
+                    "f 1/1 2/2 3/3 4/4\n"
+                    "f 1 2 5\n";
+    const Str mtl = "newmtl skin\nmap_Kd body.jpg\n";
+    carmesh::Mesh m;
+    Str why;
+    check(carmesh::parse(obj, mtl, &m, why), "a small model parses");
+    check(m.name == "shell", "and keeps its name");
+    check(m.triangles.size() == 3, "a quad fans into two triangles, plus the one");
+    check(m.textureFile == "body.jpg", "the MTL names the skin");
+    if(m.triangles.size() == 3)
+    {
+        // Fitted: the 400-unit length becomes the car's length along Y, the
+        // floor sits at CAR_FLOOR_M, the width scales alike, and the roof is up.
+        Float32 minY = 1.0e9f;
+        Float32 maxY = -1.0e9f;
+        Float32 minX = 1.0e9f;
+        Float32 maxX = -1.0e9f;
+        Float32 minZ = 1.0e9f;
+        Float32 maxZ = -1.0e9f;
+        for(const carmesh::Triangle& t : m.triangles)
+        {
+            for(const carmesh::Vertex& v : t.at)
+            {
+                minY = std::min(minY, v.y);
+                maxY = std::max(maxY, v.y);
+                minX = std::min(minX, v.x);
+                maxX = std::max(maxX, v.x);
+                minZ = std::min(minZ, v.z);
+                maxZ = std::max(maxZ, v.z);
+            }
+        }
+        check(
+            std::fabs((maxY - minY) - carmesh::CAR_LENGTH_M) < 1.0e-4f,
+            "the long axis is the car's length, along Y"
+        );
+        check(
+            std::fabs((maxX - minX) - carmesh::CAR_LENGTH_M * 0.5f) < 1.0e-4f,
+            "the width scales with it"
+        );
+        check(
+            std::fabs(minZ - carmesh::CAR_FLOOR_M) < 1.0e-4f,
+            "the floor sits at the car's floor height"
+        );
+        check(maxZ > minZ + 0.1f, "and the model's Y became up");
+        check(
+            std::fabs(m.triangles[0].at[0].v - 1.0f) < 1.0e-6f,
+            "texture V is flipped to the GPU's top-left origin"
+        );
+        check(
+            m.triangles[2].at[2].u == 0.0f && m.triangles[2].at[2].v == 0.0f,
+            "a corner without coordinates reads (0, 0)"
+        );
+    }
+    // Refusals, each in words.
+    carmesh::Mesh none;
+    check(
+        !carmesh::parse("v 0 0 0\n", "", &none, why) && why == "no faces in the model",
+        "a model with no faces is refused"
+    );
+    check(
+        !carmesh::parse("v 0 0 0\nf 1 2 9\n", "", &none, why),
+        "a face naming a missing vertex is refused"
+    );
+    check(
+        !carmesh::load("Z:\\nowhere\\car.obj", &none, why) && why.find("cannot read") == 0,
+        "a missing file says so"
+    );
+    check(
+        carmesh::directoryOf("a\\b\\c.obj") == "a\\b\\" && carmesh::directoryOf("c.obj").empty(),
+        "the directory of a path, with its separator"
+    );
+}
+
 static Void testBundles()
 {
     std::printf("\n-- bundles: a list arrives whole or not at all --\n");
@@ -2322,6 +2411,7 @@ int main()
     testSettingsText();
     testBundles();
     testTags();
+    testCarMesh();
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -5,6 +5,7 @@
 
 #include "shared.hxx"
 
+#include "carmesh.hxx"
 #include "imgui.h"
 
 #include <cmath>
@@ -91,6 +92,11 @@ namespace scene
       Bool haveSteerWant = false;
       Float32 steerNow = 0.0f;
       Float32 steerWant = 0.0f;
+
+      // The car as a mesh, when one loaded (carmesh.hxx), with its skin as a
+      // texture handle; null draws the wire box. Borrowed from main.cxx.
+      const carmesh::Mesh* mesh = nullptr;
+      UPtr meshTexture = 0;
   };
 
   // Where on screen the view lives, in ImGui's pixel coordinates.

@@ -250,6 +250,65 @@ namespace scene
       }
   }
 
+  // The textured mesh, painter's order: every triangle projected, the ones
+  // touching the near plane dropped, the rest sorted far to near and drawn
+  // as textured triangles in the same draw list as everything else. A few
+  // hundred triangles sort in no time, and a depth buffer would need a GPU
+  // pipeline this view has never had. Shade is a fixed light from above and
+  // ahead on the face normal, mild because the skin is baked.
+  static Void drawMesh(ImDrawList* dl, const Basis& b, const carmesh::Mesh& mesh, UPtr tex)
+  {
+      struct Drawn
+      {
+          Array<ImVec2, 3> at;
+          Array<ImVec2, 3> uv;
+          Float32 depth;
+          ImU32 col;
+      };
+      const Vec3 light = normalize(Vec3{ 0.3f, 0.5f, 0.8f });
+      Vec<Drawn> drawn;
+      drawn.reserve(mesh.triangles.size());
+      for(const carmesh::Triangle& t : mesh.triangles)
+      {
+          Drawn d;
+          d.depth = 0.0f;
+          Bool visible = true;
+          Array<Vec3, 3> w = {};
+          for(Size i = 0; i < 3u; ++i)
+          {
+              w[i] = Vec3{ t.at[i].x, t.at[i].y, t.at[i].z };
+              const Projected q = project(b, w[i]);
+              if(q.depth <= NEAR_PLANE)
+              {
+                  visible = false;
+                  break;
+              }
+              d.at[i] = q.at;
+              d.uv[i] = ImVec2(t.at[i].u, t.at[i].v);
+              d.depth += q.depth / 3.0f;
+          }
+          if(!visible)
+          {
+              continue;
+          }
+          const Vec3 n = normalize(cross(sub(w[1], w[0]), sub(w[2], w[0])));
+          const Float32 lit = 0.62f + 0.38f * std::fabs(dot(n, light));
+          d.col = rgbaOf(lit, lit, lit, 1.0f);
+          drawn.push_back(d);
+      }
+      std::sort(drawn.begin(), drawn.end(), [](const Drawn& l, const Drawn& r) { return l.depth > r.depth; });
+      dl->PushTexture(ImTextureRef(static_cast<ImTextureID>(tex)));
+      dl->PrimReserve(static_cast<int>(drawn.size() * 3u), static_cast<int>(drawn.size() * 3u));
+      for(const Drawn& d : drawn)
+      {
+          for(Size i = 0; i < 3u; ++i)
+          {
+              dl->PrimVtx(d.at[i], d.uv[i], d.col);
+          }
+      }
+      dl->PopTexture();
+  }
+
   static Void drawCar(ImDrawList* dl, const Basis& b)
   {
       const Float32 hw = CAR_HALF_WIDTH;
@@ -343,7 +402,14 @@ namespace scene
       }
       if(sc.opt.car)
       {
-          drawCar(dl, b);
+          if(sc.mesh != nullptr && sc.meshTexture != 0u && !sc.mesh->triangles.empty())
+          {
+              drawMesh(dl, b, *sc.mesh, sc.meshTexture);
+          }
+          else
+          {
+              drawCar(dl, b);
+          }
       }
       if(sc.opt.heading)
       {

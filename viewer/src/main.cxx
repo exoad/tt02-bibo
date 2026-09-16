@@ -28,6 +28,8 @@
 #include "scene.hxx"
 #include "link.hxx"
 #include "camera.hxx"
+#include "carmesh.hxx"
+#include "jpeg.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
 #include "bundle.hxx"
@@ -702,6 +704,71 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     // Closed at startup: open costs the board about a megabyte a second.
     camview::View cam;
     camview::init(d3dDevice, d3dContext, uiScale);
+    // The car model, from assets/car beside the build directory. Optional: the
+    // wire box stands in, and the log says which.
+    carmesh::Mesh carModel;
+    {
+        Array<Char, MAX_PATH> exe = {};
+        const DWORD n = ::GetModuleFileNameA(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
+        const Str objPath = (n > 0u ? carmesh::directoryOf(Str(exe.data(), n)) : Str()) + "..\\assets\\car\\ImprezaModel.obj";
+        Str why;
+        if(!carmesh::load(objPath, &carModel, why))
+        {
+            vlog::line("car model: %s - the wire box stands in", why.c_str());
+        }
+        else
+        {
+            Str skin;
+            const Str texPath = carmesh::directoryOf(objPath) + carModel.textureFile;
+            std::FILE* f = carModel.textureFile.empty() ? nullptr : std::fopen(
+                texPath.c_str(),
+                "rb"
+            );
+            if(f != nullptr)
+            {
+                Array<Char, 4096> chunk = {};
+                for(Size got = std::fread(chunk.data(), 1, chunk.size(), f); got > 0u; got = std::fread(
+                    chunk.data(),
+                    1,
+                    chunk.size(),
+                    f
+                ))
+                {
+                    skin.append(chunk.data(), got);
+                }
+                std::fclose(f);
+            }
+            jpeg::Picture pic;
+            Str decodeWhy;
+            if(skin.empty() || !jpeg::decode(
+                reinterpret_cast<const UInt8*>(skin.data()),
+                skin.size(),
+                &pic,
+                &decodeWhy
+            ))
+            {
+                vlog::line(
+                    "car model: %s loaded, %zu triangles, but no skin (%s) - the wire box stands in",
+                    carModel.name.c_str(),
+                    carModel.triangles.size(),
+                    skin.empty() ? "texture file missing" : decodeWhy.c_str()
+                );
+            }
+            else
+            {
+                sc.meshTexture = camview::createStaticTexture(pic);
+                sc.mesh = sc.meshTexture != 0u ? &carModel : nullptr;
+                vlog::line(
+                    "car model: %s, %zu triangles, skin %dx%d%s",
+                    carModel.name.c_str(),
+                    carModel.triangles.size(),
+                    pic.width,
+                    pic.height,
+                    sc.mesh ? "" : " - texture refused, the wire box stands in"
+                );
+            }
+        }
+    }
     // Closed at startup. Trim and Drive own no device resource, so neither has a
     // shutdown.
     trimview::View trim;
@@ -874,6 +941,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     link::close(net.client);
     // Before the device goes: releasing a texture after its device is destroyed
     // crashes on exit.
+    camview::releaseStaticTexture(sc.meshTexture);
     camview::shutdown(cam);
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

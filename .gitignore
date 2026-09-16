@@ -73,3 +73,5 @@ tools/npu/frames/
 tools/npu/runs/
 tools/npu/samples/
 tools/npu/eval/
+# The car model for the 3D view: the operator's download, dropped in by hand (viewer/README.md).
+viewer/assets/

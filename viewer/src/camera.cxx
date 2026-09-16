@@ -598,6 +598,55 @@ namespace camview
       uiScale = scale > 0.0f ? scale : 1.0f;
   }
 
+  UPtr createStaticTexture(const jpeg::Picture& pic)
+  {
+      if(device == nullptr || pic.width <= 0 || pic.height <= 0)
+      {
+          return 0;
+      }
+      D3D11_TEXTURE2D_DESC desc;
+      ZeroMemory(&desc, sizeof(desc));
+      desc.Width = static_cast<UINT>(pic.width);
+      desc.Height = static_cast<UINT>(pic.height);
+      desc.MipLevels = 1;
+      desc.ArraySize = 1;
+      desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      desc.SampleDesc.Count = 1;
+      desc.Usage = D3D11_USAGE_IMMUTABLE;
+      desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+      D3D11_SUBRESOURCE_DATA init;
+      ZeroMemory(&init, sizeof(init));
+      init.pSysMem = pic.rgba.data();
+      init.SysMemPitch = static_cast<UINT>(pic.width) * 4u;
+      ID3D11Texture2D* tex = nullptr;
+      if(FAILED(device->CreateTexture2D(&desc, &init, &tex)) || tex == nullptr)
+      {
+          return 0;
+      }
+      D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+      ZeroMemory(&srvDesc, sizeof(srvDesc));
+      srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+      srvDesc.Texture2D.MipLevels = 1;
+      ID3D11ShaderResourceView* srv = nullptr;
+      const HRESULT made = device->CreateShaderResourceView(tex, &srvDesc, &srv);
+      // The view keeps the texture alive; the texture's own reference goes.
+      tex->Release();
+      if(FAILED(made) || srv == nullptr)
+      {
+          return 0;
+      }
+      return reinterpret_cast<UPtr>(srv);
+  }
+
+  Void releaseStaticTexture(UPtr handle)
+  {
+      if(handle != 0u)
+      {
+          reinterpret_cast<ID3D11ShaderResourceView*>(handle)->Release();
+      }
+  }
+
   Void shutdown(View& v)
   {
       releaseTexture(v);

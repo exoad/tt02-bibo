@@ -44,9 +44,19 @@ board's own packages and ships with nothing.
 | [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk) | — | BSD-3-Clause | `vendor/pico-sdk` | no, cloned |
 | [picotool](https://github.com/raspberrypi/pico-sdk-tools) | 2.3.0 | BSD-3-Clause | `vendor/picotool-2.3.0` | no, downloaded |
 | TinyUSB, cyw43-driver, lwIP | — | MIT / mixed | inside the Pico SDK | no |
+| "Subaru Impreza 22B super drift" car model (Sketchfab) | — | CC BY 4.0 | `viewer/assets/car`, dropped in by hand | no, gitignored |
 
 **Dear ImGui** is copyright (c) 2014-2026 Omar Cornut. MIT: do what you like,
 keep the notice.
+
+**The car model** in the 3D view is "Subaru Impreza 22B super drift", downloaded
+from Sketchfab under Creative Commons Attribution 4.0
+(https://creativecommons.org/licenses/by/4.0/). It is not in the repository:
+`viewer/assets/car/` is gitignored and the viewer draws a wire box without it.
+Changes made: the OBJ is fitted to the TT-02's length, stood on the floor and
+turned into the view's frame at load time (`viewer/src/carmesh.cxx`); the files
+are used as downloaded. The author's name and the model's page belong here too
+and were not in the download - fill them in from the Sketchfab page.
 
 **rplidar_sdk** is copyright (c) 2009-2014 RoboPeak Team and (c) 2014-2018
 Shanghai Slamtec Co., Ltd. Two clauses, no endorsement clause — see the binary
