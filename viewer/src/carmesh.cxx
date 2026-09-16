@@ -145,11 +145,18 @@ namespace carmesh
           }
           if(w[0] == "v" && w.size() >= 4u)
           {
-              positions.push_back(Raw{ std::strtof(w[1].c_str(), nullptr), std::strtof(w[2].c_str(), nullptr), std::strtof(w[3].c_str(), nullptr) });
+              positions.push_back(
+                  Raw{ std::strtof(w[1].c_str(), nullptr), std::strtof(w[2].c_str(), nullptr), std::strtof(
+                      w[3].c_str(),
+                      nullptr
+                  ) }
+              );
           }
           else if(w[0] == "vt" && w.size() >= 3u)
           {
-              uvs.push_back(Uv{ std::strtof(w[1].c_str(), nullptr), std::strtof(w[2].c_str(), nullptr) });
+              uvs.push_back(
+                  Uv{ std::strtof(w[1].c_str(), nullptr), std::strtof(w[2].c_str(), nullptr) }
+              );
           }
           else if(w[0] == "o" && w.size() >= 2u && name.empty())
           {

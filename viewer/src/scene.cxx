@@ -296,7 +296,11 @@ namespace scene
           d.col = rgbaOf(lit, lit, lit, 1.0f);
           drawn.push_back(d);
       }
-      std::sort(drawn.begin(), drawn.end(), [](const Drawn& l, const Drawn& r) { return l.depth > r.depth; });
+      std::sort(
+          drawn.begin(),
+          drawn.end(),
+          [](const Drawn& l, const Drawn& r) { return l.depth > r.depth; }
+      );
       dl->PushTexture(ImTextureRef(static_cast<ImTextureID>(tex)));
       dl->PrimReserve(static_cast<int>(drawn.size() * 3u), static_cast<int>(drawn.size() * 3u));
       for(const Drawn& d : drawn)
@@ -340,7 +344,11 @@ namespace scene
           const Vec3 p10 = { HAT_RADIUS * std::cos(a1), HAT_RADIUS * std::sin(a1), z0 };
           const Vec3 p01 = { p00.x, p00.y, z1 };
           const Vec3 p11 = { p10.x, p10.y, z1 };
-          const Array<Projected, 4> q = { project(b, p00), project(b, p10), project(b, p11), project(b, p01) };
+          Array<Projected, 4> q;
+          q[0] = project(b, p00);
+          q[1] = project(b, p10);
+          q[2] = project(b, p11);
+          q[3] = project(b, p01);
           for(const Projected& p : q)
           {
               visible = visible && p.depth > NEAR_PLANE;
@@ -349,7 +357,9 @@ namespace scene
           {
               break;
           }
-          const Vec3 n = normalize(Vec3{ std::cos(0.5f * (a0 + a1)), std::sin(0.5f * (a0 + a1)), 0.0f });
+          const Vec3 n = normalize(
+              Vec3{ std::cos(0.5f * (a0 + a1)), std::sin(0.5f * (a0 + a1)), 0.0f }
+          );
           const Float32 lit = 0.10f + 0.16f * std::max(0.0f, dot(n, light));
           Side s;
           s.at = { q[0].at, q[1].at, q[2].at, q[3].at };
@@ -362,7 +372,11 @@ namespace scene
       {
           return;
       }
-      std::sort(sides.begin(), sides.end(), [](const Side& l, const Side& r) { return l.depth > r.depth; });
+      std::sort(
+          sides.begin(),
+          sides.end(),
+          [](const Side& l, const Side& r) { return l.depth > r.depth; }
+      );
       for(const Side& s : sides)
       {
           dl->AddConvexPolyFilled(s.at.data(), 4, s.col);
