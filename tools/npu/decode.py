@@ -78,41 +78,43 @@ def peaks(heat, threshold, radius=3):
     return out
 
 
-def quads(centres, corners, max_span=60.0):
-    """For each centre, the four nearest corners that sit one per quadrant of
-    angle around it. Returns quads as 4x2 arrays in input pixels, counter-
-    clockwise in image coordinates (y down), matching the library's order."""
-    out = []
-    for cx, cy, _ in centres:
+def quads(centres, corners, max_span=60.0, nearest=8):
+    """For each centre, every plausible set of four corners around it, best
+    first: four of the nearest corner peaks that sit about 90 degrees apart
+    in angle and at similar distances. Several per centre on purpose - a
+    quantized network fires extra corners, and the code decides which set is
+    the tag. Yields (centre index, quad 4x2 in input pixels, angular error),
+    the quad counter-clockwise in image coordinates as the library orders it."""
+    import itertools
+
+    for ci, (cx, cy, _) in enumerate(centres):
         near = []
         for x, y, s in corners:
             d = math.hypot(x - cx, y - cy)
-            if d <= max_span:
-                near.append((math.atan2(y - cy, x - cx), d, x, y))
+            if 1.5 <= d <= max_span:
+                near.append((d, math.atan2(y - cy, x - cx), x, y))
+        near.sort()
+        near = near[:nearest]
         if len(near) < 4:
             continue
-        near.sort()
-        # Four corners about 90 degrees apart: walk the sorted angles and pick
-        # the best-fitting set by trying each start.
-        best = None
-        for i in range(len(near)):
-            picked = [near[i]]
-            for k in range(1, 4):
-                want = near[i][0] + k * math.pi / 2
-                want = (want + math.pi) % (2 * math.pi) - math.pi
-                cand = min(near, key=lambda n: abs((n[0] - want + math.pi) % (2 * math.pi) - math.pi))
-                picked.append(cand)
-            err = sum(abs(((p[0] - picked[0][0] - k * math.pi / 2) + math.pi) % (2 * math.pi) - math.pi) for k, p in enumerate(picked))
-            spread = max(p[1] for p in picked) / max(1e-6, min(p[1] for p in picked))
-            if spread > 2.5:
+        found = []
+        for combo in itertools.combinations(near, 4):
+            picked = sorted(combo, key=lambda n: n[1])
+            spread = picked[-1][0] / max(1e-6, picked[0][0])
+            if spread > 2.2:
                 continue
-            if best is None or err < best[0]:
-                best = (err, picked)
-        if best is None or best[0] > 1.2:
-            continue
-        pts = np.array([[p[2], p[3]] for p in best[1]]) * synth.STRIDE
-        out.append(pts)
-    return out
+            err = 0.0
+            for k in range(1, 4):
+                gap = (picked[k][1] - picked[k - 1][1]) % (2 * math.pi)
+                err += abs(gap - math.pi / 2)
+            gap = (picked[0][1] - picked[3][1]) % (2 * math.pi)
+            err += abs(gap - math.pi / 2)
+            if err > 1.6:
+                continue
+            found.append((err, np.array([[n[2], n[3]] for n in picked]) * synth.STRIDE))
+        found.sort(key=lambda f: f[0])
+        for err, quad in found[:12]:
+            yield ci, quad, err
 
 
 def sample_code(grey, quad):
@@ -153,13 +155,17 @@ def detect(grey, heat, centre_threshold=0.35, corner_threshold=0.3):
     """grey: HxW uint8 at the input size. heat: 2xhxw probabilities.
     Returns a list of (id, hamming, quad 4x2 px)."""
     found = []
-    for quad in quads(peaks(heat[0], centre_threshold), peaks(heat[1], corner_threshold)):
+    taken = set()
+    for ci, quad, _ in quads(peaks(heat[0], centre_threshold), peaks(heat[1], corner_threshold)):
+        if ci in taken:
+            continue
         bits = sample_code(grey, quad)
         if bits is None:
             continue
         m = match(bits)
         if m is not None:
             found.append((m[0], m[1], quad))
+            taken.add(ci)
     return found
 
 

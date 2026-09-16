@@ -1,0 +1,43 @@
+{
+    "Inputs": {
+        "picture_27": {
+            "name": "picture",
+            "shape": [
+                1,
+                1,
+                240,
+                320
+            ],
+            "format": "nchw",
+            "quantizer": "asymmetric_affine",
+            "quantize": {
+                "qtype": "u8",
+                "max_value": 255.0,
+                "min_value": 0.0,
+                "scale": 1.0,
+                "zero_point": 0
+            }
+        }
+    },
+    "Outputs": {
+        "attach_Sigmoid_/Sigmoid/out0_0": {
+            "name": "attach_Sigmoid_/Sigmoid/out0",
+            "shape": [
+                1,
+                2,
+                60,
+                80
+            ],
+            "format": "nchw",
+            "quantizer": "asymmetric_affine",
+            "quantize": {
+                "qtype": "u8",
+                "max_value": 1.0,
+                "min_value": 0.0,
+                "scale": 0.003921568859368563,
+                "zero_point": 0
+            }
+        }
+    },
+    "Recurrent_connections": {}
+}

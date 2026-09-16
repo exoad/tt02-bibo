@@ -4,7 +4,11 @@
 // runtime, its version, and the shape of the call sequence a pilot module
 // would make.
 //
-//   npu_probe <network.nb> [input.dat] [runs]
+//   npu_probe <network.nb> [input.dat] [runs] [dump-prefix]
+//
+// With a dump prefix, every output tensor is written raw to <prefix>.<i>.bin
+// after the last run, so the NPU's answer can be compared with the model's
+// on a PC (tools/npu/compare_npu.py).
 //
 // Linux with VIPLite only (PILOT_HAVE_VIPLITE, found by CMake on the board).
 #include "shared.hxx"
@@ -127,6 +131,7 @@ namespace
           count *= p.params.sizes[d];
       }
       p.bytes = count * bytesPer(p.params.data_format);
+      std::printf("    (%zu values by the dims)\n", count);
       return true;
   }
 
@@ -170,6 +175,7 @@ int main(int argc, char** argv)
     const Str path = argv[1];
     const Str inputPath = argc > 2 ? argv[2] : "";
     const Int32 runs = argc > 3 ? std::atoi(argv[3]) : 20;
+    const Str dumpPrefix = argc > 4 ? argv[4] : "";
     const UInt32 version = vip_get_version();
     std::printf(
         "viplite %u.%u.%u.%u\n",
@@ -238,6 +244,11 @@ int main(int argc, char** argv)
             print("input", i, in[i]);
             ok = vip_create_buffer(&in[i].params, sizeof(in[i].params), &in[i].buffer) == VIP_SUCCESS
               && vip_set_input(net, i, in[i].buffer) == VIP_SUCCESS;
+            if(ok)
+            {
+                in[i].bytes = vip_get_buffer_size(in[i].buffer);
+                std::printf("    buffer of %zu bytes\n", in[i].bytes);
+            }
         }
     }
     for(UInt32 i = 0; i < outputs && ok; ++i)
@@ -248,6 +259,11 @@ int main(int argc, char** argv)
             print("output", i, out[i]);
             ok = vip_create_buffer(&out[i].params, sizeof(out[i].params), &out[i].buffer) == VIP_SUCCESS
               && vip_set_output(net, i, out[i].buffer) == VIP_SUCCESS;
+            if(ok)
+            {
+                out[i].bytes = vip_get_buffer_size(out[i].buffer);
+                std::printf("    buffer of %zu bytes\n", out[i].bytes);
+            }
         }
     }
     if(!ok)
@@ -316,6 +332,21 @@ int main(int argc, char** argv)
                 std::printf(" %02x", p[b]);
             }
             std::printf("\n");
+            if(!dumpPrefix.empty())
+            {
+                const Str path = dumpPrefix + "." + std::to_string(i) + ".bin";
+                std::FILE* f = std::fopen(path.c_str(), "wb");
+                if(f != nullptr)
+                {
+                    static_cast<Void>(std::fwrite(p, 1, out[i].bytes, f));
+                    std::fclose(f);
+                    std::printf(
+                        "  output %u written to %s\n",
+                        static_cast<unsigned>(i),
+                        path.c_str()
+                    );
+                }
+            }
             static_cast<Void>(vip_unmap_buffer(out[i].buffer));
         }
     }

@@ -1,0 +1,41 @@
+{
+    "Inputs": {
+        "picture_27": {
+            "name": "picture",
+            "shape": [
+                1,
+                1,
+                240,
+                320
+            ],
+            "format": "nchw",
+            "quantizer": "dynamic_fixed_point",
+            "quantize": {
+                "qtype": "i16",
+                "max_value": 255.0,
+                "min_value": 0,
+                "fl": 7
+            }
+        }
+    },
+    "Outputs": {
+        "attach_Sigmoid_/Sigmoid/out0_0": {
+            "name": "attach_Sigmoid_/Sigmoid/out0",
+            "shape": [
+                1,
+                2,
+                60,
+                80
+            ],
+            "format": "nchw",
+            "quantizer": "dynamic_fixed_point",
+            "quantize": {
+                "qtype": "i16",
+                "max_value": 1.0,
+                "min_value": 0.0,
+                "fl": 15
+            }
+        }
+    },
+    "Recurrent_connections": {}
+}
