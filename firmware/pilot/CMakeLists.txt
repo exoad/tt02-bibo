@@ -85,6 +85,22 @@ if(PILOT_APRILTAG)
     target_link_libraries(pilotlib PUBLIC ${APRILTAG_LIB} JPEG::JPEG m Threads::Threads)
 endif()
 
+# The NPU's runtime (VeriSilicon VIPLite: /usr/include/vip_lite.h, libNBGlinker.so and
+# libVIPhal.so, shipped in
+# the board's image) is found rather than handed in, since it is a system library there and
+# nowhere else. With it, npu_probe is built: the first rung of the NPU port, which loads a
+# network binary and times it. Nothing in pilotlib uses the NPU yet.
+# The vip_* entry points are exported by libNBGlinker.so; libVIPhal.so is the layer under it.
+find_path(VIPLITE_INC vip_lite.h)
+find_library(VIPLITE_LINKER NBGlinker)
+find_library(VIPLITE_HAL VIPhal)
+if(VIPLITE_INC AND VIPLITE_LINKER AND VIPLITE_HAL)
+    add_executable(npu_probe tools/npu_probe.cxx)
+    target_compile_definitions(npu_probe PRIVATE PILOT_HAVE_VIPLITE)
+    target_include_directories(npu_probe SYSTEM PRIVATE ${VIPLITE_INC} ${FWLIB})
+    target_link_libraries(npu_probe PRIVATE ${VIPLITE_LINKER} ${VIPLITE_HAL})
+endif()
+
 # Built with or without the SDK, so CI compiles it; without the SDK lidar::open refuses and it
 # exits before it opens the Pico.
 add_executable(pilot app/main.cxx)
@@ -101,7 +117,7 @@ endforeach()
 
 # Every programs/<name>.cxx is an executable <name>, built with or without the SDK so CI
 # compiles every program. After the targets above, so a name clash is caught.
-set(RESERVED_NAMES pilot pilotlib lidar_probe)
+set(RESERVED_NAMES pilot pilotlib lidar_probe npu_probe)
 file(GLOB CAR_PROGRAMS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/programs/*.cxx)
 foreach(src ${CAR_PROGRAMS})
     get_filename_component(name ${src} NAME_WE)
