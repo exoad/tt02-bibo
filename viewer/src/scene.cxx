@@ -309,6 +309,76 @@ namespace scene
       dl->PopTexture();
   }
 
+  // The lidar as a hat: a short black puck on the roof over the origin, where
+  // the C1 is (the cloud is lidar-centred). Oversized on purpose - the real
+  // puck is 55 mm across - but inside the roof, so it reads as a hat and not
+  // a roof rack. Drawn after the car, which is right from every pitch the
+  // camera allows since the hat is above everything it could hide behind.
+  constexpr Float32 HAT_RADIUS = 0.055f;
+  constexpr Float32 HAT_HEIGHT = 0.045f;
+  constexpr Int32 HAT_SIDES = 20;
+
+  static Void drawLidarHat(ImDrawList* dl, const Basis& b, Float32 roofZ)
+  {
+      const Float32 z0 = roofZ;
+      const Float32 z1 = roofZ + HAT_HEIGHT;
+      const Vec3 light = normalize(Vec3{ 0.3f, 0.5f, 0.8f });
+      struct Side
+      {
+          Array<ImVec2, 4> at;
+          Float32 depth;
+          ImU32 col;
+      };
+      Vec<Side> sides;
+      Vec<ImVec2> top;
+      Bool visible = true;
+      for(Int32 i = 0; i < HAT_SIDES && visible; ++i)
+      {
+          const Float32 a0 = 6.2831853f * static_cast<Float32>(i) / HAT_SIDES;
+          const Float32 a1 = 6.2831853f * static_cast<Float32>(i + 1) / HAT_SIDES;
+          const Vec3 p00 = { HAT_RADIUS * std::cos(a0), HAT_RADIUS * std::sin(a0), z0 };
+          const Vec3 p10 = { HAT_RADIUS * std::cos(a1), HAT_RADIUS * std::sin(a1), z0 };
+          const Vec3 p01 = { p00.x, p00.y, z1 };
+          const Vec3 p11 = { p10.x, p10.y, z1 };
+          const Array<Projected, 4> q = { project(b, p00), project(b, p10), project(b, p11), project(b, p01) };
+          for(const Projected& p : q)
+          {
+              visible = visible && p.depth > NEAR_PLANE;
+          }
+          if(!visible)
+          {
+              break;
+          }
+          const Vec3 n = normalize(Vec3{ std::cos(0.5f * (a0 + a1)), std::sin(0.5f * (a0 + a1)), 0.0f });
+          const Float32 lit = 0.10f + 0.16f * std::max(0.0f, dot(n, light));
+          Side s;
+          s.at = { q[0].at, q[1].at, q[2].at, q[3].at };
+          s.depth = 0.25f * (q[0].depth + q[1].depth + q[2].depth + q[3].depth);
+          s.col = rgbaOf(lit, lit, lit + 0.02f, 1.0f);
+          sides.push_back(s);
+          top.push_back(q[3].at);
+      }
+      if(!visible)
+      {
+          return;
+      }
+      std::sort(sides.begin(), sides.end(), [](const Side& l, const Side& r) { return l.depth > r.depth; });
+      for(const Side& s : sides)
+      {
+          dl->AddConvexPolyFilled(s.at.data(), 4, s.col);
+      }
+      // The lid a shade lighter with a thin rim, and the little window the C1
+      // looks out of, drawn toward the nose.
+      dl->AddConvexPolyFilled(top.data(), static_cast<int>(top.size()), IM_COL32(52, 52, 58, 255));
+      dl->AddPolyline(top.data(), static_cast<int>(top.size()), IM_COL32(96, 96, 104, 255), ImDrawFlags_Closed, 1.0f);
+      const Projected eye0 = project(b, Vec3{ -0.02f, HAT_RADIUS, z0 + 0.4f * HAT_HEIGHT });
+      const Projected eye1 = project(b, Vec3{ 0.02f, HAT_RADIUS, z0 + 0.4f * HAT_HEIGHT });
+      if(eye0.depth > NEAR_PLANE && eye1.depth > NEAR_PLANE)
+      {
+          dl->AddLine(eye0.at, eye1.at, IM_COL32(150, 60, 60, 255), 2.0f);
+      }
+  }
+
   static Void drawCar(ImDrawList* dl, const Basis& b)
   {
       const Float32 hw = CAR_HALF_WIDTH;
@@ -405,10 +475,12 @@ namespace scene
           if(sc.mesh != nullptr && sc.meshTexture != 0u && !sc.mesh->triangles.empty())
           {
               drawMesh(dl, b, *sc.mesh, sc.meshTexture);
+              drawLidarHat(dl, b, sc.mesh->roofZ);
           }
           else
           {
               drawCar(dl, b);
+              drawLidarHat(dl, b, CAR_ROOF);
           }
       }
       if(sc.opt.heading)

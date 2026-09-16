@@ -1,6 +1,7 @@
 #include "carmesh.hxx"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -246,6 +247,20 @@ namespace carmesh
           }
           m.triangles.push_back(tri);
       }
+      Float32 roofAnywhere = -1.0e9f;
+      Float32 roofOverOrigin = -1.0e9f;
+      for(const Triangle& t : m.triangles)
+      {
+          for(const Vertex& v : t.at)
+          {
+              roofAnywhere = std::max(roofAnywhere, v.z);
+              if(std::fabs(v.x) <= ROOF_PATCH_M && std::fabs(v.y) <= ROOF_PATCH_M)
+              {
+                  roofOverOrigin = std::max(roofOverOrigin, v.z);
+              }
+          }
+      }
+      m.roofZ = roofOverOrigin > -1.0e8f ? roofOverOrigin : roofAnywhere;
       // The texture: the first map_Kd in the MTL, if any.
       Size mat = 0;
       while(mat < mtl.size())

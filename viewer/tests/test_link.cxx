@@ -2267,6 +2267,7 @@ static Void testCarMesh()
             m.triangles[2].at[2].u == 0.0f && m.triangles[2].at[2].v == 0.0f,
             "a corner without coordinates reads (0, 0)"
         );
+        check(std::fabs(m.roofZ - maxZ) < 1.0e-6f, "the roof over the origin is the apex, where the hat goes");
     }
     // Refusals, each in words.
     carmesh::Mesh none;

@@ -44,7 +44,14 @@ namespace carmesh
       Vec<Triangle> triangles;
       Str textureFile;    // from the MTL's map_Kd, relative to the OBJ; empty when none
       Str name;           // the first `o` line, for the log
+
+      // The roof over the origin, world metres: the highest vertex within
+      // ROOF_PATCH_M of the car's centre, or the highest anywhere when the
+      // model has none there. Where the lidar hat sits.
+      Float32 roofZ = 0.0f;
   };
+
+  constexpr Float32 ROOF_PATCH_M = 0.08f;
 
   // OBJ text (and the MTL's, when there is one) into a fitted mesh. Polygons
   // are fanned into triangles; faces without texture coordinates get (0, 0).
