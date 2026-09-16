@@ -413,6 +413,11 @@ namespace
       {
           cfg.cores = cores;
       }
+      const Char* npuModel = std::getenv("BIBO_TAGS_NPU");
+      if(npuModel != nullptr && npuModel[0] != '\0')
+      {
+          cfg.npuModel = npuModel;
+      }
       Str why;
       if(!tags::start(cfg, why))
       {
@@ -425,7 +430,8 @@ namespace
           return;
       }
       std::printf(
-          "apriltag: detector running - tag36h11, decimate %.1f, %u fps asked of the camera, %s\n",
+          "apriltag: detector running on the %s - tag36h11, decimate %.1f, %u fps asked of the camera, %s\n",
+          tags::stats().backend.c_str(),
           static_cast<Float64>(cfg.decimate),
           static_cast<unsigned>(cfg.fps),
           camCal.calibrated ? "ranges from the calibration" : "no calibration so no ranges"

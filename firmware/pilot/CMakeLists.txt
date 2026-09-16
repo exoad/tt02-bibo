@@ -31,7 +31,8 @@ set(FWLIB ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/bibowire.cxx src/viewfeed.cxx
-    src/trimfile.cxx src/carrules.cxx src/car.cxx src/chain.cxx src/tags.cxx
+    src/trimfile.cxx src/carrules.cxx src/car.cxx src/chain.cxx src/tags.cxx src/tagnet.cxx
+    src/npu.cxx
 )
 target_include_directories(pilotlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -95,6 +96,9 @@ find_path(VIPLITE_INC vip_lite.h)
 find_library(VIPLITE_LINKER NBGlinker)
 find_library(VIPLITE_HAL VIPhal)
 if(VIPLITE_INC AND VIPLITE_LINKER AND VIPLITE_HAL)
+    target_compile_definitions(pilotlib PUBLIC PILOT_HAVE_VIPLITE)
+    target_include_directories(pilotlib SYSTEM PRIVATE ${VIPLITE_INC})
+    target_link_libraries(pilotlib PUBLIC ${VIPLITE_LINKER} ${VIPLITE_HAL})
     add_executable(npu_probe tools/npu_probe.cxx)
     target_compile_definitions(npu_probe PRIVATE PILOT_HAVE_VIPLITE)
     target_include_directories(npu_probe SYSTEM PRIVATE ${VIPLITE_INC} ${FWLIB})
@@ -109,7 +113,7 @@ target_link_libraries(pilot PRIVATE pilotlib)
 enable_testing()
 # test_viewfeed is not in tools\test.bat: its real half is Linux sockets, and on MSVC every
 # call refuses.
-foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car chain tags)
+foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car chain tags tagnet)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

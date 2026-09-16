@@ -69,6 +69,13 @@ namespace tags
       // frees the big cores for driving at about twice the time per frame),
       // or "any" (the scheduler's choice). BIBO_TAGS_CORES sets it.
       Str cores = "big";
+
+      // A network binary for the NPU (tools/npu/nbg). Empty runs the CPU
+      // detector; set, the network does the search and tagnet.cxx the
+      // decode, and a binary that will not load REFUSES start() rather than
+      // falling back: an operator who asked for the NPU must not be shown
+      // the CPU's numbers. BIBO_TAGS_NPU sets it.
+      Str npuModel;
   };
 
   struct Stats
@@ -81,6 +88,7 @@ namespace tags
       UInt32 lastDetectUs = 0;
       UInt32 lastCount = 0;
       Str cores;                  // which cpus the thread runs on, in words
+      Str backend;                // "cpu" or "npu <network name>"
       Str why;                    // the last refusal or decode failure, in words
   };
 

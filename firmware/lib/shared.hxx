@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 
+using Int8 = std::int8_t;
 using Int16 = std::int16_t;
 using Int32 = std::int32_t;
 using Int64 = std::int64_t;

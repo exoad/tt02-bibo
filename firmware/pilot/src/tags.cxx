@@ -178,6 +178,8 @@ namespace tags
 
 #if defined(__linux__) && defined(PILOT_HAVE_APRILTAG)
 
+#include "npu.hxx"
+#include "tagnet.hxx"
 #include "viewfeed.hxx"
 
 #include <algorithm>
@@ -410,7 +412,89 @@ namespace tags
         }
     }
 
+    // The NPU path of find(): the full-size grey picture halved by 2x2 means
+    // into the network's input, the network run, its heatmaps decoded by
+    // tagnet, and the corners scaled back to the picture's own pixels so a
+    // TAGS frame means the same thing whichever detector made it.
+    [[nodiscard]] Bool findOnNpu(image_u8_t* im, const Config& cfg, bibowire::Tags* t, Str& why)
+    {
+        const Int32 fx = im->width / tagnet::IN_W;
+        const Int32 fy = im->height / tagnet::IN_H;
+        if(fx < 1 || fy < 1 || im->width != fx * tagnet::IN_W || im->height != fy * tagnet::IN_H)
+        {
+            why = "the picture is " + std::to_string(im->width) + "x" + std::to_string(im->height)
+                + ", not a whole multiple of the network's " + std::to_string(tagnet::IN_W) + "x"
+                + std::to_string(tagnet::IN_H);
+            return false;
+        }
+        const TimePoint before = monoNow();
+        Vec<UInt8> small(static_cast<Size>(tagnet::IN_W * tagnet::IN_H));
+        const Int32 cells = fx * fy;
+        for(Int32 y = 0; y < tagnet::IN_H; ++y)
+        {
+            for(Int32 x = 0; x < tagnet::IN_W; ++x)
+            {
+                Int32 sum = 0;
+                for(Int32 dy = 0; dy < fy; ++dy)
+                {
+                    const UInt8* row = im->buf + static_cast<Size>(y * fy + dy) * static_cast<Size>(im->stride);
+                    for(Int32 dx = 0; dx < fx; ++dx)
+                    {
+                        sum += row[x * fx + dx];
+                    }
+                }
+                small[static_cast<Size>(y * tagnet::IN_W + x)] = static_cast<UInt8>(sum / cells);
+            }
+        }
+        Vec<Float32> heat(tagnet::HEAT_VALUES);
+        UInt32 npuUs = 0;
+        if(!npu::run(small.data(), heat.data(), &npuUs, why))
+        {
+            return false;
+        }
+        const Vec<tagnet::Found> found = tagnet::detect(small.data(), heat.data());
+        for(Size i = 0; i < found.size() && i < bibowire::MAX_TAGS; ++i)
+        {
+            const tagnet::Found& f = found[i];
+            bibowire::Tag one;
+            one.id = f.id;
+            one.hamming = f.hamming;
+            one.marginMilli = static_cast<Int32>(std::lround(f.margin * 1000.0f));
+            apriltag_detection_t d = {};
+            for(Size c = 0; c < 4u; ++c)
+            {
+                d.p[c][0] = static_cast<Float64>(f.corners[c].x) * fx;
+                d.p[c][1] = static_cast<Float64>(f.corners[c].y) * fy;
+                one.corners[c].xDeci = deci(d.p[c][0]);
+                one.corners[c].yDeci = deci(d.p[c][1]);
+            }
+            if(cfg.cal.calibrated)
+            {
+                // The library's pose wants the homography from its ideal tag,
+                // corners (-1,1) (1,1) (1,-1) (-1,-1), to the picture.
+                Array<Float64, 9> h = {};
+                const tagnet::Quad ideal = { { { -1.0f, 1.0f }, { 1.0f, 1.0f }, { 1.0f, -1.0f }, { -1.0f, -1.0f } } };
+                tagnet::Quad px = {};
+                for(Size c = 0; c < 4u; ++c)
+                {
+                    px[c] = tagnet::Corner{ static_cast<Float32>(d.p[c][0]), static_cast<Float32>(d.p[c][1]) };
+                }
+                if(tagnet::homography(ideal, px, h))
+                {
+                    d.H = matd_create_data(3, 3, h.data());
+                    locate(&d, cfg.cal, t->width, t->height, &one);
+                    matd_destroy(d.H);
+                }
+            }
+            t->tags.push_back(one);
+        }
+        const Float64 us = elapsedMs(before) * 1000.0;
+        t->detectUs = us > 0.0 ? static_cast<UInt32>(us) : 0u;
+        return true;
+    }
+
     Config config;
+    Bool onNpu = false;
     Atomic<Bool> quit{ false };
     Atomic<Bool> live{ false };
     Thread worker;
@@ -488,6 +572,17 @@ namespace tags
       t.height = static_cast<UInt16>(im->height);
       t.family = bibowire::TAG_FAMILY_36H11;
       t.flags = cfg.cal.calibrated ? bibowire::TAGS_FLAG_CALIBRATED : 0u;
+      if(onNpu)
+      {
+          LockGuard<Mutex> lock(detM);
+          const Bool ok = findOnNpu(im, cfg, &t, why);
+          image_u8_destroy(im);
+          if(ok)
+          {
+              *out = t;
+          }
+          return ok;
+      }
       {
           LockGuard<Mutex> lock(detM);
           const TimePoint before = monoNow();
@@ -531,12 +626,36 @@ namespace tags
           return false;
       }
       config = cfg;
+      onNpu = false;
+      Str backend = "cpu";
+      if(!cfg.npuModel.empty())
+      {
+          npu::Info info;
+          if(!npu::open(cfg.npuModel, &info, why))
+          {
+              return false;
+          }
+          if(info.inW != tagnet::IN_W || info.inH != tagnet::IN_H || info.outC != 2
+             || info.outW != tagnet::OUT_W || info.outH != tagnet::OUT_H)
+          {
+              why = cfg.npuModel + ": a " + std::to_string(info.inW) + "x" + std::to_string(
+                  info.inH
+              )
+                  + " in, " + std::to_string(info.outC) + "x" + std::to_string(info.outW) + "x"
+                  + std::to_string(info.outH) + " out network, not the tag detector's shape";
+              npu::close();
+              return false;
+          }
+          onNpu = true;
+          backend = "npu " + info.name + " (" + info.inFormat + " in, " + info.outFormat + " out)";
+      }
       quit.store(false);
       {
           LockGuard<Mutex> lock(statM);
           stat = Stats();
           stat.built = true;
           stat.running = true;
+          stat.backend = backend;
       }
       // Subscribed before the thread starts, so its first wait can be answered.
       viewfeed::wantCamera(true, cfg.fps);
@@ -585,6 +704,11 @@ namespace tags
       worker.join();
       live.store(false);
       viewfeed::wantCamera(false, 0);
+      if(onNpu)
+      {
+          npu::close();
+          onNpu = false;
+      }
       LockGuard<Mutex> lock(statM);
       stat.running = false;
   }
