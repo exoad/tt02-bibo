@@ -138,6 +138,11 @@ namespace viewfeed
   // replaying an old one to a new viewer would pair it with no picture at all.
   Void publishTags(const bibowire::Tags& t);
 
+  // The wheel encoder as the Pico last reported it, to every viewer
+  // subscribed to ODOM. LIVE and not remembered: the count is only worth
+  // reading against the one before it.
+  Void publishOdom(const bibowire::Odom& m);
+
   // A LOCAL subscriber to the camera, so the capture runs while no viewer
   // watches: the detector, loaded as a bundle, is the one there is. fps 0
   // asks for the board's default rate, as a viewer naming none does. The

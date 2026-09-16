@@ -281,9 +281,10 @@ LAYERS = {
     'firmware/tests':        {'../lib/text.hxx',
                               '../lib/pins.hxx',
                               '../lib/hall.hxx',
+                              '../lib/encoder.hxx',
                               '../lib/chassis/chassis.hxx'},
     # The encoder node reaches the SDK through hal.hxx and nothing else of the car's.
-    'firmware/encoder':      {'../lib/hal.hxx', '../lib/hall.hxx'},
+    'firmware/encoder':      {'../lib/hal.hxx', '../lib/encoder.hxx'},
 }
 
 # Lib-root files that reach sideways, with the reason.
@@ -293,7 +294,10 @@ LAYER_EXTRA = {
     # The host-test fake, behind #ifdef BIBO_FAKE_HAL, off in every flashed image.
     'firmware/lib/hal.hxx': {'shared.hxx', '../tests/fakes/hal.hxx'},
     'firmware/lib/status.hxx': {'hal.hxx'},
+    # The encoder binds the pure decoder to the SDK's gpio.
+    'firmware/lib/encoder.hxx': {'hal.hxx', 'hall.hxx'},
     'firmware/lib/bibo.hxx': {'hal.hxx', 'text.hxx', 'pins.hxx', 'status.hxx',
+                            'hall.hxx', 'encoder.hxx',
                             'chassis/cal.hxx', 'chassis/chassis.hxx',
                             'shared.hxx'},
 }

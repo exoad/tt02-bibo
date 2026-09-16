@@ -512,6 +512,7 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
     const Opt<link::Decision> dec = snap.state.decision(nowMs);
     const Opt<link::Board> brd = snap.state.boardState(nowMs);
     const Opt<link::Control> ctl = snap.state.controlState(nowMs);
+    const Opt<link::Odometry> odo = snap.state.odometry(nowMs);
     if(dec.has_value())
     {
         const Str mode = Str(bibowire::driveModeName(dec->decide.mode)) + " by "
@@ -581,6 +582,32 @@ static Void drawCarWindow(const link::Snapshot& snap, Int64 nowMs)
         readout("deadman", "--");
         readout("pico", "--");
         readout("battery", "--");
+    }
+    // The wheel encoder, from ODOM: the Pico's signed count and its own speed
+    // estimate, six ticks a motor turn. The error counts are bytes that
+    // saturate, so "clean" means clean since the Pico came up.
+    if(odo.has_value())
+    {
+        const Str ticks = std::to_string(odo->odom.ticks) + (odo->stale ? " (stale)" : "");
+        readoutStr("wheel ticks", ticks);
+        readoutStr("wheel speed", std::to_string(odo->odom.ticksPerS) + " ticks/s");
+        if(odo->odom.skips == 0u && odo->odom.invalid == 0u)
+        {
+            readout("hall errors", "none");
+        }
+        else
+        {
+            readoutStr(
+                "hall errors",
+                std::to_string(odo->odom.skips) + " skipped, " + std::to_string(odo->odom.invalid) + " invalid"
+            );
+        }
+    }
+    else
+    {
+        readout("wheel ticks", "--");
+        readout("wheel speed", "--");
+        readout("hall errors", "--");
     }
     ImGui::End();
 }

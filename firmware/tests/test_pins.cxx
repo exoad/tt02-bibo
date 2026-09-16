@@ -29,6 +29,10 @@ Int32 main(Void)
     check(pins::ready(), "ready after a good begin()");
     check(pins::active().servo == 0, "servo is GP0");
     check(pins::active().esc == 1, "esc is GP1");
+    check(
+        pins::active().hallA == 11 && pins::active().hallB == 12 && pins::active().hallC == 13,
+        "the halls are GP11, 12, 13"
+    );
     pins::Map one;
     one.esc = 5;
     check(pins::begin(one), "a partial map installs");

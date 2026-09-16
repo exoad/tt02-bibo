@@ -2200,6 +2200,61 @@ static Void testTags()
     );
 }
 
+static Size pushOdom(Vec<UInt8>& out, UInt64 monoUs, Int32 ticks, Int16 tps, UInt8 seq)
+{
+    bibowire::Odom m;
+    m.tMonoUs = monoUs;
+    m.ticks = ticks;
+    m.ticksPerS = tps;
+    m.skips = 0;
+    m.invalid = 2;
+    m.seq = seq;
+    Vec<UInt8> body(32, 0);
+    const Size n = bibowire::writeOdom(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_ODOM, body.data(), n);
+}
+
+static Void testOdom()
+{
+    std::printf("\n-- odom: the Pico's wheel count, a LIVE feed of its own --\n");
+    link::Session s;
+    check(!s.odometry(100).has_value(), "nothing before any ODOM frame");
+    Vec<UInt8> bytes;
+    check(pushOdom(bytes, 1000, -2859, -420, 7) > 0, "an ODOM frame frames");
+    static_cast<Void>(feed(s, bytes, 100));
+    check(s.haveOdom && s.odomFrames == 1, "and is held, counted");
+    const Opt<link::Odometry> o = s.odometry(150);
+    check(o.has_value(), "read while fresh");
+    if(o.has_value())
+    {
+        check(
+            o->odom.ticks == -2859 && o->odom.ticksPerS == -420,
+            "with the signed count and speed"
+        );
+        check(o->odom.invalid == 2 && o->odom.seq == 7, "the error count and the sequence");
+        check(o->ageMs == 50 && !o->stale, "aged from its arrival, fresh at 50 ms");
+    }
+    check(
+        !s.odometry(100 + link::GONE_MS + 1).has_value(),
+        "and gone past GONE_MS: a silent Pico is not a stopped wheel"
+    );
+    bytes.clear();
+    static_cast<Void>(pushOdom(bytes, 2000, -2853, 120, 8));
+    static_cast<Void>(feed(s, bytes, 200));
+    const Opt<link::Odometry> next = s.odometry(210);
+    check(
+        next.has_value() && next->odom.ticks == -2853 && next->odom.seq == 8,
+        "the next frame replaces it"
+    );
+    // A short body is refused and the held one stays.
+    bytes.clear();
+    Vec<UInt8> shortBody(12, 0);
+    static_cast<Void>(framed(bytes, bibowire::Type::TYPE_ODOM, shortBody.data(), shortBody.size()));
+    static_cast<Void>(feed(s, bytes, 300));
+    const Opt<link::Odometry> held = s.odometry(310);
+    check(held.has_value() && held->odom.seq == 8, "a short ODOM body leaves the held count");
+}
+
 static Void testCarMesh()
 {
     std::printf("\n-- the car model: OBJ text into the world frame --\n");
@@ -2267,7 +2322,10 @@ static Void testCarMesh()
             m.triangles[2].at[2].u == 0.0f && m.triangles[2].at[2].v == 0.0f,
             "a corner without coordinates reads (0, 0)"
         );
-        check(std::fabs(m.roofZ - maxZ) < 1.0e-6f, "the roof over the origin is the apex, where the hat goes");
+        check(
+            std::fabs(m.roofZ - maxZ) < 1.0e-6f,
+            "the roof over the origin is the apex, where the hat goes"
+        );
     }
     // Refusals, each in words.
     carmesh::Mesh none;
@@ -2412,6 +2470,7 @@ int main()
     testSettingsText();
     testBundles();
     testTags();
+    testOdom();
     testCarMesh();
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

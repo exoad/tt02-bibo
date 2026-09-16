@@ -172,6 +172,14 @@ namespace link
       Bool stale = false;
   };
 
+  // The wheel encoder as the Pico last counted it, fresh enough to show.
+  struct Odometry
+  {
+      bibowire::Odom odom;
+      Int64 ageMs = 0;
+      Bool stale = false;
+  };
+
   // One JPEG from the car's camera, fresh enough to draw. The bytes are carried
   // verbatim: jpeg.cxx decodes on the UI thread, keeping a third-party parser off
   // the network thread.
@@ -308,6 +316,13 @@ namespace link
       Int64 tagsAtMs = 0;
       UInt32 tagFrames = 0;
 
+      // ODOM: the encoder's count, once per reply the Pico gave the pilot.
+      // Always subscribed, 20 bytes a frame.
+      Bool haveOdom = false;
+      bibowire::Odom odom;
+      Int64 odomAtMs = 0;
+      UInt32 odomFrames = 0;
+
       // The trim the board has saved: the Pico's lines joined by "; ", empty
       // when nothing is saved (EVENT_CODE_TRIM). boardTrimAtMs and
       // boardTrimCount name one report, so the Trim pane takes each report
@@ -344,6 +359,7 @@ namespace link
       Cadence scanRate;
       Cadence cameraRate;
       Cadence tagRate;
+      Cadence odomRate;
       Cadence boardRate;
       Cadence controlRate;
 
@@ -404,6 +420,10 @@ namespace link
 
       // Empty past GONE_MS, like the picture it belongs to.
       [[nodiscard]] Opt<TagsSeen> tagsSeen(Int64 nowMs) const;
+
+      // Empty past GONE_MS: a count with no newer count behind it is not a
+      // stopped wheel, it is a silent Pico.
+      [[nodiscard]] Opt<Odometry> odometry(Int64 nowMs) const;
 
       // The newest CMDACK, empty until the board has answered anything.
       [[nodiscard]] Opt<Ack> newestAck() const;

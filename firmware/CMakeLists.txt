@@ -39,6 +39,8 @@ set(BIBO_LIB
     lib/text.hxx
     lib/pins.hxx
     lib/status.hxx
+    lib/hall.hxx
+    lib/encoder.hxx
     lib/chassis/cal.hxx
     lib/chassis/chassis.hxx
 )
@@ -60,6 +62,7 @@ target_link_libraries(pico_debug
     ${BIBO_LED_LIBS}
     pico_unique_id
     hardware_pwm
+    hardware_gpio
 )
 
 # Console on USB CDC. UART stdio off, so GP0/GP1 stay the servo and the ESC.
@@ -82,6 +85,7 @@ add_executable(pico_encoder
     lib/shared.hxx
     lib/hal.hxx
     lib/hall.hxx
+    lib/encoder.hxx
 )
 target_link_libraries(pico_encoder
     pico_stdlib

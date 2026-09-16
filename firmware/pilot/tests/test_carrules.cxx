@@ -319,7 +319,8 @@ static Str driveLine(Int32 armed, Int32 servoOn, Int32 stale, Int32 escMaxUs = 1
         buf.size(),
         "OK drive servo=1500 servo_t=1500 esc=1510 esc_t=1520 armed=%d servo_on=%d "
         "servo_c=1500 steer_m=0 steer_now=0 slew=8 slew_esc=8 servo_min=1000 "
-        "servo_max=2000 esc_min=1564 esc_max=%d esc_rev=1400 stale=%d",
+        "servo_max=2000 esc_min=1564 esc_max=%d esc_rev=1400 stale=%d "
+        "tick=-2859 tps=-420 hskip=0 hbad=1",
         armed,
         servoOn,
         escMaxUs,
@@ -338,6 +339,10 @@ static Void testFold()
     checkInt(b.escMinUs, 1564, "esc_min=");
     checkInt(b.escMaxUs, 1700, "esc_max=");
     checkInt(b.escRevUs, 1400, "esc_rev=");
+    checkInt(b.ticks, -2859, "tick= is the encoder's signed count");
+    checkInt(b.ticksPerS, -420, "tps= its signed speed");
+    checkInt(b.hallSkips, 0, "hskip=");
+    checkInt(b.hallInvalid, 1, "hbad=");
     check(!b.stopAnswered, "a drive line is not an OK stop");
     check(carrules::fold(b, "OK drive armed=1 servo_on=1"), "a short drive line is a report too");
     checkInt(b.escMaxUs, -1, "and a key it lacks reads -1, not the last value");

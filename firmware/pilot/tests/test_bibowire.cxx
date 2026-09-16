@@ -359,6 +359,17 @@ struct Rng
         push(&out, &w, Type::TYPE_TAGS, 25);
     }
     {
+        Odom m;
+        m.tMonoUs = 6;
+        m.ticks = -2859;
+        m.ticksPerS = -420;
+        m.skips = 0;
+        m.invalid = 1;
+        m.seq = 77;
+        w.bodyLen = writeOdom(m, w.body.data(), w.body.size());
+        push(&out, &w, Type::TYPE_ODOM, 26);
+    }
+    {
         Control m;
         m.sessionId = 0x0BADC0DEu;
         m.seq = 8814;
@@ -493,6 +504,8 @@ struct Rng
             return writeWaypoint(Waypoint{}, out, cap);
         case Type::TYPE_TAGS:
             return writeTags(Tags{}, out, cap);
+        case Type::TYPE_ODOM:
+            return writeOdom(Odom{}, out, cap);
         case Type::TYPE_BUNDLE:
             return writeBundle(Bundle{}, out, cap);
         case Type::TYPE_BUNDLE_STATE:
@@ -859,6 +872,23 @@ Int32 main()
     }
     {
         Wire w;
+        Odom m;
+        m.ticks = -2147483647 - 1;
+        m.ticksPerS = -32768;
+        m.skips = 255;
+        m.seq = 255;
+        w.bodyLen = writeOdom(m, w.body.data(), w.body.size());
+        check(w.bodyLen == 20 && wrap(&w, Type::TYPE_ODOM, 18), "an ODOM body is 20 bytes");
+        Odom back;
+        check(readOdom(w.frame.body, 1, &back), "it reads back");
+        check(
+            back.ticks == -2147483647 - 1 && back.ticksPerS == -32768,
+            "with the most negative count and speed intact"
+        );
+        check(back.skips == 255 && back.seq == 255, "and the saturated counts");
+    }
+    {
+        Wire w;
         Subscribe m;
         m.scanDivisor = 0;
         check(
@@ -930,7 +960,7 @@ Int32 main()
         );
     }
     const Vec<Str> rendered = buildAll();
-    check(rendered.size() == 27, "one rendered frame per type, plus two BOARDs of sentinels");
+    check(rendered.size() == 28, "one rendered frame per type, plus two BOARDs of sentinels");
     {
         Size i = 0;
         checkStr(
@@ -1024,6 +1054,11 @@ Int32 main()
             rendered[i++],
             "TAGS v1 seq=25 len=88 : mono=5 frame=41 size=640x480 family=0 flags=1 us=5300 n=2 id=7 id=583",
             "describe: TAGS"
+        );
+        checkStr(
+            rendered[i++],
+            "ODOM v1 seq=26 len=20 : mono=6 ticks=-2859 tps=-420 skips=0 invalid=1 seq=77",
+            "describe: ODOM"
         );
         checkStr(
             rendered[i++],

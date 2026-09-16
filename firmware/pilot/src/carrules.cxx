@@ -288,6 +288,10 @@ namespace carrules
       b.escMaxUs = keyOr(r.rest, "esc_max=");
       b.escRevUs = keyOr(r.rest, "esc_rev=");
       b.stale = keyOr(r.rest, "stale=");
+      b.ticks = keyOr(r.rest, "tick=");
+      b.ticksPerS = keyOr(r.rest, "tps=");
+      b.hallSkips = keyOr(r.rest, "hskip=");
+      b.hallInvalid = keyOr(r.rest, "hbad=");
       return true;
   }
 

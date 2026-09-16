@@ -2369,6 +2369,24 @@ namespace link
       return shot;
   }
 
+  Opt<Odometry> Session::odometry(Int64 nowMs) const
+  {
+      if(!haveOdom)
+      {
+          return {};
+      }
+      const Int64 age = ageOf(*this, nowMs, odomAtMs, odom.tMonoUs);
+      if(age > GONE_MS)
+      {
+          return {};
+      }
+      Odometry o;
+      o.odom = odom;
+      o.ageMs = age;
+      o.stale = age > staleBandMs(odomRate);
+      return o;
+  }
+
   Opt<TagsSeen> Session::tagsSeen(Int64 nowMs) const
   {
       if(!haveTags)
@@ -2776,6 +2794,21 @@ namespace link
           s.tags = std::move(m);
           return;
       }
+      case bibowire::Type::TYPE_ODOM:
+      {
+          bibowire::Odom m;
+          if(!bibowire::readOdom(f.body, ver, &m))
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          s.haveOdom = true;
+          s.odomAtMs = nowMs;
+          ++s.odomFrames;
+          noteArrival(s.odomRate, nowMs);
+          s.odom = m;
+          return;
+      }
       case bibowire::Type::TYPE_BUNDLE_STATE:
       {
           bibowire::BundleState m;
@@ -3116,7 +3149,8 @@ namespace link
                     | bibowire::typeBit(bibowire::Type::TYPE_CMDACK)
                     | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)
                     | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE)
-                    | bibowire::typeBit(bibowire::Type::TYPE_TAGS);
+                    | bibowire::typeBit(bibowire::Type::TYPE_TAGS)
+                    | bibowire::typeBit(bibowire::Type::TYPE_ODOM);
       if(withCamera)
       {
           mask |= bibowire::typeBit(bibowire::Type::TYPE_CAMERA);

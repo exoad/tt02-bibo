@@ -162,6 +162,7 @@ namespace bibowire
       TYPE_PATH = 0x22,
       TYPE_WAYPOINT = 0x23,
       TYPE_TAGS = 0x24,
+      TYPE_ODOM = 0x25,
       TYPE_CONTROL = 0x40,
       TYPE_COMMAND = 0x41,
       TYPE_SUBSCRIBE = 0x42,
@@ -169,7 +170,7 @@ namespace bibowire
       TYPE_SCHEMA = 0xF1,
   };
 
-  constexpr Size TYPE_COUNT = 25;
+  constexpr Size TYPE_COUNT = 26;
 
   // The drop priority of the socket half's bounded ring: BULK is discarded
   // first, then LIVE, and VITAL never, so the camera degrades before the car's
@@ -707,6 +708,22 @@ namespace bibowire
       Vec<Tag> tags;
   };
 
+  // The wheel encoder, as the car's Pico counts it: six hall steps per motor
+  // turn (docs/hardware.md). `ticks` is monotonic and signed, forward
+  // positive; `ticksPerS` is the Pico's own speed estimate. The two error
+  // counts SATURATE at 255 rather than wrap, so a glance says whether the
+  // stream has been clean since the Pico came up. `seq` steps per frame so
+  // a stalled encoder is told from a stopped wheel: a stall repeats seq.
+  struct Odom
+  {
+      UInt64 tMonoUs = 0;
+      Int32 ticks = 0;
+      Int16 ticksPerS = 0;
+      UInt8 skips = 0;
+      UInt8 invalid = 0;
+      UInt8 seq = 0;
+  };
+
   struct Control
   {
       UInt32 sessionId = 0;
@@ -861,6 +878,8 @@ namespace bibowire
   [[nodiscard]] Bool readWaypoint(const Body& b, UInt8 ver, Waypoint* out);
   [[nodiscard]] Size writeTags(const Tags& m, UInt8* out, Size cap);
   [[nodiscard]] Bool readTags(const Body& b, UInt8 ver, Tags* out);
+  [[nodiscard]] Size writeOdom(const Odom& m, UInt8* out, Size cap);
+  [[nodiscard]] Bool readOdom(const Body& b, UInt8 ver, Odom* out);
   [[nodiscard]] Size writeControl(const Control& m, UInt8* out, Size cap);
   [[nodiscard]] Bool readControl(const Body& b, UInt8 ver, Control* out);
   [[nodiscard]] Size writeCommand(const Command& m, UInt8* out, Size cap);

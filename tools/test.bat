@@ -19,7 +19,7 @@ set "PILOT=%ROOT%\firmware\pilot\src"
 set "EXTRA="
 set "LIBS="
 
-set "FIRMWARE_SUITES=text pins chassis"
+set "FIRMWARE_SUITES=text pins hall chassis encoder"
 set "PILOT_SUITES=proto pilot reactive bibowire trimfile carrules car chain"
 
 for %%s in (%FIRMWARE_SUITES%) do if "%SUITE%"=="%%s" goto :firmware
@@ -31,12 +31,13 @@ echo         usage: tools\test.bat ^<suite^> [run]
 echo         suites: %FIRMWARE_SUITES% %PILOT_SUITES% link
 exit /b 2
 
-REM Only chassis reaches into hal.hxx; BIBO_FAKE_HAL swaps in firmware\tests\fakes\hal.hxx.
+REM chassis and encoder reach into hal.hxx; BIBO_FAKE_HAL swaps in firmware\tests\fakes\hal.hxx.
 :firmware
 set "TESTS=%ROOT%\firmware\tests"
 set "INC=/I"%LIB%""
 set "SRCS="%TESTS%\test_%SUITE%.cxx""
 if "%SUITE%"=="chassis" set "EXTRA=/DBIBO_FAKE_HAL"
+if "%SUITE%"=="encoder" set "EXTRA=/DBIBO_FAKE_HAL"
 goto :build
 
 REM Suite pilot has no pilot.cxx: it tests the refusing halves of lidar.cxx and link.cxx.

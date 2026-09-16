@@ -5,7 +5,10 @@
  * COMMANDS lists them and HELP prints it.
  *
  * Nothing here touches the Pico SDK or a GPIO number. What is safe is decided in
- * lib/chassis; the handlers only report what it refused.
+ * lib/chassis; the handlers only report what it refused. The motor's hall
+ * sensors are counted by lib/encoder.hxx from interrupts, and every OK drive
+ * line carries the count, so the pilot gets odometry from replies it already
+ * reads.
  */
 #include "../lib/bibo.hxx"
 
@@ -68,15 +71,25 @@ static Bool cmdBootsel(const CharSeq arg)
     return true;
 }
 
+/* A count on the wire is a byte: 255 means "255 or more", read as "not clean". */
+static UInt32 saturated(const UInt32 n)
+{
+    return n > 255u ? 255u : n;
+}
+
 /*
  * Every drivetrain command answers with this line, so the pilot learns the
- * board's state from replies it already reads.
+ * board's state from replies it already reads. tick= is the encoder's signed
+ * count, tps= its speed in ticks a second, hskip= and hbad= its error counts
+ * (saturated: a byte each on the wire).
  */
 static Bool printDrive(Void)
 {
     const bibo::drive::State d = bibo::drive::read();
+    const bibo::encoder::Snapshot e = bibo::encoder::read();
     bibo::serial::printf(
-        "OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d " "servo_on=%d servo_c=%d steer_m=%d steer_now=%d " "slew=%d slew_esc=%d " "servo_min=%d servo_max=%d esc_min=%d esc_max=%d esc_rev=%d " "stale=%d\n",
+        "OK drive servo=%d servo_t=%d esc=%d esc_t=%d armed=%d " "servo_on=%d servo_c=%d steer_m=%d steer_now=%d " "slew=%d slew_esc=%d " "servo_min=%d servo_max=%d esc_min=%d esc_max=%d esc_rev=%d " "stale=%d "
+        "tick=%ld tps=%ld hskip=%lu hbad=%lu\n",
         d.servoUs,
         d.servoTargetUs,
         d.escUs,
@@ -93,7 +106,49 @@ static Bool printDrive(Void)
         d.escMinUs,
         d.escMaxUs,
         d.escReverseUs,
-        stale ? 1 : 0
+        stale ? 1 : 0,
+        static_cast<long>(e.ticks),
+        static_cast<long>(e.ticksPerS),
+        static_cast<unsigned long>(saturated(e.skips)),
+        static_cast<unsigned long>(saturated(e.invalid))
+    );
+    return true;
+}
+
+/*
+ * The encoder in full, for the bench: what OK drive carries plus the pieces of
+ * the speed estimate and the counts nothing acts on. HALL ZERO restarts the
+ * counts from where the wheel is.
+ */
+static Bool handleHall(const CharSeq arg)
+{
+    if(bibo::text::word(arg, "ZERO") != nullptr)
+    {
+        bibo::encoder::zero();
+        bibo::serial::printf("OK hall zeroed\n");
+        return true;
+    }
+    if(arg[0] != 0)
+    {
+        bibo::serial::printf("ERR hall wants nothing or ZERO\n");
+        return false;
+    }
+    const bibo::encoder::Snapshot e = bibo::encoder::read();
+    bibo::serial::printf(
+        "OK hall tick=%ld tps=%ld src=%s win=%ld per=%ld skip=%lu bad=%lu rep=%lu miss=%lu state=%u%u%u edges=%lu\n",
+        static_cast<long>(e.ticks),
+        static_cast<long>(e.ticksPerS),
+        e.stopped ? "stopped" : (e.usePeriod ? "period" : "window"),
+        static_cast<long>(e.windowTps),
+        static_cast<long>(e.periodTps),
+        static_cast<unsigned long>(e.skips),
+        static_cast<unsigned long>(e.invalid),
+        static_cast<unsigned long>(e.repeats),
+        static_cast<unsigned long>(e.misses),
+        (static_cast<UInt32>(e.state) >> 2) & 1u,
+        (static_cast<UInt32>(e.state) >> 1) & 1u,
+        static_cast<UInt32>(e.state) & 1u,
+        static_cast<unsigned long>(e.edges)
     );
     return true;
 }
@@ -365,6 +420,7 @@ static const Command COMMANDS[] =
     { .name = "ESC",         .usage = " ARM|DISARM|NEUTRAL|<us>", .what = "throttle",                                  .run = handleEsc },
     { .name = "ESCLIMITS",   .usage = " <min> <max>",             .what = "the throttle's working forward range",      .run = handleEscLimits },
     { .name = "ESCREVERSE",  .usage = " <us>",                    .what = "lowest brake/reverse pulse; neutral is off", .run = handleEscReverse },
+    { .name = "HALL",        .usage = " [ZERO]",                  .what = "the wheel encoder in full; ZERO restarts it",  .run = handleHall },
 };
 
 static Bool printHelp(const CharSeq arg)
@@ -427,6 +483,12 @@ int main(Void)
         bibo::serial::printf("ERR %s\n", bibo::pins::conflictText());
     }
     bibo::drive::open();
+    /* The hall lines, counted from here on; OK drive carries the count. */
+    bibo::encoder::open(
+        bibo::pins::active().hallA,
+        bibo::pins::active().hallB,
+        bibo::pins::active().hallC
+    );
     /* Can fail on the Pico 2 W, whose LED hangs off the CYW43439; ID reports that as lamp_up=no. */
     bibo::status::open();
     bibo::status::hello(HELLO_FLASHES, HELLO_FLASH_MS);
@@ -439,6 +501,7 @@ int main(Void)
     {
         bibo::status::tick();
         bibo::drive::pump();
+        bibo::encoder::pump();
         /*
          * The watchdog lives in the loop, so a blocked read or a silent, killed or
          * hung host trips it. A pulled cable or a power cut turns the Pico off, and

@@ -26,9 +26,12 @@ namespace bibo::pins
     {
         Int32 servo = NONE;
         Int32 esc = NONE;
+        Int32 hallA = NONE;   /* the motor's hall sensors, through dividers */
+        Int32 hallB = NONE;
+        Int32 hallC = NONE;
     };
 
-    constexpr Size FIELD_COUNT = 2;
+    constexpr Size FIELD_COUNT = 5;
 
     static_assert(
         sizeof(Map) == FIELD_COUNT * sizeof(Int32),
@@ -37,7 +40,7 @@ namespace bibo::pins
 
     inline CharSeq NAMES[FIELD_COUNT] =
     {
-        "servo", "esc"
+        "servo", "esc", "hallA", "hallB", "hallC"
     };
 
     static const Int32* fields(const Map* m)
@@ -51,6 +54,9 @@ namespace bibo::pins
         Map m;
         m.servo = 0;
         m.esc = 1;
+        m.hallA = 11;
+        m.hallB = 12;
+        m.hallC = 13;
         return m;
     }
 
@@ -164,6 +170,7 @@ namespace bibo::pins
     constexpr Int32 CAR_PADS[] =
     {
         0, 1,             /* servo, esc */
+        11, 12, 13,       /* hallA, hallB, hallC */
     };
 
     constexpr Size CAR_PAD_COUNT = sizeof(CAR_PADS) / sizeof(CAR_PADS[0]);

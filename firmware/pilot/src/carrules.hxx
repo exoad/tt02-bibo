@@ -49,6 +49,12 @@ namespace carrules
       Int32 escMaxUs = -1;
       Int32 escRevUs = -1;
       Int32 stale = -1;             // 1: the Pico's watchdog fired before this command
+      // The wheel encoder, as the Pico counts its hall sensors: six ticks a
+      // motor turn, forward positive. The error counts are saturated bytes.
+      Int32 ticks = -1;
+      Int32 ticksPerS = -1;
+      Int32 hallSkips = -1;
+      Int32 hallInvalid = -1;
       Bool stopAnswered = false;    // an OK stop has arrived
       UInt32 errors = 0;            // ERR lines
   };

@@ -13,6 +13,8 @@
 #include "text.hxx"
 #include "pins.hxx"
 #include "status.hxx"
+#include "hall.hxx"
+#include "encoder.hxx"
 #include "chassis/cal.hxx"
 #include "chassis/chassis.hxx"
 #include "shared.hxx"

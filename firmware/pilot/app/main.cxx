@@ -1196,6 +1196,11 @@ Int32 main(Int32 argc, Char** argv)
     Bool estopped = false;
     // The chain's newest refusal, said once per distinct sentence, not per tick.
     Str chainRefusalSaid;
+    // ODOM goes out once per OK drive reply that carried a count, never twice
+    // for the same one: a silent Pico is then a silent feed, which the viewer
+    // shows as gone, and not a count that looks held still.
+    UInt64 odomSaidOk = 0;
+    UInt8 odomSeq = 0;
     while(interrupted == 0 && !estopped && (opt.seconds < 0.0 || elapsedS(start) < opt.seconds))
     {
         // Empty on a timeout, and handed to step() anyway: STATUS_BLIND is a stop.
@@ -1310,6 +1315,19 @@ Int32 main(Int32 argc, Char** argv)
             ? bibowire::PICO_SILENT_ABSENT
             : static_cast<UInt32>(snap.picoSilentMs);
         viewfeed::applied(ap);
+        if(car.ticks != -1 && replies.ok != odomSaidOk)
+        {
+            odomSaidOk = replies.ok;
+            ++odomSeq;
+            bibowire::Odom od;
+            od.tMonoUs = snap.monoUs;
+            od.ticks = car.ticks;
+            od.ticksPerS = static_cast<Int16>(std::clamp(car.ticksPerS, -32768, 32767));
+            od.skips = static_cast<UInt8>(std::clamp(car.hallSkips, 0, 255));
+            od.invalid = static_cast<UInt8>(std::clamp(car.hallInvalid, 0, 255));
+            od.seq = odomSeq;
+            viewfeed::publishOdom(od);
+        }
         // LOADS AND UNLOADS TAKE EFFECT BETWEEN PASSES, never inside one, so
         // no scan is half judged by two different sets of behaviours.
         {

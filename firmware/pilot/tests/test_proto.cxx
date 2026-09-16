@@ -119,7 +119,8 @@ Int32 main()
         const Str line =
             "OK drive servo=1600 servo_t=1610 esc=1560 esc_t=1570 armed=1 "
             "servo_on=1 servo_c=1480 steer_m=-300 steer_now=-250 slew=8 "
-            "slew_esc=12 servo_min=1230 servo_max=1660 esc_min=1541 esc_max=1600";
+            "slew_esc=12 servo_min=1230 servo_max=1660 esc_min=1541 esc_max=1600 "
+            "esc_rev=1400 stale=0 tick=-2859 tps=-420 hskip=0 hbad=1";
         const proto::Reply r = proto::read(line);
         check(r.kind == proto::Kind::KIND_OK, "the drive reply is an OK");
         checkStr(r.topic, "drive", "with topic drive");
@@ -132,6 +133,15 @@ Int32 main()
         check(
             proto::fieldInt(r.rest, "steer_now=", v) && v == -250,
             "steer_now= is negative and is not steer_m="
+        );
+        check(
+            proto::fieldInt(r.rest, "tick=", v) && v == -2859,
+            "tick= is the encoder's signed count"
+        );
+        check(proto::fieldInt(r.rest, "tps=", v) && v == -420, "tps= its signed speed");
+        check(
+            proto::fieldInt(r.rest, "hbad=", v) && v == 1,
+            "hbad= is its own key at the end of the line"
         );
         check(proto::fieldInt(r.rest, "slew=", v) && v == 8, "slew= is not slew_esc=");
         // The '=' belongs to the key: without it strtol reads "=1" and fails,

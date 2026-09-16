@@ -22,6 +22,7 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
+#include "hardware/sync.h"
 #include "pico/bootrom.h"
 #include "pico/unique_id.h"
 
@@ -169,6 +170,72 @@ namespace bibo
         stdio_flush();
         sleep_ms(50);
         reset_usb_boot(0, 0);
+    }
+  }
+
+  /*
+   * Plain inputs and their edges. ONE handler for the whole board, run on any
+   * edge of any watched pin: the SDK has one callback per core, and the
+   * handler reads what it needs itself (the encoder reads all three lines).
+   */
+  namespace gpio
+  {
+    typedef Void (*EdgeHandler)(Void);
+
+    inline EdgeHandler edgeHandler = nullptr;
+
+    inline Void trampoline(uint pin, UInt32 events)
+    {
+        static_cast<Void>(pin);
+        static_cast<Void>(events);
+        if(edgeHandler != nullptr)
+        {
+            edgeHandler();
+        }
+    }
+
+    inline Void openInputDown(const Pin pin)
+    {
+        gpio_init(pin);
+        gpio_set_dir(pin, GPIO_IN);
+        gpio_pull_down(pin);
+    }
+
+    /** Every GPIO in one read, so three lines are never judged from two moments. */
+    inline UInt32 readAll(Void)
+    {
+        return gpio_get_all();
+    }
+
+    inline Void watchEdges(const Pin pin, const EdgeHandler handler)
+    {
+        edgeHandler = handler;
+        gpio_set_irq_enabled_with_callback(
+            pin,
+            GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL,
+            true,
+            trampoline
+        );
+    }
+
+    /** An edge on pin has been raised and its interrupt has not yet run. */
+    inline Bool edgePending(const Pin pin)
+    {
+        return (gpio_get_irq_event_mask(pin) & (GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL)) != 0u;
+    }
+  }
+
+  /* A window with interrupts off, for reading what an interrupt writes. */
+  namespace sync
+  {
+    [[nodiscard]] inline UInt32 disable(Void)
+    {
+        return save_and_disable_interrupts();
+    }
+
+    inline Void restore(const UInt32 saved)
+    {
+        restore_interrupts(saved);
     }
   }
 

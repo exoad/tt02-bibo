@@ -1,18 +1,13 @@
 /*
- * encoder - the second Pico: a hall-sensor encoder node and nothing else. It
- * listens to the motor's three hall lines beside the ESC, keeps a signed tick
- * count, and reports over USB CDC twenty times a second.
+ * encoder - a second Pico as a hall-sensor encoder node and nothing else: the
+ * bench image the encoder was proven on before it moved onto the car's Pico.
+ * It counts the motor's three hall lines through lib/encoder.hxx, the same
+ * module the car runs, and reports over USB CDC twenty times a second, so the
+ * module can be watched on its own with no car firmware in the way.
  *
- * DECLARE the pins, BIND the decoder to them through interrupts, RUN the report
- * loop. The decoder is lib/hall.hxx, which never sees a GPIO; this file is the
- * only place the pin numbers live.
- *
- * Every edge is an interrupt that reads all three lines at once, so the state
- * is judged whole and never from a stale pin. At 20,000 RPM a two-pole motor
- * makes 2,000 edges a second; the interrupt costs about a microsecond, so ten
- * times that still leaves the core mostly idle. As a check on that promise,
- * the loop compares the lines it can see with the state the interrupts last
- * recorded, and a difference is counted (miss=) rather than corrected quietly.
+ * DECLARE the pins, BIND the module to them, RUN the report loop. The decoder
+ * is lib/hall.hxx, the binding lib/encoder.hxx; this file is the only place
+ * the pin numbers live.
  *
  * GP0 carries a throttle pulse to the ESC, neutral from power-up, so an ESC
  * sharing the bench with this board arms quietly instead of beeping for a
@@ -29,15 +24,12 @@
  * pulse at neutral, `p <us>` sets it (ESC_LOW_US..ESC_HIGH_US).
  */
 #include "../lib/hal.hxx"
-#include "../lib/hall.hxx"
-
-#include "hardware/gpio.h"
-#include "hardware/sync.h"
+#include "../lib/encoder.hxx"
 
 /* DECLARE: the three hall lines, through 10k/20k dividers, active high. */
-static constexpr UInt32 PIN_HALL_A = 11;
-static constexpr UInt32 PIN_HALL_B = 12;
-static constexpr UInt32 PIN_HALL_C = 13;
+static constexpr bibo::Pin PIN_HALL_A = 11;
+static constexpr bibo::Pin PIN_HALL_B = 12;
+static constexpr bibo::Pin PIN_HALL_C = 13;
 
 static constexpr UInt32 REPORT_HZ = 20;
 
@@ -48,33 +40,14 @@ static constexpr UInt32 ESC_LOW_US = 1000;
 static constexpr UInt32 ESC_HIGH_US = 2000;
 static constexpr Size LINE_CAP = 32;
 
-/* Written by the interrupt, read by the loop under a disabled-interrupt window. */
-static hall::Decoder decoder;
-static volatile UInt32 misses = 0;
-
-static UInt8 linesNow(Void)
-{
-    const UInt32 all = gpio_get_all();
-    return static_cast<UInt8>(
-        (((all >> PIN_HALL_A) & 1u) << 2) | (((all >> PIN_HALL_B) & 1u) << 1) | ((all >> PIN_HALL_C) & 1u)
-    );
-}
-
-static Void onEdge(uint gpio, UInt32 events)
-{
-    static_cast<Void>(gpio);
-    static_cast<Void>(events);
-    decoder.feed(linesNow(), bibo::timing::nowUs());
-}
-
 static Void printHelp(Void)
 {
     bibo::serial::printf(
-        "INFO hall encoder: A=GP%u B=GP%u C=GP%u, %u reports/s, ESC pulse on GP%d; "
+        "INFO hall encoder: A=GP%d B=GP%d C=GP%d, %u reports/s, ESC pulse on GP%d; "
         "z zeroes, n neutral, p <us> sets the pulse (%u..%u), ? prints this\n",
-        PIN_HALL_A,
-        PIN_HALL_B,
-        PIN_HALL_C,
+        static_cast<Int32>(PIN_HALL_A),
+        static_cast<Int32>(PIN_HALL_B),
+        static_cast<Int32>(PIN_HALL_C),
         REPORT_HZ,
         static_cast<Int32>(PIN_ESC),
         ESC_LOW_US,
@@ -109,39 +82,42 @@ static Bool readLine(Utf8* line, Size& len)
     }
 }
 
+static Void report(const UInt32 escUs)
+{
+    const bibo::encoder::Snapshot e = bibo::encoder::read();
+    const CharSeq src = e.stopped ? "stopped" : (e.usePeriod ? "period" : "window");
+    bibo::serial::printf(
+        "hall t=%ld tps=%ld src=%s win=%ld per=%ld err=%lu skip=%lu bad=%lu rep=%lu miss=%lu state=%u%u%u edges=%lu esc=%u\n",
+        static_cast<long>(e.ticks),
+        static_cast<long>(e.ticksPerS),
+        src,
+        static_cast<long>(e.windowTps),
+        static_cast<long>(e.periodTps),
+        static_cast<unsigned long>(e.skips + e.invalid),
+        static_cast<unsigned long>(e.skips),
+        static_cast<unsigned long>(e.invalid),
+        static_cast<unsigned long>(e.repeats),
+        static_cast<unsigned long>(e.misses),
+        (static_cast<UInt32>(e.state) >> 2) & 1u,
+        (static_cast<UInt32>(e.state) >> 1) & 1u,
+        static_cast<UInt32>(e.state) & 1u,
+        static_cast<unsigned long>(e.edges),
+        escUs
+    );
+}
+
 int main(Void)
 {
     bibo::serial::open();
-    /* BIND: inputs pulled down, so an unplugged sensor cable reads 000 - an
-     * invalid state that shows as bad= - rather than floating into counts. */
-    static constexpr UInt32 PINS[3] = { PIN_HALL_A, PIN_HALL_B, PIN_HALL_C };
-    for(const UInt32 pin : PINS)
-    {
-        gpio_init(pin);
-        gpio_set_dir(pin, GPIO_IN);
-        gpio_pull_down(pin);
-    }
-    /* The decoder starts from the lines as they are, so the first edge is a step
-     * and not a priming. */
-    decoder.feed(linesNow(), bibo::timing::nowUs());
+    /* BIND. */
+    bibo::encoder::open(PIN_HALL_A, PIN_HALL_B, PIN_HALL_C);
     /* The ESC hears neutral from the first frame. */
     bibo::servo::open(PIN_ESC);
     bibo::servo::writeUs(PIN_ESC, ESC_NEUTRAL_US);
     UInt32 escUs = ESC_NEUTRAL_US;
-    gpio_set_irq_enabled_with_callback(
-        PIN_HALL_A,
-        GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL,
-        true,
-        onEdge
-    );
-    gpio_set_irq_enabled(PIN_HALL_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(PIN_HALL_C, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
     printHelp();
     /* RUN. */
-    Int32 windowStartTicks = 0;
-    Int32 windowTicks = 0;
-    bibo::timing::Deadline window = bibo::timing::armMs(hall::WINDOW_MS);
-    bibo::timing::Deadline report = bibo::timing::armMs(1000 / REPORT_HZ);
+    bibo::timing::Deadline next = bibo::timing::armMs(1000 / REPORT_HZ);
     Utf8 line[LINE_CAP];
     Size lineLen = 0;
     for(;;)
@@ -189,14 +165,7 @@ int main(Void)
         }
         else if(haveLine && c == 'z')
         {
-            const UInt32 saved = save_and_disable_interrupts();
-            const UInt8 state = decoder.state;
-            decoder = hall::Decoder();
-            decoder.feed(state, bibo::timing::nowUs());
-            misses = 0;
-            restore_interrupts(saved);
-            windowStartTicks = 0;
-            windowTicks = 0;
+            bibo::encoder::zero();
             bibo::serial::printf("OK zeroed\n");
         }
         else if(haveLine && c == '?')
@@ -214,56 +183,11 @@ int main(Void)
             escUs = ESC_NEUTRAL_US;
             bibo::servo::writeUs(PIN_ESC, escUs);
         }
-        /* The lines as the loop sees them against the state the interrupts left:
-         * a difference is an edge the interrupt did not see. The line is fed so
-         * the decoder judges it (a skip, most likely) rather than staying wrong. */
+        bibo::encoder::pump();
+        if(bibo::timing::reached(next))
         {
-            const UInt32 saved = save_and_disable_interrupts();
-            const UInt8 live = linesNow();
-            if(decoder.primed && live != decoder.state)
-            {
-                ++misses;
-                decoder.feed(live, bibo::timing::nowUs());
-            }
-            restore_interrupts(saved);
-        }
-        if(bibo::timing::reached(window))
-        {
-            window = bibo::timing::armMs(hall::WINDOW_MS);
-            const UInt32 saved = save_and_disable_interrupts();
-            const Int32 now = decoder.ticks;
-            restore_interrupts(saved);
-            windowTicks = now - windowStartTicks;
-            windowStartTicks = now;
-        }
-        if(bibo::timing::reached(report))
-        {
-            report = bibo::timing::armMs(1000 / REPORT_HZ);
-            const UInt32 saved = save_and_disable_interrupts();
-            const hall::Decoder snap = decoder;
-            const UInt32 missed = misses;
-            restore_interrupts(saved);
-            const hall::Speed s = hall::speed(windowTicks, snap, bibo::timing::nowUs());
-            const CharSeq src = s.stopped ? "stopped" : (s.usePeriod ? "period" : "window");
-            const Int32 tps = s.usePeriod ? s.periodTps : s.windowTps;
-            bibo::serial::printf(
-                "hall t=%ld tps=%ld src=%s win=%ld per=%ld err=%lu skip=%lu bad=%lu rep=%lu miss=%lu state=%u%u%u edges=%lu esc=%u\n",
-                static_cast<long>(snap.ticks),
-                static_cast<long>(tps),
-                src,
-                static_cast<long>(s.windowTps),
-                static_cast<long>(s.periodTps),
-                static_cast<unsigned long>(snap.errors()),
-                static_cast<unsigned long>(snap.skips),
-                static_cast<unsigned long>(snap.invalid),
-                static_cast<unsigned long>(snap.repeats),
-                static_cast<unsigned long>(missed),
-                (snap.state >> 2) & 1u,
-                (snap.state >> 1) & 1u,
-                snap.state & 1u,
-                static_cast<unsigned long>(snap.edges),
-                escUs
-            );
+            next = bibo::timing::armMs(1000 / REPORT_HZ);
+            report(escUs);
         }
     }
 }
