@@ -69,3 +69,7 @@ firmware/tests/compile_commands.json
 
 # clangd index cache: binary, with absolute paths inside.
 .cache/
+tools/npu/frames/
+tools/npu/runs/
+tools/npu/samples/
+tools/npu/eval/

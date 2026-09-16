@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+# temps: every temperature the board reports, on one screen.
+#
+#   temps            the concise line-up: CPU clusters, GPU, NPU, DDR, skin, NVMe,
+#                    the clocks, whether anything is being throttled, load and memory
+#   temps verbose    every thermal zone with its trip points, every cooling device
+#                    and its state, every cpufreq policy, and the NVMe SMART log
+#
+# Reads sysfs only, no root: the Allwinner A733 exposes its sensors as thermal
+# zones (cpul = the A55 cluster, cpub = the A76 cluster), not as hwmon, so
+# `sensors` shows nothing here. Installed to ~/.local/bin on the board by hand;
+# the copy in the repository (firmware/pilot/tools/board/temps) is the source.
+import glob
+import os
+import subprocess
+import sys
+
+THERMAL = "/sys/class/thermal"
+CPUFREQ = "/sys/devices/system/cpu/cpufreq"
+NPU_FREQ = "/sys/class/devfreq/3600000.npu/cur_freq"
+
+# sysfs names to the names a person uses. Anything unlisted keeps its own.
+NAMES = {
+    "cpul_thermal_zone": "cpu little",
+    "cpub_thermal_zone": "cpu big",
+    "gpu_thermal_zone": "gpu",
+    "npu_thermal_zone": "npu",
+    "ddr_thermal_zone": "ddr",
+    "skin_zone": "skin",
+}
+
+# The idle zones duplicate the cluster sensors; shown only in verbose.
+CONCISE_SKIP = ("cpul_idle_zone", "cpub_idle_zone")
+
+
+def read(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def millideg(path):
+    v = read(path)
+    try:
+        return int(v) / 1000.0
+    except (TypeError, ValueError):
+        return None
+
+
+def zones():
+    out = []
+    for z in sorted(glob.glob(f"{THERMAL}/thermal_zone*"), key=lambda p: int(p.rsplit("zone", 1)[1])):
+        kind = read(f"{z}/type", "?")
+        temp = millideg(f"{z}/temp")
+        trips = []
+        for t in sorted(glob.glob(f"{z}/trip_point_*_temp")):
+            n = t.rsplit("_", 2)[1]
+            trips.append((millideg(t), read(f"{z}/trip_point_{n}_type", "?")))
+        out.append((kind, temp, trips))
+    return out
+
+
+def cooling():
+    out = []
+    for c in sorted(glob.glob(f"{THERMAL}/cooling_device*"), key=lambda p: int(p.rsplit("device", 1)[1])):
+        try:
+            out.append((read(f"{c}/type", "?"), int(read(f"{c}/cur_state", "0")), int(read(f"{c}/max_state", "0"))))
+        except ValueError:
+            pass
+    return out
+
+
+def policies():
+    out = []
+    for p in sorted(glob.glob(f"{CPUFREQ}/policy*")):
+        cpus = read(f"{p}/related_cpus", "?")
+        khz = lambda name: int(read(f"{p}/{name}", "0") or 0)
+        out.append((cpus, khz("scaling_cur_freq"), khz("scaling_min_freq"), khz("scaling_max_freq"), read(f"{p}/scaling_governor", "?")))
+    return out
+
+
+def nvme_smart():
+    # nvme-cli without root usually cannot open the device; then there is no
+    # NVMe line rather than a wrong one.
+    try:
+        r = subprocess.run(["nvme", "smart-log", "/dev/nvme0"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout
+
+
+def nvme_temp(smart):
+    if not smart:
+        return None
+    for line in smart.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "temperature":
+            digits = "".join(ch for ch in value if ch.isdigit() or ch == "-")
+            try:
+                return int(digits)
+            except ValueError:
+                return None
+    return None
+
+
+def fmt(temp):
+    return "  -- " if temp is None else f"{temp:5.1f}"
+
+
+def throttling(cool):
+    return [(kind, cur, top) for kind, cur, top in cool if cur > 0]
+
+
+def concise():
+    zs = [(k, t) for k, t, _ in zones() if k not in CONCISE_SKIP]
+    line = "  ".join(f"{NAMES.get(k, k)} {fmt(t)}" for k, t in zs)
+    print(f"temps  {line}  (C)")
+    clocks = []
+    for cpus, cur, _, _, _ in policies():
+        clocks.append(f"cpu{cpus.replace(' ', ',')} {cur // 1000} MHz")
+    npu = read(NPU_FREQ)
+    if npu:
+        clocks.append(f"npu {int(npu) // 1000000} MHz")
+    print(f"clocks {'  '.join(clocks)}")
+    hot = throttling(cooling())
+    if hot:
+        print("throttle " + "  ".join(f"{k} {c}/{m}" for k, c, m in hot))
+    else:
+        print("throttle none")
+    smart = nvme_smart()
+    t = nvme_temp(smart)
+    if t is not None:
+        print(f"nvme   {t} C")
+    load = read("/proc/loadavg", "").split()[:3]
+    mem = {}
+    for line in (read("/proc/meminfo", "") or "").splitlines():
+        key, _, value = line.partition(":")
+        if key in ("MemTotal", "MemAvailable"):
+            mem[key] = int(value.split()[0]) // 1024
+    used = mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)
+    print(f"load   {' '.join(load)}   mem {used}/{mem.get('MemTotal', 0)} MB used")
+
+
+def verbose():
+    print("thermal zones")
+    for kind, temp, trips in zones():
+        tripText = ", ".join(f"{t:.0f} {ty}" for t, ty in trips if t is not None)
+        print(f"  {NAMES.get(kind, kind):12s} {fmt(temp)} C   {kind:18s} trips: {tripText or 'none'}")
+    print("cooling devices")
+    for kind, cur, top in cooling():
+        print(f"  {kind:16s} {cur}/{top}{'   <- active' if cur > 0 else ''}")
+    print("cpufreq")
+    for cpus, cur, lo, hi, gov in policies():
+        print(f"  cpus {cpus:12s} {cur // 1000:5d} MHz  ({lo // 1000}..{hi // 1000}, {gov})")
+    npu = read(NPU_FREQ)
+    if npu:
+        print(f"npu    {int(npu) // 1000000} MHz")
+    up = read("/proc/uptime", "0").split()[0]
+    print(f"uptime {float(up) / 3600:.1f} h")
+    smart = nvme_smart()
+    if smart:
+        print("nvme smart-log")
+        for line in smart.splitlines():
+            key = line.partition(":")[0].strip()
+            if key in ("temperature", "percentage_used", "available_spare", "critical_warning", "power_on_hours", "data_units_written", "unsafe_shutdowns"):
+                print("  " + line.strip())
+    else:
+        print("nvme   smart-log not readable without root")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("verbose", "-v", "--verbose"):
+        verbose()
+    elif len(sys.argv) > 1:
+        print("temps [verbose]")
+        sys.exit(2)
+    else:
+        concise()
