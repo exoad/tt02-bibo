@@ -63,6 +63,12 @@ namespace tags
       Int32 threads = 1;
 
       Intrinsics cal;
+
+      // Which cores the thread is pinned to, by the kernel's cpu_capacity:
+      // "big" (the highest set, the default), "little" (the lowest, which
+      // frees the big cores for driving at about twice the time per frame),
+      // or "any" (the scheduler's choice). BIBO_TAGS_CORES sets it.
+      Str cores = "big";
   };
 
   struct Stats

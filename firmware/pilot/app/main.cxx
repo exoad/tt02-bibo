@@ -408,6 +408,11 @@ namespace
       }
       tags::Config cfg;
       cfg.cal = camCal;
+      const Char* cores = std::getenv("BIBO_TAGS_CORES");
+      if(cores != nullptr && cores[0] != '\0')
+      {
+          cfg.cores = cores;
+      }
       Str why;
       if(!tags::start(cfg, why))
       {

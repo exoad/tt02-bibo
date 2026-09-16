@@ -304,13 +304,19 @@ namespace tags
         return det;
     }
 
-    // The big cores, by the kernel's own cpu_capacity: on this board 1024 on
-    // the two A76s against 385 on the A55s, and the scheduler left to itself
-    // put the detector on an A55 at three times the cost. Pinned to every
-    // cpu at the highest capacity when there is more than one capacity;
-    // a board with one kind of core is left alone. In words, for stats().
-    [[nodiscard]] Str pinToBigCores()
+    // The big or the little cores, by the kernel's own cpu_capacity: on this
+    // board 1024 on the two A76s against 385 on the A55s, and the scheduler
+    // left to itself put the detector on an A55 at three times the cost.
+    // Pinned to every cpu at the chosen capacity when there is more than one
+    // capacity; a board with one kind of core is left alone. In words, for
+    // stats().
+    [[nodiscard]] Str pinToCores(const Str& choice)
     {
+        if(choice == "any")
+        {
+            return "any cpu (asked for)";
+        }
+        const Bool little = choice == "little";
         const long count = ::sysconf(_SC_NPROCESSORS_CONF);
         Vec<Int64> capacity;
         Int64 best = -1;
@@ -334,7 +340,10 @@ namespace tags
                 std::fclose(f);
             }
             capacity.push_back(static_cast<Int64>(value));
-            best = std::max(best, static_cast<Int64>(value));
+            if(value >= 0 && (best < 0 || (little ? value < best : value > best)))
+            {
+                best = static_cast<Int64>(value);
+            }
         }
         Bool mixed = false;
         for(Int64 c : capacity)
@@ -389,11 +398,7 @@ namespace tags
             const Float64 range = std::sqrt((x * x) + (y * y) + (z * z)) * 1000.0;
             const Float64 bearing = std::atan2(x, z) * (180.0 / 3.14159265358979323846) * 100.0;
             t->rangeMm = static_cast<Int32>(std::clamp(std::round(range), 0.0, 2147483647.0));
-            t->bearingCdeg = static_cast<Int16>(std::clamp(
-                std::round(bearing),
-                -18000.0,
-                18000.0
-            ));
+            t->bearingCdeg = static_cast<Int16>(std::clamp(std::round(bearing), -18000.0, 18000.0));
         }
         if(pose.R != nullptr)
         {
@@ -420,7 +425,7 @@ namespace tags
 
     Void loop()
     {
-        const Str cores = pinToBigCores();
+        const Str cores = pinToCores(config.cores);
         std::printf("apriltag: detector thread on %s\n", cores.c_str());
         {
             LockGuard<Mutex> lock(statM);
