@@ -163,6 +163,15 @@ namespace link
       Bool stale = false;
   };
 
+  // What the board's detector found in one camera frame, fresh enough to show.
+  // Paired with a CameraShot by frameIndex: the same index is the same bytes.
+  struct TagsSeen
+  {
+      bibowire::Tags tags;
+      Int64 ageMs = 0;
+      Bool stale = false;
+  };
+
   // One JPEG from the car's camera, fresh enough to draw. The bytes are carried
   // verbatim: jpeg.cxx decodes on the UI thread, keeping a third-party parser off
   // the network thread.
@@ -291,6 +300,14 @@ namespace link
       Str cameraNoteText;
       Int64 cameraNoteAtMs = 0;
 
+      // TAGS: the detector's findings on one camera frame. Always subscribed,
+      // since the board sends it only while the apriltag bundle runs and a
+      // frame with nothing in it is 24 bytes.
+      Bool haveTags = false;
+      bibowire::Tags tags;
+      Int64 tagsAtMs = 0;
+      UInt32 tagFrames = 0;
+
       // The trim the board has saved: the Pico's lines joined by "; ", empty
       // when nothing is saved (EVENT_CODE_TRIM). boardTrimAtMs and
       // boardTrimCount name one report, so the Trim pane takes each report
@@ -326,6 +343,7 @@ namespace link
       // other's rate. DECIDE shares its revolution's age, so it uses scanRate.
       Cadence scanRate;
       Cadence cameraRate;
+      Cadence tagRate;
       Cadence boardRate;
       Cadence controlRate;
 
@@ -383,6 +401,9 @@ namespace link
       // Empty past GONE_MS, like the scan: a photograph carries no age a person
       // can read, so a frozen one looks exactly as live as a new one.
       [[nodiscard]] Opt<CameraShot> cameraShot(Int64 nowMs) const;
+
+      // Empty past GONE_MS, like the picture it belongs to.
+      [[nodiscard]] Opt<TagsSeen> tagsSeen(Int64 nowMs) const;
 
       // The newest CMDACK, empty until the board has answered anything.
       [[nodiscard]] Opt<Ack> newestAck() const;

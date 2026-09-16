@@ -47,6 +47,7 @@ namespace chain
 {
   // The behaviours this build ships with. Reverse-DNS and stable: a viewer keys
   // a window's saved position on the id, so it outlives a rename of the name.
+  constexpr CharSeq ID_APRILTAG = "net.exoad.tt02bibo.apriltag";
   constexpr CharSeq ID_WASD = "net.exoad.tt02bibo.wasd";
   constexpr CharSeq ID_FORWARD = "net.exoad.tt02bibo.forward";
   constexpr CharSeq ID_STOP = "net.exoad.tt02bibo.stop";
@@ -215,6 +216,11 @@ namespace chain
   // of what the car does; the tuning verbs themselves stay in viewfeed,
   // reviewed once, rather than growing a second path through here.
   [[nodiscard]] UniqPtr<Behaviour> makeTrim();
+
+  // apriltag says nothing in a pass either. Loading it is what starts the
+  // detector thread (tags.hxx) and unloading it stops it, done by the host
+  // that sees the chain change, so a camera and a thread stay out of here.
+  [[nodiscard]] UniqPtr<Behaviour> makeApriltag();
 
   // THE CATALOG IS THE SOURCE OF TRUTH FOR WHAT CAN BE LOADED, because the
   // chain is what does the loading. A .bundle manifest may describe a

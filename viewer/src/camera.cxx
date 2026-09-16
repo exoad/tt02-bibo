@@ -1,5 +1,6 @@
 #include "shared.hxx"
 
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -358,6 +359,71 @@ namespace camview
         }
     }
 
+    // Detection boxes FOLLOW THE PICTURE, unlike every overlay above: the board
+    // made them in camera pixels, so they take the same turns and flips the
+    // pixels do (orient::place), or correcting the mount would move a box off
+    // its tag. Grey when the detection is stale or names a different frame
+    // from the one on the texture: drawn, but not as a fact about this picture.
+    constexpr ImU32 TAG_COL = IM_COL32(90, 255, 120, 245);
+    constexpr ImU32 TAG_OLD_COL = IM_COL32(190, 190, 190, 210);
+    constexpr ImU32 TAG_FILL = IM_COL32(90, 255, 120, 55);
+    constexpr ImU32 TAG_OLD_FILL = IM_COL32(190, 190, 190, 40);
+    constexpr ImU32 TAG_PLATE = IM_COL32(0, 0, 0, 190);
+
+    Void drawTags(const View& v, const ImVec2& at, const ImVec2& size, const link::TagsSeen& seen)
+    {
+        const bibowire::Tags& t = seen.tags;
+        if(t.width == 0u || t.height == 0u)
+        {
+            return;
+        }
+        const Bool current = !seen.stale && v.haveShown && t.frameIndex == v.shownIndex;
+        const ImU32 col = current ? TAG_COL : TAG_OLD_COL;
+        const Float32 w = static_cast<Float32>(t.width);
+        const Float32 h = static_cast<Float32>(t.height);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->PushClipRect(at, ImVec2(at.x + size.x, at.y + size.y), true);
+        for(const bibowire::Tag& tag : t.tags)
+        {
+            Array<ImVec2, 4> pt = {};
+            ImVec2 centre = ImVec2(0.0f, 0.0f);
+            for(Size c = 0; c < 4u; ++c)
+            {
+                const Float32 u = static_cast<Float32>(tag.corners[c].xDeci) / (10.0f * w);
+                const Float32 vv = static_cast<Float32>(tag.corners[c].yDeci) / (10.0f * h);
+                const orient::Place p = orient::place(v.turns, v.flipX, v.flipY, u, vv);
+                pt[c] = ImVec2(at.x + (p.x * size.x), at.y + (p.y * size.y));
+                centre.x += pt[c].x * 0.25f;
+                centre.y += pt[c].y * 0.25f;
+            }
+            // A tint inside, a thick dark-edged outline, a dot at each corner
+            // and the id on a dark plate at half again the font size: a box
+            // the picture's own detail cannot hide.
+            dl->AddConvexPolyFilled(pt.data(), 4, current ? TAG_FILL : TAG_OLD_FILL);
+            dl->AddPolyline(pt.data(), 4, OVERLAY_SHADE, ImDrawFlags_Closed, 7.0f * uiScale);
+            dl->AddPolyline(pt.data(), 4, col, ImDrawFlags_Closed, 3.0f * uiScale);
+            for(const ImVec2& corner : pt)
+            {
+                dl->AddCircleFilled(corner, 4.0f * uiScale, col);
+            }
+            Array<Char, 16> label = {};
+            std::snprintf(label.data(), label.size(), "%u", static_cast<unsigned>(tag.id));
+            ImFont* font = ImGui::GetFont();
+            const Float32 big = ImGui::GetFontSize() * 1.5f;
+            const ImVec2 extent = font->CalcTextSizeA(big, FLT_MAX, 0.0f, label.data());
+            const ImVec2 text = ImVec2(centre.x - (extent.x * 0.5f), centre.y - (extent.y * 0.5f));
+            const Float32 pad = 4.0f * uiScale;
+            dl->AddRectFilled(
+                ImVec2(text.x - pad, text.y - pad),
+                ImVec2(text.x + extent.x + pad, text.y + extent.y + pad),
+                TAG_PLATE,
+                3.0f * uiScale
+            );
+            dl->AddText(font, big, text, col, label.data());
+        }
+        dl->PopClipRect();
+    }
+
     Void drawOverlays(const View& v, const ImVec2& at, const ImVec2& size, Float32 steer)
     {
         if(!v.showCross && !v.showGuides && !v.showBox && !v.showThirds)
@@ -461,6 +527,12 @@ namespace camview
         ImGui::Checkbox("flip H", &v.flipX);
         ImGui::SameLine();
         ImGui::Checkbox("flip V", &v.flipY);
+        ImGui::SameLine();
+        ImGui::Checkbox("tags", &v.showTags);
+        if(ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("the board's AprilTag detections, following the picture");
+        }
         ImGui::SameLine();
         drawOverlayToggle(v);
         ImGui::SetNextItemWidth(-96.0f * uiScale);
@@ -610,6 +682,14 @@ namespace camview
               }
           }
           drawOverlays(v, at, size, guideSteer);
+          if(v.showTags)
+          {
+              const Opt<link::TagsSeen> seen = snap.state.tagsSeen(nowMs);
+              if(seen.has_value())
+              {
+                  drawTags(v, at, size, *seen);
+              }
+          }
           // The draw list does not move the cursor, so reserve the picture's
           // space or the readouts draw on top of it.
           ImGui::Dummy(size);

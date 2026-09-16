@@ -18,6 +18,26 @@ namespace orient
       return (quarters(turns) % 2) != 0;
   }
 
+  Place place(Int32 turns, Bool flipX, Bool flipY, Float32 u, Float32 v)
+  {
+      // Flips in source space first, as cornerUvs does.
+      const Float32 su = flipX ? 1.0f - u : u;
+      const Float32 sv = flipY ? 1.0f - v : v;
+      // Then the clockwise quarter turns: cornerUvs has destination corner i
+      // sample source corner i - turns, and this is that map run forward.
+      switch(quarters(turns))
+      {
+          case 1:
+              return Place{ 1.0f - sv, su };
+          case 2:
+              return Place{ 1.0f - su, 1.0f - sv };
+          case 3:
+              return Place{ sv, 1.0f - su };
+          default:
+              return Place{ su, sv };
+      }
+  }
+
   Array<Uv, 4> cornerUvs(Int32 turns, Bool flipX, Bool flipY)
   {
       // Top-left, top-right, bottom-right, bottom-left.

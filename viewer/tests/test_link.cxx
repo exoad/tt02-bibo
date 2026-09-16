@@ -340,6 +340,29 @@ static Size pushCamera(Vec<UInt8>& out, UInt32 index, UInt64 tUs, const Vec<UInt
     return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_CAMERA, body.data(), n);
 }
 
+static Size pushTags(Vec<UInt8>& out, UInt32 index, UInt16 id, Int16 x0Deci, Int16 y0Deci)
+{
+    bibowire::Tags m;
+    m.tMonoUs = static_cast<UInt64>(index) * 1000u;
+    m.frameIndex = index;
+    m.width = 640;
+    m.height = 480;
+    m.detectUs = 5300;
+    bibowire::Tag one;
+    one.id = id;
+    one.marginMilli = 150000;
+    one.corners[0] = bibowire::TagCorner{ x0Deci, y0Deci };
+    one.corners[1] = bibowire::TagCorner{ static_cast<Int16>(x0Deci + 400), y0Deci };
+    const Int16 x1Deci = static_cast<Int16>(x0Deci + 400);
+    const Int16 y1Deci = static_cast<Int16>(y0Deci + 400);
+    one.corners[2] = bibowire::TagCorner{ x1Deci, y1Deci };
+    one.corners[3] = bibowire::TagCorner{ x0Deci, static_cast<Int16>(y0Deci + 400) };
+    m.tags.push_back(one);
+    Vec<UInt8> body(256, 0);
+    const Size n = bibowire::writeTags(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_TAGS, body.data(), n);
+}
+
 [[nodiscard]] static UInt8 channelAt(const jpeg::Picture& pic, Int32 x, Int32 y, Int32 ch)
 {
     const Size row = static_cast<Size>(y) * static_cast<Size>(pic.width);
@@ -1207,6 +1230,29 @@ static Void testOrientation()
     check(
         sameCorners(orient::cornerUvs(0, true, true), half),
         "and flipping BOTH axes is the same picture as turning it 180"
+    );
+    // place() is cornerUvs run forward: the source corner a destination corner
+    // samples lands on that destination corner.
+    const orient::Place cwBl = orient::place(1, false, false, 0.0f, 1.0f);
+    check(
+        cwBl.x < 0.001f && cwBl.y < 0.001f,
+        "turned 90, the source's bottom-left lands at the top-left"
+    );
+    const orient::Place cwTl = orient::place(1, false, false, 0.0f, 0.0f);
+    check(cwTl.x > 0.999f && cwTl.y < 0.001f, "and the source's top-left at the top-right");
+    const orient::Place halfTl = orient::place(2, false, false, 0.0f, 0.0f);
+    check(
+        halfTl.x > 0.999f && halfTl.y > 0.999f,
+        "turned 180, the top-left lands at the bottom-right"
+    );
+    const orient::Place ccwTl = orient::place(3, false, false, 0.0f, 0.0f);
+    check(ccwTl.x < 0.001f && ccwTl.y > 0.999f, "turned 270, at the bottom-left");
+    const orient::Place mirroredTl = orient::place(0, true, false, 0.0f, 0.0f);
+    check(mirroredTl.x > 0.999f && mirroredTl.y < 0.001f, "flipped horizontally, at the top-right");
+    const orient::Place mid = orient::place(-3, true, true, 0.25f, 0.5f);
+    check(
+        mid.x > 0.499f && mid.x < 0.501f && mid.y > 0.749f && mid.y < 0.751f,
+        "and an interior point turns with the picture, negatives folded"
     );
     // Turns fold rather than being refused: a rotate-left button passes negatives.
     check(
@@ -2095,6 +2141,53 @@ static bibowire::Bundle bundleAt(UInt32 gen, UInt16 index, UInt16 count, CharSeq
 
 // A list is shown whole or not at all: frames land by index, a newer generation
 // replaces the old only once it is complete, and count 0 is the empty list.
+static Void testTags()
+{
+    std::printf("\n-- tags: the board's detections, paired with a picture by frame index --\n");
+    link::Session s;
+    check(!s.tagsSeen(100).has_value(), "nothing seen before any TAGS frame");
+    Vec<UInt8> bytes;
+    check(pushTags(bytes, 41, 7, 800, 500) > 0, "a TAGS frame with one tag frames");
+    static_cast<Void>(feed(s, bytes, 100));
+    check(s.haveTags && s.tagFrames == 1, "and is held, counted");
+    const Opt<link::TagsSeen> seen = s.tagsSeen(150);
+    check(seen.has_value(), "seen while fresh");
+    if(seen.has_value())
+    {
+        check(seen->tags.frameIndex == 41, "under the camera frame's own index");
+        check(seen->tags.width == 640 && seen->tags.height == 480, "and the frame's size");
+        check(seen->tags.tags.size() == 1 && seen->tags.tags[0].id == 7, "with the tag");
+        check(seen->tags.tags[0].corners[0].xDeci == 800, "and its corners in tenths of a pixel");
+        check(seen->ageMs == 50, "aged from its arrival");
+        check(!seen->stale, "not stale at 50 ms");
+    }
+    check(
+        !s.tagsSeen(100 + link::GONE_MS + 1).has_value(),
+        "and gone past GONE_MS, like the picture"
+    );
+    // A newer frame replaces the older one whole.
+    bytes.clear();
+    static_cast<Void>(pushTags(bytes, 42, 9, 100, 100));
+    static_cast<Void>(feed(s, bytes, 200));
+    const Opt<link::TagsSeen> next = s.tagsSeen(210);
+    check(
+        next.has_value() && next->tags.frameIndex == 42 && next->tags.tags[0].id == 9,
+        "the next frame replaces it"
+    );
+    check(s.tagFrames == 2, "counted again");
+    // A body claiming more tags than it carries is refused, and the held one stays.
+    bytes.clear();
+    static_cast<Void>(pushTags(bytes, 43, 1, 0, 0));
+    bytes[bibowire::HEAD_BYTES + 16] = 5;
+    // The CRC no longer matches, so the frame is refused at take(); either way nothing changes.
+    static_cast<Void>(feed(s, bytes, 300));
+    check(s.tagFrames == 2 && s.tags.frameIndex == 42, "a damaged TAGS frame changes nothing");
+    check(
+        (link::subscriptionMask(false) & bibowire::typeBit(bibowire::Type::TYPE_TAGS)) != 0u,
+        "TAGS is always subscribed: it costs 24 bytes when nothing is seen"
+    );
+}
+
 static Void testBundles()
 {
     std::printf("\n-- bundles: a list arrives whole or not at all --\n");
@@ -2111,19 +2204,31 @@ static Void testBundles()
     const Bool byIndex = s.bundles.size() == 2 && s.bundles[0].id == "net.exoad.test.a"
                       && s.bundles[1].id == "net.exoad.test.b";
     check(byIndex, "placed by index, not by arrival");
-    check(s.bundles[0].loaded == 1u && s.bundleGeneration == 1u, "with loaded and the generation kept");
+    check(
+        s.bundles[0].loaded == 1u && s.bundleGeneration == 1u,
+        "with loaded and the generation kept"
+    );
     bytes.clear();
     static_cast<Void>(pushBundle(bytes, bundleAt(2, 0, 1, "net.exoad.test.c", false)));
     static_cast<Void>(feed(s, bytes, 120));
-    check(s.bundles.size() == 1 && s.bundleGeneration == 2u, "a newer generation replaces the list whole");
+    check(
+        s.bundles.size() == 1 && s.bundleGeneration == 2u,
+        "a newer generation replaces the list whole"
+    );
     bytes.clear();
     static_cast<Void>(pushBundle(bytes, bundleAt(1, 0, 2, "net.exoad.test.a", false)));
     static_cast<Void>(feed(s, bytes, 130));
-    check(s.bundles.size() == 1 && s.bundleGeneration == 2u, "a late frame from an old generation shows nothing");
+    check(
+        s.bundles.size() == 1 && s.bundleGeneration == 2u,
+        "a late frame from an old generation shows nothing"
+    );
     bytes.clear();
     static_cast<Void>(pushBundle(bytes, bundleAt(3, 0, 0, "net.exoad.test.none", false)));
     static_cast<Void>(feed(s, bytes, 140));
-    check(s.haveBundles && s.bundles.empty() && s.bundleGeneration == 3u, "count 0 is the empty list, known and empty");
+    check(
+        s.haveBundles && s.bundles.empty() && s.bundleGeneration == 3u,
+        "count 0 is the empty list, known and empty"
+    );
     bytes.clear();
     static_cast<Void>(pushBundle(bytes, bundleAt(4, 3, 2, "net.exoad.test.z", false)));
     const UInt32 refusedBefore = s.refusedFrames;
@@ -2143,8 +2248,14 @@ static Void testBundles()
     bytes.clear();
     static_cast<Void>(pushEvent(bytes, "weave unloaded", 0, bibowire::EVENT_CODE_BUNDLE));
     static_cast<Void>(feed(s, bytes, 170));
-    check(s.haveBundleNote && s.bundleNote.text == "weave unloaded", "an EVENT about a bundle is kept for the window");
-    check(!s.notes.empty() && s.notes.back().text == "weave unloaded", "and still listed as a note");
+    check(
+        s.haveBundleNote && s.bundleNote.text == "weave unloaded",
+        "an EVENT about a bundle is kept for the window"
+    );
+    check(
+        !s.notes.empty() && s.notes.back().text == "weave unloaded",
+        "and still listed as a note"
+    );
     const UInt32 mask = link::subscriptionMask(false);
     const Bool asks = (mask & bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)) != 0u
                    && (mask & bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE)) != 0u;
@@ -2199,6 +2310,7 @@ int main()
     testSteerSigns();
     testSettingsText();
     testBundles();
+    testTags();
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

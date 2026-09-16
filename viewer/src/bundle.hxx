@@ -24,6 +24,7 @@
 
 #include "drive.hxx"
 #include "link.hxx"
+#include "tagview.hxx"
 #include "trim.hxx"
 
 namespace bundleview
@@ -36,6 +37,9 @@ namespace bundleview
       // set once before the first frame, never null after.
       trimview::View* trim = nullptr;
       driveview::View* drive = nullptr;
+
+      // apriltag's window, the third with a pane of its own.
+      tagview::View* tags = nullptr;
 
       // Which ids were loaded last frame, so a load EDGE opens a window once
       // and a closed window stays closed until the bundle is loaded again.

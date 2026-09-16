@@ -133,6 +133,42 @@ namespace viewfeed
   // replayed the same way.
   Void publishBundleState(const bibowire::BundleState& s);
 
+  // What the detector found in one camera frame, to every viewer subscribed
+  // to TAGS. LIVE and not remembered: a detection is about one picture, and
+  // replaying an old one to a new viewer would pair it with no picture at all.
+  Void publishTags(const bibowire::Tags& t);
+
+  // A LOCAL subscriber to the camera, so the capture runs while no viewer
+  // watches: the detector, loaded as a bundle, is the one there is. fps 0
+  // asks for the board's default rate, as a viewer naming none does. The
+  // device opens on the feed's next pass and closes when the last subscriber,
+  // local or viewer, goes. Any thread.
+  Void wantCamera(Bool on, UInt16 fps);
+
+  // One captured JPEG, copied out for the local subscriber. frameIndex is
+  // the CAMERA frame's own: the picture a viewer holds under that index is
+  // these bytes, so a detection on them lands on the right picture.
+  struct CameraFrame
+  {
+      UInt64 tMonoUs = 0;
+      UInt32 frameIndex = 0;
+      UInt16 width = 0;
+      UInt16 height = 0;
+      Vec<UInt8> jpeg;
+  };
+
+  // The newest captured frame once one newer than *seen exists, or false
+  // after waitMs. *seen is this module's count of frames offered (0 before
+  // any), updated on success, so a caller starting at 0 is handed the first
+  // frame captured after it asked and never a stale one twice. The feed's
+  // thread copies under a lock and never waits on the caller.
+  [[nodiscard]] Bool waitCameraFrame(UInt32* seen, CameraFrame* out, Int32 waitMs);
+
+  // Whether the camera device is there right now, by the path the capture
+  // opens (BIBO_CAM_DEV, else the by-id default). A stat, never an open, so
+  // it cannot disturb a running capture. Any thread.
+  [[nodiscard]] Bool cameraPresent();
+
   // The newest CONTROL from the holder, or false when there is none. A seqlock:
   // no mutex, and never a half-written command. Steer and throttle are what
   // control::apply allowed - on an epoch or mode disagreement the throttle is

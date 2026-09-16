@@ -2369,6 +2369,24 @@ namespace link
       return shot;
   }
 
+  Opt<TagsSeen> Session::tagsSeen(Int64 nowMs) const
+  {
+      if(!haveTags)
+      {
+          return {};
+      }
+      const Int64 age = ageOf(*this, nowMs, tagsAtMs, tags.tMonoUs);
+      if(age > GONE_MS)
+      {
+          return {};
+      }
+      TagsSeen seen;
+      seen.tags = tags;
+      seen.ageMs = age;
+      seen.stale = age > staleBandMs(tagRate);
+      return seen;
+  }
+
   Opt<Int64> Session::rttMs() const
   {
       if(!haveRtt)
@@ -2743,6 +2761,21 @@ namespace link
           }
           return;
       }
+      case bibowire::Type::TYPE_TAGS:
+      {
+          bibowire::Tags m;
+          if(!bibowire::readTags(f.body, ver, &m))
+          {
+              ++s.refusedFrames;
+              return;
+          }
+          s.haveTags = true;
+          s.tagsAtMs = nowMs;
+          ++s.tagFrames;
+          noteArrival(s.tagRate, nowMs);
+          s.tags = std::move(m);
+          return;
+      }
       case bibowire::Type::TYPE_BUNDLE_STATE:
       {
           bibowire::BundleState m;
@@ -3082,7 +3115,8 @@ namespace link
                     | bibowire::typeBit(bibowire::Type::TYPE_CTLSTATE)
                     | bibowire::typeBit(bibowire::Type::TYPE_CMDACK)
                     | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)
-                    | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE);
+                    | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE)
+                    | bibowire::typeBit(bibowire::Type::TYPE_TAGS);
       if(withCamera)
       {
           mask |= bibowire::typeBit(bibowire::Type::TYPE_CAMERA);

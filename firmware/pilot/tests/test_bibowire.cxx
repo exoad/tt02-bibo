@@ -333,6 +333,29 @@ struct Rng
         push(&out, &w, Type::TYPE_WAYPOINT, 17);
     }
     {
+        Tags m;
+        m.tMonoUs = 5;
+        m.frameIndex = 41;
+        m.width = 640;
+        m.height = 480;
+        m.detectUs = 5300;
+        Tag one;
+        one.id = 7;
+        one.hamming = 1;
+        one.marginMilli = 154900;
+        one.corners[0] = TagCorner{ 4654, 3415 };
+        one.corners[1] = TagCorner{ 4668, 3705 };
+        one.corners[2] = TagCorner{ 4802, 3754 };
+        one.corners[3] = TagCorner{ 4793, 3470 };
+        m.tags.push_back(one);
+        Tag two;
+        two.id = 583;
+        two.corners[0] = TagCorner{ -12, 8 };
+        m.tags.push_back(two);
+        w.bodyLen = writeTags(m, w.body.data(), w.body.size());
+        push(&out, &w, Type::TYPE_TAGS, 25);
+    }
+    {
         Control m;
         m.sessionId = 0x0BADC0DEu;
         m.seq = 8814;
@@ -465,6 +488,8 @@ struct Rng
             return writePath(Path{}, out, cap);
         case Type::TYPE_WAYPOINT:
             return writeWaypoint(Waypoint{}, out, cap);
+        case Type::TYPE_TAGS:
+            return writeTags(Tags{}, out, cap);
         case Type::TYPE_BUNDLE:
             return writeBundle(Bundle{}, out, cap);
         case Type::TYPE_BUNDLE_STATE:
@@ -791,6 +816,40 @@ Int32 main()
     }
     {
         Wire w;
+        Tags m;
+        check(
+            writeTags(m, w.body.data(), w.body.size()) == 24,
+            "an empty TAGS body is 24 bytes: nothing seen is still a frame"
+        );
+        m.tags.resize(MAX_TAGS);
+        m.tags[MAX_TAGS - 1u].id = 0xFFFF;
+        m.tags[MAX_TAGS - 1u].hamming = 2;
+        m.tags[MAX_TAGS - 1u].marginMilli = -1;
+        m.tags[MAX_TAGS - 1u].corners[3] = TagCorner{ -32768, 32767 };
+        w.bodyLen = writeTags(m, w.body.data(), w.body.size());
+        check(w.bodyLen == 24 + 24 * MAX_TAGS, "a full TAGS body is 24 + 24n");
+        check(wrap(&w, Type::TYPE_TAGS, 16), "and frames");
+        Tags back;
+        check(readTags(w.frame.body, 1, &back), "it reads back");
+        check(back.tags.size() == MAX_TAGS, "with every tag");
+        const Tag& last = back.tags[MAX_TAGS - 1u];
+        check(last.id == 0xFFFF && last.hamming == 2, "the last tag's id and hamming survive");
+        check(last.marginMilli == -1, "a margin of -1 is -1, not 4294967295");
+        check(
+            last.corners[3].xDeci == -32768 && last.corners[3].yDeci == 32767,
+            "and both ends of a corner's i16 survive"
+        );
+        m.tags.resize(MAX_TAGS + 1u);
+        check(writeTags(m, w.body.data(), w.body.size()) == 0, "one tag past MAX_TAGS is refused");
+        // A count the bytes cannot back is refused whole, never read short.
+        m.tags.resize(2);
+        w.bodyLen = writeTags(m, w.body.data(), w.body.size());
+        w.body[16] = 3;
+        check(wrap(&w, Type::TYPE_TAGS, 17), "a TAGS frame claiming a third tag frames");
+        check(!readTags(w.frame.body, 1, &back), "and is refused, since the bytes hold two");
+    }
+    {
+        Wire w;
         Subscribe m;
         m.scanDivisor = 0;
         check(
@@ -862,7 +921,7 @@ Int32 main()
         );
     }
     const Vec<Str> rendered = buildAll();
-    check(rendered.size() == 26, "one rendered frame per type, plus two BOARDs of sentinels");
+    check(rendered.size() == 27, "one rendered frame per type, plus two BOARDs of sentinels");
     {
         Size i = 0;
         checkStr(
@@ -951,6 +1010,11 @@ Int32 main()
             rendered[i++],
             "WAYPOINT v1 seq=17 len=32 : mono=1 seq=4 index=7 total=12 x=100 y=-200 flags=0x0000",
             "describe: WAYPOINT"
+        );
+        checkStr(
+            rendered[i++],
+            "TAGS v1 seq=25 len=72 : mono=5 frame=41 size=640x480 family=0 us=5300 n=2 id=7 id=583",
+            "describe: TAGS"
         );
         checkStr(
             rendered[i++],

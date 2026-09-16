@@ -31,7 +31,7 @@ set(FWLIB ${CMAKE_CURRENT_SOURCE_DIR}/../lib)
 add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/bibowire.cxx src/viewfeed.cxx
-    src/trimfile.cxx src/carrules.cxx src/car.cxx src/chain.cxx
+    src/trimfile.cxx src/carrules.cxx src/car.cxx src/chain.cxx src/tags.cxx
 )
 target_include_directories(pilotlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -61,6 +61,30 @@ if(PILOT_RPLIDAR_SDK)
     target_link_libraries(lidar_probe PRIVATE pilotlib)
 endif()
 
+# The AprilTag detector (AprilRobotics/apriltag, BSD-2) is the same shape: a checkout built in
+# place, handed in by path, Linux only. Unset, tags.cxx compiles its refusing half and the
+# apriltag bundle refuses to start, saying so. With it the board also needs libjpeg-dev, since
+# the camera speaks MJPEG and the detector wants grey pixels.
+#
+#   git clone --depth 1 https://github.com/AprilRobotics/apriltag $HOME/apriltag
+#   cmake -S $HOME/apriltag -B $HOME/apriltag/build -DBUILD_SHARED_LIBS=OFF -DBUILD_EXAMPLES=OFF
+#   cmake --build $HOME/apriltag/build -j
+#   cmake -S firmware/pilot -B build-pilot -DPILOT_APRILTAG=$HOME/apriltag ...
+set(PILOT_APRILTAG "" CACHE PATH "path to a built apriltag checkout, Linux only")
+if(PILOT_APRILTAG)
+    set(APRILTAG_LIB ${PILOT_APRILTAG}/build/libapriltag.a)
+    if(NOT EXISTS ${PILOT_APRILTAG}/apriltag.h)
+        message(FATAL_ERROR "no apriltag.h in ${PILOT_APRILTAG} - check PILOT_APRILTAG")
+    endif()
+    if(NOT EXISTS ${APRILTAG_LIB})
+        message(FATAL_ERROR "${APRILTAG_LIB} is missing - build the apriltag checkout first")
+    endif()
+    find_package(JPEG REQUIRED)
+    target_compile_definitions(pilotlib PUBLIC PILOT_HAVE_APRILTAG)
+    target_include_directories(pilotlib SYSTEM PRIVATE ${PILOT_APRILTAG})
+    target_link_libraries(pilotlib PUBLIC ${APRILTAG_LIB} JPEG::JPEG m Threads::Threads)
+endif()
+
 # Built with or without the SDK, so CI compiles it; without the SDK lidar::open refuses and it
 # exits before it opens the Pico.
 add_executable(pilot app/main.cxx)
@@ -69,7 +93,7 @@ target_link_libraries(pilot PRIVATE pilotlib)
 enable_testing()
 # test_viewfeed is not in tools\test.bat: its real half is Linux sockets, and on MSVC every
 # call refuses.
-foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car chain)
+foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car chain tags)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

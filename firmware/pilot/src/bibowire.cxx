@@ -44,6 +44,8 @@ namespace bibowire
     constexpr Size POSE_LEN = 32;
     constexpr Size PATH_FIXED = 16;
     constexpr Size WAYPOINT_LEN = 32;
+    constexpr Size TAGS_FIXED = 24;
+    constexpr Size TAG_STRIDE = 24;
     constexpr Size CONTROL_LEN = 24;
     constexpr Size COMMAND_LEN = 16;
     constexpr Size SUBSCRIBE_LEN = 12;
@@ -62,6 +64,13 @@ namespace bibowire
     [[nodiscard]] Size pathBodyLen(Size count)
     {
         return PATH_FIXED + 8u * count;
+    }
+
+    // A fixed stride, so tag i sits at TAGS_FIXED + 24i with no pass over
+    // the ones before it, as SCAN's points do.
+    [[nodiscard]] Size tagsBodyLen(Size count)
+    {
+        return TAGS_FIXED + TAG_STRIDE * count;
     }
 
     // EXACTLY this version's length. A HIGHER ver may carry a tail, ignored:
@@ -371,7 +380,8 @@ namespace bibowire
         Type::TYPE_BOARD, Type::TYPE_LIDAR_INFO, Type::TYPE_EVENT, Type::TYPE_CTLSTATE,
         Type::TYPE_CMDACK, Type::TYPE_BUNDLE, Type::TYPE_BUNDLE_STATE,
         Type::TYPE_CAMERA, Type::TYPE_POSE, Type::TYPE_PATH,
-        Type::TYPE_WAYPOINT, Type::TYPE_CONTROL, Type::TYPE_COMMAND, Type::TYPE_SUBSCRIBE,
+        Type::TYPE_WAYPOINT, Type::TYPE_TAGS, Type::TYPE_CONTROL, Type::TYPE_COMMAND,
+        Type::TYPE_SUBSCRIBE,
         Type::TYPE_DESCRIBE, Type::TYPE_SCHEMA,
     };
 
@@ -414,6 +424,8 @@ namespace bibowire
               "u64 tMonoUs us ; u32 seq ; u16 count ; u16 reserved0 ; { i32 xMm mm ; i32 yMm mm }[n]" },
         Desc{ Type::TYPE_WAYPOINT, "WAYPOINT", 1, Class::CLASS_VITAL, WAYPOINT_LEN, false, "32",
               "u64 tMonoUs us ; u32 seq ; u16 index ; u16 total ; i32 xMm mm ; i32 yMm mm ; u16 flags ; u16 reserved0 ; u32 reserved1" },
+        Desc{ Type::TYPE_TAGS, "TAGS", 1, Class::CLASS_LIVE, TAGS_FIXED, true, "24+24n",
+              "u64 tMonoUs us ; u32 frameIndex ; u16 width ; u16 height ; u16 count ; u8 family ; u8 reserved0 ; u32 detectUs us ; { u16 id ; u8 hamming ; u8 reserved0 ; i32 marginMilli ; { i16 xDeci ; i16 yDeci }[4] }[n]" },
         Desc{ Type::TYPE_CONTROL, "CONTROL", 1, Class::CLASS_VITAL, CONTROL_LEN, false, "24",
               "u32 sessionId ; u32 seq ; u64 tMonoUs us ; i16 steerMilli ; i16 throttleMilli ; u16 buttons ; u8 armEpoch ; u8 assumedMode" },
         Desc{ Type::TYPE_COMMAND, "COMMAND", 1, Class::CLASS_VITAL, COMMAND_LEN, false, "16",
@@ -491,6 +503,7 @@ namespace bibowire
           case 0x21:
           case 0x22:
           case 0x23:
+          case 0x24:
           case 0x40:
           case 0x41:
           case 0x42:
@@ -539,6 +552,7 @@ namespace bibowire
                 case 0x21:
                 case 0x22:
                 case 0x23:
+                case 0x24:
                 case 0x40:
                 case 0x41:
                 case 0x42:
@@ -1601,6 +1615,79 @@ namespace bibowire
       return true;
   }
 
+  Size writeTags(const Tags& m, UInt8* out, Size cap)
+  {
+      const Size count = m.tags.size();
+      if(out == nullptr || count > MAX_TAGS)
+      {
+          return 0;
+      }
+      const Size need = tagsBodyLen(count);
+      if(cap < need)
+      {
+          return 0;
+      }
+      wr64(out, m.tMonoUs);
+      wr32(out + 8u, m.frameIndex);
+      wr16(out + 12u, m.width);
+      wr16(out + 14u, m.height);
+      wr16(out + 16u, static_cast<UInt16>(count));
+      out[18] = m.family;
+      out[19] = 0;
+      wr32(out + 20u, m.detectUs);
+      for(Size i = 0; i < count; ++i)
+      {
+          UInt8* at = out + TAGS_FIXED + i * TAG_STRIDE;
+          const Tag& t = m.tags[i];
+          wr16(at, t.id);
+          at[2] = t.hamming;
+          at[3] = 0;
+          wr32(at + 4u, static_cast<UInt32>(t.marginMilli));
+          for(Size c = 0; c < 4u; ++c)
+          {
+              wr16(at + 8u + c * 4u, static_cast<UInt16>(t.corners[c].xDeci));
+              wr16(at + 10u + c * 4u, static_cast<UInt16>(t.corners[c].yDeci));
+          }
+      }
+      return need;
+  }
+
+  Bool readTags(const Body& b, UInt8 ver, Tags* out)
+  {
+      if(out == nullptr || !bodyUsable(b, ver, TAGS_FIXED))
+      {
+          return false;
+      }
+      const Size count = rd16(b.bytes + 16u);
+      if(count > MAX_TAGS || !lenOk(b, ver, tagsBodyLen(count)))
+      {
+          return false;
+      }
+      Tags m;
+      m.tMonoUs = rd64(b.bytes);
+      m.frameIndex = rd32(b.bytes + 8u);
+      m.width = rd16(b.bytes + 12u);
+      m.height = rd16(b.bytes + 14u);
+      m.family = b.bytes[18];
+      m.detectUs = rd32(b.bytes + 20u);
+      m.tags.resize(count);
+      for(Size i = 0; i < count; ++i)
+      {
+          const UInt8* at = b.bytes + TAGS_FIXED + i * TAG_STRIDE;
+          Tag& t = m.tags[i];
+          t.id = rd16(at);
+          t.hamming = at[2];
+          t.marginMilli = static_cast<Int32>(rd32(at + 4u));
+          for(Size c = 0; c < 4u; ++c)
+          {
+              t.corners[c].xDeci = static_cast<Int16>(rd16(at + 8u + c * 4u));
+              t.corners[c].yDeci = static_cast<Int16>(rd16(at + 10u + c * 4u));
+          }
+      }
+      *out = m;
+      return true;
+  }
+
   Size writeControl(const Control& m, UInt8* out, Size cap)
   {
       if(out == nullptr || cap < CONTROL_LEN)
@@ -2369,6 +2456,25 @@ namespace bibowire
                 s += " x=" + decI(m.xMm);
                 s += " y=" + decI(m.yMm);
                 s += " flags=" + hexN(m.flags, 4);
+                return s;
+            }
+            case Type::TYPE_TAGS:
+            {
+                Tags m;
+                if(!readTags(f.body, ver, &m))
+                {
+                    return Str();
+                }
+                Str s = "mono=" + decU(m.tMonoUs);
+                s += " frame=" + decU(m.frameIndex);
+                s += " size=" + decU(m.width) + "x" + decU(m.height);
+                s += " family=" + decU(m.family);
+                s += " us=" + decU(m.detectUs);
+                s += " n=" + decU(m.tags.size());
+                for(const Tag& t : m.tags)
+                {
+                    s += " id=" + decU(t.id);
+                }
                 return s;
             }
             case Type::TYPE_CONTROL:

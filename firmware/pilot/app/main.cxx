@@ -39,6 +39,7 @@
 #include "link.hxx"
 #include "proto.hxx"
 #include "reactive.hxx"
+#include "tags.hxx"
 #include "trimfile.hxx"
 #include "viewfeed.hxx"
 
@@ -86,6 +87,10 @@ namespace
   // Set by the signal handler; sig_atomic_t is the type a handler may write.
   volatile std::sig_atomic_t interrupted = 0;
 
+  // --no-lidar: grabHeld sleeps the slice instead of asking a lidar that is
+  // not open, which would answer at once and turn the tick into a hot loop.
+  Bool blind = false;
+
   Void onInterrupt(Int32)
   {
       interrupted = 1;
@@ -98,6 +103,7 @@ namespace
       Bool    dry = false;
       Bool    arm = false;
       Bool    manual = false;   // a viewer's CONTROL drives; a startup flag only
+      Bool    noLidar = false;  // the bench: no lidar opened, every scan empty
       Float32 forwardDeg = 0.0f;
       Float64 seconds = -1.0;   // negative: until a signal
   };
@@ -106,11 +112,13 @@ namespace
   {
       std::printf(
           "pilot [--lidar PORT] [--pico PORT] [--dry] [--manual] [--arm]"
-          " [--forward DEG] [--seconds N]\n"
+          " [--no-lidar] [--forward DEG] [--seconds N]\n"
           "  --lidar PORT   the C1's serial device        (default %s)\n"
           "  --pico PORT    the car's serial device       (default %s)\n"
           "  --dry          never open the Pico; print each decision instead\n"
           "  --manual       a viewer's CONTROL drives, not the autonomy\n"
+          "  --no-lidar     open no lidar and run blind, every scan empty: the bench,\n"
+          "                 for the camera and the viewer with the car elsewhere\n"
           "  --arm          send ESC ARM once the link is up, so throttle is obeyed;\n"
           "                 with --manual a viewer's ARM is still what lets throttle through\n"
           "  --forward DEG  the raw lidar angle that is straight ahead (default 0)\n"
@@ -176,6 +184,10 @@ namespace
           else if(flag == "--manual")
           {
               o.manual = true;
+          }
+          else if(flag == "--no-lidar")
+          {
+              o.noLidar = true;
           }
           else if(flag == "--lidar")
           {
@@ -352,6 +364,54 @@ namespace
   // re-sent between them. The held lines and not a neutral: whether to go neutral
   // is the tick's decision, made at REV_WAIT_MS; a neutral here would cut the
   // throttle whenever a revolution ran late.
+  // The apriltag bundle's working half is a thread (tags.hxx); its behaviour
+  // in the chain says nothing. Loading it starts the detector and unloading
+  // it stops it, on the EDGE, so a load the detector refused is said once
+  // and not every tick. Called whenever the chain changed.
+  Void syncTags(const chain::Chain& live)
+  {
+      static Bool was = false;
+      const Bool want = live.has(chain::ID_APRILTAG);
+      if(want == was)
+      {
+          return;
+      }
+      was = want;
+      if(!want)
+      {
+          const tags::Stats s = tags::stats();
+          tags::stop();
+          std::printf(
+              "apriltag: detector stopped after %llu frames, %llu tags\n",
+              static_cast<unsigned long long>(s.frames),
+              static_cast<unsigned long long>(s.seen)
+          );
+          return;
+      }
+      tags::Config cfg;
+      Str why;
+      if(!tags::start(cfg, why))
+      {
+          std::printf("apriltag: not started - %s\n", why.c_str());
+          viewfeed::publishEvent(
+              bibowire::Severity::SEVERITY_WARN,
+              bibowire::EVENT_CODE_BUNDLE,
+              "apriltag: loaded, but not detecting - " + why
+          );
+          return;
+      }
+      std::printf(
+          "apriltag: detector running - tag36h11, decimate %.1f, %u fps asked of the camera\n",
+          static_cast<Float64>(cfg.decimate),
+          static_cast<unsigned>(cfg.fps)
+      );
+      viewfeed::publishEvent(
+          bibowire::Severity::SEVERITY_INFO,
+          bibowire::EVENT_CODE_BUNDLE,
+          "apriltag: detector running (tag36h11)"
+      );
+  }
+
   [[nodiscard]] Bool grabHeld(Vec<reactive::Ray>& out, Vec<UInt8>* q, const Hold& hold, Link& link)
   {
       Int32 waited = 0;
@@ -359,7 +419,16 @@ namespace
       {
           const Int32 left = REV_WAIT_MS - waited;
           const Int32 slice = left < PICO_KEEPALIVE_MS ? left : PICO_KEEPALIVE_MS;
-          if(lidar::grab(out, slice, q))
+          if(blind)
+          {
+              out.clear();
+              if(q != nullptr)
+              {
+                  q->clear();
+              }
+              sleepMs(slice);
+          }
+          else if(lidar::grab(out, slice, q))
           {
               return true;
           }
@@ -799,14 +868,14 @@ namespace
       // whatever now sits at that index.
       static UInt32 generation = 0;
       chain::Present have;
-      // main() has already returned if the lidar did not open, and the Pico is
-      // open unless this is a dry run - openPico failing ends the program too.
-      have.lidar = true;
+      // main() has already returned if a lidar was asked for and did not open,
+      // and the Pico is open unless this is a dry run.
+      have.lidar = !opt.noLidar;
       have.pico = !opt.dry;
-      // The camera is viewfeed's v4l2 child, not something this program can
-      // see. Nothing in the catalog needs it yet; when something does, this
-      // wants a real check rather than an optimistic true.
-      have.camera = false;
+      // Whether the device is there now, by the path viewfeed opens it. A
+      // stat, not an open, so it cannot disturb a capture; a camera that
+      // falls off the bus later is reported by the detector's frame count.
+      have.camera = viewfeed::cameraPresent();
       Vec<bibowire::Bundle> list;
       for(const chain::Entry& e : chain::catalog())
       {
@@ -901,14 +970,22 @@ Int32 main(Int32 argc, Char** argv)
         return 1;
     }
     // The lidar first: a car that cannot see is never armed.
-    std::printf("lidar %s: opening\n", opt.lidarPort.c_str());
-    if(!lidar::open(opt.lidarPort))
+    blind = opt.noLidar;
+    if(opt.noLidar)
     {
-        std::printf("lidar %s: %s\n", opt.lidarPort.c_str(), lidar::reason().c_str());
-        return 1;
+        std::printf("lidar: none opened (--no-lidar) - every scan is empty, the car is not seen\n");
     }
-    std::printf("lidar device  %s\n", lidar::info().c_str());
-    std::printf("lidar health  %s\n", lidar::health().c_str());
+    else
+    {
+        std::printf("lidar %s: opening\n", opt.lidarPort.c_str());
+        if(!lidar::open(opt.lidarPort))
+        {
+            std::printf("lidar %s: %s\n", opt.lidarPort.c_str(), lidar::reason().c_str());
+            return 1;
+        }
+        std::printf("lidar device  %s\n", lidar::info().c_str());
+        std::printf("lidar health  %s\n", lidar::health().c_str());
+    }
     if(interrupted != 0)
     {
         std::printf("interrupted before the car was opened\n");
@@ -966,7 +1043,7 @@ Int32 main(Int32 argc, Char** argv)
     // shutdown sends STOP.
     if(interrupted == 0)
     {
-        if(!lidar::motorOn())
+        if(!opt.noLidar && !lidar::motorOn())
         {
             std::printf("lidar motor: %s\n", lidar::reason().c_str());
             lidar::close();
@@ -1010,8 +1087,9 @@ Int32 main(Int32 argc, Char** argv)
         // b0 canDrive, b1 hasLidar, b2 hasPico, b4 canLoadBundles - the last so
         // a viewer knows to show a master window at all, and an older board
         // simply does not offer one.
-        wire.capabilities =
-            static_cast<UInt8>((opt.dry ? 0u : 1u) | 2u | (opt.dry ? 0u : 4u) | 16u);
+        wire.capabilities = static_cast<UInt8>(
+            (opt.dry ? 0u : 1u) | (opt.noLidar ? 0u : 2u) | (opt.dry ? 0u : 4u) | 16u
+        );
         viewer.wire = viewfeed::start(bibowire::PORT, wire);
         if(!viewer.wire)
         {
@@ -1021,11 +1099,16 @@ Int32 main(Int32 argc, Char** argv)
         {
             // Identity and trim before the first revolution, so a viewer that
             // connects during spin-up knows what it is watching.
-            viewfeed::publishLidarInfo(lidarInfoFrom(lidar::device()));
+            if(!opt.noLidar)
+            {
+                viewfeed::publishLidarInfo(lidarInfoFrom(lidar::device()));
+            }
             viewfeed::publishTrim(trimfile::report(trim));
             publishBundleList(opt, live);
         }
     }
+    // After the feed is up, so the detector's camera subscription is seen.
+    syncTags(live);
     reactive::State   state;
     reactive::Outputs out;
     reactive::Status  status = reactive::Status::STATUS_BLIND;
@@ -1199,6 +1282,7 @@ Int32 main(Int32 argc, Char** argv)
                 {
                     publishBundleList(opt, live);
                     saveBundleSet(bundlePath, live);
+                    syncTags(live);
                 }
                 bibowire::BundleState bs;
                 bs.tMonoUs = snap.monoUs;
@@ -1571,6 +1655,19 @@ Int32 main(Int32 argc, Char** argv)
             {
                 chainWord += "]";
             }
+            if(tags::running())
+            {
+                const tags::Stats ts = tags::stats();
+                chainWord += "  apriltag " + std::to_string(ts.frames) + " frames "
+                             + std::to_string(ts.seen) + " tags, last " + std::to_string(
+                                 ts.lastCount
+                             )
+                             + " in " + std::to_string(ts.lastDetectUs / 1000u) + " ms";
+                if(ts.undecodable > 0u)
+                {
+                    chainWord += ", " + std::to_string(ts.undecodable) + " undecodable";
+                }
+            }
             std::printf(
                 "%6.1f s  %s  steer %+.2f  thr %.2f  esc %d us  %5.1f rev/s  timeouts %llu  %s%s%s\n",
                 elapsedS(start),
@@ -1660,12 +1757,14 @@ Int32 main(Int32 argc, Char** argv)
             static_cast<unsigned>(wireCount.encodeMaxNs)
         );
     }
-    if(!lidar::motorOff())
+    if(!opt.noLidar && !lidar::motorOff())
     {
         std::printf("lidar motor off: %s\n", lidar::reason().c_str());
     }
     lidar::close();
     carlink::close();
+    // The detector before the feed it reads frames from.
+    tags::stop();
     // The viewers last, told the board is shutting down.
     viewfeed::stop();
     // A signal is a request carried out: 0. Otherwise a run that measured nothing,
@@ -1674,5 +1773,5 @@ Int32 main(Int32 argc, Char** argv)
     {
         return 0;
     }
-    return revolutions > 0 && !lidarLost ? 0 : 1;
+    return (revolutions > 0 || opt.noLidar) && !lidarLost ? 0 : 1;
 }

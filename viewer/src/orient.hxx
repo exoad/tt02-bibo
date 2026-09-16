@@ -26,4 +26,18 @@ namespace orient
   // at the destination's top-left, top-right, bottom-right and bottom-left, in
   // that order. Any Int32 is accepted, negative included, folded modulo 4.
   [[nodiscard]] Array<Uv, 4> cornerUvs(Int32 turns, Bool flipX, Bool flipY);
+
+  // A point of the drawn rectangle, as fractions of its width and height.
+  struct Place
+  {
+      Float32 x = 0.0f;
+      Float32 y = 0.0f;
+  };
+
+  // Where the source point (u, v) lands on the drawn rectangle under the
+  // same turns and flips cornerUvs applies: the inverse of what the quad
+  // samples. For a mark that FOLLOWS THE PICTURE, such as a detection the
+  // board made in camera pixels; the alignment guides deliberately do not
+  // use it (camera.hxx).
+  [[nodiscard]] Place place(Int32 turns, Bool flipX, Bool flipY, Float32 u, Float32 v);
 }

@@ -374,6 +374,33 @@ namespace chain
     };
   }
 
+  namespace
+  {
+    class Apriltag final : public Behaviour
+    {
+    public:
+        CharSeq id() const override
+        {
+            return ID_APRILTAG;
+        }
+
+        CharSeq name() const override
+        {
+            return "apriltag";
+        }
+
+        Reply step(const Pass&) override
+        {
+            return nothing();
+        }
+    };
+  }
+
+  UniqPtr<Behaviour> makeApriltag()
+  {
+      return makeUniq<Apriltag>();
+  }
+
   UniqPtr<Behaviour> makeTrim()
   {
       return makeUniq<Trim>();
@@ -407,6 +434,13 @@ namespace chain
       // tests/test_chain.cxx checks the order really is sorted, and checks
       // every row against the behaviour it names, so the two cannot drift.
       static const Vec<Entry> all = {
+          // Needs the camera and nothing else: it looks and reports, and
+          // never proposes, so a car whose lidar is off can still run it.
+          { ID_APRILTAG,
+            "apriltag",
+            "find tag36h11 AprilTags in the camera and show them in the viewer",
+            bibowire::BUNDLE_NEEDS_CAMERA,
+            false },
           { ID_FORWARD,
             "forward",
             "creep ahead, stop while something is in front",
@@ -461,6 +495,10 @@ namespace chain
       if(sameId(wanted, ID_TRIM))
       {
           return makeTrim();
+      }
+      if(sameId(wanted, ID_APRILTAG))
+      {
+          return makeApriltag();
       }
       return nullptr;
   }

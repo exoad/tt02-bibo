@@ -224,6 +224,7 @@ namespace viewfeed
         WHAT_TRIM,
         WHAT_BUNDLES,
         WHAT_BUNDLE_STATE,
+        WHAT_TAGS,
     };
 
     struct Item
@@ -237,6 +238,7 @@ namespace viewfeed
         Vec<bibowire::Bundle> bundles;
         UInt32 bundleGeneration = 0;
         bibowire::BundleState bundleState;
+        bibowire::Tags tags;
         TimePoint at;
     };
 
@@ -306,6 +308,16 @@ namespace viewfeed
 
         Mutex driveM;
         DriveSeen driveSeen;
+
+        // The local camera subscriber (wantCamera) and the newest frame for
+        // it, copied out of the capture under camM: the detector's thread
+        // never touches `cam`, which the feed's thread owns.
+        Atomic<Bool> camLocal{ false };
+        Atomic<UInt16> camLocalFps{ 0 };
+        Mutex camM;
+        CondVar camCv;
+        UInt32 camSeq = 0;
+        CameraFrame camLatest;
     };
 
     Shared sh;
@@ -807,7 +819,8 @@ namespace viewfeed
              | bibowire::typeBit(bibowire::Type::TYPE_CMDACK)
              | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE)
              | bibowire::typeBit(bibowire::Type::TYPE_BUNDLE_STATE)
-             | bibowire::typeBit(bibowire::Type::TYPE_CAMERA);
+             | bibowire::typeBit(bibowire::Type::TYPE_CAMERA)
+             | bibowire::typeBit(bibowire::Type::TYPE_TAGS);
     }
 
     [[nodiscard]] Bool wants(const Client& c, bibowire::Type type)
@@ -2341,7 +2354,7 @@ namespace viewfeed
         return b.size();
     }
 
-    [[nodiscard]] Bool anyWantsCamera(const Vec<Client>& clients)
+    [[nodiscard]] Bool anyClientWantsCamera(const Vec<Client>& clients)
     {
         for(const Client& c : clients)
         {
@@ -2353,6 +2366,12 @@ namespace viewfeed
         return false;
     }
 
+    // A viewer, or the local subscriber: either keeps the device open.
+    [[nodiscard]] Bool anyWantsCamera(const Vec<Client>& clients)
+    {
+        return sh.camLocal.load() || anyClientWantsCamera(clients);
+    }
+
     // How often a picture is offered: the fastest subscriber's rate, and every
     // subscriber gets every offered frame. Pacing viewers separately would
     // leave frameIndex gaps that a viewer reports as missing pictures the board
@@ -2362,6 +2381,12 @@ namespace viewfeed
     {
         Bool asked = false;
         Float64 best = 0.0;
+        if(sh.camLocal.load())
+        {
+            const UInt16 fps = sh.camLocalFps.load();
+            asked = true;
+            best = fps == 0u ? camCfg.periodMs : 1000.0 / static_cast<Float64>(fps);
+        }
         for(const Client& c : clients)
         {
             if(!wants(c, bibowire::Type::TYPE_CAMERA))
@@ -2517,37 +2542,56 @@ namespace viewfeed
         {
             return;
         }
-        const Size need = bibowire::FRAME_OVERHEAD + CAM_BODY_OVERHEAD + len;
-        if(cam.encode.size() < need)
-        {
-            cam.encode.resize(need);
-        }
         UInt16 w = camCfg.width;
         UInt16 h = camCfg.height;
         static_cast<Void>(jpegSize(jpeg, len, &w, &h));
-        bibowire::Camera m;
-        m.tMonoUs = monoUs();
-        m.frameIndex = cam.frameIndex;
-        m.width = w;
-        m.height = h;
-        m.codec = 1;
-        m.flags = 0;
-        m.data.assign(jpeg, jpeg + len);
-        const TimePoint before = monoNow();
-        const Size bodyLen = bibowire::writeCamera(
-            m,
-            cam.encode.data() + bibowire::HEAD_BYTES,
-            cam.encode.size() - bibowire::HEAD_BYTES
-        );
-        if(bodyLen == 0u)
-        {
-            return;
-        }
-        countEncode(elapsedMs(before) * 1000000.0);
+        const UInt64 tUs = monoUs();
         Bool any = false;
+        // The local subscriber first, under the same frameIndex a viewer
+        // gets, so a detection on these bytes names the picture it was made on.
+        if(sh.camLocal.load())
+        {
+            {
+                LockGuard<Mutex> lock(sh.camM);
+                sh.camLatest.tMonoUs = tUs;
+                sh.camLatest.frameIndex = cam.frameIndex;
+                sh.camLatest.width = w;
+                sh.camLatest.height = h;
+                sh.camLatest.jpeg.assign(jpeg, jpeg + len);
+                ++sh.camSeq;
+            }
+            sh.camCv.notify_all();
+            any = true;
+        }
+        // Encoded once for every viewer, and not at all when none watches:
+        // the detector alone must not cost the feed a copy and a CRC per frame.
+        Size bodyLen = 0;
+        if(anyClientWantsCamera(clients))
+        {
+            const Size need = bibowire::FRAME_OVERHEAD + CAM_BODY_OVERHEAD + len;
+            if(cam.encode.size() < need)
+            {
+                cam.encode.resize(need);
+            }
+            bibowire::Camera m;
+            m.tMonoUs = tUs;
+            m.frameIndex = cam.frameIndex;
+            m.width = w;
+            m.height = h;
+            m.codec = 1;
+            m.flags = 0;
+            m.data.assign(jpeg, jpeg + len);
+            const TimePoint before = monoNow();
+            bodyLen = bibowire::writeCamera(
+                m,
+                cam.encode.data() + bibowire::HEAD_BYTES,
+                cam.encode.size() - bibowire::HEAD_BYTES
+            );
+            countEncode(elapsedMs(before) * 1000000.0);
+        }
         for(Client& c : clients)
         {
-            if(!wants(c, bibowire::Type::TYPE_CAMERA))
+            if(bodyLen == 0u || !wants(c, bibowire::Type::TYPE_CAMERA))
             {
                 continue;
             }
@@ -2941,6 +2985,17 @@ namespace viewfeed
                 if(wants(c, bibowire::Type::TYPE_BUNDLE))
                 {
                     sendBundles(c);
+                }
+            }
+            break;
+        case What::WHAT_TAGS:
+            for(Client& c : clients)
+            {
+                if(wants(c, bibowire::Type::TYPE_TAGS))
+                {
+                    emit(c, bibowire::Type::TYPE_TAGS, [&item](UInt8* out, Size cap) {
+                        return bibowire::writeTags(item.tags, out, cap);
+                    });
                 }
             }
             break;
@@ -3650,6 +3705,60 @@ namespace viewfeed
       post(std::move(item));
   }
 
+  Void publishTags(const bibowire::Tags& t)
+  {
+      if(!running)
+      {
+          return;
+      }
+      Item item;
+      item.what = What::WHAT_TAGS;
+      item.tags = t;
+      item.at = monoNow();
+      post(std::move(item));
+  }
+
+  Void wantCamera(Bool on, UInt16 fps)
+  {
+      sh.camLocalFps.store(fps);
+      sh.camLocal.store(on);
+      // Woken so tendCamera opens or closes the device this pass rather
+      // than on the next timer or packet.
+      if(running)
+      {
+          wakeLoop();
+      }
+  }
+
+  Bool waitCameraFrame(UInt32* seen, CameraFrame* out, Int32 waitMs)
+  {
+      if(seen == nullptr || out == nullptr)
+      {
+          return false;
+      }
+      UniqueLock<Mutex> lock(sh.camM);
+      if(sh.camSeq == *seen)
+      {
+          const UInt32 was = *seen;
+          static_cast<Void>(sh.camCv.wait_for(lock, Millis(waitMs > 0 ? waitMs : 0), [was] {
+              return sh.camSeq != was;
+          }));
+      }
+      if(sh.camSeq == *seen)
+      {
+          return false;
+      }
+      *seen = sh.camSeq;
+      *out = sh.camLatest;
+      return true;
+  }
+
+  Bool cameraPresent()
+  {
+      const Str dev = camCfg.devOverride.empty() ? cameraDevDefault() : camCfg.devOverride;
+      return ::access(dev.c_str(), F_OK) == 0;
+  }
+
   Void publishTrim(const Str& report)
   {
       if(!running)
@@ -3885,6 +3994,30 @@ namespace viewfeed
   Void publishBundleState(const bibowire::BundleState& s)
   {
       static_cast<Void>(s);
+  }
+
+  Void publishTags(const bibowire::Tags& t)
+  {
+      static_cast<Void>(t);
+  }
+
+  Void wantCamera(Bool on, UInt16 fps)
+  {
+      static_cast<Void>(on);
+      static_cast<Void>(fps);
+  }
+
+  Bool waitCameraFrame(UInt32* seen, CameraFrame* out, Int32 waitMs)
+  {
+      static_cast<Void>(seen);
+      static_cast<Void>(out);
+      static_cast<Void>(waitMs);
+      return false;
+  }
+
+  Bool cameraPresent()
+  {
+      return false;
   }
 
   Bool control(bibowire::Control* out)

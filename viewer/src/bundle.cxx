@@ -9,9 +9,10 @@ namespace bundleview
   {
     Float32 uiScale = 1.0f;
 
-    // The two ids whose windows already exist. The id is the wire's stable
-    // identity (docs/bundles.md section 8), so naming it here names the
-    // contract, not an implementation detail of the board.
+    // The ids whose windows already exist (apriltag's is tagview::ID_APRILTAG).
+    // The id is the wire's stable identity (docs/bundles.md section 8), so
+    // naming it here names the contract, not an implementation detail of the
+    // board.
     constexpr CharSeq ID_WASD = "net.exoad.tt02bibo.wasd";
     constexpr CharSeq ID_TRIM = "net.exoad.tt02bibo.trim";
 
@@ -265,6 +266,13 @@ namespace bundleview
                   if(edge && v.trim != nullptr)
                   {
                       v.trim->open = true;
+                  }
+              }
+              else if(b.id == tagview::ID_APRILTAG)
+              {
+                  if(edge && v.tags != nullptr)
+                  {
+                      v.tags->open = true;
                   }
               }
               else if(v.closed.count(b.id) == 0u)

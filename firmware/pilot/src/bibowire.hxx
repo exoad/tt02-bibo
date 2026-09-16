@@ -65,6 +65,10 @@ namespace bibowire
   constexpr Size MAX_BUNDLE_NAME = 31;
   constexpr Size MAX_BUNDLE_ABOUT = 96;
 
+  // Detections in one camera frame. Far more than a frame holds at the
+  // sizes this camera offers; the bound keeps a TAGS body under 2 KB.
+  constexpr Size MAX_TAGS = 64;
+
   constexpr Size HEAD_BYTES = 12;
   constexpr Size TRAILER_BYTES = 4;
   constexpr Size FRAME_OVERHEAD = HEAD_BYTES + TRAILER_BYTES;
@@ -157,6 +161,7 @@ namespace bibowire
       TYPE_POSE = 0x21,
       TYPE_PATH = 0x22,
       TYPE_WAYPOINT = 0x23,
+      TYPE_TAGS = 0x24,
       TYPE_CONTROL = 0x40,
       TYPE_COMMAND = 0x41,
       TYPE_SUBSCRIBE = 0x42,
@@ -164,7 +169,7 @@ namespace bibowire
       TYPE_SCHEMA = 0xF1,
   };
 
-  constexpr Size TYPE_COUNT = 24;
+  constexpr Size TYPE_COUNT = 25;
 
   // The drop priority of the socket half's bounded ring: BULK is discarded
   // first, then LIVE, and VITAL never, so the camera degrades before the car's
@@ -649,6 +654,47 @@ namespace bibowire
       UInt16 flags = 0;
   };
 
+  // The tag families a TAGS frame can name. Only 36h11 is detected today.
+  constexpr UInt8 TAG_FAMILY_36H11 = 0;
+
+  // One corner of a detected tag, in TENTHS of a pixel of the frame the
+  // detector ran on (Tags::width by Tags::height), so a viewer scales into
+  // whatever it decoded rather than trusting a size it never measured.
+  // Tenths in an i16 reach 3276 pixels, past any size this camera offers,
+  // and a corner refined to just outside the frame is legal and negative.
+  struct TagCorner
+  {
+      Int16 xDeci = 0;
+      Int16 yDeci = 0;
+  };
+
+  struct Tag
+  {
+      UInt16 id = 0;
+      UInt8 hamming = 0;       // bit errors corrected; 0 is a clean read
+      Int32 marginMilli = 0;   // the detector's decision margin, times 1000
+
+      // In the detector's order: counter-clockwise around the tag as printed.
+      Array<TagCorner, 4> corners = {};
+  };
+
+  // What the detector found in ONE camera frame: every tag, or none, so a
+  // frame with nothing in it is still a statement and a viewer can tell
+  // "nothing seen" from "the detector stopped". frameIndex, width and height
+  // are the CAMERA frame's own, so a viewer pairs a detection with the
+  // picture it was made on. detectUs is the detector's own time on that
+  // frame, which is the number an NPU port has to beat.
+  struct Tags
+  {
+      UInt64 tMonoUs = 0;
+      UInt32 frameIndex = 0;
+      UInt16 width = 0;
+      UInt16 height = 0;
+      UInt8 family = TAG_FAMILY_36H11;
+      UInt32 detectUs = 0;
+      Vec<Tag> tags;
+  };
+
   struct Control
   {
       UInt32 sessionId = 0;
@@ -801,6 +847,8 @@ namespace bibowire
   [[nodiscard]] Bool readPath(const Body& b, UInt8 ver, Path* out);
   [[nodiscard]] Size writeWaypoint(const Waypoint& m, UInt8* out, Size cap);
   [[nodiscard]] Bool readWaypoint(const Body& b, UInt8 ver, Waypoint* out);
+  [[nodiscard]] Size writeTags(const Tags& m, UInt8* out, Size cap);
+  [[nodiscard]] Bool readTags(const Body& b, UInt8 ver, Tags* out);
   [[nodiscard]] Size writeControl(const Control& m, UInt8* out, Size cap);
   [[nodiscard]] Bool readControl(const Body& b, UInt8 ver, Control* out);
   [[nodiscard]] Size writeCommand(const Command& m, UInt8* out, Size cap);

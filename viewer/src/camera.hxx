@@ -100,6 +100,13 @@ namespace camview
       Bool showBox = false;
       Bool showThirds = false;
 
+      // The board's AprilTag detections drawn over the picture, ON by default:
+      // they arrive only while the apriltag bundle runs, and a person who
+      // loaded it wants to see them. Unlike every overlay above they FOLLOW
+      // THE PICTURE through rotate and flip, because the board made them in
+      // camera pixels and a corrected mount must not move a box off its tag.
+      Bool showTags = true;
+
       // Whether the overlay settings show under the controls row. A panel, NOT A
       // POPUP: camera.cxx's drawOverlayToggle says why.
       Bool overlayPanel = false;

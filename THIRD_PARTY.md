@@ -24,6 +24,12 @@ Slamtec text, beside it.
 The Pico SDK (BSD-3) carries the same shape of obligation for a distributed
 `.uf2`, which in practice nobody distributes — but it is the same rule.
 
+**AprilRobotics apriltag — BSD-2-Clause.** Statically linked into the pilot
+(`libapriltag.a`, when configured with `-DPILOT_APRILTAG`), copyright (C)
+2013-2016 The Regents of The University of Michigan. The same clause 2 as
+Slamtec's, and the same answer. libjpeg-turbo is linked dynamically from the
+board's own packages and ships with nothing.
+
 ---
 
 ## Software
@@ -33,6 +39,8 @@ The Pico SDK (BSD-3) carries the same shape of obligation for a distributed
 | [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9 | MIT | `third_party/imgui` | no, cloned |
 | [stb_image](https://github.com/nothings/stb) | 2.30 | MIT **or** public domain | `third_party/stb` | no, cloned |
 | [Slamtec rplidar_sdk](https://github.com/Slamtec/rplidar_sdk) | — | BSD-2-Clause | `vendor/rplidar_sdk`, `~/rplidar_sdk` on the board | no, cloned |
+| [AprilRobotics apriltag](https://github.com/AprilRobotics/apriltag) | master b7c0ebe (2026-08-07) | BSD-2-Clause | `~/apriltag` on the board | no, cloned |
+| libjpeg-turbo (Ubuntu `libjpeg-dev`, libjpeg8 API) | 2.1.2 | IJG / BSD-3 / zlib | the board's system library | no, apt |
 | [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk) | — | BSD-3-Clause | `vendor/pico-sdk` | no, cloned |
 | [picotool](https://github.com/raspberrypi/pico-sdk-tools) | 2.3.0 | BSD-3-Clause | `vendor/picotool-2.3.0` | no, downloaded |
 | TinyUSB, cyw43-driver, lwIP | — | MIT / mixed | inside the Pico SDK | no |

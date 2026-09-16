@@ -715,10 +715,16 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     // The master window, open at startup like Drive: it is how the operator
     // chooses what the car does. Its two known bundles' windows ARE the Trim
     // and Drive panes, so it borrows both.
+    // apriltag's window. Closed until the bundle loads; it borrows the Camera
+    // pane for its "draw boxes" switch.
+    tagview::View tags;
+    tagview::init(uiScale);
+    tags.cam = &cam;
     bundleview::View bundles;
     bundleview::init(uiScale);
     bundles.trim = &trim;
     bundles.drive = &drive;
+    bundles.tags = &tags;
     bundles.open = true;
     // Last run's numbers into the panes before the first frame. Nothing is sent
     // to the car: the board keeps its own saved copy, and once connected it
@@ -829,6 +835,8 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         // Before the Trim and Drive panes, so a pane a load just opened draws
         // this frame rather than next.
         bundleview::drawWindow(bundles, net.client, snap, nowMs);
+        // Before the camera, so its switch applies to this frame's picture.
+        tagview::drawWindow(tags, snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
         // Before the sliders draw and before the settings check below.
         trimview::follow(trim, snap);
