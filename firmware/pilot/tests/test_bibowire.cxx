@@ -347,6 +347,9 @@ struct Rng
         one.corners[1] = TagCorner{ 4668, 3705 };
         one.corners[2] = TagCorner{ 4802, 3754 };
         one.corners[3] = TagCorner{ 4793, 3470 };
+        one.rangeMm = 1234;
+        one.bearingCdeg = -1550;
+        m.flags = TAGS_FLAG_CALIBRATED;
         m.tags.push_back(one);
         Tag two;
         two.id = 583;
@@ -826,8 +829,10 @@ Int32 main()
         m.tags[MAX_TAGS - 1u].hamming = 2;
         m.tags[MAX_TAGS - 1u].marginMilli = -1;
         m.tags[MAX_TAGS - 1u].corners[3] = TagCorner{ -32768, 32767 };
+        m.tags[MAX_TAGS - 1u].rangeMm = -2147483647 - 1;
+        m.tags[MAX_TAGS - 1u].bearingCdeg = -18000;
         w.bodyLen = writeTags(m, w.body.data(), w.body.size());
-        check(w.bodyLen == 24 + 24 * MAX_TAGS, "a full TAGS body is 24 + 24n");
+        check(w.bodyLen == 24 + 32 * MAX_TAGS, "a full TAGS body is 24 + 32n");
         check(wrap(&w, Type::TYPE_TAGS, 16), "and frames");
         Tags back;
         check(readTags(w.frame.body, 1, &back), "it reads back");
@@ -838,6 +843,10 @@ Int32 main()
         check(
             last.corners[3].xDeci == -32768 && last.corners[3].yDeci == 32767,
             "and both ends of a corner's i16 survive"
+        );
+        check(
+            last.rangeMm == -2147483647 - 1 && last.bearingCdeg == -18000,
+            "and a range and bearing at their extremes"
         );
         m.tags.resize(MAX_TAGS + 1u);
         check(writeTags(m, w.body.data(), w.body.size()) == 0, "one tag past MAX_TAGS is refused");
@@ -1013,7 +1022,7 @@ Int32 main()
         );
         checkStr(
             rendered[i++],
-            "TAGS v1 seq=25 len=72 : mono=5 frame=41 size=640x480 family=0 us=5300 n=2 id=7 id=583",
+            "TAGS v1 seq=25 len=88 : mono=5 frame=41 size=640x480 family=0 flags=1 us=5300 n=2 id=7 id=583",
             "describe: TAGS"
         );
         checkStr(

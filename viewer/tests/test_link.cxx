@@ -357,6 +357,9 @@ static Size pushTags(Vec<UInt8>& out, UInt32 index, UInt16 id, Int16 x0Deci, Int
     const Int16 y1Deci = static_cast<Int16>(y0Deci + 400);
     one.corners[2] = bibowire::TagCorner{ x1Deci, y1Deci };
     one.corners[3] = bibowire::TagCorner{ x0Deci, static_cast<Int16>(y0Deci + 400) };
+    one.rangeMm = 1500;
+    one.bearingCdeg = 750;
+    m.flags = bibowire::TAGS_FLAG_CALIBRATED;
     m.tags.push_back(one);
     Vec<UInt8> body(256, 0);
     const Size n = bibowire::writeTags(m, body.data(), body.size());
@@ -2158,6 +2161,14 @@ static Void testTags()
         check(seen->tags.width == 640 && seen->tags.height == 480, "and the frame's size");
         check(seen->tags.tags.size() == 1 && seen->tags.tags[0].id == 7, "with the tag");
         check(seen->tags.tags[0].corners[0].xDeci == 800, "and its corners in tenths of a pixel");
+        check(
+            seen->tags.tags[0].rangeMm == 1500 && seen->tags.tags[0].bearingCdeg == 750,
+            "its range and bearing"
+        );
+        check(
+            (seen->tags.flags & bibowire::TAGS_FLAG_CALIBRATED) != 0u,
+            "and that they are measured"
+        );
         check(seen->ageMs == 50, "aged from its arrival");
         check(!seen->stale, "not stale at 50 ms");
     }

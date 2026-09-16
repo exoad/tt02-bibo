@@ -401,6 +401,87 @@ namespace chain
       return makeUniq<Apriltag>();
   }
 
+  namespace
+  {
+    // The nearest tag by range, or the first when no range is known.
+    [[nodiscard]] const bibowire::Tag* nearest(const bibowire::Tags& t)
+    {
+        const bibowire::Tag* best = nullptr;
+        for(const bibowire::Tag& tag : t.tags)
+        {
+            if(best == nullptr || (tag.rangeMm > 0 && (best->rangeMm <= 0 || tag.rangeMm < best->rangeMm)))
+            {
+                best = &tag;
+            }
+        }
+        return best;
+    }
+
+    class Follow final : public Behaviour
+    {
+    public:
+        CharSeq id() const override
+        {
+            return ID_FOLLOW;
+        }
+
+        CharSeq name() const override
+        {
+            return "follow";
+        }
+
+        Bool mayDrive() const override
+        {
+            return true;
+        }
+
+        Void onLoad() override
+        {
+            blocked = true;
+        }
+
+        Reply step(const Pass& p) override
+        {
+            // Lost: an ACTIVE zero with the wheels straight, not nothing(), so a
+            // driver that stops seeing its target stops the car rather than
+            // handing the throttle back to whatever else is loaded.
+            if(p.tags == nullptr || p.tagsAgeMs > TAGS_FRESH_MS || p.tags->tags.empty())
+            {
+                blocked = true;
+                return propose(0.0f, 0.0f);
+            }
+            const bibowire::Tag* tag = nearest(*p.tags);
+            const Float32 bearingDeg = static_cast<Float32>(tag->bearingCdeg) / 100.0f;
+            const Float32 steer = std::clamp(bearingDeg / FOLLOW_FULL_LOCK_DEG, -1.0f, 1.0f);
+            // Uncalibrated: the tag is somewhere ahead and that is all that is
+            // known. Aim at it, and do not move toward a distance nobody measured.
+            if(tag->rangeMm <= 0)
+            {
+                blocked = true;
+                return propose(0.0f, steer);
+            }
+            const Float32 rangeM = static_cast<Float32>(tag->rangeMm) / 1000.0f;
+            if(rangeM < FOLLOW_STOP_AT_M)
+            {
+                blocked = true;
+            }
+            else if(rangeM > FOLLOW_GO_AT_M)
+            {
+                blocked = false;
+            }
+            return propose(blocked ? 0.0f : FOLLOW_CRUISE, steer);
+        }
+
+    private:
+        Bool blocked = true;
+    };
+  }
+
+  UniqPtr<Behaviour> makeFollow()
+  {
+      return makeUniq<Follow>();
+  }
+
   UniqPtr<Behaviour> makeTrim()
   {
       return makeUniq<Trim>();
@@ -441,6 +522,12 @@ namespace chain
             "find tag36h11 AprilTags in the camera and show them in the viewer",
             bibowire::BUNDLE_NEEDS_CAMERA,
             false },
+          // The first camera driver. The host runs the detector for it.
+          { ID_FOLLOW,
+            "follow",
+            "steer toward the nearest AprilTag and creep up to it, stopping short",
+            bibowire::BUNDLE_NEEDS_CAMERA | bibowire::BUNDLE_NEEDS_PICO,
+            true },
           { ID_FORWARD,
             "forward",
             "creep ahead, stop while something is in front",
@@ -499,6 +586,10 @@ namespace chain
       if(sameId(wanted, ID_APRILTAG))
       {
           return makeApriltag();
+      }
+      if(sameId(wanted, ID_FOLLOW))
+      {
+          return makeFollow();
       }
       return nullptr;
   }

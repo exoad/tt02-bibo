@@ -219,6 +219,59 @@ static const Array<UInt8, 2975> TAG5 = {
     0x51, 0x45, 0x14, 0x51, 0x45, 0x14, 0x51, 0x45, 0x14, 0x51, 0x45, 0x14, 0x57, 0xFF, 0xD9,
 };
 
+static Void testIntrinsics()
+{
+    std::printf("\n-- the calibration file: six numbers or nothing --\n");
+    tags::Intrinsics cal;
+    Str why;
+    const Str good = "# the U20CAM at 640x480, tag 100 mm\nfx 500\nfy 510.5  # tenths\ncx 320\ncy 240\nsize 640x480\ntag 0.1\n";
+    check(tags::parseIntrinsics(good, &cal, why), "a complete file parses");
+    check(cal.calibrated, "and is a calibration");
+    check(
+        cal.fx == 500.0 && cal.fy == 510.5 && cal.cx == 320.0 && cal.cy == 240.0,
+        "with its numbers"
+    );
+    check(
+        cal.width == 640 && cal.height == 480 && cal.tagM == 0.1,
+        "its frame size and the tag's size"
+    );
+    tags::Intrinsics untouched;
+    why.clear();
+    check(
+        !tags::parseIntrinsics("fx 500\nfy 500\ncx 320\ncy 240\nsize 640x480\n", &untouched, why),
+        "five of six is refused"
+    );
+    check(why == "missing tag", "and names the missing one");
+    check(!untouched.calibrated && untouched.fx == 0.0, "leaving the output untouched");
+    check(
+        !tags::parseIntrinsics("fx 0\nfy 1\ncx 1\ncy 1\nsize 1x1\ntag 1\n", &untouched, why),
+        "a zero is refused"
+    );
+    check(
+        !tags::parseIntrinsics("fx abc\n", &untouched, why) && why.find("line 1") != Str::npos,
+        "so is a word, by line"
+    );
+    check(
+        !tags::parseIntrinsics("focal 500\n", &untouched, why) && why.find("unknown key") != Str::npos,
+        "and a key nobody defined"
+    );
+    check(
+        !tags::parseIntrinsics("size 640\n", &untouched, why) && why.find("WxH") != Str::npos,
+        "and a size with no x"
+    );
+    check(!tags::parseIntrinsics(good, nullptr, why), "and nowhere to put it");
+    check(
+        tags::parseIntrinsics("", &untouched, why) == false && why == "missing fx",
+        "an empty file is missing everything, fx first"
+    );
+    check(
+        !tags::loadIntrinsics("/nonexistent/bibo/camera.txt", &untouched, why) && why.find(
+            "cannot open"
+        ) == 0,
+        "a missing file says so"
+    );
+}
+
 static Void testRefusing()
 {
     std::printf("\n-- no detector in this build: every call refuses and says so --\n");
@@ -267,6 +320,46 @@ static Void testDetects()
     }
     check(out.detectUs > 0u, "the detector's time is measured, not zero");
     check(
+        out.flags == 0u && out.tags[0].rangeMm == 0 && out.tags[0].bearingCdeg == 0,
+        "uncalibrated: no range, no bearing, and the flag says so"
+    );
+    // A made-up calibration: fx 400 at 240x180 and a 100 mm tag. The tag is 80 px
+    // wide, so range is about 400 * 0.1 / 80 = 0.5 m, centred so bearing about 0.
+    tags::Config known = cfg;
+    known.cal.calibrated = true;
+    known.cal.fx = 400.0;
+    known.cal.fy = 400.0;
+    known.cal.cx = 120.0;
+    known.cal.cy = 90.0;
+    known.cal.width = 240;
+    known.cal.height = 180;
+    known.cal.tagM = 0.1;
+    bibowire::Tags located;
+    check(
+        tags::find(whole, known, &located, why) && located.tags.size() == 1,
+        "with a calibration the same tag"
+    );
+    check(located.flags == bibowire::TAGS_FLAG_CALIBRATED, "the flag says ranges are measured");
+    check(
+        located.tags[0].rangeMm > 450 && located.tags[0].rangeMm < 550,
+        "a 100 mm tag 80 px wide at fx 400 is about 0.5 m away"
+    );
+    check(
+        located.tags[0].bearingCdeg > -300 && located.tags[0].bearingCdeg < 300,
+        "and dead ahead, within 3 degrees"
+    );
+    // The same calibration at half the resolution scales with the frame.
+    known.cal.fx = 800.0;
+    known.cal.fy = 800.0;
+    known.cal.cx = 240.0;
+    known.cal.cy = 180.0;
+    known.cal.width = 480;
+    known.cal.height = 360;
+    check(
+        tags::find(whole, known, &located, why) && located.tags[0].rangeMm > 450 && located.tags[0].rangeMm < 550,
+        "a calibration made at twice the size scales to this frame"
+    );
+    check(
         out.tMonoUs == 0u && out.frameIndex == 0u,
         "the picture's identity is left to the caller"
     );
@@ -304,6 +397,7 @@ static Void testNothingAndJunk()
 int main()
 {
     std::printf("tags: the AprilTag detector\n");
+    testIntrinsics();
     if(!tags::available())
     {
         std::printf("(detector NOT built: this run proves refusal only, not detection)\n");

@@ -45,7 +45,7 @@ namespace bibowire
     constexpr Size PATH_FIXED = 16;
     constexpr Size WAYPOINT_LEN = 32;
     constexpr Size TAGS_FIXED = 24;
-    constexpr Size TAG_STRIDE = 24;
+    constexpr Size TAG_STRIDE = 32;
     constexpr Size CONTROL_LEN = 24;
     constexpr Size COMMAND_LEN = 16;
     constexpr Size SUBSCRIBE_LEN = 12;
@@ -66,7 +66,7 @@ namespace bibowire
         return PATH_FIXED + 8u * count;
     }
 
-    // A fixed stride, so tag i sits at TAGS_FIXED + 24i with no pass over
+    // A fixed stride, so tag i sits at TAGS_FIXED + 32i with no pass over
     // the ones before it, as SCAN's points do.
     [[nodiscard]] Size tagsBodyLen(Size count)
     {
@@ -424,8 +424,8 @@ namespace bibowire
               "u64 tMonoUs us ; u32 seq ; u16 count ; u16 reserved0 ; { i32 xMm mm ; i32 yMm mm }[n]" },
         Desc{ Type::TYPE_WAYPOINT, "WAYPOINT", 1, Class::CLASS_VITAL, WAYPOINT_LEN, false, "32",
               "u64 tMonoUs us ; u32 seq ; u16 index ; u16 total ; i32 xMm mm ; i32 yMm mm ; u16 flags ; u16 reserved0 ; u32 reserved1" },
-        Desc{ Type::TYPE_TAGS, "TAGS", 1, Class::CLASS_LIVE, TAGS_FIXED, true, "24+24n",
-              "u64 tMonoUs us ; u32 frameIndex ; u16 width ; u16 height ; u16 count ; u8 family ; u8 reserved0 ; u32 detectUs us ; { u16 id ; u8 hamming ; u8 reserved0 ; i32 marginMilli ; { i16 xDeci ; i16 yDeci }[4] }[n]" },
+        Desc{ Type::TYPE_TAGS, "TAGS", 1, Class::CLASS_LIVE, TAGS_FIXED, true, "24+32n",
+              "u64 tMonoUs us ; u32 frameIndex ; u16 width ; u16 height ; u16 count ; u8 family ; u8 flags ; u32 detectUs us ; { u16 id ; u8 hamming ; u8 reserved0 ; i32 marginMilli ; { i16 xDeci ; i16 yDeci }[4] ; i32 rangeMm mm ; i16 bearingCdeg cdeg ; i16 reserved1 }[n]" },
         Desc{ Type::TYPE_CONTROL, "CONTROL", 1, Class::CLASS_VITAL, CONTROL_LEN, false, "24",
               "u32 sessionId ; u32 seq ; u64 tMonoUs us ; i16 steerMilli ; i16 throttleMilli ; u16 buttons ; u8 armEpoch ; u8 assumedMode" },
         Desc{ Type::TYPE_COMMAND, "COMMAND", 1, Class::CLASS_VITAL, COMMAND_LEN, false, "16",
@@ -1633,7 +1633,7 @@ namespace bibowire
       wr16(out + 14u, m.height);
       wr16(out + 16u, static_cast<UInt16>(count));
       out[18] = m.family;
-      out[19] = 0;
+      out[19] = m.flags;
       wr32(out + 20u, m.detectUs);
       for(Size i = 0; i < count; ++i)
       {
@@ -1648,6 +1648,9 @@ namespace bibowire
               wr16(at + 8u + c * 4u, static_cast<UInt16>(t.corners[c].xDeci));
               wr16(at + 10u + c * 4u, static_cast<UInt16>(t.corners[c].yDeci));
           }
+          wr32(at + 24u, static_cast<UInt32>(t.rangeMm));
+          wr16(at + 28u, static_cast<UInt16>(t.bearingCdeg));
+          wr16(at + 30u, 0);
       }
       return need;
   }
@@ -1669,6 +1672,7 @@ namespace bibowire
       m.width = rd16(b.bytes + 12u);
       m.height = rd16(b.bytes + 14u);
       m.family = b.bytes[18];
+      m.flags = b.bytes[19];
       m.detectUs = rd32(b.bytes + 20u);
       m.tags.resize(count);
       for(Size i = 0; i < count; ++i)
@@ -1683,6 +1687,8 @@ namespace bibowire
               t.corners[c].xDeci = static_cast<Int16>(rd16(at + 8u + c * 4u));
               t.corners[c].yDeci = static_cast<Int16>(rd16(at + 10u + c * 4u));
           }
+          t.rangeMm = static_cast<Int32>(rd32(at + 24u));
+          t.bearingCdeg = static_cast<Int16>(rd16(at + 28u));
       }
       *out = m;
       return true;
@@ -2469,6 +2475,7 @@ namespace bibowire
                 s += " frame=" + decU(m.frameIndex);
                 s += " size=" + decU(m.width) + "x" + decU(m.height);
                 s += " family=" + decU(m.family);
+                s += " flags=" + decU(m.flags);
                 s += " us=" + decU(m.detectUs);
                 s += " n=" + decU(m.tags.size());
                 for(const Tag& t : m.tags)

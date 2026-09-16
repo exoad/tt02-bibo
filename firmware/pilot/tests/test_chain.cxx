@@ -459,6 +459,90 @@ Int32 main()
         p.dtMs = 100;
         check(c.run(p).throttle == 0.0f, "and so does having no scan at all");
     }
+    std::printf("\n-- follow: the first driver that looks through the camera --\n");
+    {
+        chain::Chain c;
+        static_cast<Void>(add(c, chain::makeFollow()));
+        const bibo::Scan room = ring(3.0f);
+        chain::Pass none = over(room);
+        chain::Outcome o = c.run(none);
+        check(
+            o.drive && o.throttle == 0.0f && o.steer == 0.0f,
+            "no detection: an ACTIVE stop, wheels straight"
+        );
+        bibowire::Tags seen;
+        seen.flags = bibowire::TAGS_FLAG_CALIBRATED;
+        bibowire::Tag far;
+        far.id = 5;
+        far.rangeMm = 2000;
+        far.bearingCdeg = 1500;
+        seen.tags.push_back(far);
+        chain::Pass p = over(room);
+        p.tags = &seen;
+        p.tagsAgeMs = 100;
+        o = c.run(p);
+        check(approx(o.throttle, chain::FOLLOW_CRUISE), "a fresh tag 2 m away: creep");
+        check(approx(o.steer, 0.5f), "15 degrees right of the axis is half lock RIGHT");
+        seen.tags[0].bearingCdeg = -6000;
+        o = c.run(p);
+        check(approx(o.steer, -1.0f), "60 degrees left is full lock left, clamped");
+        seen.tags[0].rangeMm = 500;
+        o = c.run(p);
+        check(
+            o.throttle == 0.0f && approx(o.steer, -1.0f),
+            "inside the stop mark it stops and keeps aiming"
+        );
+        seen.tags[0].rangeMm = 700;
+        check(c.run(p).throttle == 0.0f, "between the marks it stays stopped");
+        seen.tags[0].rangeMm = 900;
+        check(approx(c.run(p).throttle, chain::FOLLOW_CRUISE), "past the go mark it creeps again");
+        seen.tags[0].rangeMm = 700;
+        check(approx(c.run(p).throttle, chain::FOLLOW_CRUISE), "and coming back it keeps going");
+        p.tagsAgeMs = chain::TAGS_FRESH_MS + 1;
+        o = c.run(p);
+        check(o.throttle == 0.0f && o.steer == 0.0f, "a stale detection is no detection");
+        p.tagsAgeMs = 100;
+        check(c.run(p).throttle == 0.0f, "and after a loss it starts blocked again");
+        seen.tags[0].rangeMm = 2000;
+        check(approx(c.run(p).throttle, chain::FOLLOW_CRUISE), "until the tag is past the go mark");
+        // Uncalibrated: no range, so aim and hold still.
+        seen.flags = 0;
+        seen.tags[0].rangeMm = 0;
+        seen.tags[0].bearingCdeg = 900;
+        o = c.run(p);
+        check(
+            o.throttle == 0.0f && approx(o.steer, 0.3f),
+            "no range: it aims at the tag and does not move"
+        );
+        // Two tags: the nearest is followed.
+        seen.flags = bibowire::TAGS_FLAG_CALIBRATED;
+        seen.tags[0].rangeMm = 3000;
+        seen.tags[0].bearingCdeg = -3000;
+        bibowire::Tag near;
+        near.id = 7;
+        near.rangeMm = 1500;
+        near.bearingCdeg = 1500;
+        seen.tags.push_back(near);
+        o = c.run(p);
+        check(approx(o.steer, 0.5f), "of two tags the nearer is followed");
+    }
+    {
+        // Under the lidar's stop clamp, the camera driver is held like any other.
+        chain::Chain c;
+        static_cast<Void>(add(c, chain::makeFollow()));
+        static_cast<Void>(add(c, chain::makeStop()));
+        bibowire::Tags seen;
+        bibowire::Tag far;
+        far.rangeMm = 2000;
+        seen.tags.push_back(far);
+        const bibo::Scan wall = ring(0.30f);
+        chain::Pass p = over(wall);
+        p.tags = &seen;
+        check(
+            c.run(p).throttle == 0.0f,
+            "a wall in front clamps follow to zero whatever the tag says"
+        );
+    }
     std::printf("\n-- NaN, and values out of range --\n");
     {
         chain::Chain c;

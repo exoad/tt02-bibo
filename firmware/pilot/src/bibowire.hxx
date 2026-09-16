@@ -676,7 +676,18 @@ namespace bibowire
 
       // In the detector's order: counter-clockwise around the tag as printed.
       Array<TagCorner, 4> corners = {};
+
+      // Where the tag is, from the corners, the camera's intrinsics and the
+      // printed tag's size: straight-line distance to its centre, and its
+      // bearing from the camera's axis, positive to the RIGHT as steering is.
+      // Both 0 while the camera is uncalibrated (Tags::flags), never a guess.
+      Int32 rangeMm = 0;
+      Int16 bearingCdeg = 0;
   };
+
+  // Tags::flags: the ranges and bearings are measured, not zero for want of
+  // a calibration.
+  constexpr UInt8 TAGS_FLAG_CALIBRATED = 0x01;
 
   // What the detector found in ONE camera frame: every tag, or none, so a
   // frame with nothing in it is still a statement and a viewer can tell
@@ -691,6 +702,7 @@ namespace bibowire
       UInt16 width = 0;
       UInt16 height = 0;
       UInt8 family = TAG_FAMILY_36H11;
+      UInt8 flags = 0;   // TAGS_FLAG_*
       UInt32 detectUs = 0;
       Vec<Tag> tags;
   };

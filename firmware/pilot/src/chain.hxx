@@ -41,6 +41,7 @@
 
 #include "shared.hxx"
 
+#include "bibowire.hxx"
 #include "car.hxx"
 
 namespace chain
@@ -48,6 +49,7 @@ namespace chain
   // The behaviours this build ships with. Reverse-DNS and stable: a viewer keys
   // a window's saved position on the id, so it outlives a rename of the name.
   constexpr CharSeq ID_APRILTAG = "net.exoad.tt02bibo.apriltag";
+  constexpr CharSeq ID_FOLLOW = "net.exoad.tt02bibo.follow";
   constexpr CharSeq ID_WASD = "net.exoad.tt02bibo.wasd";
   constexpr CharSeq ID_FORWARD = "net.exoad.tt02bibo.forward";
   constexpr CharSeq ID_STOP = "net.exoad.tt02bibo.stop";
@@ -65,6 +67,16 @@ namespace chain
   // of chasing the furthest wall.
   constexpr Float32 WEAVE_CRUISE = 0.12f;
   constexpr Float32 PLENTY_M = 2.0f;
+
+  // follow: creep toward the nearest tag, stop short of it with forward's
+  // hysteresis, full lock at FOLLOW_FULL_LOCK_DEG of bearing. A detection
+  // older than TAGS_FRESH_MS is no detection: the camera runs at ten frames
+  // a second, so half a second is five missed frames, not jitter.
+  constexpr Float32 FOLLOW_CRUISE = 0.12f;
+  constexpr Float32 FOLLOW_STOP_AT_M = 0.60f;
+  constexpr Float32 FOLLOW_GO_AT_M = 0.80f;
+  constexpr Float32 FOLLOW_FULL_LOCK_DEG = 30.0f;
+  constexpr Int32 TAGS_FRESH_MS = 500;
 
   // What a behaviour is allowed to say. Three shapes, so that what a clamp
   // cannot do is checked by the compiler rather than by the host.
@@ -119,6 +131,11 @@ namespace chain
       Bool haveHolder = false;
       Float32 manualSteer = 0.0f;
       Float32 manualThrottle = 0.0f;
+
+      // The newest TAGS the detector published, or null, and its age. Data
+      // like the scan, so the chain never touches the detector or a clock.
+      const bibowire::Tags* tags = nullptr;
+      Int32 tagsAgeMs = 0;
   };
 
   // One loaded bundle. Owned by the Chain.
@@ -221,6 +238,12 @@ namespace chain
   // detector thread (tags.hxx) and unloading it stops it, done by the host
   // that sees the chain change, so a camera and a thread stay out of here.
   [[nodiscard]] UniqPtr<Behaviour> makeApriltag();
+
+  // follow PROPOSES: steering toward the nearest tag and a creep up to it,
+  // an active zero when the tag is lost or the camera is uncalibrated (no
+  // range, so no distance to keep). The first driver that looks through the
+  // camera; the host runs the detector whenever it is loaded.
+  [[nodiscard]] UniqPtr<Behaviour> makeFollow();
 
   // THE CATALOG IS THE SOURCE OF TRUTH FOR WHAT CAN BE LOADED, because the
   // chain is what does the loading. A .bundle manifest may describe a

@@ -87,6 +87,11 @@ namespace
   // Set by the signal handler; sig_atomic_t is the type a handler may write.
   volatile std::sig_atomic_t interrupted = 0;
 
+  // The camera's calibration, read once at startup (tags::defaultCameraPath).
+  // Handed to the detector when a bundle starts it; without one the tags
+  // carry no range and follow does not move.
+  tags::Intrinsics camCal;
+
   // --no-lidar: grabHeld sleeps the slice instead of asking a lidar that is
   // not open, which would answer at once and turn the tick into a hot loop.
   Bool blind = false;
@@ -371,7 +376,20 @@ namespace
   Void syncTags(const chain::Chain& live)
   {
       static Bool was = false;
-      const Bool want = live.has(chain::ID_APRILTAG);
+      static Bool followWas = false;
+      // follow drives on the detections, so loading it runs the detector too.
+      const Bool follow = live.has(chain::ID_FOLLOW);
+      if(follow && !followWas && !camCal.calibrated)
+      {
+          viewfeed::publishEvent(
+              bibowire::Severity::SEVERITY_WARN,
+              bibowire::EVENT_CODE_BUNDLE,
+              "follow: the camera is not calibrated, so no tag has a range - it will aim "
+              "and not move; see docs/bundles.md"
+          );
+      }
+      followWas = follow;
+      const Bool want = live.has(chain::ID_APRILTAG) || follow;
       if(want == was)
       {
           return;
@@ -389,6 +407,7 @@ namespace
           return;
       }
       tags::Config cfg;
+      cfg.cal = camCal;
       Str why;
       if(!tags::start(cfg, why))
       {
@@ -401,9 +420,10 @@ namespace
           return;
       }
       std::printf(
-          "apriltag: detector running - tag36h11, decimate %.1f, %u fps asked of the camera\n",
+          "apriltag: detector running - tag36h11, decimate %.1f, %u fps asked of the camera, %s\n",
           static_cast<Float64>(cfg.decimate),
-          static_cast<unsigned>(cfg.fps)
+          static_cast<unsigned>(cfg.fps),
+          camCal.calibrated ? "ranges from the calibration" : "no calibration so no ranges"
       );
       viewfeed::publishEvent(
           bibowire::Severity::SEVERITY_INFO,
@@ -1024,6 +1044,26 @@ Int32 main(Int32 argc, Char** argv)
             );
         }
     }
+    {
+        const Str camPath = tags::defaultCameraPath();
+        Str why;
+        if(tags::loadIntrinsics(camPath, &camCal, why))
+        {
+            std::printf(
+                "camera: calibrated from %s - fx %.1f fy %.1f at %ux%u, tag %.3f m\n",
+                camPath.c_str(),
+                camCal.fx,
+                camCal.fy,
+                static_cast<unsigned>(camCal.width),
+                static_cast<unsigned>(camCal.height),
+                camCal.tagM
+            );
+        }
+        else
+        {
+            std::printf("camera: not calibrated (%s) - tags carry no range\n", why.c_str());
+        }
+    }
     if(opt.dry)
     {
         std::printf("pico: dry run - decisions are printed, nothing is sent\n");
@@ -1317,7 +1357,13 @@ Int32 main(Int32 argc, Char** argv)
         // source drives under the chain's ceiling, so a loaded clamp binds the
         // autonomy and a hand on the keys alike (docs/bundles.md section 2).
         const bibo::Scan chainScan = carrules::toScan(rays, opt.forwardDeg, rev);
+        // The detector's newest frame, for follow; absent when nothing runs.
+        bibowire::Tags seenTags;
+        Int32 tagsAge = 0;
+        const Bool haveTags = tags::latest(&seenTags, &tagsAge);
         chain::Pass pass;
+        pass.tags = haveTags ? &seenTags : nullptr;
+        pass.tagsAgeMs = tagsAge;
         pass.scan = &chainScan;
         pass.dtMs = dtMs;
         pass.nowMs = static_cast<Int64>(elapsedMs(start));

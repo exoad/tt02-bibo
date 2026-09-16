@@ -19,6 +19,36 @@
 
 namespace tags
 {
+  // The camera's intrinsics and the printed tag's size, which turn four
+  // corners into a range and a bearing. Measured at `width` x `height`;
+  // find() scales them to the frame it is handed. Uncalibrated means every
+  // range is 0 and TAGS_FLAG_CALIBRATED is clear: the boxes still draw, and
+  // a driver that needs a range does not move.
+  struct Intrinsics
+  {
+      Bool calibrated = false;
+      Float64 fx = 0.0;
+      Float64 fy = 0.0;
+      Float64 cx = 0.0;
+      Float64 cy = 0.0;
+      UInt16 width = 0;
+      UInt16 height = 0;
+      Float64 tagM = 0.0;   // the printed tag's outer black edge, in metres
+  };
+
+  // ~/.config/bibo/camera.txt, or BIBO_CAMERA_FILE. Beside trim.txt, and
+  // written by a person, once, from one measurement: hold a tag D metres
+  // from the lens, read its side S in pixels from the viewer's apriltag
+  // window, and fx = fy = S * D / tag.
+  [[nodiscard]] Str defaultCameraPath();
+
+  // `key value` per line - fx, fy, cx, cy, tag (metres) and size WxH - with
+  // '#' to end of line a comment. All six are required, so a file that is
+  // half a calibration is no calibration; false with why, and `out`
+  // untouched. Pure, so every platform's suite checks it.
+  [[nodiscard]] Bool parseIntrinsics(const Str& text, Intrinsics* out, Str& why);
+  [[nodiscard]] Bool loadIntrinsics(const Str& path, Intrinsics* out, Str& why);
+
   struct Config
   {
       // Asked of viewfeed's capture; 0 is the board's default rate.
@@ -31,6 +61,8 @@ namespace tags
 
       // The library's own worker pool. 1 keeps the detector to one core.
       Int32 threads = 1;
+
+      Intrinsics cal;
   };
 
   struct Stats
@@ -62,6 +94,11 @@ namespace tags
 
   [[nodiscard]] Bool running();
   [[nodiscard]] Stats stats();
+
+  // The newest frame's detections and how long ago they were made, for
+  // the chain's pass. False before the first, and always false when not
+  // built. A copy under a lock, like the rest of this module's answers.
+  [[nodiscard]] Bool latest(bibowire::Tags* out, Int32* ageMs);
 
   // Unsubscribes from the camera and joins the thread. Safe when not running.
   Void stop();

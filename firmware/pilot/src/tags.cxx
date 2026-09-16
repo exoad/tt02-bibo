@@ -1,6 +1,180 @@
 #include "tags.hxx"
 
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+
+// The intrinsics file, on every platform: a parser the Windows suite can check.
+namespace tags
+{
+  Str defaultCameraPath()
+  {
+      const Char* explicitPath = std::getenv("BIBO_CAMERA_FILE");
+      if(explicitPath != nullptr && explicitPath[0] != '\0')
+      {
+          return Str(explicitPath);
+      }
+      const Char* home = std::getenv("HOME");
+      if(home != nullptr && home[0] != '\0')
+      {
+          return Str(home) + "/.config/bibo/camera.txt";
+      }
+      return Str("bibo-camera.txt");
+  }
+
+  Bool parseIntrinsics(const Str& text, Intrinsics* out, Str& why)
+  {
+      if(out == nullptr)
+      {
+          why = "nowhere to put it";
+          return false;
+      }
+      Intrinsics cal;
+      Array<Bool, 6> have = {};
+      Size at = 0;
+      Int32 lineNo = 0;
+      while(at < text.size())
+      {
+          Size end = text.find('\n', at);
+          if(end == Str::npos)
+          {
+              end = text.size();
+          }
+          Str line = text.substr(at, end - at);
+          at = end + 1u;
+          ++lineNo;
+          const Size hash = line.find('#');
+          if(hash != Str::npos)
+          {
+              line.erase(hash);
+          }
+          Size first = 0;
+          while(first < line.size() && std::isspace(static_cast<unsigned char>(line[first])) != 0)
+          {
+              ++first;
+          }
+          if(first == line.size())
+          {
+              continue;
+          }
+          const Size gap = line.find_first_of(" \t", first);
+          const Str key = line.substr(first, gap == Str::npos ? Str::npos : gap - first);
+          Str value = gap == Str::npos ? Str() : line.substr(gap);
+          Size v = 0;
+          while(v < value.size() && std::isspace(static_cast<unsigned char>(value[v])) != 0)
+          {
+              ++v;
+          }
+          value.erase(0, v);
+          while(!value.empty() && std::isspace(static_cast<unsigned char>(value.back())) != 0)
+          {
+              value.pop_back();
+          }
+          Char* rest = nullptr;
+          const Float64 number = value.empty() ? 0.0 : std::strtod(value.c_str(), &rest);
+          const Bool numeric = !value.empty() && rest != nullptr && *rest == '\0' && number > 0.0;
+          if(key == "size")
+          {
+              const Size x = value.find('x');
+              const long w = x == Str::npos ? 0 : std::strtol(
+                  value.substr(0, x).c_str(),
+                  nullptr,
+                  10
+              );
+              const long h = x == Str::npos ? 0 : std::strtol(
+                  value.substr(x + 1u).c_str(),
+                  nullptr,
+                  10
+              );
+              if(w <= 0 || h <= 0 || w > 0xFFFF || h > 0xFFFF)
+              {
+                  why = "line " + std::to_string(lineNo) + ": size wants WxH, got '" + value + "'";
+                  return false;
+              }
+              cal.width = static_cast<UInt16>(w);
+              cal.height = static_cast<UInt16>(h);
+              have[5] = true;
+              continue;
+          }
+          if(!numeric)
+          {
+              why = "line " + std::to_string(lineNo) + ": " + key + " wants a positive number, got '" + value + "'";
+              return false;
+          }
+          if(key == "fx")
+          {
+              cal.fx = number;
+              have[0] = true;
+          }
+          else if(key == "fy")
+          {
+              cal.fy = number;
+              have[1] = true;
+          }
+          else if(key == "cx")
+          {
+              cal.cx = number;
+              have[2] = true;
+          }
+          else if(key == "cy")
+          {
+              cal.cy = number;
+              have[3] = true;
+          }
+          else if(key == "tag")
+          {
+              cal.tagM = number;
+              have[4] = true;
+          }
+          else
+          {
+              why = "line " + std::to_string(lineNo) + ": unknown key '" + key + "'";
+              return false;
+          }
+      }
+      static constexpr Array<CharSeq, 6> NAMES = { "fx", "fy", "cx", "cy", "tag", "size" };
+      for(Size i = 0; i < 6u; ++i)
+      {
+          if(!have[i])
+          {
+              why = Str("missing ") + NAMES[i];
+              return false;
+          }
+      }
+      cal.calibrated = true;
+      *out = cal;
+      return true;
+  }
+
+  Bool loadIntrinsics(const Str& path, Intrinsics* out, Str& why)
+  {
+      std::FILE* f = std::fopen(path.c_str(), "rb");
+      if(f == nullptr)
+      {
+          why = "cannot open " + path;
+          return false;
+      }
+      Str text;
+      Array<Char, 512> chunk = {};
+      for(;;)
+      {
+          const Size n = std::fread(chunk.data(), 1, chunk.size(), f);
+          if(n == 0u)
+          {
+              break;
+          }
+          text.append(chunk.data(), n);
+          if(text.size() > 65536u)
+          {
+              std::fclose(f);
+              why = path + " is far too long for a calibration";
+              return false;
+          }
+      }
+      std::fclose(f);
+      return parseIntrinsics(text, out, why);
+  }
+}
 
 #if defined(__linux__) && defined(PILOT_HAVE_APRILTAG)
 
@@ -18,7 +192,9 @@
 #include <jpeglib.h>
 
 #include <apriltag.h>
+#include <apriltag_pose.h>
 #include <common/image_u8.h>
+#include <common/matd.h>
 #include <tag36h11.h>
 
 namespace tags
@@ -187,12 +363,60 @@ namespace tags
         return "cpu " + names + " (capacity " + std::to_string(best) + ")";
     }
 
+    // Range and bearing from one detection, the library's pose solver over
+    // the intrinsics scaled to this frame. Camera axes: x right, y down,
+    // z forward, so the bearing is atan2(x, z), positive to the right.
+    Void locate(apriltag_detection_t* d, const Intrinsics& k, UInt16 w, UInt16 h, bibowire::Tag* t)
+    {
+        const Float64 sx = k.width > 0u ? static_cast<Float64>(w) / k.width : 1.0;
+        const Float64 sy = k.height > 0u ? static_cast<Float64>(h) / k.height : 1.0;
+        apriltag_detection_info_t info;
+        info.det = d;
+        info.tagsize = k.tagM;
+        info.fx = k.fx * sx;
+        info.fy = k.fy * sy;
+        info.cx = k.cx * sx;
+        info.cy = k.cy * sy;
+        apriltag_pose_t pose;
+        pose.R = nullptr;
+        pose.t = nullptr;
+        static_cast<Void>(estimate_tag_pose(&info, &pose));
+        if(pose.t != nullptr)
+        {
+            const Float64 x = matd_get(pose.t, 0, 0);
+            const Float64 y = matd_get(pose.t, 1, 0);
+            const Float64 z = matd_get(pose.t, 2, 0);
+            const Float64 range = std::sqrt((x * x) + (y * y) + (z * z)) * 1000.0;
+            const Float64 bearing = std::atan2(x, z) * (180.0 / 3.14159265358979323846) * 100.0;
+            t->rangeMm = static_cast<Int32>(std::clamp(std::round(range), 0.0, 2147483647.0));
+            t->bearingCdeg = static_cast<Int16>(std::clamp(
+                std::round(bearing),
+                -18000.0,
+                18000.0
+            ));
+        }
+        if(pose.R != nullptr)
+        {
+            matd_destroy(pose.R);
+        }
+        if(pose.t != nullptr)
+        {
+            matd_destroy(pose.t);
+        }
+    }
+
     Config config;
     Atomic<Bool> quit{ false };
     Atomic<Bool> live{ false };
     Thread worker;
     Mutex statM;
     Stats stat;
+
+    // The newest detections, for latest().
+    Mutex latestM;
+    Bool haveLatest = false;
+    bibowire::Tags latestTags;
+    TimePoint latestAt;
 
     Void loop()
     {
@@ -222,6 +446,12 @@ namespace tags
             t.tMonoUs = f.tMonoUs;
             t.frameIndex = f.frameIndex;
             viewfeed::publishTags(t);
+            {
+                LockGuard<Mutex> lock(latestM);
+                latestTags = t;
+                latestAt = monoNow();
+                haveLatest = true;
+            }
             LockGuard<Mutex> lock(statM);
             ++stat.frames;
             stat.seen += t.tags.size();
@@ -252,6 +482,7 @@ namespace tags
       t.width = static_cast<UInt16>(im->width);
       t.height = static_cast<UInt16>(im->height);
       t.family = bibowire::TAG_FAMILY_36H11;
+      t.flags = cfg.cal.calibrated ? bibowire::TAGS_FLAG_CALIBRATED : 0u;
       {
           LockGuard<Mutex> lock(detM);
           const TimePoint before = monoNow();
@@ -273,6 +504,10 @@ namespace tags
               {
                   one.corners[c].xDeci = deci(d->p[c][0]);
                   one.corners[c].yDeci = deci(d->p[c][1]);
+              }
+              if(cfg.cal.calibrated)
+              {
+                  locate(d, cfg.cal, t.width, t.height, &one);
               }
               t.tags.push_back(one);
           }
@@ -317,6 +552,22 @@ namespace tags
       s.built = true;
       s.running = live.load();
       return s;
+  }
+
+  Bool latest(bibowire::Tags* out, Int32* ageMs)
+  {
+      if(out == nullptr || ageMs == nullptr)
+      {
+          return false;
+      }
+      LockGuard<Mutex> lock(latestM);
+      if(!haveLatest)
+      {
+          return false;
+      }
+      *out = latestTags;
+      *ageMs = static_cast<Int32>(elapsedMs(latestAt));
+      return true;
   }
 
   Void stop()
@@ -376,6 +627,13 @@ namespace tags
       Stats s;
       s.why = NOT_BUILT;
       return s;
+  }
+
+  Bool latest(bibowire::Tags* out, Int32* ageMs)
+  {
+      static_cast<Void>(out);
+      static_cast<Void>(ageMs);
+      return false;
   }
 
   Void stop()

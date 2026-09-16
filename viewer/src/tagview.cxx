@@ -1,5 +1,8 @@
 #include "tagview.hxx"
 
+#include <cmath>
+#include <cstdlib>
+
 #include "imgui.h"
 
 namespace tagview
@@ -16,6 +19,22 @@ namespace tagview
         ImGui::Text("%s %u.%u ms", what, static_cast<unsigned>(us / 1000u), static_cast<unsigned>((us % 1000u) / 100u));
     }
 
+    // The mean edge length in whole pixels: the number a person reads off
+    // to calibrate (tags.hxx, defaultCameraPath).
+    [[nodiscard]] Int32 sidePx(const bibowire::Tag& tag)
+    {
+        Float32 total = 0.0f;
+        for(Size c = 0; c < 4u; ++c)
+        {
+            const bibowire::TagCorner& a = tag.corners[c];
+            const bibowire::TagCorner& b = tag.corners[(c + 1u) % 4u];
+            const Float32 dx = static_cast<Float32>(a.xDeci - b.xDeci);
+            const Float32 dy = static_cast<Float32>(a.yDeci - b.yDeci);
+            total += std::sqrt((dx * dx) + (dy * dy));
+        }
+        return static_cast<Int32>(total / 40.0f);
+    }
+
     Void drawFound(const bibowire::Tags& t)
     {
         if(t.tags.empty())
@@ -23,14 +42,17 @@ namespace tagview
             ImGui::TextDisabled("nothing in this frame");
             return;
         }
-        if(!ImGui::BeginTable("tags", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
+        const Bool ranged = (t.flags & bibowire::TAGS_FLAG_CALIBRATED) != 0u;
+        if(!ImGui::BeginTable("tags", 6, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
         {
             return;
         }
         ImGui::TableSetupColumn("id");
         ImGui::TableSetupColumn("centre px");
+        ImGui::TableSetupColumn("side px");
+        ImGui::TableSetupColumn("range");
+        ImGui::TableSetupColumn("bearing");
         ImGui::TableSetupColumn("margin");
-        ImGui::TableSetupColumn("hamming");
         ImGui::TableHeadersRow();
         for(const bibowire::Tag& tag : t.tags)
         {
@@ -47,11 +69,38 @@ namespace tagview
             ImGui::TableNextColumn();
             ImGui::Text("%d, %d", cx / 40, cy / 40);
             ImGui::TableNextColumn();
-            ImGui::Text("%d", tag.marginMilli / 1000);
+            ImGui::Text("%d", sidePx(tag));
             ImGui::TableNextColumn();
-            ImGui::Text("%u", static_cast<unsigned>(tag.hamming));
+            if(ranged && tag.rangeMm > 0)
+            {
+                ImGui::Text("%d.%02d m", tag.rangeMm / 1000, (tag.rangeMm % 1000) / 10);
+            }
+            else
+            {
+                ImGui::TextDisabled("-");
+            }
+            ImGui::TableNextColumn();
+            if(ranged)
+            {
+                const Int32 c = tag.bearingCdeg;
+                ImGui::Text("%s%d.%d deg", c < 0 ? "-" : "+", std::abs(c) / 100, (std::abs(c) % 100) / 10);
+            }
+            else
+            {
+                ImGui::TextDisabled("-");
+            }
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", tag.marginMilli / 1000);
         }
         ImGui::EndTable();
+        if(!ranged)
+        {
+            ImGui::TextWrapped(
+                "no range: the camera is not calibrated. Hold the tag a measured D metres from "
+                "the lens, read its side S above, and write ~/.config/bibo/camera.txt on the "
+                "board: fx and fy = S * D / tag, cx and cy = half the frame, size WxH, tag in metres"
+            );
+        }
     }
   }
 

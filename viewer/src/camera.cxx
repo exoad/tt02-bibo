@@ -406,8 +406,23 @@ namespace camview
             {
                 dl->AddCircleFilled(corner, 4.0f * uiScale, col);
             }
-            Array<Char, 16> label = {};
-            std::snprintf(label.data(), label.size(), "%u", static_cast<unsigned>(tag.id));
+            // The id, and the range once the board has one.
+            Array<Char, 24> label = {};
+            if(tag.rangeMm > 0)
+            {
+                std::snprintf(
+                    label.data(),
+                    label.size(),
+                    "%u  %d.%02dm",
+                    static_cast<unsigned>(tag.id),
+                    tag.rangeMm / 1000,
+                    (tag.rangeMm % 1000) / 10
+                );
+            }
+            else
+            {
+                std::snprintf(label.data(), label.size(), "%u", static_cast<unsigned>(tag.id));
+            }
             ImFont* font = ImGui::GetFont();
             const Float32 big = ImGui::GetFontSize() * 1.5f;
             const ImVec2 extent = font->CalcTextSizeA(big, FLT_MAX, 0.0f, label.data());
