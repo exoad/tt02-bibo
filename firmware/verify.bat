@@ -28,7 +28,7 @@ call :board pico2   "pico2"
 REM Every suite tools\test.bat knows. A suite missing from this list is one nothing
 REM runs, and the gate still says PASS the day it breaks.
 for %%s in (text pins hall chassis encoder) do call :suite %%s
-for %%s in (proto pilot reactive bibowire trimfile carrules car link) do call :suite %%s
+for %%s in (proto pilot reactive bibowire trimfile carrules car chain odom link) do call :suite %%s
 
 python "%ROOT%\tools\style_audit.py" >nul 2>&1
 if errorlevel 1 (

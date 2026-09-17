@@ -482,6 +482,33 @@ namespace chain
       return makeUniq<Follow>();
   }
 
+  namespace
+  {
+    class Odometry final : public Behaviour
+    {
+    public:
+        CharSeq id() const override
+        {
+            return ID_ODOMETRY;
+        }
+
+        CharSeq name() const override
+        {
+            return "odometry";
+        }
+
+        Reply step(const Pass&) override
+        {
+            return nothing();
+        }
+    };
+  }
+
+  UniqPtr<Behaviour> makeOdometry()
+  {
+      return makeUniq<Odometry>();
+  }
+
   UniqPtr<Behaviour> makeTrim()
   {
       return makeUniq<Trim>();
@@ -533,6 +560,13 @@ namespace chain
             "creep ahead, stop while something is in front",
             bibowire::BUNDLE_NEEDS_LIDAR | bibowire::BUNDLE_NEEDS_PICO,
             true },
+          // Needs the Pico, whose replies carry the wheel count, and nothing
+          // else: it reckons and reports, and never proposes.
+          { ID_ODOMETRY,
+            "odometry",
+            "reckon where the car is from the wheel encoder and leave a trail in the viewer",
+            bibowire::BUNDLE_NEEDS_PICO,
+            false },
           // Needs the lidar and NOT the Pico: it only ever takes throttle away,
           // so it is useful on a car whose board is not talking.
           { ID_STOP,
@@ -590,6 +624,10 @@ namespace chain
       if(sameId(wanted, ID_FOLLOW))
       {
           return makeFollow();
+      }
+      if(sameId(wanted, ID_ODOMETRY))
+      {
+          return makeOdometry();
       }
       return nullptr;
   }

@@ -172,6 +172,14 @@ namespace link
       Bool stale = false;
   };
 
+  // Where the board reckons the car is (POSE), fresh enough to show.
+  struct PoseSeen
+  {
+      bibowire::Pose pose;
+      Int64 ageMs = 0;
+      Bool stale = false;
+  };
+
   // The wheel encoder as the Pico last counted it, fresh enough to show.
   struct Odometry
   {
@@ -323,6 +331,12 @@ namespace link
       Int64 odomAtMs = 0;
       UInt32 odomFrames = 0;
 
+      // POSE: the board's reckoning, while its odometry bundle runs.
+      Bool havePose = false;
+      bibowire::Pose pose;
+      Int64 poseAtMs = 0;
+      UInt32 poseFrames = 0;
+
       // The trim the board has saved: the Pico's lines joined by "; ", empty
       // when nothing is saved (EVENT_CODE_TRIM). boardTrimAtMs and
       // boardTrimCount name one report, so the Trim pane takes each report
@@ -360,6 +374,7 @@ namespace link
       Cadence cameraRate;
       Cadence tagRate;
       Cadence odomRate;
+      Cadence poseRate;
       Cadence boardRate;
       Cadence controlRate;
 
@@ -424,6 +439,9 @@ namespace link
       // Empty past GONE_MS: a count with no newer count behind it is not a
       // stopped wheel, it is a silent Pico.
       [[nodiscard]] Opt<Odometry> odometry(Int64 nowMs) const;
+
+      // Empty past GONE_MS: a pose is a statement about now.
+      [[nodiscard]] Opt<PoseSeen> poseSeen(Int64 nowMs) const;
 
       // The newest CMDACK, empty until the board has answered anything.
       [[nodiscard]] Opt<Ack> newestAck() const;

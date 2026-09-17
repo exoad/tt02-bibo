@@ -20,7 +20,7 @@ set "EXTRA="
 set "LIBS="
 
 set "FIRMWARE_SUITES=text pins hall chassis encoder"
-set "PILOT_SUITES=proto pilot reactive bibowire trimfile carrules car chain"
+set "PILOT_SUITES=proto pilot reactive bibowire trimfile carrules car chain odom"
 
 for %%s in (%FIRMWARE_SUITES%) do if "%SUITE%"=="%%s" goto :firmware
 for %%s in (%PILOT_SUITES%) do if "%SUITE%"=="%%s" goto :pilot
@@ -65,7 +65,8 @@ if not exist "%IMGUI%\imgui.h" goto :nothirdparty
 if not exist "%STB%\stb_image.h" goto :nothirdparty
 set "INC=/I"%VSRC%" /I"%LIB%" /I"%PILOT%" /I"%IMGUI%" /I"%STB%""
 set "SRCS="%TESTS%\test_link.cxx" "%VSRC%\link.cxx" "%VSRC%\vlog.cxx" "%VSRC%\jpeg.cxx""
-set "SRCS=%SRCS% "%VSRC%\orient.cxx" "%VSRC%\settings.cxx" "%VSRC%\carmesh.cxx" "%PILOT%\bibowire.cxx""
+set "SRCS=%SRCS% "%VSRC%\orient.cxx" "%VSRC%\settings.cxx" "%VSRC%\carmesh.cxx" "%VSRC%\trail.cxx""
+set "SRCS=%SRCS% "%PILOT%\bibowire.cxx""
 set "LIBS=ws2_32.lib"
 goto :build
 

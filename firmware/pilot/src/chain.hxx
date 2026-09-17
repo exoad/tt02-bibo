@@ -50,6 +50,7 @@ namespace chain
   // a window's saved position on the id, so it outlives a rename of the name.
   constexpr CharSeq ID_APRILTAG = "net.exoad.tt02bibo.apriltag";
   constexpr CharSeq ID_FOLLOW = "net.exoad.tt02bibo.follow";
+  constexpr CharSeq ID_ODOMETRY = "net.exoad.tt02bibo.odometry";
   constexpr CharSeq ID_WASD = "net.exoad.tt02bibo.wasd";
   constexpr CharSeq ID_FORWARD = "net.exoad.tt02bibo.forward";
   constexpr CharSeq ID_STOP = "net.exoad.tt02bibo.stop";
@@ -244,6 +245,12 @@ namespace chain
   // range, so no distance to keep). The first driver that looks through the
   // camera; the host runs the detector whenever it is loaded.
   [[nodiscard]] UniqPtr<Behaviour> makeFollow();
+
+  // odometry says nothing in a pass. Loading it is what starts the dead
+  // reckoning (odom.hxx) from the Pico's tick count, published as POSE,
+  // done by the host that sees the chain change; unloading it ends the
+  // frame, and the next load starts a new one where the car then stands.
+  [[nodiscard]] UniqPtr<Behaviour> makeOdometry();
 
   // THE CATALOG IS THE SOURCE OF TRUTH FOR WHAT CAN BE LOADED, because the
   // chain is what does the loading. A .bundle manifest may describe a

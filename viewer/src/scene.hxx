@@ -6,6 +6,7 @@
 #include "shared.hxx"
 
 #include "carmesh.hxx"
+#include "trail.hxx"
 #include "imgui.h"
 
 #include <cmath>
@@ -97,6 +98,11 @@ namespace scene
       // texture handle; null draws the wire box. Borrowed from main.cxx.
       const carmesh::Mesh* mesh = nullptr;
       UPtr meshTexture = 0;
+
+      // Where the car has been and the marks dropped there, in the CAR'S
+      // frame (trail.hxx), oldest first; empty when nothing is reckoned.
+      Vec<trail::Point> trail;
+      Vec<trail::Point> marks;
   };
 
   // Where on screen the view lives, in ImGui's pixel coordinates.

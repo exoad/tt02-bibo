@@ -39,6 +39,7 @@
 #include "link.hxx"
 #include "proto.hxx"
 #include "reactive.hxx"
+#include "odom.hxx"
 #include "tags.hxx"
 #include "trimfile.hxx"
 #include "viewfeed.hxx"
@@ -369,6 +370,25 @@ namespace
   // re-sent between them. The held lines and not a neutral: whether to go neutral
   // is the tick's decision, made at REV_WAIT_MS; a neutral here would cut the
   // throttle whenever a revolution ran late.
+  // The odometry bundle's working half is the dead reckoning (odom.hxx),
+  // stepped in the tick from the Pico's replies. Loading it starts a frame
+  // where the car stands; unloading ends it. Called whenever the chain
+  // changed.
+  odom::State odomState;
+  Bool odomOn = false;
+
+  Void syncOdometry(const chain::Chain& live)
+  {
+      const Bool want = live.has(chain::ID_ODOMETRY);
+      if(want == odomOn)
+      {
+          return;
+      }
+      odomOn = want;
+      odomState = odom::State();
+      std::printf(want ? "odometry: a new frame, from here\n" : "odometry: stopped\n");
+  }
+
   // The apriltag bundle's working half is a thread (tags.hxx); its behaviour
   // in the chain says nothing. Loading it starts the detector and unloading
   // it stops it, on the EDGE, so a load the detector refused is said once
@@ -1160,6 +1180,7 @@ Int32 main(Int32 argc, Char** argv)
     }
     // After the feed is up, so the detector's camera subscription is seen.
     syncTags(live);
+    syncOdometry(live);
     reactive::State   state;
     reactive::Outputs out;
     reactive::Status  status = reactive::Status::STATUS_BLIND;
@@ -1201,6 +1222,7 @@ Int32 main(Int32 argc, Char** argv)
     // shows as gone, and not a count that looks held still.
     UInt64 odomSaidOk = 0;
     UInt8 odomSeq = 0;
+    const odom::Config odomCfg = odom::defaults();
     while(interrupted == 0 && !estopped && (opt.seconds < 0.0 || elapsedS(start) < opt.seconds))
     {
         // Empty on a timeout, and handed to step() anyway: STATUS_BLIND is a stop.
@@ -1327,6 +1349,13 @@ Int32 main(Int32 argc, Char** argv)
             od.invalid = static_cast<UInt8>(std::clamp(car.hallInvalid, 0, 255));
             od.seq = odomSeq;
             viewfeed::publishOdom(od);
+            // The same reply steps the reckoning, with the steering the wheels
+            // ARE at, so a pose is published for exactly the counts it used.
+            if(odomOn)
+            {
+                odom::step(odomState, car.ticks, replies.steerNowMilli, odomCfg);
+                viewfeed::publishPose(odom::toPose(odomState, snap.monoUs));
+            }
         }
         // LOADS AND UNLOADS TAKE EFFECT BETWEEN PASSES, never inside one, so
         // no scan is half judged by two different sets of behaviours.
@@ -1352,6 +1381,7 @@ Int32 main(Int32 argc, Char** argv)
                     publishBundleList(opt, live);
                     saveBundleSet(bundlePath, live);
                     syncTags(live);
+                    syncOdometry(live);
                 }
                 bibowire::BundleState bs;
                 bs.tMonoUs = snap.monoUs;

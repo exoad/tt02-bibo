@@ -24,6 +24,7 @@
 
 #include "drive.hxx"
 #include "link.hxx"
+#include "odomview.hxx"
 #include "tagview.hxx"
 #include "trim.hxx"
 
@@ -40,6 +41,9 @@ namespace bundleview
 
       // apriltag's window, the third with a pane of its own.
       tagview::View* tags = nullptr;
+
+      // odometry's window, the fourth.
+      odomview::View* odom = nullptr;
 
       // Which ids were loaded last frame, so a load EDGE opens a window once
       // and a closed window stays closed until the bundle is loaded again.

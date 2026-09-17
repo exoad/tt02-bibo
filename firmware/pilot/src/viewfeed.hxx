@@ -143,6 +143,10 @@ namespace viewfeed
   // reading against the one before it.
   Void publishOdom(const bibowire::Odom& m);
 
+  // Where the board reckons the car is, to every viewer subscribed to
+  // POSE. LIVE and not remembered: a pose is a statement about now.
+  Void publishPose(const bibowire::Pose& m);
+
   // A LOCAL subscriber to the camera, so the capture runs while no viewer
   // watches: the detector, loaded as a bundle, is the one there is. fps 0
   // asks for the board's default rate, as a viewer naming none does. The

@@ -275,6 +275,13 @@ namespace bundleview
                       v.tags->open = true;
                   }
               }
+              else if(b.id == odomview::ID_ODOMETRY)
+              {
+                  if(edge && v.odom != nullptr)
+                  {
+                      v.odom->open = true;
+                  }
+              }
               else if(v.closed.count(b.id) == 0u)
               {
                   drawFallback(v, snap, b);

@@ -25,6 +25,7 @@
 #include "link.hxx"
 #include "jpeg.hxx"
 #include "carmesh.hxx"
+#include "trail.hxx"
 #include "orient.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
@@ -2255,6 +2256,104 @@ static Void testOdom()
     check(held.has_value() && held->odom.seq == 8, "a short ODOM body leaves the held count");
 }
 
+static Size pushPose(Vec<UInt8>& out, UInt64 monoUs, Int32 xMm, Int32 yMm, Int32 headingMilliRad)
+{
+    bibowire::Pose m;
+    m.tMonoUs = monoUs;
+    m.xMm = xMm;
+    m.yMm = yMm;
+    m.headingMilliRad = headingMilliRad;
+    m.sigmaXyMm = 30;
+    m.sigmaHeadingMilliRad = 50;
+    m.source = 1;
+    m.valid = 1;
+    Vec<UInt8> body(32, 0);
+    const Size n = bibowire::writePose(m, body.data(), body.size());
+    return n == 0 ? 0 : framed(out, bibowire::Type::TYPE_POSE, body.data(), n);
+}
+
+static Void testPose()
+{
+    std::printf("\n-- pose: where the board reckons the car is --\n");
+    link::Session s;
+    check(!s.poseSeen(100).has_value(), "nothing before any POSE frame");
+    Vec<UInt8> bytes;
+    check(pushPose(bytes, 1000, 250, -1200, 1571) > 0, "a POSE frame frames");
+    static_cast<Void>(feed(s, bytes, 100));
+    check(s.havePose && s.poseFrames == 1, "and is held, counted");
+    const Opt<link::PoseSeen> p = s.poseSeen(150);
+    check(p.has_value(), "read while fresh");
+    if(p.has_value())
+    {
+        check(
+            p->pose.xMm == 250 && p->pose.yMm == -1200 && p->pose.headingMilliRad == 1571,
+            "with the position and heading"
+        );
+        check(p->pose.valid == 1u && p->pose.sigmaXyMm == 30, "valid, with its uncertainty");
+        check(p->ageMs == 50 && !p->stale, "aged from its arrival, fresh at 50 ms");
+    }
+    check(!s.poseSeen(100 + link::GONE_MS + 1).has_value(), "and gone past GONE_MS");
+}
+
+static Void testTrail()
+{
+    std::printf("\n-- trail: the world's points seen from the car --\n");
+    bibowire::Pose now;
+    now.xMm = 1000;
+    now.yMm = 2000;
+    now.headingMilliRad = 0;
+    bibowire::Pose behind;
+    behind.xMm = 1000;
+    behind.yMm = 1000;
+    trail::Point p = trail::inCarFrame(now, behind);
+    check(
+        std::fabs(p.x) < 1.0e-6f && std::fabs(p.y + 1.0f) < 1.0e-6f,
+        "a metre behind a car facing +Y is at car (0, -1)"
+    );
+    // The car has turned to face world -X (heading +pi/2). A point a metre
+    // further along -X is straight ahead of it.
+    now.headingMilliRad = 1571;
+    bibowire::Pose ahead;
+    ahead.xMm = 0;
+    ahead.yMm = 2000;
+    p = trail::inCarFrame(now, ahead);
+    check(
+        std::fabs(p.x) < 1.0e-3f && std::fabs(p.y - 1.0f) < 1.0e-3f,
+        "after a left turn to face -X, a point along -X is ahead, car +Y"
+    );
+    // And a point at world +Y of the car is now on its RIGHT.
+    bibowire::Pose side;
+    side.xMm = 1000;
+    side.yMm = 3000;
+    p = trail::inCarFrame(now, side);
+    check(
+        std::fabs(p.x - 1.0f) < 1.0e-3f && std::fabs(p.y) < 1.0e-3f,
+        "and a point at world +Y is on the car's right, +X"
+    );
+    trail::Trail t;
+    bibowire::Pose a;
+    check(t.add(a), "the first pose is kept");
+    a.xMm = 10;
+    check(!t.add(a), "one that moved under MIN_STEP_MM is not");
+    a.xMm = 40;
+    check(t.add(a) && t.points.size() == 2, "one that moved enough is");
+    check(
+        std::fabs(t.distanceMm - 40.0) < 1.0e-9,
+        "and the distance adds the step between kept points"
+    );
+    t.mark(a);
+    check(t.marks.size() == 1, "a mark is kept");
+    for(Int32 i = 0; i < static_cast<Int32>(trail::MAX_POINTS) + 10; ++i)
+    {
+        a.xMm += 100;
+        static_cast<Void>(t.add(a));
+    }
+    check(t.points.size() == trail::MAX_POINTS, "a full trail drops its oldest");
+    check(t.points.front().xMm > 40, "which was the start");
+    t.clear();
+    check(t.points.empty() && t.marks.empty() && t.distanceMm == 0.0, "clear empties everything");
+}
+
 static Void testCarMesh()
 {
     std::printf("\n-- the car model: OBJ text into the world frame --\n");
@@ -2471,6 +2570,8 @@ int main()
     testBundles();
     testTags();
     testOdom();
+    testPose();
+    testTrail();
     testCarMesh();
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

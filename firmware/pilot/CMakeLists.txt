@@ -32,7 +32,7 @@ add_library(
     pilotlib STATIC
     src/proto.cxx src/link.cxx src/reactive.cxx src/lidar.cxx src/bibowire.cxx src/viewfeed.cxx
     src/trimfile.cxx src/carrules.cxx src/car.cxx src/chain.cxx src/tags.cxx src/tagnet.cxx
-    src/npu.cxx
+    src/npu.cxx src/odom.cxx
 )
 target_include_directories(pilotlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${FWLIB})
 find_package(Threads REQUIRED)
@@ -113,7 +113,7 @@ target_link_libraries(pilot PRIVATE pilotlib)
 enable_testing()
 # test_viewfeed is not in tools\test.bat: its real half is Linux sockets, and on MSVC every
 # call refuses.
-foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car chain tags tagnet)
+foreach(t proto pilot reactive bibowire viewfeed trimfile carrules car chain tags tagnet odom)
     add_executable(test_${t} tests/test_${t}.cxx)
     target_link_libraries(test_${t} PRIVATE pilotlib)
     add_test(NAME ${t} COMMAND test_${t})

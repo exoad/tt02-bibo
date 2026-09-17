@@ -226,6 +226,7 @@ namespace viewfeed
         WHAT_BUNDLE_STATE,
         WHAT_TAGS,
         WHAT_ODOM,
+        WHAT_POSE,
     };
 
     struct Item
@@ -241,6 +242,7 @@ namespace viewfeed
         bibowire::BundleState bundleState;
         bibowire::Tags tags;
         bibowire::Odom odom;
+        bibowire::Pose pose;
         TimePoint at;
     };
 
@@ -3012,6 +3014,17 @@ namespace viewfeed
                 }
             }
             break;
+        case What::WHAT_POSE:
+            for(Client& c : clients)
+            {
+                if(wants(c, bibowire::Type::TYPE_POSE))
+                {
+                    emit(c, bibowire::Type::TYPE_POSE, [&item](UInt8* out, Size cap) {
+                        return bibowire::writePose(item.pose, out, cap);
+                    });
+                }
+            }
+            break;
         case What::WHAT_BUNDLE_STATE:
             lastBundleState = item.bundleState;
             haveBundleState = true;
@@ -3744,6 +3757,19 @@ namespace viewfeed
       post(std::move(item));
   }
 
+  Void publishPose(const bibowire::Pose& m)
+  {
+      if(!running)
+      {
+          return;
+      }
+      Item item;
+      item.what = What::WHAT_POSE;
+      item.pose = m;
+      item.at = monoNow();
+      post(std::move(item));
+  }
+
   Void wantCamera(Bool on, UInt16 fps)
   {
       sh.camLocalFps.store(fps);
@@ -4028,6 +4054,11 @@ namespace viewfeed
   }
 
   Void publishOdom(const bibowire::Odom& m)
+  {
+      static_cast<Void>(m);
+  }
+
+  Void publishPose(const bibowire::Pose& m)
   {
       static_cast<Void>(m);
   }

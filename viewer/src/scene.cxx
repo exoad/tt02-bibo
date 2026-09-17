@@ -423,6 +423,47 @@ namespace scene
       segment(dl, b, Vec3{ hw, hl - 0.09f, z1 }, nose, col);
   }
 
+  // The trail on the floor, dim where it is old and bright where it is new,
+  // and each mark a short pin with a head. Just above the floor so the grid
+  // does not draw through it.
+  constexpr Float32 TRAIL_Z = 0.004f;
+  constexpr Float32 MARK_HEIGHT = 0.14f;
+
+  static Void drawTrail(ImDrawList* dl, const Basis& b, const Scene& sc)
+  {
+      const Size n = sc.trail.size();
+      for(Size i = 1; i < n; ++i)
+      {
+          const Float32 u = static_cast<Float32>(i) / static_cast<Float32>(n);
+          const ImU32 col = rgbaOf(0.95f, 0.60f + (0.25f * u), 0.20f, 0.35f + (0.60f * u));
+          const Vec3 p0 = { sc.trail[i - 1].x, sc.trail[i - 1].y, TRAIL_Z };
+          const Vec3 p1 = { sc.trail[i].x, sc.trail[i].y, TRAIL_Z };
+          segment(dl, b, p0, p1, col);
+      }
+      if(n > 0)
+      {
+          // The newest point joins the car, which is the origin.
+          segment(
+              dl,
+              b,
+              Vec3{ sc.trail[n - 1].x, sc.trail[n - 1].y, TRAIL_Z },
+              Vec3{ 0.0f, 0.0f, TRAIL_Z },
+              IM_COL32(242, 216, 51, 240)
+          );
+      }
+      for(const trail::Point& m : sc.marks)
+      {
+          const Vec3 foot = { m.x, m.y, TRAIL_Z };
+          const Vec3 head = { m.x, m.y, MARK_HEIGHT };
+          segment(dl, b, foot, head, IM_COL32(255, 140, 60, 255));
+          const Projected top = project(b, head);
+          if(top.depth > NEAR_PLANE)
+          {
+              dl->AddCircleFilled(top.at, 4.0f, IM_COL32(255, 140, 60, 255));
+          }
+      }
+  }
+
   static Void drawPoints(ImDrawList* dl, const Basis& b, const Viewport& vp, const Scene& sc)
   {
       const Float32 r = sc.opt.pointSize * 0.5f;
@@ -484,6 +525,8 @@ namespace scene
       {
           drawAxes(dl, b);
       }
+      // Under the car: the trail ends at the origin and the car sits on it.
+      drawTrail(dl, b, sc);
       if(sc.opt.car)
       {
           if(sc.mesh != nullptr && sc.meshTexture != 0u && !sc.mesh->triangles.empty())

@@ -33,6 +33,7 @@
 #include "trim.hxx"
 #include "drive.hxx"
 #include "bundle.hxx"
+#include "odomview.hxx"
 #include "settings.hxx"
 #include "vlog.hxx"
 
@@ -814,11 +815,14 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     tagview::View tags;
     tagview::init(uiScale);
     tags.cam = &cam;
+    odomview::View odom;
+    odomview::init(uiScale);
     bundleview::View bundles;
     bundleview::init(uiScale);
     bundles.trim = &trim;
     bundles.drive = &drive;
     bundles.tags = &tags;
+    bundles.odom = &odom;
     bundles.open = true;
     // Last run's numbers into the panes before the first frame. Nothing is sent
     // to the car: the board keeps its own saved copy, and once connected it
@@ -918,6 +922,12 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         sc.steerWant = steerDec.has_value()
             ? static_cast<Float32>(steerDec->decide.steerMilli) / 1000.0f
             : 0.0f;
+        // The trail grows from every new pose, window or not, and reaches the
+        // scene in the car's frame.
+        odomview::update(odom, snap, nowMs);
+        odomview::Drawn reckoned = odomview::toScene(odom, snap, nowMs);
+        sc.trail = std::move(reckoned.trail);
+        sc.marks = std::move(reckoned.marks);
         handleCameraInput(sc.cam);
         // Into the BACKGROUND list, behind every ImGui window.
         const ImGuiViewport* area = ImGui::GetMainViewport();
@@ -931,6 +941,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         bundleview::drawWindow(bundles, net.client, snap, nowMs);
         // Before the camera, so its switch applies to this frame's picture.
         tagview::drawWindow(tags, snap, nowMs);
+        odomview::drawWindow(odom, snap, nowMs);
         camview::drawWindow(cam, net.client, snap, nowMs);
         // Before the sliders draw and before the settings check below.
         trimview::follow(trim, snap);
