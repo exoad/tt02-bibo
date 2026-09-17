@@ -336,6 +336,9 @@ namespace link
       bibowire::Pose pose;
       Int64 poseAtMs = 0;
       UInt32 poseFrames = 0;
+      // EVENT_CODE_ODOM_FRAME arrivals: the trail belongs to one frame, and
+      // a count that moved on tells its keeper to start over.
+      UInt32 odomFrameResets = 0;
 
       // The trim the board has saved: the Pico's lines joined by "; ", empty
       // when nothing is saved (EVENT_CODE_TRIM). boardTrimAtMs and

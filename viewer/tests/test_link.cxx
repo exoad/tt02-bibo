@@ -2295,6 +2295,16 @@ static Void testPose()
         check(p->ageMs == 50 && !p->stale, "aged from its arrival, fresh at 50 ms");
     }
     check(!s.poseSeen(100 + link::GONE_MS + 1).has_value(), "and gone past GONE_MS");
+    check(s.odomFrameResets == 0u, "no frame reset has been heard");
+    bytes.clear();
+    static_cast<Void>(pushEvent(
+        bytes,
+        "odometry: a new frame, from where the car stands",
+        0,
+        bibowire::EVENT_CODE_ODOM_FRAME
+    ));
+    static_cast<Void>(feed(s, bytes, 200));
+    check(s.odomFrameResets == 1u, "the frame event is counted, for the trail to start over");
 }
 
 static Void testTrail()

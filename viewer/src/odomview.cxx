@@ -32,6 +32,13 @@ namespace odomview
 
   Void update(View& v, const link::Snapshot& snap, Int64 nowMs)
   {
+      // The board says when its frame moved; the trail starts over then.
+      if(snap.state.odomFrameResets != v.resetsSeen)
+      {
+          v.resetsSeen = snap.state.odomFrameResets;
+          v.trail.clear();
+          v.lastPoseUs = 0;
+      }
       const Opt<link::PoseSeen> seen = snap.state.poseSeen(nowMs);
       if(!seen.has_value() || seen->pose.valid == 0u)
       {
@@ -41,8 +48,8 @@ namespace odomview
       {
           return;
       }
-      // A stamp that went backward is a new run on the board: a reload of the
-      // bundle, or a restart. The old trail belongs to the old frame.
+      // A stamp that went backward with no event heard is a restart of the
+      // board itself; the event above is the usual way. Belt and braces.
       if(seen->pose.tMonoUs < v.lastPoseUs)
       {
           v.trail.clear();

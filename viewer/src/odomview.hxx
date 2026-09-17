@@ -27,6 +27,7 @@ namespace odomview
       Bool showMarks = true;
       trail::Trail trail;
       UInt64 lastPoseUs = 0;   // the newest pose on the trail, by its stamp
+      UInt32 resetsSeen = 0;   // EVENT_CODE_ODOM_FRAME arrivals the trail has answered
       UInt32 posesSeen = 0;
   };
 

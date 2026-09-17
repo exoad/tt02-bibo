@@ -2734,6 +2734,10 @@ namespace link
               s.haveBundleNote = true;
               s.bundleNote = note;
           }
+          if(m.code == bibowire::EVENT_CODE_ODOM_FRAME)
+          {
+              ++s.odomFrameResets;
+          }
           s.notes.push_back(note);
           while(s.notes.size() > MAX_EVENTS)
           {

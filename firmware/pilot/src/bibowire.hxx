@@ -279,6 +279,12 @@ namespace bibowire
   // rather than leave a row quietly missing from the master window.
   constexpr UInt8 EVENT_CODE_BUNDLE = 66;   // 'B'
 
+  // The odometry frame moved: the bundle was loaded (a new frame where the
+  // car stands) or unloaded. Explicit, so a consumer of POSE - a viewer's
+  // trail, a lidar pose that fuses with it - is told rather than left to
+  // infer it from a stamp going backward.
+  constexpr UInt8 EVENT_CODE_ODOM_FRAME = 79;   // 'O'
+
   // The tuning bounds, mirrored from firmware/lib/chassis/chassis.hxx
   // (SLEW_MIN_STEP, SLEW_MAX_STEP and the hard servo and ESC clamps) so a
   // viewer can refuse an impossible number at the slider. The Pico re-clamps

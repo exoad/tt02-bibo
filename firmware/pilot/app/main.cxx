@@ -386,7 +386,13 @@ namespace
       }
       odomOn = want;
       odomState = odom::State();
-      std::printf(want ? "odometry: a new frame, from here\n" : "odometry: stopped\n");
+      const CharSeq said = want ? "odometry: a new frame, from where the car stands" : "odometry: stopped";
+      std::printf("%s\n", said);
+      viewfeed::publishEvent(
+          bibowire::Severity::SEVERITY_INFO,
+          bibowire::EVENT_CODE_ODOM_FRAME,
+          said
+      );
   }
 
   // The apriltag bundle's working half is a thread (tags.hxx); its behaviour
