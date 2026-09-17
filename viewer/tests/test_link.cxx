@@ -26,6 +26,8 @@
 #include "jpeg.hxx"
 #include "carmesh.hxx"
 #include "trail.hxx"
+#include "motion.hxx"
+#include "odom.hxx"
 #include "orient.hxx"
 #include "trim.hxx"
 #include "drive.hxx"
@@ -2354,6 +2356,47 @@ static Void testTrail()
     check(t.points.empty() && t.marks.empty() && t.distanceMm == 0.0, "clear empties everything");
 }
 
+static Void testMotion()
+{
+    std::printf("\n-- motion: moving, which way, how fast, how far, from ODOM alone --\n");
+    motion::State m;
+    checkStr(motion::describe(m), "--", "nothing known before a frame");
+    bibowire::Odom f;
+    f.ticks = 1000;
+    f.ticksPerS = 0;
+    f.seq = 1;
+    motion::feed(m, f);
+    check(m.have && !m.moving && m.dir == 0, "a first frame at rest: known, stopped");
+    checkStr(motion::describe(m), "stopped", "and says so");
+    check(m.travelM == 0.0, "the first frame is where the count starts, no distance");
+    f.ticks = 1064;
+    f.ticksPerS = 430;
+    f.seq = 2;
+    motion::feed(m, f);
+    check(m.moving && m.dir == 1, "ticks a second forward is moving forward");
+    check(
+        std::fabs(m.speedMps - (430.0f * odom::MM_PER_TICK / 1000.0f)) < 1.0e-6f,
+        "at the tick's length a second"
+    );
+    check(std::fabs(m.travelM - 0.2073) < 0.001, "and one wheel turn is 0.207 m gone");
+    checkStr(motion::describe(m), "forward 1.39 m/s", "in whole centimetres a second");
+    motion::feed(m, f);
+    check(std::fabs(m.travelM - 0.2073) < 0.001, "the same frame again adds nothing");
+    f.ticks = 1000;
+    f.ticksPerS = -50;
+    f.seq = 3;
+    motion::feed(m, f);
+    check(
+        m.dir == -1 && std::fabs(m.travelM) < 0.001,
+        "reverse is negative, and going back takes the distance back"
+    );
+    checkStr(motion::describe(m), "reverse 0.16 m/s", "reverse is named");
+    motion::lost(m);
+    check(!m.have && !m.moving && m.dir == 0, "a lost feed knows nothing");
+    check(std::fabs(m.travelM) < 0.001, "but keeps the distance for when it returns");
+    checkStr(motion::describe(m), "--", "and says nothing");
+}
+
 static Void testCarMesh()
 {
     std::printf("\n-- the car model: OBJ text into the world frame --\n");
@@ -2572,6 +2615,7 @@ int main()
     testOdom();
     testPose();
     testTrail();
+    testMotion();
     testCarMesh();
     std::printf("\n%d checks, %d failed\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

@@ -192,18 +192,28 @@ namespace scene
       cam.dist = std::min(std::max(cam.dist, DIST_MIN), DIST_MAX);
   }
 
-  static Void drawGrid(ImDrawList* dl, const Basis& b)
+  // `slide` is how far the car has gone, metres: the cross lines move back
+  // under it as it drives, so the floor is seen to pass. Only along the
+  // car's axis - the grid is a cue for distance, not a map, and does not
+  // turn with the steering. The lines along the axis stay, and the major
+  // line stays the car's own.
+  static Void drawGrid(ImDrawList* dl, const Basis& b, Float32 slide)
   {
       const ImU32 minor = IM_COL32(64, 70, 80, 255);
       const ImU32 major = IM_COL32(104, 112, 126, 255);
       const Float32 e = static_cast<Float32>(GRID_HALF);
+      const Float32 frac = slide - std::floor(slide);
       for(Int32 i = -GRID_HALF; i <= GRID_HALF; ++i)
       {
           const Float32 v = static_cast<Float32>(i);
-          const ImU32 col = (i == 0) ? major : minor;
-          segment(dl, b, Vec3{ v, -e, 0.0f }, Vec3{ v, e, 0.0f }, col);
-          segment(dl, b, Vec3{ -e, v, 0.0f }, Vec3{ e, v, 0.0f }, col);
+          segment(dl, b, Vec3{ v, -e, 0.0f }, Vec3{ v, e, 0.0f }, (i == 0) ? major : minor);
+          const Float32 y = v - frac;
+          if(y >= -e && y <= e)
+          {
+              segment(dl, b, Vec3{ -e, y, 0.0f }, Vec3{ e, y, 0.0f }, minor);
+          }
       }
+      segment(dl, b, Vec3{ -e, 0.0f, 0.0f }, Vec3{ e, 0.0f, 0.0f }, major);
   }
 
   static Void drawAxes(ImDrawList* dl, const Basis& b)
@@ -247,6 +257,47 @@ namespace scene
       if(sc.haveSteerNow)
       {
           drawArrow(dl, b, sc.steerNow, IM_COL32(120, 210, 255, 255));
+      }
+  }
+
+  // Where the car will be in a second at this speed, along the steered
+  // direction: a thick green arrow ahead, red behind when reversing, drawn
+  // only while the encoder says it is moving. Its length is the speed, so
+  // a crawl is a stub and a run reaches across the floor; the number is
+  // written over the roof for the cases in between.
+  constexpr Float32 MOTION_MIN_LEN = 0.12f;
+  constexpr Float32 MOTION_MAX_LEN = 4.0f;
+
+  static Void drawMotion(ImDrawList* dl, const Basis& b, const Scene& sc)
+  {
+      if(!sc.haveMotion)
+      {
+          return;
+      }
+      const Projected label = project(b, Vec3{ 0.0f, 0.0f, CAR_ROOF + 0.12f });
+      if(label.depth > NEAR_PLANE && !sc.speedText.empty())
+      {
+          const ImVec2 size = ImGui::CalcTextSize(sc.speedText.c_str());
+          const ImVec2 at = { label.at.x - (0.5f * size.x), label.at.y - size.y };
+          dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), sc.speedText.c_str());
+          dl->AddText(at, sc.moving ? IM_COL32(240, 240, 240, 255) : IM_COL32(170, 170, 170, 255), sc.speedText.c_str());
+      }
+      if(!sc.moving || sc.motionDir == 0)
+      {
+          return;
+      }
+      const Float32 len = std::clamp(sc.speedMps, MOTION_MIN_LEN, MOTION_MAX_LEN);
+      const Vec3 d = headingDir(sc.haveSteerNow ? sc.steerNow : 0.0f);
+      const Float32 sign = sc.motionDir < 0 ? -1.0f : 1.0f;
+      const Vec3 from = { 0.0f, sign * CAR_HALF_LENGTH, CAR_FLOOR + 0.01f };
+      const Vec3 tip = { from.x + (sign * len * d.x), from.y + (sign * len * d.y), from.z };
+      const ImU32 col = sc.motionDir < 0 ? IM_COL32(240, 80, 80, 230) : IM_COL32(90, 230, 110, 230);
+      const Projected p0 = project(b, from);
+      const Projected p1 = project(b, tip);
+      if(p0.depth > NEAR_PLANE && p1.depth > NEAR_PLANE)
+      {
+          dl->AddLine(p0.at, p1.at, col, 3.0f);
+          dl->AddCircleFilled(p1.at, 5.0f, col);
       }
   }
 
@@ -519,7 +570,7 @@ namespace scene
       // draws over it, which is accepted rather than sorted.
       if(sc.opt.grid)
       {
-          drawGrid(dl, b);
+          drawGrid(dl, b, (sc.opt.motion && sc.haveMotion) ? sc.travelM : 0.0f);
       }
       if(sc.opt.axes)
       {
@@ -543,6 +594,10 @@ namespace scene
       if(sc.opt.heading)
       {
           drawHeading(dl, b, sc);
+      }
+      if(sc.opt.motion)
+      {
+          drawMotion(dl, b, sc);
       }
       if(sc.opt.points)
       {

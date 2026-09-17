@@ -57,6 +57,11 @@ namespace scene
       // On by default, unlike the camera overlays, because it draws only when
       // the board has reported where the wheels are.
       Bool heading = true;
+
+      // The movement cues from the wheel encoder: the grid slides under the
+      // car by the distance gone, a green or red arrow shows where the car
+      // will be in a second, and its speed is written over the roof.
+      Bool motion = true;
       Float32 pointSize = 4.0f;
       PointColor coloring = PointColor::POINT_COLOR_DISTANCE;
   };
@@ -103,6 +108,15 @@ namespace scene
       // frame (trail.hxx), oldest first; empty when nothing is reckoned.
       Vec<trail::Point> trail;
       Vec<trail::Point> marks;
+
+      // Movement from ODOM (motion.hxx), with no bundle needed. `haveMotion`
+      // false draws none of it: an absent encoder claims nothing.
+      Bool haveMotion = false;
+      Bool moving = false;
+      Int32 motionDir = 0;         // +1 forward, -1 reverse
+      Float32 speedMps = 0.0f;
+      Float32 travelM = 0.0f;      // signed, for the grid's slide
+      Str speedText;               // what the label over the roof says
   };
 
   // Where on screen the view lives, in ImGui's pixel coordinates.

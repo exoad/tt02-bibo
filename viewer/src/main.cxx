@@ -34,6 +34,7 @@
 #include "drive.hxx"
 #include "bundle.hxx"
 #include "odomview.hxx"
+#include "motion.hxx"
 #include "settings.hxx"
 #include "vlog.hxx"
 
@@ -462,6 +463,13 @@ static Void drawViewWindow(scene::Scene& sc, camview::View& cam, trimview::View&
     {
         ImGui::SetTooltip("solid: where the wheels are - ghost: where asked");
     }
+    ImGui::Checkbox("motion", &sc.opt.motion);
+    if(ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("from the wheel encoder: the floor slides, the arrow is a second ahead");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", sc.speedText.empty() ? "--" : sc.speedText.c_str());
     ImGui::Separator();
     // Not a view option: this box and the Camera window's X set the same flag,
     // which opens the window AND subscribes.
@@ -817,6 +825,7 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
     tags.cam = &cam;
     odomview::View odom;
     odomview::init(uiScale);
+    motion::State moving;
     bundleview::View bundles;
     bundleview::init(uiScale);
     bundles.trim = &trim;
@@ -922,6 +931,24 @@ Int32 APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, Int32)
         sc.steerWant = steerDec.has_value()
             ? static_cast<Float32>(steerDec->decide.steerMilli) / 1000.0f
             : 0.0f;
+        // Movement from the encoder, bundle or not.
+        {
+            const Opt<link::Odometry> od = snap.state.odometry(nowMs);
+            if(od.has_value())
+            {
+                motion::feed(moving, od->odom);
+            }
+            else
+            {
+                motion::lost(moving);
+            }
+            sc.haveMotion = moving.have;
+            sc.moving = moving.moving;
+            sc.motionDir = moving.dir;
+            sc.speedMps = moving.speedMps;
+            sc.travelM = static_cast<Float32>(moving.travelM);
+            sc.speedText = moving.have ? motion::describe(moving) : Str();
+        }
         // The trail grows from every new pose, window or not, and reaches the
         // scene in the car's frame.
         odomview::update(odom, snap, nowMs);

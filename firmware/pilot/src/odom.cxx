@@ -13,7 +13,7 @@ namespace odom
   Config defaults()
   {
       Config c;
-      c.mmPerTick = (WHEEL_DIAMETER_MM * static_cast<Float32>(PI)) / static_cast<Float32>(TICKS_PER_WHEEL_TURN);
+      c.mmPerTick = MM_PER_TICK;
       c.wheelbaseMm = WHEELBASE_MM;
       c.steerLockRad = STEER_LOCK_RAD;
       return c;

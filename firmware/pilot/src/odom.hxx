@@ -36,6 +36,10 @@ namespace odom
   constexpr Float32 WHEELBASE_MM = 257.0f;
   constexpr Float32 STEER_LOCK_RAD = 0.49f;
 
+  // The tick as a distance, from the two above; the viewer reads it too, so a
+  // speed and a trail agree on what a tick is.
+  constexpr Float32 MM_PER_TICK = (WHEEL_DIAMETER_MM * 3.14159265f) / static_cast<Float32>(TICKS_PER_WHEEL_TURN);
+
   // How the sigmas grow: a share of the distance for position, and radians
   // per metre for the heading. Guesses shaped like the truth: a scale error
   // is proportional, and a heading error comes from the lock guess, per turn.
