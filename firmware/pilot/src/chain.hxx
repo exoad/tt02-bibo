@@ -49,6 +49,7 @@ namespace chain
   // The behaviours this build ships with. Reverse-DNS and stable: a viewer keys
   // a window's saved position on the id, so it outlives a rename of the name.
   constexpr CharSeq ID_APRILTAG = "net.exoad.tt02bibo.apriltag";
+  constexpr CharSeq ID_CREEP = "net.exoad.tt02bibo.creep";
   constexpr CharSeq ID_FOLLOW = "net.exoad.tt02bibo.follow";
   constexpr CharSeq ID_ODOMETRY = "net.exoad.tt02bibo.odometry";
   constexpr CharSeq ID_WASD = "net.exoad.tt02bibo.wasd";
@@ -78,6 +79,12 @@ namespace chain
   constexpr Float32 FOLLOW_GO_AT_M = 0.80f;
   constexpr Float32 FOLLOW_FULL_LOCK_DEG = 30.0f;
   constexpr Int32 TAGS_FRESH_MS = 500;
+
+  // creep: straight ahead at this while any tag is in the newest frame,
+  // an active zero the frame it is not. No range needed, so no
+  // calibration; the freshness band above still applies when the
+  // detector itself goes quiet.
+  constexpr Float32 TAG_CREEP_THROTTLE = 0.12f;
 
   // What a behaviour is allowed to say. Three shapes, so that what a clamp
   // cannot do is checked by the compiler rather than by the host.
@@ -239,6 +246,12 @@ namespace chain
   // detector thread (tags.hxx) and unloading it stops it, done by the host
   // that sees the chain change, so a camera and a thread stay out of here.
   [[nodiscard]] UniqPtr<Behaviour> makeApriltag();
+
+  // creep PROPOSES: TAG_CREEP_THROTTLE straight ahead while the newest detection
+  // holds a tag, an active zero otherwise - the frame after the tag goes,
+  // since every frame is a statement and one with nothing in it says stop.
+  // The host runs the detector whenever it is loaded, as for follow.
+  [[nodiscard]] UniqPtr<Behaviour> makeCreep();
 
   // follow PROPOSES: steering toward the nearest tag and a creep up to it,
   // an active zero when the tag is lost or the camera is uncalibrated (no

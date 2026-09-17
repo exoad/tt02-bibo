@@ -403,6 +403,45 @@ namespace chain
 
   namespace
   {
+    class Creep final : public Behaviour
+    {
+    public:
+        CharSeq id() const override
+        {
+            return ID_CREEP;
+        }
+
+        CharSeq name() const override
+        {
+            return "creep";
+        }
+
+        Bool mayDrive() const override
+        {
+            return true;
+        }
+
+        Reply step(const Pass& p) override
+        {
+            // Nothing seen, or nothing fresh: an ACTIVE zero, wheels straight,
+            // so losing the tag stops the car rather than handing the throttle
+            // to whatever else is loaded.
+            if(p.tags == nullptr || p.tagsAgeMs > TAGS_FRESH_MS || p.tags->tags.empty())
+            {
+                return propose(0.0f, 0.0f);
+            }
+            return propose(TAG_CREEP_THROTTLE, 0.0f);
+        }
+    };
+  }
+
+  UniqPtr<Behaviour> makeCreep()
+  {
+      return makeUniq<Creep>();
+  }
+
+  namespace
+  {
     // The nearest tag by range, or the first when no range is known.
     [[nodiscard]] const bibowire::Tag* nearest(const bibowire::Tags& t)
     {
@@ -549,6 +588,13 @@ namespace chain
             "find tag36h11 AprilTags in the camera and show them in the viewer",
             bibowire::BUNDLE_NEEDS_CAMERA,
             false },
+          // Straight ahead while a tag is in view, stopped the frame it is
+          // not: the simplest camera driver, and the one to try first.
+          { ID_CREEP,
+            "creep",
+            "creep straight ahead while an AprilTag is in view, stop the instant it is not",
+            bibowire::BUNDLE_NEEDS_CAMERA | bibowire::BUNDLE_NEEDS_PICO,
+            true },
           // The first camera driver. The host runs the detector for it.
           { ID_FOLLOW,
             "follow",
@@ -620,6 +666,10 @@ namespace chain
       if(sameId(wanted, ID_APRILTAG))
       {
           return makeApriltag();
+      }
+      if(sameId(wanted, ID_CREEP))
+      {
+          return makeCreep();
       }
       if(sameId(wanted, ID_FOLLOW))
       {

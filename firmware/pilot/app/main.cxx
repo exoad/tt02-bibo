@@ -415,7 +415,8 @@ namespace
           );
       }
       followWas = follow;
-      const Bool want = live.has(chain::ID_APRILTAG) || follow;
+      // creep drives on the detections too.
+      const Bool want = live.has(chain::ID_APRILTAG) || follow || live.has(chain::ID_CREEP);
       if(want == was)
       {
           return;

@@ -459,6 +459,55 @@ Int32 main()
         p.dtMs = 100;
         check(c.run(p).throttle == 0.0f, "and so does having no scan at all");
     }
+    std::printf("\n-- creep: ahead while a tag is in view, stopped the frame it is not --\n");
+    {
+        chain::Chain c;
+        static_cast<Void>(add(c, chain::makeCreep()));
+        const bibo::Scan room = ring(3.0f);
+        chain::Pass none = over(room);
+        chain::Outcome o = c.run(none);
+        check(
+            o.drive && o.throttle == 0.0f && o.steer == 0.0f,
+            "no detection: an ACTIVE stop, wheels straight"
+        );
+        bibowire::Tags seen;
+        bibowire::Tag tag;
+        tag.id = 5;
+        tag.bearingCdeg = 2500;
+        seen.tags.push_back(tag);
+        chain::Pass p = over(room);
+        p.tags = &seen;
+        p.tagsAgeMs = 100;
+        o = c.run(p);
+        check(
+            approx(o.throttle, chain::TAG_CREEP_THROTTLE) && o.steer == 0.0f,
+            "a tag in view, uncalibrated, off to one side: creep straight ahead"
+        );
+        seen.tags.clear();
+        o = c.run(p);
+        check(
+            o.drive && o.throttle == 0.0f,
+            "the next frame with nothing in it is a stop, no hysteresis"
+        );
+        seen.tags.push_back(tag);
+        check(
+            approx(c.run(p).throttle, chain::TAG_CREEP_THROTTLE),
+            "and it goes again the frame the tag is back"
+        );
+        p.tagsAgeMs = chain::TAGS_FRESH_MS + 1;
+        check(c.run(p).throttle == 0.0f, "a stale detection is no detection");
+        // stop, loaded beside it, still wins with a wall in front.
+        static_cast<Void>(add(c, chain::makeStop()));
+        p.tagsAgeMs = 100;
+        const bibo::Scan wall = ring(0.30f);
+        chain::Pass blocked = over(wall);
+        blocked.tags = &seen;
+        blocked.tagsAgeMs = 100;
+        check(
+            c.run(blocked).throttle == 0.0f,
+            "a wall in front clamps creep to zero whatever the tag says"
+        );
+    }
     std::printf("\n-- follow: the first driver that looks through the camera --\n");
     {
         chain::Chain c;
