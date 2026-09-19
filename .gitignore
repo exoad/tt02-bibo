@@ -75,3 +75,7 @@ tools/npu/samples/
 tools/npu/eval/
 # The car model for the 3D view: the operator's download, dropped in by hand (viewer/README.md).
 viewer/assets/
+
+# Docs, READMEs and agent notes: local only, never published.
+/private/
+AGENTS.md
